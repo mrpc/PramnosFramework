@@ -1781,6 +1781,60 @@ abstract class MakeCommandBase extends Command
      * @param  array<string,mixed> $foreignKey `{column, references, on, …}`
      * @return array{endpoint: string, valueKey: string, labelKey: string}
      */
+    /**
+     * The timestamp settings a generated `OrmModel` needs for this table.
+     *
+     * `OrmModel` manages `created_at` / `updated_at` on every save, and it does so by
+     * assigning the property — so on a table without those columns it would create a
+     * dynamic property (deprecated since PHP 8.2) and then try to write a column that
+     * does not exist. The generator knows the column list, so it says which of the two
+     * are really there instead of leaving the model to find out at the first insert.
+     *
+     * @param  list<string> $columns Every column the table has
+     * @return string A property block for the model body, or ''
+     */
+    public static function ormOptionsFor(array $columns): string
+    {
+        $columns = array_map('strtolower', $columns);
+        $created = in_array('created_at', $columns, true);
+        $updated = in_array('updated_at', $columns, true);
+
+        if ($created && $updated) {
+            return '';
+        }
+
+        if (!$created && !$updated) {
+            return "    /** This table has neither timestamp column. */\n"
+                . "    protected bool \$timestamps = false;\n\n";
+        }
+
+        $lines = "    /** Only one of the two timestamp columns exists on this table. */\n";
+        if (!$created) {
+            $lines .= "    protected string \$createdAtColumn = '';\n";
+        }
+        if (!$updated) {
+            $lines .= "    protected string \$updatedAtColumn = '';\n";
+        }
+
+        return $lines . "\n";
+    }
+
+    /**
+     * Is this column the one that says which tenant a row belongs to?
+     *
+     * Matched by name, because that is what is available at the point the generator
+     * writes an assignment — it has the column list, not the constraint list — and
+     * because the name is the convention every part of this framework's multi-tenancy
+     * already uses: `organizations`, `organization_id`.
+     *
+     * Deliberately narrow. A false positive emits a `throw` somebody deletes in ten
+     * seconds; a false negative is a cross-tenant write nobody sees.
+     */
+    public static function isTenantColumn(string $column): bool
+    {
+        return in_array(strtolower($column), ['organization_id', 'organizationid'], true);
+    }
+
     protected function spaForeignKeyTarget(array $foreignKey): array
     {
         $table  = preg_replace('/^#PREFIX#/', '', (string) $foreignKey['on']);
@@ -2393,6 +2447,7 @@ abstract class MakeCommandBase extends Command
         $block = "\nRegistry::register('" . $name . "', \\" . ltrim($modelClass, '\\') . "::class, [\n"
             . "    'display' => " . $display . "\n"
             . "    'url'     => '/" . strtolower($name) . "/edit/:id',\n"
+            . $this->searchTenantFilter($name)
             . "]);\n";
 
         file_put_contents($file, $block, FILE_APPEND);
@@ -2429,8 +2484,14 @@ abstract class MakeCommandBase extends Command
     protected function searchDisplayColumns(string $name): array
     {
         try {
-            $table   = $this->dbtable ?: '#PREFIX#' . strtolower($name) . 's';
-            $columns = $this->introspectTableAsWizardColumns($table);
+            $table = $this->dbtable ?: '#PREFIX#' . strtolower($name) . 's';
+            // `introspectTableAsWizardColumns()` answers `[$columns, $foreignKeys]`.
+            // Assigning the pair to `$columns` made the loop below walk two *lists*,
+            // neither of which has a `type`, so nothing was ever textual and every
+            // generated source fell back to `['name']` — a column most tables do not
+            // have. The omnibox was then registered against something that does not
+            // exist, which is a search box that finds nothing and says nothing.
+            [$columns] = $this->introspectTableAsWizardColumns($table);
         } catch (\Throwable) {
             // No database, no table yet, no schema — all ordinary at generation time.
             return [];
@@ -2444,6 +2505,54 @@ abstract class MakeCommandBase extends Command
         }
 
         return array_slice($textual, 0, 2);
+    }
+
+    /**
+     * A `filter` entry scoping the search to the viewer's own organisation.
+     *
+     * A search box is the one screen that reaches every table at once, so a source
+     * registered without a scope is a cross-tenant read by default — and one nobody
+     * notices, because the results look like results. The registry supports exactly
+     * this: a callable receiving the current user and returning a WHERE body.
+     *
+     * Emitted only when the table has a tenant column, and left for the project to
+     * confirm: the framework cannot know how this application resolves the current
+     * organisation, so the generated closure says where the answer goes.
+     *
+     * @param  string $name Entity name, as passed to `create:crud`
+     * @return string Lines for the registration block, or ''
+     */
+    protected function searchTenantFilter(string $name): string
+    {
+        try {
+            $table = $this->dbtable ?: '#PREFIX#' . strtolower($name) . 's';
+            [$columns] = $this->introspectTableAsWizardColumns($table);
+        } catch (\Throwable) {
+            return '';
+        }
+
+        $tenant = '';
+        foreach ($columns as $column) {
+            if (self::isTenantColumn((string) ($column['name'] ?? ''))) {
+                $tenant = (string) $column['name'];
+                break;
+            }
+        }
+
+        if ($tenant === '') {
+            return '';
+        }
+
+        return "    // This table is scoped to an organisation, and a search box reaches every\n"
+            . "    // table at once — without this the box spans tenants by default.\n"
+            . "    'filter'  => static function (\$user) {\n"
+            . "        \$organizationId = (int) (\$user->organization_id ?? 0);\n"
+            . "\n"
+            . "        // No organisation means no rows, rather than all of them.\n"
+            . "        return \$organizationId > 0\n"
+            . "            ? '`" . $tenant . "` = ' . \$organizationId\n"
+            . "            : '1 = 0';\n"
+            . "    },\n";
     }
 
     /**
@@ -2781,6 +2890,36 @@ abstract class MakeCommandBase extends Command
 
             while ($result->fetch()) {
                 $primary = false;
+
+                /*
+                 * The tenant column is never taken from the request.
+                 *
+                 * `$model->organization_id = Request::staticGet('organization_id', …)`
+                 * is a cross-tenant write with a straight face: whatever the caller
+                 * sends is what the row is filed under, so any authenticated user can
+                 * create a record inside somebody else's organisation. This scaffold is
+                 * multi-tenant by default — `init` enables `authserver` — so the
+                 * generated controller was wrong for the shape of project that generated
+                 * it.
+                 *
+                 * Skipped rather than guessed at: the framework cannot know how this
+                 * application resolves the current tenant, and a plausible guess would
+                 * be worse than an obvious gap. What is emitted instead is a line that
+                 * fails loudly until somebody writes the answer.
+                 */
+                if (self::isTenantColumn((string) $result->fields['Field'])) {
+                    $postContent .= '        // The tenant comes from who is asking, never from the request.'
+                        . "\n"
+                        . '        // Override ApiCrudController::currentOrganizationId() if this'
+                        . "\n"
+                        . '        // application decides it some other way.' . "\n"
+                        . '        $model->' . $result->fields['Field']
+                        . ' = $this->currentOrganizationId();' . "\n";
+                    // Nothing on the update path: an existing row keeps the tenant it was
+                    // created under, and a PUT that could move it is the same hole.
+                    continue;
+                }
+
                 if ($database->type == 'postgresql') {
                     if (self::isTruthyFlag($result->fields['PrimaryKey'] ?? null)) {
                         $primaryKey = $result->fields['Field'];
@@ -2856,13 +2995,17 @@ abstract class MakeCommandBase extends Command
                         if (!$primary) {
                             if ($result->fields['Null'] == 'YES') {
                                 $saveContent .= '     * @apiBody {JSON} [' . $result->fields['Field'] . '] ' . $result->fields['Comment'] . "\n";
-                                $postContent .= '        $model->' . $result->fields['Field'] . ' = trim(\Pramnos\Http\Request::staticGet(\'' . $result->fields['Field'] .'\', null, \'post\'));' . "\n";
+                                // Same reason as the string branch: `trim(null)` is
+                                // deprecated, and a nullable column keeps its null.
+                                $postContent .= '        $value = \Pramnos\Http\Request::staticGet(\'' . $result->fields['Field'] . '\', null, \'post\');' . "\n";
+                                $postContent .= '        $model->' . $result->fields['Field'] . ' = $value === null ? null : trim((string) $value);' . "\n";
                             } else {
                                 $saveContent .= '     * @apiBody {JSON} ' . $result->fields['Field'] . ' ' . $result->fields['Comment'] . "\n";
-                                $postContent .= '        $model->' . $result->fields['Field'] . ' = trim(\Pramnos\Http\Request::staticGet(\'' . $result->fields['Field'] .'\', \'\', \'post\'));' . "\n";
+                                $postContent .= '        $model->' . $result->fields['Field'] . ' = trim((string) \Pramnos\Http\Request::staticGet(\'' . $result->fields['Field'] .'\', \'\', \'post\'));' . "\n";
                             }
                             $updateContent .= '     * @apiBody {JSON} [' . $result->fields['Field'] . '] ' . $result->fields['Comment'] . "\n";
-                            $putContent .= '        $model->' . $result->fields['Field'] . ' = trim(\Pramnos\Http\Request::staticGet(\'' . $result->fields['Field'] .'\', $model->' . $result->fields['Field'] . ', \'put\'));' . "\n";
+                            $putContent .= '        $value = \Pramnos\Http\Request::staticGet(\'' . $result->fields['Field'] . '\', $model->' . $result->fields['Field'] . ', \'put\');' . "\n";
+                            $putContent .= '        $model->' . $result->fields['Field'] . ' = $value === null ? null : trim((string) $value);' . "\n";
                         }
                         break;
                     default:
@@ -2870,13 +3013,18 @@ abstract class MakeCommandBase extends Command
                         if (!$primary) {
                             if ($result->fields['Null'] == 'YES') {
                                 $saveContent .= '     * @apiBody {String} [' . $result->fields['Field'] . '] ' . $result->fields['Comment'] . "\n";
-                                $postContent .= '        $model->' . $result->fields['Field'] . ' = trim(strip_tags(\Pramnos\Http\Request::staticGet(\'' . $result->fields['Field'] .'\', null, \'post\')));' . "\n";
+                                // A nullable column keeps its null. `strip_tags(null)` is
+                                // deprecated in PHP 8.1 and an error under a strict handler,
+                                // and "" is not the same value as NULL to a database.
+                                $postContent .= '        $value = \Pramnos\Http\Request::staticGet(\'' . $result->fields['Field'] . '\', null, \'post\');' . "\n";
+                                $postContent .= '        $model->' . $result->fields['Field'] . ' = $value === null ? null : trim(strip_tags((string) $value));' . "\n";
                             } else {
                                 $saveContent .= '     * @apiBody {String} ' . $result->fields['Field'] . ' ' . $result->fields['Comment'] . "\n";
-                                $postContent .= '        $model->' . $result->fields['Field'] . ' = trim(strip_tags(\Pramnos\Http\Request::staticGet(\'' . $result->fields['Field'] .'\', \'\', \'post\')));' . "\n";
+                                $postContent .= '        $model->' . $result->fields['Field'] . ' = trim(strip_tags((string) \Pramnos\Http\Request::staticGet(\'' . $result->fields['Field'] .'\', \'\', \'post\')));' . "\n";
                             }
                             $updateContent .= '     * @apiBody {String} [' . $result->fields['Field'] . '] ' . $result->fields['Comment'] . "\n";
-                            $putContent .= '        $model->' . $result->fields['Field'] . ' = trim(strip_tags(\Pramnos\Http\Request::staticGet(\'' . $result->fields['Field'] .'\', $model->' . $result->fields['Field'] . ', \'put\')));' . "\n";
+                            $putContent .= '        $value = \Pramnos\Http\Request::staticGet(\'' . $result->fields['Field'] . '\', $model->' . $result->fields['Field'] . ', \'put\');' . "\n";
+                            $putContent .= '        $model->' . $result->fields['Field'] . ' = $value === null ? null : trim(strip_tags((string) $value));' . "\n";
                         }
                         break;
                 }
@@ -3391,7 +3539,10 @@ $routeTokens = [
             } elseif ($colType === 'boolean') {
                 $saveContent .= "        \$model->{$colName} = (bool) \$request->get('{$colName}', '', 'post');\n";
             } else {
-                $saveContent .= "        \$model->{$colName} = trim(strip_tags(\$request->get('{$colName}', '', 'post')));\n";
+                // Cast for the same reason as the API path: a request value is not
+                // guaranteed to be a string, and both functions have been deprecated for
+                // a null argument since PHP 8.1.
+                $saveContent .= "        \$model->{$colName} = trim(strip_tags((string) \$request->get('{$colName}', '', 'post')));\n";
             }
 
             if (isset($fkByColumn[$colName])) {
@@ -3968,6 +4119,7 @@ PHP;
             'className'     => $className,
             'date'          => $date,
             'props'         => $props,
+            'ormOptions'    => self::ormOptionsFor($allFields),
             'schemaBlock'   => $schemaBlock,
             'primaryKey'    => $primaryKey,
             'tableName'     => $tableName,

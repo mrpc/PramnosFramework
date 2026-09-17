@@ -526,9 +526,12 @@ class MakeCommandGeneratorsTest extends TestCase
                 'Generated introspection model must be valid PHP'
             );
 
-            // Assert — extends the framework Model base, like the wizard path.
+            // Assert — extends the framework ORM base, like the wizard path. `OrmModel`
+            // extends `Model`, so nothing a generated model could already do stops
+            // working; what it adds is that a global scope registered on it is actually
+            // applied, which on the legacy base was accepted and silently ignored.
             $this->assertStringContainsString(
-                'extends \Pramnos\Application\Model',
+                'extends \Pramnos\Application\OrmModel',
                 $content
             );
 

@@ -728,6 +728,22 @@ php bin/pramnos create:policy MyPolicy       # an authorization policy skeleton
 php bin/pramnos create:test MySubject        # a PHPUnit test class
 ```
 
+#### What `create:command` writes
+
+```bash
+php bin/pramnos create:command CollectChannels
+```
+
+| Thing | Value | How it is decided |
+|---|---|---|
+| File | `src/ConsoleCommands/CollectChannels.php` | **Discovered**: `src/ConsoleCommands/` when the project has it (what `init` writes), `src/Console/Commands/` when that is what it has instead |
+| CLI name | `channels:collect` | `noun:verb`, from the class name — the first PascalCase word is the verb. One word keeps `app:`. Override with `--command-name=feeds:pull` |
+| Registration | appended to `src/Console.php` | On the `// Register your custom commands here:` line `init` writes, idempotently |
+| Test | `tests/Unit/CollectChannelsCommandTest.php` | Asserts the command answers to its name and runs — a command's name is its whole public surface, and its first failure mode is a fatal before it prints anything |
+
+A project that has restructured its console gets the registration *reported* rather than
+forced: the command says where the line could not be added, and what the line is.
+
 ### The controllers `init` writes, and the test that names them
 
 Controllers land in two directories, and the split is by audience:

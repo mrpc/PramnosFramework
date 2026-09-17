@@ -55,69 +55,97 @@ class User extends Model
 
 ## CRUD Operations
 
+!!! warning "There is no static query API"
+    `User::find(42)`, `User::where(…)`, `User::all()` and `User::create([...])` do **not**
+    exist. `OrmModel` declares no `__callStatic` and none of its traits add one, so a method
+    written from an Eloquent-shaped example dies with
+    `Error: Call to undefined method App\Models\User::where()` — at runtime, in whatever
+    path first reaches it.
+
+    This page used to show exactly that. What follows is the surface the class has.
+
+Every operation goes through an **instance**. A model is a row-shaped object: you make one,
+load it, change its properties, and save or delete it.
+
 ### Create
 
 ```php
-// Using mass assignment
-$user = User::create([
-    'username' => 'john_doe',
-    'email'    => 'john@example.com',
-    'password' => hash('sha256', 'secret'),
-]);
-
-// Using new() and save()
-$user = new User();
+$user = new \App\Models\User();
 $user->username = 'jane_doe';
-$user->email = 'jane@example.com';
-$user->password = hash('sha256', 'secret');
+$user->email    = 'jane@example.com';
 $user->save();
+
+echo $user->userid;   // the key the insert produced
 ```
+
+`save()` inserts when the object is new and updates when it was loaded. `create:crud`
+generates a `save()` that forwards to `_save()`, which is where the timestamps, the casts
+and the events happen — so an application overriding it should call the parent.
 
 ### Read
 
 ```php
-// Get by primary key
-$user = User::find(42);
+// One row, by primary key. The object is returned either way; check what came back.
+$user = new \App\Models\User();
+$user->load(42);
 
-// Get first matching
-$user = User::where('email', 'john@example.com')->first();
+// Many rows, as models. The first argument is a WHERE clause without the keyword.
+$active = (new \App\Models\User())->_getList(
+    "`active` = 1",
+    '`username` ASC'
+);
 
-// Get all
-$users = User::all();
-
-// With conditions
-$activeUsers = User::where('active', 1)->orderBy('username')->get();
+// The paginated envelope an API endpoint answers with — filtering, sorting,
+// searching and the total, from the request.
+$page = (new \App\Models\User())->_getApiList();
 ```
+
+`_getList()` returns models with every scope applied — a global scope registered with
+`addGlobalScope()` is merged into the filter here, which is the reason to reach for it
+rather than for the query builder.
+
+!!! danger "The query builder does not know about your scopes"
+    `queryBuilder()->table('users')->get()` is the right tool for a report, a join or an
+    aggregate. It is the wrong one for reading a tenant's rows: it bypasses every global
+    scope, so isolation added later silently does not apply. If you go around the model, say
+    so in the query — an explicit `where('organization_id', …)` — rather than leaving the
+    reader to notice what is missing.
 
 ### Update
 
 ```php
-// Update via model instance
-$user = User::find(42);
+$user = new \App\Models\User();
+$user->load(42);
 $user->email = 'newemail@example.com';
 $user->save();
+```
 
-// Bulk update
-User::where('active', 0)->update(['active' => 1]);
+There is no bulk update through the model. A statement that touches many rows is
+query-builder work, and it is worth writing the scope back in by hand:
 
-// Update with increment/decrement
-$user->increment('login_count');
-$user->decrement('credits', 5);
+```php
+$db->queryBuilder()->table('#PREFIX#users')
+    ->where('organization_id', $tenantId)
+    ->where('active', 0)
+    ->update(['active' => 1]);
 ```
 
 ### Delete
 
 ```php
-// Delete specific record
-$user = User::find(42);
-$user->delete();
-
-// Bulk delete
-User::where('active', 0)->delete();
-
-// Force delete (bypasses soft deletes)
-$user->forceDelete();
+$user = new \App\Models\User();
+$user->delete(42);
 ```
+
+With soft deletes enabled the row is stamped rather than removed; see
+[Soft Deletes](#soft-deletes) for what that changes about reads.
+
+### What about `find()`, `where()` and the rest?
+
+They are a genuine gap rather than a deliberate omission: a static entry point forwarding to
+a query object is what makes a global scope pleasant to use, and without one every model in
+a project ends up reaching for the query builder — which is exactly where scopes stop
+applying. Until it exists, the instance methods above are the whole of the read surface.
 
 ## Relationships
 
@@ -133,9 +161,10 @@ class User extends Model
 }
 
 // Usage
-$user = User::find(42);
-$posts = $user->posts();  // lazy load
-$posts = $user->posts;    // eager load (via magic property)
+$user = new User();
+$user->load(42);
+$posts = $user->posts();  // the relation object
+$posts = $user->posts;    // the rows, via the magic property
 ```
 
 ### One-to-One (hasOne)
@@ -163,7 +192,8 @@ class Post extends Model
     }
 }
 
-$post = Post::find(1);
+$post = new Post();
+$post->load(1);
 $user = $post->author;  // the user who authored this post
 ```
 
@@ -179,7 +209,8 @@ class User extends Model
 }
 
 // Usage
-$user = User::find(42);
+$user = new User();
+$user->load(42);
 $roles = $user->roles;  // array of Role objects
 
 // Attach a role
@@ -190,8 +221,9 @@ $user->roles()->sync([1, 2, 3]);  // sync to roles 1, 2, 3
 ### Relationship Eager Loading
 
 ```php
-// Reduce N+1 queries
-$users = User::with('posts', 'profile')->get();
+// Reduce N+1 queries. `with()` is an instance method returning the model, so the
+// read that follows is the usual one.
+$users = (new User())->with('posts', 'profile')->_getList();
 
 foreach ($users as $user) {
     echo count($user->posts);  // no additional queries
@@ -333,27 +365,25 @@ $user->password = 'secret';  // calls setPasswordAttribute()
 Mark records as deleted without removing them from the database:
 
 ```php
-class User extends Model
+class Post extends \Pramnos\Application\OrmModel
 {
-    use SoftDeletes;
-    
-    protected $dates = ['deleted_at'];
+    // The trait is already on OrmModel; this is the switch that turns it on.
+    protected bool $softDelete = true;
+
+    // Optional — the default is `deleted_at`.
+    protected string $deletedAtColumn = 'deleted_at';
 }
 
 // Usage
-$user->delete();  // sets deleted_at to now
+$post->delete();        // sets deleted_at, not a hard DELETE
+$post->restore();       // clears it
+$post->trashed();       // true / false
+$post->forceDelete();   // the real DELETE
 
-// Query active records (excludes soft-deleted)
-$users = User::active()->get();
-
-// Include soft-deleted records
-$users = User::withTrashed()->get();
-
-// Only soft-deleted records
-$users = User::onlyTrashed()->get();
-
-// Force delete
-$user->forceDelete();
+// Reads exclude stamped rows automatically. Both of these are *instance* methods
+// returning the model, so the read after them is the usual one.
+$all     = (new Post())->withTrashed()->_getList();
+$deleted = (new Post())->onlyTrashed()->_getList();
 ```
 
 ## Timestamps
@@ -427,33 +457,37 @@ Available events: `creating`, `created`, `updating`, `updated`, `saving`, `saved
 
 ```php
 // Define model
-class Post extends Model
+class Post extends \Pramnos\Application\OrmModel
 {
     protected $table = 'posts';
-    
-    protected $fillable = ['title', 'content', 'published'];
-    
+
     protected $casts = [
-        'published' => 'boolean',
+        'published'  => 'boolean',
         'created_at' => 'timestamp',
     ];
-    
+
     public function author()
     {
         return $this->belongsTo(User::class, 'userid', 'userid');
     }
-    
-    public function scopePublished($query)
+
+    /**
+     * A local scope takes the filter string and returns it with one more
+     * condition on it — it is not a query-builder callback.
+     */
+    public function scopePublished(string $filter): string
     {
-        return $query->where('published', 1);
+        return $this->appendCondition($filter, '`published` = 1');
     }
 }
 
 // Usage
-$recentPosts = Post::published()->latest('created_at')->limit(10)->get();
+$recentPosts = (new Post())
+    ->applyScope('published')
+    ->_getList(null, '`created_at` DESC');
 
-foreach ($recentPosts as $post) {
-    echo $post->title . " by " . $post->author->username . "\n";
+foreach (array_slice($recentPosts, 0, 10) as $post) {
+    echo $post->title . ' by ' . $post->author->username . "\n";
 }
 ```
 

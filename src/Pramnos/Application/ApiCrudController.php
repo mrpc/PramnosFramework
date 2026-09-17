@@ -506,6 +506,71 @@ class ApiCrudController extends Controller
     }
 
     /**
+     * The organisation a row this caller creates belongs to.
+     *
+     * **Never the request.** `$model->organization_id = Request::staticGet('organization_id')`
+     * is a cross-tenant write with a straight face: whatever the caller sends is what the
+     * row is filed under, so anyone authenticated can create a record inside somebody
+     * else's organisation. `create:crud` emitted exactly that, and a scaffold is
+     * multi-tenant by default — `init` enables `authserver`.
+     *
+     * The answer comes from membership: `authserver.user_organizations`, active rows,
+     * unexpired. A caller who belongs to **exactly one** has an unambiguous organisation
+     * and that is it.
+     *
+     * A caller who belongs to several does not, and this returns `null` rather than
+     * picking the first — "the lowest id that happened to come back" is not a rule
+     * anybody chose, and a row filed under the wrong tenant is invisible until somebody
+     * else reads it. An application with more than one organisation per user knows how it
+     * decides (a header, a path segment, a setting), and overrides this.
+     *
+     * @return int|null The organisation, or null when there is no single answer.
+     */
+    protected function currentOrganizationId(): ?int
+    {
+        $user = $this->requestUser();
+        $id   = (int) ($user->userid ?? 0);
+        if ($id <= 1) {
+            return null;
+        }
+
+        $column = \Pramnos\Auth\Role::organizationColumn();
+
+        try {
+            $result = $this->db()->queryBuilder()
+                ->table('authserver.user_organizations')
+                ->select($column, 'expires_at')
+                ->where('userid', $id)
+                ->where('is_active', 1)
+                ->get();
+        } catch (\Throwable) {
+            // No authserver tables on this installation. A controller asking the
+            // question still gets an answer it can act on rather than a fatal.
+            return null;
+        }
+
+        if ($result === false) {
+            return null;
+        }
+
+        $rows = $result->fetchAll();
+        // Expiry is checked here rather than in SQL: the column is nullable and the
+        // comparison differs per driver, and this list is a handful of rows.
+        $now  = time();
+        $open = [];
+        foreach ($rows as $row) {
+            $expires = $row['expires_at'] ?? null;
+            if ($expires !== null && $expires !== '' && strtotime((string) $expires) < $now) {
+                continue;
+            }
+            $open[] = (int) $row[$column];
+        }
+        $open = array_values(array_unique($open));
+
+        return count($open) === 1 ? $open[0] : null;
+    }
+
+    /**
      * The resource name used when asking about permissions.
      */
     protected function resourceName(): string

@@ -5,11 +5,11 @@ namespace {{ namespace }};
  * {{ className }} Model
  * Auto generated at: {{ date }}
  */
-class {{ className }} extends \Pramnos\Application\Model
+class {{ className }} extends \Pramnos\Application\OrmModel
 {
 
 {{ props }}
-{{ schemaBlock }}    /**
+{{ ormOptions }}{{ schemaBlock }}    /**
      * Primary key in database
      * @var string
      */

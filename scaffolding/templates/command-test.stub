@@ -1,0 +1,66 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Tests\Unit;
+
+use PHPUnit\Framework\TestCase;
+use Symfony\Component\Console\Application;
+use Symfony\Component\Console\Tester\CommandTester;
+
+/**
+ * Tests for the {{ class }} console command.
+ *
+ * Two assertions to begin with, and neither is a formality:
+ *
+ *   - **the name**, because it is the whole of the command's public surface. A
+ *     command renamed by a refactor still passes every test of its logic and is
+ *     simply gone from `<cli> list`, and from whatever cron line calls it.
+ *   - **that it runs**, because a console command's first failure mode is a fatal
+ *     before it prints anything — a missing service, a typed property nothing set
+ *     — and that is invisible until somebody runs it in production at 3am.
+ *
+ * Add the real ones below: what it did, not that it returned 0.
+ */
+class {{ class }}Test extends TestCase
+{
+    private \Symfony\Component\Console\Command\Command $command;
+
+    private CommandTester $tester;
+
+    protected function setUp(): void
+    {
+        $application = new Application();
+        $application->add(new \{{ namespace }}\{{ shortclass }}());
+
+        // find() throws when nothing answers to the name, which is half of the first
+        // test — a command that is not registered under the name everything calls it
+        // by is a command that is gone.
+        $this->command = $application->find('{{ command_name }}');
+        $this->tester  = new CommandTester($this->command);
+    }
+
+    /**
+     * The command answers to the name the rest of the system calls it by.
+     */
+    public function testItIsRegisteredUnderItsName(): void
+    {
+        // Assert
+        $this->assertSame('{{ command_name }}', $this->command->getName());
+    }
+
+    /**
+     * It runs to completion and reports success.
+     *
+     * Replace this with an assertion about what it *did* — a row written, a file
+     * produced, a queue drained. An exit code alone says only that nothing threw.
+     */
+    public function testItRunsSuccessfully(): void
+    {
+        // Act
+        $status = $this->tester->execute([]);
+
+        // Assert
+        $this->assertSame(0, $status, $this->tester->getDisplay());
+    }
+}

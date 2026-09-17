@@ -486,14 +486,26 @@ class GeneratedApiControllerTest extends BaseTestCase
         $this->assertStringContainsString('@apiBody {JSON} [settings]', $source, 'nullable JSON');
         $this->assertStringContainsString('@apiBody {JSON} payload', $source, 'required JSON');
         foreach (['settings', 'payload'] as $column) {
-            $this->assertStringContainsString(
-                '$model->' . $column . ' = trim(\\Pramnos\\Http\\Request::staticGet',
-                $source,
+            // The line that assigns the column, whatever shape the generator gives it. A
+            // nullable column is now two lines — `$value = …;` then a null-preserving
+            // assignment — because `trim(null)` is deprecated in PHP 8.1. What this test
+            // is about is markup surviving, not the expression's shape.
+            $assignment = '';
+            foreach (explode("\n", $source) as $line) {
+                if (str_contains($line, '$model->' . $column . ' =')) {
+                    $assignment = $line;
+                    break;
+                }
+            }
+
+            $this->assertNotSame(
+                '',
+                $assignment,
                 $column . ' does not reach the JSON arm of the type switch'
             );
             $this->assertStringNotContainsString(
-                '$model->' . $column . ' = trim(strip_tags(',
-                $source,
+                'strip_tags',
+                $assignment,
                 $column . ' is stripped of its markup, which eats every < in a JSON body'
             );
         }

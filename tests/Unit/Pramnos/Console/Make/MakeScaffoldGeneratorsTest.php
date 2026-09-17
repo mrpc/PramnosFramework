@@ -53,9 +53,24 @@ class MakeScaffoldGeneratorsTest extends TestCase
             ROOT . '/tests/Unit/PolSamplePolicyTest.php',
             ROOT . '/tests/Unit/TestSubjectTest.php',
             // Edge-case artifacts exercised by the coverage tests below.
-            ROOT . '/src/Console/Commands/Command.php',
+            ROOT . '/src/ConsoleCommands/Command.php',
             ROOT . '/tests/Unit/CommandCommandTest.php',
             ROOT . '/tests/Unit/TestTest.php',
+            // `create:command` writes where `init` put the project's commands, which
+            // is a second directory these tests have to know about — and Console.php,
+            // which it now appends the registration to.
+            ROOT . '/src/ConsoleCommands/CmdSample.php',
+            ROOT . '/src/ConsoleCommands/CmdNamed.php',
+            ROOT . '/src/ConsoleCommands/CmdRegistered.php',
+            ROOT . '/src/ConsoleCommands/CmdSecond.php',
+            ROOT . '/src/ConsoleCommands/CmdTested.php',
+            ROOT . '/src/Console/Commands/CmdLegacy.php',
+            ROOT . '/src/Console.php',
+            ROOT . '/tests/Unit/CmdNamedCommandTest.php',
+            ROOT . '/tests/Unit/CmdRegisteredCommandTest.php',
+            ROOT . '/tests/Unit/CmdSecondCommandTest.php',
+            ROOT . '/tests/Unit/CmdTestedCommandTest.php',
+            ROOT . '/tests/Unit/CmdLegacyCommandTest.php',
         ];
         $this->cleanup();
     }
@@ -75,7 +90,14 @@ class MakeScaffoldGeneratorsTest extends TestCase
                 @unlink($file);
             }
         }
-        foreach (['/src/Console/Commands', '/src/Console', '/src/Tasks', '/src/Providers', '/src/Policies'] as $dir) {
+        foreach ([
+            '/src/ConsoleCommands',
+            '/src/Console/Commands',
+            '/src/Console',
+            '/src/Tasks',
+            '/src/Providers',
+            '/src/Policies',
+        ] as $dir) {
             $path = ROOT . $dir;
             if (is_dir($path)) {
                 $entries = glob($path . '/*');
@@ -121,28 +143,167 @@ class MakeScaffoldGeneratorsTest extends TestCase
     // =========================================================================
 
     /**
-     * create:command must write a Symfony Console command class under the
-     * application's <namespace>\Console\Commands namespace. This proves the
-     * generator resolves the app namespace and renders the command stub.
+     * create:command writes where `init` put the project's commands.
+     *
+     * It wrote `src/Console/Commands/` while `init` writes `src/ConsoleCommands/`,
+     * and `src/Console.php` — the file that has to `add()` the command — invites the
+     * next one *there*. Both namespaces autoload, so nothing failed; a project simply
+     * ended up with commands in two places, by a convention that depended on which
+     * tool wrote the file.
      */
-    public function testCreateCommand(): void
+    public function testCreateCommandWritesWhereInitPutTheProjectsCommands(): void
     {
-        // Arrange
+        // Arrange — a project scaffolded by `init`, which is what that directory means.
+        @mkdir(ROOT . '/src/ConsoleCommands', 0777, true);
         $command = $this->makeGenerator(MakeCommand::class);
 
         // Act
         $summary = $command->createConsoleCommand('CmdSample');
 
-        // Assert — summary reports the class, and the file exists with the
-        // expected namespace/class and Symfony Command base.
-        $file = ROOT . '/src/Console/Commands/CmdSample.php';
+        // Assert
+        $file = ROOT . '/src/ConsoleCommands/CmdSample.php';
         $this->assertFileExists($file);
+        $this->assertFileDoesNotExist(
+            ROOT . '/src/Console/Commands/CmdSample.php',
+            'a second, parallel tree is the defect'
+        );
         $this->assertStringContainsString('CmdSample', $summary);
         $src = (string) file_get_contents($file);
-        $this->assertStringContainsString('namespace ScaffoldApp\\Console\\Commands;', $src);
+        $this->assertStringContainsString('namespace ScaffoldApp\\ConsoleCommands;', $src);
         $this->assertStringContainsString('class CmdSample extends Command', $src);
-        // CLI name is derived from the class name (Command suffix stripped).
-        $this->assertStringContainsString("setName('app:cmdsample')", $src);
+    }
+
+    /**
+     * A project that has only the old location keeps it.
+     *
+     * Discovery rather than a new hard-coded path: a project scaffolded before this,
+     * with commands already in `src/Console/Commands/`, would otherwise get the split
+     * in the other direction.
+     */
+    public function testCreateCommandKeepsAnExistingLocation(): void
+    {
+        // Arrange
+        @mkdir(ROOT . '/src/Console/Commands', 0777, true);
+        $command = $this->makeGenerator(MakeCommand::class);
+
+        // Act
+        $command->createConsoleCommand('CmdLegacy');
+
+        // Assert
+        $this->assertFileExists(ROOT . '/src/Console/Commands/CmdLegacy.php');
+        $src = (string) file_get_contents(ROOT . '/src/Console/Commands/CmdLegacy.php');
+        $this->assertStringContainsString('namespace ScaffoldApp\\Console\\Commands;', $src);
+    }
+
+    /**
+     * The CLI name follows the documented `namespace:verb` taxonomy.
+     *
+     * `CollectChannels` became `app:collectchannels` — a lower-cased concatenation,
+     * against the convention the console guide states at the top of its own command
+     * table. The first word of a PascalCase class name is nearly always the verb, and
+     * one word has no noun to group under, so it keeps `app:`.
+     */
+    public function testTheCliNameFollowsTheTaxonomy(): void
+    {
+        // Act & Assert
+        $this->assertSame('channels:collect', MakeCommand::deriveCliName('CollectChannels'));
+        $this->assertSame('stock:sync', MakeCommand::deriveCliName('SyncStock'));
+        $this->assertSame('users:import', MakeCommand::deriveCliName('ImportUsersCommand'));
+        $this->assertSame('app:deploy', MakeCommand::deriveCliName('Deploy'));
+    }
+
+    /**
+     * An explicit name wins over the derivation.
+     *
+     * A guess is still a guess; what it replaced was not a guess but a concatenation.
+     */
+    public function testAnExplicitCliNameIsUsed(): void
+    {
+        // Arrange
+        @mkdir(ROOT . '/src/ConsoleCommands', 0777, true);
+        $command = $this->makeGenerator(MakeCommand::class);
+
+        // Act
+        $command->createConsoleCommand('CmdNamed', 'feeds:pull');
+
+        // Assert
+        $src = (string) file_get_contents(ROOT . '/src/ConsoleCommands/CmdNamed.php');
+        $this->assertStringContainsString("setName('feeds:pull')", $src);
+    }
+
+    /**
+     * The command is registered, so it appears in `<cli> list`.
+     *
+     * The one thing a generated command must be is runnable, and nothing registered
+     * it — so it did not exist until somebody added the line by hand, which the
+     * output did not say either. The line lands on the invitation `init` writes.
+     */
+    public function testTheCommandIsRegisteredInConsolePhp(): void
+    {
+        // Arrange — Console.php as `init` writes it.
+        @mkdir(ROOT . '/src', 0777, true);
+        file_put_contents(ROOT . '/src/Console.php', <<<'PHP'
+<?php
+namespace ScaffoldApp;
+
+class Console extends \Pramnos\Console\Application
+{
+    protected function registerCommands(): void
+    {
+        parent::registerCommands();
+        // Register your custom commands here:
+    }
+}
+PHP);
+        $command = $this->makeGenerator(MakeCommand::class);
+
+        // Act
+        $summary = $command->createConsoleCommand('CmdRegistered');
+
+        // Assert
+        $console = (string) file_get_contents(ROOT . '/src/Console.php');
+        $this->assertStringContainsString(
+            '$this->add(new \\ScaffoldApp\\ConsoleCommands\\CmdRegistered());',
+            $console
+        );
+        $this->assertStringContainsString('added to src/Console.php', $summary);
+
+        // …and it is not added twice when the generator runs again for another command.
+        $command->createConsoleCommand('CmdSecond');
+        $console = (string) file_get_contents(ROOT . '/src/Console.php');
+        $this->assertSame(
+            1,
+            substr_count($console, 'CmdRegistered()'),
+            'the registration must be idempotent'
+        );
+    }
+
+    /**
+     * The generated test asserts something.
+     *
+     * `test.stub` is `assertTrue(true)` — a passing test with no subject, which in a
+     * project with a coverage floor is a hole the report cannot see. A command's name
+     * is its entire public surface, and its first failure mode is a fatal before it
+     * prints anything; both are worth pinning from the first minute.
+     */
+    public function testTheGeneratedTestHasASubject(): void
+    {
+        // Arrange
+        @mkdir(ROOT . '/src/ConsoleCommands', 0777, true);
+        $command = $this->makeGenerator(MakeCommand::class);
+
+        // Act
+        $command->createConsoleCommand('CmdTested');
+
+        // Assert
+        $test = (string) file_get_contents(ROOT . '/tests/Unit/CmdTestedCommandTest.php');
+        $this->assertStringNotContainsString('assertTrue(true)', $test);
+        $this->assertStringContainsString('CommandTester', $test);
+        $this->assertStringContainsString(
+            "find('" . MakeCommand::deriveCliName('CmdTested') . "')",
+            $test,
+            'the test has to look the command up by the name it was generated with'
+        );
     }
 
     // =========================================================================
@@ -280,7 +441,7 @@ class MakeScaffoldGeneratorsTest extends TestCase
 
         // Assert — success exit code, file written, summary echoed to output.
         $this->assertSame(0, $exit); // execute() returns 0 on success
-        $this->assertFileExists(ROOT . '/src/Console/Commands/CmdSample.php');
+        $this->assertFileExists(ROOT . '/src/ConsoleCommands/CmdSample.php');
         $this->assertStringContainsString('Command created.', $tester->getDisplay());
     }
 
@@ -534,8 +695,9 @@ class MakeScaffoldGeneratorsTest extends TestCase
         // Act
         $command->createConsoleCommand('Command');
 
-        // Assert — the empty-base fallback keeps a usable CLI name.
-        $src = (string) file_get_contents(ROOT . '/src/Console/Commands/Command.php');
+        // Assert — the empty-base fallback keeps a usable CLI name. One word has no
+        // noun to group under, so `app:` is the right prefix rather than a guess.
+        $src = (string) file_get_contents(ROOT . '/src/ConsoleCommands/Command.php');
         $this->assertStringContainsString("setName('app:command')", $src);
     }
 

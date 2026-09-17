@@ -151,9 +151,6 @@ class {{ className }} extends \Pramnos\Application\ApiCrudController
         if (($denied = $this->guard('create')) !== null) {
             return $denied;
         }
-        $user = $_SESSION['user'];
-        
-        
 
         $model = new \{{ modelNameSpace }}\{{ modelClass }}($this);
 
@@ -199,7 +196,6 @@ class {{ className }} extends \Pramnos\Application\ApiCrudController
         if (($denied = $this->guard('update')) !== null) {
             return $denied;
         }
-        $user = $_SESSION['user'];
         
         $model = new \{{ modelNameSpace }}\{{ modelClass }}($this);
         $model->load((int) ${{ primaryKey }});

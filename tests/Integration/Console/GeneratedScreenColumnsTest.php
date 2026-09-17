@@ -192,6 +192,44 @@ class GeneratedScreenColumnsTest extends BaseTestCase
         }
     }
 
+    /**
+     * The guess names columns the table really has.
+     *
+     * The assertion the test above is missing, and the one that matters: an empty guess
+     * passes every check up there, and an empty guess is what the generator had. It
+     * assigned `introspectTableAsWizardColumns()`'s `[$columns, $foreignKeys]` pair to a
+     * single variable, so the loop walked two *lists*, neither of which has a `type` —
+     * nothing was ever textual, and every generated source fell back to `['name']`.
+     *
+     * The damage is one level further on: the omnibox is then registered against a column
+     * most tables do not have, so the search box finds nothing and says nothing. A search
+     * that returns no rows looks exactly like a search with no matches.
+     */
+    public function testTheSearchGuessNamesColumnsTheTableHas(): void
+    {
+        // Arrange
+        $probe = $this->probe('users');
+
+        // Act
+        $columns = $probe->reachSearchColumns('User');
+
+        // Assert — something was found…
+        $this->assertNotSame([], $columns, 'the guess fell back to nothing, so the block will say `name`');
+
+        // …and every name is a column of `users`, not a plausible-looking default.
+        $existing = array_map(
+            static fn(array $c): string => (string) $c['name'],
+            $probe->reachWizardColumns('#PREFIX#users')
+        );
+        foreach ($columns as $column) {
+            $this->assertContains(
+                $column,
+                $existing,
+                "the search source would be registered against `{$column}`, which the table does not have"
+            );
+        }
+    }
+
     // ── Fixture ───────────────────────────────────────────────────────────────
 
     /**
@@ -218,6 +256,14 @@ class GeneratedScreenColumnsTest extends BaseTestCase
             public function reachSearchColumns(string $name): array
             {
                 return $this->searchDisplayColumns($name);
+            }
+
+            /** @return list<array<string, mixed>> */
+            public function reachWizardColumns(string $table): array
+            {
+                [$columns] = $this->introspectTableAsWizardColumns($table);
+
+                return $columns;
             }
         };
     }
