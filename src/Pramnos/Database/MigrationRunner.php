@@ -505,6 +505,10 @@ class MigrationRunner
                 }
 
                 try {
+                    // Cleared per migration, so what this one deferred is attributable to
+                    // it rather than to whatever ran before it.
+                    \Pramnos\Database\SchemaBuilder::resetDeferredCapabilities();
+
                     $migration->up();
                     $elapsed = microtime(true) - $start;
 
@@ -517,6 +521,27 @@ class MigrationRunner
                     // `declined` and **not** in `ran`, which means «completed».
                     // `getRanSlugs()` counts only RESULT_OK, so the next migrate
                     // attempts it again once the data is repaired.
+                    /*
+                     * A migration that did nothing because a capability was absent has not
+                     * been applied, and must not be recorded as though it had.
+                     *
+                     * `ifCapable(TIMESCALEDB, …)` with no fallback is a no-op without the
+                     * extension. Recorded as `Ran`, it never runs again — so a server that
+                     * gains TimescaleDB later, or a database restored onto a host that has
+                     * it, keeps a schema permanently behind what the history claims, and
+                     * the repair is a command somebody has to know exists.
+                     *
+                     * Declining is exactly the right shape and already exists: it is
+                     * recorded, reported, and **retried on the next run**, which is when the
+                     * capability may have arrived. Nothing here is lost on a backend that
+                     * will never have the capability — the migration is retried and declines
+                     * again, cheaply, instead of lying once.
+                     */
+                    $deferred = \Pramnos\Database\SchemaBuilder::deferredCapabilities();
+                    if ($deferred !== [] && !$migration->hasDeclined()) {
+                        $migration->declineForMissingCapabilities($deferred);
+                    }
+
                     if ($migration->hasDeclined()) {
                         $reason = $migration->declinedReason();
                         $this->recordHistory(

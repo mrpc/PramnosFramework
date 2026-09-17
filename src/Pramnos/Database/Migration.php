@@ -531,6 +531,25 @@ abstract class Migration extends \Pramnos\Framework\Base
     }
 
     /**
+     * Decline because the database lacks a capability this migration needs.
+     *
+     * Public because the runner calls it: `ifCapable()` records the absence on the schema
+     * builder, and the runner is what turns that into a result. A migration that wants to
+     * decline for a reason of its own still uses {@see decline()}.
+     *
+     * @param list<string> $capabilities What was asked for and not there
+     */
+    public function declineForMissingCapabilities(array $capabilities): void
+    {
+        $this->decline(
+            'the database has no ' . implode(', ', $capabilities)
+            . ', so nothing was applied. Recorded as declined rather than applied, so it '
+            . 'runs again if the capability arrives — a schema quietly behind its own '
+            . 'migration history is repaired by nothing.'
+        );
+    }
+
+    /**
      * Did this migration decline?
      *
      * @return bool

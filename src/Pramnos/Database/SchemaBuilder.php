@@ -23,6 +23,17 @@ class SchemaBuilder
     // State
     // -------------------------------------------------------------------------
 
+    /**
+     * Capabilities an `ifCapable()` with no fallback found absent.
+     *
+     * Static because `ifCapable()` is called on a schema builder and the migration runner
+     * is what records results — see {@see ifCapable()} for why "absent capability" and
+     * "migration applied" must not be recorded as the same thing.
+     *
+     * @var array<string, true>
+     */
+    private static array $deferredCapabilities = [];
+
     /** @var Database */
     protected $db;
 
@@ -1149,66 +1160,37 @@ class SchemaBuilder
             }
 
             /*
-             * A continuous aggregate when this TimescaleDB can maintain one, and a plain
-             * materialised view when it cannot.
+             * No fallback to a plain materialised view. It was here for one commit and is
+             * removed, because it could not tell the case it was written for from a
+             * migration-ordering bug.
              *
-             * An aggregate is maintained incrementally, so every expression in it needs a
-             * partial/combine form. `percentile_cont(…) WITHIN GROUP (…)` and
-             * `COUNT(DISTINCT …)` have none, and where a newer TimescaleDB accepts them an
-             * older one answers `invalid continuous aggregate view` — observed accepted at
-             * 2.30.0 and refused at 2.26.4.
+             * PostgreSQL emits one `ERROR: invalid continuous aggregate view` for both, and
+             * only the `DETAIL` distinguishes them:
              *
-             * That is not an exotic host. Timescale stopped building for Debian 11, so on
-             * bullseye + PostgreSQL 17 the newest installable package is 2.26.4 and
-             * upgrading the extension means upgrading the operating system. Three framework
-             * migrations failed there permanently — `migrate` ending in three red crosses
-             * on every run, which is a thing that gets learned and ignored.
+             *   DETAIL: At least one hypertable should be used in the view definition.
+             *           — the source table has not been converted yet. Fix the order.
+             *   DETAIL: <an expression that cannot be maintained incrementally>
+             *           — the case the fallback was for.
              *
-             * The fallback keeps every column: it is the same SELECT, and it is the branch
-             * plain PostgreSQL has always taken. What changes is how it refreshes — a row
-             * in `pramnos.framework_policies` executed by the PolicyEngine daemon instead
-             * of a TimescaleDB background job — which `addContinuousAggregatePolicy()`
-             * decides by asking what the view *is* rather than what the server has.
+             * The first is what a real installation produced, for all three of its
+             * aggregate migrations. With the fallback in place they would have become plain
+             * materialised views **permanently, while `migrate` reported success** — on a
+             * host where nothing was wrong with them and the ordering was fully fixable.
+             *
+             * Matching the second `DETAIL` instead is not available: no expression this
+             * framework ships has ever been refused by any version measured here, so there
+             * is no wording to match. Excluding the first is the wrong direction — a
+             * reworded `DETAIL` in some later release would silently degrade a customer's
+             * metric table rather than fail.
+             *
+             * So the refusal reaches the caller, and the migration fails. That is the
+             * loud, correct answer for both causes, and `health:check` reports any view
+             * that is a plain materialised view when its declaration says otherwise.
              */
-            try {
-                $this->db->query(
-                    "CREATE MATERIALIZED VIEW {$resolved} WITH ("
-                    . implode(', ', $withParts) . ") AS {$sql}"
-                );
-
-                return;
-            } catch (\Throwable $ex) {
-                /*
-                 * Narrow on purpose, and this is the important part.
-                 *
-                 * A blanket fallback would turn *any* failure here — a lock timeout, a
-                 * permission, a typo in the SELECT — into a quiet plain materialised view
-                 * that nothing ever refreshes incrementally. That is the same silent
-                 * downgrade this whole area exists to stop, installed at the one place
-                 * best able to hide it.
-                 *
-                 * So only the one error that means "this version cannot maintain this
-                 * expression incrementally" is caught. Everything else is re-thrown, and
-                 * the migration fails the way a migration should.
-                 */
-                if (!str_contains(
-                    strtolower($ex->getMessage()),
-                    'invalid continuous aggregate'
-                )) {
-                    throw $ex;
-                }
-
-                \Pramnos\Logs\Logger::logError(
-                    'Continuous aggregate ' . $name . ' was refused by this TimescaleDB: '
-                    . $ex->getMessage() . '. Creating a plain materialised view with the '
-                    . 'same columns instead — it refreshes through the PolicyEngine daemon '
-                    . 'rather than a background job, so that daemon has to be running. '
-                    . '`health:check` reports which views are in this state.',
-                    $ex
-                );
-            }
-
-            $this->db->query("CREATE MATERIALIZED VIEW {$resolved} AS {$sql}");
+            $this->db->query(
+                "CREATE MATERIALIZED VIEW {$resolved} WITH ("
+                . implode(', ', $withParts) . ") AS {$sql}"
+            );
         } elseif ($this->capabilities->isPostgreSQL()) {
             $this->db->query("CREATE MATERIALIZED VIEW {$resolved} AS {$sql}");
         } else {
@@ -2060,7 +2042,45 @@ class SchemaBuilder
             return $fallback($this);
         }
 
+        /*
+         * Nothing happened, and the caller has to be able to find that out.
+         *
+         * A migration wrapped in `ifCapable(TIMESCALEDB, …)` with no fallback does nothing
+         * when the extension is absent — and used to be recorded as **applied**. The two
+         * are not the same thing, and the difference surfaces later: a server that gains
+         * TimescaleDB, or a database restored onto a host that has it, keeps a schema
+         * permanently behind what the migration history claims. `migrate` retries only what
+         * failed, so those conversions never run again.
+         *
+         * Measured on a real deployment: the first `migrate` ran before
+         * `shared_preload_libraries` had been set, so every hypertable conversion recorded
+         * `Ran` having done nothing. The aggregates that depend on them then failed on
+         * every run afterwards with `At least one hypertable should be used in the view
+         * definition`, and the only repair was a command somebody had to know existed.
+         *
+         * Recorded statically because `ifCapable()` is called on the schema builder while
+         * the migration runner is what records results — and because every existing call
+         * site keeps working unchanged, which a new parameter would not allow.
+         */
+        self::$deferredCapabilities[$capability] = true;
+
         return null;
+    }
+
+    /**
+     * Capabilities that were absent when something asked for them, since the last reset.
+     *
+     * @return list<string>
+     */
+    public static function deferredCapabilities(): array
+    {
+        return array_keys(self::$deferredCapabilities);
+    }
+
+    /** Forget what was deferred. The migration runner calls this before each migration. */
+    public static function resetDeferredCapabilities(): void
+    {
+        self::$deferredCapabilities = [];
     }
 
     // =========================================================================

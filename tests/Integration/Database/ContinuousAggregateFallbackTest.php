@@ -59,23 +59,6 @@ class ContinuousAggregateFallbackTest extends TestCase
         $this->db->query("SELECT create_hypertable('cafallback.src', 't')");
     }
 
-    /**
-     * Point a second connection at the same database as the first.
-     *
-     * The double above overrides `query()`, so it needs its own connection rather than a
-     * reference to one — a `Database` is the connection.
-     */
-    private function copyConnection(Database $db): void
-    {
-        $db->type     = 'postgresql';
-        $db->server   = 'timescaledb';
-        $db->port     = 5432;
-        $db->user     = 'postgres';
-        $db->password = 'secret';
-        $db->database = 'pramnos_test';
-        $db->connect(false);
-    }
-
     protected function tearDown(): void
     {
         try {
@@ -83,76 +66,78 @@ class ContinuousAggregateFallbackTest extends TestCase
         } catch (\Throwable) {
             // Best-effort cleanup.
         }
+
+        // Closed explicitly. This class opens its own connection per test rather than
+        // sharing the suite's, and a full run has thousands of tests behind it — a handful
+        // of connections left open here is a handful the classes after it cannot have.
+        try {
+            $this->db->close();
+        } catch (\Throwable) {
+            // Already gone.
+        }
     }
 
     /**
-     * The version refusal becomes a plain materialised view with the same columns.
+     * A source table that is not a hypertable yet fails, loudly.
      *
-     * Injected rather than provoked, and that is worth saying out loud: **no SELECT this
-     * framework ships is refused by TimescaleDB 2.26.4.** `COUNT(DISTINCT …)`,
-     * `percentile_cont(…) WITHIN GROUP (…)`, `HAVING COUNT(DISTINCT …)` and a join to a
-     * plain table were each measured on it and each accepted, and the framework's own
-     * migrations run there. The refusal this branch handles was reported from a host whose
-     * configuration is not reproduced here.
+     * The case a fallback would have hidden, and the reason there is no fallback. Both
+     * causes of `ERROR: invalid continuous aggregate view` share that line and differ only
+     * in the `DETAIL`:
      *
-     * So the branch is driven by making the engine's answer the reported one. A branch
-     * that cannot be provoked is a branch that must still be exercised — untested
-     * defensive code in a migration path is how a silent downgrade gets shipped.
+     *   - `At least one hypertable should be used in the view definition.` — the source
+     *     has not been converted yet. A migration-ordering bug, fully fixable, and what a
+     *     real installation actually produced for all three of its aggregate migrations.
+     *   - an expression that cannot be maintained incrementally — the case a fallback
+     *     would be for.
+     *
+     * A fallback keyed on the shared `ERROR` line turns the first into a plain materialised
+     * view **permanently, while `migrate` reports success**. Keying on the second `DETAIL`
+     * instead is not available: no expression this framework ships has ever been refused
+     * by any version measured here, so there is no wording to match.
+     *
+     * So this fails, and the caller sees why.
      */
-    public function testTheVersionRefusalBecomesAPlainMaterialisedView(): void
+    public function testASourceThatIsNotAHypertableFailsLoudly(): void
     {
-        // Arrange — a connection that answers the reported error to the continuous form
-        // and behaves normally otherwise.
-        $db = new class () extends Database {
-            public int $plainCreates = 0;
+        // Arrange — an ordinary table, not converted.
+        $this->db->query('CREATE TABLE cafallback.notahypertable (t TIMESTAMPTZ NOT NULL, v INT)');
+        $schema = $this->db->schema();
 
-            public function query($sql, $cache = false, $cachetime = 60, $category = '',
-                $dieOnFatalError = false, $skipDataFix = false
-            ) {
-                if (str_contains((string) $sql, 'timescaledb.continuous')) {
-                    throw new \Exception('ERROR:  invalid continuous aggregate view');
-                }
-                if (str_starts_with((string) $sql, 'CREATE MATERIALIZED VIEW')) {
-                    $this->plainCreates++;
-                }
+        // Act & Assert
+        $this->expectException(\Throwable::class);
+        $this->expectExceptionMessageMatches('/at least one hypertable/i');
+        $schema->createContinuousAggregate(
+            'cafallback.ordering',
+            "SELECT time_bucket('1 hour', t) AS bucket, SUM(v) AS total
+               FROM cafallback.notahypertable GROUP BY 1"
+        );
+    }
 
-                return parent::query($sql, $cache, $cachetime, $category, $dieOnFatalError, $skipDataFix);
-            }
-        };
-        $this->copyConnection($db);
-        $schema = $db->schema();
+    /**
+     * And nothing is left behind when it fails.
+     *
+     * A half-created view is worse than none: the next run finds the name taken and skips,
+     * so the ordering bug becomes permanent in a second way.
+     */
+    public function testNothingIsLeftBehindWhenTheAggregateIsRefused(): void
+    {
+        // Arrange
+        $this->db->query('CREATE TABLE cafallback.notahypertable2 (t TIMESTAMPTZ NOT NULL, v INT)');
+        $schema = $this->db->schema();
 
         // Act
-        $schema->createContinuousAggregate(
-            'cafallback.rollup',
-            "SELECT time_bucket('1 hour', t) AS bucket, SUM(v) AS total
-               FROM cafallback.src GROUP BY 1"
-        );
+        try {
+            $schema->createContinuousAggregate(
+                'cafallback.ordering2',
+                "SELECT time_bucket('1 hour', t) AS bucket, SUM(v) AS total
+                   FROM cafallback.notahypertable2 GROUP BY 1"
+            );
+        } catch (\Throwable) {
+            // Expected; the assertion is about what it left.
+        }
 
-        // Assert — the plain form was created…
-        $this->assertSame(1, $db->plainCreates);
-        $this->assertTrue($this->db->schema()->hasView('cafallback.rollup'));
-
-        // …with every column the SELECT named, which is the whole reason this is a
-        // fallback rather than a rewrite.
-        // Read from `pg_attribute`, not `information_schema.columns`: PostgreSQL leaves
-        // materialised views out of information_schema entirely, so the obvious query
-        // answers "no columns" for a view that has them.
-        $columns = $this->db->query(
-            "SELECT a.attname AS col
-               FROM pg_class c
-               JOIN pg_namespace n ON n.oid = c.relnamespace
-               JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum > 0
-              WHERE n.nspname = 'cafallback' AND c.relname = 'rollup'
-              ORDER BY a.attnum"
-        )->fetchAll();
-        $this->assertSame(
-            ['bucket', 'total'],
-            array_map(static fn(array $r): string => (string) $r['col'], $columns)
-        );
-
-        // …and it is the plain form, not an aggregate.
-        $this->assertFalse($this->db->schema()->isContinuousAggregate('cafallback.rollup'));
+        // Assert
+        $this->assertFalse($schema->hasView('cafallback.ordering2'));
     }
 
     /**
