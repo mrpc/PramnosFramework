@@ -41,11 +41,17 @@ class CreateSessionsTable extends Migration
                 ->comment('IPv4 or IPv6 address of the visitor (max 39 chars for IPv6)');
             $table->tinyInteger('guest')->default(0)
                 ->comment('1 = unauthenticated guest, 0 = logged-in user');
-            $table->string('agent', 255)
+            // `text`, not `varchar(255)`: a User-Agent has no documented ceiling, and the
+            // row this is in is a tracking row — refusing it is a worse outcome than
+            // storing a long string. See the widening migration for what the ceiling cost.
+            $table->text('agent')
                 ->comment('HTTP User-Agent header value');
             $table->bigInteger('userid')->nullable()
                 ->comment('FK to users.userid; NULL for guests');
-            $table->string('url', 255)
+            // `text` for the same reason, and this is the column that actually overflowed:
+            // an OAuth callback carrying three scopes is over 400 characters, and so is a
+            // long search query or a UTM-laden campaign link.
+            $table->text('url')
                 ->comment('Last URL visited by this session');
             $table->text('history')
                 ->comment('Navigation history (serialised/JSON array of recent URLs)');

@@ -355,8 +355,21 @@ class SessionTest extends TestCase
     }
 
     /**
-     * Test database write exception logic.
-     * When database query triggers an exception, HttpSession::reset and Auth::logout are called.
+     * A failed tracking write leaves the session alone.
+     *
+     * WHAT: when the insert raises, neither `HttpSession::reset()` nor `Auth::logout()` is
+     *       called — asserted as `never()`, so the test fails if either is.
+     *
+     * WHY:  it used to assert the opposite, and the opposite was the bug. Any error writing
+     *       a tracking row signed the visitor out: a deadlock, a connection blip, or a URL
+     *       longer than the column, which an OAuth callback carrying three scopes is as a
+     *       matter of course. What the person saw was the sign-in page at the end of a
+     *       successful consent screen, which reads as an expired session and costs an
+     *       afternoon to trace to a tracking table.
+     *
+     *       The forced logout — a row that is read successfully and says `logout = 1` — is a
+     *       different path and is covered by `testOnAppInitKickedOut` above. That one is a
+     *       decision somebody made; this one is an error.
      */
     public function testOnAppInitDatabaseException(): void
     {
@@ -379,12 +392,12 @@ class SessionTest extends TestCase
         $dbSingleton = &Database::getInstance();
         $dbSingleton = $dbMock;
 
-        // Expectations
+        // Expectations — `never()`, which is the whole assertion
         $sessionMock = $this->createMock(HttpSession::class);
-        $sessionMock->expects($this->once())->method('reset');
+        $sessionMock->expects($this->never())->method('reset');
 
         $authMock = $this->createMock(Auth::class);
-        $authMock->expects($this->once())->method('logout');
+        $authMock->expects($this->never())->method('logout');
 
         $sessionSingleton = &Factory::getSession();
         $sessionSingleton = $sessionMock;
@@ -394,8 +407,11 @@ class SessionTest extends TestCase
 
         $sessionAddon = new Session();
 
-        // Act
+        // Act — the insert raises inside the addon
         $sessionAddon->onAppInit();
+
+        // Assert — reaching this line means the exception was handled rather than rethrown
+        $this->addToAssertionCount(1);
     }
 
     /**

@@ -22,6 +22,9 @@ use Pramnos\Http\Request;
  *   5. Force-logout: if sessions.logout=1 for this visitor, clears session + auth
  *   6. Upserts a row in the sessions table (INSERT … ON DUPLICATE KEY UPDATE)
  *
+ * A failure in 6 is logged and nothing else — see {@see reportTrackingFailure()}. A
+ * tracking write must not be able to sign somebody out, and it used to.
+ *
  * Opt in via app.php:
  *   'middleware' => [
  *       \Pramnos\Http\Middleware\SessionTrackingMiddleware::class,
@@ -278,9 +281,7 @@ class SessionTrackingMiddleware implements MiddlewareInterface
                     ));
                 }
             } catch (\Exception $e) {
-                \Pramnos\Logs\Logger::log($e->getMessage());
-                $session->reset();
-                $auth->logout();
+                $this->reportTrackingFailure($e);
             }
 
             return;
@@ -331,10 +332,44 @@ class SessionTrackingMiddleware implements MiddlewareInterface
                 );
             $database->query($sql);
         } catch (\Exception $e) {
-            \Pramnos\Logs\Logger::log($e->getMessage());
-            $session->reset();
-            $auth->logout();
+            $this->reportTrackingFailure($e);
         }
+    }
+
+    /**
+     * A tracking write failed. Log it and let the request carry on.
+     *
+     * **This used to call `$session->reset()` and `$auth->logout()`**, in both branches and
+     * in the addon this was extracted from. Any error writing a row to `sessions` therefore
+     * signed the visitor out — a deadlock, a connection blip, a full disk, or the case that
+     * actually happened: a 401-character OAuth callback against a `varchar(255)`. The
+     * person saw the sign-in page at the end of a successful consent screen, which reads as
+     * an expired session and costs an afternoon to trace to a tracking table.
+     *
+     * The reasoning behind the old behaviour can be reconstructed — if the row cannot be
+     * read, the `logout` flag on it cannot be read either, so fail closed — and it does not
+     * survive the arithmetic. Failing open risks a revoked session surviving until the next
+     * request that reaches the database, which is seconds. Failing closed signs out **every
+     * visitor** on any database error, at the moment the database is already unwell. And
+     * `sessions.logout` is not the only thing standing between a revoked session and the
+     * application: `Auth` checks its own tokens on every authenticated request.
+     *
+     * The force-logout in step 5 is untouched. A row that is successfully read and says
+     * `logout = 1` still ends the session — that is a decision somebody made, not an error.
+     *
+     * @param \Exception $e The failure, logged under `sessions` so it is findable as one
+     * @return void
+     */
+    private function reportTrackingFailure(\Exception $e): void
+    {
+        // Named rather than bare, because the bare message is a Postgres insert failure
+        // with nothing in it about sessions or about authentication — which is precisely
+        // why the original took an afternoon to find.
+        \Pramnos\Logs\Logger::log(
+            'Session tracking write failed (the visit was not recorded; '
+            . 'the session is unaffected): ' . $e->getMessage(),
+            'sessions'
+        );
     }
 
     /**

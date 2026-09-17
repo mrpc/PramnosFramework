@@ -873,6 +873,16 @@ and the visitor's next request finds it and is signed out. An upsert that wrote 
 included, would clear the instruction before it was ever read, and the eject button would silently do
 nothing.
 
+**A failure to write the row is logged and nothing else.** It is a tracking write: the visit is
+not recorded and the request carries on. This has to be said explicitly because it was not true —
+both dialect branches caught the exception and called `$session->reset()` and `$auth->logout()`,
+so any database error signed the visitor out. The case that found it was `sessions.url`, a
+`varchar(255)` holding an OAuth callback that carries three scopes and is comfortably over 400
+characters: PostgreSQL refused the statement, and the person saw the sign-in page at the end of a
+successful consent screen. `url` and `agent` are `text` now, and the handler no longer ends
+anybody's session — a revoked session still takes effect through the `logout` flag above, on the
+next request that reaches the database.
+
 Two settings keep the cost down, and both trade promptness for writes:
 
 - **`session_write_interval`** (60s) — nothing is written twice in the same minute unless the visitor

@@ -96,7 +96,11 @@ class FrameworkMigrationsPostgreSQLTest extends TestCase
         $this->assertColumnType('sessions', 'time', 'integer');
         $this->assertColumnNullable('sessions', 'userid', true);
         $this->assertColumnType('sessions', 'sid', 'character varying');
-        $this->assertColumnType('sessions', 'agent', 'character varying');
+        // `text`, not a narrow type: a User-Agent has no documented ceiling, and `url`
+        // beside it held a 401-character OAuth callback that the old width refused —
+        // taking the visitor's session with it. See WidenSessionUrlAndAgent.
+        $this->assertColumnType('sessions', 'agent', 'text');
+        $this->assertColumnType('sessions', 'url', 'text');
         $this->assertColumnType('sessions', 'history', 'text');
 
         // Assert — rollback drops the table

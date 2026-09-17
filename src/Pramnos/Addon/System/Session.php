@@ -359,11 +359,23 @@ class Session extends \Pramnos\Addon\Addon
             $database->query($sql);
         }
         catch (\Exception $e) {
-            \Pramnos\Logs\Logger::log($e->getMessage());
-            $session->reset();
-            $auth->logout();
-            $guest = 1;
-            $uname = "SecurityLogout";
+            /*
+             * Log it and carry on. This used to call `$session->reset()` and
+             * `$auth->logout()` and label the result "SecurityLogout", so any error
+             * writing a tracking row signed the visitor out — including a URL longer
+             * than the column, which an OAuth callback carrying three scopes is as a
+             * matter of course. The same fix, and the reasoning for it, is in
+             * `Pramnos\Http\Middleware\SessionTrackingMiddleware::reportTrackingFailure()`,
+             * which is what a current application runs; this class is deprecated but is
+             * still what an application registering the addon gets.
+             *
+             * The forced logout above — the row that says `logout = 1` — is untouched.
+             */
+            \Pramnos\Logs\Logger::log(
+                'Session tracking write failed (the visit was not recorded; '
+                . 'the session is unaffected): ' . $e->getMessage(),
+                'sessions'
+            );
         }
     }
 

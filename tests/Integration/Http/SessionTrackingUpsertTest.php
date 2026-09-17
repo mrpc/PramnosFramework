@@ -91,7 +91,7 @@ class SessionTrackingUpsertTest extends BaseTestCase
         $_COOKIE = [];
         $_SERVER = array_diff_key($_SERVER, array_flip([
             'HTTP_USER_AGENT', 'REMOTE_ADDR', 'REQUEST_URI',
-            'HTTP_ACCEPT_LANGUAGE', 'HTTP_CF_IPCOUNTRY',
+            'HTTP_ACCEPT_LANGUAGE', 'HTTP_CF_IPCOUNTRY', 'SERVER_NAME',
         ]));
         Request::resetInstance();
 
@@ -276,5 +276,99 @@ class SessionTrackingUpsertTest extends BaseTestCase
             'a visitor who left ten minutes ago is still listed'
         );
         $this->assertNotNull($this->row(), 'the sweep removed the visitor who is here');
+    }
+
+    /**
+     * A 401-character URL is recorded, not refused.
+     *
+     * WHAT: the address of an OAuth callback carrying three scopes goes into `sessions.url`
+     *       whole, and the row exists afterwards.
+     *
+     * WHY:  the column was `varchar(255)`. An OAuth callback is longer than that as a matter
+     *       of course — `state`, `code`, `iss`, three scope URLs, `authuser`, `prompt` — and
+     *       PostgreSQL refuses the entire statement with `value too long for type character
+     *       varying(255)`. So does a long search query, and so does a UTM-laden campaign
+     *       link; this is not an exotic input.
+     *
+     *       The length is the assertion. A test that recorded a short URL and called it
+     *       covered would have passed on the broken column, which is how this reached a
+     *       production sign-in.
+     */
+    public function testALongUrlIsRecordedRatherThanRefused(): void
+    {
+        // Arrange — the shape that actually failed: a Google OAuth callback, three scopes
+        $longUrl = '/connect/callback/google?state=' . str_repeat('a', 43)
+            . '&iss=https://accounts.google.com&code=' . str_repeat('b', 73)
+            . '&scope=email+https://www.googleapis.com/auth/analytics.readonly'
+            . '+https://www.googleapis.com/auth/webmasters.readonly'
+            . '+https://www.googleapis.com/auth/userinfo.email+openid'
+            . '&authuser=0&prompt=consent';
+        $this->assertGreaterThan(
+            255,
+            strlen($longUrl),
+            'the fixture has to exceed the old column width or it proves nothing'
+        );
+        $_SERVER['REQUEST_URI'] = $longUrl;
+
+        // `getURL(false)` is absolute, and it builds the host from `SERVER_NAME`. Without one
+        // it returns the seven characters `http://` and the path never reaches the column —
+        // which is what the rest of this class has been recording all along, and why a test
+        // for a long URL has to set it or it measures nothing.
+        $_SERVER['SERVER_NAME'] = 'example.com';
+        Request::resetInstance();
+
+        // Act
+        $this->middleware()->track(Request::getInstance());
+
+        // Assert — the row exists, and the address in it was not cut short
+        $row = $this->row();
+        $this->assertNotNull($row, 'a long URL lost the visitor their row entirely');
+        $this->assertGreaterThan(
+            255,
+            strlen((string) $row['url']),
+            'the URL was truncated, so the column is still narrow somewhere'
+        );
+    }
+
+    /**
+     * A tracking write that fails does not sign the visitor out.
+     *
+     * WHAT: when the upsert raises, the request carries on — `$_SESSION['logged']` is still
+     *       true and the framework's auth state is untouched.
+     *
+     * WHY:  this is the half of the bug that cost the afternoon. Both branches caught the
+     *       exception and called `$session->reset()` and `$auth->logout()`, so **any** error
+     *       writing a tracking row signed the visitor out: a deadlock, a connection blip, or
+     *       the 401-character URL above. What the person sees is the sign-in page at the end
+     *       of a successful OAuth consent, which reads as an expired session or a cookie
+     *       problem — every explanation except a tracking table.
+     *
+     *       Driven by making the write fail rather than by asserting on the handler, because
+     *       the handler is not the contract: «a tracking failure does not end a session» is.
+     *       The failure is injected by dropping the table, which is the most honest available
+     *       error — it is a real database exception on both dialects, raised from inside
+     *       `query()` exactly where a width overflow would be.
+     */
+    public function testAFailedTrackingWriteLeavesTheSessionAlone(): void
+    {
+        // Arrange — a signed-in visitor, and a sessions table that is not there
+        $_SESSION['logged']   = true;
+        $_SESSION['uid']      = 42;
+        $_SESSION['username'] = 'someone';
+
+        $this->db->query('DROP TABLE IF EXISTS ' . $this->db->prefix . 'sessions');
+
+        // Act — the upsert raises inside the middleware
+        $this->middleware()->track(Request::getInstance());
+
+        // Assert — the session survived the tracking failure
+        $this->assertTrue(
+            $_SESSION['logged'] ?? false,
+            'a failed tracking write signed the visitor out'
+        );
+        $this->assertSame(42, $_SESSION['uid'] ?? null);
+
+        // Put it back for tearDown, which expects a table to empty.
+        $this->runMigrations([\Pramnos\Framework\Migrations\Core\CreateSessionsTable::class], $this->db);
     }
 }
