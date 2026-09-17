@@ -116,6 +116,38 @@ thousands of fast tests is worth less than one class fixed.
 | **A cache walked per write.** Invalidating by scanning is invisible until a test writes a thousand rows. | Invalidate by key or category. |
 | **`sleep()` and real timeouts.** | Inject the clock, or assert on what would have been waited for. |
 
+## Where the time is, measured
+
+Per suite, on 16,174 tests. Two readings of each, agreeing; the noise band above is why one
+would not be enough.
+
+| Suite | Tests | PHPUnit time | Per test |
+| --- | --- | --- | --- |
+| Unit | 12,258 | 1:32 | **7.5 ms** |
+| Integration | 3,078 | 1:58 – 2:01 | **38 ms** |
+| Characterization | — | 0:23 | — |
+
+**Integration is the larger half on a quarter of the tests**, which is what a database lane
+costs and is not by itself a fault. What would be a fault is one class inside it dominating,
+and none does — the slowest is 7.1 s and the top twelve together are about a third of the
+suite:
+
+```
+    7.1s   63 tests   FrameworkMigrationsPostgreSQLTest
+    6.8s   50 tests   FrameworkMigrationsMySQLTest
+    4.7s   16 tests   DatabaseAuthDriverPostgreSQLTest
+    4.4s   16 tests   DatabaseAuthDriverMySQLTest
+    3.7s   50 tests   QueueManagerPostgreSQLTest
+```
+
+A long tail with no peak is the shape to want: it means the previous rounds of this work
+landed, and that the next saving has to come from something structural rather than from one
+class.
+
+**Read these as a shape, not as a target.** The total below was measured on a different day
+and a different database image, and the band on this machine is wider than the difference
+between them.
+
 ## Coverage is not 12% — it is most of the run
 
 The image sets `xdebug.mode=coverage`, so a plain `./dockertest` instruments every line of
@@ -126,6 +158,11 @@ apart:
 | --- | --- | --- |
 | `./dockertest` | **9:50** | — |
 | `./dockertest --nocoverage` | **2:56** | 149.5 s of test time |
+
+That pair is from the commit that measured it, on 15,693 tests and the `latest-pg14`
+database image. The suite is 16,174 tests now and the image is pinned to
+`timescale/timescaledb:2.26.4-pg17` — so the ratio is the finding to carry forward, not the
+seconds.
 
 **Instrumentation is 3.3× — about 70% of the default run.** A subset reproduces the ratio at
 a smaller scale: `tests/Unit/Console` is 88 s by default and 27 s with `--nocoverage`, and
