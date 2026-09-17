@@ -1359,19 +1359,46 @@ class SchemaBuilderUnitTest extends TestCase
     // =========================================================================
 
     /**
-     * addContinuousAggregatePolicy() on TimescaleDB calls the native
-     * add_continuous_aggregate_policy() function.
+     * addContinuousAggregatePolicy() follows the view, not the server.
+     *
+     * A TimescaleDB too old to maintain a given aggregate gets a plain materialised view
+     * with the same columns instead, and asking for a native refresh job on one of those
+     * fails — logged, and then invisible. So the branch is decided by
+     * `isContinuousAggregate()`, which reads the catalogue.
+     *
+     * The mock answers null to every query, so the view does not look like an aggregate
+     * and the software path is taken. That path needs a query builder, and the absence of
+     * one is what this asserts through: reaching it at all is the assertion.
      */
-    public function testAddContinuousAggregatePolicyOnTimescaleDB(): void
+    public function testAddContinuousAggregatePolicyFollowsWhatTheViewIs(): void
     {
-        // Arrange
+        // Arrange — TimescaleDB is present, and the catalogue does not list this view.
         $db = $this->makeDBMock('postgresql', true);
-        $db->method('query')->willReturn(null); // (bool)null = false
+        $db->method('query')->willReturn(null);
         $sb = new SchemaBuilder($db);
 
-        // Act — result is (bool)null = false (mock), which is the expected fallback
+        // Act & Assert — the software policy path, because the view is not an aggregate.
+        $this->expectException(\Throwable::class);
+        $sb->addContinuousAggregatePolicy('mv_hourly', '2 hours', '1 hour', '1 hour');
+    }
+
+    /**
+     * A view the catalogue *does* list gets the native policy call.
+     */
+    public function testAContinuousAggregateGetsTheNativePolicy(): void
+    {
+        // Arrange — isContinuousAggregate() answers yes.
+        $db = $this->makeDBMock('postgresql', true);
+        $listed = new \stdClass();
+        $listed->numRows = 1;
+        $db->method('query')->willReturn($listed);
+        $sb = new SchemaBuilder($db);
+
+        // Act — the native statement runs; the mock's truthy answer is its result.
         $result = $sb->addContinuousAggregatePolicy('mv_hourly', '2 hours', '1 hour', '1 hour');
-        $this->assertFalse($result);
+
+        // Assert
+        $this->assertTrue($result);
     }
 
     /**

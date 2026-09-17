@@ -1641,21 +1641,24 @@ class InitCommandUnitTest extends TestCase
         $contents = file_get_contents($gitignorePath);
 
         /*
-         * The rule is the glob, not a list of filenames.
+         * The rule is the glob, and it has no exceptions.
          *
          * Named individually, every key the framework adds later is committed by default
          * until somebody remembers to extend this file — which is how `vapid_private.key`
-         * was very nearly committed the day web push was written. `*.key` excluded, the two
-         * public keys re-admitted, is the shape that stays correct.
+         * was very nearly committed the day web push was written.
+         *
+         * The public halves used to be re-admitted, on the reasoning that a public key is
+         * public. It is, and that is not the question: the question is whether it is
+         * **environment-specific**, and half of a pair always is. The first deployment of a
+         * scaffolded project shipped development's `public.key` to production, where no
+         * pair was then generated because one of the two files was already there — the
+         * application served pages normally and only the OAuth2 server was broken, which
+         * is found by whoever first tries to sign in through it.
          */
         $this->assertStringContainsString('/app/keys/*.key', $contents,
             'every key is excluded, not a list of the ones that existed when this was written');
-        $this->assertStringContainsString('!/app/keys/public.key', $contents,
-            'the RSA public key is meant to be committed');
-        $this->assertStringContainsString('!/app/keys/vapid_public.key', $contents,
-            'and so is the VAPID one — a browser cannot subscribe without it');
-        $this->assertStringNotContainsString('!/app/keys/private.key', $contents);
-        $this->assertStringNotContainsString('!/app/keys/vapid_private.key', $contents);
+        $this->assertStringNotContainsString('!/app/keys/', $contents,
+            'no key is re-admitted: half of a pair is environment-specific, public or not');
     }
 
     /**

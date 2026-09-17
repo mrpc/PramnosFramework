@@ -63,6 +63,44 @@ two disagree silently.
 
 This table is documentation. The registry is the source.
 
+### An integer time column is a different declaration
+
+Every table above has a timestamp time column, and every example in this guide assumes
+one. A **Unix timestamp in a `bigint`** is an ordinary choice, and it changes the spelling
+of every interval in the declaration:
+
+```php
+HypertableRegistry::register('channel_metrics', [
+    'time_column'    => 'measured_at',   // bigint, seconds since the epoch
+    'chunk_interval' => 604800,          // a number, in the unit the column stores
+    'compress_after' => 2592000,         // …not '30 days'
+]);
+```
+
+TimescaleDB requires every offset — the chunk interval, the compression and retention
+windows — to have the time column's type. Given a `bigint` column and `'7 days'` it does
+not say that: it says no function matches the argument types, which reads like a version
+problem and is not one.
+
+Nothing converts between the two, because nothing can: seconds, milliseconds and
+microseconds are all plausible in a `bigint`, and only the schema knows which. What the
+framework does instead is **refuse the declaration by name** when it is applied —
+`channel_metrics.measured_at is bigint, so \`chunk_interval\` must be a number in the unit
+that column stores` — rather than let TimescaleDB answer in terms of overloads.
+
+!!! warning "A tick used to be a claim nobody checked"
+    `timescale:ensure` printed `✓ converted to hypertable`, `✓ compression enabled` and
+    `✓ compression policy added` for a table `timescaledb_information.hypertables` does
+    not list. The underlying calls log their failure and return `false`, and `apply()`
+    appended its line regardless — so three failed calls produced three ticks and exit
+    code 0, and a second run said the same.
+
+    Nothing breaks, which is what makes it the worst available failure mode: rows are
+    written and read as before, every test passes and every screen works. What is missing
+    is chunking, compression and a table that stays usable holding years rather than days
+    — found when it is far too large to convert quickly. Every step is now read back from
+    the catalogue before it is reported, and a step the database did not take raises.
+
 ### Choosing `segmentby`: a measurement worth repeating
 
 TimescaleDB compresses in batches of up to 1000 rows **per segment**. Which columns
@@ -432,6 +470,24 @@ LEFT JOIN token_stats ts ON ...
 The sentence that separates them: **a continuous aggregate answers "this measure,
 per time bucket, from this time series". Anything whose answer is "the current
 state of this entity" is the other kind**, however much aggregation it does.
+
+### When TimescaleDB is present but too old for the aggregate
+
+A continuous aggregate is maintained **incrementally**, so every expression in it needs a
+partial/combine form. `percentile_cont(…) WITHIN GROUP (…)` and `COUNT(DISTINCT …)` have
+none. Where a newer TimescaleDB accepts them an older one answers
+`invalid continuous aggregate view` — observed accepted at 2.30.0 and refused at 2.26.4.
+
+That is not an exotic host. Timescale stopped building for Debian 11, so on
+bullseye + PostgreSQL 17 the newest installable package is 2.26.4 and upgrading the
+extension means upgrading the operating system.
+
+`createContinuousAggregate()` therefore falls back to a **plain materialised view with the
+same columns** when the aggregate is refused, which is the branch plain PostgreSQL has
+always taken. Nothing a consumer reads changes. What changes is how it refreshes: a row in
+`pramnos.framework_policies` executed by the PolicyEngine daemon rather than a TimescaleDB
+background job — and `addContinuousAggregatePolicy()` decides which by asking what the view
+**is**, not what the server has.
 
 ### The fallback, and what it costs
 

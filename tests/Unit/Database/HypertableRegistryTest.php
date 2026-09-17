@@ -36,8 +36,22 @@ class FakeHypertableSchema extends SchemaBuilder
     /** @var string|null The interval the live compression policy reports */
     public ?string $compressionInterval = null;
 
+    /** @var string|null What the time column is declared as, or null for "cannot tell" */
+    public ?string $timeColumnType = null;
+
     /** @var array<int, array<string, mixed>> Every call, in order */
     public array $calls = [];
+
+    /**
+     * Operations that fail: the call is made and the catalogue does not change.
+     *
+     * A real failure looks exactly like this — `runTimescaleStatement()` logs the driver
+     * error and returns false, and the catalogue keeps saying no. Until `apply()` read it
+     * back, this state was indistinguishable from success.
+     *
+     * @var list<string> Any of: create, compress, compressPolicy, retentionPolicy
+     */
+    public array $failing = [];
 
     public function __construct()
     {
@@ -69,28 +83,42 @@ class FakeHypertableSchema extends SchemaBuilder
     {
         $this->calls[] = ['create', $table, $timeColumn, $options];
 
-        return true;
+        // The catalogue changes only when the call worked, which is what `apply()` reads
+        // back. A double that always answered "yes, it is a hypertable now" could not tell
+        // the two apart either — and that is the bug this is about.
+        return $this->isHypertable = !in_array('create', $this->failing, true);
     }
 
     public function enableCompression(string $table, array $options = []): bool
     {
         $this->calls[] = ['compress', $table, $options];
 
-        return true;
+        return $this->compressionOn = !in_array('compress', $this->failing, true);
     }
 
     public function addCompressionPolicy(string $table, string $compressAfter): bool
     {
         $this->calls[] = ['compressPolicy', $table, $compressAfter];
 
-        return true;
+        return $this->compressionPolicy = !in_array('compressPolicy', $this->failing, true);
     }
 
     public function addRetentionPolicy(string $table, string $dropAfter, string $timeColumn = 'created_at'): bool
     {
         $this->calls[] = ['retentionPolicy', $table, $dropAfter, $timeColumn];
 
-        return true;
+        return $this->retentionPolicy = !in_array('retentionPolicy', $this->failing, true);
+    }
+
+    /**
+     * The time column's type, as the registry asks before applying a declaration.
+     *
+     * Null by default — "cannot tell" — which is the answer that lets every existing test
+     * go on describing a timestamp column without saying so.
+     */
+    public function columnType(string $table, string $column): ?string
+    {
+        return $this->timeColumnType;
     }
 
     public function policyInterval(string $table, string $kind = 'retention'): ?string
@@ -250,6 +278,135 @@ class HypertableRegistryTest extends TestCase
             $schema->performed()
         );
         $this->assertCount(4, $done);
+    }
+
+    /**
+     * The offset is spelled for the column's type, not always as an interval.
+     *
+     * `add_compression_policy('t', INTERVAL '30 days')` is rejected outright on a `bigint`
+     * time column — the offset must have that column's type — and the rejection was logged
+     * and then reported as a tick. `2592000::bigint` is the form it accepts.
+     *
+     * Told apart by the value rather than by a new parameter: widening the method's
+     * signature would be a fatal at class load for any subclass that overrides it, which
+     * this repository's own test double demonstrated within a minute of trying it.
+     */
+    public function testThePolicyOffsetIsSpelledForTheColumnsType(): void
+    {
+        // Arrange
+        $spell = new \ReflectionMethod(\Pramnos\Database\SchemaBuilder::class, 'timescaleOffset');
+
+        // Act & Assert
+        $this->assertSame('2592000::bigint', $spell->invoke(null, '2592000'));
+        $this->assertSame('2592000::bigint', $spell->invoke(null, 2592000));
+        $this->assertSame("INTERVAL '30 days'", $spell->invoke(null, '30 days'));
+    }
+
+    /**
+     * A step the database refused is not reported as done.
+     *
+     * The failure this is all about. `runTimescaleStatement()` logs the driver error and
+     * returns false; `apply()` appended its line regardless, so `timescale:ensure` printed
+     * three ticks against a table `timescaledb_information.hypertables` does not list, and
+     * exited 0. Run it again: the same three ticks, the same nothing.
+     *
+     * **Nothing breaks**, which is what makes it the worst available failure mode. Rows
+     * are written and read as before, every test passes and every screen works. What is
+     * missing is chunking, compression and a table that stays usable holding years rather
+     * than days — found when it is far too large to convert quickly.
+     */
+    public function testAStepTheDatabaseRefusedIsNotReportedAsDone(): void
+    {
+        // Arrange — the conversion fails, exactly as it does for a bigint time column
+        // given an interval: the call is made and the catalogue does not change.
+        $schema = new FakeHypertableSchema();
+        $schema->failing = ['create'];
+        HypertableRegistry::register('probe', [
+            'time_column'    => 'at',
+            'chunk_interval' => '1 day',
+        ]);
+
+        // Act & Assert
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('convert to hypertable');
+        HypertableRegistry::apply($schema, 'probe');
+    }
+
+    /**
+     * Each later step is read back too, not only the conversion.
+     *
+     * Three separate calls failed in the report that produced this, and each was reported
+     * as a tick of its own. A check on the first one alone would have caught one of three.
+     */
+    public function testAPolicyTheDatabaseRefusedIsNotReportedAsDone(): void
+    {
+        // Arrange — the table converts and compresses; the policy does not take.
+        $schema = new FakeHypertableSchema();
+        $schema->failing = ['compressPolicy'];
+        HypertableRegistry::register('probe', [
+            'time_column'    => 'at',
+            'chunk_interval' => '1 day',
+            'compress_after' => '7 days',
+        ]);
+
+        // Act & Assert
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('add a compression policy');
+        HypertableRegistry::apply($schema, 'probe');
+    }
+
+    /**
+     * An interval declared for an integer time column is refused, by name.
+     *
+     * TimescaleDB requires every offset to have the time column's type. Given a `bigint`
+     * column and `'7 days'` it does not say that — it says no function matches the
+     * argument types, which reads like a version problem and is not one. A Unix timestamp
+     * in a `bigint` is an ordinary choice, and the Hypertable guide's every example is a
+     * `timestamptz`, so this is a mistake worth naming rather than diagnosing.
+     */
+    public function testAnIntervalForAnIntegerTimeColumnIsRefusedByName(): void
+    {
+        // Arrange
+        $schema = new FakeHypertableSchema();
+        $schema->timeColumnType = 'bigint';
+        HypertableRegistry::register('probe', [
+            'time_column'    => 'at',
+            'chunk_interval' => '7 days',
+        ]);
+
+        // Act & Assert — the message names the column, its type and the key at fault.
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('probe.at is bigint');
+        HypertableRegistry::apply($schema, 'probe');
+    }
+
+    /**
+     * A number for an integer time column is accepted, and reaches the database as one.
+     *
+     * The other half: `'604800'` must arrive as `604800::bigint`, not as
+     * `INTERVAL '604800'`. The cast was applied by a `(string)` in this class and an
+     * `is_string()` in the schema builder, neither of which knew about the column.
+     */
+    public function testANumberForAnIntegerTimeColumnIsAccepted(): void
+    {
+        // Arrange
+        $schema = new FakeHypertableSchema();
+        $schema->timeColumnType = 'bigint';
+        HypertableRegistry::register('probe', [
+            'time_column'    => 'at',
+            'chunk_interval' => 604800,
+            'compress_after' => 2592000,
+        ]);
+
+        // Act
+        $done = HypertableRegistry::apply($schema, 'probe');
+
+        // Assert — both steps ran and were confirmed.
+        $this->assertSame(['create', 'compress', 'compressPolicy'], $schema->performed());
+        $this->assertCount(3, $done);
+
+        // …and the number was passed through as a number.
+        $this->assertSame('604800', (string) $schema->calls[0][3]['chunk_time_interval']);
     }
 
     /**

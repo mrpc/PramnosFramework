@@ -165,12 +165,18 @@ class HypertableRegistry
 
         $done = [];
 
+        static::assertDeclarationMatchesColumn($schema, $table, $spec);
+
         if (!$schema->hasHypertable($table)) {
             $schema->createHypertable($table, (string) $spec['time_column'], [
+                // A declaration for an integer time column is a number and stays one
+                // through `timescaleOffset()`: `INTERVAL '604800'` is what TimescaleDB
+                // refused, and nothing read the refusal back before printing a tick.
                 'chunk_time_interval' => (string) $spec['chunk_interval'],
                 'migrate_data'        => true,
                 'if_not_exists'       => true,
             ]);
+            static::confirm($schema->hasHypertable($table), $table, 'convert to hypertable');
             $done[] = 'converted to hypertable';
         }
 
@@ -183,12 +189,18 @@ class HypertableRegistry
                 $options['orderby'] = (string) $spec['orderby'];
             }
             $schema->enableCompression($table, $options);
+            static::confirm($schema->isCompressionEnabled($table), $table, 'enable compression');
             $done[] = 'compression enabled';
         }
 
         if ($spec['compress_after'] !== null) {
             if (!$schema->hasCompressionPolicy($table)) {
                 $schema->addCompressionPolicy($table, (string) $spec['compress_after']);
+                static::confirm(
+                    $schema->hasCompressionPolicy($table),
+                    $table,
+                    'add a compression policy'
+                );
                 $done[] = 'compression policy added (' . $spec['compress_after'] . ')';
             } elseif (static::hasDrifted($schema, $table, 'compression', (string) $spec['compress_after'])) {
                 // Removed and re-added, because add_compression_policy() raises on a
@@ -206,6 +218,11 @@ class HypertableRegistry
                     $table,
                     (string) $spec['retention'],
                     (string) $spec['time_column']
+                );
+                static::confirm(
+                    $schema->hasRetentionPolicy($table),
+                    $table,
+                    'add a retention policy'
                 );
                 $done[] = 'retention policy added (' . $spec['retention'] . ')';
             } elseif (static::hasDrifted($schema, $table, 'retention', (string) $spec['retention'])) {
@@ -263,6 +280,89 @@ class HypertableRegistry
             $known = array_intersect_key($spec, static::specDefaults());
 
             static::$tables[$table] = $known + $existing;
+        }
+    }
+
+    /**
+     * Read back what was just claimed, and refuse to claim it otherwise.
+     *
+     * Every step of `apply()` used to append its line to `$done` whether or not the
+     * database had agreed: the underlying call logs its failure and returns `false`, and
+     * nothing looked. So `timescale:ensure` printed
+     *
+     *     ✓ channel_metrics: converted to hypertable
+     *     ✓ channel_metrics: compression enabled
+     *     ✓ channel_metrics: compression policy added (30 days)
+     *
+     * against a table `timescaledb_information.hypertables` does not list — three failed
+     * calls, three ticks, exit code 0, and a second run saying exactly the same.
+     *
+     * **This is the worst failure mode available.** Nothing breaks: rows are written and
+     * read as before, every test passes and every screen works. What is missing is
+     * chunking, compression and a table that stays usable holding years rather than days
+     * — found when the table is far too large to convert quickly.
+     *
+     * A tick is a claim about the database, so it is read back from the catalogue before
+     * it is printed. The driver's own message is in the migrations log; what this adds is
+     * the two causes that account for nearly all of them, because TimescaleDB reports
+     * both in terms of function overloads rather than of the table.
+     *
+     * @throws \RuntimeException When the catalogue does not show the operation
+     */
+    protected static function confirm(bool $applied, string $table, string $operation): void
+    {
+        if ($applied) {
+            return;
+        }
+
+        throw new \RuntimeException(
+            'could not ' . $operation . ' for ' . $table
+            . ' — the call was made and the catalogue does not show it. The driver error '
+            . 'is in the migrations log. The usual causes: an interval given for an '
+            . 'integer time column (a bigint column needs a plain number, not "7 days"), '
+            . 'or a table that already holds rows being converted without migrate_data.'
+        );
+    }
+
+    /**
+     * Refuse a declaration whose intervals cannot have the time column's type.
+     *
+     * TimescaleDB requires every offset — the chunk interval, the compression and
+     * retention windows — to have the type of the time column. Given a `bigint` column
+     * and `'7 days'`, it does not say that: it says no function matches the argument
+     * types, which reads like a version problem and is not one.
+     *
+     * Checked here rather than at `register()` because that runs at boot, before there is
+     * a connection to ask about the column — and a declaration for a table that does not
+     * exist yet is perfectly ordinary.
+     *
+     * @param  array<string, mixed> $spec
+     * @throws \RuntimeException When an interval literal is declared for an integer column
+     */
+    protected static function assertDeclarationMatchesColumn(
+        SchemaBuilder $schema,
+        string $table,
+        array $spec
+    ): void {
+        $type = $schema->columnType($table, (string) $spec['time_column']);
+        if ($type === null
+            || !in_array($type, ['bigint', 'integer', 'int', 'int8', 'int4', 'smallint'], true)
+        ) {
+            return;
+        }
+
+        foreach (['chunk_interval', 'compress_after', 'retention'] as $key) {
+            $value = $spec[$key] ?? null;
+            if ($value === null || is_int($value) || is_numeric($value)) {
+                continue;
+            }
+
+            throw new \RuntimeException(
+                $table . '.' . $spec['time_column'] . ' is ' . $type . ', so `' . $key
+                . '` must be a number in the unit that column stores — "' . $value
+                . '" is an interval and TimescaleDB will refuse it. Declare seconds (or '
+                . 'whatever the column holds) as an integer.'
+            );
         }
     }
 

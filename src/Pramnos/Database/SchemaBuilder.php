@@ -619,9 +619,12 @@ class SchemaBuilder
         foreach ($options as $key => $value) {
             if (is_bool($value)) {
                 $value = $value ? 'true' : 'false';
-            } elseif (is_string($value)) {
+            } elseif (is_string($value) || is_int($value)) {
                 $value = in_array($key, $intervalOptions, true)
-                    ? "INTERVAL '{$value}'"
+                    // A numeric value is a bigint offset for an integer time column, and
+                    // wrapping it in INTERVAL is what made every conversion of such a
+                    // table fail — silently, because nothing read the result back.
+                    ? self::timescaleOffset($value)
                     : "'{$value}'";
             }
             $sql .= ", {$key} => {$value}";
@@ -905,11 +908,68 @@ class SchemaBuilder
 
         $resolved = $this->resolveTable($table);
 
+        // The offset has to have the time column's type, and `INTERVAL '30 days'` only
+        // has it when that column is a timestamp. On a `bigint` time column — a Unix
+        // timestamp, which is an ordinary choice — TimescaleDB rejects the interval form
+        // outright, and the rejection was logged and then reported as a tick.
+        $offset = self::timescaleOffset($compressAfter);
+
         return $this->runTimescaleStatement(
-            "SELECT add_compression_policy('{$resolved}', INTERVAL '{$compressAfter}')",
+            "SELECT add_compression_policy('{$resolved}', {$offset})",
             'compression policy',
             $table
         );
+    }
+
+    /**
+     * A policy offset in the spelling TimescaleDB wants for the column's type.
+     *
+     * `'2592000'` is a `bigint` offset, for an integer time column; `'30 days'` is an
+     * interval literal, for a timestamp one. The caller says which by what it passes,
+     * because only the caller knows what the column stores — seconds, milliseconds and
+     * microseconds are all plausible in a `bigint`, and nothing can convert `'30 days'`
+     * into one of them without guessing.
+     *
+     * Told apart by the value rather than by a new parameter: widening the signature
+     * would be a fatal at class load for any subclass that overrides the method, which
+     * this repository's own test double demonstrated within a minute of trying it.
+     */
+    protected static function timescaleOffset(int|string $value): string
+    {
+        if (is_int($value) || (is_numeric($value) && (string) (int) $value === trim((string) $value))) {
+            return (int) $value . '::bigint';
+        }
+
+        return "INTERVAL '" . $value . "'";
+    }
+
+    /**
+     * The declared type of one column, lower-cased, or null when it cannot be read.
+     *
+     * Used to tell a `bigint` time column from a `timestamptz` one before a hypertable
+     * declaration is applied: the two need different spellings for every interval in the
+     * declaration, and getting it wrong is a failure TimescaleDB reports in terms of
+     * function overloads rather than of the column.
+     */
+    public function columnType(string $table, string $column): ?string
+    {
+        try {
+            $result = $this->db->getColumns($this->resolveTable($table), null, false, true);
+        } catch (\Throwable) {
+            return null;
+        }
+
+        if ($result === false) {
+            return null;
+        }
+
+        while ($result->fetch()) {
+            if (strcasecmp((string) ($result->fields['Field'] ?? ''), $column) === 0) {
+                return strtolower(explode('(', (string) ($result->fields['Type'] ?? ''))[0]);
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -985,7 +1045,11 @@ class SchemaBuilder
         string $endOffset,
         string $scheduleInterval
     ): bool {
-        if ($this->capabilities->hasTimescaleDB()) {
+        // What the view *is*, not what the server has. A TimescaleDB too old to maintain
+        // one of these aggregates gets a plain materialised view instead, and asking it
+        // for a native refresh job would fail — logged, and then invisible, which is the
+        // shape of failure this whole area has been fixing.
+        if ($this->isContinuousAggregate($view)) {
             $resolved = $this->resolveTable($view);
 
             return $this->runTimescaleStatement(
@@ -1054,9 +1118,48 @@ class SchemaBuilder
             foreach ($withOpts as $k => $v) {
                 $withParts[] = $k . ' = ' . ($v === true ? 'true' : ($v === false ? 'false' : "'{$v}'"));
             }
-            $this->db->query(
-                "CREATE MATERIALIZED VIEW {$resolved} WITH (" . implode(', ', $withParts) . ") AS {$sql}"
-            );
+
+            /*
+             * A continuous aggregate when this TimescaleDB can maintain one, and a plain
+             * materialised view when it cannot.
+             *
+             * An aggregate is maintained incrementally, so every expression in it needs a
+             * partial/combine form. `percentile_cont(…) WITHIN GROUP (…)` and
+             * `COUNT(DISTINCT …)` have none, and where a newer TimescaleDB accepts them an
+             * older one answers `invalid continuous aggregate view` — observed accepted at
+             * 2.30.0 and refused at 2.26.4.
+             *
+             * That is not an exotic host. Timescale stopped building for Debian 11, so on
+             * bullseye + PostgreSQL 17 the newest installable package is 2.26.4 and
+             * upgrading the extension means upgrading the operating system. Three framework
+             * migrations failed there permanently — `migrate` ending in three red crosses
+             * on every run, which is a thing that gets learned and ignored.
+             *
+             * The fallback keeps every column: it is the same SELECT, and it is the branch
+             * plain PostgreSQL has always taken. What changes is how it refreshes — a row
+             * in `pramnos.framework_policies` executed by the PolicyEngine daemon instead
+             * of a TimescaleDB background job — which `addContinuousAggregatePolicy()`
+             * decides by asking what the view *is* rather than what the server has.
+             */
+            try {
+                $created = (bool) $this->db->query(
+                    "CREATE MATERIALIZED VIEW {$resolved} WITH ("
+                    . implode(', ', $withParts) . ") AS {$sql}"
+                );
+            } catch (\Throwable $ex) {
+                $created = false;
+                \Pramnos\Logs\Logger::log(
+                    'Continuous aggregate ' . $name . ' was refused by this TimescaleDB ('
+                    . $ex->getMessage() . '). Creating a plain materialised view with the '
+                    . 'same columns, refreshed by the PolicyEngine daemon instead of a '
+                    . 'background job.',
+                    'migrations'
+                );
+            }
+
+            if (!$created) {
+                $this->db->query("CREATE MATERIALIZED VIEW {$resolved} AS {$sql}");
+            }
         } elseif ($this->capabilities->isPostgreSQL()) {
             $this->db->query("CREATE MATERIALIZED VIEW {$resolved} AS {$sql}");
         } else {
@@ -1542,6 +1645,38 @@ class SchemaBuilder
      * @param  string $view Logical view name, e.g. `authserver.daily_2fa_stats`
      * @return bool
      */
+    /**
+     * Is this view a TimescaleDB continuous aggregate, or an ordinary materialised view?
+     *
+     * The two are told apart by the catalogue rather than by the extension's presence: a
+     * TimescaleDB too old to maintain a given aggregate gets the plain form instead, and
+     * everything downstream — the refresh policy, the manual refresh — has to follow the
+     * view rather than the server.
+     */
+    public function isContinuousAggregate(string $view): bool
+    {
+        if (!$this->capabilities->hasTimescaleDB()) {
+            return false;
+        }
+
+        [$schema, $name] = $this->splitTable($view);
+
+        try {
+            $result = $this->db->query(
+                $this->db->prepareQuery(
+                    'SELECT 1 FROM timescaledb_information.continuous_aggregates'
+                    . ' WHERE view_name = %s' . ($schema === '' ? '' : ' AND view_schema = %s'),
+                    $name,
+                    ...($schema === '' ? [] : [$schema])
+                )
+            );
+        } catch (\Throwable) {
+            return false;
+        }
+
+        return is_object($result) && $result->numRows > 0;
+    }
+
     public function hasContinuousAggregatePolicy(string $view): bool
     {
         if ($this->capabilities->hasTimescaleDB()) {

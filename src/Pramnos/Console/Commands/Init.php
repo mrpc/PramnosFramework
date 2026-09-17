@@ -617,7 +617,16 @@ class Init extends Command
             $dbType, $dbHost, $dbName, $dbUser, $dbPass, $dbPrefix,
             // MySQL's image needs a root password of its own, and it was being written
             // straight into the committed docker-compose.yml.
-            $dbType === 'mysql' ? ['APP_DB_ROOT_PASSWORD' => [$dbRootPass, '']] : [],
+            //
+            // The cache host joins it for the reason `.env.example` exists: it is the
+            // answer to "I have just cloned this, what do I need?", and until now the
+            // cache was not in the answer — it was the Compose service name, written
+            // literally into settings.php, failing on every host that is not that
+            // Compose file and falling back to the file driver in silence.
+            array_merge(
+                $dbType === 'mysql' ? ['APP_DB_ROOT_PASSWORD' => [$dbRootPass, '']] : [],
+                self::cacheEnvKeys($cacheSystem)
+            ),
             $useDocker
         );
         $this->scaffoldSettings('app/config/settings.php', $dbType, $dbHost, $dbName, $dbUser, $dbPass, $dbPrefix, true, $cacheSystem);
@@ -3109,8 +3118,26 @@ CSS;
 define('ROOT', dirname(__DIR__));
 require ROOT . '/vendor/autoload.php';
 
-\$dotenv = \\Dotenv\\Dotenv::createImmutable(ROOT);
-\$dotenv->safeLoad();
+// The framework's own helper, autoloaded by the line above. `\\Dotenv\\Dotenv` is
+// vlucas/phpdotenv, which neither this project nor the framework requires — calling it
+// here was a fatal on the first delivery, recorded by the provider as a 500 and by nobody
+// else. What the framework ships is symfony/dotenv, wrapped in this.
+loadDotenv(ROOT);
+
+/*
+ * The PHP binary to deploy with, not whatever `php` happens to be.
+ *
+ * On a multi-version host the unversioned `php` is the *system* default, which can be
+ * years older than the one serving the site — and composer inherits it through its own
+ * `#!/usr/bin/env php`, so `composer install` refuses to run before anything else does.
+ *
+ * `PHP_BINARY` here is php-fpm's, which cannot run a script, so the version it reports is
+ * used to name the CLI beside it. Falls back to plain `php` on a host that has only one.
+ */
+\$phpBinary = 'php' . PHP_MAJOR_VERSION . '.' . PHP_MINOR_VERSION;
+if (!is_executable('/usr/bin/' . \$phpBinary)) {
+    \$phpBinary = PHP_SAPI === 'cli' ? PHP_BINARY : 'php';
+}
 
 \$handler = new \\Pramnos\\Webhook\\WebhookHandler(
     secret:     \$_ENV['WEBHOOK_SECRET'] ?? '',
@@ -3122,7 +3149,10 @@ require ROOT . '/vendor/autoload.php';
     'git fetch --all',
     'git reset --hard origin/main',
     'composer install --no-dev --optimize-autoloader',
-    'php {$cliName} migrate',
+    // An explicit binary, not `php`. On a multi-version host the unversioned one is
+    // the system default — which can be old enough that composer, inheriting it
+    // through its own `#!/usr/bin/env php`, refuses to run at all.
+    \$phpBinary . ' {$cliName} migrate',
 ]);
 
 // Add more branches as needed:
@@ -3520,8 +3550,27 @@ PHP;
 
         $cacheConfig = '';
         if ($cacheSystem !== 'none') {
-            $port = ($cacheSystem === 'redis') ? 6379 : 11211;
-            $cacheConfig = "\n    'cache' => [\n        'method' => '$cacheSystem',\n        'hostname' => 'cache',\n        'port' => $port,\n    ],";
+            /*
+             * Through `envvar()`, like every other value in this file.
+             *
+             * `'hostname' => 'cache'` is the Docker Compose service name, written literally.
+             * On any host that is not that Compose file the connection fails — and the cache
+             * layer falls back to the file driver without raising anything, so the
+             * application is simply slower, for ever. The only place it is stated is one line
+             * of `health:check`: `Running on file, configured for redis`.
+             *
+             * The Compose name stays as the default, so development keeps working with no
+             * `.env` at all.
+             */
+            $port    = ($cacheSystem === 'redis') ? 6379 : 11211;
+            $hostVar = ($cacheSystem === 'redis') ? 'APP_REDIS_HOST' : 'APP_MEMCACHED_HOST';
+            $portVar = ($cacheSystem === 'redis') ? 'APP_REDIS_PORT' : 'APP_MEMCACHED_PORT';
+
+            $cacheConfig = "\n    'cache' => [\n"
+                . "        'method'   => envvar('APP_CACHE_METHOD', '$cacheSystem'),\n"
+                . "        'hostname' => envvar('$hostVar', 'cache'),\n"
+                . "        'port'     => (int) envvar('$portVar', $port),\n"
+                . "    ],";
         }
 
         // The test settings are never the development environment: the suite asserts
@@ -3583,6 +3632,32 @@ PHP;
      *
      * @param list<string> $extra Additional `KEY=value` lines (the MySQL root password)
      */
+    /**
+     * The `.env` keys the cache block reads, or none when there is no cache.
+     *
+     * The Compose service name is the default in both files: development works with no
+     * `.env` change, and a deployment that is not Compose has a key to set rather than a
+     * literal to find in `settings.php`.
+     *
+     * @param  string $cacheSystem 'redis', 'memcached' or 'none'
+     * @return array<string, array{0: string, 1: string}>
+     */
+    private static function cacheEnvKeys(string $cacheSystem): array
+    {
+        if ($cacheSystem === 'none') {
+            return [];
+        }
+
+        $port   = $cacheSystem === 'redis' ? '6379' : '11211';
+        $prefix = $cacheSystem === 'redis' ? 'APP_REDIS' : 'APP_MEMCACHED';
+
+        return [
+            'APP_CACHE_METHOD'   => [$cacheSystem, $cacheSystem],
+            $prefix . '_HOST'    => ['cache', 'cache'],
+            $prefix . '_PORT'    => [$port, $port],
+        ];
+    }
+
     private function scaffoldEnvFiles(
         string $dbType, string $dbHost, string $dbName, string $dbUser, string $dbPass,
         string $dbPrefix, array $extra = [], bool $useDocker = false
@@ -7038,8 +7113,26 @@ PHP;
          * forgotten once.
          */
         $lines[] = '/app/keys/*.key';
-        $lines[] = '!/app/keys/public.key';
-        $lines[] = '!/app/keys/vapid_public.key';
+
+        /*
+         * …and no exceptions for the public halves.
+         *
+         * They were un-ignored on the reasoning that a public key is public. It is — and
+         * that is not the question. The question is whether it is **environment-specific**,
+         * and half of a pair always is: the first deployment shipped development's
+         * `public.key` to production, where nothing then generated a pair because one of
+         * the two files was already there. The application served pages normally and only
+         * the OAuth2 server was broken, which is found by whoever first tries to sign in
+         * through it — the framework's own health check had been saying
+         * `signing_keys: DOWN — The private signing key is missing or unreadable` the
+         * whole time.
+         *
+         * `vapid_public.key` has a genuine argument for being fixed across environments —
+         * browsers pin it in every push subscription, so regenerating it invalidates them
+         * all. That argument is for shipping *both* halves deliberately, through whatever
+         * carries the rest of an environment's secrets. It is not an argument for
+         * committing one of them.
+         */
 
         $content = implode("\n", $lines) . "\n";
 
