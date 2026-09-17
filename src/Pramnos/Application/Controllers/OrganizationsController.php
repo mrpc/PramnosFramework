@@ -525,11 +525,6 @@ class OrganizationsController extends Controller
         return $fallback;
     }
 
-    protected function terminate(): void
-    {
-        exit;
-    }
-
 
     /**
      * Returns the fully-qualified membership table name, respecting the

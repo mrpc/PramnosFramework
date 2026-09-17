@@ -960,6 +960,51 @@ The prefix must match a **whole segment**: `/administration` is not inside an ar
 mounted at `admin`, and `REQUEST_URI` is never rewritten, so every `return=`,
 log line and session record keeps the address the visitor actually asked for.
 
+## Ending a request from a controller — `terminate()`, never `exit`
+
+A controller that has written a complete response — a file download, another application's HTML,
+a redirect it has already sent — has to stop the request before the framework renders a theme
+after it. `Controller::terminate()` is how:
+
+```php
+http_response_code(200);
+header('Content-Type: application/pdf');
+readfile($path);
+$this->terminate();
+```
+
+**Never write `exit` for this.** Under a test runner `exit` does not fail — it ends the process:
+no summary, no failure count, and **exit status 0**, which every CI reads as a pass. A suite that
+walked a project's controllers stopped at 126 of 198 and printed a grant page where the summary
+should have been; nothing reported anything wrong.
+
+`terminate()` exits in production and throws `ApplicationClosedException` under any test runner —
+`PRAMNOS_TESTING`, which the framework's own test bootstrap defines, or either of the constants
+PHPUnit defines whichever way it was installed. The type is the same one `Application::close()`
+throws, so a test that already catches it around one part of the framework catches this too.
+
+### Testing a controller that ends the request
+
+Expect the exception; do not mock the method away:
+
+```php
+$this->expectException(\Pramnos\Application\ApplicationClosedException::class);
+$controller->download('report.pdf');
+```
+
+The message names the class (`App\Controllers\Reports::terminate() called`), which is what tells
+you *which* controller stopped a run that stopped somewhere unexpected.
+
+### Why it is not a seam to override
+
+It is `protected`, so a subclass still can. It used to be *only* that: eight framework controllers
+each carried their own `protected function terminate() { exit; }` with a comment saying it "can be
+mocked in tests" — four different behaviours between them, including one that returned and one
+that threw a bare `\Exception` with a message tests matched on by string. A seam only helps
+somebody who already knows they need it, and the ninth controller to end a request is written by
+somebody who does not. The default is right now, in one place, and overriding it is for a
+controller that needs something else rather than for one that needs this.
+
 ## Reference
 
 For related guides:

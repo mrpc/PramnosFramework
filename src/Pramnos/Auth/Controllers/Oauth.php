@@ -37,17 +37,6 @@ class Oauth extends Controller
      */
     public const FORM_ACTION_SESSION_KEY = 'pramnos_oauth_form_action';
 
-    /**
-     * Terminate execution. Overridden in tests to prevent exit.
-     */
-    protected function terminate(): void
-    {
-        if (defined('PRAMNOS_TESTING')) {
-            throw new \Exception("OAuth controller terminated");
-        }
-        exit;
-    }
-
     private OAuth2ServerFactory $oauth2Factory;
 
     public function __construct(?\Pramnos\Application\Application $application = null)
@@ -229,9 +218,13 @@ class Oauth extends Controller
             $this->logAuthorizeRefusal($ex->getMessage());
             $this->showErrorPage($ex->getMessage());
         } catch (\Exception $ex) {
-            if ($ex->getMessage() === 'OAuth controller terminated') {
-                throw $ex;
-            }
+            /*
+             * There used to be a `getMessage() === 'OAuth controller terminated'` rethrow
+             * here — somebody meeting an end-of-request signal that had no type and working
+             * around the one instance in front of them. `terminate()` throws
+             * `ApplicationClosedException` now, which the first catch above takes, so the
+             * string comparison was matching nothing and saying it still mattered.
+             */
             $this->logAuthorizeRefusal($ex->getMessage());
             $this->showErrorPage($ex->getMessage());
         }

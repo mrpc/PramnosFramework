@@ -1298,7 +1298,7 @@ class OauthCoverageTest extends TestCase
 
     /**
      * authorize() must re-throw exceptions whose message is exactly
-     * "OAuth controller terminated" so that test infrastructure can detect
+     * "…Oauth::terminate() called" so that test infrastructure can detect
      * the terminate() call.
      *
      * This covers lines 147-149 of the outer catch block.
@@ -1347,9 +1347,9 @@ class OauthCoverageTest extends TestCase
             $app->currentUser = clone $user;
         }
 
-        // Act — issueCodeAndRedirect → terminate() → throws "OAuth controller terminated"
+        // Act — issueCodeAndRedirect → terminate() → throws ApplicationClosedException
         $this->expectException(\Exception::class);
-        $this->expectExceptionMessage('OAuth controller terminated');
+        $this->expectExceptionMessage('Oauth::terminate() called');
 
         try {
             $realController->authorize();

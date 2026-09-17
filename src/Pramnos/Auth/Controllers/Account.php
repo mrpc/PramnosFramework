@@ -2475,12 +2475,4 @@ class Account extends Controller
          */
         $this->redirect(sURL . $this->routeBase . '/applications');
     }
-
-    /**
-     * Terminate the request. Can be mocked in tests.
-     */
-    protected function terminate(): void
-    {
-        exit;
-    }
 }

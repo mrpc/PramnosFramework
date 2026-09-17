@@ -220,14 +220,6 @@ class ApplicationsController extends Controller
     }
 
     /**
-     * Terminate the request. Can be mocked in tests.
-     */
-    protected function terminate(): void
-    {
-        exit;
-    }
-
-    /**
      * Create/edit form for an OAuth2 application.
      * id=0 opens the create form; existing id loads the current data.
      */

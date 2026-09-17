@@ -501,14 +501,6 @@ class DebugGrantController extends Controller
         return null;
     }
 
-    /**
-     * Overridable so tests do not exit. {@see respond()}
-     */
-    protected function terminate(): void
-    {
-        exit;
-    }
-
     private function baseUrl(): string
     {
         return defined('sURL') ? rtrim((string) sURL, '/') : '';

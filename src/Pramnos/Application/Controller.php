@@ -250,6 +250,59 @@ class Controller extends \Pramnos\Framework\Base
     }
 
     /**
+     * End the request — and do not end the process when something else is using it.
+     *
+     * **A bare `exit` inside a test runner is worse than a failure.** PHPUnit's process
+     * simply stops: no summary, no failure count, and **exit status 0**, which every CI
+     * reads as a pass. A test that walked a project's controllers truncated the run at 126
+     * of 198 and printed a grant page where the summary should have been.
+     *
+     * This lived in eight controllers as eight copies of `protected function terminate()`,
+     * in three different behaviours: five exited unconditionally, `Adminer` returned under
+     * PHPUnit, and `DevPanelController` threw under `PRAMNOS_TESTING`. Each copy carried a
+     * comment saying it "can be mocked in tests" — which is a seam, and a seam only helps
+     * somebody who already knows they need it. The ninth controller to end a request would
+     * have been written by somebody who did not.
+     *
+     * So it is here, once, and the default is right. A subclass that needs different
+     * behaviour still overrides it; nobody has to.
+     *
+     * **It throws rather than returning**, matching `Application::close()` and the type it
+     * throws, so a caller that already catches `ApplicationClosedException` around one part
+     * of the framework catches it around this one too. Returning would let the code after
+     * the call run in a request that had decided it was finished — which is a different bug
+     * and a quieter one.
+     *
+     * The status is read back from PHP rather than passed in: every call site has already
+     * set it with `http_response_code()` by the time it gets here, and a parameter would be
+     * a signature change for everybody who has overridden this.
+     *
+     * @throws \Pramnos\Application\ApplicationClosedException Under any test runner
+     * @return void
+     */
+    protected function terminate(): void
+    {
+        // Three constants because there are three ways to be under a runner and only one of
+        // them is ours: `TestEnvironment::setup()` defines `PRAMNOS_TESTING` for a project
+        // that uses the framework's own bootstrap, and PHPUnit defines one of the other two
+        // whichever way it was installed. A project running PHPUnit without our bootstrap
+        // is exactly the case that got this wrong.
+        if (defined('PRAMNOS_TESTING')
+            || defined('PHPUNIT_COMPOSER_INSTALL')
+            || defined('__PHPUNIT_PHAR__')
+        ) {
+            $status = http_response_code();
+
+            throw new \Pramnos\Application\ApplicationClosedException(
+                static::class . '::terminate() called',
+                is_int($status) ? $status : 200
+            );
+        }
+
+        exit;
+    }
+
+    /**
      * Controller constructor
      * @param \Pramnos\Application\Application $application
      * @param array|string $userPermissions

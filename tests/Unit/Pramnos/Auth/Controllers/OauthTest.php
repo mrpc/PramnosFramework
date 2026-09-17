@@ -201,7 +201,7 @@ class OauthTest extends TestCase
         $_SERVER['REQUEST_METHOD'] = 'OPTIONS';
         
         $this->expectException(\Exception::class);
-        $this->expectExceptionMessage('OAuth controller terminated');
+        $this->expectExceptionMessage('Oauth::terminate() called');
 
         new Oauth(new Application());
     }
@@ -287,7 +287,7 @@ class OauthTest extends TestCase
         try {
             $this->controller->authorize();
         } catch (\Exception $e) {
-            $this->assertEquals('OAuth controller terminated', $e->getMessage());
+            $this->assertStringContainsString('Oauth::terminate() called', $e->getMessage());
         }
         
         // Verify consent and auth code
@@ -787,7 +787,7 @@ class OauthTest extends TestCase
             // If we get here, the exception was caught internally and showed error page
             $this->assertTrue(true);
         } catch (\Exception $e) {
-            $this->assertEquals('OAuth controller terminated', $e->getMessage());
+            $this->assertStringContainsString('Oauth::terminate() called', $e->getMessage());
         } finally {
             if ($app) {
                 $app->currentUser = null;
@@ -881,7 +881,7 @@ class OauthTest extends TestCase
             $this->controller->authorize();
             $this->assertTrue(true);
         } catch (\Exception $e) {
-            $this->assertEquals('OAuth controller terminated', $e->getMessage());
+            $this->assertStringContainsString('Oauth::terminate() called', $e->getMessage());
         } finally {
             if ($app) {
                 $app->currentUser = null;

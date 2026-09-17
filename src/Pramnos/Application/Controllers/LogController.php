@@ -17,14 +17,6 @@ use Pramnos\Logs\Logger;
 class LogController extends Controller
 {
     /**
-     * Terminate the execution of the request (useful for testing redirects and file downloads)
-     */
-    protected function terminate(): void
-    {
-        exit;
-    }
-
-    /**
      * Send header (wrapper for testing)
      */
     protected function sendHeader(string $header): void

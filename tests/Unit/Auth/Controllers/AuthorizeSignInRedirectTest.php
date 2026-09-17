@@ -24,7 +24,8 @@ use Pramnos\Auth\Controllers\Oauth;
  * The escape hatch that existed was a string comparison against a message
  * (`'OAuth controller terminated'`) — somebody meeting this and working around the
  * one instance in front of them. Both signals have types now, and both are
- * rethrown ahead of the generic catch.
+ * rethrown ahead of the generic catch; the string comparison is gone, because
+ * `terminate()` throws `ApplicationClosedException` and the first block takes it.
  *
  * The rethrow itself is asserted on the source. Reaching that line behaviourally
  * needs a signed-out request to get past parameter validation and a client
@@ -75,7 +76,8 @@ class AuthorizeSignInRedirectTest extends TestCase
         // Act
         $closed = strpos($source, 'catch (\Pramnos\Application\ApplicationClosedException $ex) {');
         $redirect = strpos($source, 'catch (\Pramnos\Http\RedirectException $ex) {');
-        $generic = strpos($source, "if (\$ex->getMessage() === 'OAuth controller terminated') {");
+        // The generic handler, which is what both specific ones have to precede.
+        $generic = strpos($source, 'catch (\Exception $ex) {');
 
         // Assert
         $this->assertIsInt($closed);

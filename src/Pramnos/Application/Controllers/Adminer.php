@@ -903,29 +903,19 @@ class Adminer extends \Pramnos\Application\Controller
             header('Content-Type: text/plain; charset=utf-8');
         }
 
+        /*
+         * The request ends here, and it has to end completely.
+         *
+         * What has just been written is a complete HTML document — Adminer's own — and
+         * letting the request continue would render the site's theme after it. The
+         * framework's `raw` document type is the usual way to say that, but it also injects
+         * CSP nonces, and Adminer is full of inline `onclick` handlers that a nonce policy
+         * blocks whatever the nonces say. This route sends its own policy instead, and the
+         * only way that policy survives is for nothing else to run.
+         *
+         * `Controller::terminate()` is what does it, and under a test runner it throws
+         * rather than taking the runner with it.
+         */
         $this->terminate();
-    }
-
-    /**
-     * End the request here.
-     *
-     * `exit`, because what has just been written is a complete HTML document — Adminer's own —
-     * and letting the request continue would render the site's theme after it. The framework's
-     * `raw` document type is the usual way to say that, but it also injects CSP nonces, and
-     * Adminer is full of inline `onclick` handlers that a nonce policy blocks whatever the
-     * nonces say. This route sends its own policy instead, and the only way that policy
-     * survives is for nothing else to run.
-     *
-     * Under PHPUnit it returns instead: `exit` there takes the test runner with it, and an
-     * integration test asking whether this route resolves at all is worth having. The same
-     * accommodation `LogController` makes for the same reason.
-     */
-    protected function terminate(): void
-    {
-        if (defined('PHPUNIT_COMPOSER_INSTALL') || defined('__PHPUNIT_PHAR__')) {
-            return;
-        }
-
-        exit;
     }
 }
