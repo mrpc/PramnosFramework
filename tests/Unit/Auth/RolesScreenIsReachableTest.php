@@ -73,6 +73,14 @@ class RolesScreenIsReachableTest extends TestCase
 
         $missing = [];
 
+        // A sweep over nothing passes. The collection is asserted non-empty first: a
+
+        // registry that failed to populate, or a helper that quietly returns [], turns
+
+        // this guard into a no-op that still reports success.
+
+        $this->assertNotEmpty(array_unique($matches[1] ?? []), 'the sweep found nothing to check');
+
         foreach (array_unique($matches[1] ?? []) as $screen) {
             /*
              * Case-insensitive, and either directory.

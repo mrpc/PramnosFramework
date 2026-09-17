@@ -660,6 +660,10 @@ class LogControllerTest extends TestCase
     public function testStatsWithNoLogFilesShowsEmptyMessage(): void
     {
         // Arrange — remove all log files
+        // A sweep over nothing passes. The collection is asserted non-empty first: a
+        // registry that failed to populate, or a helper that quietly returns [], turns
+        // this guard into a no-op that still reports success.
+        $this->assertNotEmpty(glob($this->logDir . DS . '*.log') ?: [], 'the sweep found nothing to check');
         foreach (glob($this->logDir . DS . '*.log') ?: [] as $f) {
             unlink($f);
         }

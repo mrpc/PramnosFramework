@@ -107,6 +107,10 @@ class FlatCacheTest extends TestCase
         $c = $this->cache();
         $c->setMultiple(['a' => 1, 'b' => 2]);
         $out = [];
+        // A sweep over nothing passes. The collection is asserted non-empty first: a
+        // registry that failed to populate, or a helper that quietly returns [], turns
+        // this guard into a no-op that still reports success.
+        $this->assertNotEmpty($c->getMultiple(['a', 'b']), 'the sweep found nothing to check');
         foreach ($c->getMultiple(['a', 'b']) as $k => $v) {
             $out[$k] = $v;
         }

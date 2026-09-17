@@ -101,6 +101,10 @@ class DocsRetrievabilityTest extends TestCase
         $nav = $this->navTargets();
 
         // Act / Assert
+        // A sweep over nothing passes. The collection is asserted non-empty first: a
+        // registry that failed to populate, or a helper that quietly returns [], turns
+        // this guard into a no-op that still reports success.
+        $this->assertNotEmpty(array_keys($this->indexablePages()), 'the sweep found nothing to check');
         foreach (array_keys($this->indexablePages()) as $file) {
             $this->assertContains(
                 $file,
@@ -121,6 +125,10 @@ class DocsRetrievabilityTest extends TestCase
     {
         // Arrange / Act
         $missing = [];
+        // A sweep over nothing passes. The collection is asserted non-empty first, because a
+        // moved directory or a renamed helper turns this guard into a no-op that still reports
+        // success — which is how a guard stops guarding without anybody noticing.
+        $this->assertNotEmpty($this->navTargets(), 'the sweep found nothing to check');
         foreach ($this->navTargets() as $target) {
             if (!is_file($this->docsDir . '/' . $target)) {
                 $missing[] = $target;

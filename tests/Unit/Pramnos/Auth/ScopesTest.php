@@ -83,6 +83,10 @@ class ScopesTest extends TestCase
     {
         // Arrange — collect all scope identifiers across all categories
         $allScopeIds = [];
+        // A sweep over nothing passes. The collection is asserted non-empty first: a
+        // registry that failed to populate, or a helper that quietly returns [], turns
+        // this guard into a no-op that still reports success.
+        $this->assertNotEmpty(Scopes::getScopes(), 'the sweep found nothing to check');
         foreach (Scopes::getScopes() as $entries) {
             $allScopeIds = array_merge($allScopeIds, array_keys($entries));
         }
@@ -133,6 +137,10 @@ class ScopesTest extends TestCase
     {
         // Arrange — collect all scope IDs from getScopes()
         $expectedIds = [];
+        // A sweep over nothing passes. The collection is asserted non-empty first: a
+        // registry that failed to populate, or a helper that quietly returns [], turns
+        // this guard into a no-op that still reports success.
+        $this->assertNotEmpty(Scopes::getScopes(), 'the sweep found nothing to check');
         foreach (Scopes::getScopes() as $entries) {
             $expectedIds = array_merge($expectedIds, array_keys($entries));
         }
@@ -159,6 +167,10 @@ class ScopesTest extends TestCase
     {
         // Arrange — collect expected defaults from raw data
         $expected = [];
+        // A sweep over nothing passes. The collection is asserted non-empty first: a
+        // registry that failed to populate, or a helper that quietly returns [], turns
+        // this guard into a no-op that still reports success.
+        $this->assertNotEmpty(Scopes::getScopes(), 'the sweep found nothing to check');
         foreach (Scopes::getScopes() as $entries) {
             foreach ($entries as $scopeId => $details) {
                 if (!empty($details['is_default'])) {

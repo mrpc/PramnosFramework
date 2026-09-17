@@ -59,6 +59,10 @@ class PublishedViewsAreReachableTest extends TestCase
     {
         // Act
         $found = [];
+        // A sweep over nothing passes. The collection is asserted non-empty first, because a
+        // moved directory or a renamed helper turns this guard into a no-op that still reports
+        // success — which is how a guard stops guarding without anybody noticing.
+        $this->assertNotEmpty($this->themeViewRoots(), 'the sweep found nothing to check');
         foreach ($this->themeViewRoots() as $root) {
             if (file_exists($root . '/health/check.html.php')) {
                 $found[] = $root . '/health/check.html.php';
@@ -81,6 +85,10 @@ class PublishedViewsAreReachableTest extends TestCase
     {
         // Act
         $missing = [];
+        // A sweep over nothing passes. The collection is asserted non-empty first, because a
+        // moved directory or a renamed helper turns this guard into a no-op that still reports
+        // success — which is how a guard stops guarding without anybody noticing.
+        $this->assertNotEmpty($this->themeViewRoots(), 'the sweep found nothing to check');
         foreach ($this->themeViewRoots() as $root) {
             if (!file_exists($root . '/health/health.html.php')) {
                 $missing[] = $root;

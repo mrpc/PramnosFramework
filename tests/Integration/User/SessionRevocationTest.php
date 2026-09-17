@@ -395,6 +395,10 @@ class SessionRevocationTest extends BaseTestCase
 
         // Assert
         $byId = [];
+        // A sweep over nothing passes. The collection is asserted non-empty first: a
+        // registry that failed to populate, or a helper that quietly returns [], turns
+        // this guard into a no-op that still reports success.
+        $this->assertNotEmpty($this->tokenRows(), 'the sweep found nothing to check');
         foreach ($this->tokenRows() as $row) {
             $byId[(int) $row['tokenid']] = $row;
         }
@@ -478,6 +482,10 @@ class SessionRevocationTest extends BaseTestCase
         $_SESSION['usertoken'] = $mine;
 
         $before = [];
+        // A sweep over nothing passes. The collection is asserted non-empty first: a
+        // registry that failed to populate, or a helper that quietly returns [], turns
+        // this guard into a no-op that still reports success.
+        $this->assertNotEmpty($this->tokenRows(), 'the sweep found nothing to check');
         foreach ($this->tokenRows() as $row) {
             $before[(int) $row['tokenid']] = (int) $row['status'];
         }

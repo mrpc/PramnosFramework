@@ -210,6 +210,24 @@ they say. `FailIsNotSwallowedTest` keeps them that way. Only `\Throwable`, `\Exc
 and `\RuntimeException` swallow it — a `catch (ValidationException $e)` is fine, and a
 sweep that flagged those too would report 128 sites of which 88 are correct.
 
+### A sweep over nothing passes
+
+When every assertion in a test sits inside a `foreach`, the loop body *is* the test — and an
+empty collection means no assertion is evaluated at all. PHPUnit reports a pass, and not
+even a risky one: the `foreach` line counts as work.
+
+**Forty-five of these**, and the shape is not theoretical. `create:crud` registered every
+admin search source against a column called `name` for months, because the helper picking
+the columns destructured a pair into one variable and returned `[]` every time — and its
+test asserted "at most two" and "no empty strings", both true of nothing. Separately, a
+`glob()` over a directory that briefly vanished mid-run turned two theme sweeps into no-ops
+the same way.
+
+All forty-five collections turned out to be populated. `ASweepOverNothingDoesNotPassTest`
+keeps it that way, restricted to a `foreach` over a **call**: a literal array or a variable
+the test built above it cannot be empty by surprise, and flagging those reports three
+hundred sites of which almost none is a risk.
+
 ### A sentinel that can also be a real value
 
 The guard written to catch the next broken template reported success for every one of them.

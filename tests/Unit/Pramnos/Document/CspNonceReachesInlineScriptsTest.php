@@ -270,6 +270,10 @@ class CspNonceReachesInlineScriptsTest extends TestCase
         // Assert — scoped to script-src, because style-src legitimately still carries
         // the nonce: only script-src was given unsafe-inline.
         $scriptSrc = '';
+        // A sweep over nothing passes. The collection is asserted non-empty first: a
+        // registry that failed to populate, or a helper that quietly returns [], turns
+        // this guard into a no-op that still reports success.
+        $this->assertNotEmpty(explode('; ', $policy), 'the sweep found nothing to check');
         foreach (explode('; ', $policy) as $directive) {
             if (str_starts_with($directive, 'script-src ')) {
                 $scriptSrc = $directive;

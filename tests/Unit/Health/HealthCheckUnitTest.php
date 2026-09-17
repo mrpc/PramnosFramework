@@ -69,6 +69,10 @@ class HealthCheckUnitTest extends TestCase
      */
     public function testWorstOfEqualStatusReturnsSameStatus(): void
     {
+        // A sweep over nothing passes. The collection is asserted non-empty first: a
+        // registry that failed to populate, or a helper that quietly returns [], turns
+        // this guard into a no-op that still reports success.
+        $this->assertNotEmpty(HealthStatus::cases(), 'the sweep found nothing to check');
         foreach (HealthStatus::cases() as $status) {
             $this->assertSame($status, $status->worst($status));
         }

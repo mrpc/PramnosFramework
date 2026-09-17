@@ -86,6 +86,10 @@ class FrameworkScheduleTest extends TestCase
         FrameworkSchedule::register();
 
         // Assert
+        // A sweep over nothing passes. The collection is asserted non-empty first: a
+        // registry that failed to populate, or a helper that quietly returns [], turns
+        // this guard into a no-op that still reports success.
+        $this->assertNotEmpty(Scheduler::all(), 'the sweep found nothing to check');
         foreach (Scheduler::all() as $task) {
             $summary = $task->getSummary();
             $this->assertTrue(
@@ -108,6 +112,10 @@ class FrameworkScheduleTest extends TestCase
         FrameworkSchedule::register();
 
         // Assert
+        // A sweep over nothing passes. The collection is asserted non-empty first: a
+        // registry that failed to populate, or a helper that quietly returns [], turns
+        // this guard into a no-op that still reports success.
+        $this->assertNotEmpty(Scheduler::all(), 'the sweep found nothing to check');
         foreach (Scheduler::all() as $task) {
             $summary = $task->getSummary();
             $this->assertNotSame('', trim((string) $summary['description']));

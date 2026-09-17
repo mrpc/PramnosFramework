@@ -207,6 +207,10 @@ class HypertableRegistryTest extends TestCase
     public function testEveryDeclarationIsComplete(): void
     {
         // Act + Assert
+        // A sweep over nothing passes. The collection is asserted non-empty first: a
+        // registry that failed to populate, or a helper that quietly returns [], turns
+        // this guard into a no-op that still reports success.
+        $this->assertNotEmpty(HypertableRegistry::all(), 'the sweep found nothing to check');
         foreach (HypertableRegistry::all() as $table => $spec) {
             $this->assertNotSame('', (string) $spec['time_column'], $table . ': time column');
             $this->assertNotSame('', (string) $spec['chunk_interval'], $table . ': chunk interval');

@@ -122,6 +122,10 @@ class AdminUrlInViewsTest extends TestCase
     {
         // Arrange / Act
         $offenders = [];
+        // A sweep over nothing passes. The collection is asserted non-empty first, because a
+        // moved directory or a renamed helper turns this guard into a no-op that still reports
+        // success — which is how a guard stops guarding without anybody noticing.
+        $this->assertNotEmpty(glob($this->themesDir() . '/tailwind/views/*/*.php') ?: [], 'the sweep found nothing to check');
         foreach (glob($this->themesDir() . '/tailwind/views/*/*.php') ?: [] as $path) {
             if (str_contains((string) file_get_contents($path), $class)) {
                 $offenders[] = basename(dirname($path)) . '/' . basename($path);
@@ -172,6 +176,10 @@ class AdminUrlInViewsTest extends TestCase
     {
         // Arrange / Act
         $offenders = [];
+        // A sweep over nothing passes. The collection is asserted non-empty first, because a
+        // moved directory or a renamed helper turns this guard into a no-op that still reports
+        // success — which is how a guard stops guarding without anybody noticing.
+        $this->assertNotEmpty(glob($this->themesDir() . '/tailwind/views/*/*.php') ?: [], 'the sweep found nothing to check');
         foreach (glob($this->themesDir() . '/tailwind/views/*/*.php') ?: [] as $path) {
             $content = (string) file_get_contents($path);
             foreach (preg_split('/\r?\n/', $content) ?: [] as $number => $line) {

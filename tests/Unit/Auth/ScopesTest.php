@@ -121,6 +121,10 @@ class ScopesTest extends TestCase
     {
         // Arrange
         $allScopeKeys = [];
+        // A sweep over nothing passes. The collection is asserted non-empty first: a
+        // registry that failed to populate, or a helper that quietly returns [], turns
+        // this guard into a no-op that still reports success.
+        $this->assertNotEmpty(Scopes::getScopes(), 'the sweep found nothing to check');
         foreach (Scopes::getScopes() as $category) {
             $allScopeKeys = array_merge($allScopeKeys, array_keys($category));
         }
@@ -146,6 +150,10 @@ class ScopesTest extends TestCase
     {
         // Arrange
         $flat = [];
+        // A sweep over nothing passes. The collection is asserted non-empty first: a
+        // registry that failed to populate, or a helper that quietly returns [], turns
+        // this guard into a no-op that still reports success.
+        $this->assertNotEmpty(Scopes::getScopes(), 'the sweep found nothing to check');
         foreach (Scopes::getScopes() as $category) {
             foreach ($category as $scope => $details) {
                 $flat[$scope] = $details;

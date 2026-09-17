@@ -285,6 +285,10 @@ class StructuredOperationParityTest extends TestCase
     {
         // Arrange — arm every adapter before waiting once.
         $adapters = [];
+        // A sweep over nothing passes. The collection is asserted non-empty first: a
+        // registry that failed to populate, or a helper that quietly returns [], turns
+        // this guard into a no-op that still reports success.
+        $this->assertNotEmpty(array_keys(self::adapters()), 'the sweep found nothing to check');
         foreach (array_keys(self::adapters()) as $kind) {
             $adapter = $this->adapter($kind);
 

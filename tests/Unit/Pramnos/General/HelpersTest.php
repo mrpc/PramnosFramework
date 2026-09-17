@@ -308,6 +308,10 @@ class HelpersTest extends TestCase
 
         // Build an object with 5 properties but limit to 2
         $obj = new \stdClass();
+        // A sweep over nothing passes. The collection is asserted non-empty first: a
+        // registry that failed to populate, or a helper that quietly returns [], turns
+        // this guard into a no-op that still reports success.
+        $this->assertNotEmpty(range(1, 5), 'the sweep found nothing to check');
         foreach (range(1, 5) as $i) {
             $obj->{"prop{$i}"} = "value{$i}";
         }

@@ -165,6 +165,10 @@ class ApplicationFactoryPurityTest extends TestCase
         $offenders = [];
 
         // Act
+        // A sweep over nothing passes. The collection is asserted non-empty first, because a
+        // moved directory or a renamed helper turns this guard into a no-op that still reports
+        // success — which is how a guard stops guarding without anybody noticing.
+        $this->assertNotEmpty($this->guardedFiles(), 'the sweep found nothing to check');
         foreach ($this->guardedFiles() as $path => $contents) {
             if (isset(self::EXEMPT[$path])) {
                 continue;

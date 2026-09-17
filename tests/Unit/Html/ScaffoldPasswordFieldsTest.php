@@ -125,6 +125,14 @@ class ScaffoldPasswordFieldsTest extends TestCase
         // Act
         $missing = [];
 
+        // A sweep over nothing passes. The collection is asserted non-empty first: a
+
+        // registry that failed to populate, or a helper that quietly returns [], turns
+
+        // this guard into a no-op that still reports success.
+
+        $this->assertNotEmpty(self::passwordFields($theme), 'the sweep found nothing to check');
+
         foreach (self::passwordFields($theme) as $field) {
             if ($field['id'] === null) {
                 $missing[] = $field['file'] . ' — name="' . $field['name'] . '"';
@@ -155,6 +163,14 @@ class ScaffoldPasswordFieldsTest extends TestCase
     {
         // Arrange
         $rendered = [];
+
+        // A sweep over nothing passes. The collection is asserted non-empty first, because a
+
+        // moved directory or a renamed helper turns this guard into a no-op that still reports
+
+        // success — which is how a guard stops guarding without anybody noticing.
+
+        $this->assertNotEmpty(self::viewFiles($theme), 'the sweep found nothing to check');
 
         foreach (self::viewFiles($theme) as $path) {
             $source = (string) file_get_contents($path);
@@ -214,6 +230,14 @@ class ScaffoldPasswordFieldsTest extends TestCase
         // Act
         $wrong = [];
 
+        // A sweep over nothing passes. The collection is asserted non-empty first, because a
+
+        // moved directory or a renamed helper turns this guard into a no-op that still reports
+
+        // success — which is how a guard stops guarding without anybody noticing.
+
+        $this->assertNotEmpty(self::viewFiles($theme), 'the sweep found nothing to check');
+
         foreach (self::viewFiles($theme) as $path) {
             $source = (string) file_get_contents($path);
             $short  = str_replace(self::viewsDirectory($theme) . '/', '', $path);
@@ -255,6 +279,14 @@ class ScaffoldPasswordFieldsTest extends TestCase
     {
         // Arrange
         $ids = [];
+
+        // A sweep over nothing passes. The collection is asserted non-empty first: a
+
+        // registry that failed to populate, or a helper that quietly returns [], turns
+
+        // this guard into a no-op that still reports success.
+
+        $this->assertNotEmpty(self::passwordFields($theme), 'the sweep found nothing to check');
 
         foreach (self::passwordFields($theme) as $field) {
             if ($field['id'] !== null) {

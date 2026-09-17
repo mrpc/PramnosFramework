@@ -231,6 +231,10 @@ class DevPanelControllerTest extends TestCase
 
         // Simulate the auth registration that __construct() performs.
         $ctrl->addAuthAction(['display', 'db', 'cache', 'users', 'performance', 'git', 'phpinfo']);
+        // A sweep over nothing passes. The collection is asserted non-empty first: a
+        // registry that failed to populate, or a helper that quietly returns [], turns
+        // this guard into a no-op that still reports success.
+        $this->assertNotEmpty(array_keys(DevPanelController::getCustomPanels()), 'the sweep found nothing to check');
         foreach (array_keys(DevPanelController::getCustomPanels()) as $slug) {
             $ctrl->addAuthAction($slug);
         }

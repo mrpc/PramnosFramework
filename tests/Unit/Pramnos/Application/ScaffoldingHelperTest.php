@@ -377,6 +377,10 @@ class ScaffoldingHelperTest extends TestCase
         $groups = $syntheticHelper::listViewGroups('synthetic-edge');
 
         // Cleanup
+        // A sweep over nothing passes. The collection is asserted non-empty first: a
+        // registry that failed to populate, or a helper that quietly returns [], turns
+        // this guard into a no-op that still reports success.
+        $this->assertNotEmpty(glob($viewsDir . '/group_with_subdir/a_subdir') ?: [], 'the sweep found nothing to check');
         foreach (glob($viewsDir . '/group_with_subdir/a_subdir') ?: [] as $d) @rmdir($d);
         foreach (glob($viewsDir . '/*/*.html.php') ?: [] as $f) @unlink($f);
         foreach (glob($viewsDir . '/*.txt') ?: [] as $f) @unlink($f);

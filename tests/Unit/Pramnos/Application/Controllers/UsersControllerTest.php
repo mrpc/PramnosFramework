@@ -1344,6 +1344,10 @@ class UsersControllerTest extends TestCase
         $output = ob_get_clean() . (string) $this->controller->types();
 
         // Assert
+        // A sweep over nothing passes. The collection is asserted non-empty first: a
+        // registry that failed to populate, or a helper that quietly returns [], turns
+        // this guard into a no-op that still reports success.
+        $this->assertNotEmpty(\Pramnos\User\UserTypes::labels(), 'the sweep found nothing to check');
         foreach (\Pramnos\User\UserTypes::labels() as $label) {
             $this->assertStringContainsString($label, $output);
         }

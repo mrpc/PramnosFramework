@@ -42,6 +42,10 @@ class OrmGuideMatchesTheClassTest extends TestCase
         );
 
         $available = [];
+        // A sweep over nothing passes. The collection is asserted non-empty first: a
+        // registry that failed to populate, or a helper that quietly returns [], turns
+        // this guard into a no-op that still reports success.
+        $this->assertNotEmpty((new \ReflectionClass(OrmModel::class))->getMethods(), 'the sweep found nothing to check');
         foreach ((new \ReflectionClass(OrmModel::class))->getMethods() as $method) {
             if ($method->isStatic()) {
                 $available[] = $method->getName();

@@ -111,6 +111,10 @@ class ScaffoldThemeStylesheetTokensTest extends TestCase
 
         // Act
         $undefined = [];
+        // A sweep over nothing passes. The collection is asserted non-empty first: a
+        // registry that failed to populate, or a helper that quietly returns [], turns
+        // this guard into a no-op that still reports success.
+        $this->assertNotEmpty(array_unique($read[1]), 'the sweep found nothing to check');
         foreach (array_unique($read[1]) as $property) {
             if (in_array($property, $declared[1], true)) {
                 continue;

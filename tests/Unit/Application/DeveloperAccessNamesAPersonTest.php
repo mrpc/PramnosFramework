@@ -252,6 +252,10 @@ class DeveloperAccessNamesAPersonTest extends TestCase
         $debug = ['grant_min_usertype' => 100];
 
         // Assert
+        // A sweep over nothing passes. The collection is asserted non-empty first: a
+        // registry that failed to populate, or a helper that quietly returns [], turns
+        // this guard into a no-op that still reports success.
+        $this->assertNotEmpty(self::allThreeTools(), 'the sweep found nothing to check');
         foreach (self::allThreeTools() as [$tool, $floor]) {
             $this->assertTrue(
                 $this->ask($tool, $floor, 42, 7, $devpanel, $debug),

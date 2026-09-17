@@ -78,6 +78,10 @@ class ControllerActionSignatureTest extends TestCase
     {
         // Act
         $offenders = [];
+        // A sweep over nothing passes. The collection is asserted non-empty first: a
+        // registry that failed to populate, or a helper that quietly returns [], turns
+        // this guard into a no-op that still reports success.
+        $this->assertNotEmpty($this->controllerClasses(), 'the sweep found nothing to check');
         foreach ($this->controllerClasses() as $class) {
             $reflection = new \ReflectionClass($class);
             foreach ($reflection->getMethods(\ReflectionMethod::IS_PUBLIC) as $method) {

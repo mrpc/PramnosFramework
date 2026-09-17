@@ -145,6 +145,10 @@ class InitSecretsStayOutOfTheRepositoryTest extends TestCase
 
         // Assert
         $leaking = [];
+        // A sweep over nothing passes. The collection is asserted non-empty first, because a
+        // moved directory or a renamed helper turns this guard into a no-op that still reports
+        // success — which is how a guard stops guarding without anybody noticing.
+        $this->assertNotEmpty($this->committedFiles(), 'the sweep found nothing to check');
         foreach ($this->committedFiles() as $relative) {
             if (str_contains((string) file_get_contents($this->tmpDir . '/' . $relative), self::SECRET)) {
                 $leaking[] = $relative;

@@ -557,6 +557,10 @@ class ApiDebugPayloadTest extends TestCase
 
         // Act
         $flags = [];
+        // A sweep over nothing passes. The collection is asserted non-empty first: a
+        // registry that failed to populate, or a helper that quietly returns [], turns
+        // this guard into a no-op that still reports success.
+        $this->assertNotEmpty(ApiDebugPayload::headerLines(), 'the sweep found nothing to check');
         foreach (ApiDebugPayload::headerLines() as [$line, $replace]) {
             $flags[explode(':', $line, 2)[0]] = $replace;
         }
