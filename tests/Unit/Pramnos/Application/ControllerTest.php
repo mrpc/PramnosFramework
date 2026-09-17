@@ -524,6 +524,11 @@ class ControllerTest extends TestCase
         try {
             $ctrl->getModel('TestModel');
             $this->fail('Expected exception');
+        } catch (\PHPUnit\Framework\AssertionFailedError $assertionFailure) {
+            // `fail()` above throws PHPUnit's own error, which extends RuntimeException
+            // — so the broad catch below used to swallow it and assert on PHPUnit's
+            // message instead of the subject's. Re-thrown, so the branch can fail.
+            throw $assertionFailure;
         } catch (\Exception $e) {
             $this->assertStringContainsString('\Pramnos\Tests\Fixtures\MyApp\Models\TestModel', $e->getMessage());
         }

@@ -1193,6 +1193,11 @@ class DatabaseAdditionalCoverageTest extends TestCase
         try {
             $db->execute('SELECT 1');
             $this->fail('execute() must throw when database is not connected');
+        } catch (\PHPUnit\Framework\AssertionFailedError $assertionFailure) {
+            // `fail()` above throws PHPUnit's own error, which extends RuntimeException
+            // — so the broad catch below used to swallow it and assert on PHPUnit's
+            // message instead of the subject's. Re-thrown, so the branch can fail.
+            throw $assertionFailure;
         } catch (\Exception $e) {
             $this->assertStringContainsString('Database is not connected', $e->getMessage(),
                 'Exception must mention that the database is not connected');

@@ -202,6 +202,11 @@ class LogControllerTest extends TestCase
         try {
             $this->controller->export();
             $this->fail('Should have terminated');
+        } catch (\PHPUnit\Framework\AssertionFailedError $assertionFailure) {
+            // `fail()` above throws PHPUnit's own error, which extends RuntimeException
+            // — so the broad catch below used to swallow it and assert on PHPUnit's
+            // message instead of the subject's. Re-thrown, so the branch can fail.
+            throw $assertionFailure;
         } catch (\RuntimeException $e) {
             $this->assertEquals('TERMINATE_CALLED', $e->getMessage());
         }
@@ -222,6 +227,11 @@ class LogControllerTest extends TestCase
         try {
             $this->controller->export();
             $this->fail('Should have terminated');
+        } catch (\PHPUnit\Framework\AssertionFailedError $assertionFailure) {
+            // `fail()` above throws PHPUnit's own error, which extends RuntimeException
+            // — so the broad catch below used to swallow it and assert on PHPUnit's
+            // message instead of the subject's. Re-thrown, so the branch can fail.
+            throw $assertionFailure;
         } catch (\RuntimeException $e) {
             $this->assertEquals('TERMINATE_CALLED', $e->getMessage());
         }
@@ -240,6 +250,11 @@ class LogControllerTest extends TestCase
         try {
             $this->controller->export();
             $this->fail('Should have terminated');
+        } catch (\PHPUnit\Framework\AssertionFailedError $assertionFailure) {
+            // `fail()` above throws PHPUnit's own error, which extends RuntimeException
+            // — so the broad catch below used to swallow it and assert on PHPUnit's
+            // message instead of the subject's. Re-thrown, so the branch can fail.
+            throw $assertionFailure;
         } catch (\RuntimeException $e) {
             $this->assertEquals('TERMINATE_CALLED', $e->getMessage());
         }

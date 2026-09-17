@@ -291,6 +291,11 @@ class GeneratedApiControllerTest extends BaseTestCase
         try {
             $this->command->callCreateApi('MissingProbe');
             $this->fail('a controller was generated from a table that does not exist');
+        } catch (\PHPUnit\Framework\AssertionFailedError $assertionFailure) {
+            // `fail()` above throws PHPUnit's own error, which extends RuntimeException
+            // — so the broad catch below used to swallow it and assert on PHPUnit's
+            // message instead of the subject's. Re-thrown, so the branch can fail.
+            throw $assertionFailure;
         } catch (\Exception $exception) {
             $this->assertStringContainsString('no_such_probe_table', $exception->getMessage());
         }

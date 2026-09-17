@@ -280,6 +280,11 @@ class MediaTablesMigrationTest extends BaseTestCase
                 'specific' => 'orphan',
             ]);
             $this->fail('a usage row was accepted for a file that does not exist');
+        } catch (\PHPUnit\Framework\AssertionFailedError $assertionFailure) {
+            // `fail()` above throws PHPUnit's own error, which extends RuntimeException
+            // — so the broad catch below used to swallow it and assert on PHPUnit's
+            // message instead of the subject's. Re-thrown, so the branch can fail.
+            throw $assertionFailure;
         } catch (\Throwable $exception) {
             // Expected — and asserted, so this counts as a check rather than a silent catch.
             // Not on the exception's class: the two backends raise different types here.

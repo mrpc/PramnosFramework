@@ -223,6 +223,11 @@ class ApiCharacterizationTest extends TestCase
         try {
             $api->notFound();
             $this->fail('notFound() must terminate via close()');
+        } catch (\PHPUnit\Framework\AssertionFailedError $assertionFailure) {
+            // `fail()` above throws PHPUnit's own error, which extends RuntimeException
+            // — so the broad catch below used to swallow it and assert on PHPUnit's
+            // message instead of the subject's. Re-thrown, so the branch can fail.
+            throw $assertionFailure;
         } catch (\Exception $e) {
             $body = $e->getMessage();
         }

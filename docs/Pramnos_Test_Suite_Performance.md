@@ -183,6 +183,43 @@ What follows from it:
 - The always-on `<coverage>` block still earns its place — a coverage report that has to be
   asked for is one nobody has — but the ordinary loop should not be paying for it.
 
+## Two traps that make a test lie, and the sweeps that find them
+
+Both were found by sweeping rather than by reading, both had been in the suite for a long
+time, and both produce a test that passes whether the subject works or not. That is the
+category worth automating: a test that is merely slow announces itself.
+
+### `fail()` inside a `try` its own `catch` swallows
+
+`PHPUnit\Framework\AssertionFailedError` extends `\RuntimeException`, so this passes
+whether or not the subject throws:
+
+```php
+try {
+    $subject->mustThrow();
+    $this->fail('it did not throw');   // throws AssertionFailedError
+} catch (\Exception $e) {              // catches it
+    $this->assertStringContainsString('…', $e->getMessage());  // PHPUnit's message
+}
+```
+
+**Forty of these, in twenty-four files**, by several authors over years — including two
+written in one afternoon by somebody who had just fixed the first one. All forty branches
+turned out to be sound once they could fail; the value is that forty tests now mean what
+they say. `FailIsNotSwallowedTest` keeps them that way. Only `\Throwable`, `\Exception`
+and `\RuntimeException` swallow it — a `catch (ValidationException $e)` is fine, and a
+sweep that flagged those too would report 128 sites of which 88 are correct.
+
+### A sentinel that can also be a real value
+
+The guard written to catch the next broken template reported success for every one of them.
+It returned the parser's first output line and treated `''` as "it parsed" — and `php -l`
+prints a blank line first, so the message is in `$output[1]`.
+
+It was caught by deliberately breaking a template and watching the guard pass. **Verify a
+new guard against the fault it is for**, before trusting it: a guard that cannot fail is
+worse than no guard, because it is counted.
+
 ## What not to do
 
 - **Do not remove the always-on `<coverage>` block** — but know what it costs, because it is

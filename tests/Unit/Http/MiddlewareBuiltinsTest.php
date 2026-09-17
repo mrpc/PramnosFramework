@@ -132,6 +132,11 @@ class MiddlewareBuiltinsTest extends TestCase
                 return 'should-not-reach';
             });
             $this->fail('Expected exception not thrown');
+        } catch (\PHPUnit\Framework\AssertionFailedError $assertionFailure) {
+            // `fail()` above throws PHPUnit's own error, which extends RuntimeException
+            // — so the broad catch below used to swallow it and assert on PHPUnit's
+            // message instead of the subject's. Re-thrown, so the branch can fail.
+            throw $assertionFailure;
         } catch (\Exception $e) {
             // Assert
             $this->assertSame(401, $e->getCode());
@@ -413,6 +418,11 @@ class MiddlewareBuiltinsTest extends TestCase
                 return 'should-not-reach';
             });
             $this->fail('Expected 429 exception not thrown');
+        } catch (\PHPUnit\Framework\AssertionFailedError $assertionFailure) {
+            // `fail()` above throws PHPUnit's own error, which extends RuntimeException
+            // — so the broad catch below used to swallow it and assert on PHPUnit's
+            // message instead of the subject's. Re-thrown, so the branch can fail.
+            throw $assertionFailure;
         } catch (\Exception $e) {
             // Assert
             $this->assertSame(429, $e->getCode());
@@ -509,6 +519,11 @@ class MiddlewareBuiltinsTest extends TestCase
                 return 'should-not-run';
             });
             $this->fail('Expected 503 exception not thrown');
+        } catch (\PHPUnit\Framework\AssertionFailedError $assertionFailure) {
+            // `fail()` above throws PHPUnit's own error, which extends RuntimeException
+            // — so the broad catch below used to swallow it and assert on PHPUnit's
+            // message instead of the subject's. Re-thrown, so the branch can fail.
+            throw $assertionFailure;
         } catch (\Exception $e) {
             // Assert
             $this->assertSame(503, $e->getCode());

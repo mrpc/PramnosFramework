@@ -408,6 +408,11 @@ class DatabaseEventStoreTest extends BaseTestCase
         try {
             $store->latestId();
             $this->fail('a missing table answered instead of failing');
+        } catch (\PHPUnit\Framework\AssertionFailedError $assertionFailure) {
+            // `fail()` above throws PHPUnit's own error, which extends RuntimeException
+            // — so the broad catch below used to swallow it and assert on PHPUnit's
+            // message instead of the subject's. Re-thrown, so the branch can fail.
+            throw $assertionFailure;
         } catch (\Throwable $exception) {
             $this->assertStringContainsString(
                 'broadcast_events_no_such_table',

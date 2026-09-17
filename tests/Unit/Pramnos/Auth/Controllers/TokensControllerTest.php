@@ -461,6 +461,11 @@ class TokensControllerTest extends BaseTestCase
             // Act
             $this->controller->userid();
             $this->fail('userid() should have redirected on an invalid id');
+        } catch (\PHPUnit\Framework\AssertionFailedError $assertionFailure) {
+            // `fail()` above throws PHPUnit's own error, which extends RuntimeException
+            // — so the broad catch below used to swallow it and assert on PHPUnit's
+            // message instead of the subject's. Re-thrown, so the branch can fail.
+            throw $assertionFailure;
         } catch (\RuntimeException $e) {
             // Assert
             $this->assertCount(1, $this->controller->redirectedTo);
@@ -482,6 +487,11 @@ class TokensControllerTest extends BaseTestCase
             // Act — redirect() throws after the update
             $this->controller->deactivate();
             $this->fail('deactivate() should redirect after acting');
+        } catch (\PHPUnit\Framework\AssertionFailedError $assertionFailure) {
+            // `fail()` above throws PHPUnit's own error, which extends RuntimeException
+            // — so the broad catch below used to swallow it and assert on PHPUnit's
+            // message instead of the subject's. Re-thrown, so the branch can fail.
+            throw $assertionFailure;
         } catch (\RuntimeException $e) {
             // Assert — status flipped to 0 and redirected to the per-user list
             $db  = \Pramnos\Framework\Factory::getDatabase();
@@ -506,6 +516,11 @@ class TokensControllerTest extends BaseTestCase
             // Act
             $this->controller->delete();
             $this->fail('delete() should redirect after acting');
+        } catch (\PHPUnit\Framework\AssertionFailedError $assertionFailure) {
+            // `fail()` above throws PHPUnit's own error, which extends RuntimeException
+            // — so the broad catch below used to swallow it and assert on PHPUnit's
+            // message instead of the subject's. Re-thrown, so the branch can fail.
+            throw $assertionFailure;
         } catch (\RuntimeException $e) {
             // Assert — status set to 2 (deleted) and redirected to the per-user list
             $db  = \Pramnos\Framework\Factory::getDatabase();

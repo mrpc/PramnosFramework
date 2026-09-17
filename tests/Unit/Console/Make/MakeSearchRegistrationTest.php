@@ -412,6 +412,11 @@ class MakeSearchRegistrationTest extends TestCase
             // Act
             $this->command->callEnsureTargetDirectory($target);
             $this->fail('a directory that cannot exist was reported as created');
+        } catch (\PHPUnit\Framework\AssertionFailedError $assertionFailure) {
+            // `fail()` above throws PHPUnit's own error, which extends RuntimeException
+            // — so the broad catch below used to swallow it and assert on PHPUnit's
+            // message instead of the subject's. Re-thrown, so the branch can fail.
+            throw $assertionFailure;
         } catch (\Exception $exception) {
             // Assert
             $this->assertStringContainsString('Could not create the directory', $exception->getMessage());

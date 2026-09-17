@@ -142,6 +142,11 @@ class LanguageUsingTest extends TestCase
                 throw new \RuntimeException('while rendering');
             });
             $this->fail('the exception must reach the caller');
+        } catch (\PHPUnit\Framework\AssertionFailedError $assertionFailure) {
+            // `fail()` above throws PHPUnit's own error, which extends RuntimeException
+            // — so the broad catch below used to swallow it and assert on PHPUnit's
+            // message instead of the subject's. Re-thrown, so the branch can fail.
+            throw $assertionFailure;
         } catch (\RuntimeException) {
             // expected — what is asserted is the state it left behind
         }

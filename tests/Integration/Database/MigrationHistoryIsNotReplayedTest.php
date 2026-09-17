@@ -217,6 +217,11 @@ class MigrationHistoryIsNotReplayedTest extends TestCase
         try {
             $this->runner()->run($migrations);
             $this->fail('the runner replayed a whole history against a populated database');
+        } catch (\PHPUnit\Framework\AssertionFailedError $assertionFailure) {
+            // `fail()` above throws PHPUnit's own error, which extends RuntimeException
+            // — so the broad catch below used to swallow it and assert on PHPUnit's
+            // message instead of the subject's. Re-thrown, so the branch can fail.
+            throw $assertionFailure;
         } catch (\RuntimeException $exception) {
             $this->assertStringContainsString('Refusing to run', $exception->getMessage());
             // The message has to carry the way out, or it is an obstacle rather than a guard

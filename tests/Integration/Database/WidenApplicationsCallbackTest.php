@@ -153,6 +153,11 @@ class WidenApplicationsCallbackTest extends TestCase
                 'ALTER TABLE public.wcb_applications ALTER COLUMN callback TYPE text'
             );
             $this->fail('PostgreSQL accepted the ALTER; the view dance is now unnecessary');
+        } catch (\PHPUnit\Framework\AssertionFailedError $assertionFailure) {
+            // `fail()` above throws PHPUnit's own error, which extends RuntimeException
+            // — so the broad catch below used to swallow it and assert on PHPUnit's
+            // message instead of the subject's. Re-thrown, so the branch can fail.
+            throw $assertionFailure;
         } catch (\Throwable $exception) {
             $this->assertStringContainsString(
                 'view or rule',

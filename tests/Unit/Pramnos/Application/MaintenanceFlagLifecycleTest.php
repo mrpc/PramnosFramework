@@ -80,6 +80,11 @@ class MaintenanceFlagLifecycleTest extends TestCase
         try {
             $app->runMigration('ThrowingMigration');
             $this->fail('the exception must propagate; only the flag is cleaned up');
+        } catch (\PHPUnit\Framework\AssertionFailedError $assertionFailure) {
+            // `fail()` above throws PHPUnit's own error, which extends RuntimeException
+            // — so the broad catch below used to swallow it and assert on PHPUnit's
+            // message instead of the subject's. Re-thrown, so the branch can fail.
+            throw $assertionFailure;
         } catch (\RuntimeException $e) {
             $this->assertSame('this migration always throws', $e->getMessage());
         }

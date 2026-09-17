@@ -109,6 +109,11 @@ namespace Tests\Unit\Pramnos\Storage {
             try {
                 $driver->exists('file.txt');
                 $this->fail('Expected connection failure');
+            } catch (\PHPUnit\Framework\AssertionFailedError $assertionFailure) {
+                // `fail()` above throws PHPUnit's own error, which extends RuntimeException
+                // — so the broad catch below used to swallow it and assert on PHPUnit's
+                // message instead of the subject's. Re-thrown, so the branch can fail.
+                throw $assertionFailure;
             } catch (\RuntimeException $e) {
                 $this->assertStringContainsString('FTP connection failed', $e->getMessage());
             }
@@ -119,6 +124,11 @@ namespace Tests\Unit\Pramnos\Storage {
             try {
                 $driver->exists('file.txt');
                 $this->fail('Expected login failure');
+            } catch (\PHPUnit\Framework\AssertionFailedError $assertionFailure) {
+                // `fail()` above throws PHPUnit's own error, which extends RuntimeException
+                // — so the broad catch below used to swallow it and assert on PHPUnit's
+                // message instead of the subject's. Re-thrown, so the branch can fail.
+                throw $assertionFailure;
             } catch (\RuntimeException $e) {
                 $this->assertStringContainsString('FTP login failed', $e->getMessage());
             }
@@ -530,6 +540,11 @@ namespace Tests\Unit\Pramnos\Storage {
             try {
                 $driver->get('file.txt');
                 $this->fail('Expected exception');
+            } catch (\PHPUnit\Framework\AssertionFailedError $assertionFailure) {
+                // `fail()` above throws PHPUnit's own error, which extends RuntimeException
+                // — so the broad catch below used to swallow it and assert on PHPUnit's
+                // message instead of the subject's. Re-thrown, so the branch can fail.
+                throw $assertionFailure;
             } catch (\RuntimeException $e) {
                 $this->assertStringContainsString('S3 get failed', $e->getMessage());
             }
@@ -538,6 +553,11 @@ namespace Tests\Unit\Pramnos\Storage {
             try {
                 $driver->readStream('file.txt');
                 $this->fail('Expected exception');
+            } catch (\PHPUnit\Framework\AssertionFailedError $assertionFailure) {
+                // `fail()` above throws PHPUnit's own error, which extends RuntimeException
+                // — so the broad catch below used to swallow it and assert on PHPUnit's
+                // message instead of the subject's. Re-thrown, so the branch can fail.
+                throw $assertionFailure;
             } catch (\RuntimeException $e) {
                 $this->assertStringContainsString('S3 readStream failed', $e->getMessage());
             }
@@ -546,6 +566,11 @@ namespace Tests\Unit\Pramnos\Storage {
             try {
                 $driver->put('file.txt', 'data');
                 $this->fail('Expected exception');
+            } catch (\PHPUnit\Framework\AssertionFailedError $assertionFailure) {
+                // `fail()` above throws PHPUnit's own error, which extends RuntimeException
+                // — so the broad catch below used to swallow it and assert on PHPUnit's
+                // message instead of the subject's. Re-thrown, so the branch can fail.
+                throw $assertionFailure;
             } catch (\RuntimeException $e) {
                 $this->assertStringContainsString('S3 put failed', $e->getMessage());
             }
@@ -554,6 +579,11 @@ namespace Tests\Unit\Pramnos\Storage {
             try {
                 $driver->size('file.txt');
                 $this->fail('Expected exception');
+            } catch (\PHPUnit\Framework\AssertionFailedError $assertionFailure) {
+                // `fail()` above throws PHPUnit's own error, which extends RuntimeException
+                // — so the broad catch below used to swallow it and assert on PHPUnit's
+                // message instead of the subject's. Re-thrown, so the branch can fail.
+                throw $assertionFailure;
             } catch (\RuntimeException $e) {
                 $this->assertStringContainsString('S3 size failed', $e->getMessage());
             }
@@ -562,6 +592,11 @@ namespace Tests\Unit\Pramnos\Storage {
             try {
                 $driver->lastModified('file.txt');
                 $this->fail('Expected exception');
+            } catch (\PHPUnit\Framework\AssertionFailedError $assertionFailure) {
+                // `fail()` above throws PHPUnit's own error, which extends RuntimeException
+                // — so the broad catch below used to swallow it and assert on PHPUnit's
+                // message instead of the subject's. Re-thrown, so the branch can fail.
+                throw $assertionFailure;
             } catch (\RuntimeException $e) {
                 $this->assertStringContainsString('S3 lastModified failed', $e->getMessage());
             }

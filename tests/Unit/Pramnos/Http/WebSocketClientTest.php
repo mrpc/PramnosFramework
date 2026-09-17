@@ -673,6 +673,11 @@ class WebSocketClientTest extends TestCase
         try {
             $client->connect();
             $this->fail('writing the handshake to a closed peer must fail');
+        } catch (\PHPUnit\Framework\AssertionFailedError $assertionFailure) {
+            // `fail()` above throws PHPUnit's own error, which extends RuntimeException
+            // — so the broad catch below used to swallow it and assert on PHPUnit's
+            // message instead of the subject's. Re-thrown, so the branch can fail.
+            throw $assertionFailure;
         } catch (\RuntimeException $e) {
             $elapsed = microtime(true) - $started;
 
@@ -818,6 +823,11 @@ class WebSocketClientTest extends TestCase
         try {
             $client->connect();
             $this->fail('a truncated handshake must be rejected');
+        } catch (\PHPUnit\Framework\AssertionFailedError $assertionFailure) {
+            // `fail()` above throws PHPUnit's own error, which extends RuntimeException
+            // — so the broad catch below used to swallow it and assert on PHPUnit's
+            // message instead of the subject's. Re-thrown, so the branch can fail.
+            throw $assertionFailure;
         } catch (\RuntimeException $e) {
             // Assert
             $this->assertStringContainsString('does not match the key sent', $e->getMessage());

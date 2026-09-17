@@ -336,6 +336,11 @@ class CsrfTest extends TestCase
                 return 'should-not-reach';
             });
             $this->fail('Expected 419 exception');
+        } catch (\PHPUnit\Framework\AssertionFailedError $assertionFailure) {
+            // `fail()` above throws PHPUnit's own error, which extends RuntimeException
+            // — so the broad catch below used to swallow it and assert on PHPUnit's
+            // message instead of the subject's. Re-thrown, so the branch can fail.
+            throw $assertionFailure;
         } catch (\Exception $e) {
             // Assert
             $this->assertSame(419, $e->getCode());
@@ -360,6 +365,11 @@ class CsrfTest extends TestCase
         try {
             $mw->handle($this->makeRequest('POST'), $this->passThroughNext());
             $this->fail('Expected 419 exception');
+        } catch (\PHPUnit\Framework\AssertionFailedError $assertionFailure) {
+            // `fail()` above throws PHPUnit's own error, which extends RuntimeException
+            // — so the broad catch below used to swallow it and assert on PHPUnit's
+            // message instead of the subject's. Re-thrown, so the branch can fail.
+            throw $assertionFailure;
         } catch (\Exception $e) {
             $this->assertSame(419, $e->getCode());
         }
@@ -408,6 +418,11 @@ class CsrfTest extends TestCase
             try {
                 $mw->handle($this->makeRequest($method), $this->passThroughNext());
                 $this->fail("{$method} request was not blocked by CSRF middleware");
+            } catch (\PHPUnit\Framework\AssertionFailedError $assertionFailure) {
+                // `fail()` above throws PHPUnit's own error, which extends RuntimeException
+                // — so the broad catch below used to swallow it and assert on PHPUnit's
+                // message instead of the subject's. Re-thrown, so the branch can fail.
+                throw $assertionFailure;
             } catch (\Exception $e) {
                 $this->assertSame(419, $e->getCode(), "{$method} did not throw 419");
             }

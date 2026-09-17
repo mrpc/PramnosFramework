@@ -308,6 +308,11 @@ class WorkLoopTest extends TestCase
         try {
             $this->execute($worker);
             $this->fail('the exception was swallowed');
+        } catch (\PHPUnit\Framework\AssertionFailedError $assertionFailure) {
+            // `fail()` above throws PHPUnit's own error, which extends RuntimeException
+            // — so the broad catch below used to swallow it and assert on PHPUnit's
+            // message instead of the subject's. Re-thrown, so the branch can fail.
+            throw $assertionFailure;
         } catch (\RuntimeException $exception) {
             // Assert
             $this->assertSame('the database went away', $exception->getMessage());

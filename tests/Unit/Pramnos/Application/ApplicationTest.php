@@ -1350,6 +1350,11 @@ class ApplicationTest extends TestCase
         try {
             $app->showError('custom_error_msg');
             $this->fail('showError() must call close(), which throws under PRAMNOS_TESTING');
+        } catch (\PHPUnit\Framework\AssertionFailedError $assertionFailure) {
+            // `fail()` above throws PHPUnit's own error, which extends RuntimeException
+            // — so the broad catch below used to swallow it and assert on PHPUnit's
+            // message instead of the subject's. Re-thrown, so the branch can fail.
+            throw $assertionFailure;
         } catch (\Exception $ex) {
             // Assert — the custom message is embedded in the HTML body that
             // was passed to close() as its $msg argument.
@@ -1435,6 +1440,11 @@ class ApplicationTest extends TestCase
         try {
             $app->showError('isolated_error_msg');
             $this->fail('showError() calls close() which must throw under PRAMNOS_TESTING');
+        } catch (\PHPUnit\Framework\AssertionFailedError $assertionFailure) {
+            // `fail()` above throws PHPUnit's own error, which extends RuntimeException
+            // — so the broad catch below used to swallow it and assert on PHPUnit's
+            // message instead of the subject's. Re-thrown, so the branch can fail.
+            throw $assertionFailure;
         } catch (\Exception $ex) {
             // Assert — close() was reached, confirming the else branch ran.
             $this->assertStringContainsString('isolated_error_msg', $ex->getMessage(),
