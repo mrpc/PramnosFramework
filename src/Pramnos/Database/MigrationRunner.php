@@ -453,6 +453,10 @@ class MigrationRunner
         // knows how many that is.
         $this->refuseToReplayAWholeHistory($options, count($pending));
 
+        // Before anything is guarded on it. See the method for why the failure is a stop
+        // rather than a warning.
+        $this->ensureTimescaleExtension();
+
         $batch   = $this->nextBatch();
 
         $ran    = [];
@@ -1093,6 +1097,82 @@ class MigrationRunner
      * @param int                 $pending How many migrations this run would execute.
      * @throws \RuntimeException when a whole history is about to run on a populated database
      */
+    /**
+     * Create the TimescaleDB extension when the application asked for it, or stop.
+     *
+     * A scaffolded project that declares `'timescale' => true` had to be told, by a person,
+     * to run `CREATE EXTENSION timescaledb` before the first `migrate`. Nothing said so,
+     * and getting the order wrong is punished silently: every hypertable conversion is
+     * guarded, the guards pass or fail confusingly, and the database ends up with plain
+     * tables and a migration history claiming otherwise. Measured on one installation —
+     * migrated in the wrong order it produced 7 hypertables and 3 permanently failed
+     * migrations; rebuilt in the right order, 10 and none.
+     *
+     * The config flag is already a statement of intent; acting on it is what it was always
+     * supposed to mean.
+     *
+     * **The attempt is the easy half.** `CREATE EXTENSION timescaledb` needs superuser — it
+     * is not a trusted extension — and `shared_preload_libraries` must contain
+     * `timescaledb`, which needs a restart. An application role with neither is normal on
+     * shared and managed hosting, so the statement fails on precisely the installations
+     * that need the help.
+     *
+     * **So the valuable half is the refusal.** Stopping is the point: the damage is not the
+     * missing extension, it is carrying on without it and recording success. A message
+     * naming the two commands turns a day of silent wrongness into a five-minute fix.
+     *
+     * @throws \RuntimeException When the extension is wanted and cannot be created
+     */
+    private function ensureTimescaleExtension(): void
+    {
+        if ($this->db === null
+            || $this->db->type !== 'postgresql'
+            || empty($this->db->timescale)
+        ) {
+            return;
+        }
+
+        $capabilities = $this->db->capabilities();
+        if ($capabilities->hasTimescaleDB()) {
+            return;
+        }
+
+        try {
+            $this->db->query('CREATE EXTENSION IF NOT EXISTS timescaledb');
+        } catch (\Throwable) {
+            // Reported below, from what the catalogue says rather than from what the
+            // statement threw: a role without permission and a server without the library
+            // fail differently and the operator needs the same two lines either way.
+        }
+
+        // The cached answer is from before the CREATE.
+        $capabilities->forgetDetected();
+
+        if ($capabilities->hasTimescaleDB()) {
+            \Pramnos\Logs\Logger::log(
+                'Created the TimescaleDB extension before running migrations, because '
+                . 'the application configuration asks for it.',
+                'migrations'
+            );
+
+            return;
+        }
+
+        throw new \RuntimeException(
+            "This application is configured for TimescaleDB ('timescale' => true) and the "
+            . "extension is not installed in this database. Migrations are stopped rather "
+            . "than run without it: every hypertable conversion is guarded on the "
+            . "extension, so they would be recorded as applied having done nothing, and "
+            . "the schema would be permanently behind its own history.\n\n"
+            . "Creating it needs a superuser and a server that preloads the library:\n\n"
+            . "    shared_preload_libraries = 'timescaledb'   # postgresql.conf, needs a restart\n"
+            . "    CREATE EXTENSION timescaledb;              # as a superuser, in this database\n\n"
+            . "Then run migrate again. If this application is not meant to use TimescaleDB, "
+            . "remove 'timescale' => true from the database settings — that flag also "
+            . "selects the SQL grammar, so it is not a no-op."
+        );
+    }
+
     private function refuseToReplayAWholeHistory(array $options, int $pending): void
     {
         if (!empty($options[self::OPTION_ADOPT_BASELINE])) {

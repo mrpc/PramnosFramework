@@ -170,6 +170,20 @@ class DatabaseCapabilities
     }
 
     /**
+     * Forget what was detected for one connection.
+     *
+     * Capabilities are cached per connection because they cannot change under a running
+     * process — except for the one that can: a migration run creates the TimescaleDB
+     * extension when the application asked for it, and everything after that must see the
+     * new answer rather than the one cached a moment earlier.
+     */
+    public function forgetDetected(): void
+    {
+        $cache = $this->getCache();
+        unset($cache[$this->db]);
+    }
+
+    /**
      * Lazily create the shared WeakMap capability cache.
      *
      * @return \WeakMap
@@ -498,20 +512,38 @@ class DatabaseCapabilities
         return false;
     }
 
+    /**
+     * Is the TimescaleDB extension installed **in this database**?
+     *
+     * Asked of `pg_extension`, and only of `pg_extension`. There used to be a shortcut
+     * above the probe — `if ($this->db->timescale) return true;` — which meant the probe
+     * never ran on the installations that most needed it.
+     *
+     * `'timescale' => true` in the settings is a statement of **intent**: it selects the
+     * grammar, which is a decision about the SQL this framework writes and is correct
+     * whether or not the extension is there yet. Reading it as "the extension is installed"
+     * conflates two different facts, and the gap between them is where a day goes:
+     * `ifCapable(TIMESCALEDB, …)` answered true, the guarded block ran, and the migration
+     * failed three layers down with `relation "timescaledb_information.hypertables" does
+     * not exist` — recorded as a failure rather than as a decline, so the mechanism written
+     * for exactly this could never fire for it.
+     *
+     * The shortcut existed to avoid a query, and `has()` already caches per connection in a
+     * WeakMap — so the probe costs one row, once, per connection, and answers the question
+     * that was actually asked.
+     */
     protected function detectTimescaleDB(): bool
     {
         if ($this->db->type !== 'postgresql') {
             return false;
         }
 
-        // Framework config shortcut
-        if ($this->db->timescale) {
-            return true;
-        }
-
         try {
-            $result = $this->db->query("SELECT 1 FROM pg_extension WHERE extname = 'timescaledb'");
-            return $result && $result->numRows > 0;
+            $result = $this->db->query(
+                "SELECT 1 FROM pg_extension WHERE extname = 'timescaledb'"
+            );
+
+            return is_object($result) && $result->numRows > 0;
         } catch (\Throwable $e) {
             return false;
         }

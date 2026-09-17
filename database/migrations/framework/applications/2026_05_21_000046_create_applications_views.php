@@ -216,6 +216,8 @@ class CreateApplicationsViews extends Migration
 
         // application_stats_daily — continuous aggregate on TimescaleDB, matview on plain PG
         $schema = $this->DB()->schema();
+        // Same race as the hourly one below: the policy first, then the view.
+        $schema->removeContinuousAggregatePolicy('applications.application_stats_daily');
         $this->DB()->query("DROP MATERIALIZED VIEW IF EXISTS applications.application_stats_daily CASCADE");
         $schema->ifCapable(
             DatabaseCapabilities::TIMESCALEDB,
@@ -281,6 +283,13 @@ class CreateApplicationsViews extends Migration
         ContinuousAggregateRegistry::apply($schema, 'applications.application_stats_daily');
 
         // application_stats_hourly — continuous aggregate on TimescaleDB, matview on plain PG
+        //
+        // The refresh policy goes first. Dropping a continuous aggregate while its refresh
+        // job is running is a race the scheduler wins often enough to matter, and
+        // PostgreSQL answers `tuple concurrently deleted` — a message naming neither the
+        // view nor the job, which reads like corruption. The `down()` path below had the
+        // same shape and the same fix.
+        $schema->removeContinuousAggregatePolicy('applications.application_stats_hourly');
         $this->DB()->query("DROP MATERIALIZED VIEW IF EXISTS applications.application_stats_hourly CASCADE");
         $schema->ifCapable(
             DatabaseCapabilities::TIMESCALEDB,

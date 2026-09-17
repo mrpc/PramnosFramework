@@ -78,10 +78,28 @@ class DatabaseCapabilitiesTest extends TestCase
         );
     }
 
-    public function testTimescaleDBTrueWhenTimescaleFlagSet(): void
+    /**
+     * The config flag is intent, not an answer about the database.
+     *
+     * `'timescale' => true` selects the grammar — a decision about the SQL this framework
+     * writes, correct whether or not the extension has been created yet. It used to
+     * short-circuit this probe, so `has(TIMESCALEDB)` answered true on a database with no
+     * extension: the guarded block ran and the migration failed three layers down with
+     * `relation "timescaledb_information.hypertables" does not exist`, recorded as a
+     * failure rather than a decline. The catalogue decides now.
+     */
+    public function testTheConfigFlagDoesNotAnswerForTheDatabase(): void
     {
-        $caps = new DatabaseCapabilities($this->makeDb('postgresql', true));
-        $this->assertTrue($caps->has(DatabaseCapabilities::TIMESCALEDB));
+        $db = $this->makeDb('postgresql', true);
+        $db->expects($this->once())
+            ->method('query')
+            ->willReturn($this->makeResult(0));
+
+        $caps = new DatabaseCapabilities($db);
+        $this->assertFalse(
+            $caps->has(DatabaseCapabilities::TIMESCALEDB),
+            'the extension is not installed, whatever the settings intend'
+        );
     }
 
     public function testTimescaleDBTrueWhenQueryReturnsRows(): void
@@ -251,7 +269,10 @@ class DatabaseCapabilitiesTest extends TestCase
 
     public function testHasTimescaleDBDelegatesToHas(): void
     {
-        $caps = new DatabaseCapabilities($this->makeDb('postgresql', true));
+        $db = $this->makeDb('postgresql', true);
+        $db->method('query')->willReturn($this->makeResult(1));
+
+        $caps = new DatabaseCapabilities($db);
         $this->assertTrue($caps->hasTimescaleDB());
     }
 

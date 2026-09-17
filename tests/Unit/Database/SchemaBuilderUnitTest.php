@@ -27,6 +27,10 @@ class SchemaBuilderUnitTest extends TestCase
             ->disableOriginalConstructor()
             ->getMock();
         $db->type      = $type;
+        // The settings flag selects the SQL grammar. It used to double as the answer to
+        // "is the extension installed", and does not any more — the catalogue decides — so
+        // a double that means "this is a TimescaleDB connection" has to make the probe say
+        // so as well. Tests that stub `query` themselves override this.
         $db->timescale = $timescale;
         $db->prefix    = '';
         $db->schema    = '';
@@ -1180,6 +1184,18 @@ class SchemaBuilderUnitTest extends TestCase
         $db->method('prepareQuery')->willReturnCallback(
             fn(string $sql, ...$args) => $sql
         );
+
+        if ($timescale) {
+            // Seeded, not stubbed. `query()` cannot be configured here without clobbering
+            // the tests that configure it themselves, and `hasTimescaleDB()` is a cached
+            // probe — so the cache is given the answer directly, which is what a real
+            // connection to a TimescaleDB database would have put there on first ask.
+            $map = new \ReflectionProperty(DatabaseCapabilities::class, 'cache');
+            $cache = $map->getValue() ?? new \WeakMap();
+            $cache[$db] = [DatabaseCapabilities::TIMESCALEDB => true];
+            $map->setValue(null, $cache);
+        }
+
         return $db;
     }
 
@@ -2249,6 +2265,13 @@ class SchemaBuilderUnitTest extends TestCase
         $db->timescale = true;
         $db->prefix    = '';
         $db->schema    = '';
+
+        // The capability probe is the first statement this builder runs and is not the
+        // subject here, so it is answered from the cache and kept out of the recording.
+        $map   = new \ReflectionProperty(DatabaseCapabilities::class, 'cache');
+        $cache = $map->getValue() ?? new \WeakMap();
+        $cache[$db] = [DatabaseCapabilities::TIMESCALEDB => true];
+        $map->setValue(null, $cache);
 
         $sql = [];
         $db->method('query')->willReturnCallback(function (string $statement) use (&$sql) {
