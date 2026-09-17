@@ -31,8 +31,12 @@ class McpTokenGuardsTest extends TestCase
     /** @var array<string, mixed> What the command asked the user object to write */
     private array $written = [];
 
-    private function mint(array $options, ?\Throwable $dbError = null, ?string $key = null): CommandTester
-    {
+    private function mint(
+        array $options,
+        ?\Throwable $dbError = null,
+        ?string $key = null,
+        ?string $baseUrl = null
+    ): CommandTester {
         $this->written = [];
         $recorder      = &$this->written;
 
@@ -56,13 +60,24 @@ class McpTokenGuardsTest extends TestCase
             }
         };
 
-        $command = new class ($dbError, $key, $user) extends McpToken {
+        $command = new class ($dbError, $key, $user, $baseUrl) extends McpToken {
             public function __construct(
                 private ?\Throwable $dbError,
                 private ?string $key,
-                private \Pramnos\User\User $user
+                private \Pramnos\User\User $user,
+                private ?string $baseUrl
             ) {
                 parent::__construct();
+            }
+
+            /**
+             * `sURL` is a constant the bootstrap defines, so the no-URL branch could not be
+             * reached from a test in this process — and the test for it skipped in every
+             * run, which made the placeholder a thing nobody had ever seen produced.
+             */
+            protected function configuredBaseUrl(): string
+            {
+                return $this->baseUrl ?? parent::configuredBaseUrl();
             }
 
             protected function findUser(string $reference): ?\Pramnos\User\User
@@ -242,12 +257,10 @@ class McpTokenGuardsTest extends TestCase
      */
     public function testWithoutABaseUrlThePlaceholderIsVisible(): void
     {
-        if (defined('sURL') && sURL !== '') {
-            $this->markTestSkipped('This process has an sURL, so the fallback cannot be reached.');
-        }
-
-        // Act
-        $display = $this->mint(array('--user' => '1'))->getDisplay();
+        // Act — an installation with no configured base URL, which this process cannot be:
+        // `sURL` is a constant the bootstrap defines. The command reads it through a seam
+        // so the branch is reachable; until it did, this test skipped in every run.
+        $display = $this->mint(array('--user' => '1'), baseUrl: '')->getDisplay();
 
         // Assert
         $this->assertStringContainsString('https://your-site/mcp', $display);

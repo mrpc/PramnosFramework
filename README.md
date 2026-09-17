@@ -8,7 +8,14 @@ Pramnos Framework is a comprehensive PHP MVC framework designed for building rob
 
 > **Released:** July 2026  
 > **Minimum PHP Version:** 8.1  
-> **Database Support:** MySQL 8.0+, PostgreSQL 14+, TimescaleDB
+> **Database Support:** MySQL 8.0+, PostgreSQL 17+, TimescaleDB 2.26.4+
+>
+> The suite runs against MySQL 8.0, PostgreSQL 17 and TimescaleDB 2.26.4 — the
+> TimescaleDB floor being the newest package installable on Debian 11, which is
+> where a real deployment found three migrations failing that every `latest` run had
+> passed. PostgreSQL 14 worked in every test up to the day the lane moved to 17 and
+> is very likely still fine; it is simply no longer verified here, and an unverified
+> claim is not a supported version.
 
 ## 🚀 What's New in v1.2?
 

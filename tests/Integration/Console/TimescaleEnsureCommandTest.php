@@ -40,6 +40,12 @@ class TimescaleEnsureCommandTest extends BaseTestCase
 
     private bool $hasTimescale = false;
 
+    /** A PostgreSQL database with no TimescaleDB, built by the one test that needs it. */
+    private ?\Pramnos\Database\Database $plainDb = null;
+
+    /** Named once: the teardown has to drop what the arrange created. */
+    private const PLAIN_DB = 'pramnos_tsensure_plain';
+
     protected function setUp(): void
     {
         if (!defined('CONFIG')) {
@@ -63,8 +69,49 @@ class TimescaleEnsureCommandTest extends BaseTestCase
         $this->hasTimescale = $this->db->capabilities()->hasTimescaleDB();
     }
 
+    /**
+     * Point this test at a PostgreSQL database with no TimescaleDB extension.
+     *
+     * Built rather than assumed: `TEMPLATE template0`, because the TimescaleDB image
+     * installs the extension into `template1` and an ordinary `CREATE DATABASE` inherits
+     * it. Dropped in tearDown.
+     */
+    private function useDatabaseWithoutTimescale(): void
+    {
+        $this->db->query('DROP DATABASE IF EXISTS ' . self::PLAIN_DB . ' WITH (FORCE)');
+        $this->db->query('CREATE DATABASE ' . self::PLAIN_DB . ' TEMPLATE template0');
+
+        $plain = new \Pramnos\Database\Database();
+        $plain->type     = $this->db->type;
+        $plain->server   = $this->db->server;
+        $plain->port     = $this->db->port;
+        $plain->user     = $this->db->user;
+        $plain->password = $this->db->password;
+        $plain->database = self::PLAIN_DB;
+
+        if (!$plain->connect(false)) {
+            $this->markTestSkipped('Could not reach the extension-free probe database.');
+        }
+
+        $this->plainDb = $plain;
+        $this->db      = $plain;
+        Application::getInstance()->database = $plain;
+        $this->hasTimescale = $plain->capabilities()->hasTimescaleDB();
+    }
+
     protected function tearDown(): void
     {
+        if ($this->plainDb !== null) {
+            $admin = $this->plainDb;
+            $this->plainDb = null;
+
+            try {
+                $admin->close();
+            } catch (\Throwable) {
+                // Already gone.
+            }
+        }
+
         HypertableRegistry::reset();
 
         parent::tearDown();
@@ -115,9 +162,16 @@ class TimescaleEnsureCommandTest extends BaseTestCase
      */
     public function testWithoutTimescaleItExplainsWhereRetentionComesFrom(): void
     {
-        // Arrange
+        // Arrange — on the PostgreSQL lane, a database of this test's own with the
+        // extension dropped, rather than a skip.
+        //
+        // The container has every backend, so "this connection has TimescaleDB" is a
+        // choice of connection and not a constraint. Skipping meant the PostgreSQL branch
+        // of this message — the one an operator on plain PostgreSQL actually sees — was
+        // only ever exercised on MySQL, which is a different driver and a different
+        // sentence.
         if ($this->hasTimescale) {
-            $this->markTestSkipped('This connection has TimescaleDB; the other lane covers this.');
+            $this->useDatabaseWithoutTimescale();
         }
         $tester = $this->tester();
 

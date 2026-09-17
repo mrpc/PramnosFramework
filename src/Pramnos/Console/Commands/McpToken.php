@@ -338,6 +338,19 @@ class McpToken extends Command
      *
      * @param list<string> $scopes
      */
+    /**
+     * This installation's base URL, or '' when there is none.
+     *
+     * A seam, so the no-URL fallback can be tested. `sURL` is a constant defined by the
+     * bootstrap, so a test could not reach that branch without a second process — and the
+     * test for it skipped in every run here, which made the placeholder `https://your-site`
+     * a thing nobody had ever seen produced.
+     */
+    protected function configuredBaseUrl(): string
+    {
+        return defined('sURL') ? (string) sURL : '';
+    }
+
     private function report(
         OutputInterface $output,
         InputInterface $input,
@@ -346,7 +359,7 @@ class McpToken extends Command
         array $scopes,
         ?int $expires
     ): void {
-        $base = rtrim((string) ($input->getOption('url') ?: (defined('sURL') ? sURL : '')), '/');
+        $base = rtrim((string) ($input->getOption('url') ?: $this->configuredBaseUrl()), '/');
         $url  = ($base !== '' ? $base : 'https://your-site') . '/mcp';
         $name = (string) $input->getOption('name');
 

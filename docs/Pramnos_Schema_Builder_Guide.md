@@ -9,7 +9,7 @@ use_cases:
 
 # Pramnos Schema Builder Guide
 
-The **Schema Builder** (DDL — Data Definition Language) provides a programmatic interface for defining and modifying database schemas. It supports MySQL 8.0+, PostgreSQL 14+, and TimescaleDB with dialect-aware syntax.
+The **Schema Builder** (DDL — Data Definition Language) provides a programmatic interface for defining and modifying database schemas. It supports MySQL 8.0+, PostgreSQL 17+ and TimescaleDB 2.26.4+ with dialect-aware syntax — the versions the suite actually runs against. PostgreSQL 14 worked in every test until the lane moved to 17 and is very likely still fine; it is no longer verified, which is a different claim.
 
 **Class:** `Pramnos\Database\SchemaBuilder`  
 **Entry point:** `$db->schemaBuilder()` — returns a fresh builder bound to the current database connection.

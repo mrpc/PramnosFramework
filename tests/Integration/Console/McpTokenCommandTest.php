@@ -194,21 +194,60 @@ class McpTokenCommandTest extends TestCase
      */
     public function testTheStoredValueIsNotThePlaintext(): void
     {
+        /*
+         * The key is set here rather than skipped over.
+         *
+         * `Encrypter::key()` reads `APP_KEY` from the environment on every call and
+         * memoises nothing, so a test can supply one — and a test that skips instead is a
+         * test that has never run: this assertion is about a credential not being readable
+         * with a `SELECT`, which is exactly the kind that has to be checked somewhere.
+         *
+         * Restored in the `finally` below so nothing after this sees an encryption key the
+         * rest of the suite was written without.
+         */
+        $previousKey = getenv('APP_KEY');
         if (!\Pramnos\Security\Encrypter::isAvailable()) {
-            $this->markTestSkipped('No APP_KEY on this installation, so nothing is encrypted at rest.');
+            putenv('APP_KEY=base64:' . base64_encode(random_bytes(32)));
         }
 
-        // Arrange + Act
-        $tester = $this->mint(array('--user' => (string) $this->userId));
-        $jwt    = $this->tokenFrom($tester->getDisplay());
+        if (!\Pramnos\Security\Encrypter::isAvailable()) {
+            $this->restoreAppKey($previousKey);
+            $this->markTestSkipped('APP_KEY could not be set, so nothing is encrypted at rest.');
+        }
 
-        $row = $this->db->queryBuilder()->table('#PREFIX#usertokens')
-            ->where('token_lookup', Token::lookup($jwt))
-            ->first();
+        try {
+            // Arrange + Act
+            $tester = $this->mint(array('--user' => (string) $this->userId));
+            $jwt    = $this->tokenFrom($tester->getDisplay());
 
-        // Assert
-        $this->assertNotSame($jwt, $row->fields['token']);
-        $this->assertStringStartsWith('enc:', (string) $row->fields['token']);
+            $row = $this->db->queryBuilder()->table('#PREFIX#usertokens')
+                ->where('token_lookup', Token::lookup($jwt))
+                ->first();
+
+            // Assert
+            $this->assertNotSame($jwt, $row->fields['token']);
+            $this->assertStringStartsWith('enc:', (string) $row->fields['token']);
+        } finally {
+            $this->restoreAppKey($previousKey);
+        }
+    }
+
+    /**
+     * Put `APP_KEY` back exactly as it was, absent included.
+     *
+     * `putenv('APP_KEY')` with no `=` unsets it, which is the difference between the
+     * environment this test found and one with an empty key in it — and the rest of the
+     * suite was written against the first.
+     */
+    private function restoreAppKey(string|false $previous): void
+    {
+        if ($previous === false || $previous === '') {
+            putenv('APP_KEY');
+
+            return;
+        }
+
+        putenv('APP_KEY=' . $previous);
     }
 
     /**
