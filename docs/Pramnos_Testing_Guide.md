@@ -1403,6 +1403,35 @@ of behavioural code, so the observation is recorded in the file instead.
 CI runs both, on Node 20 — the version the container ships, so a failure there reproduces with
 `./lintjs` rather than being a CI-only surprise.
 
+## Code the framework *writes* is not covered by the guards over code it *runs*
+
+`MissingClassReferenceTest` resolves every `\Pramnos\…` name in `src/`, `LegacyClassReferenceTest`
+catches the CMS-era shapes, and between them a class name that does not exist cannot reach a
+release — in the framework's own code. Neither sees a single line of what `create:*` and `init`
+emit, and that is the larger surface: **the framework ships far more code than it runs.**
+
+The two sweeps that cover it are `EveryStubIsSyntacticallyValidTest` (does it parse) and
+`GeneratedCodeNamesRealClassesTest` (do the names resolve). A stub cannot be tokenised the way a
+source file can, because it is a template rather than loadable PHP, so the second one works on
+text and has to earn its precision:
+
+- **Strip comments first.** A comment naming a class is prose. One explaining *what a line
+  replaced* names, by definition, a class that no longer exists.
+- **Skip `namespace` and `use` statements.** `namespace App\Controllers;` is not a class, and a
+  guard that reports it reports it for ever.
+- **Only sweep roots the framework actually depends on.** `App\…` in a stub is the generated
+  application's own namespace and cannot resolve here; sweeping it would flag every template.
+
+Both points are the same point: a guard that reports things nobody can fix is a guard somebody
+deletes, and the value of a mechanical sweep is entirely in being believed.
+
+### Writing one of these
+
+Verify it bites before you trust it. Break a stub on purpose, watch the test fail with a message
+that names the file and the offending name, then restore. A sweep is the one kind of test where
+passing on a clean tree and matching nothing at all look identical — and both of the framework's
+stub sweeps were, at first draft, unable to fail.
+
 ## Reference
 
 **Related Guides:**

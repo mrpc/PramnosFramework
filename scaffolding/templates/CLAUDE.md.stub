@@ -200,7 +200,10 @@ Check status: `./{{ CLI_NAME }} migrate:status`
 Routes are defined in `app/routes.php` (or registered via a ServiceProvider):
 
 ```php
-$router = \Pramnos\Http\Router::getInstance();
+// The router is constructed with the application, not fetched from a static —
+// `\Pramnos\Routing\Router`, and it takes the container in its constructor. This is
+// the shape `src/Api/routes.php` already uses.
+$router = new \Pramnos\Routing\Router($this);
 $router->get('/posts',       'Posts@index');
 $router->post('/posts',      'Posts@store');
 $router->get('/posts/{id}',  'Posts@show');
@@ -210,10 +213,10 @@ $router->get('/posts/{id}',  'Posts@show');
 
 ```php
 // Fire an event
-\Pramnos\Framework\Event::fire('post.created', ['post' => $post]);
+\Pramnos\Event\Event::fire('post.created', ['post' => $post]);
 
 // Listen
-\Pramnos\Framework\Event::listen('post.created', function (array $payload) {
+\Pramnos\Event\Event::listen('post.created', function (array $payload) {
     // ...
 });
 ```

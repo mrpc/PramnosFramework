@@ -13,8 +13,11 @@
 define('ROOT', dirname(__DIR__));
 require ROOT . '/vendor/autoload.php';
 
-$dotenv = \Dotenv\Dotenv::createImmutable(ROOT);
-$dotenv->safeLoad();
+// The framework's own helper, autoloaded by the line above. `\Dotenv\Dotenv` is
+// vlucas/phpdotenv, which neither this project nor the framework requires — calling it
+// here was a fatal on the first delivery, recorded by the provider as a 500 and by
+// nobody else. What the framework ships is symfony/dotenv, wrapped in this.
+loadDotenv(ROOT);
 
 $handler = new \Pramnos\Webhook\WebhookHandler(
     secret:     $_ENV['WEBHOOK_SECRET'] ?? '',

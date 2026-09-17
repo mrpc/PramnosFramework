@@ -3098,7 +3098,8 @@ CSS;
     /**
      * Creates www/webhook.php and adds WEBHOOK_SECRET to .env.example.
      *
-     * The generated file uses Dotenv for environment loading and WebhookHandler
+     * The generated file loads `.env` through the framework's own `loadDotenv()` helper
+     * (symfony/dotenv), and uses WebhookHandler
      * for HMAC verification — exactly as the `project:git-webhook` command produces.
      */
     private function scaffoldWebhookWiring(string $cliName): void
@@ -8250,7 +8251,7 @@ PHP;
     {
         if ($uiSystem === 'bootstrap') {
             return <<<'HTML'
-<?php /** @var \Pramnos\View\View $this */ ?>
+<?php /** @var \Pramnos\Application\View $this */ ?>
 <div class="container mt-4">
     <div class="row">
         <div class="col-md-3">
@@ -8302,7 +8303,7 @@ HTML;
 
         if ($uiSystem === 'tailwind') {
             return <<<'HTML'
-<?php /** @var \Pramnos\View\View $this */ ?>
+<?php /** @var \Pramnos\Application\View $this */ ?>
 <div class="max-w-5xl mx-auto">
     <h1 class="text-2xl font-bold mb-4">My Account</h1>
     <div class="flex gap-6">
@@ -8351,7 +8352,7 @@ HTML;
 
         // plain-css
         return <<<'HTML'
-<?php /** @var \Pramnos\View\View $this */ ?>
+<?php /** @var \Pramnos\Application\View $this */ ?>
 <div class="container mt-4">
     <h1 class="text-2xl font-bold mb-4">My Account</h1>
     <div class="flex gap-6">
@@ -8419,7 +8420,7 @@ PHP;
 
         if ($uiSystem === 'bootstrap') {
             return <<<HTML
-<?php /** @var \\Pramnos\\View\\View \$this */ ?>
+<?php /** @var \\Pramnos\\Application\\View \$this */ ?>
 $errorMessages
 <div class="container mt-4">
     <div class="row justify-content-center">
@@ -8474,7 +8475,7 @@ HTML;
 
         if ($uiSystem === 'tailwind') {
             return <<<HTML
-<?php /** @var \\Pramnos\\View\\View \$this */ ?>
+<?php /** @var \\Pramnos\\Application\\View \$this */ ?>
 $errorMessages
 <div class="max-w-lg mx-auto">
     <div class="bg-white rounded-xl shadow-md border border-gray-200 p-6">
@@ -8525,7 +8526,7 @@ HTML;
 
         // plain-css
         return <<<HTML
-<?php /** @var \\Pramnos\\View\\View \$this */ ?>
+<?php /** @var \\Pramnos\\Application\\View \$this */ ?>
 $errorMessages
 <div class="container mt-4">
     <div class="max-w-lg mx-auto">
