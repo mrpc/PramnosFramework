@@ -110,6 +110,30 @@ class ExampleController extends \Pramnos\Application\Controller
 3. **Namespaces**: Use project-specific namespaces (e.g., `Project\Controllers`)
 4. **Methods**: Use camelCase for action methods
 
+**Register actions with `addaction()`, never by redeclaring `$actions`.**
+`Pramnos\Application\Controller` declares `public $actions = array();` **untyped**, and
+PHP does not allow a subclass to add a type to an untyped inherited property. A controller
+written as
+
+```php
+class Privacy extends \Pramnos\Application\Controller
+{
+    public array $actions = ['display'];   // ← fatal
+}
+```
+
+dies at **autoload** time:
+
+```
+Fatal error: Type of App\Controllers\Privacy::$actions must be omitted
+to match the parent definition in class Pramnos\Application\Controller
+```
+
+Not when the action runs — when `class_exists()` is called on the class, so the page is a
+white screen with a stack trace rather than anything the error handler formats. The
+constructor form above is the one every framework controller uses, and it is what the
+dispatcher and the generated "every registered action has a method" test both read.
+
 ### Reading an id out of the URL
 
 **An action's parameters are not URL segments.** The classic dispatcher passes the

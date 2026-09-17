@@ -93,7 +93,13 @@ bin/            CLI entry point
 // Extend Controller — getView() resolves views automatically
 class Home extends \Pramnos\Application\Controller
 {
-    public array $actions = ['display'];
+    public function __construct(?\Pramnos\Application\Application $application = null)
+    {
+        // Register the actions the router may dispatch to. addaction() for public
+        // ones, addAuthAction() for those that need a signed-in user.
+        $this->addaction(['display']);
+        parent::__construct($application);
+    }
 
     public function display(array $args = []): void
     {
@@ -103,6 +109,20 @@ class Home extends \Pramnos\Application\Controller
     }
 }
 ```
+
+!!! danger "Do not write `public array $actions = [...]`"
+    `Pramnos\Application\Controller` declares `public $actions = array();` **untyped**,
+    and PHP does not allow a subclass to add a type to an untyped inherited property. A
+    controller that does it dies at *autoload* time —
+
+    ```
+    Fatal error: Type of App\Controllers\Privacy::$actions must be omitted
+    to match the parent definition in class Pramnos\Application\Controller
+    ```
+
+    — when `class_exists()` is called on it, so the page is a white screen with a stack
+    trace rather than anything the error handler formats. Use `addaction()`, which is what
+    every framework controller does.
 
 Views fall back to the framework's bundled scaffold views if no app view exists —
 useful during early development.
