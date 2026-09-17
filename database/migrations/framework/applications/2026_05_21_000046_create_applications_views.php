@@ -836,8 +836,18 @@ class CreateApplicationsViews extends Migration
             if ($schema->getRelationKind('applications.usage_statistics') === 'v') {
                 $this->DB()->query("DROP VIEW IF EXISTS applications.usage_statistics");
             }
-            $this->DB()->query("DROP MATERIALIZED VIEW IF EXISTS applications.application_stats_hourly");
-            $this->DB()->query("DROP MATERIALIZED VIEW IF EXISTS applications.application_stats_daily");
+            // The refresh policy first, then the view.
+            //
+            // Dropping a continuous aggregate while its refresh job is running is a race
+            // the scheduler wins often enough to matter, and PostgreSQL answers
+            // `tuple concurrently deleted` — which names neither the view nor the job and
+            // reads like corruption. Removing the policy leaves nothing to race with.
+            foreach (['application_stats_hourly', 'application_stats_daily'] as $aggregate) {
+                $schema->removeContinuousAggregatePolicy('applications.' . $aggregate);
+                $this->DB()->query(
+                    'DROP MATERIALIZED VIEW IF EXISTS applications.' . $aggregate
+                );
+            }
             $this->DB()->query("DROP VIEW IF EXISTS applications.top_applications");
             $this->DB()->query("DROP VIEW IF EXISTS applications.oauth2_webhook_status");
             $this->DB()->query("DROP VIEW IF EXISTS applications.oauth2_active_tokens");

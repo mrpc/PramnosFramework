@@ -219,12 +219,18 @@ class ContinuousAggregateRefreshTest extends TestCase
     /**
      * On TimescaleDB the policy is a real background job.
      *
-     * And it cannot be found by the view's name: `timescaledb_information.jobs`
-     * records the *materialization* hypertable
-     * (`_timescaledb_internal._materialized_hypertable_N`), so the lookup has to
-     * go through `continuous_aggregates`. A check written the obvious way
-     * answers "no policy" for every aggregate that has one — and a repair built
-     * on it would try to add a second every time it ran.
+     * Found by **either** pairing, because TimescaleDB changed which one
+     * `timescaledb_information.jobs` reports and both are in the field:
+     *
+     *   - 2.19.3 — `hypertable_schema`/`name` are the *materialization* hypertable,
+     *     `_timescaledb_internal._materialized_hypertable_N`
+     *   - 2.26.4 — they are the aggregate's own view schema and name
+     *
+     * `SchemaBuilder::hasContinuousAggregatePolicy()` accepts both and says why. This
+     * test did not: it used the materialization pairing alone, so on 2.26 it matched
+     * nothing for every aggregate and reported "no background job" for one that had
+     * one. It passed for as long as the development image was newer than any real host
+     * — which is the reason that image is now pinned.
      */
     public function testOnTimescaleDbThePolicyIsABackgroundJob(): void
     {
@@ -241,8 +247,13 @@ class ContinuousAggregateRefreshTest extends TestCase
             "SELECT COUNT(*) AS cnt
                FROM timescaledb_information.jobs j
                JOIN timescaledb_information.continuous_aggregates c
-                 ON j.hypertable_schema = c.materialization_hypertable_schema
-                AND j.hypertable_name   = c.materialization_hypertable_name
+                 ON (
+                      j.hypertable_schema = c.materialization_hypertable_schema
+                  AND j.hypertable_name   = c.materialization_hypertable_name
+                 ) OR (
+                      j.hypertable_schema = c.view_schema
+                  AND j.hypertable_name   = c.view_name
+                 )
               WHERE j.proc_name = 'policy_refresh_continuous_aggregate'
                 AND c.view_schema = 'aggtest' AND c.view_name = 'rollup'"
         )->fields['cnt'];

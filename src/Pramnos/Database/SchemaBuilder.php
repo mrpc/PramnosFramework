@@ -873,6 +873,35 @@ class SchemaBuilder
     }
 
     /**
+     * Remove a continuous aggregate's refresh policy, so the view can be dropped.
+     *
+     * Dropping an aggregate while its refresh job is running is a race the scheduler wins
+     * often enough to matter: PostgreSQL answers `tuple concurrently deleted`, which names
+     * neither the view nor the job and reads like corruption. A `down()` that removes the
+     * policy first has nothing to race with.
+     *
+     * `if_exists` so it is safe on a view that never had one, and on a backend where the
+     * policy is a software row instead.
+     *
+     * @param  string $view Logical name
+     * @return bool
+     */
+    public function removeContinuousAggregatePolicy(string $view): bool
+    {
+        if (!$this->isContinuousAggregate($view)) {
+            return $this->removeSoftwarePolicy($view, 'aggregate_refresh');
+        }
+
+        $resolved = $this->resolveTable($view);
+
+        return $this->runTimescaleStatement(
+            "SELECT remove_continuous_aggregate_policy('{$resolved}', if_exists => true)",
+            'aggregate refresh policy removal',
+            $view
+        );
+    }
+
+    /**
      * Delete a software policy row.
      */
     protected function removeSoftwarePolicy(string $table, string $kind): bool
@@ -1324,13 +1353,26 @@ class SchemaBuilder
         } else {
             $result = $this->db->query(
                 $this->db->prepareQuery(
+                    // `unnest(i.indkey) WITH ORDINALITY`, not `attnum = ANY(i.indkey)`.
+                    //
+                    // `ANY` is a membership test: it says which columns are in the key and
+                    // nothing about their order, so the rows came back in whatever order
+                    // the plan produced. On PostgreSQL 14 that happened to be key order;
+                    // on 17 it is not, and a composite key was reported reversed.
+                    //
+                    // The order is the whole contract here — callers build `WHERE` clauses
+                    // and chunk boundaries from it — and the MySQL branch above has always
+                    // had its `ORDER BY ORDINAL_POSITION`. This one never had an ORDER BY
+                    // at all; it was right by accident on one version.
                     "SELECT a.attname AS col
                      FROM pg_index i
                      JOIN pg_class c ON c.oid = i.indrelid
                      JOIN pg_namespace n ON n.oid = c.relnamespace
+                     CROSS JOIN LATERAL unnest(i.indkey) WITH ORDINALITY AS k(attnum, ord)
                      JOIN pg_attribute a
-                       ON a.attrelid = c.oid AND a.attnum = ANY(i.indkey)
-                     WHERE i.indisprimary AND n.nspname = %s AND c.relname = %s",
+                       ON a.attrelid = c.oid AND a.attnum = k.attnum
+                     WHERE i.indisprimary AND n.nspname = %s AND c.relname = %s
+                     ORDER BY k.ord",
                     $schema,
                     $name
                 )

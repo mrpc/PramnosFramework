@@ -39,7 +39,20 @@ services:
       - "3306"
 
   timescaledb:
-    image: timescale/timescaledb:latest-pg14
+    # Pinned to the oldest TimescaleDB the framework claims to support, not `latest`.
+    #
+    # `latest` is always at least as new as any real host, so development could not be
+    # behind production and therefore could not reproduce it: three framework migrations
+    # failed permanently on a production host with `invalid continuous aggregate view`
+    # while every run of this suite passed. A continuous aggregate containing
+    # `percentile_cont(…)` or `COUNT(DISTINCT …)` is accepted by 2.30.0 and refused by
+    # 2.26.4 — and 2.26.4 is the newest package installable on Debian 11 with PostgreSQL
+    # 17, because Timescale stopped building for bullseye.
+    #
+    # pg17 rather than pg14 because 2.26.4 is not built for 14 at all; the registry
+    # answers `manifest unknown`. This service keeps no volume, so the major-version
+    # change costs nothing — the suite migrates it from empty on every recreate.
+    image: timescale/timescaledb:2.26.4-pg17
     container_name: pramnos_timescaledb
     environment:
       - POSTGRES_USER=postgres
