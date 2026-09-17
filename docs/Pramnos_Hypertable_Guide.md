@@ -489,6 +489,27 @@ always taken. Nothing a consumer reads changes. What changes is how it refreshes
 background job — and `addContinuousAggregatePolicy()` decides which by asking what the view
 **is**, not what the server has.
 
+### Knowing which one you got
+
+`health:check` reports it, because nothing else did. The `hypertables` check reads the
+catalogue back and answers with the extension's version — which is not PostgreSQL's and is
+in no file — plus anything that does not match its declaration:
+
+```
+hypertables   OK         TimescaleDB 2.30.0 — every declaration matches the catalogue
+hypertables   DEGRADED   2 aggregate(s) are plain materialised views on TimescaleDB 2.26.4
+hypertables   DEGRADED   1 declared hypertable(s) are ordinary tables: channel_metrics
+```
+
+The second is a working arrangement, reported because it refreshes differently — through
+the PolicyEngine daemon rather than a background job, so that daemon has to be running.
+The third is the failure this page keeps returning to: every request is served correctly
+and the table is not chunked, which stops being fixable cheaply once it is large.
+
+**Degraded, not down**, in both cases. The application is up; its storage is not the shape
+it asked for. `down` would page somebody for a site that is serving every request, and a
+check that cries wolf is a check that gets muted.
+
 ### The fallback, and what it costs
 
 A materialised view plus a scheduled refresh. `createMaterializedView()` builds

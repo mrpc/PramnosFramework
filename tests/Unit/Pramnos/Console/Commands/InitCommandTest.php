@@ -477,7 +477,26 @@ class InitCommandTest extends TestCase
         $commandTester->execute(['--no-install' => true, '--no-download' => true]);
 
         $composeContent = file_get_contents($this->tempDir . '/docker-compose.yml');
-        $this->assertStringContainsString('image: timescale/timescaledb:latest-pg17', $composeContent);
+
+        /*
+         * Pinned, and asserted as pinned rather than as a particular number.
+         *
+         * `latest` is a moving target that is always at least as new as any real host, so
+         * development could not be behind production and therefore could not reproduce it.
+         * Three framework migrations failed permanently on a production host with `invalid
+         * continuous aggregate view` while every suite run passed, because `latest`
+         * accepted an aggregate that the newest package installable on that host refuses.
+         */
+        $this->assertStringContainsString('image: timescale/timescaledb:', $composeContent);
+        $this->assertStringNotContainsString(
+            'timescale/timescaledb:latest',
+            $composeContent,
+            'a floating tag means development cannot be behind production, which is where this is found'
+        );
+        $this->assertMatchesRegularExpression(
+            '#image: timescale/timescaledb:\d+\.\d+\.\d+-pg\d+#',
+            $composeContent
+        );
         $this->assertStringContainsString('image: redis:latest', $composeContent);
 
         $dockerfileContent = file_get_contents($this->tempDir . '/Dockerfile');

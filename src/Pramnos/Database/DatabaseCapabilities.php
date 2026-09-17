@@ -66,6 +66,9 @@ class DatabaseCapabilities
     const FEATURE_FULLTEXT   = 'fulltext';
     const FEATURE_SPATIAL    = 'spatial';
 
+    /** @var string|null Memoised TimescaleDB extension version; null until first read. */
+    private ?string $timescaleVersion = null;
+
     /**
      * Native named sequences (CREATE SEQUENCE / NEXTVAL / SETVAL).
      * PostgreSQL: always.  MariaDB: 10.3+.  Oracle MySQL: never.
@@ -279,6 +282,61 @@ class DatabaseCapabilities
     public function hasTimescaleDB(): bool
     {
         return $this->has(self::TIMESCALEDB);
+    }
+
+    /**
+     * The installed TimescaleDB extension version, e.g. `2.26.4`.
+     *
+     * Separate from {@see getVersion()}, which is PostgreSQL's: the two move
+     * independently, and it is the extension's version that decides what a continuous
+     * aggregate may contain. `percentile_cont(…) WITHIN GROUP (…)` and `COUNT(DISTINCT …)`
+     * are accepted at 2.30.0 and refused at 2.26.4 — and 2.26.4 is the newest package
+     * installable on Debian 11 with PostgreSQL 17, because Timescale stopped building for
+     * bullseye. So "which TimescaleDB is this" is a question an operator has to be able to
+     * answer without knowing to look in `pg_extension`.
+     *
+     * Memoised for the request: it is a catalogue read that cannot change under a running
+     * process.
+     *
+     * @return string Dotted version, or '' when the extension is absent or unreadable.
+     */
+    public function timescaleVersion(): string
+    {
+        if ($this->timescaleVersion !== null) {
+            return $this->timescaleVersion;
+        }
+
+        if (!$this->hasTimescaleDB()) {
+            return $this->timescaleVersion = '';
+        }
+
+        try {
+            $result = $this->db->query(
+                "SELECT extversion FROM pg_extension WHERE extname = 'timescaledb'"
+            );
+        } catch (\Throwable) {
+            return $this->timescaleVersion = '';
+        }
+
+        if (!is_object($result) || $result->numRows === 0) {
+            return $this->timescaleVersion = '';
+        }
+
+        return $this->timescaleVersion = (string) ($result->fields['extversion'] ?? '');
+    }
+
+    /**
+     * Is the TimescaleDB extension at least this version?
+     *
+     * False when it is absent or unknown, for the same reason {@see atLeast()} is: an
+     * unknown server is assumed too old, so newer behaviour is opt-in rather than
+     * accidental.
+     */
+    public function timescaleAtLeast(string $version): bool
+    {
+        $current = $this->timescaleVersion();
+
+        return $current !== '' && \version_compare($current, $version, '>=');
     }
 
     public function hasMaterializedViews(): bool

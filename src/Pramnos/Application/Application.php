@@ -4247,6 +4247,13 @@ class Application extends Base
         // nothing here — the check resolves the cache when it runs, so a request
         // that never touches the cache still never connects to one.
         $registry::register(new \Pramnos\Health\Checks\CacheBackendCheck());
+
+        // Whether the time-series storage is the shape it was declared to be. Same
+        // reasoning as the cache above and a more expensive silence: a declared
+        // hypertable that is an ordinary table serves every request correctly and stops
+        // being convertible once it is large, and `timescale:ensure` used to report it as
+        // converted. Resolves nothing here either — it reads the catalogue when it runs.
+        $registry::register(new \Pramnos\Health\Checks\HypertableCheck());
     }
 
 

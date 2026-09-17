@@ -5873,8 +5873,25 @@ PHP;
         $isPostgres = ($dbType === 'postgresql' || $dbType === 'timescaledb');
         $slug       = strtolower(str_replace([' ', '_'], '-', $namespace));
 
+        /*
+         * Pinned, not `latest-pg17`.
+         *
+         * `latest` is a moving target that is always at least as new as any real host and
+         * usually newer, so development could not be behind production and therefore could
+         * not reproduce it. That is not hypothetical: three framework migrations failed
+         * permanently on a production host with `invalid continuous aggregate view`, and
+         * every suite run had passed — a continuous aggregate containing
+         * `percentile_cont(…)` or `COUNT(DISTINCT …)` is accepted by 2.30.0 and refused by
+         * 2.26.4.
+         *
+         * 2.26.4 is a platform fact rather than an old choice: Timescale stopped building
+         * for Debian 11, so on bullseye with PostgreSQL 17 it is the newest installable
+         * package and upgrading the extension means upgrading the operating system. A
+         * project that knows its hosts are newer can raise this line; one that does not
+         * now develops against the oldest version the framework still supports.
+         */
         $image = match ($dbType) {
-            'timescaledb' => 'timescale/timescaledb:latest-pg17',
+            'timescaledb' => 'timescale/timescaledb:2.26.4-pg17',
             'mysql'       => 'mysql:8.0',
             default       => 'postgres:latest',
         };
