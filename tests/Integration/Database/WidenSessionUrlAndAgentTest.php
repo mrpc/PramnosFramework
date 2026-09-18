@@ -141,6 +141,16 @@ class WidenSessionUrlAndAgentTest extends BaseTestCase
     /**
      * What the catalogue says this column is.
      *
+     * Two things about this query are the result of getting them wrong:
+     *
+     *  - **`data_type` is aliased.** MySQL answers `information_schema` in upper case, so
+     *    `fields['data_type']` is an empty string there and every comparison against it
+     *    silently reads as "not text".
+     *  - **the schema is pinned.** `information_schema` spans every database on the server.
+     *    Without `table_schema`, `ORDER BY table_schema LIMIT 1` answers from whichever
+     *    database sorts first — a scratch database created for an unrelated measurement had
+     *    a `sessions` table of its own, and this test read *that* one and failed.
+     *
      * @return array{type: string, length: int}
      */
     private function columnShape(string $column): array
@@ -149,8 +159,8 @@ class WidenSessionUrlAndAgentTest extends BaseTestCase
             $this->db->prepareQuery(
                 "SELECT data_type AS dtype, COALESCE(character_maximum_length, 0) AS len
                    FROM information_schema.columns
-                  WHERE table_name = %s AND column_name = %s
-                  ORDER BY table_schema
+                  WHERE table_schema = " . ($this->isPostgreSQL() ? 'current_schema()' : 'DATABASE()') . "
+                    AND table_name = %s AND column_name = %s
                   LIMIT 1",
                 $this->isPostgreSQL() ? 'sessions' : $this->db->prefix . 'sessions',
                 $column
@@ -276,6 +286,132 @@ class WidenSessionUrlAndAgentTest extends BaseTestCase
         // Assert
         foreach (['url', 'agent'] as $column) {
             $this->assertSame('text', $this->columnShape($column)['type']);
+        }
+    }
+
+    /**
+     * `NOT NULL` survives the widening, on both engines.
+     *
+     * WHAT: after the migration, `url` and `agent` still refuse a null.
+     *
+     * WHY:  MySQL's `MODIFY <column> TEXT` replaces the **whole** definition, so omitting
+     *       `NOT NULL` makes the column nullable — silently, and only on MySQL, because
+     *       PostgreSQL's `ALTER … TYPE` keeps it. Left alone, this migration gave the two
+     *       engines different schemas and let the upsert write a null `url` into code that
+     *       has never had one. Caught by reading the table back after the ALTER rather than
+     *       by reasoning about the statement.
+     */
+    public function testNotNullSurvivesTheWidening(): void
+    {
+        // Arrange — the fixture declares both NOT NULL, as the create-table does
+        foreach (['url', 'agent'] as $column) {
+            $this->assertFalse($this->columnIsNullable($column), $column . ' started nullable');
+        }
+
+        // Act
+        $this->migration()->up();
+
+        // Assert
+        foreach (['url', 'agent'] as $column) {
+            $this->assertFalse(
+                $this->columnIsNullable($column),
+                $column . ' became nullable: MODIFY replaced the whole definition'
+            );
+        }
+    }
+
+    /**
+     * And a column that *was* nullable stays nullable.
+     *
+     * The other half of "change the type and only the type". An installation whose
+     * `sessions` predates the migration system may legitimately have either, and a migration
+     * that tightened the constraint would fail outright on a table holding nulls — on the
+     * `ALTER` itself, which on MySQL is after the rebuild has already been paid for.
+     */
+    public function testANullableColumnStaysNullable(): void
+    {
+        // Arrange
+        $table = $this->tableName();
+        if ($this->isPostgreSQL()) {
+            $this->db->query('ALTER TABLE ' . $table . ' ALTER COLUMN "url" DROP NOT NULL');
+        } else {
+            $this->db->query('ALTER TABLE `' . $table . '` MODIFY `url` varchar(255) NULL');
+        }
+        $this->assertTrue($this->columnIsNullable('url'), 'the fixture is not nullable');
+
+        // Act
+        $this->migration()->up();
+
+        // Assert
+        $this->assertSame('text', $this->columnShape('url')['type']);
+        $this->assertTrue($this->columnIsNullable('url'), 'the migration tightened the column');
+    }
+
+    /** Does the catalogue say this column accepts nulls? */
+    private function columnIsNullable(string $column): bool
+    {
+        $result = $this->db->query(
+            $this->db->prepareQuery(
+                "SELECT is_nullable AS nullable
+                   FROM information_schema.columns
+                  WHERE table_schema = " . ($this->isPostgreSQL() ? 'current_schema()' : 'DATABASE()') . "
+                    AND table_name = %s AND column_name = %s
+                  LIMIT 1",
+                $this->isPostgreSQL() ? 'sessions' : $this->db->prefix . 'sessions',
+                $column
+            )
+        );
+
+        $this->assertGreaterThan(0, $result->numRows ?? 0, 'no such column: ' . $column);
+
+        return strtoupper((string) ($result->fields['nullable'] ?? 'NO')) === 'YES';
+    }
+
+    /**
+     * A view over the column makes the migration decline, not fail.
+     *
+     * WHAT: with a view selecting `sessions.url`, `up()` records a decline naming the view,
+     *       and the columns are left as they were.
+     *
+     * WHY:  PostgreSQL refuses `ALTER … TYPE` on a column a view or rule selects —
+     *       `cannot alter type of a column used by a view or rule`. The framework creates no
+     *       view over `sessions`, so this cannot come from anything it ships; an application
+     *       may well have one, because a live-page report over `url` is an obvious thing to
+     *       build. The framework must not drop somebody else's view to get its own ALTER
+     *       through, and it must not stop the whole `migrate` run over a tracking column
+     *       either. A decline does neither: the run carries on, the reason is recorded, and
+     *       the next `migrate` tries again.
+     *
+     *       PostgreSQL only: MySQL allows `MODIFY` on a column a view selects, so there is
+     *       nothing to detect there.
+     */
+    public function testAViewOverTheColumnMakesItDeclineRatherThanFail(): void
+    {
+        if (!$this->isPostgreSQL()) {
+            $this->markTestSkipped('MySQL allows MODIFY on a column a view selects.');
+        }
+
+        // Arrange — the shape an application would build
+        $this->db->query(
+            'CREATE VIEW probe_active_pages AS '
+            . 'SELECT "url", count(*) AS hits FROM sessions GROUP BY "url"'
+        );
+
+        try {
+            // Act
+            $migration = $this->migration();
+            $migration->up();
+
+            // Assert — declined, naming the view, and the column untouched
+            $this->assertTrue($migration->hasDeclined(), 'the migration did not decline');
+            $this->assertStringContainsString('probe_active_pages', $migration->declinedReason());
+            $this->assertNotSame(
+                'text',
+                $this->columnShape('url')['type'],
+                'the ALTER ran anyway'
+            );
+        } finally {
+            $this->db->query('DROP VIEW IF EXISTS probe_active_pages CASCADE');
         }
     }
 

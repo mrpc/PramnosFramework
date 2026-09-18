@@ -879,7 +879,9 @@ both dialect branches caught the exception and called `$session->reset()` and `$
 so any database error signed the visitor out. The case that found it was `sessions.url`, a
 `varchar(255)` holding an OAuth callback that carries three scopes and is comfortably over 400
 characters: PostgreSQL refused the statement, and the person saw the sign-in page at the end of a
-successful consent screen. `url` and `agent` are `text` now, and the handler no longer ends
+successful consent screen. `url` and `agent` are `text` now — the same storage as `varchar` in PostgreSQL, and in MySQL
+the difference is that a long value moves off-page, which is the behaviour wanted for a column
+whose whole problem was values that did not fit — and the handler no longer ends
 anybody's session — a revoked session still takes effect through the `logout` flag above, on the
 next request that reaches the database.
 

@@ -116,9 +116,16 @@ class WidenApplicationsCallback extends Migration
     /**
      * Is the column still the narrow legacy type?
      *
-     * Read from `information_schema` rather than assumed from the install's age: an
-     * installation may have widened it by hand, and doing the drop-and-recreate dance on a
-     * column that is already `text` is eleven views rebuilt for nothing.
+     * Read from the catalogue rather than assumed from the install's age: an installation may
+     * have widened it by hand, and doing the drop-and-recreate dance on a column that is
+     * already `text` is eleven views rebuilt for nothing.
+     *
+     * Through `SchemaBuilder::columnType()` rather than a hand-written `information_schema`
+     * read. This used to select `data_type` unaliased and read `fields['data_type']`, and
+     * **MySQL answers `information_schema` in upper case** — `DATA_TYPE` — so that key was an
+     * empty string there and `!== 'text'` was true of every column. Right by accident on a
+     * narrow one, and on a `text` one it reported narrow and rebuilt the table for nothing.
+     * The accessor normalises both engines, so one place has to be right about the case.
      */
     private function columnIsNarrow(): bool
     {
@@ -127,36 +134,11 @@ class WidenApplicationsCallback extends Migration
             return false;
         }
 
-        $result = $this->DB()->query(
-            $this->DB()->prepareQuery(
-                "SELECT data_type, COALESCE(character_maximum_length, 0) AS len
-                   FROM information_schema.columns
-                  WHERE table_name = %s AND column_name = 'callback'
-                  ORDER BY table_schema
-                  LIMIT 1",
-                $this->DB()->prefix . 'applications'
-            )
-        );
+        $type = $schema->columnType('applications', 'callback');
 
-        if (!$result || !$result->numRows) {
-            // Try the unprefixed name: PostgreSQL puts it in a schema rather than a prefix.
-            $result = $this->DB()->query(
-                "SELECT data_type, COALESCE(character_maximum_length, 0) AS len
-                   FROM information_schema.columns
-                  WHERE table_name = 'applications' AND column_name = 'callback'
-                  ORDER BY table_schema
-                  LIMIT 1"
-            );
-        }
-
-        if (!$result || !$result->numRows) {
-            return false;
-        }
-
-        $type = strtolower((string) ($result->fields['data_type'] ?? ''));
-
-        // `text` has no length; anything with one is a ceiling somebody will reach.
-        return $type !== 'text' && (int) ($result->fields['len'] ?? 0) > 0;
+        // `null` is "cannot be read", not "narrow": rebuilding eleven views on a guess is
+        // the more expensive way to be wrong.
+        return $type !== null && $type !== 'text';
     }
 
     private function widenPostgreSQL(): void
