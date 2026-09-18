@@ -1283,6 +1283,42 @@ is a third extension of the same shape, not a `setUp()` in the test that noticed
 Existing projects that predate this: see
 [the Upgrade Guide](Pramnos_Upgrade_Guide.md#test-isolation-extensions-for-existing-projects).
 
+## The TimescaleDB container runs with no background workers
+
+`docker-compose.yml` starts it as `postgres -c timescaledb.max_background_workers=0`. That
+is the framework's own container only — the compose file `init` writes for an application
+does not carry the line and must not, because an application's retention and compression
+policies have to actually run.
+
+The scheduler was crashing the server:
+
+```
+background worker "Retention Policy [9262]" was terminated by signal 11: Segmentation fault
+DETAIL:  Failed process was running: CALL _timescaledb_functions.policy_retention()
+LOG:  terminating any other active server processes
+```
+
+Seven times in one day, roughly once per full suite run. Each one puts PostgreSQL into
+recovery and kills whatever test is mid-statement, which surfaces as
+`the database system is not yet accepting connections` on two or three unrelated
+`FrameworkMigrations…` tests and — because the timing is random — as an occasional failure
+anywhere else. **If you are looking at a database error in a test that has nothing to do
+with TimescaleDB, check `docker logs pramnos_timescaledb | grep Segmentation` before
+believing it.**
+
+The policy itself is well-formed: `pushlog`, a `timestamptz` dimension, `drop_after 90
+days`, no chunks to drop. Calling it by hand succeeds. It crashes only while the suite is
+creating and dropping hypertables underneath it, so it is a concurrency bug in 2.26.4
+rather than anything the framework does wrong — and the framework pins 2.26.4 deliberately,
+for reasons the compose file explains, so it is not going away by upgrading.
+
+**Nothing in the suite needs the scheduler.** What the suite asserts is that a policy is
+*registered* — `TimescaleInspector` reads `jobs LEFT JOIN job_stats` precisely because a job
+that has never run has no stats row — and the software-emulated path is driven directly by
+`PolicyEngine`. Nothing anywhere waits for a job to fire. If you write a test that does,
+this setting is what it will fail against, and the answer is to call the policy yourself
+rather than to turn the workers back on.
+
 ## `./dockertest` says a run is already in progress
 
 Two runs against the same Docker databases corrupt each other, so `dockertest`

@@ -54,6 +54,30 @@ services:
     # change costs nothing — the suite migrates it from empty on every recreate.
     image: timescale/timescaledb:2.26.4-pg17
     container_name: pramnos_timescaledb
+    # No background workers, and this is the framework's own container only — the
+    # docker-compose `init` scaffolds for an application does not carry this line and
+    # must not: an application's policies have to actually run.
+    #
+    # TimescaleDB's scheduler segfaulted the server seven times in a day here:
+    #
+    #   background worker "Retention Policy [9262]" was terminated by signal 11
+    #   DETAIL:  Failed process was running: CALL _timescaledb_functions.policy_retention()
+    #   LOG:  terminating any other active server processes
+    #
+    # Every one of those put PostgreSQL into recovery and killed whatever test was
+    # mid-statement, roughly once per full suite run — which is what the unexplained
+    # `FrameworkMigrationsPostgreSQLTest` connection errors and the one-in-fifteen
+    # `AccountChangePasswordTest` failure were. The policy itself is well-formed
+    # (`pushlog`, a `timestamptz` dimension, `drop_after 90 days`, no chunks) and calling
+    # it by hand succeeds; it crashes only while the suite is creating and dropping
+    # hypertables underneath it, which is a concurrency bug in 2.26.4 rather than
+    # anything the framework can fix.
+    #
+    # The suite does not need the scheduler. It asserts that policies are *registered* —
+    # `TimescaleInspector` reads `jobs LEFT JOIN job_stats` precisely because a job that
+    # has never run has no stats row — and the software-emulated path is driven directly
+    # by `PolicyEngine`. Nothing anywhere waits for a job to fire.
+    command: postgres -c timescaledb.max_background_workers=0
     environment:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=secret
