@@ -1283,6 +1283,63 @@ is a third extension of the same shape, not a `setUp()` in the test that noticed
 Existing projects that predate this: see
 [the Upgrade Guide](Pramnos_Upgrade_Guide.md#test-isolation-extensions-for-existing-projects).
 
+## Walking a directory from a test — `Tree::files()`, not the iterator
+
+A sweep that reads a tree uses `Pramnos\Framework\Testing\Tree::files($directory)`:
+
+```php
+use Pramnos\Framework\Testing\Tree;
+
+/** @return list<string> */
+private static function viewFiles(string $theme): array
+{
+    return Tree::files(dirname(__DIR__, 3) . '/scaffolding/themes/' . $theme . '/views');
+}
+```
+
+It returns every `.php` file under the directory, recursively and sorted — pass `null` as
+the second argument to keep every extension. Sorted because a failure message assembled
+from the list has to read the same on two runs; directory order does not.
+
+### What it is for
+
+A full run once produced two errors and nothing else:
+
+```
+UnexpectedValueException: RecursiveDirectoryIterator::__construct(
+  …/scaffolding/themes/tailwind/views): Failed to open directory: No such file or directory
+```
+
+The directory is tracked in git, is not ignored, nothing in the repository writes under
+`scaffolding/`, and **its mtime on the host predated the run by seventeen days** — so it had
+not been removed and put back. What went missing was the container's *view* of it. The
+repository is a bind mount, and on macOS Docker Desktop that is VirtioFS (`fakeowner` over
+`/run/host_mark/Users`), which under load can answer `ENOENT` for a directory that is on the
+disk throughout. It is rare: a watcher stat-ing the same path as fast as the mount allows,
+for a whole 16,000-test run, did not reproduce it once.
+
+`Tree::files()` looks **twice**, 50 ms apart, and then raises a `RuntimeException` naming
+the path and saying how to tell the two explanations apart. One retry, not a loop — it is
+for a mount that blinked, not a way to tolerate a directory that is genuinely gone.
+
+### The two shapes it replaces, and why both were wrong
+
+- `new RecursiveIteratorIterator(new RecursiveDirectoryIterator($dir))` throws an
+  `UnexpectedValueException` that reads like a bug in the test rather than a directory that
+  could not be read.
+- `glob($dir . '/*')` returns `false`, so the sweep quietly examines nothing and **passes**.
+  That is the same failure mode the emptiness assertions on forty-five sweeps exist for; a
+  sweep still asserts its list is non-empty, because `Tree::files()` legitimately returns
+  `[]` for a directory that is there and holds nothing.
+
+### If you are the one adding a sweep
+
+Do not put an `isFile()` filter in your own walk on the assumption that directories arrive.
+In the default `LEAVES_ONLY` mode they do not — not even empty ones, which are descended
+into and produce nothing. `TreeTest` pins that by asserting an empty subdirectory never
+appears, so a change to `SELF_FIRST` fails there rather than in whatever sweep reads a
+directory as a file.
+
 ## The TimescaleDB container runs with no background workers
 
 `docker-compose.yml` starts it as `postgres -c timescaledb.max_background_workers=0`. That

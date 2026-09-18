@@ -6,6 +6,7 @@ namespace Pramnos\Tests\Unit\Html;
 
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
+use Pramnos\Framework\Testing\Tree;
 
 /**
  * What a scaffolded form says when it fails, and when it is working.
@@ -83,23 +84,20 @@ class ScaffoldFormFeedbackTest extends TestCase
         return dirname(__DIR__, 3) . '/scaffolding/themes/' . $theme . '/views';
     }
 
-    /** @return list<string> */
+    /**
+     * Every view file of a theme.
+     *
+     * Through {@see Tree::files()} rather than a bare `RecursiveDirectoryIterator`, because
+     * this exact call raised `Failed to open directory: No such file or directory` on
+     * `themes/tailwind/views` in one run — a directory tracked in git whose host mtime
+     * predated that run by seventeen days. The mount blinked, not the disk. The helper
+     * looks twice and then fails with the path and with what it checked.
+     *
+     * @return list<string>
+     */
     private static function viewFiles(string $theme): array
     {
-        $files = [];
-        $iterator = new \RecursiveIteratorIterator(
-            new \RecursiveDirectoryIterator(self::viewsDirectory($theme))
-        );
-
-        foreach ($iterator as $file) {
-            if ($file->isFile() && $file->getExtension() === 'php') {
-                $files[] = $file->getPathname();
-            }
-        }
-
-        sort($files);
-
-        return $files;
+        return Tree::files(self::viewsDirectory($theme));
     }
 
     private static function shortName(string $path): string
