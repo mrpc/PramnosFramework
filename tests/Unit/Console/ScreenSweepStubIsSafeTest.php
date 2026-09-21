@@ -150,6 +150,115 @@ class ScreenSweepStubIsSafeTest extends TestCase
     }
 
     /**
+     * The read-action sweep appends a subject when one is offered.
+     *
+     * WHAT: the sweep calls `subjectFor()` and puts what it returns in the path.
+     *
+     * WHY:  `/admin/Users/view` with no id is a valid request that answers 200 — and
+     *       what renders is the "nothing selected" branch, four lines at the top of a
+     *       template whose six hundred are the point. The sweep passes and its number
+     *       comes entirely from the half of the file it never reaches. A project
+     *       adopting the sweep without this watched coverage *fall* from 74.8% to 45.0%.
+     *
+     *       It is the same failure `seedRows()` is about, one layer along: a list with
+     *       no rows renders its empty state, and a detail view with no subject renders
+     *       its empty state too — with no row to seed, because what is missing is an id
+     *       in the URL.
+     */
+    public function testTheSweepAppendsASubjectWhenOneIsOffered(): void
+    {
+        // Arrange
+        $stub = $this->stub();
+
+        // Assert — the hook exists, defaults to none, and is actually used
+        $this->assertStringContainsString(
+            'protected function subjectFor(string $prefix, string $action): string',
+            $stub,
+            'there is no hook for the id a detail screen needs'
+        );
+        $this->assertStringContainsString(
+            '$subject = $this->subjectFor($prefix, $action);',
+            $stub,
+            'the hook is declared and never called, which is worse than absent'
+        );
+        $this->assertStringContainsString(
+            "rawurlencode(\$subject)",
+            $stub,
+            'an id goes into a URL, so it is encoded'
+        );
+    }
+
+    /**
+     * The framework's own tables are seeded by the stub, not by each application.
+     *
+     * WHAT: `seedFrameworkRows()` exists, runs before `seedRows()`, and absorbs each
+     *       insert on its own.
+     *
+     * WHY:  the largest uncovered file in a project on this framework is usually the
+     *       person card — `Admin/Views/users/view.html.php` — which is the framework's
+     *       file, behind the framework's controller, drawing from seventeen of the
+     *       framework's tables. Leaving it to each application means every project
+     *       spends the same afternoon on somebody else's view, or carries a
+     *       six-hundred-line file at 58%.
+     *
+     *       Absorbed individually because a table that is not there is a feature this
+     *       installation does not have, and one missing feature must not stop the rest
+     *       being seeded.
+     */
+    public function testTheFrameworksOwnTablesAreSeededByTheStub(): void
+    {
+        // Arrange
+        $stub = $this->stub();
+
+        // Assert
+        $this->assertStringContainsString('protected function seedFrameworkRows(): void', $stub);
+        $this->assertStringContainsString('$this->seedFrameworkRows();', $stub);
+
+        // The person card's tables, which are the ones that matter
+        foreach ([
+            'authserver.user_activity_log',
+            'authserver.passkey_credentials',
+            'authserver.user_twofactor',
+            'usertokens',
+        ] as $table) {
+            $this->assertStringContainsString(
+                "'" . $table . "'",
+                $stub,
+                $table . ' is drawn by the person card and is not seeded'
+            );
+        }
+    }
+
+    /**
+     * The unique column is seeded with a value that differs per test.
+     *
+     * `passkey_credentials.credential_id` is unique across the table, so a literal seeds
+     * the first test that runs and **silently seeds nothing** in every one after it: the
+     * passkey panel renders once and its empty state the rest of the time, which looks
+     * exactly like a test that passes. Asserted by name because it is the one column
+     * where the difference is invisible.
+     */
+    public function testTheUniqueCredentialIsNotALiteral(): void
+    {
+        // Arrange
+        $stub = $this->stub();
+
+        // Act — the line that seeds it
+        $this->assertSame(
+            1,
+            preg_match("/'credential_id'\s*=>\s*([^,]+),/", $stub, $match),
+            'credential_id is not seeded, so the passkey panel never renders'
+        );
+
+        // Assert — a call, not a constant
+        $this->assertStringContainsString(
+            '$unique(',
+            $match[1],
+            'a fixed credential_id seeds one test and silently nothing afterwards'
+        );
+    }
+
+    /**
      * `init` writes it.
      *
      * A stub nothing emits is a file in this repository and nothing else.

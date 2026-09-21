@@ -96,6 +96,250 @@ class ScreenSweepTest extends BaseTestCase
     }
 
     /**
+     * One row in each of the **framework's** own tables, for the framework's own screens.
+     *
+     * Called before {@see seedRows()}, and an application should not have to touch it.
+     *
+     * ## Why this is here rather than in your project
+     *
+     * The single largest uncovered file in a project on this framework is usually
+     * `Admin/Views/users/view.html.php` — the person card — and it is the framework's
+     * file, behind the framework's controller, drawing from seventeen of the framework's
+     * tables. One project measured it at 355 of 605 statements after adopting this sweep,
+     * a quarter of everything uncovered anywhere.
+     *
+     * Leaving that to each application means every project on this framework spends the
+     * same afternoon working out, table by table and required column by required column,
+     * how to make somebody else's biggest view run — or does not, and carries a
+     * six-hundred-line file at 58%. Seeding it here took that project to 495 of 605 and
+     * its total from 93.49% to 95.30%.
+     *
+     * ## How it is written
+     *
+     * **Each insert is absorbed on its own.** A table that is not there is a feature this
+     * installation does not have — `authserver`, push notifications, the mail log — and
+     * that is not a failure of the sweep. The same rule the framework's own
+     * `userRecords()` applies.
+     *
+     * **Anything that looks unique gets a random value.** `passkey_credentials.credential_id`
+     * is unique across the table, so a fixed value seeds the first test that runs and
+     * silently seeds nothing in every one after it: the panel renders once and its empty
+     * state the rest of the time, which looks exactly like a test that passes.
+     *
+     * **Required columns nobody named are filled by type.** These rows exist so a row
+     * loop executes, not so a screen reads correctly, and a `NOT NULL` column with no
+     * default would otherwise refuse the insert on one engine and not the other.
+     *
+     * @return void
+     */
+    protected function seedFrameworkRows(): void
+    {
+        $userId = $this->seededUserId();
+        if ($userId === 0) {
+            return;
+        }
+
+        $now     = date('Y-m-d H:i:s');
+        $unique  = static fn(int $bytes = 16): string => bin2hex(random_bytes($bytes));
+        $seconds = time();
+
+        $rows = [
+            'authserver.user_activity_log'     => ['userid' => $userId, 'action' => 'login', 'ip_address' => '198.51.100.10', 'created_at' => $now],
+            'authserver.gdpr_requests'         => ['userid' => $userId, 'request_type' => 'export', 'status' => 'completed', 'requested_at' => $now],
+            'authserver.user_privacy_settings' => ['userid' => $userId],
+            'authserver.user_twofactor'        => ['userid' => $userId],
+            'authserver.passkey_credentials'   => [
+                // Unique across the table. A literal here seeds the first test and
+                // nothing afterwards — see the note above.
+                'credential_id' => $unique(32),
+                'userid'        => $userId,
+                'public_key'    => $unique(32),
+                'name'          => 'A security key',
+                'created_at'    => $now,
+            ],
+            'loginlockouts'                    => ['userid' => $userId],
+            'usertokens'                       => [
+                'userid'  => $userId,
+                'token'   => $unique(),
+                'created' => $seconds,
+                'lastused' => $seconds,
+                'status'  => 1,
+            ],
+            'tokenactions'                     => ['servertime' => $seconds],
+            'mails'                            => ['userid' => $userId, 'subject' => 'A message', 'senddate' => $seconds],
+            'pramnos.pushsubscriptions'        => ['userid' => $userId, 'endpoint' => 'https://example.com/push/' . $unique(8)],
+            'pramnos.pushlog'                  => ['userid' => $userId, 'title' => 'A notification'],
+        ];
+
+        foreach ($rows as $table => $values) {
+            $this->seedOne($table, $values);
+        }
+    }
+
+    /**
+     * Insert one row, filling whatever else the table insists on, and absorb a refusal.
+     *
+     * @param array<string, mixed> $values
+     */
+    private function seedOne(string $table, array $values): void
+    {
+        $db = \Pramnos\Framework\Factory::getDatabase();
+
+        try {
+            if (!$db->schema()->hasTable($table)) {
+                // A feature this installation does not have.
+                return;
+            }
+
+            $columns = $db->getColumns($table, null, false, true);
+            if ($columns === false) {
+                return;
+            }
+
+            $present = [];
+            while ($columns->fetch()) {
+                $field = $columns->fields;
+                $name  = (string) ($field['Field'] ?? '');
+                $present[$name] = $field;
+            }
+
+            $row = [];
+            foreach ($values as $name => $value) {
+                // A column this installation's version of the table does not have is
+                // dropped rather than refused: the seed should survive a schema that
+                // moved on.
+                if (isset($present[$name])) {
+                    $row[$name] = $value;
+                }
+            }
+
+            foreach ($present as $name => $field) {
+                if (array_key_exists($name, $row)) {
+                    continue;
+                }
+                if (($field['Null'] ?? 'YES') !== 'NO') {
+                    continue;
+                }
+                if (($field['Default'] ?? null) !== null) {
+                    continue;
+                }
+                if (str_contains(strtolower((string) ($field['Extra'] ?? '')), 'auto_increment')) {
+                    continue;
+                }
+                if (str_contains(strtolower((string) ($field['Key'] ?? '')), 'pri')) {
+                    // A primary key the engine does not fill for us is a design this
+                    // seeder should not guess at.
+                    continue;
+                }
+
+                $row[$name] = $this->placeholderFor((string) ($field['Type'] ?? ''));
+            }
+
+            if ($row === []) {
+                return;
+            }
+
+            $db->queryBuilder()->table($table)->insert($row);
+        } catch (\Throwable) {
+            /*
+             * One row in one table of a seeder. A refusal here must not fail the sweep:
+             * what the sweep is for is the screens, and a screen whose panel renders its
+             * empty state is still a screen that rendered.
+             */
+        }
+    }
+
+    /** Something a NOT NULL column of this type will accept. */
+    private function placeholderFor(string $type): mixed
+    {
+        $type = strtolower($type);
+
+        return match (true) {
+            str_contains($type, 'int')       => 0,
+            str_contains($type, 'bool')      => 0,
+            str_contains($type, 'decimal'),
+            str_contains($type, 'numeric'),
+            str_contains($type, 'float'),
+            str_contains($type, 'double')    => 0,
+            str_contains($type, 'timestamp'),
+            str_contains($type, 'datetime')  => date('Y-m-d H:i:s'),
+            str_contains($type, 'date')      => date('Y-m-d'),
+            default                          => '',
+        };
+    }
+
+    /**
+     * The id of a person the framework's own screens can be swept against.
+     *
+     * The signed-in account when {@see actingAsAdmin()} left one, otherwise the lowest
+     * real user id in the table. Zero when there is nobody at all, in which case the
+     * framework rows are not seeded — a person card with no person is not a screen.
+     */
+    protected function seededUserId(): int
+    {
+        $current = \Pramnos\User\User::getCurrentUser();
+        if ($current !== null && (int) ($current->userid ?? 0) > 1) {
+            return (int) $current->userid;
+        }
+
+        try {
+            $result = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
+                ->table('#PREFIX#users')
+                ->select(['userid'])
+                ->where('userid', 1, '>')
+                ->orderBy('userid', 'asc')
+                ->first();
+        } catch (\Throwable) {
+            return 0;
+        }
+
+        return (int) ($result->fields['userid'] ?? 0);
+    }
+
+    /**
+     * The id to append for one action, when the screen is about a subject.
+     *
+     * **Fill this in, or half the sweep measures nothing.** `/admin/Users/view` with no
+     * id is a valid request that answers 200 — and what renders is the "nothing
+     * selected" branch: four lines at the top of a template whose six hundred are the
+     * point. The sweep passes, and the number it produces comes entirely from the half
+     * of the file it never reaches. Adopting the sweep without this made one project's
+     * coverage *fall* from 74.8% to 45.0%.
+     *
+     * It is the same failure `seedRows()` is about, one layer along. A list with no rows
+     * renders its empty state; a detail view with no subject renders its empty state
+     * too, and there is no row to seed because what is missing is not data but an id in
+     * the URL.
+     *
+     * **A `match` on the action, not one shared id.** Handing `view` a channel id where
+     * it wants a user id produces a screen that renders its "not found" branch and a
+     * sweep that reports success over it — the same bug again, one layer further down.
+     *
+     * ```php
+     * protected function subjectFor(string $prefix, string $action): string
+     * {
+     *     return match ($action) {
+     *         'view', 'edit'  => (string) $this->seededUserId,
+     *         'log'           => (string) $this->seededChannelId,
+     *         default         => '',
+     *     };
+     * }
+     * ```
+     *
+     * `seedRows()` is where those ids are kept. Returning `''` — the default — requests
+     * the action with no subject, which is where a project that overrides neither is
+     * today.
+     *
+     * @param  string $prefix The URL prefix the controller is under (`''` or `/admin`)
+     * @param  string $action The action about to be requested
+     * @return string The id to append, or `''` for none
+     */
+    protected function subjectFor(string $prefix, string $action): string
+    {
+        return '';
+    }
+
+    /**
      * Sign in, when the screens worth sweeping are behind a login.
      *
      * Left to the application because "an administrator" is a product decision. Without
@@ -114,6 +358,10 @@ class ScreenSweepTest extends BaseTestCase
         parent::setUp();
 
         $this->actingAsAdmin();
+
+        // The framework's tables first: `seedRows()` may depend on a person existing,
+        // and this is where one is found.
+        $this->seedFrameworkRows();
         $this->seedRows();
     }
 
@@ -166,7 +414,15 @@ class ScreenSweepTest extends BaseTestCase
             foreach ($names as $name) {
                 foreach ($this->readActionsOf($prefix, $name) as $action) {
                     $swept++;
-                    $failure = $this->request($prefix . '/' . $name . '/' . $action);
+
+                    // The subject, where the screen is about one. Without it `view` and
+                    // `edit` render their "nothing selected" branch and the sweep covers
+                    // four lines of a six-hundred-line template.
+                    $subject = $this->subjectFor($prefix, $action);
+                    $path    = $prefix . '/' . $name . '/' . $action
+                        . ($subject === '' ? '' : '/' . rawurlencode($subject));
+
+                    $failure = $this->request($path);
                     if ($failure !== null) {
                         $failures[] = $failure;
                     }
