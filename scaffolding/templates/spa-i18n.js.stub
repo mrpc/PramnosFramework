@@ -137,6 +137,22 @@ export async function loadLanguage(lang = null, token = null) {
             ? '{{ apiPrefix }}/language'
             : `{{ apiPrefix }}/language?lang=${encodeURIComponent(lang)}`;
 
+        // The application key, without which the request never reaches a route.
+        //
+        // `ApiAuthMiddleware` refuses anything with no `apiKey` header **before**
+        // routing, so this call answered 403 whatever the endpoint did — and the
+        // `!response.ok` below turned that into "no translation available", which is
+        // indistinguishable from a product nobody has translated yet. That is how this
+        // went unnoticed: the failure has a plausible innocent explanation.
+        //
+        // Read from `window.__PRAMNOS__` rather than imported from `lib/api.js`: that
+        // file imports `t` from here, and the cycle is why this module imports nothing
+        // (see the note at the top).
+        const apiKey = (typeof window !== 'undefined' && window.__PRAMNOS__?.apiKey) || '';
+        if (apiKey) {
+            headers.apiKey = apiKey;
+        }
+
         // A named language skips the token on purpose: that is the sign-in
         // screen, which renders before anybody is signed in and has nobody to
         // ask about a preference.
@@ -157,7 +173,12 @@ export async function loadLanguage(lang = null, token = null) {
         }
 
         strings.map = data.strings ?? {};
-        strings.lang = data.lang ?? 'english';
+        // Whatever the server says it served, including `''` when the installation
+        // ships no language files at all. Defaulting to the literal `english` here was
+        // half of a two-vocabulary bug: `Language::getLanguages()` answers **file
+        // names**, so a project shipping `en.php` has `['en']` and nothing anywhere is
+        // called `english` — the two agreed only where the file happened to be.
+        strings.lang = data.lang ?? '';
 
         // The server's list, so a language control cannot offer something the
         // server refuses. A second copy here is how the two come to disagree.

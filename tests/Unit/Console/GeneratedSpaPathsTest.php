@@ -36,6 +36,99 @@ class GeneratedSpaPathsTest extends TestCase
     }
 
     /**
+     * The language endpoint is registered where every other endpoint is.
+     *
+     * WHAT: `Init` emits a `$r->get('/language', …)` line for `src/Api/routes.php`, and
+     *       the controller stub declares no `#[Route]` attribute of its own.
+     *
+     * WHY:  it used to declare `#[Route('/api/1.0/language')]` and nothing else. The web
+     *       server strips `/api` before the API application sees a request —
+     *       `www/api/index.php` serves `/1.0/…`, which is why `routes.php` groups
+     *       everything under the version alone — so that path could never match. The
+     *       endpoint answered nothing from the day it was written, in every environment.
+     *
+     *       Invisible because `lib/i18n.svelte.js` reports any non-ok answer as "no
+     *       translation available": a product that has never rendered a translated string
+     *       looks exactly like one nobody has translated yet.
+     *
+     *       **The endpoint that was not declared where the others are is the one that did
+     *       not work**, so the assertion is about the place as much as the path. And the
+     *       attribute must stay gone: two declarations of one route is a second thing to
+     *       keep in step, and this is what happens when they drift.
+     *
+     * @return void
+     */
+    public function testTheLanguageEndpointIsRegisteredWithTheOtherRoutes(): void
+    {
+        // Arrange
+        $generator  = (string) file_get_contents(
+            dirname(__DIR__, 3) . '/src/Pramnos/Console/Commands/Init.php'
+        );
+        $controller = $this->stub('spa-language-controller.php.stub');
+
+        // Assert — registered in routes.php, under the version group like the rest
+        $this->assertStringContainsString(
+            "\$r->get('/language', function () {",
+            $generator,
+            'the language endpoint is not registered in src/Api/routes.php'
+        );
+
+        // …and not declared a second time on the class
+        $this->assertStringNotContainsString(
+            '#[Route(',
+            $controller,
+            'a route attribute here is a second declaration, and it is the one that drifted'
+        );
+        $this->assertStringNotContainsString(
+            'use Pramnos\\Routing\\Attributes\\Route;',
+            $controller,
+            'an unused import for a mechanism this file no longer uses'
+        );
+    }
+
+    /**
+     * No generated route path carries the `/api` the web server has already removed.
+     *
+     * The same mistake in a different shape, and the one that is easy to make again: the
+     * API front controller is mounted at `/api`, so everything it routes is relative to
+     * the version. A path written with the mount in it matches nothing, silently.
+     *
+     * @return void
+     */
+    public function testNoGeneratedApiRouteRepeatsTheMountPoint(): void
+    {
+        // Arrange
+        $generator = (string) file_get_contents(
+            dirname(__DIR__, 3) . '/src/Pramnos/Console/Commands/Init.php'
+        );
+        $offenders = [];
+
+        // Act — every route registration the generator emits
+        preg_match_all(
+            '#\\$r->(get|post|put|patch|delete)\\(\\s*\\\\?"?\'([^\']+)\'#',
+            $generator,
+            $matches,
+            PREG_SET_ORDER
+        );
+
+        $this->assertNotEmpty($matches, 'no route registrations found, so this checks nothing');
+
+        foreach ($matches as $match) {
+            if (str_starts_with($match[2], '/api')) {
+                $offenders[] = strtoupper($match[1]) . ' ' . $match[2];
+            }
+        }
+
+        // Assert
+        $this->assertSame(
+            [],
+            $offenders,
+            "The API application is mounted at /api, so it never sees that segment —\n"
+            . "these match nothing:\n" . implode("\n", $offenders)
+        );
+    }
+
+    /**
      * Nothing that goes through the client carries the prefix.
      *
      * Swept across every stub rather than asserted on the two that were wrong: the next

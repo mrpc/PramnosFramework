@@ -130,6 +130,23 @@ class Init extends Command
     private bool    $spaBuilt          = false;
     /** True when the SPA's status service/controller were scaffolded. */
     private bool    $spaStatusEndpoint = false;
+
+    /**
+     * Whether the SPA translation endpoint was scaffolded, so `scaffoldRestApi()`
+     * registers a route for it in `src/Api/routes.php`.
+     *
+     * The same mechanism `$spaStatusEndpoint` uses, and it exists because the language
+     * endpoint did not: it declared its own `#[Route('/api/1.0/language')]` attribute
+     * while every other endpoint was registered in `routes.php` under the `/1.0` group.
+     * The web server strips `/api` before the API application sees the request, so that
+     * path could never match and the endpoint answered nothing from the day it was
+     * written — in every environment, invisibly, because the SPA's i18n client treats a
+     * non-ok answer as "no translation available" and falls back to English.
+     *
+     * **The endpoint that was not declared where the others are is the one that did not
+     * work**, which is the argument for declaring it there.
+     */
+    private bool    $spaLanguageEndpoint = false;
     private bool    $dockerSuccess     = false;
     private bool    $autoloadSuccess   = true;
     private bool    $migrationsSuccess = false;
@@ -1700,6 +1717,9 @@ class Init extends Command
                 'namespace' => $namespace,
             ])
         );
+
+        // Tells scaffoldRestApi() to register the route for it.
+        $this->spaLanguageEndpoint = true;
     }
 
     private function scaffoldSpaStatusEndpoint(string $namespace, string $appName): void
@@ -3300,6 +3320,18 @@ PHP;
             $lines[] = "        // Public status snapshot — used by the SPA's first screen";
             $lines[] = "        \$r->get('/status', function () {";
             $lines[] = "            return (new {$status}(\$this))->display();";
+            $lines[] = "        });";
+            $lines[] = "";
+        }
+
+        // The translation catalogue, for the SPA. Public for the same reason as the
+        // status endpoint and one more: the sign-in screen needs its labels, and it
+        // renders before there is anybody to authenticate.
+        if ($this->spaLanguageEndpoint) {
+            $language = $fqcn('LanguageController');
+            $lines[] = "        // Translation catalogue — the SPA's client for Pramnos\\Translator\\Language";
+            $lines[] = "        \$r->get('/language', function () {";
+            $lines[] = "            return (new {$language}())->show();";
             $lines[] = "        });";
             $lines[] = "";
         }

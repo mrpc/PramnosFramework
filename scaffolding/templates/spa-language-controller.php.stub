@@ -6,7 +6,6 @@ namespace {{ namespace }}\Api\Controllers;
 
 use Pramnos\Http\Request;
 use Pramnos\Http\Response;
-use Pramnos\Routing\Attributes\Route;
 use Pramnos\Http\RequestIdentity;
 use Pramnos\Translator\Language;
 
@@ -42,7 +41,22 @@ use Pramnos\Translator\Language;
  */
 class LanguageController
 {
-    #[Route('{{ apiPrefix }}/language', methods: ['GET'])]
+    /**
+     * The route is registered in `src/Api/routes.php`, with every other endpoint.
+     *
+     * Not as a `#[Route]` attribute here, and that is the fix for a bug rather than a
+     * preference. The attribute said `/api/1.0/language`, but the web server strips
+     * `/api` before the API application sees a request — `www/api/index.php` serves
+     * `/1.0/…`, which is why `routes.php` groups everything under the version alone. So
+     * the path could never match, and this endpoint answered nothing from the day it was
+     * written, in every environment.
+     *
+     * It was invisible because `lib/i18n.svelte.js` treats any non-ok answer as "no
+     * translation available" and falls back to English: a product that has never
+     * rendered a translated string looks like one nobody has translated yet.
+     *
+     * One declaration, in the file that holds the others.
+     */
     public function show(): Response
     {
         $requested = (string) Request::staticGet('lang', '', 'get');
@@ -52,16 +66,38 @@ class LanguageController
         try {
             $available = Language::getLanguages();
         } catch (\Throwable) {
-            // No language directory: the front end falls back to English, which
-            // is the source language and therefore always a correct answer.
-            $available = ['english'];
+            $available = [];
         }
 
-        // A language nobody ships must not be honoured — `load()` would silently
-        // fall back to English while this told the client its request was
-        // applied, and a client that believes it is in Greek will not ask again.
+        /*
+         * The fallback is a language this installation actually ships, not a literal.
+         *
+         * `Language::getLanguages()` answers the **file names** in `app/language/`, so a
+         * project shipping `en.php` gets `['en']` — while `default_language` and the old
+         * fallback here were both the word `english`, which is in no such list. Two
+         * vocabularies for one thing, agreeing only where the file happens to be called
+         * `english.php`. Every request therefore fell through to a name with no file
+         * behind it, including a request for a language that is genuinely shipped.
+         *
+         * `$available[0]` is whatever this installation has. With nothing at all the
+         * answer is the empty catalogue and the source language, which is what the
+         * front end falls back to anyway — and saying so is better than naming a file
+         * that is not there.
+         */
         if (!in_array($language, $available, true)) {
-            $language = 'english';
+            $language = $available[0] ?? '';
+        }
+
+        if ($language === '') {
+            // No language files. The source strings are English and the client's own
+            // fallback is the key itself, so an empty map is a correct answer rather
+            // than an error.
+            return Response::json([
+                'success'   => true,
+                'lang'      => '',
+                'available' => [],
+                'strings'   => [],
+            ]);
         }
 
         $translator = new Language($language);
@@ -89,6 +125,9 @@ class LanguageController
             return (string) $user->language;
         }
 
-        return (string) (\Pramnos\Application\Settings::getSetting('default_language') ?: 'english');
+        // Whatever the installation configured. It is validated against the shipped
+        // list by the caller, so a `default_language` naming a file that is not there
+        // falls through to one that is rather than being served as an empty catalogue.
+        return (string) \Pramnos\Application\Settings::getSetting('default_language');
     }
 }
