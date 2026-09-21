@@ -3680,8 +3680,28 @@ PHP;
         // this change read `pramnos_test` out of a project configured for
         // `my_auto_app_db`. If it can happen inside the repository that introduced the
         // convention, it can happen on a host.
+        /*
+         * `APP_URL` is the site's public root, and it is here rather than only in
+         * `app.php` because the process that needs it cannot infer it.
+         *
+         * `sURL` is the *script's* base — `dirname(SCRIPT_NAME)` — so in a request served
+         * by `www/api/index.php` it is `https://site/api/`, and an asset built on it is a
+         * 404 that is nevertheless absolute and well-formed, so every "is this fetchable"
+         * guard passes it. And from cron there is no `SERVER_NAME` at all, so a scheduled
+         * job putting a public URL in an email has nothing to build one from.
+         *
+         * `\Pramnos\Http\SiteUrl` prefers this value and falls back to the request;
+         * `health:check` reports `site_url` as degraded until it is set.
+         *
+         * Blank rather than guessed. A development URL written here would be copied to
+         * production by the first person who copies `.env`, and a wrong absolute URL is
+         * accepted by everything and fetched by something — which is the failure this
+         * whole key exists to prevent. Blank means the web falls back to the request and
+         * the health check says what is missing.
+         */
         $lines = [
             'APP_DEBUG'        => ['true', 'false'],
+            'APP_URL'          => ['', 'https://example.com/'],
             'APP_DB_TYPE'      => [$realType, $realType],
             'APP_DB_HOST'      => [$dbHost, $dbHost],
             'APP_DB_NAME'      => [$dbName, $dbName],

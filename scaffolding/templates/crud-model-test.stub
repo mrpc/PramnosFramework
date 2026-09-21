@@ -76,8 +76,11 @@ class {{ class }}Test extends BaseTestCase
             $this->assertNotEmpty($id, 'save() must assign a primary key');
 
             // Act — reload a fresh instance from the database by primary key.
-            $reloaded = new \{{ namespace }}\{{ class }}(ServiceController::shared());
-            $reloaded->load($id);
+            //
+            // The return value, not the object: a model that scopes itself to a tenant
+            // refuses somebody else's row by returning a different instance, and `$this`
+            // is already populated by then.
+            $reloaded = (new \{{ namespace }}\{{ class }}(ServiceController::shared()))->load($id);
 
             // Assert — the reloaded row carries the primary key we saved.
             $this->assertEquals($id, $reloaded->{{ primaryKey }});
@@ -97,8 +100,7 @@ class {{ class }}Test extends BaseTestCase
         }
 
         // Assert — after delete() the row can no longer be loaded.
-        $gone = new \{{ namespace }}\{{ class }}(ServiceController::shared());
-        $gone->load($id);
+        $gone = (new \{{ namespace }}\{{ class }}(ServiceController::shared()))->load($id);
         $this->assertEmpty($gone->{{ primaryKey }}, 'row must be gone after delete()');
     }
 

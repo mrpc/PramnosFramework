@@ -777,6 +777,89 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
     }
 
     /**
+     * Unload the row this model is holding, as though it had never been loaded.
+     *
+     * ## What it is for
+     *
+     * A model that scopes itself to a tenant does it by overriding `load()`: call
+     * `parent::_load()`, look at the row, and refuse it when it belongs to somebody else.
+     * The refusal is usually written as *return a different object* —
+     *
+     * ```php
+     * public function load($id, $key = null, $debug = false)
+     * {
+     *     parent::_load($id, null, $key, $debug);
+     *
+     *     if ((int) $this->organization_id !== $this->currentOrganizationId()) {
+     *         return $this->forget();       // ← without this, $this still has the row
+     *     }
+     *
+     *     return $this;
+     * }
+     * ```
+     *
+     * — and **`_load()` has already written every column onto `$this`** by the time the
+     * subclass gets to look. So a refusal that only changes the return value leaves the
+     * object itself holding another tenant's data, and any caller that ignores the return
+     * value reads it:
+     *
+     * ```php
+     * $model = new Thing($this);
+     * $model->load((int) $id);           // return value discarded
+     * if ($model->thing_id == 0) { … }   // populated, so this passes
+     * $model->getData();                 // somebody else's row
+     * ```
+     *
+     * That shape was what `create:crud` generated, so a project had it in every controller
+     * — nine call sites in one, two of them MCP tools an outside assistant can reach. The
+     * generator emits `(new Thing($this))->load($id)` now, and this method is the other
+     * half: with both, the refusal holds whichever shape the caller wrote.
+     *
+     * ## Why it clears what it clears
+     *
+     * `_initialData` — the columns this load actually wrote — and nothing else. Not a list
+     * the model declares, because a hand-written column list is correct until somebody adds
+     * a column and then leaks exactly that one, silently; three copies of such a list had
+     * appeared in one application before it was replaced. Not every public property either,
+     * because a model may legitimately carry public state that is not a column.
+     *
+     * A property declared with a default goes back to that default; one declared without a
+     * type goes to `null`; a typed property with no default is unset, which returns it to
+     * the uninitialized state a fresh instance has. The model is marked new, so a later
+     * `save()` inserts rather than updating the row that was refused.
+     *
+     * @return static The same instance, emptied, so `return $this->forget();` reads.
+     */
+    protected function forget(): static
+    {
+        $defaults = (new \ReflectionClass($this))->getDefaultProperties();
+
+        foreach (array_keys($this->_initialData) as $field) {
+            if (!property_exists($this, $field)) {
+                continue;
+            }
+
+            if (array_key_exists($field, $defaults)) {
+                // Declared on the class: put back what a fresh instance would have. This is
+                // `null` for `public $x;` and the literal for `public $x = 0;`.
+                $this->$field = $defaults[$field];
+
+                continue;
+            }
+
+            // Typed and undefaulted, or set dynamically. Unsetting is the only way back to
+            // "a fresh object does not have this", and assigning null would be a TypeError
+            // on a non-nullable declaration.
+            unset($this->$field);
+        }
+
+        $this->_initialData = array();
+        $this->_isnew       = true;
+
+        return $this;
+    }
+
+    /**
      * Function to automate deleting an object from the database
      * @param integer $primaryKey
      * @param string $table

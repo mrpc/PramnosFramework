@@ -1193,6 +1193,42 @@ A listener contributes its own sections through `account.data_export`, and canno
 core one: `array_key_exists` before writing, so an export's `profile` always came from the
 framework.
 
+### Erasure: `account.data_erase`
+
+The other half of Article 17, and it fires **before** the framework deletes anything:
+
+```php
+\Pramnos\Event\Event::listen('account.data_erase', function (int $userId) {
+    // This application's rows for $userId.
+    return true;      // false stops the erase, with nothing deleted
+});
+```
+
+**Before, not after, and that is not a preference.** An application's rows almost always
+carry a foreign key to `users`; if the framework deleted the user first, its own
+`DELETE FROM users` would fail on the children and what is left is an account half erased
+— which is worse than one that was never started.
+
+A listener returning `false` stops the erase: `Event::fire()` short-circuits at the first
+one, so the listeners after it do not run either, and `eraseUserData()` raises.
+`deleteaccount()` already turns that into an error on the page. Use it for a retention
+obligation the application cannot ignore, not for "this is inconvenient".
+
+Two things the framework deliberately does not decide:
+
+- **Whose data it is.** In a multi-tenant application the rows belong to the
+  *organisation*, not to the person, and deleting the last member of a tenant is a
+  different act from deleting a colleague's login. There is no default that is right for
+  both, so the listener owns it.
+- **What cascades.** Nothing cascades into a table with no foreign key, which is most
+  hypertables — a metrics table keyed by a tenant id has no constraint to follow. Delete
+  those explicitly; they are usually the largest thing left behind and the easiest to
+  forget.
+
+Until this event existed, the erase was a hard-coded list of six framework tables plus
+`users`, so an application's organisation, content and connected accounts survived the
+deletion and were left pointing at a user id that no longer existed.
+
 ## The password-reset token
 
 `Auth\Controllers\Account` stores it in `userdetails` rather than in a table of its own — the

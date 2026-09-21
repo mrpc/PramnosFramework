@@ -4254,6 +4254,12 @@ class Application extends Base
         // being convertible once it is large, and `timescale:ensure` used to report it as
         // converted. Resolves nothing here either — it reads the catalogue when it runs.
         $registry::register(new \Pramnos\Health\Checks\HypertableCheck());
+
+        // Whether the installation knows its own public address. A web request infers one,
+        // so nothing on the site says it is missing — and the process that needs it most,
+        // the scheduler, has no `Host` header to infer from and builds `http:///…` into an
+        // email or a webhook instead. Reads `$_SERVER` and the environment, nothing else.
+        $registry::register(new \Pramnos\Health\Checks\SiteUrlCheck());
     }
 
 

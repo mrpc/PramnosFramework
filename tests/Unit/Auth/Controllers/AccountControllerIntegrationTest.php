@@ -138,6 +138,15 @@ class AccountControllerIntegrationTest extends TestCase
         $this->dbMock->method('queryBuilder')->willReturn($this->queryBuilderMock);
         $this->dbMock->method('updateTableData')->willReturn(true);
 
+        // `eraseUserData()` asks the schema whether each table exists before deleting
+        // from it — five of the six are `authserver.*`, which an installation without
+        // that feature has never had, and the delete used to raise there. A mock with no
+        // `schema()` returns null and the erase dies on it, which is the double lagging
+        // the class rather than a defect: a real Database always builds one.
+        $schemaMock = $this->createMock(\Pramnos\Database\SchemaBuilder::class);
+        $schemaMock->method('hasTable')->willReturn(true);
+        $this->dbMock->method('schema')->willReturn($schemaMock);
+
         // Inject Database via reference
         $dbRef = $this->dbMock;
 

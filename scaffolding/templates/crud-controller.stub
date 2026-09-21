@@ -55,9 +55,13 @@ class {{ className }} extends \Pramnos\Application\Controller
     public function show(): string
     {
         $view    = $this->getView('{{ viewName }}');
-        $model   = new \{{ modelNameSpace }}\{{ modelClass }}($this);
         $request = new \Pramnos\Http\Request();
-        $model->load($request->getOption());
+        // `load()` is used as an expression, not a statement, and that is not style.
+        // A model that scopes itself to a tenant refuses a row belonging to somebody else
+        // by returning a *different* instance; `$this` has already been populated by then,
+        // so a caller that discards the return value inspects the row that was refused and
+        // serves it. Take the answer from the return value and the refusal holds.
+        $model   = (new \{{ modelNameSpace }}\{{ modelClass }}($this))->load($request->getOption());
         $view->addModel($model);
         $doc = \Pramnos\Framework\Factory::getDocument();
         $doc->title = $model->{{ firstNonPkField }} . ' | {{ className }}';
@@ -72,9 +76,13 @@ class {{ className }} extends \Pramnos\Application\Controller
     public function edit(): string
     {
         $view    = $this->getView('{{ viewName }}');
-        $model   = new \{{ modelNameSpace }}\{{ modelClass }}($this);
         $request = new \Pramnos\Http\Request();
-        $model->load($request->getOption());
+        // `load()` is used as an expression, not a statement, and that is not style.
+        // A model that scopes itself to a tenant refuses a row belonging to somebody else
+        // by returning a *different* instance; `$this` has already been populated by then,
+        // so a caller that discards the return value inspects the row that was refused and
+        // serves it. Take the answer from the return value and the refusal holds.
+        $model   = (new \{{ modelNameSpace }}\{{ modelClass }}($this))->load($request->getOption());
         $view->addModel($model);
 {{ loadForeignContent }}
         $doc = \Pramnos\Framework\Factory::getDocument();
@@ -94,9 +102,13 @@ class {{ className }} extends \Pramnos\Application\Controller
      */
     public function save(): void
     {
-        $model   = new \{{ modelNameSpace }}\{{ modelClass }}($this);
         $request = new \Pramnos\Http\Request();
-        $model->load($request->getOption());
+        // `load()` is used as an expression, not a statement, and that is not style.
+        // A model that scopes itself to a tenant refuses a row belonging to somebody else
+        // by returning a *different* instance; `$this` has already been populated by then,
+        // so a caller that discards the return value inspects the row that was refused and
+        // serves it. Take the answer from the return value and the refusal holds.
+        $model   = (new \{{ modelNameSpace }}\{{ modelClass }}($this))->load($request->getOption());
 {{ saveContent }}
         $model->save();
         $this->redirect(sURL . '{{ className }}');

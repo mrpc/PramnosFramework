@@ -1025,7 +1025,11 @@ class MakeCommandGeneratorsTest extends TestCase
             $this->assertStringContainsString("assertEquals('sample text', (string) \$reloaded->title)", $content);
             $this->assertStringContainsString('assertEqualsWithDelta(3.5, (float) $reloaded->amount', $content);
             $this->assertStringContainsString('$model->save();', $content);
-            $this->assertStringContainsString('$reloaded->load($id);', $content);
+            // The return value, not the object: a tenant-scoped model refuses somebody
+            // else's row by returning a different instance, and `$this` is populated by
+            // then. See GeneratedCrudSafetyTest, which forbids the statement form.
+            $this->assertStringContainsString(')->load($id);', $content);
+            $this->assertStringContainsString('$reloaded = (new ', $content);
             $this->assertStringContainsString('$cleanup->delete($id);', $content);
 
             // Assert — FK column is a property but NOT set in the round-trip.

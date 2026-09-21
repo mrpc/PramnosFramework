@@ -181,10 +181,31 @@ if (!function_exists('e')) {
 
 if (!function_exists("getUrl")) {
     /**
-     * Returns the current URL. This function exists here to
-     * let us define URL and
-     * sURL
-     * @return string The current url
+     * The base URL **of the script handling this request** — not the site root.
+     *
+     * This exists to define `URL` and `sURL`, and the distinction is the whole of it: the
+     * return value ends in `dirname($_SERVER['SCRIPT_NAME'])`, so it is the site root only
+     * for as long as the project has one front controller.
+     *
+     * ```
+     * www/index.php      →  https://example.com/
+     * www/api/index.php  →  https://example.com/api/     ← same site, same request
+     * ```
+     *
+     * So `sURL . 'uploads/x.jpg'` built during an API request is
+     * `https://example.com/api/uploads/x.jpg`, a 404 — and it is *absolute and
+     * well-formed*, so every "is this fetchable" guard passes it. One was handed to an
+     * external service, which fetched it, got a 404, and answered with an error that never
+     * mentioned the URL.
+     *
+     * It also answers `''` in a CLI process, because there is no `SERVER_NAME`.
+     *
+     * **For an address that has to work anywhere — an asset, an email, a webhook payload,
+     * a feed — use {@see \Pramnos\Http\SiteUrl::to()}**, which prefers a configured
+     * `APP_URL` and derives the *document root* rather than the script's directory when
+     * there is a request to derive from.
+     *
+     * @return string The current script's base url, with a trailing slash
      */
     function getUrl()
     {

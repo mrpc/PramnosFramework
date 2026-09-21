@@ -267,4 +267,78 @@ describe('the generated API client', () => {
 
         assert.equal(calls[0].url, '/api/1.0/things?page=2');
     });
+
+    /**
+     * A JSON body is encoded and declared.
+     *
+     * The control for the two below: without it, a client that never set a content
+     * type or never encoded anything would pass them both.
+     */
+    test('an object body is JSON, with the header that says so', async () => {
+        answers = [{ status: 200, body: { ok: true } }];
+
+        await api.request('/things', { method: 'POST', body: { name: 'a thing' } });
+
+        assert.equal(calls[0].options.headers['Content-Type'], 'application/json');
+        assert.equal(calls[0].options.body, '{"name":"a thing"}');
+    });
+
+    /**
+     * A FormData body is passed through, and carries no declared content type.
+     *
+     * `JSON.stringify(new FormData())` is the two characters `{}`, so an upload sent
+     * through this client arrived with no file at all and the server answered "no file
+     * arrived" — which is then looked for on the server, where nothing is wrong.
+     *
+     * The absent header is as much of the fix as the untouched body: multipart needs a
+     * boundary the browser generates, and a `Content-Type` set by hand cannot carry one,
+     * so declaring it makes the body unparseable even once it is sent intact.
+     *
+     * This matters beyond uploads. Without it the way to send a file is a bare `fetch`
+     * beside this client, which then misses the apiKey header, the access token,
+     * `credentials: 'same-origin'` and the debug recording — the four things the client
+     * exists for.
+     */
+    test('a FormData body is sent untouched, with no Content-Type', async () => {
+        answers = [{ status: 200, body: { ok: true } }];
+
+        const form = new FormData();
+        form.append('caption', 'a picture');
+        form.append('file', new Blob(['xx'], { type: 'image/png' }), 'shot.png');
+
+        await api.request('/uploads', { method: 'POST', body: form });
+
+        assert.equal(
+            calls[0].options.headers['Content-Type'],
+            undefined,
+            'a declared content type has no boundary, so the body cannot be parsed'
+        );
+        assert.ok(
+            calls[0].options.body instanceof FormData,
+            'the FormData was encoded instead of being passed through'
+        );
+        assert.equal(calls[0].options.body.get('caption'), 'a picture');
+        assert.equal(calls[0].options.body.get('file').name, 'shot.png');
+    });
+
+    /**
+     * A FormData still gets the headers the client exists for.
+     *
+     * Separate from the test above because the two fail for different reasons and a
+     * single test asserting both would not say which. An upload that skipped the apiKey
+     * is answered 403 before the route is looked at, which reads as a broken endpoint.
+     */
+    test('a FormData upload still carries the credentials', async () => {
+        answers = [{ status: 200, body: { ok: true } }];
+        api.setToken('a-token');
+
+        const form = new FormData();
+        form.append('file', new Blob(['xx']), 'shot.png');
+
+        await api.request('/uploads', { method: 'POST', body: form });
+
+        assert.equal(calls[0].options.headers.apiKey, 'the-api-key');
+        assert.equal(calls[0].options.headers.accessToken, 'a-token');
+        assert.equal(calls[0].options.credentials, 'same-origin');
+    });
 });

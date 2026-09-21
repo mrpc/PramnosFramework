@@ -113,8 +113,12 @@ class {{ className }} extends \Pramnos\Application\ApiCrudController
         }
         
         
-        $model = new \{{ modelNameSpace }}\{{ modelClass }}($this);
-        $model->load(${{ primaryKey }});
+        // `load()` is used as an expression, not a statement, and that is not style.
+        // A model that scopes itself to a tenant refuses a row belonging to somebody else
+        // by returning a *different* instance; `$this` has already been populated by then,
+        // so a caller that discards the return value inspects the row that was refused and
+        // serves it. Take the answer from the return value and the refusal holds.
+        $model = (new \{{ modelNameSpace }}\{{ modelClass }}($this))->load(${{ primaryKey }});
         if ($model->{{ primaryKey }} == 0) {
             return array(
                 'status' => 404
@@ -197,8 +201,12 @@ class {{ className }} extends \Pramnos\Application\ApiCrudController
             return $denied;
         }
         
-        $model = new \{{ modelNameSpace }}\{{ modelClass }}($this);
-        $model->load((int) ${{ primaryKey }});
+        // `load()` is used as an expression, not a statement, and that is not style.
+        // A model that scopes itself to a tenant refuses a row belonging to somebody else
+        // by returning a *different* instance; `$this` has already been populated by then,
+        // so a caller that discards the return value inspects the row that was refused and
+        // serves it. Take the answer from the return value and the refusal holds.
+        $model = (new \{{ modelNameSpace }}\{{ modelClass }}($this))->load((int) ${{ primaryKey }});
         if ($model->{{ primaryKey }} == 0) {
             return array(
                 'status' => 404
@@ -242,8 +250,12 @@ class {{ className }} extends \Pramnos\Application\ApiCrudController
             return $denied;
         }
 
-        $model = new \{{ modelNameSpace }}\{{ modelClass }}($this);
-        $model->load((int) ${{ primaryKey }});
+        // `load()` is used as an expression, not a statement, and that is not style.
+        // A model that scopes itself to a tenant refuses a row belonging to somebody else
+        // by returning a *different* instance; `$this` has already been populated by then,
+        // so a caller that discards the return value inspects the row that was refused and
+        // serves it. Take the answer from the return value and the refusal holds.
+        $model = (new \{{ modelNameSpace }}\{{ modelClass }}($this))->load((int) ${{ primaryKey }});
         if ($model->{{ primaryKey }} == 0) {
             return array(
                 'status' => 404

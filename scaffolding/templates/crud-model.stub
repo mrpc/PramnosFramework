@@ -23,6 +23,27 @@ class {{ className }} extends \Pramnos\Application\OrmModel
 
     /**
      * Load from database
+     *
+     * **Scoping this to a tenant?** Refuse the row *and* empty the model, because
+     * `_load()` has already written every column onto `$this` by the time you look:
+     *
+     * ```php
+     * public function load({{ primaryKeyVal }}, $key = null, $debug = false)
+     * {
+     *     parent::_load({{ primaryKeyVal }}, null, $key, $debug);
+     *
+     *     if ((int) $this->organization_id !== $this->currentOrganizationId()) {
+     *         return $this->forget();   // returns $this, emptied
+     *     }
+     *
+     *     return $this;
+     * }
+     * ```
+     *
+     * Returning a fresh instance without `forget()` leaves this one holding the row it
+     * just refused, and any caller that ignores the return value reads it. Every
+     * generated controller takes the return value for that reason.
+     *
      * @param string {{ primaryKeyVal }} ID to load
      * @param string $key Primary key on database
      * @param boolean $debug Show debug information

@@ -1005,6 +1005,57 @@ somebody who already knows they need it, and the ninth controller to end a reque
 somebody who does not. The default is right now, in one place, and overriding it is for a
 controller that needs something else rather than for one that needs this.
 
+## `sURL` is the script's base, not the site root
+
+`sURL` comes from `getUrl()`, which ends in `dirname($_SERVER['SCRIPT_NAME'])`. That is the
+site root right up until the project grows a second front controller:
+
+```
+www/index.php      →  sURL = https://example.com/
+www/api/index.php  →  sURL = https://example.com/api/     ← same site, same request
+```
+
+So an asset under the document root, built during an API request as
+`sURL . 'uploads/x.jpg'`, is `https://example.com/api/uploads/x.jpg` — a 404. The expensive
+part is that it is *absolute and well-formed*, so every "is this a fetchable address" check
+passes it: one was handed to an external service, which fetched it, got a 404, and answered
+with an error that never mentioned the URL. The visible half was a broken thumbnail.
+
+And `getUrl()` cannot answer at all from the command line: there is no `SERVER_NAME`, so a
+scheduled task putting a public URL in an email, a webhook payload or a feed builds
+`http:///uploads/x.jpg`.
+
+### `SiteUrl` is the site root
+
+```php
+use Pramnos\Http\SiteUrl;
+
+SiteUrl::to('uploads/' . $name);   // https://example.com/uploads/x.jpg
+SiteUrl::get();                    // the root, with a trailing slash
+```
+
+It resolves in this order:
+
+1. **`APP_URL`** in the environment — `init` writes the key into `.env` and `.env.example`,
+   blank, because a development URL written there is copied into production by the first
+   person who copies the file.
+2. **`'site_url'`** in `app/config/app.php`, for a project that configures in PHP.
+3. **The current request** — scheme and host, plus the path of the *document root* rather
+   than of the script. It takes `SCRIPT_NAME` and removes the part of `SCRIPT_FILENAME`
+   that sits below `DOCUMENT_ROOT`, so `www/api/index.php` under `www/` answers `/`, and a
+   site mounted at `/shop` keeps its `/shop`.
+4. **`''`** — CLI with nothing configured. Empty rather than a guess, and `to()` then
+   returns the path unchanged: a relative path is visibly incomplete to whatever receives
+   it, where a wrong absolute URL is accepted by everything and fetched by something.
+
+`health:check` reports `site_url`, and reports **degraded** while the value is only being
+inferred from a request — because a web request almost always infers a usable one, so
+"it works on the site" says nothing about whether the scheduler can build a URL.
+
+`sURL` is unchanged and still right for what it is: a link to another page of the
+application served by the same front controller. Use `SiteUrl` for an address that has to
+work somewhere else — an asset, an email, a webhook payload, a feed.
+
 ## Reference
 
 For related guides:

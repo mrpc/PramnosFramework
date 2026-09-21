@@ -101,6 +101,62 @@ class GeneratedCrudSafetyTest extends TestCase
     }
 
     /**
+     * Every generated `load()` call uses the return value.
+     *
+     * WHAT: no stub contains `$model->load(` as a bare statement; the shape is
+     *       `$model = (new Model($this))->load($id);`.
+     *
+     * WHY:  a model that scopes itself to a tenant refuses a row belonging to somebody else
+     *       by returning a **different instance** — and `_load()` has already written every
+     *       column onto `$this` by the time the subclass looks. So the generated shape
+     *
+     *       ```php
+     *       $model = new Thing($this);
+     *       $model->load((int) $id);           // return value discarded
+     *       if ($model->thing_id == 0) { … }   // populated, so this passes
+     *       ```
+     *
+     *       inspects the object that was refused and serves another organisation's row. One
+     *       project had it in nine call sites, two of them MCP tools an outside assistant
+     *       can reach, and the model's own isolation test passed throughout — because that
+     *       test uses the return value, which is correct.
+     *
+     *       Asserted on the stubs rather than on a generated file: this is about the shape
+     *       every project gets by default, and the default is the whole defect.
+     *
+     * @return void
+     */
+    public function testEveryGeneratedLoadUsesTheReturnValue(): void
+    {
+        // Arrange
+        $stubs = ['api-controller.stub', 'crud-controller.stub', 'crud-model-test.stub'];
+        $offenders = [];
+
+        // Act
+        foreach ($stubs as $stub) {
+            $source = $this->stub($stub);
+            $this->assertNotSame('', $source, $stub . ' is empty, so this checks nothing');
+
+            foreach (explode("\n", $source) as $number => $line) {
+                // A `load(` that is the whole statement: no `=` before it on the line, so
+                // whatever it returns goes nowhere.
+                if (!preg_match('/^\s*\$\w+->load\(/', $line)) {
+                    continue;
+                }
+                $offenders[] = $stub . ':' . ($number + 1) . ' — ' . trim($line);
+            }
+        }
+
+        // Assert
+        $this->assertSame(
+            [],
+            $offenders,
+            "These discard what load() returns, so a tenant-scoped model's refusal is\n"
+            . "ignored and the row it refused is served:\n" . implode("\n", $offenders)
+        );
+    }
+
+    /**
      * The generated model is an `OrmModel`.
      *
      * It extended the legacy `\Pramnos\Application\Model`, on which a global scope is

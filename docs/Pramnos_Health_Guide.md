@@ -28,6 +28,8 @@ Every application registers these during `init()`:
 | `disk_space` | Free space and percentage used on the application root. |
 | `memory_limit` | Peak usage against `memory_limit`. |
 | `cache` | Whether the cache is on the store it was **configured** for. `degraded` when it fell back — the application works, on the wrong store. |
+| `hypertables` | Whether a declared hypertable is one, and whether a continuous aggregate is one. `degraded` when the catalogue disagrees with the declaration. |
+| `site_url` | The site's public root, and where it came from. `degraded` while it is only being inferred from the request. |
 
 With the `authserver` feature enabled, one more is registered by
 `AuthServerServiceProvider`:
@@ -54,6 +56,23 @@ yourself if yours does.
     the missing extension, because the container is almost always up and the extension
     is almost always the answer. It reports `degraded`: the site is working, and a
     check that pages somebody for a working site is a check that gets muted.
+
+!!! note "Why `site_url` is degraded when nothing is configured"
+
+    A web request almost always infers a usable root, so the site works and nothing
+    reports a problem. The process that cannot infer one is the scheduler: cron has no
+    `Host` header, so a task putting a public URL into an email, a webhook payload or a
+    feed builds `http:///uploads/x.jpg` — a string that reads as a bug in the caller and
+    is a missing setting.
+
+    Set `APP_URL` in `.env` (or `'site_url'` in `app/config/app.php`) and the check goes
+    green. It reports the resolved address either way, because the common mistake is not
+    leaving it unset but setting it to the wrong thing — a staging host copied into
+    production, or `http` on a site behind a TLS-terminating proxy. One line of output
+    showing the address the application believes in is what makes that visible.
+
+    See [`SiteUrl`](Pramnos_Routing_Guide.md#surl-is-the-scripts-base-not-the-site-root)
+    for why `sURL` cannot answer this.
 
 ---
 

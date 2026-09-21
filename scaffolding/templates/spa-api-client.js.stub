@@ -150,7 +150,22 @@ export async function request(path, { method = 'GET', body = null, query = null,
     if (token) {
         requestHeaders.accessToken = token;
     }
-    if (body !== null) {
+    // A FormData body is passed through untouched, and deliberately carries no
+    // declared content type.
+    //
+    // `JSON.stringify(new FormData())` is the two characters `{}`, so an upload
+    // sent through here arrived with no file and the server answered "no file
+    // arrived" — which is looked for on the server, where nothing is wrong. And
+    // a `Content-Type` set by hand cannot be right: multipart needs a boundary
+    // the browser generates, and declaring one without it makes the body
+    // unparseable.
+    //
+    // Without this an upload means a bare `fetch` beside this client, which then
+    // misses the apiKey header, the access token, `credentials: 'same-origin'`
+    // and the debug recording — the four things this client exists for.
+    const isFormData = typeof FormData !== 'undefined' && body instanceof FormData;
+
+    if (body !== null && !isFormData) {
         requestHeaders['Content-Type'] = 'application/json';
     }
 
@@ -158,7 +173,12 @@ export async function request(path, { method = 'GET', body = null, query = null,
     // for, next to what the server says it spent. The gap between the two is
     // the network, and it is often the answer.
     const startedAt = (typeof performance !== 'undefined' ? performance.now() : Date.now());
-    const encodedBody = body === null ? null : JSON.stringify(body);
+    const encodedBody = body === null || isFormData ? body : JSON.stringify(body);
+
+    // What the panel shows for the body. A FormData stringifies to the seventeen
+    // characters `[object FormData]`, which does not answer the one question being
+    // asked when an upload is being debugged: did the file attach.
+    const debugBody = isFormData ? describeFormData(body) : encodedBody;
 
     let response;
     try {
@@ -167,6 +187,7 @@ export async function request(path, { method = 'GET', body = null, query = null,
             headers: requestHeaders,
             // Sends the session cookie, which the API accepts as a credential.
             credentials: 'same-origin',
+            // The real body: `encodedBody`, not the panel's rendering of it.
             body: encodedBody,
             signal,
         });
@@ -197,7 +218,7 @@ export async function request(path, { method = 'GET', body = null, query = null,
         // A save answers 204, and it is exactly the call somebody wants to see
         // in the panel. It carries no body, so there is no `_debug` to attach —
         // the timing and the request itself are still worth recording.
-        recordDebug(method, url, 204, null, { ms: elapsedMs, body: encodedBody });
+        recordDebug(method, url, 204, null, { ms: elapsedMs, body: debugBody });
 
         return null;
     }
@@ -215,7 +236,7 @@ export async function request(path, { method = 'GET', body = null, query = null,
     // describes; the panel shows it. In production there is nothing to record.
     recordDebug(method, url, response.status, payload && payload._debug, {
         ms: elapsedMs,
-        body: encodedBody,
+        body: debugBody,
     });
 
     if (!response.ok) {
@@ -274,6 +295,33 @@ export async function request(path, { method = 'GET', body = null, query = null,
  * @param {Record<string, unknown>} query
  * @returns {string}
  */
+/**
+ * A FormData rendered for the debug panel: field names, and a file's name and size.
+ *
+ * The contents are deliberately not read. A file is the reason this is a FormData, and
+ * putting it in the panel would mean holding a second copy of an upload in memory to
+ * display something nobody can read. What is worth seeing is whether the field is there
+ * and whether the file has a size — which is the whole of "did the upload attach".
+ *
+ * @param {FormData} formData
+ * @returns {string}
+ */
+function describeFormData(formData) {
+    const parts = [];
+
+    for (const [name, value] of formData.entries()) {
+        if (typeof File !== 'undefined' && value instanceof File) {
+            parts.push(name + '=(file ' + JSON.stringify(value.name) + ', ' + value.size + ' bytes)');
+
+            continue;
+        }
+
+        parts.push(name + '=' + String(value));
+    }
+
+    return 'FormData{' + parts.join(', ') + '}';
+}
+
 function queryStringFor(path, query) {
     const params = new URLSearchParams(
         Object.entries(query)

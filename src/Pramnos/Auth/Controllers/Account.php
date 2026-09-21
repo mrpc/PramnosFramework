@@ -2300,9 +2300,65 @@ class Account extends Controller
     /**
      * Delete all personal data rows for a user across all relevant tables.
      * The users row itself is deleted last.
+     *
+     * ## Applications contribute their own rows through `account.data_erase`
+     *
+     * The export half of the GDPR pair has always been extensible — `buildExportData()`
+     * fires `account.data_export` and merges what listeners return. The deletion half was
+     * a hard-coded list of six framework tables plus `users`, so an account deleted under
+     * Article 17 left its organisation, its content and its connected accounts behind —
+     * **and orphaned them**: every `created_by` now points at a user id that no longer
+     * exists.
+     *
+     * ```php
+     * \Pramnos\Event\Event::listen('account.data_erase', function (int $userId) {
+     *     // Delete this application's rows for $userId, then:
+     *     return true;      // or false to stop the erase before anything is deleted
+     * });
+     * ```
+     *
+     * **Fired before the framework's own deletes, and that order is not arbitrary.** An
+     * application's rows almost always carry a foreign key to `users`; deleting the user
+     * first makes the framework's own `DELETE` fail on them, and an erase that half
+     * happened is worse than one that did not start.
+     *
+     * A listener returning `false` stops the whole erase — `Event::fire()` short-circuits
+     * on the first `false` — and this method raises, which `deleteaccount()` already turns
+     * into an error on the page rather than a silent half-deletion.
+     *
+     * ## What the framework cannot decide for you
+     *
+     * In a multi-tenant application the data belongs to the **organisation**, not to the
+     * person, and deleting the last member of a tenant is not the same act as deleting a
+     * colleague's login. The listener owns that decision; there is no sensible default.
+     *
+     * And **nothing cascades into a table with no foreign key**, which is most hypertables:
+     * a metrics table keyed by a tenant id has no constraint to follow, so a listener that
+     * relies on cascades leaves exactly the largest tables behind. Delete them explicitly.
+     *
+     * @param  int $userId The account being erased
+     * @return void
+     * @throws \RuntimeException When a listener refuses the erase
      */
     protected function eraseUserData(int $userId): void
     {
+        /*
+         * Before anything is deleted, so a listener can both contribute and refuse.
+         *
+         * `Event::fire()` stops at the first listener returning `false`, so a refusal
+         * short-circuits the rest as well — which is what a refusal should do: two
+         * listeners, one of which has already deleted its rows, is the half-erase this
+         * ordering exists to avoid.
+         */
+        foreach (\Pramnos\Event\Event::fire('account.data_erase', $userId) as $answer) {
+            if ($answer === false) {
+                throw new \RuntimeException(
+                    'A listener on account.data_erase refused the erase for user '
+                    . $userId . '. Nothing has been deleted.'
+                );
+            }
+        }
+
         $db     = \Pramnos\Framework\Factory::getDatabase();
         $tables = [
             'usertokens'            => 'userid',
@@ -2313,11 +2369,44 @@ class Account extends Controller
             'authserver.twofactor_setup'       => 'userid',
         ];
 
+        /*
+         * A table that is not there is skipped, not fatal.
+         *
+         * Five of the six are `authserver.*`, and `authserver` is a **feature**: an
+         * installation that did not enable it has never had those tables. The delete then
+         * raised, `deleteaccount()` caught it and answered "An error occurred while
+         * deleting your account", and it did so for every user on every such installation
+         * — a GDPR erasure that could not be performed at all, reported as a transient
+         * error inviting the person to try again.
+         *
+         * Found by an integration test for the event above, in a run where the tables
+         * happened not to exist. Skipping is correct rather than merely convenient: a
+         * table that does not exist holds none of this user's rows.
+         */
+        $schema  = $db->schema();
+        $skipped = [];
+
         foreach ($tables as $table => $col) {
+            if (!$schema->hasTable($table)) {
+                $skipped[] = $table;
+
+                continue;
+            }
+
             $db->queryBuilder()
                 ->table($table)
                 ->where($col, $userId)
                 ->delete();
+        }
+
+        if ($skipped !== []) {
+            // Logged, because "this installation has no such table" and "the erase missed
+            // something" look identical from the outside, and only one of them is fine.
+            \Pramnos\Logs\Logger::log(
+                'Data erase for user ' . $userId . ': skipped tables this installation '
+                . 'does not have — ' . implode(', ', $skipped),
+                'auth'
+            );
         }
 
         $db->queryBuilder()

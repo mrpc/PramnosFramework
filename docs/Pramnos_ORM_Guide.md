@@ -491,6 +491,49 @@ foreach (array_slice($recentPosts, 0, 10) as $post) {
 }
 ```
 
+## Scoping a model to a tenant — refuse the row *and* empty the model
+
+A model that must never hand out another organisation's row does it by overriding `load()`:
+
+```php
+public function load($id, $key = null, $debug = false)
+{
+    parent::_load($id, null, $key, $debug);
+
+    if ((int) $this->organization_id !== $this->currentOrganizationId()) {
+        return $this->forget();     // ← both halves of the refusal
+    }
+
+    return $this;
+}
+```
+
+**`forget()` is not optional here.** `_load()` has already written every column onto
+`$this` by the time the override gets to look, so a refusal that only changes the return
+value leaves the object holding the row it just refused:
+
+```php
+$model = new Thing($this);
+$model->load((int) $id);           // return value discarded
+if ($model->thing_id == 0) { … }   // populated, so this passes
+$model->getData();                 // somebody else's row
+```
+
+That was the shape the generator emitted, so one project had it in nine call sites, two of
+them MCP tools an outside assistant could reach — and the model's own isolation test passed
+throughout, because a test naturally writes `$found = (new Thing())->load($id)` and uses the
+return value, which is correct.
+
+`forget()` restores every column the load wrote to what a fresh instance has, empties
+`_initialData` and marks the model new, so a later `save()` would insert rather than update
+the row that was refused. It clears **only** the columns that load read — not a list the
+model declares, because a hand-written list is right until somebody adds a column and then
+leaks exactly that one.
+
+`create:crud` now generates `$model = (new Thing($this))->load($id);`, so both halves hold
+whichever way the caller is written. Use the return value in your own code for the same
+reason.
+
 ## Reference
 
 **Related Guides:**
