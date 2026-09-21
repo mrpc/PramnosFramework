@@ -90,6 +90,42 @@ final class Tree
     }
 
     /**
+     * The paths matching a glob pattern, with the same one retry.
+     *
+     * `glob()` is the other half of {@see files()}, and it fails more quietly: it returns
+     * `false` — indistinguishable from "nothing matched" to any caller that writes
+     * `glob($pattern) ?: []`, which is all of them.
+     *
+     * The sweeps that use it already assert their result is non-empty, so a blink is a
+     * red test rather than a silent pass. That is the right half of the fix and not the
+     * whole of it: the red is still a failure nobody can act on, and one fired in a full
+     * run the day after `files()` landed —
+     * `AdminUrlInViewsTest … the sweep found nothing to check` — over a directory that
+     * has not changed since August.
+     *
+     * So: look twice, and only then answer. An empty match is still a legitimate answer
+     * and comes back as `[]`; the caller decides whether that is allowed.
+     *
+     * @param  string $pattern A glob pattern
+     * @param  int    $flags   Passed to `glob()`
+     * @return list<string>
+     */
+    public static function matching(string $pattern, int $flags = 0): array
+    {
+        $found = glob($pattern, $flags);
+
+        if ($found === false || $found === []) {
+            // `false` is a failure and `[]` may be one: on this mount a directory that
+            // is there can answer either. A second look costs 50ms once and separates
+            // them the only way available.
+            usleep(self::RETRY_PAUSE_MICROSECONDS);
+            $found = glob($pattern, $flags);
+        }
+
+        return $found === false ? [] : array_values($found);
+    }
+
+    /**
      * One attempt.
      *
      * @return list<string>|null `null` when the directory could not be opened

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Unit\Console;
 
 use PHPUnit\Framework\TestCase;
+use Pramnos\Framework\Testing\Tree;
 
 /**
  * A published view must be a view something renders.
@@ -32,7 +33,7 @@ class PublishedViewsAreReachableTest extends TestCase
     private function themeViewRoots(): array
     {
         $roots = [];
-        foreach (glob(dirname(__DIR__, 3) . '/scaffolding/themes/*/views', GLOB_ONLYDIR) ?: [] as $dir) {
+        foreach (Tree::matching(dirname(__DIR__, 3) . '/scaffolding/themes/*/views', GLOB_ONLYDIR) as $dir) {
             $roots[] = $dir;
         }
 

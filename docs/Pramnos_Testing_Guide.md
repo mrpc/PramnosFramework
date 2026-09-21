@@ -1475,6 +1475,13 @@ for a mount that blinked, not a way to tolerate a directory that is genuinely go
   sweep still asserts its list is non-empty, because `Tree::files()` legitimately returns
   `[]` for a directory that is there and holds nothing.
 
+`Tree::matching($pattern)` is the glob half, with the same one retry. The emptiness
+assertion alone turned out not to be enough: it makes a blink a red test rather than a
+silent pass, which is right, but the red is still a failure nobody can act on — and one
+fired in a full run the day after `files()` landed, over a directory whose mtime had not
+moved in a month. It returns `[]` for a pattern that genuinely matches nothing, and only
+pays the pause when there is nothing to report.
+
 ### If you are the one adding a sweep
 
 Do not put an `isFile()` filter in your own walk on the assumption that directories arrive.

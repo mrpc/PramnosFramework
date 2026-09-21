@@ -7,6 +7,7 @@ namespace Pramnos\Tests\Unit\Application\Controllers;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use Pramnos\Application\Controllers\LogController;
+use Pramnos\Framework\Testing\Tree;
 
 /**
  * The log dashboard says the numbers even when it cannot draw them.
@@ -63,7 +64,7 @@ class LogChartFallbackTest extends TestCase
     public function testEveryBundledThemeHasTheFallback(): void
     {
         // Arrange
-        $themes = glob(dirname(__DIR__, 4) . '/scaffolding/themes/*/views/logs/dashboard.html.php');
+        $themes = Tree::matching(dirname(__DIR__, 4) . '/scaffolding/themes/*/views/logs/dashboard.html.php');
 
         // Assert
         $this->assertNotEmpty($themes);

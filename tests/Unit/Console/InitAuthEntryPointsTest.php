@@ -8,6 +8,7 @@ use PHPUnit\Framework\TestCase;
 use Pramnos\Console\Commands\Init;
 use Symfony\Component\Console\Application;
 use Symfony\Component\Console\Tester\CommandTester;
+use Pramnos\Framework\Testing\Tree;
 
 /**
  * Every auth page a scaffolded project links to has something behind it.
@@ -197,7 +198,7 @@ class InitAuthEntryPointsTest extends TestCase
 
         // Act
         foreach (['plain-css', 'bootstrap', 'tailwind'] as $theme) {
-            foreach (glob($themes . '/' . $theme . '/views/*/*.php') ?: [] as $path) {
+            foreach (Tree::matching($themes . '/' . $theme . '/views/*/*.php') as $path) {
                 $checked++;
                 $code = (string) file_get_contents($path);
                 if (

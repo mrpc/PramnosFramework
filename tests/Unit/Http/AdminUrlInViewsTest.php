@@ -6,6 +6,7 @@ namespace Pramnos\Tests\Unit\Http;
 
 use PHPUnit\Framework\TestCase;
 use Pramnos\Http\AdminArea;
+use Pramnos\Framework\Testing\Tree;
 
 /**
  * Links inside the administration views, and the classes those views use.
@@ -73,7 +74,7 @@ class AdminUrlInViewsTest extends TestCase
 
         // Act
         foreach (self::THEMES as $theme) {
-            foreach (glob($this->themesDir() . '/' . $theme . '/views/*/*.php') ?: [] as $path) {
+            foreach (Tree::matching($this->themesDir() . '/' . $theme . '/views/*/*.php') as $path) {
                 $checked++;
                 if (preg_match($pattern, (string) file_get_contents($path))) {
                     $offenders[] = $theme . '/' . basename(dirname($path)) . '/' . basename($path);
@@ -125,8 +126,8 @@ class AdminUrlInViewsTest extends TestCase
         // A sweep over nothing passes. The collection is asserted non-empty first, because a
         // moved directory or a renamed helper turns this guard into a no-op that still reports
         // success — which is how a guard stops guarding without anybody noticing.
-        $this->assertNotEmpty(glob($this->themesDir() . '/tailwind/views/*/*.php') ?: [], 'the sweep found nothing to check');
-        foreach (glob($this->themesDir() . '/tailwind/views/*/*.php') ?: [] as $path) {
+        $this->assertNotEmpty(Tree::matching($this->themesDir() . '/tailwind/views/*/*.php'), 'the sweep found nothing to check');
+        foreach (Tree::matching($this->themesDir() . '/tailwind/views/*/*.php') as $path) {
             if (str_contains((string) file_get_contents($path), $class)) {
                 $offenders[] = basename(dirname($path)) . '/' . basename($path);
             }
@@ -179,8 +180,8 @@ class AdminUrlInViewsTest extends TestCase
         // A sweep over nothing passes. The collection is asserted non-empty first, because a
         // moved directory or a renamed helper turns this guard into a no-op that still reports
         // success — which is how a guard stops guarding without anybody noticing.
-        $this->assertNotEmpty(glob($this->themesDir() . '/tailwind/views/*/*.php') ?: [], 'the sweep found nothing to check');
-        foreach (glob($this->themesDir() . '/tailwind/views/*/*.php') ?: [] as $path) {
+        $this->assertNotEmpty(Tree::matching($this->themesDir() . '/tailwind/views/*/*.php'), 'the sweep found nothing to check');
+        foreach (Tree::matching($this->themesDir() . '/tailwind/views/*/*.php') as $path) {
             $content = (string) file_get_contents($path);
             foreach (preg_split('/\r?\n/', $content) ?: [] as $number => $line) {
                 // Only inside a class attribute: `#2563eb` as a brand-colour
@@ -248,7 +249,7 @@ class AdminUrlInViewsTest extends TestCase
     {
         // Arrange — the framework's own administration controllers
         $files = array_merge(
-            (array) glob(dirname(__DIR__, 3) . '/src/Pramnos/Application/Controllers/*Controller.php'),
+            Tree::matching(dirname(__DIR__, 3) . '/src/Pramnos/Application/Controllers/*Controller.php'),
             (array) glob(dirname(__DIR__, 3) . '/src/Pramnos/Auth/Controllers/*Controller.php')
         );
         $this->assertNotEmpty($files);

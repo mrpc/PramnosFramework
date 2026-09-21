@@ -207,6 +207,91 @@ class TreeTest extends TestCase
     }
 
     /**
+     * `matching()` answers a glob, and looks twice before believing nothing matched.
+     *
+     * The other half of the same problem. `glob()` returns `false` on failure, which is
+     * indistinguishable from "nothing matched" to any caller writing `glob($p) ?: []` —
+     * and that is all of them. The sweeps using it assert their result is non-empty, so
+     * a mount blink is a red test rather than a silent pass; that is the right half of
+     * the fix and not the whole of it, because the red is a failure nobody can act on.
+     *
+     * One fired in a full run the day after {@see Tree::files()} landed, over a
+     * directory whose mtime had not moved since August.
+     */
+    public function testMatchingAnswersAGlob(): void
+    {
+        // Act
+        $found = Tree::matching($this->root . '/*.php');
+
+        // Assert
+        $this->assertSame([$this->root . '/a.php', $this->root . '/b.php'], $found);
+    }
+
+    /**
+     * A pattern that matches nothing comes back empty rather than `false`.
+     *
+     * The caller decides whether empty is allowed — every sweep in this suite asserts it
+     * is not — and it can only decide that if it is handed a list. Returning `false`
+     * here is how `glob()` made the two indistinguishable in the first place.
+     */
+    public function testAPatternThatMatchesNothingIsAnEmptyList(): void
+    {
+        // Act
+        $found = Tree::matching($this->root . '/*.nothing');
+
+        // Assert
+        $this->assertSame([], $found);
+    }
+
+    /**
+     * And it waits before answering "nothing", for the same reason `files()` does.
+     *
+     * Timing again, and a floor rather than a window: a second `glob()` cannot happen in
+     * less time than the pause before it, and a test that fails when the machine is busy
+     * is a test that gets deleted.
+     */
+    public function testMatchingLooksTwiceBeforeReportingNothing(): void
+    {
+        // Arrange
+        $pause = (new \ReflectionClassConstant(Tree::class, 'RETRY_PAUSE_MICROSECONDS'))
+            ->getValue();
+
+        // Act
+        $start = microtime(true);
+        Tree::matching($this->root . '/*.nothing');
+        $elapsed = (microtime(true) - $start) * 1_000_000;
+
+        // Assert
+        $this->assertGreaterThanOrEqual(
+            $pause,
+            $elapsed,
+            'it reported nothing without looking again'
+        );
+    }
+
+    /**
+     * A pattern that does match is answered at once.
+     *
+     * The other side of the timing assertion, and the one that keeps the retry from
+     * becoming a 50ms tax on every sweep in the suite — which, across the number of
+     * `glob()` calls here, would be measurable.
+     */
+    public function testAMatchIsNotDelayed(): void
+    {
+        // Arrange
+        $pause = (new \ReflectionClassConstant(Tree::class, 'RETRY_PAUSE_MICROSECONDS'))
+            ->getValue();
+
+        // Act
+        $start = microtime(true);
+        Tree::matching($this->root . '/*.php');
+        $elapsed = (microtime(true) - $start) * 1_000_000;
+
+        // Assert
+        $this->assertLessThan($pause, $elapsed, 'a successful match paid the retry pause');
+    }
+
+    /**
      * A directory that exists but holds nothing comes back empty, without raising.
      *
      * Empty and unreadable are different answers and the caller decides what to do with
