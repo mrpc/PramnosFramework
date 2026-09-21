@@ -157,6 +157,49 @@ class GeneratedCrudSafetyTest extends TestCase
     }
 
     /**
+     * The generated list returns the model's own shape.
+     *
+     * WHAT: the `getApiList()` call in the API controller passes `true` for `useGetData`.
+     *
+     * WHY:  with `false` the list returns raw database rows while the read of a single row
+     *       on the same resource returns `getData()`. A column the model transforms then
+     *       has two shapes depending on which endpoint was asked, and the front end formats
+     *       one of them — `new Date(value * 1000)` on a value that is already milliseconds
+     *       draws 1 January 1970, which reads as a rendering bug.
+     *
+     *       The generator was overriding its own model's default: `getApiList()` declares
+     *       `$useGetData = true`, and the controller passed `false` positionally. It is
+     *       found once per resource by whoever opens that screen — one project fixed it in
+     *       one model and hit it again in another four days later.
+     *
+     * @return void
+     */
+    public function testTheGeneratedListUsesTheModelsOwnShape(): void
+    {
+        // Arrange
+        $controller = $this->stub('api-controller.stub');
+        $model      = $this->stub('crud-model.stub');
+
+        // Act — the argument as it is emitted, comment and all
+        $emitted = preg_match('/^\s*(true|false)\s*\/\/\s*useGetData/m', $controller, $m)
+            ? $m[1]
+            : null;
+
+        // Assert
+        $this->assertSame(
+            'true',
+            $emitted,
+            'the generated list returns raw rows while the read of the same resource '
+            . 'returns getData(), so one column can have two shapes'
+        );
+        $this->assertStringContainsString(
+            '$useGetData = true',
+            $model,
+            "the model's own default must agree, or the controller is compensating for it"
+        );
+    }
+
+    /**
      * The generated model is an `OrmModel`.
      *
      * It extended the legacy `\Pramnos\Application\Model`, on which a global scope is

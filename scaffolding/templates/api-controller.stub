@@ -71,7 +71,17 @@ class {{ className }} extends \Pramnos\Application\ApiCrudController
         $page = (int) \Pramnos\Http\Request::staticGet('page', 0, 'get', 'int');
         $limit = (int) \Pramnos\Http\Request::staticGet('limit', 20, 'get', 'int');
         
-        // Use the new getApiList method for enhanced pagination, search, and field selection
+        // `useGetData: true`, matching the read of a single row below.
+        //
+        // With `false` the list returns raw database rows while every other action on the
+        // resource returns `getData()`. Any column the model transforms — a `timestamptz`
+        // to Unix seconds, a `tinyint` to a boolean, a cast, a computed field — then has
+        // two shapes depending on which endpoint you asked, and the front end formats one
+        // of them and draws 1 January 1970. It reads as a rendering bug for about a week,
+        // and it is found once per resource by whoever opens that screen.
+        //
+        // If a listing is measured and hot, pass `false` here deliberately. Correctness is
+        // the default; performance is the opt-out.
         return $model->getApiList(
             $fields, 
             $search, 
@@ -80,7 +90,7 @@ class {{ className }} extends \Pramnos\Application\ApiCrudController
             $limit,
             false, // debug
             false, // returnAsModels
-            false   // useGetData
+            true   // useGetData
         );
     }
 
