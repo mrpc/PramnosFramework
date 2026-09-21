@@ -181,6 +181,67 @@ $this->assertDatabaseHas('users', ['email' => 'john@example.com']);
 $this->assertDatabaseMissing('users', ['email' => 'deleted@example.com']);
 ```
 
+## The screen sweep a scaffolded project ships
+
+`init` writes `tests/Integration/ScreenSweepTest.php`. It discovers every controller under
+`src/Controllers/` and `src/Admin/Controllers/`, requests each one's default action and
+every *read* action it declares, and asserts each answers under 500 and is not a 404.
+
+It exists because a controller is easy to test and a **rendered view** is not, and that is
+where a project's uncovered code lives. A scaffolded project starts around 78% coverage
+and almost all of the gap is views and the actions that render them — a 600-statement
+admin `view.html.php` at 0% is a normal finding. The sweep takes that to roughly 93%
+without anybody writing an assertion, and the failures it catches are not subtle: an
+entire admin area answering 404 because a config block was never written, a view in a
+directory nothing reads, a renamed column printing nothing.
+
+### Two places to edit, and they are marked
+
+```php
+protected function seedRows(): void
+{
+    $this->db()->queryBuilder()->table('things')->insert([
+        'name' => 'A thing', 'created_at' => date('Y-m-d H:i:s'),
+    ]);
+}
+
+protected function actingAsAdmin(): void
+{
+    // Sign in, if the screens worth sweeping are behind a login.
+}
+```
+
+**Seed one row in every table a screen lists.** Without it every list renders its empty
+state, which is the half of a template nobody gets wrong. The row loop is where a renamed
+column starts printing nothing and a null blows up a formatter. One row, not a page: the
+sweep is about whether the loop runs.
+
+`actingAsAdmin()` is left empty because "an administrator" is a product decision. Without
+it the sweep still catches a fatal — an action that refuses is code that ran — but it
+stops at the first guard and covers the refusal rather than the screen. A **403 is a
+pass** for exactly that reason; demanding 200 everywhere would be asserting that nothing
+is protected.
+
+### The allowlist is the safety
+
+`READ_ACTIONS` names the verbs the sweep may request, and it is an allowlist rather than a
+denylist on purpose. **A GET to `delete/5` on a controller that does not check the request
+method deletes row 5**, and "most controllers check" is not something to bet a suite on —
+least of all one that runs on every developer's machine.
+
+Adding a verb is a decision. `ScreenSweepStubIsSafeTest` in the framework fails if a
+mutating one appears there, so it is a decision somebody has to make on purpose. `delete`
+is refused; `deleteaccount` is allowed and is not an oversight — it is the confirmation
+screen that asks for a password, and the deletion itself is a POST.
+
+### `DELIBERATE_404`
+
+An address that answers 404 by design goes there **with its reason**, so "this 404 is
+fine" is a decision made once rather than a rule that quietly swallows the next real one.
+An email-tracking endpoint that redeems a one-time token is the usual case: there the 404
+*is* the feature.
+
+
 ## Factories
 
 ### Generate Test Data

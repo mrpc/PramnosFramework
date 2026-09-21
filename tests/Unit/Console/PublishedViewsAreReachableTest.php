@@ -42,6 +42,113 @@ class PublishedViewsAreReachableTest extends TestCase
     /**
      * Every theme is checked, so a fix in one does not hide a miss in another.
      */
+    /**
+     * The scaffold writes no view into a directory the resolver never looks in.
+     *
+     * WHAT: every `src/Views/<dir>/` that `init` creates or writes into is a `<dir>` some
+     *       controller asks for with `getView('<dir>')`.
+     *
+     * WHY:  the scaffold wrote `src/Views/account/dashboard.html.php` and
+     *       `profile.html.php`, and neither was rendered once.
+     *       `Account::display()` calls `getView('dashboard')` and `profile()` calls
+     *       `getView('profile')`, which resolve to `src/Views/dashboard/` and
+     *       `src/Views/profile/` — a directory called `account` is one nothing looks in.
+     *
+     *       Worse than dead code, because they look like the account screens: somebody
+     *       wanting to change the account page finds them, edits them, reloads, and
+     *       nothing happens. They were raw Tailwind where every other view is daisyUI, so
+     *       even that was not a visible hint.
+     *
+     *       Found in a consuming project by asking why 56 statements sat at 0% coverage
+     *       that no request could reach — which is not a question a test asks, so the
+     *       invariant is asserted here instead.
+     *
+     * @return void
+     */
+    public function testTheScaffoldWritesNoViewIntoADirectoryNothingRenders(): void
+    {
+        // Arrange
+        $root      = dirname(__DIR__, 3);
+        $generator = (string) file_get_contents($root . '/src/Pramnos/Console/Commands/Init.php');
+
+        // Act — the view directories the generator creates or writes into, ignoring the
+        // prose: a comment naming the mistake must not be read as committing it.
+        $code = (string) preg_replace('#/\*.*?\*/#s', '', $generator);
+        $code = (string) preg_replace('#^\s*(//|\*).*$#m', '', $code);
+
+        preg_match_all("#'src/Views/([a-zA-Z_][a-zA-Z0-9_]*)#", $code, $matches);
+        $directories = array_values(array_unique($matches[1]));
+
+        $this->assertNotEmpty(
+            $directories,
+            'no view directories found in the generator, so this checks nothing'
+        );
+
+        // Every `getView('x')` the framework makes, plus the ones the scaffold emits.
+        $asked = [];
+        $sources = [$code];
+        foreach ($this->frameworkSources() as $file) {
+            $sources[] = (string) file_get_contents($file);
+        }
+        foreach ($sources as $source) {
+            preg_match_all(
+                // No optional-backslash alternative in this pattern, deliberately.
+                // Writing one costs four backslashes in a PHP string and two attempts
+                // got three: `\\?` in either quoting style is the regex `\?`, a
+                // *literal* question mark, so the sweep matched nothing. Nothing calls
+                // `\getView(` anyway — and the emptiness assertion below is what said
+                // so both times, which is why it is there.
+                '#getView\(\s*\'([a-zA-Z_][a-zA-Z0-9_]*)\'#',
+                $source,
+                $found
+            );
+            foreach ($found[1] as $name) {
+                $asked[strtolower($name)] = true;
+            }
+        }
+
+        $this->assertNotEmpty($asked, 'no getView() calls found, so this checks nothing');
+
+        $orphans = [];
+        foreach ($directories as $directory) {
+            if (!isset($asked[strtolower($directory)])) {
+                $orphans[] = 'src/Views/' . $directory;
+            }
+        }
+
+        // Assert
+        $this->assertSame(
+            [],
+            $orphans,
+            "Nothing calls getView() for these, so a template in them is never rendered —\n"
+            . "and it looks exactly like the one to edit:\n" . implode("\n", $orphans)
+        );
+    }
+
+    /**
+     * Every framework PHP file, for the `getView()` sweep above.
+     *
+     * @return list<string>
+     */
+    private function frameworkSources(): array
+    {
+        $files    = [];
+        $iterator = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator(
+                dirname(__DIR__, 3) . '/src',
+                \FilesystemIterator::SKIP_DOTS
+            )
+        );
+
+        foreach ($iterator as $file) {
+            if ($file->getExtension() === 'php') {
+                $files[] = $file->getPathname();
+            }
+        }
+
+        return $files;
+    }
+
     public function testEveryThemeIsChecked(): void
     {
         // Assert
