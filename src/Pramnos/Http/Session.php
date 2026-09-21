@@ -200,6 +200,41 @@ class Session extends Base
     }
 
     /**
+     * The CSRF field this session expects, as `[name => value]`.
+     *
+     * What {@see getTokenField()} renders, without the markup — for a test that has to
+     * POST a form, and for any caller building a request body rather than a page.
+     *
+     * Both halves were unreachable: the field's **name** is the private `$_token`, and
+     * its **value** is `getFingerprint()`, which is also not public. So a test that
+     * wanted to submit the register form had to render the hidden input and parse it —
+     *
+     * ```php
+     * preg_match('/name="([^"]+)" value="([^"]+)"/', $session->getTokenField(), $found);
+     * ```
+     *
+     * — a regular expression over generated HTML, in every application that tests a
+     * form. Those are the highest-value tests in an application with accounts in it, and
+     * the ones most likely to be skipped, because the first hour of writing one goes on
+     * this rather than on the behaviour.
+     *
+     * Merge it into the body:
+     *
+     * ```php
+     * $client->post('/register', ['username' => 'x'] + $session->tokenParameters());
+     * ```
+     *
+     * @param  bool $useIpHash Pin the token to the client IP, as `getTokenField()` does
+     * @return array<string, string> One entry: the field name, and the fingerprint
+     */
+    public function tokenParameters(bool $useIpHash = false): array
+    {
+        $this->ensureStarted();
+
+        return [$this->_token => $this->getFingerprint($useIpHash)];
+    }
+
+    /**
      * Manually regenerates the CSRF token.
      * Useful after login, logout, or other sensitive operations.
      * @return void

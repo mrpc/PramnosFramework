@@ -15,6 +15,18 @@ class TestClient
 {
     private Application $app;
 
+    /**
+     * The last response, so {@see submitForm()} has a page to read a form from.
+     *
+     * A browser's form submission is defined in terms of the page it is on — the action,
+     * the method, and every field already rendered, the hidden CSRF input included — so
+     * a client that keeps no page cannot submit one. That is why `submitForm()` threw.
+     */
+    private ?TestResponse $lastResponse = null;
+
+    /** The address that response came from, for resolving a relative form action. */
+    private string $lastUri = '';
+
     public function __construct(?Application $app = null)
     {
         if ($app === null) {
@@ -57,20 +69,143 @@ class TestClient
     }
 
     /**
-     * Submit a form by parsing the DOM for CSRF tokens and action URLs.
-     * (Basic implementation — can be expanded)
+     * Submit the form on the last page, identified by its button.
+     *
+     * ```php
+     * $client->get('/register');
+     * $response = $client->submitForm('Create account', ['username' => 'someone']);
+     * ```
+     *
+     * It reads the form off the response the client last received: the action, the
+     * method, and **every field already in it** — including the hidden CSRF input, which
+     * is the part that made writing one of these by hand an afternoon's work. `$data`
+     * overrides fields by name; anything not named keeps the value the page rendered.
+     *
+     * This threw `submitForm is not yet fully implemented` while the class documented it
+     * as the way to do this. So a test that wanted to exercise a form built the POST by
+     * hand, and the CSRF token has no public accessor on either half — the field's name
+     * is a private property and its value is `getFingerprint()` — which left a regular
+     * expression over `getTokenField()`'s markup in every application that tested a
+     * form. {@see \Pramnos\Http\Session::tokenParameters()} is the other half of the
+     * fix, for a caller that is not going through a rendered page at all.
+     *
+     * A relative action resolves against the page it came from; an empty one posts back
+     * to the same address, which is what a browser does and what most of this
+     * framework's forms rely on.
+     *
+     * @param  string               $buttonText The button's text, value or name
+     * @param  array<string, mixed> $data       Fields to set, over what the page rendered
+     * @return TestResponse
+     *
+     * @throws \RuntimeException When no page has been fetched, the DOM libraries are
+     *                           absent, or no form carries that button
      */
     public function submitForm(string $buttonText, array $data = []): TestResponse
     {
-        // A complete implementation would require the previous Response's HTML
-        // For now, this is a placeholder for the API.
-        throw new \RuntimeException('submitForm is not yet fully implemented.');
+        if ($this->lastResponse === null) {
+            throw new \RuntimeException(
+                'submitForm() needs a page to read the form from: request one first, '
+                . 'for example $client->get(\'/register\').'
+            );
+        }
+
+        if (!class_exists(\Symfony\Component\DomCrawler\Crawler::class)) {
+            // The same message the selector assertions give, and for the same reason:
+            // "class not found" names an internal and reads as a fault in the page.
+            throw new \RuntimeException(
+                'submitForm() needs the DOM libraries, which are not installed. Add them '
+                . 'to your project: composer require --dev symfony/dom-crawler '
+                . 'symfony/css-selector'
+            );
+        }
+
+        /*
+         * A synthetic absolute base, because `Form::getUri()` resolves relative actions
+         * the way a browser does and refuses to work without an origin to resolve
+         * against — `The URL of the element is relative, so you must define its base
+         * URI`.
+         *
+         * The host is arbitrary and never leaves this method: `pathOf()` takes it back
+         * off before the request is dispatched, and this client cannot reach another
+         * host anyway. A fixed one rather than `sURL`, so the resolution is the same
+         * whatever the installation is configured as.
+         */
+        $crawler = new \Symfony\Component\DomCrawler\Crawler(
+            $this->lastResponse->getResponse()->getBody(),
+            'http://localhost' . ($this->lastUri === '' ? '/' : $this->lastUri)
+        );
+
+        try {
+            $form = $crawler->selectButton($buttonText)->form();
+        } catch (\InvalidArgumentException $ex) {
+            throw new \RuntimeException(
+                'No form on the last page has a button matching "' . $buttonText . '". '
+                . 'selectButton() matches a button\'s text, its value or its name.',
+                0,
+                $ex
+            );
+        }
+
+        // The rendered values first, then the caller's. A field the test does not name
+        // keeps what the page put there — which is the whole point for the hidden CSRF
+        // input, and also for a select that already has the right option chosen.
+        $parameters = array_merge($form->getPhpValues(), $data);
+
+        $action = $form->getUri();
+        $method = strtoupper($form->getMethod() ?: 'POST');
+
+        return $this->call($method, $this->pathOf($action), $parameters);
+    }
+
+    /**
+     * The path (and query) of a URI the form resolved, for `call()`.
+     *
+     * `Form::getUri()` returns an absolute URI when it can, because a browser would
+     * resolve one — and `call()` routes a path. Taking the path back off is not a loss:
+     * this client cannot leave the application anyway, and a form posting to another
+     * host is not something a test of this application should follow.
+     */
+    private function pathOf(string $uri): string
+    {
+        $path = parse_url($uri, PHP_URL_PATH);
+        if (!is_string($path) || $path === '') {
+            $path = '/';
+        }
+
+        $query = parse_url($uri, PHP_URL_QUERY);
+
+        return is_string($query) && $query !== '' ? $path . '?' . $query : $path;
     }
 
     /**
      * Execute a request and return a TestResponse.
      */
     public function call(string $method, string $uri, array $parameters = [], array $headers = []): TestResponse
+    {
+        /*
+         * Every answer is kept, and the address with it.
+         *
+         * `submitForm()` reads the form off the page the client last received, the way a
+         * browser does — the action, the method and the fields already rendered, hidden
+         * CSRF input included. Recorded here rather than at each `return` because
+         * `dispatch()` has five of them and a client that remembers four pages out of
+         * five is worse than one that remembers none.
+         */
+        $response = $this->dispatch($method, $uri, $parameters, $headers);
+
+        $this->lastResponse = $response;
+        $this->lastUri      = $uri;
+
+        return $response;
+    }
+
+    /**
+     * The request itself.
+     *
+     * @param  array<string, mixed>  $parameters
+     * @param  array<string, string> $headers
+     */
+    private function dispatch(string $method, string $uri, array $parameters = [], array $headers = []): TestResponse
     {
         /**
          * The previous request's routing state, which is static and would

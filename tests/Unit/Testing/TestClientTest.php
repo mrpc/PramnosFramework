@@ -336,15 +336,25 @@ class TestClientTest extends TestCase
     // ── submitForm() ─────────────────────────────────────────────────────────
 
     /**
-     * submitForm() must throw RuntimeException because it is not yet
-     * implemented (line 64). This ensures callers receive a clear signal
-     * rather than a silent no-op when using this method.
+     * submitForm() with no page fetched says so, and says what to do.
+     *
+     * A form submission is defined in terms of the page it is on — the action, the
+     * method, and every field already rendered, hidden CSRF input included — so a client
+     * that has not fetched one has nothing to submit. The message names the fix rather
+     * than the internal state, because the caller reading it has just written their
+     * first line of a form test.
+     *
+     * This used to assert that the method threw `not yet fully implemented`, which was
+     * true: the class documented `submitForm()` as the way to post a form, and the method
+     * refused. What that cost is a regular expression over `getTokenField()`'s markup in
+     * every application that tests a form, because the CSRF field's name and value are
+     * both private.
      */
-    public function testSubmitFormThrowsRuntimeException(): void
+    public function testSubmitFormWithNoPageFetchedSaysWhatToDo(): void
     {
-        // Assert — RuntimeException is thrown before any form processing
+        // Assert
         $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessageMatches('/not yet fully implemented/');
+        $this->expectExceptionMessageMatches('/needs a page to read the form from/');
 
         // Act
         $this->client->submitForm('Submit');

@@ -216,6 +216,45 @@ state, which is the half of a template nobody gets wrong. The row loop is where 
 column starts printing nothing and a null blows up a formatter. One row, not a page: the
 sweep is about whether the loop runs.
 
+**And give a detail screen its subject.** `subjectFor()` is the same problem one layer
+along: `/admin/Users/view` with no id is a valid request that answers 200, and what
+renders is the "nothing selected" branch — four lines at the top of a template whose six
+hundred are the point. A project that adopted the sweep without it watched coverage
+*fall* from 74.8% to 45.0%.
+
+```php
+protected function subjectFor(string $prefix, string $action): string
+{
+    return match ($action) {
+        'view', 'edit' => (string) $this->seededUserId(),
+        'log'          => (string) $this->seededChannelId,
+        default        => '',
+    };
+}
+```
+
+A `match` on the action, not one shared id: handing `view` a channel id where it wants a
+user id renders the "not found" branch and the sweep reports success over it — the same
+bug again, one layer further down.
+
+### The framework's own tables are seeded for you
+
+`seedFrameworkRows()` runs before `seedRows()` and puts one row in each of the framework's
+own tables — the activity log, passkeys, two-factor, tokens, GDPR requests, the mail and
+push logs. It is not something an application should have to write.
+
+The reason is the person card. `Admin/Views/users/view.html.php` is usually the single
+largest uncovered file in a project on this framework: it is the framework's file, behind
+the framework's controller, drawing from seventeen of the framework's tables. One project
+measured it at 355 of 605 statements, a quarter of everything uncovered anywhere; seeding
+these took it to 495 of 605 and the project's total from 93.49% to 95.30%.
+
+Each insert is absorbed on its own, because a table that is not there is a feature this
+installation does not have. And anything unique gets a random value —
+`passkey_credentials.credential_id` is unique across the table, so a literal would seed
+the first test that runs and **silently seed nothing** afterwards: the panel renders once
+and its empty state the rest of the time, which looks exactly like a test that passes.
+
 `actingAsAdmin()` is left empty because "an administrator" is a product decision. Without
 it the sweep still catches a fatal — an action that refuses is code that ran — but it
 stops at the first guard and covers the refusal rather than the screen. A **403 is a
@@ -240,6 +279,49 @@ An address that answers 404 by design goes there **with its reason**, so "this 4
 fine" is a decision made once rather than a rule that quietly swallows the next real one.
 An email-tracking endpoint that redeems a one-time token is the usual case: there the 404
 *is* the feature.
+
+
+## Posting a form in a test
+
+```php
+$client = new TestClient();
+$client->get('/register');
+
+$response = $client->submitForm('Create account', ['username' => 'someone']);
+```
+
+`submitForm()` reads the form off the page the client last received — the action, the
+method, and **every field already in it**, the hidden CSRF input included. `$data`
+overrides by name; a field the test does not name keeps what the page rendered, which is
+what makes it usable on a settings form with thirty fields and one under test.
+
+The button is matched on its text, its value or its name. A relative action resolves
+against the page it came from, and an empty one posts back to the same address — which is
+what a browser does and what several of this framework's own views rely on.
+
+It needs `symfony/dom-crawler` and `symfony/css-selector`, the same pair the selector
+assertions use; a scaffolded project has both in `require-dev`.
+
+### When there is no page to read — `Session::tokenParameters()`
+
+For a request that is not going through a rendered form — an API call, a POST to an
+address nothing links to — the CSRF field is available directly:
+
+```php
+$client->post('/account/privacy', ['marketing' => 1] + $session->tokenParameters());
+```
+
+It returns one entry: `[field name => fingerprint]`, the same two strings
+`getTokenField()` puts in the markup. Pass `true` for the IP-pinned variant, matching
+`getTokenField(true)`.
+
+Both of these exist because neither half was reachable. `submitForm()` threw
+`not yet fully implemented` while the class documented it as the way to post a form, and
+the CSRF field's name is a private property while its value is `getFingerprint()`, which
+is also not public — so the only way in was a regular expression over generated HTML, in
+every application that tested a form. Those are the highest-value tests in an application
+with accounts in it, and the ones most likely to be skipped, because the first hour of
+writing one went on this rather than on the behaviour.
 
 
 ## Factories
@@ -1392,6 +1474,13 @@ for a mount that blinked, not a way to tolerate a directory that is genuinely go
   That is the same failure mode the emptiness assertions on forty-five sweeps exist for; a
   sweep still asserts its list is non-empty, because `Tree::files()` legitimately returns
   `[]` for a directory that is there and holds nothing.
+
+`Tree::matching($pattern)` is the glob half, with the same one retry. The emptiness
+assertion alone turned out not to be enough: it makes a blink a red test rather than a
+silent pass, which is right, but the red is still a failure nobody can act on — and one
+fired in a full run the day after `files()` landed, over a directory whose mtime had not
+moved in a month. It returns `[]` for a pattern that genuinely matches nothing, and only
+pays the pause when there is nothing to report.
 
 ### If you are the one adding a sweep
 
