@@ -5050,6 +5050,32 @@ PHP;
         $this->writeFile('tests/Unit/Controllers/ControllersContractTest.php',
             $this->buildControllersContractTest());
 
+        /*
+         * The screen sweep: every controller's default action, and every read action on
+         * every controller, requested through the in-memory `TestClient`.
+         *
+         * `ControllersContractTest` above checks that a controller *loads*. This checks
+         * that its screens *render*, which is a different half and the one a project has
+         * no coverage of: a scaffolded project starts around 78%, and almost all of the
+         * gap is views and the actions that render them.
+         *
+         * Every application writes this eventually or ships a view that fatals. One found
+         * an entire admin area answering 404 — `init` had written no `admin` block — a
+         * `/Debugbar` that ended the run with a bare `exit`, and two account views nobody
+         * had ever rendered. All three render perfectly in whichever screen somebody
+         * happened to open.
+         *
+         * The stub is written to be edited in exactly two places, both marked: what to
+         * seed, and how to sign in. Everything else is discovery.
+         */
+        $this->writeFile(
+            'tests/Integration/ScreenSweepTest.php',
+            $this->renderStub('screen-sweep-test', [
+                'namespace'   => $namespace,
+                'adminPrefix' => 'admin',
+            ])
+        );
+
         if (in_array('auth', $features, true)) {
             $this->writeFile('tests/Unit/Controllers/LoginControllerTest.php',
                 $this->buildLoginControllerTest($namespace));

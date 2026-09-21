@@ -1,0 +1,277 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Tests\Integration;
+
+use Pramnos\Testing\TestClient;
+use Tests\BaseTestCase;
+
+/**
+ * Every screen this application serves renders without a fatal.
+ *
+ * ## What this is for
+ *
+ * A controller is easy to test; a *rendered view* is not, and that is where a project's
+ * uncovered code lives. A scaffolded project starts around 78% coverage and almost all of
+ * the gap is views and the controller actions that render them — a 600-statement admin
+ * `view.html.php` at 0% is a normal finding.
+ *
+ * The failures this catches are not subtle ones. They are an entire admin area answering
+ * 404 because a config block was never written, a view in a directory nothing reads, a
+ * renamed column printing nothing, a fatal on a branch only a populated list reaches. Each
+ * of them renders perfectly in the one screen somebody happened to open.
+ *
+ * ## The two rules that make it safe
+ *
+ * **An allowlist of read verbs, never a denylist.** A GET to `delete/5` on a controller
+ * that does not check the request method deletes row 5. "Most controllers check" is not
+ * something to bet a suite on, and the list below is the one place to look.
+ *
+ * **Seed one row in every table a screen lists.** Without it every list renders its empty
+ * state, which is the half of a template nobody gets wrong — the row loop is where a
+ * renamed column starts printing nothing and a null blows up a formatter. {@see seedRows()}
+ * is where this application says what to seed; it is the only part of this file that is
+ * not generic.
+ *
+ * ## What it asserts
+ *
+ * Under 500, and not 404 outside {@see DELIBERATE_404}. A 403 is a pass: an action that
+ * refuses an unauthenticated sweep is doing its job, and the point here is that the code
+ * *ran* rather than that it let us in. Sign in first (see {@see actingAsAdmin()}) to reach
+ * further.
+ *
+ * And that it swept something at all. A discovery that silently returns nothing passes for
+ * ever while covering nothing, which is the failure a sweep is most prone to.
+ */
+class ScreenSweepTest extends BaseTestCase
+{
+    /**
+     * The actions this sweep is allowed to request.
+     *
+     * Read verbs only, by name, and extend it deliberately. Anything not here is not
+     * swept — including `save`, `delete`, `revoke` and every other verb that changes
+     * something, whether or not the controller checks the request method.
+     *
+     * @var list<string>
+     */
+    private const READ_ACTIONS = [
+        'display', 'view', 'edit', 'types', 'data', 'index', 'list',
+        'profile', 'security', 'privacy', 'applications', 'exportdata',
+        'deleteaccount', 'changepassword', 'notify', 'signinalerts',
+    ];
+
+    /**
+     * Addresses that answer 404 by design, with the reason.
+     *
+     * Written down rather than inferred, so "this 404 is fine" is a decision somebody made
+     * once and not a rule that quietly swallows the next real one. An email-tracking
+     * endpoint redeems a token and 404s without one: there, the 404 *is* the feature.
+     *
+     * @var array<string, string>
+     */
+    private const DELIBERATE_404 = [
+        // '/Track/open' => 'redeems a one-time token; a 404 without one is correct',
+    ];
+
+    /**
+     * One row in each table a swept screen lists.
+     *
+     * **This is the part to fill in.** An empty list renders the empty state, and the
+     * empty state is the half of a template that is always right. The row loop — the
+     * column names, the formatters, the null handling — only runs when there is a row.
+     *
+     * Insert with the query builder and let `BaseTestCase` roll the transaction back, or
+     * clean up in `tearDown()`. Keep it to one row per table: the sweep is about whether
+     * the loop runs, not about pagination.
+     *
+     * @return void
+     */
+    protected function seedRows(): void
+    {
+        // Example:
+        // $this->db()->queryBuilder()->table('things')->insert([
+        //     'name' => 'A thing', 'created_at' => date('Y-m-d H:i:s'),
+        // ]);
+    }
+
+    /**
+     * Sign in, when the screens worth sweeping are behind a login.
+     *
+     * Left to the application because "an administrator" is a product decision. Without
+     * it the sweep still runs and still catches a fatal — an action that refuses is code
+     * that ran — but it stops at the first guard and covers the refusal rather than the
+     * screen.
+     *
+     * @return void
+     */
+    protected function actingAsAdmin(): void
+    {
+    }
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $this->actingAsAdmin();
+        $this->seedRows();
+    }
+
+    /**
+     * Every controller answers its default action.
+     *
+     * The cheapest half of the sweep and the one that found an entire admin area
+     * answering 404: `init` had written no `admin` block, so every screen in it was
+     * missing and every one of them looked like a routing mistake in the application.
+     *
+     * @return void
+     */
+    public function testEveryControllerAnswersItsDefaultAction(): void
+    {
+        // Arrange
+        $controllers = $this->controllers();
+        $this->assertNotEmpty($controllers, 'no controllers were discovered, so this sweeps nothing');
+
+        // Act + Assert
+        $failures = [];
+        foreach ($controllers as $prefix => $names) {
+            foreach ($names as $name) {
+                $failure = $this->request($prefix . '/' . $name);
+                if ($failure !== null) {
+                    $failures[] = $failure;
+                }
+            }
+        }
+
+        $this->assertSame([], $failures, "Screens that did not answer:\n" . implode("\n", $failures));
+    }
+
+    /**
+     * And every read action on every controller.
+     *
+     * Where the rendering is. A controller's `display()` is usually a list, which is a
+     * table and a loop; the long view nobody has opened is `view`, and the form with
+     * thirty fields is `edit`.
+     *
+     * @return void
+     */
+    public function testEveryReadActionRenders(): void
+    {
+        // Arrange
+        $swept    = 0;
+        $failures = [];
+
+        // Act
+        foreach ($this->controllers() as $prefix => $names) {
+            foreach ($names as $name) {
+                foreach ($this->readActionsOf($prefix, $name) as $action) {
+                    $swept++;
+                    $failure = $this->request($prefix . '/' . $name . '/' . $action);
+                    if ($failure !== null) {
+                        $failures[] = $failure;
+                    }
+                }
+            }
+        }
+
+        // Assert — that it swept something, first: a discovery returning nothing passes
+        // for ever while covering nothing.
+        $this->assertGreaterThan(0, $swept, 'no read actions were discovered');
+        $this->assertSame([], $failures, "Screens that did not answer:\n" . implode("\n", $failures));
+    }
+
+    /**
+     * One request, and what was wrong with it — or null.
+     *
+     * A 403 is a pass. The action ran and refused, which is the code being exercised; an
+     * anonymous sweep that demanded 200 everywhere would be asserting that nothing is
+     * protected.
+     */
+    private function request(string $path): ?string
+    {
+        try {
+            $status = (new TestClient())->get($path)->getResponse()->getStatusCode();
+        } catch (\Throwable $ex) {
+            return $path . ' — ' . get_class($ex) . ': ' . $ex->getMessage();
+        }
+
+        if ($status >= 500) {
+            return $path . ' — ' . $status;
+        }
+
+        if ($status === 404 && !array_key_exists($path, self::DELIBERATE_404)) {
+            return $path . ' — 404 (add it to DELIBERATE_404 with a reason if that is correct)';
+        }
+
+        return null;
+    }
+
+    /**
+     * The application's controllers, by URL prefix.
+     *
+     * Read from the filesystem rather than from a list, so a controller added next month
+     * is swept without anybody remembering to add it — which is the whole value.
+     *
+     * @return array<string, list<string>> prefix => controller names
+     */
+    private function controllers(): array
+    {
+        $found = [];
+
+        foreach (['' => 'src/Controllers', '/{{ adminPrefix }}' => 'src/Admin/Controllers'] as $prefix => $directory) {
+            $path = ROOT . '/' . $directory;
+            if (!is_dir($path)) {
+                continue;
+            }
+
+            $names = [];
+            foreach (glob($path . '/*.php') ?: [] as $file) {
+                $names[] = basename($file, '.php');
+            }
+
+            if ($names !== []) {
+                sort($names);
+                $found[$prefix] = $names;
+            }
+        }
+
+        return $found;
+    }
+
+    /**
+     * The read actions a controller actually declares.
+     *
+     * Reflection over its public methods, intersected with the allowlist — so a
+     * controller that has no `edit` is not requested for one, and a 404 in the results is
+     * a real missing screen rather than an action that was never written.
+     *
+     * @return list<string>
+     */
+    private function readActionsOf(string $prefix, string $name): array
+    {
+        $class = $prefix === ''
+            ? '\\{{ namespace }}\\Controllers\\' . $name
+            : '\\{{ namespace }}\\Admin\\Controllers\\' . $name;
+
+        if (!class_exists($class)) {
+            return [];
+        }
+
+        $actions = [];
+        foreach ((new \ReflectionClass($class))->getMethods(\ReflectionMethod::IS_PUBLIC) as $method) {
+            $lower = strtolower($method->getName());
+            if ($lower === 'display') {
+                // Covered by the default-action sweep above; requesting it twice only
+                // doubles the time.
+                continue;
+            }
+            if (in_array($lower, self::READ_ACTIONS, true)) {
+                $actions[] = $lower;
+            }
+        }
+
+        sort($actions);
+
+        return $actions;
+    }
+}
