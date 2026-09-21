@@ -619,6 +619,28 @@ class MigrationRunner
             $lock?->release('finished');
         }
 
+        /*
+         * A batch that changed anything invalidates the cached column lists.
+         *
+         * `SchemaBuilder` already flushes the tables its own DDL methods touch, so a
+         * migration written against the builder is covered. **A migration that writes raw
+         * SQL is not** — and DDL is explicitly allowed to be raw, because the builder
+         * cannot express every engine's grammar.
+         *
+         * `ALTER TABLE channels ADD COLUMN is_competitor …` therefore left
+         * `schema_columns_channels` holding the old list for up to an hour. Every list
+         * built through `getApiList()` answered without that key, and a payload indexing
+         * it by name emitted an undefined-key warning ahead of the body — which makes the
+         * JSON unparseable, so the screen says it could not load anything and nothing
+         * anywhere reports a failure.
+         *
+         * Only when something ran: a `migrate` that finds nothing pending is the common
+         * case and must stay free.
+         */
+        if ($ran !== []) {
+            $this->db?->forgetAllColumns();
+        }
+
         return ['ran' => $ran, 'failed' => $failed, 'warned' => $warned, 'declined' => $declined];
     }
 

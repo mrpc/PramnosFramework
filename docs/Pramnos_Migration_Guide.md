@@ -924,6 +924,31 @@ $pending = $runner->getPending($migrations);
 $history = $runner->getHistory();
 ```
 
+## A batch that ran anything clears the column cache
+
+`getColumns()` caches a table's schema for an hour, and `SchemaBuilder` invalidates the
+tables its own DDL methods touch — so a migration written against the builder is covered.
+**A migration that writes raw SQL is not**, and DDL is explicitly allowed to be raw
+because the builder cannot express every engine's grammar.
+
+So `ALTER TABLE channels ADD COLUMN is_competitor …` used to leave
+`schema_columns_channels` holding the old list for up to an hour. Every list built through
+`getApiList()` answered without that key; a payload indexing it by name emitted an
+undefined-key warning ahead of the body, which made the JSON unparseable, and the screen
+read "Could not load your numbers" — with no status, because nothing had refused anything.
+
+`MigrationRunner::run()` now calls `Database::forgetAllColumns()` when a batch ran
+anything. Every table, rather than a list of what changed: the runner cannot know which
+tables a raw statement touched without parsing SQL, and a list that is nearly right is
+worse than none, because the table it misses is the one the migration was about.
+
+A `migrate` that finds nothing pending flushes nothing — that is the common case on every
+deploy of a project whose schema has not moved, and it stays free.
+
+**What is still on you:** a schema changed by hand, outside `migrate`. That is what
+`cache:clear` is for, and it is why a deploy script that runs `migrate` and then
+`cache:clear` was never wrong to.
+
 ## MigrationLoader
 
 Discovers and instantiates `Migration` subclasses from PHP files in a directory.

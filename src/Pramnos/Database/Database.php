@@ -4061,6 +4061,67 @@ class Database extends \Pramnos\Framework\Base
     }
 
     /**
+     * Forget every table's cached schema.
+     *
+     * ## Why a migration needs this and per-table invalidation is not enough
+     *
+     * {@see \Pramnos\Database\SchemaBuilder} flushes the cache for every table its own
+     * DDL methods touch, so a migration written against the builder invalidates what it
+     * changed. **A migration that writes raw SQL does not** — and DDL is explicitly
+     * allowed to be raw, because the builder cannot express every engine's grammar.
+     *
+     * So `ALTER TABLE channels ADD COLUMN is_competitor …` in a migration leaves
+     * `schema_columns_channels` holding the old list for up to an hour. Every list built
+     * through `getApiList()` then answers **without that key**, and a payload indexing it
+     * by name emits an undefined-key warning ahead of the body — which makes the JSON
+     * unparseable, so the screen says it could not load anything and no status says why.
+     *
+     * The code comment on the read path used to call that "visible, harmless, and fixed
+     * by waiting". It is harmless to a reader that walks the row; every generated
+     * controller and every hand-written payload indexes it by name.
+     *
+     * ## Everything, rather than a list of what changed
+     *
+     * The runner cannot know which tables a raw statement touched without parsing SQL,
+     * and a list that is nearly right is worse than none: the one table it misses is the
+     * one the migration was about. The cost is one re-introspection per table on next
+     * use, paid once, immediately after a migration — which is the least hot moment
+     * there is.
+     *
+     * Best effort, for the same reason as {@see forgetColumns()}: a cache that cannot be
+     * reached is not serving a stale answer either, and a migration must not fail over a
+     * flush.
+     *
+     * @return int How many tables were flushed
+     */
+    public function forgetAllColumns(): int
+    {
+        try {
+            $tables = $this->schema()->tableNames();
+        } catch (\Throwable) {
+            return 0;
+        }
+
+        $prefix = (string) $this->prefix;
+
+        foreach ($tables as $table) {
+            $this->forgetColumns($table);
+
+            /*
+             * And the unresolved form. `getColumns()` caches under whatever string it was
+             * handed, so `#PREFIX#channels` and `pramnos_channels` are two entries for one
+             * table — and the catalogue only knows the second. Flushing one of them is a
+             * flush that reports success and leaves the stale answer in place.
+             */
+            if ($prefix !== '' && str_starts_with($table, $prefix)) {
+                $this->forgetColumns('#PREFIX#' . substr($table, strlen($prefix)));
+            }
+        }
+
+        return count($tables);
+    }
+
+    /**
      * Decode EWKB (Extended Well-Known Binary) to a PHP array
      * @param string $hexWKB Hexadecimal representation of the EWKB
      * @return array Decoded geometry data

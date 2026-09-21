@@ -341,6 +341,53 @@ class SchemaBuilder
     }
 
     /**
+     * Every table in the schema this builder is scoped to.
+     *
+     * Read from `information_schema`, which both engines answer, and pinned to the
+     * connected database: `information_schema` spans every database on the server, so an
+     * unscoped query answers from whichever one sorts first.
+     *
+     * The names come back **resolved** — with the installation's prefix, and without the
+     * `#PREFIX#` marker — because that is what the catalogue holds.
+     *
+     * @return list<string>
+     */
+    public function tableNames(): array
+    {
+        $scope = $this->capabilities->isPostgreSQL()
+            ? 'current_schema()'
+            : 'DATABASE()';
+
+        try {
+            $result = $this->db->query(
+                "SELECT table_name AS tname
+                   FROM information_schema.tables
+                  WHERE table_schema = " . $scope . "
+                    AND table_type = 'BASE TABLE'
+                  ORDER BY 1"
+            );
+        } catch (\Throwable) {
+            return [];
+        }
+
+        if (!$result) {
+            return [];
+        }
+
+        $names = [];
+        while ($result->fetch()) {
+            // Aliased, because MySQL answers `information_schema` in upper case and
+            // `fields['table_name']` is an empty string there — a whole list of them.
+            $name = (string) ($result->fields['tname'] ?? '');
+            if ($name !== '') {
+                $names[] = $name;
+            }
+        }
+
+        return $names;
+    }
+
+    /**
      * Tell the connection that a table's schema has changed.
      *
      * `Database::getColumns()` caches an introspection for an hour on the

@@ -431,7 +431,20 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
                 // saving of one query per table per request.
                 //
                 // A stale schema on a read path costs a column missing from a list.
-                // Visible, harmless, and fixed by waiting.
+                //
+                // That used to say "visible, harmless, and fixed by waiting", and
+                // "harmless" is what stopped anybody thinking about it. It is harmless to
+                // a reader that walks the row; every generated controller and every
+                // hand-written payload indexes it **by name**, so a missing key is an
+                // undefined-key warning printed ahead of the body — which makes a JSON
+                // response unparseable and produces a screen that says it could not load
+                // anything, with no status, because nothing refused.
+                //
+                // The window is closed at the other end now: `MigrationRunner` flushes
+                // every table's column cache after a batch that ran anything, so a
+                // migration writing raw DDL no longer leaves this stale. What remains is
+                // a schema changed by hand outside `migrate`, which is what
+                // `cache:clear` is for.
                 //
                 // The key is still built so the two paths can be told apart in the
                 // query log, and so anybody enabling this has one less thing to write.
