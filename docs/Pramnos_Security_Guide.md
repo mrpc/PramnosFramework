@@ -1130,6 +1130,37 @@ if ($status < 200 || $status > 299) {
 }
 ```
 
+### When the answer is at the top of the file
+
+The cap is a refusal by default: a body larger than `$maxBytes` returns `false`, because half
+a JPEG or half a JSON document is the shape the caller expects and the failure surfaces
+somewhere else.
+
+That is wrong for the things people actually cap a fetch for. Meta tags, a feed's header and
+a manifest are at the top of the file by construction, so throwing away the first 512 KB
+throws away the answer to keep the question. A caller reading an OpenGraph card capped at
+512 KB — generous for a `<head>` — met a 783 KB WordPress front page and reported *"That
+page could not be read"*, with the `og:title` sitting at byte 4,000.
+
+```php
+$truncated = null;
+
+$body = \Pramnos\Security\OutboundUrl::fetch(
+    $url, 512 * 1024, $reason, 10, 3, $status,
+    allowTruncated: true, truncated: $truncated
+);
+
+if ($truncated) {
+    // Everything up to the cap, exactly. Fine for a <head>; not fine for a checksum.
+}
+```
+
+It returns **exactly** `$maxBytes`, not the ceiling plus the rest of the 8 KB block it was
+noticed in — so a cap sized against a limit you have to respect is the number you get.
+
+A cap exists so a hostile or careless server cannot fill memory. It does not exist to make a
+large page unreadable, and leaving it off is still right for anything that has to parse.
+
 **Check the status, not only the bytes.** `ignore_errors => true` is deliberate — a caller that wants
 to read a 404's body should be able to — so a body arriving is not the same as a request succeeding.
 «Check the content» answers this for most bodies and fails on the case that matters: a CDN answering

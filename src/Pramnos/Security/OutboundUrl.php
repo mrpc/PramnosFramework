@@ -374,7 +374,20 @@ final class OutboundUrl
      * @param int|null     $status       Filled with the status of the response the body came from —
      *                                   the last one, when hops were followed. `0` when nothing was
      *                                   fetched at all.
+     * @param bool         $allowTruncated Return the first `$maxBytes` instead of refusing when the
+     *                                   response is larger. Off by default: half a JSON document is
+     *                                   the shape the caller expects, so the failure surfaces
+     *                                   somewhere else. Turn it on when the answer is at the top of
+     *                                   the file — a `<head>`, a feed header, a manifest.
+     * @param bool|null    $truncated    Filled with whether the ceiling was reached. Meaningful only
+     *                                   with `$allowTruncated`; `false` otherwise, because without it
+     *                                   a body that reached the ceiling is not returned at all.
      * @return string|false The body, or false.
+     *
+     * A cap exists so a hostile or careless server cannot fill memory. It does not exist to make a
+     * large page unreadable — and refusing was the only thing it could do, so a caller reading an
+     * OpenGraph card capped at 512 KB met an 783 KB front page and was told the page could not be
+     * read, with the `og:title` at byte 4,000.
      */
     public static function fetch(
         string $url,
@@ -382,14 +395,18 @@ final class OutboundUrl
         ?string &$reason = null,
         int $timeout = 10,
         int $maxRedirects = 0,
-        ?int &$status = null
+        ?int &$status = null,
+        bool $allowTruncated = false,
+        ?bool &$truncated = null
     ): string|false {
         $current = $url;
         $followed = 0;
         $status = 0;
 
         while (true) {
-            $body = self::fetchOnce($current, $maxBytes, $reason, $timeout, $headers);
+            $body = self::fetchOnce(
+                $current, $maxBytes, $reason, $timeout, $headers, $allowTruncated, $truncated
+            );
 
             if ($body === false) {
                 return false;
@@ -459,7 +476,9 @@ final class OutboundUrl
         int $maxBytes,
         ?string &$reason,
         int $timeout,
-        ?array &$headers
+        ?array &$headers,
+        bool $allowTruncated = false,
+        ?bool &$truncated = null
     ): string|false {
         $headers = [];
 
@@ -521,7 +540,7 @@ final class OutboundUrl
             'is_string'
         ));
 
-        $body = self::readCapped($handle, $maxBytes, $reason);
+        $body = self::readCapped($handle, $maxBytes, $reason, $allowTruncated, $truncated);
         fclose($handle);
 
         return $body;
@@ -560,24 +579,43 @@ final class OutboundUrl
     }
 
     /**
-     * Read a stream up to a ceiling, refusing rather than truncating when it is passed.
+     * Read a stream up to a ceiling.
      *
      * Mid-stream, which is the whole point: a server answering with a hundred gigabytes costs this
-     * process `$maxBytes` and not its memory. And a **refusal**, not a truncated body — half a JPEG or
-     * half a JSON document is worse than nothing, because it is the shape the caller expects and the
-     * failure surfaces somewhere else.
+     * process `$maxBytes` and not its memory.
+     *
+     * **What happens at the ceiling is the caller's decision.** By default it refuses, because half a
+     * JPEG or half a JSON document is worse than nothing — it is the shape the caller expects, and the
+     * failure surfaces somewhere else. With `$allowTruncated` it returns what it read and says it was
+     * cut short.
+     *
+     * The second mode exists because the first was the only one. A caller reading an OpenGraph card
+     * capped at 512 KB — generous for a `<head>` — met an 783 KB WordPress front page, got `false`,
+     * and showed *"That page could not be read. The response is larger than 512000 bytes."* The
+     * `og:title` and `og:image` were at byte 4,000. A cap exists so a hostile or careless server
+     * cannot fill memory; it does not exist to make a large page unreadable, and the things anybody
+     * caps a fetch for — meta tags, a feed's header, a manifest — are at the top of the file by
+     * construction.
      *
      * Takes a handle rather than a URL so it can be checked against an in-memory stream, which is the
      * only part of the fetch that a suite making no network calls can reach.
      *
      * @param resource    $handle
      * @param int         $maxBytes
-     * @param string|null $reason
+     * @param string|null $reason         Filled when it refuses.
+     * @param bool        $allowTruncated Return what was read instead of refusing.
+     * @param bool|null   $truncated      Filled with whether the ceiling was reached.
      * @return string|false
      */
-    private static function readCapped($handle, int $maxBytes, ?string &$reason): string|false
-    {
-        $body = '';
+    private static function readCapped(
+        $handle,
+        int $maxBytes,
+        ?string &$reason,
+        bool $allowTruncated = false,
+        ?bool &$truncated = null
+    ): string|false {
+        $body      = '';
+        $truncated = false;
 
         while (!feof($handle)) {
             $chunk = fread($handle, 8192);
@@ -589,6 +627,15 @@ final class OutboundUrl
             $body .= $chunk;
 
             if (strlen($body) > $maxBytes) {
+                if ($allowTruncated) {
+                    $truncated = true;
+
+                    // Exactly the ceiling, so a caller that sized the cap against a limit
+                    // it has to respect gets the number it asked for rather than that
+                    // plus up to 8 KB of the last chunk.
+                    return substr($body, 0, $maxBytes);
+                }
+
                 $reason = 'The response is larger than ' . $maxBytes . ' bytes.';
 
                 return false;

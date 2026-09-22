@@ -815,6 +815,84 @@ If 256 MB is not enough for the images an application handles, raise the host's 
 - `$views` - View counter
 - `$reason` - Creation reason ('original', 'medium', 'thumb', 'custom')
 
+## Loading a picture by its id
+
+```php
+$media = new \Pramnos\Media\MediaObject($id);
+
+if (empty($media->mediaid)) {
+    // No such picture.
+}
+```
+
+The constructor loads when given an id, and `new MediaObject()` with nothing is unchanged.
+`0`, `''` and `null` all mean "no id" rather than row zero, because callers reach this with
+an unvalidated route segment.
+
+!!! warning "This used to load nothing"
+
+    `MediaObject` declared no constructor, so it inherited `Base::__construct()`, which
+    takes no parameters — and **PHP does not complain about an argument passed to a
+    constructor that declares none**. The id went nowhere and the object stayed empty.
+
+    The failure is silent and shaped exactly like missing data. One application's
+    `GET /api/1.0/media/{id}` answered 404 for every picture that had ever existed; the
+    screen showed a caption with no thumbnail, which looks like a file somebody deleted, so
+    it was investigated three times — a broken upload, a broken `.htaccess`, a lost file —
+    while the row was in the table throughout. Nothing in a log, no status code that was
+    wrong: every caller's `empty($media->mediaid)` turned an empty object into "not found".
+
+## Drawing a transparent image — `blend()` and `silhouette()`
+
+```php
+use Pramnos\Media\ResizeTools;
+
+// A logo at 60%, without turning its clear pixels grey
+ResizeTools::blend($card, $logo, 20, 20, 120, 120, 0.6);
+
+// A glow behind it: the logo's own shape in white, not a rectangle
+$glow = ResizeTools::silhouette($logo, 0xFFFFFF, 40);
+ResizeTools::blend($card, $glow, 18, 18, 124, 124);
+```
+
+**The reason these exist is that the obvious call is the wrong one.** GD's compositing
+functions divide in two:
+
+| Respects the source's alpha | Does not |
+|---|---|
+| `imagecopy()`, `imagecopyresampled()` | `imagecopymerge()`, `imagecopymergegray()` |
+
+…and the second group is the one whose signature takes a **percentage**. So "draw this at
+60%" leads straight to `imagecopymerge()`, which composites every transparent pixel as
+though it were opaque and gives you a grey rectangle with the logo faintly on it.
+
+Three bugs in one afternoon in one application, all this shape: the faded logo as a grey
+rectangle, a halo drawn as a filled rectangle behind a transparent PNG — a coloured card —
+and scratch canvases that start opaque black, so anything not overwriting every pixel gains
+a background. A logo is the single most likely image in a CMS to have a transparent
+background, and this is what a CMS uses for logos.
+
+### What each one does
+
+`blend()` copies the source onto a cleared scratch canvas, fades it with
+`IMG_FILTER_COLORIZE` — whose fourth argument **adds** transparency, so a clear pixel stays
+clear and an opaque one becomes as translucent as asked — and composites with
+`imagecopy()`. The source is left untouched, so drawing the same logo twice does not give
+you the second one at the product of both opacities.
+
+`silhouette()` returns the image's own shape in one colour. It walks the pixels rather than
+using a filter, because `IMG_FILTER_COLORIZE` *adds* to the colour instead of replacing it
+— a red logo colorised white comes out pink. The requested alpha is a **floor** added to
+each pixel's own, so an anti-aliased edge stays soft rather than the glow gaining a hard
+one.
+
+### Testing something you have drawn
+
+Assert on a **corner** of the drawn box — inside the box, outside the artwork. That is
+where all three bugs showed, and it is the pixel a rectangle fills and a silhouette does
+not. A test that checks the middle passes on every one of them.
+
+
 ## Best Practices
 
 ### 1. File Upload Security

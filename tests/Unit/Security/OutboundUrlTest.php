@@ -610,6 +610,104 @@ class OutboundUrlTest extends TestCase
     }
 
     /**
+     * With truncation allowed, the ceiling returns what was read and says it was cut.
+     *
+     * WHAT: `readCapped($handle, 8192, $reason, true, $truncated)` answers 8,192 bytes and sets
+     *       `$truncated`.
+     *
+     * WHY:  refusing was the only thing the cap could do, and a cap exists so a hostile or careless
+     *       server cannot fill memory — not to make a large page unreadable. A caller reading an
+     *       OpenGraph card capped at 512 KB, which is generous for a `<head>`, met a 783 KB
+     *       WordPress front page and was told *"That page could not be read. The response is larger
+     *       than 512000 bytes."* The `og:title` and `og:image` were at byte 4,000.
+     *
+     *       The things anybody caps a fetch for — meta tags, a feed header, a manifest — are at the
+     *       top of the file by construction, so throwing away the first 512 KB is throwing away the
+     *       answer to keep the question.
+     */
+    public function testTruncationReturnsWhatWasReadAndSaysSo(): void
+    {
+        // Arrange
+        $handle = fopen('php://memory', 'r+');
+        fwrite($handle, str_repeat('x', 20000));
+        rewind($handle);
+
+        $read      = new \ReflectionMethod(OutboundUrl::class, 'readCapped');
+        $reason    = null;
+        $truncated = null;
+        $arguments = [$handle, 8192, &$reason, true, &$truncated];
+
+        // Act
+        $body = $read->invokeArgs(null, $arguments);
+        fclose($handle);
+
+        // Assert
+        $this->assertIsString($body, 'an oversized response was refused despite truncation');
+        $this->assertSame(8192, strlen($body), 'more than the ceiling was handed back');
+        $this->assertTrue($arguments[4], 'the caller was not told the body was cut short');
+        $this->assertNull($arguments[2], 'a truncated read is not a failure and carries no reason');
+    }
+
+    /**
+     * Exactly the ceiling, not the ceiling plus the rest of the chunk it was noticed in.
+     *
+     * The loop reads in 8 KB blocks and checks after appending, so the body in hand when the ceiling
+     * is passed is up to a block larger than it. A caller that sized the cap against a limit it has
+     * to respect — a column width, a queue message, somebody else's API — would be handed more than
+     * it asked for, and would find out downstream.
+     */
+    public function testTruncationReturnsExactlyTheCeiling(): void
+    {
+        // Arrange
+        $read = new \ReflectionMethod(OutboundUrl::class, 'readCapped');
+
+        foreach ([1, 100, 5000] as $ceiling) {
+            $handle = fopen('php://memory', 'r+');
+            fwrite($handle, str_repeat('z', 40000));
+            rewind($handle);
+
+            $reason    = null;
+            $truncated = null;
+            $arguments = [$handle, $ceiling, &$reason, true, &$truncated];
+
+            // Act
+            $body = $read->invokeArgs(null, $arguments);
+            fclose($handle);
+
+            // Assert
+            $this->assertSame($ceiling, strlen((string) $body), 'the ceiling was not respected exactly');
+            $this->assertTrue($arguments[4]);
+        }
+    }
+
+    /**
+     * A body inside the ceiling reports no truncation.
+     *
+     * The flag has to be false when nothing was cut, not merely unset: a caller writing
+     * `if ($truncated)` around a re-fetch would otherwise re-fetch every small page it ever read.
+     */
+    public function testABodyInsideTheCeilingIsNotReportedAsTruncated(): void
+    {
+        // Arrange
+        $handle = fopen('php://memory', 'r+');
+        fwrite($handle, str_repeat('w', 100));
+        rewind($handle);
+
+        $read      = new \ReflectionMethod(OutboundUrl::class, 'readCapped');
+        $reason    = null;
+        $truncated = null;
+        $arguments = [$handle, 8192, &$reason, true, &$truncated];
+
+        // Act
+        $body = $read->invokeArgs(null, $arguments);
+        fclose($handle);
+
+        // Assert
+        $this->assertSame(100, strlen((string) $body));
+        $this->assertFalse($arguments[4]);
+    }
+
+    /**
      * A body inside the ceiling comes back whole, including one that is exactly the ceiling.
      *
      * The boundary, because the comparison is `>` and an off-by-one here refuses a response that is
