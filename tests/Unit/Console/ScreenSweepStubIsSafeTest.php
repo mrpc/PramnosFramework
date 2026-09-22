@@ -259,6 +259,59 @@ class ScreenSweepStubIsSafeTest extends TestCase
     }
 
     /**
+     * The seeder never invents a value for a generated key or a foreign key.
+     *
+     * WHAT: the fill-by-type loop skips `hasDefault`, `isPrimary` and `isForeign`, and
+     *       reads the column shape through `SchemaBuilder::columnDetails()`.
+     *
+     * WHY:  it read `Default` and `Key` — the **MySQL** spellings — so on PostgreSQL both
+     *       were absent, `null` read as "no default, not a key", and an integer
+     *       placeholder went into a `bigserial` primary key:
+     *
+     *       ```
+     *       passkey_credentials: duplicate key value violates "passkey_credentials_pkey"
+     *       tokenactions:        violates foreign key constraint "fk_tokenactions_urlid"
+     *       ```
+     *
+     *       Four of the seven tables refused, every refusal was absorbed — correctly —
+     *       and the sweep stayed green while the person card rendered four fewer panels
+     *       than it could. Measured elsewhere: 399/605 against 495/605 with the refusals
+     *       gone.
+     *
+     *       The foreign key is the line worth keeping separate from the rest. A row so
+     *       the loop runs is the point; a row claiming something untrue about another
+     *       table is not, and no constraint would accept it anyway.
+     *
+     * @return void
+     */
+    public function testTheSeederInventsNoGeneratedOrForeignKeyValues(): void
+    {
+        // Arrange
+        $stub = $this->stub();
+
+        // Assert — the normalised shape, not a driver's spelling
+        $this->assertStringContainsString(
+            "columnDetails(\$table)",
+            $stub,
+            'the seeder reads raw driver keys, which differ between the two engines'
+        );
+        foreach (["'Default'", "'COLUMN_DEFAULT'", "'Key'"] as $rawKey) {
+            $this->assertStringNotContainsString(
+                '$field[' . $rawKey . ']',
+                $stub,
+                'a driver-specific column key is read directly, so it is null on the other engine'
+            );
+        }
+
+        // …and all three exclusions are there
+        $this->assertStringContainsString(
+            "\$column['hasDefault'] || \$column['isPrimary'] || \$column['isForeign']",
+            $stub,
+            'the seeder still invents values for generated or foreign keys'
+        );
+    }
+
+    /**
      * `init` writes it.
      *
      * A stub nothing emits is a file in this repository and nothing else.

@@ -191,16 +191,15 @@ class ScreenSweepTest extends BaseTestCase
                 return;
             }
 
-            $columns = $db->getColumns($table, null, false, true);
-            if ($columns === false) {
+            // One shape on both engines. `getColumns()` answers what the driver
+            // answers, and the two disagree on every key this loop needs: the default is
+            // `COLUMN_DEFAULT` on MySQL and `column_default` on PostgreSQL, the primary
+            // key is `Key = PRI` on one and `PrimaryKey = true` on the other. Reading one
+            // spelling works on one engine and silently does nothing on the other,
+            // because a missing array key is `null` and `null` reads as "no default".
+            $present = $db->schema()->columnDetails($table);
+            if ($present === []) {
                 return;
-            }
-
-            $present = [];
-            while ($columns->fetch()) {
-                $field = $columns->fields;
-                $name  = (string) ($field['Field'] ?? '');
-                $present[$name] = $field;
             }
 
             $row = [];
@@ -213,26 +212,35 @@ class ScreenSweepTest extends BaseTestCase
                 }
             }
 
-            foreach ($present as $name => $field) {
-                if (array_key_exists($name, $row)) {
-                    continue;
-                }
-                if (($field['Null'] ?? 'YES') !== 'NO') {
-                    continue;
-                }
-                if (($field['Default'] ?? null) !== null) {
-                    continue;
-                }
-                if (str_contains(strtolower((string) ($field['Extra'] ?? '')), 'auto_increment')) {
-                    continue;
-                }
-                if (str_contains(strtolower((string) ($field['Key'] ?? '')), 'pri')) {
-                    // A primary key the engine does not fill for us is a design this
-                    // seeder should not guess at.
+            foreach ($present as $name => $column) {
+                if (array_key_exists($name, $row) || $column['nullable']) {
                     continue;
                 }
 
-                $row[$name] = $this->placeholderFor((string) ($field['Type'] ?? ''));
+                /*
+                 * Two columns are never invented for, and both were, which cost four of
+                 * the seven panels this method exists to render:
+                 *
+                 *  - **anything with a default.** A `bigserial` primary key reports
+                 *    `nextval('…')`, not auto-increment, so an integer placeholder went
+                 *    into it and collided with every row a week of testing had left —
+                 *    `duplicate key value violates "passkey_credentials_pkey"`.
+                 *  - **a foreign key.** `tokenactions.urlid` points into the route table,
+                 *    and a value invented for it cannot point anywhere:
+                 *    `violates foreign key constraint "fk_tokenactions_urlid"`.
+                 *
+                 * Each refusal was absorbed, correctly, so the sweep stayed green and the
+                 * person card rendered four fewer panels than it could — which looks
+                 * exactly like the feature working.
+                 *
+                 * The second is the line worth keeping: a row so the loop runs is the
+                 * point; a row that claims something untrue about another table is not.
+                 */
+                if ($column['hasDefault'] || $column['isPrimary'] || $column['isForeign']) {
+                    continue;
+                }
+
+                $row[$name] = $this->placeholderFor($column['type']);
             }
 
             if ($row === []) {
@@ -249,11 +257,14 @@ class ScreenSweepTest extends BaseTestCase
         }
     }
 
-    /** Something a NOT NULL column of this type will accept. */
+    /**
+     * Something a NOT NULL column of this type will accept.
+     *
+     * The type arrives already lower-cased and without its length, from
+     * `SchemaBuilder::columnDetails()`.
+     */
     private function placeholderFor(string $type): mixed
     {
-        $type = strtolower($type);
-
         return match (true) {
             str_contains($type, 'int')       => 0,
             str_contains($type, 'bool')      => 0,

@@ -341,6 +341,83 @@ class SchemaBuilder
     }
 
     /**
+     * One table's columns, in one shape on both engines.
+     *
+     * ## Why this exists
+     *
+     * `getColumns()` answers what the driver answers, and the two drivers do not agree on
+     * a single key name that matters here:
+     *
+     * | | MySQL | PostgreSQL |
+     * |---|---|---|
+     * | default | `COLUMN_DEFAULT` | `column_default` |
+     * | primary key | `Key` = `PRI` | `PrimaryKey` = `true` |
+     * | foreign key | `ForeignKey` = `0`/`1` | `ForeignKey` = `false`/`true` |
+     * | auto-increment | *(absent; `Key` says `PRI`)* | `column_default` = `nextval(…)` |
+     *
+     * Code written against one spelling therefore works on one engine and silently does
+     * nothing on the other — silently, because a missing array key is `null`, and `null`
+     * reads as "no default" and "not a key". This has bitten three separate times: a
+     * migration that rebuilt a table it had already widened, a test that read another
+     * database's schema, and a seeder that filled primary keys with an integer and
+     * collided with every row already there.
+     *
+     * The keys below are the framework's own, so a caller writes them once.
+     *
+     * @param  string $table Table name, `#PREFIX#` and all
+     * @return array<string, array{
+     *     name: string, type: string, nullable: bool,
+     *     hasDefault: bool, isPrimary: bool, isForeign: bool,
+     *     foreignTable: string, foreignColumn: string
+     * }> Keyed by column name, in the order the table declares them
+     */
+    public function columnDetails(string $table): array
+    {
+        try {
+            $result = $this->db->getColumns($this->resolveTable($table), null, false, true);
+        } catch (\Throwable) {
+            return [];
+        }
+
+        if ($result === false) {
+            return [];
+        }
+
+        $columns = [];
+        while ($result->fetch()) {
+            $row  = $result->fields;
+            // No guard on an empty `Field`: both drivers key this result on the column
+            // name and neither can produce a nameless one. A branch no test can reach is a
+            // branch nobody has checked.
+            $name = (string) ($row['Field'] ?? '');
+
+            // Every spelling of "has a default", including a sequence: PostgreSQL reports
+            // a `bigserial` as `nextval('…')` rather than as anything auto-increment-ish,
+            // and a value invented for such a column collides with what is already there.
+            $default = $row['Default']
+                ?? $row['COLUMN_DEFAULT']
+                ?? $row['column_default']
+                ?? null;
+
+            $extra = strtolower((string) ($row['Extra'] ?? ''));
+
+            $columns[$name] = [
+                'name'          => $name,
+                'type'          => strtolower(explode('(', (string) ($row['Type'] ?? ''))[0]),
+                'nullable'      => strtoupper((string) ($row['Null'] ?? 'YES')) !== 'NO',
+                'hasDefault'    => $default !== null || str_contains($extra, 'auto_increment'),
+                'isPrimary'     => !empty($row['PrimaryKey'])
+                    || str_contains(strtolower((string) ($row['Key'] ?? '')), 'pri'),
+                'isForeign'     => !empty($row['ForeignKey']) && $row['ForeignKey'] !== '0',
+                'foreignTable'  => (string) ($row['ForeignTable'] ?? ''),
+                'foreignColumn' => (string) ($row['ForeignColumn'] ?? ''),
+            ];
+        }
+
+        return $columns;
+    }
+
+    /**
      * Every table in the schema this builder is scoped to.
      *
      * Read from `information_schema`, which both engines answer, and pinned to the
