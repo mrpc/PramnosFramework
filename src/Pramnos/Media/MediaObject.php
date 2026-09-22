@@ -2279,6 +2279,41 @@ class MediaObject extends \Pramnos\Framework\Base
     }
 
     /**
+     * Build a media object, and load it when given an id.
+     *
+     * ## Why this constructor exists
+     *
+     * `new MediaObject($id)` reads exactly like every other model in this framework, and
+     * it used to load **nothing**. The class declared no constructor, so it inherited
+     * `Base::__construct()`, which takes no parameters — and PHP does not complain about
+     * an argument handed to a constructor that declares none. The id went nowhere and the
+     * object stayed empty.
+     *
+     * The failure is silent and shaped exactly like missing data. One application's
+     * `GET /api/1.0/media/{id}` answered **404 for every picture that had ever existed**;
+     * the screen showed a caption with no thumbnail, which looks like a file somebody
+     * deleted, so it was investigated three times — as a broken upload, a broken
+     * `.htaccess` and a lost file — while the row was in the table throughout. Nothing in
+     * a log, and no status code that was wrong: every caller's
+     * `if (empty($media->mediaid))` turned an empty object into "not found".
+     *
+     * So the wrong spelling is impossible now rather than merely documented. Passing
+     * nothing is unchanged, which is every existing `new MediaObject()`.
+     *
+     * @param int|string|null $mediaid Load this id, or leave the object empty
+     */
+    public function __construct($mediaid = null)
+    {
+        parent::__construct();
+
+        // `0` and `''` are "no id", not "load row zero": callers reach here with an
+        // unvalidated route segment, and loading nothing is the honest answer to one.
+        if ($mediaid !== null && (string) $mediaid !== '' && (int) $mediaid > 0) {
+            $this->load($mediaid);
+        }
+    }
+
+    /**
      * Load a media object from the database
      * @param int $mediaidToLoad
      * @return MediaObject
