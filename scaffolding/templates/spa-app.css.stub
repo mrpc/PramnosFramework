@@ -6,7 +6,28 @@
  * Tailwind in, `@plugin` registers daisyUI, and `@source` tells Tailwind which
  * files to scan for class names (Svelte components included).
  */
-@import "tailwindcss";
+
+/*
+ * `source(none)`, and the `@source` line below is the whole source list.
+ *
+ * In Tailwind v4 `@source` **adds to** automatic detection rather than replacing it, and
+ * detection starts at the git root — so this scanned `src/`, `app/`, `www/` and every
+ * previous build output still on disk.
+ *
+ * Two costs, and the second is the one that wasted days. The built stylesheet carried
+ * rules for classes that appear only in server-rendered `src/Views/*.php`: 63 KB, about
+ * 30%, that the SPA bundle can never use — and in a hybrid project the two halves
+ * deliberately have separate stylesheets, which is what `theme:build` is for.
+ *
+ * And **two builds of identical sources produced different filenames.** The bundle is
+ * content-hashed and committed, so that reads as a non-deterministic build and was
+ * investigated as one twice. The cause is the scan reaching over a VirtioFS bind mount,
+ * where the container sees part of the tree a beat late and which part varies per run.
+ *
+ * Naming the sources and then scanning everything anyway is not a combination anybody
+ * asks for. A project that wants the repository scanned has not written an `@source`.
+ */
+@import "tailwindcss" source(none);
 /* The palette, generated from this project's server-rendered theme so both
    halves of the application share one set of colours. CSS requires @import
    before other rules, so the file wins on specificity rather than order — see
