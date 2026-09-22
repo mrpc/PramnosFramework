@@ -814,4 +814,182 @@ class ResizeTools extends \Pramnos\Framework\Base
         return true;
     }
 
+    /**
+     * Draw one image onto another at a given opacity, without flattening its transparency.
+     *
+     * ## The call everybody reaches for is the wrong one
+     *
+     * GD's compositing functions divide in two. `imagecopy()` and `imagecopyresampled()`
+     * respect the source's alpha channel; `imagecopymerge()` and `imagecopymergegray()` do
+     * not — and the second group is the one whose signature takes a **percentage**. So
+     * "draw this logo at 60%" leads straight to `imagecopymerge()`, which composites every
+     * transparent pixel as though it were opaque and produces a **grey rectangle with the
+     * logo faintly on it**.
+     *
+     * Three separate bugs in one afternoon in one application, all this shape. It is not
+     * knowledge an application should have to acquire from a screenshot.
+     *
+     * ## How this does it instead
+     *
+     * `IMG_FILTER_COLORIZE`'s fourth argument is an alpha, and it **adds** to what is
+     * already there: a pixel that is already clear stays clear, and an opaque one becomes
+     * as translucent as asked. So the source is copied, faded as a whole, and composited
+     * with `imagecopy()`, which honours the result.
+     *
+     * The source is left untouched — the fade happens on a copy — because a caller drawing
+     * the same logo twice at two opacities would otherwise get the second one at the
+     * product of both.
+     *
+     * ```php
+     * ResizeTools::blend($card, $logo, 20, 20, 120, 120, 0.6);
+     * ```
+     *
+     * @param  \GdImage $destination Composited onto, in place
+     * @param  \GdImage $source      Left as it was
+     * @param  int      $x           Where on the destination
+     * @param  int      $y
+     * @param  int      $width       How large to draw it; the source is resampled to fit
+     * @param  int      $height
+     * @param  float    $opacity     `0.0` (invisible) to `1.0` (as it is)
+     * @return bool                  Whether anything was drawn
+     */
+    public static function blend(
+        \GdImage $destination,
+        \GdImage $source,
+        int $x,
+        int $y,
+        int $width,
+        int $height,
+        float $opacity = 1.0
+    ): bool {
+        $opacity = max(0.0, min(1.0, $opacity));
+
+        if ($width < 1 || $height < 1 || $opacity === 0.0) {
+            return true;
+        }
+
+        // No `=== false` check: since PHP 8 `imagecreatetruecolor()` returns a `GdImage`
+        // or throws `ValueError` on bad dimensions, and the zero case is already handled
+        // above. A branch no test can reach is a branch nobody has checked.
+        $layer = imagecreatetruecolor($width, $height);
+
+        // A truecolor canvas starts **opaque black**, which is the third of the three bugs:
+        // anything that does not overwrite every pixel gains a background. Cleared first,
+        // with blending off so the fill writes the alpha rather than compositing onto it.
+        imagealphablending($layer, false);
+        imagesavealpha($layer, true);
+        imagefill($layer, 0, 0, imagecolorallocatealpha($layer, 0, 0, 0, 127));
+
+        imagecopyresampled(
+            $layer,
+            $source,
+            0,
+            0,
+            0,
+            0,
+            $width,
+            $height,
+            imagesx($source),
+            imagesy($source)
+        );
+
+        if ($opacity < 1.0) {
+            // 0 is opaque and 127 is clear, and this is *added* to each pixel's own alpha —
+            // which is exactly what makes it safe on a transparent source.
+            imagefilter(
+                $layer,
+                IMG_FILTER_COLORIZE,
+                0,
+                0,
+                0,
+                (int) round(127 * (1 - $opacity))
+            );
+        }
+
+        // `imagecopy()`, never `imagecopymerge()`: the merge is where the opacity argument
+        // lives and the alpha channel does not.
+        imagealphablending($destination, true);
+        imagesavealpha($destination, true);
+        $drawn = imagecopy($destination, $layer, $x, $y, 0, 0, $width, $height);
+
+        // No imagedestroy(): it has had no effect since PHP 8.0 and is deprecated in 8.5.
+        // A GdImage is an object and goes with the scope, like everything else.
+
+        return $drawn;
+    }
+
+    /**
+     * The image's own shape, filled with one colour.
+     *
+     * For a halo, a shadow or a press behind a logo. The obvious way to draw one is a
+     * filled rectangle, and behind a transparent PNG that is a **coloured card** rather
+     * than a glow — the second of the three bugs, and the one that looks most like a
+     * design decision somebody made.
+     *
+     * Returns a new image; the source is untouched.
+     *
+     * ```php
+     * $glow = ResizeTools::silhouette($logo, 0xFFFFFF, 40);
+     * ResizeTools::blend($card, $glow, 18, 18, 124, 124);   // offset by the blur radius
+     * ```
+     *
+     * @param  \GdImage $source The shape to take
+     * @param  int      $colour `0xRRGGBB`
+     * @param  int      $alpha  GD alpha for the fill: `0` opaque, `127` invisible
+     * @return \GdImage
+     */
+    public static function silhouette(\GdImage $source, int $colour = 0x000000, int $alpha = 0): \GdImage
+    {
+        $width  = imagesx($source);
+        $height = imagesy($source);
+
+        // No zero-size guard and no `=== false` check: `imagesx()` of a GdImage is never
+        // below 1, and since PHP 8 `imagecreatetruecolor()` returns an image or throws.
+        // A branch no test can reach is a branch nobody has checked.
+        $shape = imagecreatetruecolor($width, $height);
+
+        imagealphablending($shape, false);
+        imagesavealpha($shape, true);
+        imagefill($shape, 0, 0, imagecolorallocatealpha($shape, 0, 0, 0, 127));
+
+        $red   = ($colour >> 16) & 0xFF;
+        $green = ($colour >> 8) & 0xFF;
+        $blue  = $colour & 0xFF;
+        $alpha = max(0, min(127, $alpha));
+
+        /*
+         * Pixel by pixel, and the reason is that there is no GD call for "keep the alpha,
+         * replace the colour". `imagefilter(IMG_FILTER_COLORIZE)` adds to the colour rather
+         * than replacing it, so a dark logo colorised white stays grey.
+         *
+         * A logo is small — the images this is for are a few hundred pixels — and a loop
+         * that is correct beats a filter that is fast and wrong. // ponytail: per-pixel,
+         * fine at logo sizes; if this is ever used on a photograph, do it with a palette.
+         */
+        for ($column = 0; $column < $width; $column++) {
+            for ($row = 0; $row < $height; $row++) {
+                $sourceAlpha = (imagecolorat($source, $column, $row) >> 24) & 0x7F;
+
+                if ($sourceAlpha === 127) {
+                    // Already clear. Leaving it alone is what makes this a silhouette
+                    // rather than a rectangle.
+                    continue;
+                }
+
+                // The source's own transparency is kept, so a soft edge stays soft: a
+                // half-transparent pixel of the logo is a half-transparent pixel of the
+                // glow, and the requested alpha is the floor rather than the whole answer.
+                $combined = min(127, $sourceAlpha + $alpha);
+
+                imagesetpixel(
+                    $shape,
+                    $column,
+                    $row,
+                    imagecolorallocatealpha($shape, $red, $green, $blue, $combined)
+                );
+            }
+        }
+
+        return $shape;
+    }
 }
