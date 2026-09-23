@@ -304,6 +304,25 @@ define('PRAMNOS_BIN', '/usr/local/bin/php /srv/app/console');
 **A non-zero exit fails the task.** `schedule:run` prints `✗ Failed` and returns non-zero;
 `work` counts it and carries on with the rest of the pass. Both write it to `schedule.log`.
 
+**And `schedule.log` carries the reason, not only the status.** The last 2 KB of what the
+command printed — both streams — is appended to the logged message:
+
+```
+failed: channels:collect (0 * * * *) — Scheduled command 'channels:collect' exited with
+status 1. Output: PDOException: SQLSTATE[HY000] [2002] Connection refused
+```
+
+This matters more than it looks. Cron sends `schedule:run` output to `/dev/null` on a normal
+installation, so the framework's log is the **last place the reason exists**: anything it
+does not record is lost by design rather than by accident, and `exited with status 1` on its
+own leaves nothing to do but guess. The tail rather than the whole output, because
+`schedule.log` is appended to on every tick; the tail rather than the head, because a chatty
+command's error is at the bottom.
+
+A command's own output still reaches the console while it runs, so an interactive
+`schedule:run` is unchanged apart from stderr now arriving on stdout — which is what makes
+the reason capturable at all.
+
 Which puts a burden on every scheduled command: **exit non-zero only for something a person
 should look at.** `spool:drain` is the worked example, since it runs every minute:
 

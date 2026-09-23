@@ -26,8 +26,27 @@ namespace Pramnos\Scheduling;
  */
 class ScheduledTask
 {
+    /**
+     * How much of a failing command's output is kept, in bytes.
+     *
+     * Enough for a PHP fatal or a Symfony exception line with its first frames,
+     * and small enough that a task printing a megabyte cannot fill `schedule.log`.
+     */
+    public const OUTPUT_TAIL = 2048;
+
     /** The underlying cron expression. */
     private CronExpression $cron;
+
+    /**
+     * The tail of the last shell command's output, or null when there was none.
+     *
+     * Null rather than `''` on purpose: `runShellCommand()` is `protected` and
+     * therefore something an application may have overridden, and an override
+     * that predates this never sets it. Null then means "nobody captured
+     * anything" and the exception message is exactly what it always was, rather
+     * than gaining an empty `Output:`.
+     */
+    private ?string $lastOutput = null;
 
     /** Human-readable description shown in schedule:list. */
     private string $description = '';
@@ -413,12 +432,22 @@ class ScheduledTask
             // reported "✓ Done" while the shell answered "Could not open input
             // file", once a minute, for as long as the installation existed.
             if ($status !== 0) {
-                throw new \RuntimeException(sprintf(
+                $message = sprintf(
                     "Scheduled command '%s' exited with status %d (ran: %s).",
                     (string) $this->handler,
                     $status,
                     $command
-                ));
+                );
+
+                // The output is the only record of *why*, and under cron it is the
+                // last place it exists — the child's stdout went to this process and
+                // this process's stdout goes to /dev/null. Appended rather than
+                // replacing, so a log reader still greps for the command name.
+                if ($this->lastOutput !== null && trim($this->lastOutput) !== '') {
+                    $message .= ' Output: ' . trim($this->lastOutput);
+                }
+
+                throw new \RuntimeException($message);
             }
 
             return;
@@ -465,20 +494,79 @@ class ScheduledTask
     }
 
     /**
-     * Run a shell command and return its exit status.
+     * Run a shell command, show its output, and keep the tail of it.
      *
      * A seam: the only line in this class that reaches the shell, so a test can
      * assert what would be run without running it.
+     *
+     * ## Why not `passthru()`
+     *
+     * `passthru()` writes the child's output to the parent's stdout and keeps
+     * none of it. The parent is `schedule:run` under cron, **whose stdout is
+     * `/dev/null` on every installation this framework's own documentation
+     * describes** — so the status code reached `schedule.log` and the sentence
+     * explaining it reached nothing at all.
+     *
+     * That is the wrong half to keep. `failed: channels:collect — exited with
+     * status 1` says a task broke and gives no way to find out why; the
+     * exception message the command printed is the only thing that does, and it
+     * was written to a device that discards it. Reconstructing it afterwards
+     * means reading application tables to see how far the pass got and comparing
+     * that against the day's deploys — which is what it actually cost.
+     *
+     * So the output is read rather than inherited, echoed on as it arrives (an
+     * interactive `schedule:run` still shows the work in real time, not in one
+     * block at the end), and the **last {@see OUTPUT_TAIL} bytes** are kept for
+     * {@see execute()} to put in the exception.
+     *
+     * The tail rather than all of it: a PHP fatal or a Symfony exception line and
+     * its first frames fit comfortably, while a task that prints a megabyte
+     * cannot fill `schedule.log`. The tail rather than the head, because the
+     * error is at the end — the head of a chatty command is its progress output.
+     *
+     * `2>&1` is what makes it useful: the reason a command failed is on stderr
+     * nearly every time. It does mean an interactive run sees the two streams
+     * merged, which is the cost of the reason surviving.
      *
      * @param  string $command The full command line
      * @return int Exit status, 0 on success
      */
     protected function runShellCommand(string $command): int
     {
-        $status = 0;
-        passthru($command, $status);
+        $this->lastOutput = '';
 
-        return $status;
+        $handle = popen($command . ' 2>&1', 'r');
+
+        // @codeCoverageIgnoreStart
+        // `popen()` raises rather than answering false for a command it will not
+        // accept, and otherwise fails only when the process table does — neither is
+        // reachable from a test. The guard stays because the signature allows it.
+        if ($handle === false) {
+            // Nothing was started, so there is no output to keep and no status to
+            // read. Reported as a failure, which is what it is.
+            return 1;
+        }
+        // @codeCoverageIgnoreEnd
+
+        $tail = '';
+
+        while (!feof($handle)) {
+            $chunk = fread($handle, 8192);
+
+            if ($chunk === false || $chunk === '') {
+                break;
+            }
+
+            echo $chunk;
+            $tail = substr($tail . $chunk, -self::OUTPUT_TAIL);
+        }
+
+        $status = pclose($handle);
+        $this->lastOutput = $tail;
+
+        // `pclose()` answers -1 when it could not determine the status. A task
+        // whose outcome is unknown is not a task that succeeded.
+        return $status === -1 ? 1 : $status;
     }
 
     private function lockFile(): string
