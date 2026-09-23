@@ -62,8 +62,39 @@ class SessionStorageCheck implements HealthCheck
      */
     public function __construct(
         private ?string $handler = null,
-        private ?string $path = null
+        private ?string $path = null,
+        private ?int $servers = null
     ) {
+    }
+
+    /**
+     * How many nodes this application says it runs on.
+     *
+     * **One unless the application says otherwise**, and that default is the whole point.
+     * A single server keeping sessions in local files is not a problem to be reported — it
+     * is the correct arrangement, and a check that says otherwise is telling somebody their
+     * working site is broken because a feature exists that they do not need.
+     *
+     * ```php
+     * // app/config/app.php — only a deployment with more than one node needs this
+     * 'servers' => 2,
+     * ```
+     *
+     * Declared rather than detected because it cannot be detected: a node has no way to
+     * know how many siblings are behind the balancer, and guessing from the environment
+     * would make the answer depend on which machine happened to answer the probe.
+     */
+    private function declaredServers(): int
+    {
+        if ($this->servers !== null) {
+            return $this->servers;
+        }
+
+        $app        = \Pramnos\Application\Application::currentInstance();
+        $configured = is_object($app) ? ($app->applicationInfo['servers'] ?? null) : null;
+        $configured ??= \Pramnos\Application\Settings::getSetting('servers', null);
+
+        return max(1, (int) $configured);
     }
 
     public function getName(): string
@@ -91,10 +122,52 @@ class SessionStorageCheck implements HealthCheck
             );
         }
 
-        return HealthCheckResult::notice(
+        $servers = $this->declaredServers();
+
+        if ($handler !== 'files' && $servers < 2) {
+            /*
+             * A handler nobody here recognises — `user`, or an extension this check has
+             * not heard of. It may be shared and it may not, and the honest answer is
+             * that this check cannot tell. `notice`, because it is worth reading once and
+             * is not a fault: it answers 200 and does not fail `health:check`.
+             */
+            return HealthCheckResult::notice(
+                $this->getName(),
+                'Sessions are on "' . $handler . '", which this check does not recognise; '
+                . 'whether a second server could reach it depends on what it does',
+                $details
+            );
+        }
+
+        if ($servers < 2) {
+            /*
+             * One server, sessions in local files: correct, and reported as correct.
+             *
+             * This answered `degraded` and then `notice`, and both were wrong for the same
+             * reason — **the existence of a shared-store option does not make not using it
+             * a fault.** On one machine `files` is free, has no dependency and nothing to
+             * configure, and a dashboard that puts a red badge and a paragraph beside it is
+             * telling somebody their working site is broken.
+             *
+             * The value of this check was never the severity. It is the *detail*: which
+             * store is actually in use, which is how you find a Redis pointed at the wrong
+             * host. That survives in `ok` exactly as well.
+             */
+            return HealthCheckResult::ok(
+                $this->getName(),
+                'Sessions are in local files, which is correct for a single server',
+                $details + [
+                    'before_a_second_server' => 'Move sessions to a shared store, or turn '
+                        . 'on sticky sessions at the load balancer. Until then a visitor '
+                        . 'whose next request lands on another node has no session.',
+                ]
+            );
+        }
+
+        return HealthCheckResult::degraded(
             $this->getName(),
-            'Sessions are on "' . $handler . '", which is local to this machine. '
-            . 'Correct on a single server; on more than one a visitor is signed out '
+            'Sessions are on "' . $handler . '", which is local to this machine, and this '
+            . 'application declares ' . $servers . ' servers. A visitor is signed out '
             . 'whenever the load balancer sends them to a different node.',
             $details + [
                 /*

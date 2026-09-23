@@ -30,7 +30,7 @@ Every application registers these during `init()`:
 | `cache` | Whether the cache is on the store it was **configured** for. `degraded` when it fell back — the application works, on the wrong store. |
 | `hypertables` | Whether a declared hypertable is one, and whether a continuous aggregate is one. `degraded` when the catalogue disagrees with the declaration. |
 | `site_url` | The site's public root, and where it came from. `degraded` while it is only being inferred from the request. |
-| `session_storage` | Which store PHP keeps sessions in. `notice` on `files`, which is local to one machine — correct on one server, and the quietest failure on two. |
+| `session_storage` | Which store PHP keeps sessions in. `ok` on one server whatever the store; `degraded` on local files when the application declares `'servers' => 2` or more. |
 
 With the `authserver` feature enabled, one more is registered by
 `AuthServerServiceProvider`:
@@ -58,33 +58,46 @@ yourself if yours does.
     is almost always the answer. It reports `degraded`: the site is working, and a
     check that pages somebody for a working site is a check that gets muted.
 
-!!! note "Why `session_storage` is a `notice` on `files`"
+!!! note "Why `session_storage` is `ok` on `files`"
 
-    `files` is PHP's default and is right on one machine: free, no dependency, nothing to
-    configure. On two it is the quietest failure in a deployment — a visitor whose next
-    request lands on the other node has no session, so they are signed out at random on a
-    site that is otherwise working, and it reads as an expiry, a cookie problem, a
-    `SameSite` mistake. Everything except a load balancer.
+    Because on one server it is correct. `files` is PHP's default, it is free, it has no
+    dependency and nothing to configure, and **the existence of a shared-store option does
+    not make not using it a fault.** This check answered `degraded` and then `notice` before
+    that was said out loud, and both put an alarm colour beside a working site.
 
-    Nothing else reports it, which is the argument for a check: the application works,
-    every test passes, and the failure exists only in a topology the developer's machine
-    does not have.
+    What the check is actually for survives in `ok`: it names the store. The common way to
+    get sessions wrong is not leaving them on files — it is pointing them at a Redis the
+    other nodes do not use, and that is visible in `details.handler` and `details.path`
+    whatever the status.
+
+    **It becomes `degraded` when the application says it has more than one node:**
+
+    ```php
+    // app/config/app.php — only a deployment with more than one server needs this
+    'servers' => 2,
+    ```
+
+    Declared rather than detected, because it cannot be detected: a node has no way to count
+    its siblings behind a balancer, and guessing from the environment would make the answer
+    depend on which machine answered the probe. One is assumed until you say otherwise.
+
+    On two nodes without a shared store, a visitor whose next request lands on the other one
+    has **no session** — signed out at random on a site that is otherwise working, and it
+    reads as an expiry, a cookie problem, a `SameSite` mistake. Everything except a load
+    balancer. Nothing else reports it, which is the argument for the check.
 
     `APP_SESSION_HANDLER=redis` in `.env` (or `'session' => ['handler' => 'redis']` in
-    `app/config/app.php`) turns it green — pointed at **a Redis this application
-    controls**. With no path it reuses the cache's host, and on a shared server, where one
-    Redis serves every vhost, that puts session ids somewhere every other site on the
-    machine can read. A session id is an account. Use a dedicated instance, or at least a
-    separate database with its own credentials.
+    `app/config/app.php`) turns it green — pointed at **a Redis this application controls**.
+    With no path it reuses the cache's host, and on a shared server, where one Redis serves
+    every vhost, that puts session ids somewhere every other site on the machine can read.
+    A session id is an account. Use a dedicated instance, or at least a separate database
+    with its own credentials.
 
-    Sticky sessions at the load balancer are the other answer, and this check cannot see
-    them — if that is your arrangement, this one stays a notice deliberately.
+    Sticky sessions at the balancer are the other answer, and this check cannot see them.
 
-    **It is a `notice`, not `degraded`, and that matters**: a single-server installation is
-    correct, and answering 503 for it would page somebody for a working site for ever.
-
-    The check names the store either way, because the common way to get this wrong is not
-    leaving it on files but pointing it at a Redis the other nodes do not use.
+    A handler this check does not recognise — `user`, or an extension it has not heard of —
+    is a `notice`: it may reach a second server and it may not, and either answer would be
+    a guess.
 
 !!! note "Why `site_url` is degraded when nothing is configured"
 
@@ -262,17 +275,22 @@ that is also how an application overrides a built-in check with its own.
 - **`degraded`** — it works, at reduced capacity or with a problem that will
   become an outage if ignored. A cache that is unreachable, a disk at 95%, a key
   that is smaller than it should be.
-- **`notice`** — **correct here, and would not be everywhere.** Sessions on local
-  files; a single-node cache on a single node. It does not change the HTTP code and
-  does not fail `health:check`.
+- **`notice`** — **worth reading once, and not a fault.** A session handler this
+  framework does not recognise, where neither "shared" nor "local" can be established.
+  It does not change the HTTP code and does not fail `health:check`.
 - **`ok`** — with `details` carrying whatever an operator would want from a green
   result. A latency figure or a key size in a passing check is what tells someone
   the trend before it crosses a threshold.
 
-**The test for `notice`** is whether there is an installation where this exact answer
-is the *correct* one. Sessions on files passes it. An unset `APP_URL` does not — every
-URL built outside a request is wrong on one server exactly as much as on five, so
-`site_url` stays `degraded`.
+**Before reaching for a status above `ok`, ask what the reader is supposed to do.** If
+the answer is "nothing, this installation is correct", it is `ok` — and anything the
+operator might want goes in `details`, which is where a check's value usually lives.
+Sessions on local files are the worked example: the shared store exists, and choosing
+not to use it on one machine is not a fault.
+
+`notice` is for "this is genuinely unclear and you should know". `degraded` is for
+something wrong: an unset `APP_URL` makes every URL built outside a request wrong on one
+server exactly as much as on five, so `site_url` stays `degraded`.
 
 Getting this wrong in the direction of severity is not a harmless over-report. A check
 that pages for a correct installation is a check somebody mutes, and a muted check is

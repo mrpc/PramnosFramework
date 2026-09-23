@@ -108,15 +108,31 @@
         <div class="card-body p-0">
             <ul class="list-group list-group-flush">
                 <?php foreach ($this->healthResults as $name => $result): ?>
-                <li class="list-group-item d-flex justify-content-between align-items-center">
-                    <span><?php echo htmlspecialchars($name); ?></span>
-                    <?php if ($result['status'] === 'ok'): ?>
-                        <span class="badge bg-success">OK</span>
-                    <?php elseif ($result['status'] === 'warn'): ?>
-                        <span class="badge bg-warning text-dark"><?php echo htmlspecialchars($result['message'] ?? 'Warning'); ?></span>
-                    <?php else: ?>
-                        <span class="badge bg-danger"><?php echo htmlspecialchars($result['message'] ?? 'Error'); ?></span>
-                    <?php endif; ?>
+                <?php
+                    /*
+                     * The badge carries the *status*; the message goes beside it.
+                     *
+                     * This had three branches for `ok`, `warn` and everything else — and
+                     * `warn` is not a status this framework produces, so `degraded` fell
+                     * through to the `else` and rendered as a red badge with the whole
+                     * message crammed inside it. A correct installation was being shown a
+                     * paragraph in an alarm colour.
+                     */
+                    $healthBadge = [
+                        'ok'       => 'bg-success',
+                        'notice'   => 'bg-info',
+                        'degraded' => 'bg-warning text-dark',
+                        'down'     => 'bg-danger',
+                    ][$result['status']] ?? 'bg-secondary';
+                ?>
+                <li class="list-group-item d-flex justify-content-between align-items-start gap-3">
+                    <span class="fw-medium flex-shrink-0"><?php echo htmlspecialchars($name); ?></span>
+                    <span class="d-flex align-items-center gap-2 text-end">
+                        <?php if (!empty($result['message']) && $result['status'] !== 'ok'): ?>
+                            <small class="text-muted"><?php echo htmlspecialchars($result['message']); ?></small>
+                        <?php endif; ?>
+                        <span class="badge <?php echo $healthBadge; ?> flex-shrink-0"><?php echo strtoupper(htmlspecialchars($result['status'])); ?></span>
+                    </span>
                 </li>
                 <?php endforeach; ?>
             </ul>

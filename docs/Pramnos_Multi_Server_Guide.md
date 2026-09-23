@@ -53,10 +53,22 @@ With no `path` the **cache's own host** is reused — which is the right default
 this application owns and the wrong one on a shared server, where a single Redis serves
 every vhost and a session id is an account. Point it at a Redis this application controls.
 
+**Tell the framework there is more than one node**, because it cannot find out:
+
+```php
+// app/config/app.php
+'servers' => 2,
+```
+
+Nothing needs it on one machine — one is assumed — and it is what turns `health:check`'s
+`session_storage` from `ok` into `degraded` while sessions are still on local files. Until
+you declare it, the check has no way to know that local files have stopped being the right
+answer, and reporting a working single-server site as a problem is worse than saying
+nothing.
+
 Sticky sessions at the balancer are the other answer and are perfectly legitimate. The
-framework cannot see them, so `health:check` reports `session_storage` as a **notice** on
-that arrangement; that is the check being honest rather than wrong, and a notice answers
-**200** — a correct single-server installation must not page an uptime monitor.
+framework cannot see them, so on a declared cluster this check stays yellow on that
+arrangement; that is the check being honest rather than wrong.
 
 **Verify:** `health:check` reports `session_storage`. It never fails a request — an
 unregistered handler or a store that is down leaves sessions on files and logs why, because

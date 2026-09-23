@@ -106,15 +106,31 @@
         <div class="card-body" style="padding:16px" style="padding:0">
             <ul style="list-style:none;padding:0;margin:0">
                 <?php foreach ($this->healthResults as $name => $result): ?>
-                <li style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-bottom:1px solid #f0f0f0">
-                    <span><?php echo htmlspecialchars($name); ?></span>
-                    <?php if ($result['status'] === 'ok'): ?>
-                        <span class="badge bg-success">OK</span>
-                    <?php elseif ($result['status'] === 'warn'): ?>
-                        <span class="badge bg-warning text-dark"><?php echo htmlspecialchars($result['message'] ?? 'Warning'); ?></span>
-                    <?php else: ?>
-                        <span class="badge bg-danger"><?php echo htmlspecialchars($result['message'] ?? 'Error'); ?></span>
-                    <?php endif; ?>
+                <?php
+                    /*
+                     * The badge carries the *status*; the message goes beside it.
+                     *
+                     * This had three branches for `ok`, `warn` and everything else — and
+                     * `warn` is not a status this framework produces, so `degraded` fell
+                     * through to the `else` and rendered as a red badge with the whole
+                     * message crammed inside it. A correct installation was being shown a
+                     * paragraph in an alarm colour.
+                     */
+                    $healthBadge = [
+                        'ok'       => 'background:#d4edda;color:#155724',
+                        'notice'   => 'background:#d1ecf1;color:#0c5460',
+                        'degraded' => 'background:#fff3cd;color:#856404',
+                        'down'     => 'background:#f8d7da;color:#721c24',
+                    ][$result['status']] ?? 'background:#e2e3e5;color:#383d41';
+                ?>
+                <li style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:10px 16px;border-bottom:1px solid #f0f0f0">
+                    <span style="font-weight:600;flex-shrink:0"><?php echo htmlspecialchars($name); ?></span>
+                    <span style="display:flex;align-items:center;gap:8px;text-align:right">
+                        <?php if (!empty($result['message']) && $result['status'] !== 'ok'): ?>
+                            <small style="color:#666"><?php echo htmlspecialchars($result['message']); ?></small>
+                        <?php endif; ?>
+                        <span style="flex-shrink:0;padding:2px 8px;border-radius:10px;font-size:12px;<?php echo $healthBadge; ?>"><?php echo strtoupper(htmlspecialchars($result['status'])); ?></span>
+                    </span>
                 </li>
                 <?php endforeach; ?>
             </ul>

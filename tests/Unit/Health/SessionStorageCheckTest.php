@@ -23,31 +23,88 @@ use Pramnos\Health\Checks\SessionStorageCheck;
 class SessionStorageCheckTest extends TestCase
 {
     /**
-     * `files` is a **notice**, and the message says what it costs rather than what it is.
+     * One server on local files is **`ok`** — not a fault, not a warning.
      *
-     * Most installations are single-server and are not broken; a check that pages somebody
-     * for a working site is a check that gets muted. This test asserted that in its own
-     * name — `testLocalFilesAreDegradedWithTheReason` — while `degraded` answered 503, so
-     * the assertion and the behaviour it was guarding were opposites. A correct
-     * installation's `/health/check` went 200 → 503 the moment the check shipped.
+     * This answered `degraded` first and then `notice`, and both were wrong for the same
+     * reason: **the existence of a shared-store option does not make not using it a
+     * fault.** On one machine `files` is free, has no dependency and nothing to configure.
+     * The dashboard put a red badge and a paragraph of alarming prose beside it, on a site
+     * that was working exactly as designed.
      *
-     * The status is asserted rather than the HTTP code because that is where the decision
-     * now lives; {@see HealthStatusPagingTest} holds the mapping itself.
+     * What the check is for survives in `ok`: the detail still names the store, which is
+     * how somebody finds a Redis pointed at the wrong host.
      */
-    public function testLocalFilesAreANoticeWithTheReason(): void
+    public function testOneServerOnLocalFilesIsOk(): void
     {
         // Act — the handler is injected rather than set: `session.save_handler` cannot
         // be changed once a session is active, so a test that used `ini_set()` passed
         // alone and failed in a full run, where something earlier had started one.
-        $result = (new SessionStorageCheck('files', ''))->run();
+        $result = (new SessionStorageCheck('files', '', 1))->run();
 
         // Assert
         $this->assertSame('session_storage', $result->name);
+        $this->assertSame('ok', $result->status->value);
+        $this->assertSame('files', $result->details['handler'], 'the store is still named');
+        $this->assertStringContainsString('correct for a single server', $result->message);
+
+        // The multi-server advice is still there — as a detail somebody can go and read,
+        // rather than as a severity that interrupts them.
+        $this->assertArrayHasKey('before_a_second_server', $result->details);
+    }
+
+    /**
+     * With nothing declared, it is one server.
+     *
+     * The default that decides what most installations see, and the one worth asserting
+     * directly: an application that never mentions `servers` is single-server, so local
+     * files are `ok`. Reading it any other way would put a red badge on every scaffolded
+     * project on the day it was generated.
+     */
+    public function testNothingDeclaredMeansOneServer(): void
+    {
+        // Act — no third argument, so the application and settings are consulted, and
+        // neither says anything in a unit test
+        $result = (new SessionStorageCheck('files', ''))->run();
+
+        // Assert
+        $this->assertSame('ok', $result->status->value);
+    }
+
+    /**
+     * An application that declares more than one server **is** degraded on local files.
+     *
+     * The other half, and what keeps the check worth having: the failure it was written
+     * for is real, and on a declared cluster it is reported as a fault rather than as a
+     * note. Declared rather than detected because a node cannot count its own siblings.
+     */
+    public function testMoreThanOneDeclaredServerOnLocalFilesIsDegraded(): void
+    {
+        // Act
+        $result = (new SessionStorageCheck('files', '', 3))->run();
+
+        // Assert
+        $this->assertSame('degraded', $result->status->value);
+        $this->assertFalse($result->status->isHealthy());
+        $this->assertStringContainsString('declares 3 servers', $result->message);
+        $this->assertArrayHasKey('fix', $result->details);
+    }
+
+    /**
+     * A handler this check has never heard of is a `notice`, because it cannot tell.
+     *
+     * `user` is a handler the application registered itself. It may reach a second server
+     * and it may write to local disk, and answering either way would be a guess. `notice`
+     * says so, answers 200 and does not fail `health:check`.
+     */
+    public function testAnUnrecognisedHandlerIsANotice(): void
+    {
+        // Act
+        $result = (new SessionStorageCheck('user', '', 1))->run();
+
+        // Assert
         $this->assertSame('notice', $result->status->value);
-        $this->assertTrue($result->status->isHealthy(), 'a correct installation must not page');
-        $this->assertSame('files', $result->details['handler']);
-        $this->assertStringContainsString('local to this machine', $result->message);
-        $this->assertStringContainsString('APP_SESSION_HANDLER', $result->details['fix']);
+        $this->assertTrue($result->status->isHealthy());
+        $this->assertStringContainsString('does not recognise', $result->message);
     }
 
     /**
@@ -60,8 +117,8 @@ class SessionStorageCheckTest extends TestCase
      */
     public function testTheFixDoesNotRecommendASharedRedis(): void
     {
-        // Act
-        $fix = (new SessionStorageCheck('files', ''))->run()->details['fix'];
+        // Act — the fix detail appears where there is something to fix
+        $fix = (new SessionStorageCheck('files', '', 2))->run()->details['fix'];
 
         // Assert
         $this->assertStringContainsString('this application controls', $fix);

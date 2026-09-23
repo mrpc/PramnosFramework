@@ -121,15 +121,31 @@
         <div >
             <ul class="divide-y divide-base-300">
                 <?php foreach ($this->healthResults as $name => $result): ?>
-                <li class="flex justify-between items-center px-5 py-3">
-                    <span><?php echo htmlspecialchars($name); ?></span>
-                    <?php if ($result['status'] === 'ok'): ?>
-                        <span class="badge badge-success">OK</span>
-                    <?php elseif ($result['status'] === 'warn'): ?>
-                        <span class="badge badge-warning"><?php echo htmlspecialchars($result['message'] ?? 'Warning'); ?></span>
-                    <?php else: ?>
-                        <span class="badge badge-error"><?php echo htmlspecialchars($result['message'] ?? 'Error'); ?></span>
-                    <?php endif; ?>
+                <?php
+                    /*
+                     * The badge carries the *status*; the message goes beside it.
+                     *
+                     * This had three branches for `ok`, `warn` and everything else — and
+                     * `warn` is not a status this framework produces, so `degraded` fell
+                     * through to the `else` and rendered as a red badge with the whole
+                     * message crammed inside it. A correct installation was being shown a
+                     * paragraph in an alarm colour.
+                     */
+                    $healthBadge = [
+                        'ok'       => 'badge-success',
+                        'notice'   => 'badge-info',
+                        'degraded' => 'badge-warning',
+                        'down'     => 'badge-error',
+                    ][$result['status']] ?? 'badge-ghost';
+                ?>
+                <li class="flex justify-between items-start gap-4 px-5 py-3">
+                    <span class="font-medium shrink-0"><?php echo htmlspecialchars($name); ?></span>
+                    <span class="flex items-center gap-2 justify-end text-right">
+                        <?php if (!empty($result['message']) && $result['status'] !== 'ok'): ?>
+                            <span class="text-xs text-base-content/70"><?php echo htmlspecialchars($result['message']); ?></span>
+                        <?php endif; ?>
+                        <span class="badge <?php echo $healthBadge; ?> shrink-0"><?php echo strtoupper(htmlspecialchars($result['status'])); ?></span>
+                    </span>
                 </li>
                 <?php endforeach; ?>
             </ul>
