@@ -18,6 +18,11 @@ class TestableWebhookHandler extends WebhookHandler
         $this->responseLog[] = ['code' => $code, 'data' => $data];
         throw new \RuntimeException("Response: {$code}");
     }
+
+    protected function flushResponse(int $code, array $data): void
+    {
+        $this->responseLog[] = ['code' => $code, 'data' => $data, 'flushed' => true];
+    }
 }
 
 class TestableApp extends \Pramnos\Application\Application
@@ -125,16 +130,19 @@ class WebhookTest extends TestCase
             'x-github-event' => 'push'
         ];
 
+        // The response goes out before the deploy — GitHub allows ten seconds and
+        // does not retry, and the commands take most of them.
         $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessage('Response: 200');
+        $this->expectExceptionMessage('Response: 202');
 
         try {
             $handler->handle($body, $headers);
         } catch (\RuntimeException $e) {
-            $this->assertCount(1, $handler->responseLog);
-            $this->assertSame(200, $handler->responseLog[0]['code']);
-            $this->assertSame('ok', $handler->responseLog[0]['data']['status']);
-            $this->assertSame(1, $handler->responseLog[0]['data']['commands_run']);
+            $this->assertCount(2, $handler->responseLog, 'the flush, then the exit');
+            $this->assertSame(202, $handler->responseLog[0]['code']);
+            $this->assertTrue($handler->responseLog[0]['flushed']);
+            $this->assertSame('accepted', $handler->responseLog[0]['data']['status']);
+            $this->assertSame(1, $handler->responseLog[0]['data']['commands_queued']);
             throw $e;
         }
     }

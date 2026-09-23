@@ -121,6 +121,7 @@ nav:
     - MCP server (AI assistant integration): Pramnos_MCP_Guide.md
     - Workers & Daemons: Pramnos_Workers_And_Daemons_Guide.md
     - One server to several: Pramnos_Multi_Server_Guide.md
+    - Deploy webhooks: Pramnos_Deploy_Webhook_Guide.md
     - Testing: Pramnos_Testing_Guide.md
     - Test suite performance: Pramnos_Test_Suite_Performance.md
     - Debugging: Pramnos_Debugging_Guide.md

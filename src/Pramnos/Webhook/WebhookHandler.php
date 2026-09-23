@@ -51,6 +51,14 @@ class WebhookHandler
     private array $branchMap = [];
 
     /**
+     * Whether the response is sent before the commands run.
+     *
+     * On by default, because the alternative is a deploy that is dropped without
+     * saying so. See {@see respondFirst()}.
+     */
+    private bool $respondFirst = true;
+
+    /**
      * @param string $secret     HMAC secret configured in the webhook provider.
      *                           Must not be empty — constructor throws if it is.
      * @param string $repoDir    Working directory for command execution.
@@ -96,6 +104,54 @@ class WebhookHandler
     public function onBranch(string $branch, array $commands): static
     {
         $this->branchMap[$branch] = $commands;
+        return $this;
+    }
+
+    /**
+     * Answer the provider before running the commands, or after.
+     *
+     * ## Why "before" is the default
+     *
+     * **GitHub gives a webhook ten seconds in total, and does not retry.** A deploy
+     * of `git fetch --all`, `git reset --hard`, `composer install`, `migrate` and
+     * `cache:clear` takes four to six of them, so a single slow fetch to
+     * github.com crosses the limit — and the margin being spent is somebody else's
+     * network, not anything this installation can make faster.
+     *
+     * What happens then is the expensive part. The provider records
+     * `context deadline exceeded` and gives up after one attempt; the aborted
+     * request does not finish the work either. So the push is silently not
+     * deployed, production serves the previous commit, every health check stays
+     * green, and the only record is a red row in a delivery list nobody opens.
+     * Measured: two consecutive pushes lost exactly that way.
+     *
+     * Answering `202 Accepted` first makes the ten seconds irrelevant instead of a
+     * budget. A deploy is not something the caller waits for the result of — the
+     * provider records a status nobody reads unless it is red, and a status that
+     * can be wrong in this direction is worse than no status.
+     *
+     * ## What you give up
+     *
+     * The response can no longer carry the outcome: it is `202` whether the
+     * commands went on to succeed or fail, so the delivery list is green either
+     * way. **`webhook.log` is where the result lives** — every command and its exit
+     * code, on both paths. If you are monitoring deploys by watching for a red
+     * delivery, move that to the log before turning this on... or rather, before
+     * leaving it on.
+     *
+     * Turn it off for a webhook whose commands are fast and whose caller you
+     * control, where a `500` in the response is genuinely read:
+     *
+     * ```php
+     * $handler->respondFirst(false);
+     * ```
+     *
+     * @param  bool $enabled
+     * @return static Fluent interface.
+     */
+    public function respondFirst(bool $enabled = true): static
+    {
+        $this->respondFirst = $enabled;
         return $this;
     }
 
@@ -149,7 +205,19 @@ class WebhookHandler
             $this->respond(204, []);
         }
 
-        // ── 5. Execute commands ───────────────────────────────────────────────
+        // ── 5. Answer, then work ──────────────────────────────────────────────
+        // Everything the response can say is already known: the signature checked
+        // out, the event is a push, the branch is mapped. What is left is the work,
+        // and the provider's clock does not wait for it. See respondFirst().
+        if ($this->respondFirst) {
+            $this->flushResponse(202, [
+                'status'          => 'accepted',
+                'branch'          => $branch,
+                'commands_queued' => count($this->branchMap[$branch]),
+            ]);
+        }
+
+        // ── 6. Execute commands ───────────────────────────────────────────────
         $start   = microtime(true);
         $results = $this->executeCommands($this->branchMap[$branch]);
         $elapsed = round((microtime(true) - $start) * 1000);
@@ -160,20 +228,31 @@ class WebhookHandler
 
         if (!empty($failed)) {
             $this->log('error', "Webhook deploy failed on branch={$branch}: " . json_encode($failed));
-            $this->respond(500, [
-                'status'       => 'error',
+
+            if (!$this->respondFirst) {
+                $this->respond(500, [
+                    'status'       => 'error',
+                    'branch'       => $branch,
+                    'commands_run' => count($results),
+                    'failed'       => array_values($failed),
+                ]);
+            }
+        }
+
+        if (!$this->respondFirst) {
+            $this->respond(200, [
+                'status'       => 'ok',
                 'branch'       => $branch,
                 'commands_run' => count($results),
-                'failed'       => array_values($failed),
+                'elapsed_ms'   => $elapsed,
             ]);
         }
 
-        $this->respond(200, [
-            'status'       => 'ok',
-            'branch'       => $branch,
-            'commands_run' => count($results),
-            'elapsed_ms'   => $elapsed,
-        ]);
+        // The response went out before the work did, so there is nothing left to
+        // send — `respond()` with no data echoes nothing. It is called rather than
+        // a bare `exit` so this path leaves through the same seam as every other
+        // one, which is what makes `handle()` testable at all.
+        $this->respond(202, []);
     }
 
     // =========================================================================
@@ -355,6 +434,71 @@ class WebhookHandler
      * @param int   $code HTTP status code.
      * @param array $data Response body (encoded as JSON; empty array = no body for 204).
      */
+    /**
+     * Send the response now and keep running.
+     *
+     * The counterpart to {@see respond()}, which exits. Used by {@see handle()} to
+     * answer the provider before the deploy starts.
+     *
+     * `fastcgi_finish_request()` is the only one of these that genuinely closes the
+     * connection, and it exists under PHP-FPM, which is how a containerised
+     * application is served. Everywhere else — mod_php, the built-in server — the
+     * best available is to flush what is buffered and send a `Content-Length` so
+     * the client knows it has the whole body; the socket stays open until the
+     * script ends, so the provider's clock is only partly appeased there. That is
+     * worth knowing rather than worth refusing: even under mod_php the body is on
+     * the wire before `composer install` starts.
+     *
+     * `ignore_user_abort()` is what makes the work survive a caller that hangs up
+     * — including one that has already timed out — and the time limit goes because
+     * the request is no longer waiting on anything.
+     *
+     * @param int   $code HTTP status code.
+     * @param array $data Response body, encoded as JSON.
+     */
+    protected function flushResponse(int $code, array $data): void
+    {
+        // A deploy that is half done is worse than one that did not start, so the
+        // commands must outlive the connection whatever the caller does next.
+        ignore_user_abort(true);
+        @set_time_limit(0);
+
+        http_response_code($code);
+        header('Content-Type: application/json; charset=UTF-8');
+        header('Cache-Control: no-cache, no-store');
+
+        $body = (string) json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        header('Content-Length: ' . strlen($body));
+
+        echo $body;
+
+        $this->closeConnection();
+    }
+
+    /**
+     * Let go of the caller, so the deploy runs with nobody waiting.
+     *
+     * Its own method because it is the one part of {@see flushResponse()} whose
+     * behaviour is decided by the SAPI rather than by this class — which makes it
+     * the one part a test cannot execute meaningfully, and everything around it
+     * something a test should.
+     */
+    protected function closeConnection(): void
+    {
+        // @codeCoverageIgnoreStart
+        if (function_exists('fastcgi_finish_request')) {
+            fastcgi_finish_request();
+            return;
+        }
+
+        // Without FPM, closing the buffers is the whole of what is available.
+        while (ob_get_level() > 0) {
+            ob_end_flush();
+        }
+        flush();
+        // @codeCoverageIgnoreEnd
+    }
+
     protected function respond(int $code, array $data): never
     {
         http_response_code($code);

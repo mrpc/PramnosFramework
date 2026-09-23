@@ -44,12 +44,61 @@ class WebhookResponseCapturedException extends \RuntimeException
 /**
  * Testable subclass: overrides respond() to throw instead of exit()-ing.
  * This allows handle() to be exercised end-to-end without aborting the process.
+ *
+ * `flushResponse()` is captured rather than executed for the same reason. It also
+ * appends to `$traceFile` when one is set, so a test can register a deploy command
+ * that appends to the same file and assert the answer went out **before** the work
+ * started — which is the whole point of it.
  */
 class TestableWebhookHandler extends WebhookHandler
 {
+    /** Every flushResponse() call, in order. */
+    public array $flushed = [];
+
+    /** A file the flush and the deploy commands both append to, for ordering. */
+    public string $traceFile = '';
+
     protected function respond(int $code, array $data): never
     {
         throw new WebhookResponseCapturedException($code, $data);
+    }
+
+    protected function flushResponse(int $code, array $data): void
+    {
+        $this->flushed[] = ['code' => $code, 'data' => $data];
+
+        if ($this->traceFile !== '') {
+            file_put_contents($this->traceFile, "flush\n", FILE_APPEND);
+        }
+    }
+}
+
+/**
+ * Keeps the real `flushResponse()` and stubs only the one SAPI-dependent line.
+ *
+ * `closeConnection()` is `fastcgi_finish_request()` under FPM and a buffer flush
+ * everywhere else; under the test runner the second would end PHPUnit's own output
+ * buffers. Everything around it — the headers, the body, `ignore_user_abort()` — is
+ * this class's own behaviour and is executed for real here.
+ */
+class FlushingWebhookHandler extends WebhookHandler
+{
+    public int $closed = 0;
+
+    protected function respond(int $code, array $data): never
+    {
+        throw new WebhookResponseCapturedException($code, $data);
+    }
+
+    protected function closeConnection(): void
+    {
+        $this->closed++;
+    }
+
+    /** @param array<string, mixed> $data */
+    public function exposeFlushResponse(int $code, array $data): void
+    {
+        $this->flushResponse($code, $data);
     }
 }
 
@@ -746,11 +795,20 @@ class WebhookHandlerTest extends TestCase
     }
 
     /**
-     * handle() must respond 200 after executing commands for a mapped branch.
+     * handle() answers 202 before the deploy, and the commands still run.
      *
-     * This is the golden path: valid signature → push event → known branch → success.
+     * The golden path — valid signature, push event, known branch — and the shape
+     * of it changed for a measured reason: **GitHub allows a webhook ten seconds
+     * and does not retry.** A deploy of fetch, reset, `composer install`, `migrate`
+     * and `cache:clear` takes four to six, so one slow fetch to github.com crosses
+     * the limit, the delivery is abandoned, and the work does not finish either.
+     * Two consecutive pushes were lost that way, with every health check green and
+     * production serving the previous commit.
+     *
+     * So the response no longer reports the outcome. It reports that the deploy was
+     * accepted, which is the only thing that can be known inside the budget.
      */
-    public function testHandleResponds200AfterSuccessfulDeploy(): void
+    public function testHandleResponds202BeforeTheDeploy(): void
     {
         // Arrange — push to 'main' with a trivially successful command
         $secret  = 'real-secret';
@@ -760,25 +818,84 @@ class WebhookHandlerTest extends TestCase
             'x-hub-signature-256' => $sig,
             'x-github-event'      => 'push',
         ];
+        $trace   = sys_get_temp_dir() . '/pf-webhook-' . bin2hex(random_bytes(6));
         $handler = new TestableWebhookHandler($secret, sys_get_temp_dir(), '');
-        $handler->onBranch('main', ['php -r "exit(0);"']);
+        $handler->traceFile = $trace;
+        // The command appends to the same file the flush does, so the order of the
+        // two is observable rather than asserted about the code that produced it.
+        $handler->onBranch('main', ['printf "commands\n" >> ' . escapeshellarg($trace)]);
 
         // Act
-        $this->expectException(WebhookResponseCapturedException::class);
         try {
             $handler->handle($payload, $headers);
+            $this->fail('handle() must leave through respond()');
         } catch (WebhookResponseCapturedException $e) {
-            // Assert — all commands succeeded → 200 OK
-            $this->assertSame(200, $e->statusCode,
-                'handle() must respond 200 when all commands succeed');
-            $this->assertSame('ok', $e->data['status']);
-            $this->assertSame('main', $e->data['branch']);
-            throw $e;
+            $captured = $e;
         }
+
+        // Assert — the answer was 202 Accepted, sent before anything ran
+        $this->assertCount(1, $handler->flushed);
+        $this->assertSame(202, $handler->flushed[0]['code']);
+        $this->assertSame('accepted', $handler->flushed[0]['data']['status']);
+        $this->assertSame('main', $handler->flushed[0]['data']['branch']);
+        $this->assertSame(1, $handler->flushed[0]['data']['commands_queued']);
+
+        // …and the deploy still happened, after it. A fix that answered early and
+        // dropped the work would satisfy every assertion above.
+        $this->assertSame(
+            ['flush', 'commands'],
+            array_values(array_filter(explode("\n", (string) file_get_contents($trace)))),
+            'the commands must run, and must run after the response went out'
+        );
+
+        // The handler still leaves through respond(), so nothing after it executes.
+        $this->assertSame(202, $captured->statusCode);
+        $this->assertSame([], $captured->data, 'the body was already sent by the flush');
+
+        @unlink($trace);
     }
 
     /**
-     * handle() must respond 500 when a command exits with a non-zero code.
+     * `respondFirst(false)` keeps the old contract: 200 with the outcome.
+     *
+     * For a webhook whose caller genuinely reads the result. The behaviour did not
+     * disappear, it stopped being the default — and this asserts it is still there,
+     * which is what the Upgrade Guide row points an installation at.
+     */
+    public function testRespondFirstFalseStillReportsTheOutcome(): void
+    {
+        // Arrange
+        $secret  = 'real-secret';
+        $payload = json_encode(['ref' => 'refs/heads/main']);
+        $sig     = 'sha256=' . hash_hmac('sha256', $payload, $secret);
+        $headers = ['x-hub-signature-256' => $sig, 'x-github-event' => 'push'];
+        $handler = new TestableWebhookHandler($secret, sys_get_temp_dir(), '');
+        $handler->respondFirst(false);
+        $handler->onBranch('main', ['php -r "exit(0);"']);
+
+        // Act
+        try {
+            $handler->handle($payload, $headers);
+            $this->fail('handle() must leave through respond()');
+        } catch (WebhookResponseCapturedException $e) {
+            $captured = $e;
+        }
+
+        // Assert
+        $this->assertSame([], $handler->flushed, 'nothing may be sent early when the caller waits');
+        $this->assertSame(200, $captured->statusCode);
+        $this->assertSame('ok', $captured->data['status']);
+        $this->assertSame('main', $captured->data['branch']);
+    }
+
+    /**
+     * A failing command is a 500 only when the caller is still waiting for one.
+     *
+     * With the response already sent there is nothing left to put a status on, so
+     * the failure goes to `webhook.log` and the delivery stays green. That is the
+     * cost of the change and it is worth stating in a test rather than in prose:
+     * an installation monitoring deploys by watching for a red delivery has to
+     * move to the log, or turn `respondFirst()` off.
      */
     public function testHandleResponds500WhenCommandFails(): void
     {
@@ -791,6 +908,7 @@ class WebhookHandlerTest extends TestCase
             'x-github-event'      => 'push',
         ];
         $handler = new TestableWebhookHandler($secret, sys_get_temp_dir(), '');
+        $handler->respondFirst(false);
         $handler->onBranch('main', ['php -r "exit(1);"']);
 
         // Act
@@ -804,6 +922,65 @@ class WebhookHandlerTest extends TestCase
             $this->assertSame('error', $e->data['status']);
             throw $e;
         }
+    }
+
+    /**
+     * `flushResponse()` writes the body and lets the caller go.
+     *
+     * The real method, not a stub of it: the tests above override it to observe
+     * *when* it is called, so without this the code that actually answers GitHub
+     * would never execute. `Content-Length` is what lets a client treat the body as
+     * complete on a connection the SAPI cannot close, and `ignore_user_abort()` is
+     * what keeps the deploy running after the caller has gone.
+     */
+    public function testFlushResponseWritesTheBodyAndReleasesTheCaller(): void
+    {
+        // Arrange
+        $handler = new FlushingWebhookHandler('a-secret', sys_get_temp_dir(), '');
+        $before  = ignore_user_abort();
+
+        // Act
+        ob_start();
+        $handler->exposeFlushResponse(202, ['status' => 'accepted', 'branch' => 'main']);
+        $printed = (string) ob_get_clean();
+
+        // Assert
+        $this->assertSame('{"status":"accepted","branch":"main"}', $printed);
+        $this->assertSame(1, $handler->closed, 'the caller must be let go exactly once');
+        $this->assertSame(1, ignore_user_abort(), 'the deploy must outlive the connection');
+
+        // Put the process back as it was — this is a global.
+        ignore_user_abort((bool) $before);
+    }
+
+    /**
+     * A failing command with the response already sent still leaves through 202.
+     *
+     * The other half of the one above: the deploy failed, the caller was told
+     * "accepted", and nothing raises. Without this, a change that threw on failure
+     * would pass the test above and take the site's webhook endpoint down.
+     */
+    public function testAFailingCommandAfterTheResponseIsNotAnError(): void
+    {
+        // Arrange
+        $secret  = 'real-secret';
+        $payload = json_encode(['ref' => 'refs/heads/main']);
+        $sig     = 'sha256=' . hash_hmac('sha256', $payload, $secret);
+        $headers = ['x-hub-signature-256' => $sig, 'x-github-event' => 'push'];
+        $handler = new TestableWebhookHandler($secret, sys_get_temp_dir(), '');
+        $handler->onBranch('main', ['php -r "exit(1);"']);
+
+        // Act
+        try {
+            $handler->handle($payload, $headers);
+            $this->fail('handle() must leave through respond()');
+        } catch (WebhookResponseCapturedException $e) {
+            $captured = $e;
+        }
+
+        // Assert
+        $this->assertSame(202, $handler->flushed[0]['code']);
+        $this->assertSame(202, $captured->statusCode, 'the outcome cannot change a response already sent');
     }
 
     /**
