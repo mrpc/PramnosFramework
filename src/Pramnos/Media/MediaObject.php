@@ -2547,6 +2547,52 @@ class MediaObject extends \Pramnos\Framework\Base
     }
 
     /**
+     * The address of a picture, from its id — one line, for a view.
+     *
+     * ```php
+     * <img src="<?php echo htmlspecialchars(MediaObject::urlFor($row['logo_mediaid'])); ?>">
+     * ```
+     *
+     * ## Why a view must not build this itself
+     *
+     * `sURL . $media->url` is the obvious thing to write and it is wrong in two ways that
+     * both look right on a developer's machine. `sURL` is the **script's** base, so the
+     * same line inside an API request answers `https://site/api/uploads/x.png` — a 404 that
+     * every "is this fetchable" guard accepts. And once a `media` disk is configured the
+     * file is on a bucket, and the concatenation keeps working and keeps pointing at the
+     * local copy.
+     *
+     * So the address is asked for rather than assembled, and a view that does is correct
+     * before and after a disk is added.
+     *
+     * An id that is zero, or names a row that is gone, answers `''` — a row can outlive its
+     * picture, and an empty `src` is a caller's decision to make rather than a broken image
+     * this method invented.
+     *
+     * // ponytail: one load per call, cached 600s by `load()`'s own query cache. A listing
+     * // of fifty rows is fifty cache hits after the first pass; batch it if that is ever
+     * // measured as the cost.
+     *
+     * @param  int|string|null $mediaid
+     * @param  string          $reason  `thumb`, `medium`, `original`, or `''` for the file
+     * @return string                   The address, or `''` when there is nothing to show
+     */
+    public static function urlFor($mediaid, string $reason = 'thumb'): string
+    {
+        if ($mediaid === null || (int) $mediaid <= 0) {
+            return '';
+        }
+
+        $media = new self((int) $mediaid);
+
+        if ((int) $media->mediaid <= 0) {
+            return '';
+        }
+
+        return $media->publicUrl($reason);
+    }
+
+    /**
      * Every file this object owns, as `disk key => local path`.
      *
      * The original and every rendition. Keyed by `url` because that is already the path

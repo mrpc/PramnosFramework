@@ -8,6 +8,16 @@
 defined('SP') or die('No startpoint defined...');
 $data = $this->model->getData();
 $pk   = $this->model->{{ primaryKey }};
+
+/*
+ * Columns that hold a picture — the ones whose foreign key references `media`.
+ *
+ * The address is asked for, never assembled. `sURL . $media->url` is the obvious line
+ * and it is wrong twice: `sURL` is the *script's* base, so the same code inside an API
+ * request answers `/api/uploads/x.png`, and once a `media` storage disk is configured
+ * the file is on a bucket while the concatenation keeps pointing at the local copy.
+ */
+$mediaColumns = {{ mediaColumns }};
 ?>
 <div class="px-4 py-6">
     <?php echo \Pramnos\Application\Application::getInstance()->renderBreadcrumbs(); ?>
@@ -26,7 +36,12 @@ $pk   = $this->model->{{ primaryKey }};
                 <tr>
                     <th class="px-4 py-2.5 text-left text-gray-500 bg-gray-50 align-top" style="width:220px"><?php echo ucwords(str_replace('_', ' ', htmlspecialchars((string) $field))); ?></th>
                     <td class="px-4 py-2.5 text-gray-800"><?php
-                        if (is_bool($value)) { echo $value ? 'Yes' : 'No'; }
+                        if (in_array($field, $mediaColumns, true)) {
+                            $src = \Pramnos\Media\MediaObject::urlFor($value, 'medium');
+                            if ($src === '') { echo '<span class="text-gray-300">—</span>'; }
+                            else { echo '<img src="' . htmlspecialchars($src) . '" alt="" style="max-width:320px;height:auto">'; }
+                        }
+                        elseif (is_bool($value)) { echo $value ? 'Yes' : 'No'; }
                         elseif ($value === null || $value === '') { echo '<span class="text-gray-300">—</span>'; }
                         elseif (is_array($value)) { echo '<pre class="m-0">' . htmlspecialchars((string) json_encode($value, JSON_PRETTY_PRINT)) . '</pre>'; }
                         else { echo htmlspecialchars((string) $value); }

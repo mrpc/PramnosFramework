@@ -61,6 +61,10 @@ class MediaStoragePublishTest extends BaseTestCase
             $this->markTestSkipped('The database is not reachable.');
         }
 
+        // The media table, because `urlFor()` loads a row — and a test that only ever
+        // built objects in memory would not have needed it.
+        $this->runMigrations([\Pramnos\Framework\Migrations\Core\CreateMediaTables::class], $this->db);
+
         $this->savedSettings = (array) (new \ReflectionProperty(Settings::class, 'settings'))->getValue();
         $this->diskRoot      = sys_get_temp_dir() . '/pramnos_mediadisk_' . bin2hex(random_bytes(4));
         mkdir($this->diskRoot, 0777, true);
@@ -324,6 +328,52 @@ class MediaStoragePublishTest extends BaseTestCase
         // Assert
         $this->assertFileDoesNotExist($this->diskRoot . '/' . $media->url);
         $this->assertFileDoesNotExist($this->diskRoot . '/' . $media->thumbnails[0]->url);
+    }
+
+    /**
+     * `urlFor()` turns an id into an address, and nothing into an empty string.
+     *
+     * The one line a view needs. It exists so a view never writes `sURL . $media->url`,
+     * which is wrong twice: `sURL` is the **script's** base — the same line in an API
+     * request answers `/api/uploads/x.png` — and once a media disk is configured it keeps
+     * pointing at the local copy.
+     */
+    public function testUrlForAnswersTheAddressOfAStoredPicture(): void
+    {
+        // Arrange — a real row, so the load has something to find
+        $this->withMediaDisk(true);
+        $media = $this->media();
+        $media->name = 'probe';
+        $media->save();
+
+        try {
+            // Act + Assert
+            $this->assertSame(
+                'https://cdn.example.com/' . $media->url,
+                \Pramnos\Media\MediaObject::urlFor($media->mediaid, '')
+            );
+        } finally {
+            $this->db->queryBuilder()->table('#PREFIX#media')
+                ->where('mediaid', $media->mediaid)->delete();
+        }
+    }
+
+    /**
+     * An id that is zero, empty or gone answers `''`.
+     *
+     * A row can outlive its picture, and a nullable media column is the normal shape. An
+     * empty `src` is the caller's decision to make; inventing an address would be a broken
+     * image the framework put there.
+     */
+    public function testUrlForAnswersEmptyForNothing(): void
+    {
+        // Arrange
+        $this->withMediaDisk(true);
+
+        // Act + Assert
+        $this->assertSame('', \Pramnos\Media\MediaObject::urlFor(0));
+        $this->assertSame('', \Pramnos\Media\MediaObject::urlFor(null));
+        $this->assertSame('', \Pramnos\Media\MediaObject::urlFor(2147483000));
     }
 
     /**

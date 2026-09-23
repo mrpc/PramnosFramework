@@ -3822,10 +3822,34 @@ PHP;
             'primaryKey' => $primaryKey,
             'formFields' => $formFields,
         ]);
+        /*
+         * Which columns hold a picture, from the foreign keys rather than from a guess.
+         *
+         * A column referencing `media` **is** a picture — that is the framework's own
+         * statement about it, and it is exact. A name-based rule (`*_image`, `logo`,
+         * `photo`) would catch a column somebody called `logo` and meant as a word, and
+         * would miss `header_id`; guessing wrong here renders a broken `<img>` where a
+         * value belonged.
+         *
+         * An application that stores a media id without declaring the key gets the plain
+         * value, which is the honest answer to "nothing says this is a picture".
+         */
+        $mediaColumns = [];
+        foreach ($foreignKeys as $key) {
+            if (strtolower((string) ($key['on'] ?? '')) === 'media') {
+                $mediaColumns[] = (string) $key['column'];
+            }
+        }
+
+        $mediaColumnList = $mediaColumns === []
+            ? '[]'
+            : "['" . implode("', '", $mediaColumns) . "']";
+
         $showContent = $this->renderStub('crud-view-' . $themeKey . '-show', [
-            'objectName' => $objectName,
-            'className'  => $className,
-            'primaryKey' => $primaryKey,
+            'objectName'   => $objectName,
+            'className'    => $className,
+            'primaryKey'   => $primaryKey,
+            'mediaColumns' => $mediaColumnList,
         ]);
 
         // ── Write view files ───────────────────────────────────────────────────
