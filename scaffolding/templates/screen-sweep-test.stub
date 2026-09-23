@@ -297,7 +297,8 @@ class ScreenSweepTest extends BaseTestCase
             $result = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
                 ->table('#PREFIX#users')
                 ->select(['userid'])
-                ->where('userid', 1, '>')
+                // \$operator is the second argument; three arguments do not reorder.
+                ->where('userid', '>', 1)
                 ->orderBy('userid', 'asc')
                 ->first();
         } catch (\Throwable) {

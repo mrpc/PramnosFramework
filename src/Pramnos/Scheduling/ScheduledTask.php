@@ -32,6 +32,15 @@ class ScheduledTask
     /** Human-readable description shown in schedule:list. */
     private string $description = '';
 
+    /** When true, the task takes a cross-server lock so only one machine runs it. */
+    private bool $oneServer = false;
+
+    /** Seconds before an unreleased cross-server lock may be taken over. */
+    private int $oneServerTtl = 3600;
+
+    /** What the cross-server lock is named, when the handler cannot name itself. */
+    private string $oneServerName = '';
+
     /** When true, the task is skipped if a lock file indicates a previous run is still active. */
     private bool $noOverlap = false;
 
@@ -188,6 +197,71 @@ class ScheduledTask
     }
 
     /**
+     * Run this task on **one server**, not on each of them.
+     *
+     * `withoutOverlapping()` locks a file in `sys_get_temp_dir()`, which is per machine.
+     * On two web servers each has its own, so each takes its own lock and the task runs
+     * once per node — two copies of a nightly email, two of a billing run. Nothing fails;
+     * the work simply happens twice, which is why it can run for months unnoticed.
+     *
+     * This takes a {@see \Pramnos\Database\SharedLock} instead: a row in
+     * `pramnos.locks`, whose primary key is the exclusion. The database is the one shared
+     * thing every installation already has — a shared cache is the usual answer and is
+     * optional here, and the default cache adapter is local files, which would be a lock
+     * that excludes nothing in exactly the same way and just as quietly.
+     *
+     * ```php
+     * Scheduler::command('reports:nightly')->dailyAt('02:00')->onOneServer();
+     * ```
+     *
+     * **The lease has to outlast the work.** A holder that dies never releases, so the
+     * lock expires and the next node to ask takes it. `$ttl` defaults to an hour; a task
+     * that can run longer than that must say so, or two nodes will overlap — which is the
+     * trade every distributed lock makes and the reason the number is visible here rather
+     * than buried.
+     *
+     * Composes with `withoutOverlapping()`: that one keeps a slow run on *this* machine
+     * from starting again, this one keeps the other machines out. A task that wants both
+     * says both.
+     *
+     * ## A closure has to be named
+     *
+     * The lock is named from the handler, and `describeHandler()` answers the constant
+     * `Closure` for every closure there is — so two unrelated closure tasks would share
+     * one lock and take turns not running. That is the silent shape this whole method
+     * exists to remove, so it raises instead: pass a name.
+     *
+     * ```php
+     * Scheduler::call(fn() => …)->daily()->onOneServer(name: 'reports:nightly');
+     * ```
+     *
+     * @param  int    $ttl  Seconds before an unreleased lock may be taken over
+     * @param  string $name Overrides the name the lock is taken under. Required for a
+     *                      closure, which cannot describe itself distinctly.
+     * @return static
+     *
+     * @throws \InvalidArgumentException When a closure task is given no name
+     */
+    public function onOneServer(int $ttl = 3600, string $name = ''): static
+    {
+        $name = trim($name);
+
+        if ($name === '' && $this->describeHandler() === 'Closure') {
+            throw new \InvalidArgumentException(
+                'onOneServer() needs a name for a closure task: every closure describes '
+                . 'itself as "Closure", so two of them would share one lock and take '
+                . 'turns not running. Pass one: ->onOneServer(name: \'reports:nightly\').'
+            );
+        }
+
+        $this->oneServer     = true;
+        $this->oneServerTtl  = max(1, $ttl);
+        $this->oneServerName = $name;
+
+        return $this;
+    }
+
+    /**
      * Sets a human-readable description shown by `schedule:list`.
      */
     public function description(string $desc): static
@@ -217,11 +291,29 @@ class ScheduledTask
      */
     public function run(): bool
     {
-        $lock = null;
+        $lock       = null;
+        $serverLock = null;
+
+        /*
+         * The cross-server lock first, and the order matters.
+         *
+         * A node that loses this one has no work to do, so taking the local file lock
+         * before it would create and delete a file per node per minute for nothing — and
+         * on the node that *does* win, a stale local lock left by a crashed run would
+         * block work that no other machine is going to pick up.
+         */
+        if ($this->oneServer) {
+            $serverLock = $this->serverLock();
+            if (!$serverLock->acquire()) {
+                return false;
+            }
+        }
 
         if ($this->noOverlap) {
             $lock = $this->lock();
             if (!$lock->acquire()) {
+                $serverLock?->release();
+
                 return false;
             }
         }
@@ -229,6 +321,8 @@ class ScheduledTask
         try {
             $this->execute();
         } finally {
+            $serverLock?->release();
+
             if ($lock !== null) {
                 $lock->release();
                 // WorkerLock keeps the file and marks it stopped, which is how a
@@ -248,7 +342,7 @@ class ScheduledTask
     /**
      * Returns summary information for `schedule:list`.
      *
-     * @return array{type: string, handler: string, expression: string, description: string, no_overlap: bool}
+     * @return array{type: string, handler: string, expression: string, description: string, no_overlap: bool, one_server: bool}
      */
     public function getSummary(): array
     {
@@ -258,6 +352,7 @@ class ScheduledTask
             'expression'  => $this->cron->getExpression(),
             'description' => $this->description,
             'no_overlap'  => $this->noOverlap,
+            'one_server'  => $this->oneServer,
         ];
     }
 
@@ -272,6 +367,21 @@ class ScheduledTask
     // =========================================================================
     // Internal
     // =========================================================================
+
+    /**
+     * The cross-server lock for this task.
+     *
+     * Named from the same string `lock()` uses — `describeHandler()` — so a person
+     * reading `pramnos.locks` sees the task they expect, and so the two locks of one task
+     * cannot drift into naming different things.
+     */
+    private function serverLock(): \Pramnos\Database\SharedLock
+    {
+        return new \Pramnos\Database\SharedLock(
+            'schedule:' . ($this->oneServerName !== '' ? $this->oneServerName : $this->describeHandler()),
+            $this->oneServerTtl
+        );
+    }
 
     private function execute(): void
     {

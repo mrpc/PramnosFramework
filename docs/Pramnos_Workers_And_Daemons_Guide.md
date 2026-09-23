@@ -947,6 +947,55 @@ the queue, messaging, broadcasting, or the periodic jobs `auth` and `authserver`
 
 ---
 
+## 7. More than one server
+
+Most of the framework is already shared: the queue claims jobs with
+`FOR UPDATE SKIP LOCKED`, so two workers on two machines never take the same one; the
+WebSocket server has a Redis backplane in `Broadcasting\Cluster`; `ClientIpResolver` knows
+about proxies. What is **not** shared by default is everything that lives on local disk, and
+each of those fails quietly rather than loudly.
+
+| | Default | On two servers | What to do |
+|---|---|---|---|
+| **Cache** | file | invalidation is per node — the node that was not asked still serves the old page | `redis` / `memcached`. `health:check` reports `cache` as degraded when it fell back |
+| **PHP sessions** | `files` | a visitor whose next request lands elsewhere is signed out at random | `APP_SESSION_HANDLER=redis`, or sticky sessions. `health:check` reports `session_storage` |
+| **Scheduled tasks** | run on every node | a nightly email goes out once per machine | `->onOneServer()`, below |
+| **`migrate`** | `WorkerLock`, which is a file | two deploys can migrate at once | run it from one node as a deploy step |
+| **Uploads** | `www/uploads/` | a picture uploaded on A does not exist on B | shared storage. The framework has no object-storage layer yet |
+| **`APP_URL`** | inferred from the request | each node infers its own, cron infers nothing | set it. `health:check` reports `site_url` |
+
+### `withoutOverlapping()` is per machine. `onOneServer()` is not
+
+```php
+Scheduler::command('reports:nightly')->dailyAt('02:00')->onOneServer();
+Scheduler::call(fn() => …)->hourly()->onOneServer(name: 'metrics:rollup');
+```
+
+`withoutOverlapping()` takes a `WorkerLock`, which is a **file** — and it says so: it
+records the holder's `host` and checks the holder's pid *on the same host*. On one machine
+that is right and free. On two, each has its own `var/` and its own `sys_get_temp_dir()`, so
+each takes its own lock and the task runs once per node. Nothing fails; the work happens
+twice, which is why it can run for months unnoticed.
+
+`onOneServer()` takes a {@see Pramnos\Database\SharedLock} instead — a row in
+`pramnos.locks` whose primary key is the exclusion. The database is the one shared thing
+every installation already has; a shared cache is the usual answer to this and is optional
+here, and the default cache adapter is local files, which would be a lock that excludes
+nothing in exactly the same way.
+
+The two compose. `withoutOverlapping()` stops a slow run on *this* machine starting again;
+`onOneServer()` keeps the other machines out. A task that wants both says both.
+
+**The lease has to outlast the work.** A holder that dies never releases, so the lock
+expires and the next node to ask takes it — `onOneServer($ttl)` defaults to an hour. A task
+that can run longer than its lease will overlap, which is the trade every distributed lock
+makes and the reason the number is an argument rather than a constant.
+
+**A closure has to be named.** `describeHandler()` answers the constant `Closure` for every
+closure, so two unrelated closure tasks would share one lock and take turns not running.
+`onOneServer()` raises rather than letting that happen — pass `name:`.
+
+
 ## See also
 
 - [Console Guide](Pramnos_Console_Guide.md) — command scaffolding, dashboards, terminal helpers.
