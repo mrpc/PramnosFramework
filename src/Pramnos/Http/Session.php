@@ -495,7 +495,13 @@ class Session extends Base
             return trim((string) $_ENV[$envVar]);
         }
 
+        // Cast: `getSetting()` hands back an **object** for an array setting, so
+        // `is_array()` on it is false and a configured block reads as none at all.
         $configured = \Pramnos\Application\Settings::getSetting('session');
+        if (is_object($configured)) {
+            $configured = (array) $configured;
+        }
+
         if (!is_array($configured)) {
             return '';
         }
@@ -518,6 +524,10 @@ class Session extends Base
     protected static function sessionPathFromCache(string $handler): string
     {
         $cache = \Pramnos\Application\Settings::getSetting('cache');
+        if (is_object($cache)) {
+            $cache = (array) $cache;
+        }
+
         if (!is_array($cache)) {
             return '';
         }
