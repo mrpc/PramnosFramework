@@ -961,7 +961,7 @@ each of those fails quietly rather than loudly.
 | **PHP sessions** | `files` | a visitor whose next request lands elsewhere is signed out at random | `APP_SESSION_HANDLER=redis`, or sticky sessions. `health:check` reports `session_storage` |
 | **Scheduled tasks** | run on every node | a nightly email goes out once per machine | `->onOneServer()`, below |
 | **`migrate`** | `WorkerLock`, which is a file | two deploys can migrate at once | run it from one node as a deploy step |
-| **Uploads** | `www/uploads/` | a picture uploaded on A does not exist on B | shared storage. The framework has no object-storage layer yet |
+| **Uploads** | `www/uploads/` | a picture uploaded on A does not exist on B | a shared mount, or `Pramnos\Storage` with an `s3` disk — see below |
 | **`APP_URL`** | inferred from the request | each node infers its own, cron infers nothing | set it. `health:check` reports `site_url` |
 
 ### `withoutOverlapping()` is per machine. `onOneServer()` is not
@@ -994,6 +994,61 @@ makes and the reason the number is an argument rather than a constant.
 **A closure has to be named.** `describeHandler()` answers the constant `Closure` for every
 closure, so two unrelated closure tasks would share one lock and take turns not running.
 `onOneServer()` raises rather than letting that happen — pass `name:`.
+
+### Uploads on shared storage
+
+A shared mount — NFS, EFS — solves this with no code at all, and for many installations
+that is the right answer: the web server keeps serving `www/uploads/` directly, nothing is
+copied, and there is nothing new to configure.
+
+What a mount cannot do is put files on a CDN's origin, survive a node being replaced, or
+cost nothing when nobody is reading them. For that there is `Pramnos\Storage`, which ships
+`local`, `s3` and `ftp` drivers behind one interface:
+
+```php
+// app/config/app.php
+'storage' => [
+    'default' => 'media',
+    'disks'   => [
+        'media' => [
+            'driver'   => 's3',
+            'bucket'   => envvar('APP_S3_BUCKET'),
+            'region'   => envvar('APP_S3_REGION'),
+            'key'      => envvar('APP_S3_KEY'),
+            'secret'   => envvar('APP_S3_SECRET'),
+            // Anything that is not AWS names its own endpoint — MinIO, R2, Spaces:
+            'endpoint' => envvar('APP_S3_ENDPOINT', ''),
+            'url'      => 'https://cdn.example.com',
+        ],
+    ],
+],
+```
+
+```php
+Storage::put('uploads/2026/09/logo.png', $bytes);
+Storage::url('uploads/2026/09/logo.png');
+Storage::disk('media')->exists($path);
+```
+
+**It is optional in the sense that matters: an installation that configures nothing gets a
+`local` disk rooted at `www/`** — where uploads already are — so the façade is usable
+without anything being imposed and without any file moving. It used to require
+`Storage::init()` during bootstrap, which nothing in the framework ever called, so the
+whole subsystem was unreachable unless an application already knew it was there.
+
+The `s3` driver needs `aws/aws-sdk-php`, which is **not** a dependency of this framework:
+`composer require aws/aws-sdk-php` in the application that wants it. Without it the driver
+says so on construction rather than failing with a class-not-found from three frames down.
+
+!!! warning "The media system does not use it yet"
+
+    `MediaObject` still writes to `www/uploads/` directly — twenty filesystem calls, and GD
+    writing with `imagejpeg($image, $path)`, which needs a real path a bucket does not have.
+    So configuring an `s3` disk today gives an application somewhere to put **its own**
+    files; it does not move the framework's uploads there.
+
+    Until that lands, a shared mount is the answer for the media system on more than one
+    server.
 
 ### Sessions in a shared store, without touching `php.ini`
 

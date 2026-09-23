@@ -101,20 +101,40 @@ class StorageTest extends TestCase
     }
 
     /**
-     * getManager() must throw RuntimeException when Storage::init() has never
-     * been called and setManager() has not been used.
+     * getManager() builds itself from settings rather than demanding `init()`.
      *
-     * Preventing silent null-pointer dereferences is the only purpose of the
-     * early check in getManager().
+     * WHAT: with nothing initialised, it returns a manager whose default disk is local.
+     *
+     * WHY:  it used to throw *"Storage has not been initialised. Call Storage::init()"* —
+     *       and **nothing in the framework ever called it**. Three drivers, a façade
+     *       proxying twenty methods, ninety per cent line coverage, and no way in unless
+     *       an application already knew the subsystem was there. A subsystem that can only
+     *       be reached by somebody who already knows about it is one that gets written a
+     *       second time beside itself.
+     *
+     *       The refusal was protecting against a null dereference, which is real — but the
+     *       answer to "nobody configured this" is the default every installation would have
+     *       written anyway: one local disk rooted at `www/`, where uploads already are. So
+     *       nothing about where files land changes, and the façade is usable without
+     *       anything being imposed.
+     *
+     *       `init()` still works and still wins; {@see StorageBootstrapTest} covers the
+     *       settings path and the precedence.
      */
-    public function testGetManagerThrowsWhenNotInitialised(): void
+    public function testGetManagerBuildsItselfWhenNothingInitialisedIt(): void
     {
         // Arrange — manager is null (tearDown clears it; no init() called)
 
-        // Assert + Act
-        $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessageMatches('/Storage has not been initialised/');
-        Storage::getManager();
+        // Act
+        $manager = Storage::getManager();
+
+        // Assert — a usable manager, not an exception
+        $this->assertInstanceOf(StorageManager::class, $manager);
+        $this->assertInstanceOf(
+            \Pramnos\Storage\Drivers\LocalDriver::class,
+            $manager->defaultDisk(),
+            'the fallback disk is not the local one every installation already writes to'
+        );
     }
 
     // =========================================================================

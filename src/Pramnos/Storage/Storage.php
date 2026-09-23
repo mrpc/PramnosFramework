@@ -65,16 +65,103 @@ class Storage
     }
 
     /**
-     * Return the underlying StorageManager.
+     * Return the underlying StorageManager, building it from settings if nobody has.
+     *
+     * ## Why this no longer throws
+     *
+     * It used to require `Storage::init()` during bootstrap, and **nothing in the framework
+     * called it** — so the whole subsystem was unreachable unless an application knew it
+     * existed and wired it up. Three drivers, a façade, and no way in.
+     *
+     * Now the `storage` block of `app/config/app.php` is read on first use:
+     *
+     * ```php
+     * 'storage' => [
+     *     'default' => 'media',
+     *     'disks'   => [
+     *         'media' => ['driver' => 's3', 'bucket' => …, 'url' => 'https://cdn.example.com'],
+     *     ],
+     * ],
+     * ```
+     *
+     * **An application that configures nothing gets one `local` disk rooted at `www/`**,
+     * which is where uploads already are — so the façade works out of the box and changes
+     * nothing about where files land. That is the whole of "optional": the subsystem is
+     * available without being imposed, and an installation that never mentions storage
+     * behaves exactly as it did.
+     *
+     * `init()` still works and still wins, for an application that would rather configure
+     * in code.
      */
     public static function getManager(): StorageManager
     {
-        if (self::$manager === null) {
-            throw new \RuntimeException(
-                'Storage has not been initialised. Call Storage::init($config) during bootstrap.'
-            );
+        return self::$manager ??= new StorageManager(self::configuredDisks());
+    }
+
+    /**
+     * Forget the manager, so the next call rebuilds it from settings.
+     *
+     * For tests, and for a long-running worker whose configuration was reloaded.
+     */
+    public static function reset(): void
+    {
+        self::$manager = null;
+    }
+
+    /**
+     * The `storage` block, with a local disk when there is none.
+     *
+     * `Settings::getSetting()` hands back a **`stdClass`** for an array setting, so the
+     * nested structure is cast back on the way in. Reading it with `is_array()` is how a
+     * configured block silently reads as no configuration — which this framework has now
+     * done twice in one day, once in this very file's neighbour.
+     *
+     * @return array{default: string, disks: array<string, array<string, mixed>>}
+     */
+    private static function configuredDisks(): array
+    {
+        $configured = self::toArray(
+            \Pramnos\Application\Settings::getSetting('storage')
+        );
+
+        $disks = self::toArray($configured['disks'] ?? []);
+        foreach ($disks as $name => $disk) {
+            $disks[$name] = self::toArray($disk);
         }
-        return self::$manager;
+
+        if ($disks === []) {
+            /*
+             * The default nobody has to write.
+             *
+             * Rooted at `www/` rather than `www/uploads/`, because the paths the media
+             * system stores are already relative to it — `uploads/2026/09/x.png` — and
+             * re-rooting would mean rewriting every row in `media`.
+             */
+            $root  = defined('ROOT') ? \ROOT . '/www' : getcwd() . '/www';
+            $disks = ['local' => ['driver' => 'local', 'root' => $root, 'url' => '']];
+
+            return ['default' => 'local', 'disks' => $disks];
+        }
+
+        return [
+            'default' => (string) ($configured['default'] ?? array_key_first($disks)),
+            'disks'   => $disks,
+        ];
+    }
+
+    /**
+     * Whatever a setting came back as, as an array.
+     *
+     * @param mixed $value
+     * @return array<string|int, mixed>
+     */
+    private static function toArray(mixed $value): array
+    {
+        if (is_object($value)) {
+            return (array) $value;
+        }
+
+        return is_array($value) ? $value : [];
     }
 
     /**
