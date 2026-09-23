@@ -6428,12 +6428,15 @@ if [[ "\$coverage" == true ]]; then
     # from it, and without the file that question has no answer at all.
     docker-compose exec -u www-data app vendor/bin/phpunit --coverage-html coverage \
         --coverage-clover coverage/clover.xml \$extra_flags "\${passthrough[@]}"
+    phpunit_status=\$?
 elif [[ "\$nocoverage" == true ]]; then
     # --no-coverage overrides any <coverage> block in phpunit.xml; XDEBUG_MODE=off
     # removes the per-line instrumentation overhead completely.
     docker-compose exec -u www-data -e XDEBUG_MODE=off app vendor/bin/phpunit --no-coverage \$extra_flags "\${passthrough[@]}"
+    phpunit_status=\$?
 else
     docker-compose exec -u www-data app vendor/bin/phpunit \$extra_flags "\${passthrough[@]}"
+    phpunit_status=\$?
 fi
 
 if [[ "\$coverage" == true && "\$nobrowser" == false && -f ./coverage/index.html ]]; then
@@ -6446,6 +6449,12 @@ if [[ "\$coverage" == true && "\$nobrowser" == false && -f ./coverage/index.html
         open ./coverage/index.html
     fi
 fi
+
+# The result of the run, not of the last thing the script happened to do. Without
+# this the script's status is the coverage block's, and an `if` whose condition is
+# false exits 0 — so a red suite reports success to everything that does not read
+# the summary on screen: a `&&` chain, a git hook, a CI step.
+exit \$phpunit_status
 BASH;
     }
 

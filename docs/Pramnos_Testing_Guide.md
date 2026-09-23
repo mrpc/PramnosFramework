@@ -1526,6 +1526,40 @@ that has never run has no stats row — and the software-emulated path is driven
 this setting is what it will fail against, and the answer is to call the policy yourself
 rather than to turn the workers back on.
 
+## `./dockertest` exits with PHPUnit's status
+
+`echo $?` after a run is PHPUnit's result: **0 for a green suite, non-zero for a
+red one**. It matters because most things that run the suite never read the
+summary on screen:
+
+```bash
+./dockertest --nocoverage && git commit -m "…"   # the commit does not happen on red
+```
+
+A git hook, a CI step, a `&&` chain and an agent checking its own work all ask
+the same question the same way, and a runner that answers 0 for a failing suite
+tells every one of them the work is finished.
+
+The failure is easy to reintroduce, so it is worth knowing the shape: the script
+ends with an `if` that opens the coverage report, and **a shell `if` whose
+condition is false exits 0**. Any statement after PHPUnit becomes the script's
+status unless the status is captured the moment PHPUnit returns:
+
+```bash
+docker-compose exec … vendor/bin/phpunit "${passthrough[@]}"
+phpunit_status=$?     # $? is the *previous* command — nothing may come between
+…
+exit $phpunit_status
+```
+
+`InitDockertestExitStatusTest` asserts it on both the scaffolded runner and this
+framework's own: every branch that invokes PHPUnit captures `$?` on the very next
+line, and the last statement is `exit $phpunit_status`.
+
+**A project scaffolded before this** has its own copy and version control will not
+update it — the same caveat as the lock block below. Check the last lines of your
+`dockertest`; if there is no `exit $phpunit_status`, add the two pieces above.
+
 ## `./dockertest` says a run is already in progress
 
 Two runs against the same Docker databases corrupt each other, so `dockertest`
