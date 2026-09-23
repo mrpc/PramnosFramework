@@ -47,8 +47,40 @@ class SessionTrackingMiddleware implements MiddlewareInterface
 
     public function handle(Request $request, callable $next): mixed
     {
-        $this->track($request);
+        if ($this->trackingEnabled()) {
+            $this->track($request);
+        }
+
         return $next($request);
+    }
+
+    /**
+     * Does this application want tracking at all?
+     *
+     * `session_tracking => false` was read by exactly one place —
+     * {@see \Pramnos\Application\Application::bootSessionTracking()}, which registers
+     * this middleware when nothing else has. An application that lists it in
+     * `middleware` runs it through the pipeline instead, and the pipeline asked
+     * nobody: the setting did nothing, silently, for precisely the installations
+     * that had wired the tracker on purpose and then changed their mind.
+     *
+     * That combination is not unusual, it is what the Page Cache Guide recommends:
+     * `'session' => 'lazy'` with `'session_tracking' => false`, given together as the
+     * fix for a page that will not cache. Half of it worked. The symptom of the
+     * other half failing is the symptom it was meant to cure — `Set-Cookie` on every
+     * response, nothing stored, no error — so there was no way to tell which.
+     *
+     * **On when there is no application to ask**, which is a unit test or a console
+     * process: the middleware only runs where somebody registered it, and a
+     * registered middleware that declines to work is the harder thing to debug.
+     *
+     * @return bool
+     */
+    private function trackingEnabled(): bool
+    {
+        $app = \Pramnos\Application\Application::currentInstance();
+
+        return !is_object($app) || $app->sessionTrackingEnabled();
     }
 
     /**

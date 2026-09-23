@@ -1077,6 +1077,44 @@ class Application extends Base
         return is_array($middleware) ? $middleware : [];
     }
 
+    /**
+     * Does this application want visitors tracked in the `sessions` table?
+     *
+     * The single reader of `session_tracking`, because there are two places that
+     * must agree about it: {@see bootSessionTracking()}, which registers the
+     * tracker when nothing else does, and
+     * {@see \Pramnos\Http\Middleware\SessionTrackingMiddleware::handle()}, which is
+     * how an application that lists the middleware in `middleware` runs it.
+     *
+     * Only the first used to read the key. So the documented pair —
+     *
+     * ```php
+     * 'session'          => 'lazy',   // no session for a visitor who has none
+     * 'session_tracking' => false,    // no tracking cookies either
+     * ```
+     *
+     * — worked for an application that had not named the middleware and did nothing
+     * at all for one that had. The second is the shape the Page Cache Guide
+     * recommends while a page refuses to cache, and the symptom of the half that
+     * failed is identical to the symptom before: `Set-Cookie` on every response,
+     * nothing stored, and no error to read.
+     *
+     * **Absent means enabled.** `getSetting()`'s own default is `false`, so reading
+     * it without an explicit `null` would turn "this application never mentioned the
+     * key" into "this application declined" — switching tracking off for every
+     * installation on upgrade.
+     *
+     * @return bool
+     */
+    public function sessionTrackingEnabled(): bool
+    {
+        $configured = $this->applicationInfo['session_tracking']
+            ?? Settings::getSetting('session_tracking', null);
+
+        return $configured === null
+            || in_array($configured, [true, 1, '1', 'true', 'yes', 'on'], true);
+    }
+
     private function bootSessionTracking(): void
     {
         // The key that means what it says.
@@ -1095,16 +1133,7 @@ class Application extends Base
         //
         // Checked first, before the two inference rules below, so an explicit answer is
         // never overruled by a guess about one.
-        // `null` as the default, explicitly: getSetting()'s own default is `false`, so
-        // reading it without one turns "this application never mentioned the key" into
-        // "this application declined" — which would have switched tracking off for every
-        // installation on upgrade. Caught by the test asserting the default is unchanged,
-        // which is the only reason that test exists.
-        $configured = $this->applicationInfo['session_tracking']
-            ?? Settings::getSetting('session_tracking', null);
-        if ($configured !== null
-            && !in_array($configured, [true, 1, '1', 'true', 'yes', 'on'], true)
-        ) {
+        if (!$this->sessionTrackingEnabled()) {
             return;
         }
 

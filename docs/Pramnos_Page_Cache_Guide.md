@@ -662,8 +662,14 @@ shipped.
 'session_tracking' => false,    // no tracking cookies either
 ```
 
+Both halves hold whether or not the application lists `SessionTrackingMiddleware` in
+`middleware` — worth knowing, because the two symptoms are identical: `Set-Cookie` on
+every response, nothing stored, and no error to read.
+
 See [declining the automatic session](Pramnos_Framework_Guide.md#declining-the-automatic-session)
-for what lazy mode does and does not change.
+for what lazy mode does and does not change, and
+[declining session tracking](Pramnos_Framework_Guide.md#declining-session-tracking) for
+the spellings the second key accepts.
 
 Then, in order, and each is one line:
 

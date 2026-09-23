@@ -860,6 +860,13 @@ Accepts the spellings a config file actually contains: `false`, `0`, `'0'`,
 `'false'`, `'no'`, `'off'` and `''` all decline. `true`, `1`, `'yes'`, `'on'` leave
 it on, as does omitting the key.
 
+**It applies however the middleware got there.** The setting stops the tracker both
+when the framework registers it for you and when the application lists it in
+`middleware` and runs it through the pipeline. The second is the case worth stating,
+because it is the one an application reaches by wiring the tracker on purpose and
+later wanting it off — and because the request still travels the rest of the
+pipeline either way: declining to track is not declining to serve the page.
+
 ### What the row is, and the two things that keep it cheap
 
 One row per **visitor**, keyed on `visitorid` — not one per request. The table is a live-visitor list

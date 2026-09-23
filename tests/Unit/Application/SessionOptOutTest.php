@@ -35,19 +35,19 @@ class SessionOptOutProbe extends Application
     }
 
     /**
-     * Would bootSessionTracking() have run the middleware?
+     * Would the tracker run?
      *
-     * It cannot be called directly — it ends by tracking against a live request — so the
-     * config gate is reproduced here in the only way a unit test can reach it: by
-     * asserting on the same inputs. The integration suite covers the tracking itself.
+     * This used to reproduce the gate rather than call it, because the gate lived inside
+     * `bootSessionTracking()` — which ends by tracking against a live request and so
+     * cannot be called from a unit test. A copy of an if-statement asserts that the copy
+     * is right, which is how the real one came to be read by only one of the two places
+     * that needed it.
+     *
+     * It is now `Application::sessionTrackingEnabled()`, a method, and this calls it.
      */
     public function trackingDeclined(): bool
     {
-        $configured = $this->applicationInfo['session_tracking']
-            ?? Settings::getSetting('session_tracking', null);
-
-        return $configured !== null
-            && !in_array($configured, [true, 1, '1', 'true', 'yes', 'on'], true);
+        return !$this->sessionTrackingEnabled();
     }
 }
 
