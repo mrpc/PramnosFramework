@@ -16,7 +16,7 @@ use Pramnos\User\User;
  *
  * Actions:
  *   display() — HTML dashboard: all check results, DB info, cache stats, PHP version.
- *   check()   — JSON endpoint: `{"status":"ok|degraded|down","checks":{…}}`
+ *   check()   — JSON endpoint: `{"status":"ok|notice|degraded|down","checks":{…}}`
  *               Suitable for uptime monitoring (Uptime Robot, Grafana, etc.).
  *   status()  — the same verdict, flattened: `{"status":"healthy|unhealthy",…}`.
  *               For monitors that cannot read a nested document, and for a public
@@ -50,7 +50,7 @@ class Health extends Controller
      * HTML health dashboard.
      *
      * Shows all registered health checks with colour-coded status badges
-     * (ok=green, degraded=yellow, down=red), DB info (type/version), cache
+     * (ok=green, notice=blue, degraded=yellow, down=red), DB info (type/version), cache
      * adapter, active user count, and PHP version.
      *
      * Renders via the view system (theme-aware scaffolding fallback at
@@ -107,20 +107,28 @@ class Health extends Controller
     /**
      * JSON health endpoint for monitoring systems.
      *
-     * Returns HTTP 200 for ok, 503 for degraded/down.
+     * Returns HTTP 200 for ok and notice, 503 for degraded and down.
      * Response format:
-     *   {"status":"ok|degraded|down","checks":{name:{status,message,details},...}}
+     *   {"status":"ok|notice|degraded|down","checks":{name:{status,message,details},...}}
      */
     public function check(): mixed
     {
         $report = HealthRegistry::runAll();
 
-        $httpCode = match ($report['status']) {
-            'ok'       => 200,
-            'degraded' => 503,
-            'down'     => 503,
-            default    => 503,
-        };
+        /*
+         * One place decides whether a status pages. {@see HealthStatus::isHealthy()}
+         *
+         * It was a `match` here, another in `status()` below and an exit code in
+         * `health:check` — three copies of a policy that a check's doc-block can only
+         * describe. `SessionStorageCheck` said in so many words that a single-server
+         * installation "must not be paged for" and then answered 503 for one, because
+         * saying it in a comment enforces nothing.
+         *
+         * An unknown status is 503: something this version does not understand is not
+         * something to call healthy.
+         */
+        $status   = \Pramnos\Health\HealthStatus::tryFrom((string) $report['status']);
+        $httpCode = $status !== null && $status->isHealthy() ? 200 : 503;
 
         return \Pramnos\Http\Response::json($report, $httpCode, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
             ->withHeader('Cache-Control', 'no-cache, no-store');
@@ -164,7 +172,8 @@ class Health extends Controller
         }
 
         $report  = HealthRegistry::runAll();
-        $healthy = ($report['status'] ?? 'down') === 'ok';
+        $status  = \Pramnos\Health\HealthStatus::tryFrom((string) ($report['status'] ?? 'down'));
+        $healthy = $status !== null && $status->isHealthy();
 
         $payload = [
             'status'    => $healthy ? 'healthy' : 'unhealthy',

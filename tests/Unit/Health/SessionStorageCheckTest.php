@@ -23,12 +23,18 @@ use Pramnos\Health\Checks\SessionStorageCheck;
 class SessionStorageCheckTest extends TestCase
 {
     /**
-     * `files` is degraded, and the message says what it costs rather than what it is.
+     * `files` is a **notice**, and the message says what it costs rather than what it is.
      *
-     * **Degraded, not down.** Most installations are single-server and are not broken; a
-     * check that pages somebody for a working site is a check that gets muted.
+     * Most installations are single-server and are not broken; a check that pages somebody
+     * for a working site is a check that gets muted. This test asserted that in its own
+     * name — `testLocalFilesAreDegradedWithTheReason` — while `degraded` answered 503, so
+     * the assertion and the behaviour it was guarding were opposites. A correct
+     * installation's `/health/check` went 200 → 503 the moment the check shipped.
+     *
+     * The status is asserted rather than the HTTP code because that is where the decision
+     * now lives; {@see HealthStatusPagingTest} holds the mapping itself.
      */
-    public function testLocalFilesAreDegradedWithTheReason(): void
+    public function testLocalFilesAreANoticeWithTheReason(): void
     {
         // Act — the handler is injected rather than set: `session.save_handler` cannot
         // be changed once a session is active, so a test that used `ini_set()` passed
@@ -37,10 +43,29 @@ class SessionStorageCheckTest extends TestCase
 
         // Assert
         $this->assertSame('session_storage', $result->name);
-        $this->assertSame('degraded', $result->status->value);
+        $this->assertSame('notice', $result->status->value);
+        $this->assertTrue($result->status->isHealthy(), 'a correct installation must not page');
         $this->assertSame('files', $result->details['handler']);
         $this->assertStringContainsString('local to this machine', $result->message);
         $this->assertStringContainsString('APP_SESSION_HANDLER', $result->details['fix']);
+    }
+
+    /**
+     * The fix does not advise putting session ids in somebody else's Redis.
+     *
+     * It used to end "with no path it reuses the cache host", which on a shared server —
+     * Virtualmin, cPanel, one Redis and many vhosts — is advice to move session ids into a
+     * store every other site on the machine can read. **A session id is an account**, and
+     * the cache host is exactly the case where it is not this application's to reuse.
+     */
+    public function testTheFixDoesNotRecommendASharedRedis(): void
+    {
+        // Act
+        $fix = (new SessionStorageCheck('files', ''))->run()->details['fix'];
+
+        // Assert
+        $this->assertStringContainsString('this application controls', $fix);
+        $this->assertStringContainsString('shared server', $fix);
     }
 
     /**

@@ -3,7 +3,7 @@
  * Health Dashboard — Bootstrap theme.
  *
  * Variables (set by Health::display()):
- *   $this->overallStatus — 'ok' | 'degraded' | 'down'
+ *   $this->overallStatus — 'ok' | 'notice' | 'degraded' | 'down'
  *   $this->checks        — array<name, array{status, message, details}>
  *   $this->dbType        — ucfirst DB type string or 'not connected'
  *   $this->dbVersion     — DB version string or '—'
@@ -14,6 +14,7 @@
 
 $badgeClass = [
     'ok'       => 'success',
+    'notice'   => 'info',
     'degraded' => 'warning',
     'down'     => 'danger',
 ][$this->overallStatus] ?? 'secondary';
@@ -47,6 +48,7 @@ $badgeClass = [
                     <?php
                         $rowBadge = [
                             'ok'       => 'success',
+                            'notice'   => 'info',
                             'degraded' => 'warning',
                             'down'     => 'danger',
                         ][$check['status']] ?? 'secondary';

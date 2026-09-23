@@ -242,9 +242,13 @@ GET /health/check    → JSON status  (public — use this for monitoring)
 GET /health/phpinfo  → PHP Info     (admin only, usertype ≥ 90)
 ```
 
-`GET /health/check` returns HTTP 200 with `{"status":"ok","checks":{...}}` when healthy,
-or HTTP 503 with `{"status":"degraded"|"down",...}` when something is wrong.
-Point your uptime monitor (Uptime Robot, Grafana, etc.) at this URL.
+`GET /health/check` returns HTTP 200 with `{"status":"ok"|"notice","checks":{...}}` when
+the installation is correct, or HTTP 503 with `{"status":"degraded"|"down",...}` when
+something is wrong. Point your uptime monitor (Uptime Robot, Grafana, etc.) at this URL.
+
+`notice` is 200 on purpose: it means "correct here, and here is what you would change
+before a second server" — sessions on local files, for instance. A monitor must not be
+paged for a working single-server installation.
 
 Register custom checks in `Application.php` or a ServiceProvider:
 

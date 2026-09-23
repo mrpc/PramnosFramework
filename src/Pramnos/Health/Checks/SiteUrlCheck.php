@@ -35,6 +35,19 @@ class SiteUrlCheck implements HealthCheck
         return 'site_url';
     }
 
+    /**
+     * Both failing answers stay `degraded`, and that is a decision rather than an omission.
+     *
+     * {@see \Pramnos\Health\HealthStatus::Notice} exists for "correct here, and would not
+     * be everywhere", and the test for it is whether there is an installation where this
+     * exact answer is the right one. There is not, for either branch: an unset `APP_URL`
+     * means every URL built outside a request — a scheduled email, a queued job, a console
+     * command — is wrong or empty, on a single server exactly as much as on five. It is a
+     * latent defect that a web request cannot see, which is the reason the check exists.
+     *
+     * Sessions on local files are the opposite and got `notice`: they are the correct
+     * choice on one machine.
+     */
     public function run(): HealthCheckResult
     {
         $resolved = SiteUrl::get();

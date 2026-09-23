@@ -33,6 +33,14 @@ class HealthCheckResult
         return new self(HealthStatus::Ok, $name, $message ?: 'OK', $details);
     }
 
+    /**
+     * Correct here, and worth saying — but not a page. {@see HealthStatus::Notice}
+     */
+    public static function notice(string $name, string $message, array $details = []): self
+    {
+        return new self(HealthStatus::Notice, $name, $message, $details);
+    }
+
     public static function degraded(string $name, string $message, array $details = []): self
     {
         return new self(HealthStatus::Degraded, $name, $message, $details);

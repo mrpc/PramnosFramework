@@ -2,7 +2,7 @@
 use_cases:
   - Pointing an uptime monitor at an application
   - Writing a check for a dependency the framework knows nothing about
-  - Working out why a health endpoint reports degraded
+  - Working out why a health endpoint reports degraded or notice
   - Finding out why an authorization server answers pages but refuses tokens
   - Reading the health report from the command line or from CI
 ---
@@ -30,7 +30,7 @@ Every application registers these during `init()`:
 | `cache` | Whether the cache is on the store it was **configured** for. `degraded` when it fell back — the application works, on the wrong store. |
 | `hypertables` | Whether a declared hypertable is one, and whether a continuous aggregate is one. `degraded` when the catalogue disagrees with the declaration. |
 | `site_url` | The site's public root, and where it came from. `degraded` while it is only being inferred from the request. |
-| `session_storage` | Which store PHP keeps sessions in. `degraded` on `files`, which is local to one machine. |
+| `session_storage` | Which store PHP keeps sessions in. `notice` on `files`, which is local to one machine — correct on one server, and the quietest failure on two. |
 
 With the `authserver` feature enabled, one more is registered by
 `AuthServerServiceProvider`:
@@ -58,7 +58,7 @@ yourself if yours does.
     is almost always the answer. It reports `degraded`: the site is working, and a
     check that pages somebody for a working site is a check that gets muted.
 
-!!! note "Why `session_storage` is degraded on `files`"
+!!! note "Why `session_storage` is a `notice` on `files`"
 
     `files` is PHP's default and is right on one machine: free, no dependency, nothing to
     configure. On two it is the quietest failure in a deployment — a visitor whose next
@@ -71,9 +71,17 @@ yourself if yours does.
     does not have.
 
     `APP_SESSION_HANDLER=redis` in `.env` (or `'session' => ['handler' => 'redis']` in
-    `app/config/app.php`) turns it green. With no path it reuses the cache's host. Sticky
-    sessions at the load balancer are the other answer, and this check cannot see them —
-    if that is your arrangement, this one stays yellow deliberately.
+    `app/config/app.php`) turns it green — pointed at **a Redis this application
+    controls**. With no path it reuses the cache's host, and on a shared server, where one
+    Redis serves every vhost, that puts session ids somewhere every other site on the
+    machine can read. A session id is an account. Use a dedicated instance, or at least a
+    separate database with its own credentials.
+
+    Sticky sessions at the load balancer are the other answer, and this check cannot see
+    them — if that is your arrangement, this one stays a notice deliberately.
+
+    **It is a `notice`, not `degraded`, and that matters**: a single-server installation is
+    correct, and answering 503 for it would page somebody for a working site for ever.
 
     The check names the store either way, because the common way to get this wrong is not
     leaving it on files but pointing it at a Redis the other nodes do not use.
@@ -123,13 +131,21 @@ credentials, and both answer with the status in the body **and** in the HTTP cod
 | Overall status | HTTP |
 |---|---|
 | `ok` | 200 |
+| `notice` | 200 |
 | `degraded` | 503 |
 | `down` | 503 |
 
-Degraded answering 503 is a decision worth knowing about: a monitor that only
+`degraded` answering 503 is a decision worth knowing about: a monitor that only
 looks at the status code treats reduced capacity as an outage. That is the safer
 default — a cache that has stopped working is not something to discover a week
 later — but if you want the two distinguished, read `status` from the body.
+
+**`notice` exists because that default was wrong for one category.** "Correct here,
+and would not be everywhere" is a real answer — sessions on local files are right on
+one machine — and it had to borrow `degraded`, which pages. A correct single-server
+installation therefore answered 503 to the uptime monitor this endpoint exists for.
+`notice` appears in the JSON, in the table and on the badge, and does not change the
+status code.
 
 ### `/health/status` — when the full report says too much
 
@@ -176,7 +192,7 @@ php pramnos health:check --only=database,redis  # just these
 ```
 
 Exit codes make it usable in CI or a deploy gate: `0` all ok, `1` something
-degraded, `2` something down.
+degraded, `2` something down. A `notice` is a success.
 
 The command sees every check the application registered, not only the built-in
 three — it boots the application first, so feature providers and your own
@@ -240,15 +256,27 @@ Or, if the check belongs to a feature, in that feature's service provider
 idempotent, so registering the same name twice replaces rather than duplicates;
 that is also how an application overrides a built-in check with its own.
 
-### Choosing between degraded and down
+### Choosing a status
 
 - **`down`** — the application cannot do its job. Somebody should be woken up.
 - **`degraded`** — it works, at reduced capacity or with a problem that will
   become an outage if ignored. A cache that is unreachable, a disk at 95%, a key
   that is smaller than it should be.
+- **`notice`** — **correct here, and would not be everywhere.** Sessions on local
+  files; a single-node cache on a single node. It does not change the HTTP code and
+  does not fail `health:check`.
 - **`ok`** — with `details` carrying whatever an operator would want from a green
   result. A latency figure or a key size in a passing check is what tells someone
   the trend before it crosses a threshold.
+
+**The test for `notice`** is whether there is an installation where this exact answer
+is the *correct* one. Sessions on files passes it. An unset `APP_URL` does not — every
+URL built outside a request is wrong on one server exactly as much as on five, so
+`site_url` stays `degraded`.
+
+Getting this wrong in the direction of severity is not a harmless over-report. A check
+that pages for a correct installation is a check somebody mutes, and a muted check is
+the one that was going to tell you about the real thing.
 
 ---
 

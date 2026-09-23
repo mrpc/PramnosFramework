@@ -3,7 +3,7 @@
  * Health Dashboard — Tailwind theme.
  *
  * Variables (set by Health::display()):
- *   $this->overallStatus — 'ok' | 'degraded' | 'down'
+ *   $this->overallStatus — 'ok' | 'notice' | 'degraded' | 'down'
  *   $this->checks        — array<name, array{status, message, details}>
  *   $this->dbType        — ucfirst DB type string or 'not connected'
  *   $this->dbVersion     — DB version string or '—'
@@ -14,6 +14,7 @@
 
 $badgeColor = [
     'ok'       => 'bg-success/10 text-success',
+    'notice'   => 'bg-info/10 text-info',
     'degraded' => 'bg-warning/10 text-warning',
     'down'     => 'bg-error/10 text-error',
 ][$this->overallStatus] ?? 'bg-base-200 text-base-content';
@@ -21,6 +22,7 @@ $badgeColor = [
 $rowBadgeColor = static function (string $status): string {
     return match ($status) {
         'ok'       => 'bg-success/10 text-success',
+        'notice'   => 'bg-info/10 text-info',
         'degraded' => 'bg-warning/10 text-warning',
         'down'     => 'bg-error/10 text-error',
         default    => 'bg-base-200 text-base-content',

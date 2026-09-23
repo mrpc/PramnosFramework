@@ -26,7 +26,7 @@ use Pramnos\Health\Checks\MemoryLimitCheck;
  *
  * Exit codes:
  *   0 — all checks OK
- *   1 — one or more checks degraded
+ *   1 — one or more checks degraded (`notice` is a success: it is a correct installation)
  *   2 — one or more checks down
  *
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
@@ -125,6 +125,7 @@ class HealthCheck extends Command
         $overallStatus = $report['status'];
         $tag = match ($overallStatus) {
             'ok'       => 'info',
+            'notice'   => 'info',
             'degraded' => 'comment',
             default    => 'error',
         };
@@ -144,6 +145,7 @@ class HealthCheck extends Command
         foreach ($report['checks'] as $name => $row) {
             $statusTag = match ($row['status']) {
                 'ok'       => 'info',
+                'notice'   => 'info',
                 'degraded' => 'comment',
                 default    => 'error',
             };
@@ -169,12 +171,22 @@ class HealthCheck extends Command
         $output->writeln('');
     }
 
+    /**
+     * `notice` succeeds, because it is a correct installation.
+     *
+     * This command is run in a deploy step and in CI. A status that exists to say "right
+     * here, and here is what changes on a second server" must not fail either, for the
+     * same reason it must not return 503: a check that cries wolf is a check somebody
+     * turns off. {@see \Pramnos\Health\HealthStatus::isHealthy()}
+     */
     private function exitCode(string $status): int
     {
-        return match ($status) {
-            'ok'       => Command::SUCCESS,
-            'degraded' => 1,
-            default    => 2,
-        };
+        $parsed = \Pramnos\Health\HealthStatus::tryFrom($status);
+
+        if ($parsed !== null && $parsed->isHealthy()) {
+            return Command::SUCCESS;
+        }
+
+        return $parsed === \Pramnos\Health\HealthStatus::Degraded ? 1 : 2;
     }
 }

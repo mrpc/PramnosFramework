@@ -20,9 +20,17 @@ use Pramnos\Health\HealthCheckResult;
  * test passes, and the failure only exists in a topology the developer's machine does not
  * have.
  *
- * **Degraded, not down.** A single-server installation is not broken and must not be paged
- * for — most installations are single-server, and a check that cries wolf gets muted. It
- * says which store is in use either way, because the common way to get this wrong is not
+ * **`notice`, not `degraded`.** A single-server installation is not broken and must not be
+ * paged for — most installations are single-server, and a check that cries wolf gets muted.
+ *
+ * That sentence was here before the status was. `degraded` answered **503**, so the check
+ * did the one thing it documented itself as avoiding, to the majority case it named: a
+ * correct installation's `/health/check` went from 200 to 503 the moment this shipped, and
+ * an uptime monitor pointed at it — which is what that endpoint is for — alerted for ever.
+ * {@see \Pramnos\Health\HealthStatus::Notice}, which is the category this wanted and had
+ * to borrow.
+ *
+ * It says which store is in use either way, because the common way to get this wrong is not
  * leaving it on files but pointing it at a Redis that is not the one the other nodes use.
  *
  * @see \Pramnos\Http\Session::applyConfiguredStore() for how to change it, which is a
@@ -83,16 +91,26 @@ class SessionStorageCheck implements HealthCheck
             );
         }
 
-        return HealthCheckResult::degraded(
+        return HealthCheckResult::notice(
             $this->getName(),
             'Sessions are on "' . $handler . '", which is local to this machine. '
             . 'Correct on a single server; on more than one a visitor is signed out '
             . 'whenever the load balancer sends them to a different node.',
             $details + [
+                /*
+                 * "Reuses the cache host" used to be the whole of this advice, and on a
+                 * shared host it is advice to put session ids somewhere every other site
+                 * on the machine can read. A session id is an account. One Redis with many
+                 * vhosts — Virtualmin, cPanel — is exactly the case where the cache host is
+                 * not this application's to reuse.
+                 */
                 'fix' => "Set APP_SESSION_HANDLER=redis in .env (or 'session' => "
-                    . "['handler' => 'redis'] in app/config/app.php). With no path it "
-                    . 'reuses the cache host. Sticky sessions at the balancer are the '
-                    . 'other answer.',
+                    . "['handler' => 'redis'] in app/config/app.php), pointed at a Redis "
+                    . 'this application controls — with no path it reuses the cache host, '
+                    . 'which on a shared server is readable by every other site on it, and '
+                    . 'a session id is an account. Use a dedicated instance, or at least a '
+                    . 'separate database with its own credentials. Sticky sessions at the '
+                    . 'balancer are the other answer.',
             ]
         );
     }

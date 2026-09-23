@@ -3,7 +3,7 @@
  * Health Dashboard — plain-CSS theme.
  *
  * Variables (set by Health::display()):
- *   $this->overallStatus — 'ok' | 'degraded' | 'down'
+ *   $this->overallStatus — 'ok' | 'notice' | 'degraded' | 'down'
  *   $this->checks        — array<name, array{status, message, details}>
  *   $this->dbType        — ucfirst DB type string or 'not connected'
  *   $this->dbVersion     — DB version string or '—'
@@ -14,6 +14,7 @@
 
 $badgeStyle = match ($this->overallStatus) {
     'ok'       => 'background:#d4edda;color:#155724;border:1px solid #c3e6cb',
+    'notice'   => 'background:#d1ecf1;color:#0c5460;border:1px solid #bee5eb',
     'degraded' => 'background:#fff3cd;color:#856404;border:1px solid #ffeeba',
     'down'     => 'background:#f8d7da;color:#721c24;border:1px solid #f5c6cb',
     default    => 'background:#e2e3e5;color:#383d41;border:1px solid #d6d8db',
@@ -22,6 +23,7 @@ $badgeStyle = match ($this->overallStatus) {
 $rowBadgeStyle = static function (string $status): string {
     return match ($status) {
         'ok'       => 'background:#d4edda;color:#155724;border:1px solid #c3e6cb',
+        'notice'   => 'background:#d1ecf1;color:#0c5460;border:1px solid #bee5eb',
         'degraded' => 'background:#fff3cd;color:#856404;border:1px solid #ffeeba',
         'down'     => 'background:#f8d7da;color:#721c24;border:1px solid #f5c6cb',
         default    => 'background:#e2e3e5;color:#383d41;border:1px solid #d6d8db',

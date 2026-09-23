@@ -47,13 +47,16 @@ lands on the other node has no session at all.
 'session' => ['handler' => 'redis'],
 ```
 
-or `APP_SESSION_HANDLER=redis` in `.env`, which wins over it. With no `path` the **cache's
-own host** is reused — an application that configured Redis for its cache has already said
-where Redis is, and a second copy of a hostname is a second thing to get wrong.
+or `APP_SESSION_HANDLER=redis` in `.env`, which wins over it.
+
+With no `path` the **cache's own host** is reused — which is the right default on a machine
+this application owns and the wrong one on a shared server, where a single Redis serves
+every vhost and a session id is an account. Point it at a Redis this application controls.
 
 Sticky sessions at the balancer are the other answer and are perfectly legitimate. The
-framework cannot see them, so `health:check` stays yellow on that arrangement; that is the
-check being honest rather than wrong.
+framework cannot see them, so `health:check` reports `session_storage` as a **notice** on
+that arrangement; that is the check being honest rather than wrong, and a notice answers
+**200** — a correct single-server installation must not page an uptime monitor.
 
 **Verify:** `health:check` reports `session_storage`. It never fails a request — an
 unregistered handler or a store that is down leaves sessions on files and logs why, because
