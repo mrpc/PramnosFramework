@@ -101,8 +101,24 @@ class SettingsController extends Controller
             $settings[$key] = (string) Settings::getSetting($key, '');
         }
 
+        /*
+         * The SMTP password leaves as a yes/no, never as itself.
+         *
+         * `smtp_pass` is in `ENCRYPTED_SETTINGS`, so it is encrypted at rest — and it
+         * was then rendered into `value=""` on an admin page, which puts it in clear
+         * in the HTML: in a proxy cache, in a screenshot, on a shared screen. Removed
+         * here rather than in the view so there is one place it can go wrong, and
+         * three themes that cannot.
+         *
+         * `save()` reads an empty submission as "keep what is stored", which is what
+         * makes an unprinted field usable at all.
+         */
+        $smtpPassIsSet      = $settings['smtp_pass'] !== '';
+        $settings['smtp_pass'] = '';
+
         $view                   = $this->getView('settings');
         $view->settings         = $settings;
+        $view->smtpPassIsSet    = $smtpPassIsSet;
 
         /**
          * What this *application* has enabled, as opposed to what this screen can change.
@@ -227,7 +243,19 @@ class SettingsController extends Controller
             $request->get('smtp_port', '25', 'post'), 1, 65535, 25
         ));
         Settings::setSetting('smtp_user', trim($request->get('smtp_user', '', 'post')));
-        Settings::setSetting('smtp_pass', $request->get('smtp_pass', '', 'post'));
+        /*
+         * An empty field means "keep the stored password", not "clear it".
+         *
+         * The screen no longer prints the password back, so an operator saving the
+         * Email tab after changing the host submits an empty `smtp_pass` — and
+         * writing that through would silently break outgoing mail on a form nobody
+         * thought they were touching. To clear it, empty the setting from the
+         * settings store.
+         */
+        $submittedPass = (string) $request->get('smtp_pass', '', 'post');
+        if ($submittedPass !== '') {
+            Settings::setSetting('smtp_pass', $submittedPass);
+        }
         Settings::setSetting('smtp_tls',  $this->normalizeYesNo($request->get('smtp_tls', 'no', 'post')));
 
         /**

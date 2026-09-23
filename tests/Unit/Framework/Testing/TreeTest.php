@@ -52,6 +52,72 @@ class TreeTest extends TestCase
     }
 
     /**
+     * `read()` hands back what is in the file.
+     *
+     * The third place the blink shows up and the easiest to write carelessly: a sweep
+     * lists a directory, then reads each path it was given, and the read is the call that
+     * answers `false` with a warning PHPUnit turns into an error.
+     */
+    public function testReadReturnsTheContents(): void
+    {
+        // Arrange
+        $path = $this->root . '/notes.md';
+
+        // Act + Assert
+        $this->assertSame('#', Tree::read($path));
+    }
+
+    /**
+     * An empty file is `''`, not a failure.
+     *
+     * The distinction the retry depends on: `file_get_contents()` answers `''` for an
+     * empty file and `false` for one it could not read, so only the second is worth a
+     * second look. Reading them as the same thing would put a 50 ms pause on every empty
+     * file in a sweep — and then raise on one.
+     */
+    public function testAnEmptyFileIsNotAFailure(): void
+    {
+        // Arrange
+        $path = $this->root . '/empty.php';
+        file_put_contents($path, '');
+
+        // Act + Assert
+        $this->assertSame('', Tree::read($path));
+
+        @unlink($path);
+    }
+
+    /**
+     * A file that is not there raises, after looking twice, and names itself.
+     *
+     * The message has to separate the two causes, because the actions are opposite: a
+     * blinking mount is something to re-run, a deleted file is something to go and find.
+     */
+    public function testReadRaisesForAFileThatIsNotThere(): void
+    {
+        // Arrange
+        $path = $this->root . '/no-such-file.php';
+
+        // Act
+        $started = microtime(true);
+        $message = '';
+
+        try {
+            Tree::read($path);
+        } catch (\RuntimeException $ex) {
+            $message = $ex->getMessage();
+        }
+
+        $elapsed = microtime(true) - $started;
+
+        // Assert — captured and checked outside the catch, so a failed expectation here
+        // is not swallowed by it
+        $this->assertStringContainsString('no-such-file.php', $message);
+        $this->assertStringContainsString('times', $message);
+        $this->assertGreaterThan(0.04, $elapsed, 'it answered without looking a second time');
+    }
+
+    /**
      * It walks the whole tree, filters by extension, and sorts.
      *
      * Sorted because a failure message built from the list has to be the same on two runs;
@@ -143,7 +209,7 @@ class TreeTest extends TestCase
      * WHAT: a call that fails takes at least the retry pause.
      *
      * WHY:  "retries once" is the whole point of the class and is otherwise unobservable —
-     *       a single attempt and two attempts return the same exception. Timing is the only
+     *       one attempt and several return the same exception. Timing is the only
      *       evidence available without a filesystem that can be made to fail on demand, and
      *       it is real evidence: a second attempt cannot happen in less time than the pause
      *       that precedes it.
@@ -157,7 +223,9 @@ class TreeTest extends TestCase
         // Arrange
         $pause = (new \ReflectionClassConstant(Tree::class, 'RETRY_PAUSE_MICROSECONDS'))
             ->getValue();
+        $attempts = (new \ReflectionClassConstant(Tree::class, 'ATTEMPTS'))->getValue();
         $this->assertGreaterThan(0, $pause, 'there is no pause to measure');
+        $this->assertGreaterThan(1, $attempts, 'a single attempt is not a retry');
 
         // Act
         $start = microtime(true);
@@ -168,9 +236,9 @@ class TreeTest extends TestCase
         }
         $elapsed = (microtime(true) - $start) * 1_000_000;
 
-        // Assert — one pause happened, so a second attempt followed it
+        // Assert — every pause between attempts happened, so every attempt followed it
         $this->assertGreaterThanOrEqual(
-            $pause,
+            $pause * ($attempts - 1),
             $elapsed,
             'the call returned too quickly to have waited and looked again'
         );

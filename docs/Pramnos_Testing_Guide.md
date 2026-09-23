@@ -1461,9 +1461,16 @@ repository is a bind mount, and on macOS Docker Desktop that is VirtioFS (`fakeo
 disk throughout. It is rare: a watcher stat-ing the same path as fast as the mount allows,
 for a whole 16,000-test run, did not reproduce it once.
 
-`Tree::files()` looks **twice**, 50 ms apart, and then raises a `RuntimeException` naming
-the path and saying how to tell the two explanations apart. One retry, not a loop — it is
-for a mount that blinked, not a way to tolerate a directory that is genuinely gone.
+`Tree::files()` looks **three times**, 50 ms apart, and then raises a `RuntimeException`
+naming the path and saying how to tell the two explanations apart.
+
+It was two, on the reasoning that one retry is for a mount that blinked and a loop is a way
+to tolerate a directory that is genuinely gone. The reasoning holds and the number was
+wrong: a new sweep over the whole of `scaffolding/` — a large tree — lost *both* attempts
+twice in eight runs, which is a flaky test rather than a rare one, and a flake is
+indistinguishable from a real failure to whoever reads it next. Three is still a small
+number chosen for the same reason two was: a directory that is actually missing costs
+100 ms and then raises.
 
 ### The two shapes it replaces, and why both were wrong
 
@@ -1481,6 +1488,21 @@ silent pass, which is right, but the red is still a failure nobody can act on �
 fired in a full run the day after `files()` landed, over a directory whose mtime had not
 moved in a month. It returns `[]` for a pattern that genuinely matches nothing, and only
 pays the pause when there is nothing to report.
+
+### And `Tree::read($path)` for the file itself
+
+The listing is not the last chance to blink. A sweep lists a directory, then reads each
+path it was given — and that read is the call that answers `false` with a warning PHPUnit
+turns into an error, on a file whose host mtime has not moved in weeks. It happened twice
+in eight runs of a new sweep, after `Tree::files()` had already made the listing safe.
+
+```php
+$body = Tree::read($path);   // not file_get_contents()
+```
+
+Same attempts, same `RuntimeException` naming the path. An **empty file is `''`, not a
+failure**, which is the distinction the retry depends on: reading the two as the same
+thing would pause 50 ms on every empty file in a sweep and then raise on one.
 
 ### If you are the one adding a sweep
 

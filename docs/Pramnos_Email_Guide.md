@@ -131,6 +131,14 @@ Settings::setSetting('smtp_tls', 'yes');
 // Default from address
 Settings::setSetting('admin_mail', 'noreply@yoursite.com');
 Settings::setSetting('sitename', 'Your Website Name');
+```
+
+`smtp_pass` is encrypted at rest, and the `/admin/Settings` screen **never prints it
+back**: the field renders empty, submitting it empty means "keep what is stored", and the
+placeholder is what tells you whether there is one. To clear it, write an empty value
+through `Settings::setSetting()`.
+
+```php
 Settings::setSetting('admin_replymail', 'support@yoursite.com');
 ```
 

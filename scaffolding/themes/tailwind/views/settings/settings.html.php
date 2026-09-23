@@ -4,11 +4,21 @@
  *
  * Variables:
  *   $this->settings  — associative array of setting key => current value
+ *   $this->smtpPassIsSet — whether an SMTP password is stored (never the value)
  *   $this->timezones — array of timezone identifiers
  *   $this->success   — success flash message (string)
  *   $this->warning   — warning flash message (string)
  */
 $s               = $this->settings ?? [];
+/*
+ * The stored SMTP password is never rendered back into the page.
+ *
+ * It is encrypted at rest, and printing it into `value=""` put it in clear in the
+ * HTML of an admin screen — in every proxy cache, every screenshot and every "can
+ * you look at my screen". The field submits empty to mean "keep what is stored", so
+ * the placeholder is the only thing that says whether there is one.
+ */
+$smtpPassIsSet   = (bool) ($this->smtpPassIsSet ?? false);
 $tzs             = $this->timezones ?? \DateTimeZone::listIdentifiers();
 
 $defaultSteps = \Pramnos\Application\Controllers\SettingsController::DEFAULT_LOCKOUT_STEPS;
@@ -144,10 +154,12 @@ $btnSec = 'px-4 py-2 border border-base-300 text-base-content text-sm font-mediu
                     <div><label class="<?php echo $label; ?>">SMTP Username</label>
                         <input type="text" name="smtp_user" class="<?php echo $input; ?>" autocomplete="off" value="<?php echo htmlspecialchars($s['smtp_user'] ?? ''); ?>"></div>
                     <div><label for="smtp_pass" class="<?php echo $label; ?>">SMTP Password</label>
-                        <input id="smtp_pass" type="password" name="smtp_pass" class="<?php echo $input; ?>
+                        <input id="smtp_pass" type="password" name="smtp_pass" class="<?php echo $input; ?>"
+                            autocomplete="new-password" value=""
+                            placeholder="<?php echo $smtpPassIsSet ? 'Stored — leave blank to keep' : ''; ?>">
                         <?php echo \Pramnos\Html\PasswordToggle::render(
                             'smtp_pass', '', ''
-                        ); ?>" autocomplete="new-password" value="<?php echo htmlspecialchars($s['smtp_pass'] ?? ''); ?>"></div>
+                        ); ?></div>
                 </div>
             </div>
         </div>

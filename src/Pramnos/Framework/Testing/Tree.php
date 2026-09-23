@@ -56,6 +56,22 @@ final class Tree
     private const RETRY_PAUSE_MICROSECONDS = 50_000;
 
     /**
+     * How many times a read is attempted before it is reported as a failure.
+     *
+     * It was **two**, on the reasoning that one retry is for a mount that blinked and a
+     * loop is a way to tolerate a directory that is genuinely gone. The reasoning holds;
+     * the number was wrong. A new sweep over `scaffolding/` — a large tree, walked twice
+     * per run — lost both attempts twice in eight runs, which is a flaky test rather than
+     * a rare one, and the flake is indistinguishable from a real failure to whoever reads
+     * it next.
+     *
+     * Three is still a small number chosen for the same reason two was: a directory that
+     * is actually missing costs 100ms and then raises, which is nothing once per run and
+     * is not a licence to lose it.
+     */
+    private const ATTEMPTS = 3;
+
+    /**
      * Every file under `$directory`, recursively, with the given extension.
      *
      * @param  string      $directory Absolute path to walk
@@ -66,17 +82,24 @@ final class Tree
      */
     public static function files(string $directory, ?string $extension = 'php'): array
     {
-        $files = self::walk($directory, $extension);
+        $files = null;
 
-        if ($files === null) {
-            // The mount, or a genuinely missing directory. One more look decides which.
-            usleep(self::RETRY_PAUSE_MICROSECONDS);
+        for ($attempt = 1; $attempt <= self::ATTEMPTS; $attempt++) {
             $files = self::walk($directory, $extension);
+
+            if ($files !== null) {
+                break;
+            }
+
+            // The mount, or a genuinely missing directory. Another look decides which.
+            if ($attempt < self::ATTEMPTS) {
+                usleep(self::RETRY_PAUSE_MICROSECONDS);
+            }
         }
 
         if ($files === null) {
             throw new \RuntimeException(
-                'Could not read ' . $directory . ' — twice, '
+                'Could not read ' . $directory . ' — ' . self::ATTEMPTS . ' times, '
                 . (int) (self::RETRY_PAUSE_MICROSECONDS / 1000) . 'ms apart. '
                 . 'Look at the host before the test: if the directory is there and its mtime '
                 . 'predates this run, it never went away and the bind mount is what blinked. '
@@ -87,6 +110,51 @@ final class Tree
         sort($files);
 
         return $files;
+    }
+
+    /**
+     * The contents of a file, with the same one retry.
+     *
+     * The third place the blink shows up, and the one that is easiest to write without
+     * thinking about it: a sweep lists a directory, then reads each file it was given.
+     * The listing succeeds and a read of a path that was in it answers `false` with a
+     * warning — which PHPUnit turns into an error, on a file whose host mtime has not
+     * moved in weeks.
+     *
+     * `false` is not "empty file" here: an empty file reads as `''`. So the two are
+     * distinguishable, and only the failure is worth a second look.
+     *
+     * @param  string $path
+     * @return string
+     *
+     * @throws \RuntimeException When the file cannot be read twice running
+     */
+    public static function read(string $path): string
+    {
+        $body = false;
+
+        for ($attempt = 1; $attempt <= self::ATTEMPTS; $attempt++) {
+            $body = @file_get_contents($path);
+
+            if ($body !== false) {
+                break;
+            }
+
+            if ($attempt < self::ATTEMPTS) {
+                usleep(self::RETRY_PAUSE_MICROSECONDS);
+            }
+        }
+
+        if ($body === false) {
+            throw new \RuntimeException(
+                'Could not read ' . $path . ' — ' . self::ATTEMPTS . ' times, '
+                . (int) (self::RETRY_PAUSE_MICROSECONDS / 1000) . 'ms apart. '
+                . 'If the file is on the host with an mtime older than this run, the bind '
+                . 'mount blinked; if it is gone, something removed it.'
+            );
+        }
+
+        return $body;
     }
 
     /**

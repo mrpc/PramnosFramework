@@ -408,6 +408,36 @@ they never forgot.
 is the `id` of the input it controls; the labels default to translated «Show password» / «Hide
 password». The class is optional and normally left off — see below.
 
+### It is a sibling of the input, never one of its attributes
+
+The one way to get this wrong, and it has been got wrong in three themes on three
+different screens:
+
+```php
+<!-- WRONG: the toggle is inside class="" -->
+<input id="smtp_pass" type="password" name="smtp_pass" class="<?php echo $input; ?>
+<?php echo PasswordToggle::render('smtp_pass', '', ''); ?>" autocomplete="new-password">
+```
+
+`render()` returns markup, so **the first `>` in it closes the `<input>`**. Everything
+after that — the closing quote, `autocomplete`, `value` — becomes visible text in the
+page, and the field itself never renders. The symptom is a line of attribute soup beside
+an eye icon where a box should be.
+
+It reads like a missing `">` after the class, and it is not: the toggle belongs *after*
+the tag, not inside it.
+
+```php
+<!-- Right: close the attribute, close the tag, then the toggle -->
+<input id="smtp_pass" type="password" name="smtp_pass" class="<?php echo $input; ?>"
+       autocomplete="new-password" value="">
+<?php echo PasswordToggle::render('smtp_pass', '', ''); ?>
+```
+
+`PasswordToggleMarkupTest` sweeps every scaffolded view for it, structurally rather than
+by searching for one broken string — the next one will be in a different attribute of a
+different field.
+
 ### It goes *after* the input, and it is an eye
 
 Both of those are the same fix, arrived at twice.

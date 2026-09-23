@@ -4,11 +4,21 @@
  *
  * Variables:
  *   $this->settings  — associative array of setting key => current value
+ *   $this->smtpPassIsSet — whether an SMTP password is stored (never the value)
  *   $this->timezones — array of timezone identifiers
  *   $this->success   — success flash message (string)
  *   $this->warning   — warning flash message (string)
  */
 $s               = $this->settings ?? [];
+/*
+ * The stored SMTP password is never rendered back into the page.
+ *
+ * It is encrypted at rest, and printing it into `value=""` put it in clear in the
+ * HTML of an admin screen — in every proxy cache, every screenshot and every "can
+ * you look at my screen". The field submits empty to mean "keep what is stored", so
+ * the placeholder is the only thing that says whether there is one.
+ */
+$smtpPassIsSet   = (bool) ($this->smtpPassIsSet ?? false);
 $tzs             = $this->timezones ?? \DateTimeZone::listIdentifiers();
 
 $defaultSteps = \Pramnos\Application\Controllers\SettingsController::DEFAULT_LOCKOUT_STEPS;
@@ -155,10 +165,11 @@ ksort($initialSteps, SORT_NUMERIC);
                         </div>
                         <div class="col-md-6">
                             <label for="smtp_pass" class="form-label fw-semibold">SMTP Password</label>
-                            <input id="smtp_pass" type="password" name="smtp_pass" class="form-control" autocomplete="new-password" value="<?php echo htmlspecialchars($s['smtp_pass'] ?? ''); ?>
+                            <input id="smtp_pass" type="password" name="smtp_pass" class="form-control" autocomplete="new-password" value=""
+                                placeholder="<?php echo $smtpPassIsSet ? 'Stored — leave blank to keep' : ''; ?>">
                             <?php echo \Pramnos\Html\PasswordToggle::render(
                                 'smtp_pass', '', ''
-                            ); ?>">
+                            ); ?>
                         </div>
                         <div class="col-md-3">
                             <label class="form-label fw-semibold d-block">Use TLS/SSL</label>
