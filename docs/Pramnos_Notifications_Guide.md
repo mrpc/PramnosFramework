@@ -78,8 +78,21 @@ class User extends \Pramnos\Application\OrmModel implements \Pramnos\Notificatio
 }
 ```
 
-`Pramnos\User\User` already is one. The trait gives you `notify()` and the default
-routing below.
+`Pramnos\User\User` already is one — and an application's own user class is too, because
+it extends that. The trait gives you `notify()` and the default routing below, which is
+what `User` needs unchanged: `mail` reads `$this->email`, `database` reads `$this->userid`.
+
+!!! note "This sentence was wrong until 23 September 2026"
+
+    `User` implemented neither the interface nor the trait, so the worked example above
+    ended in `Call to undefined method Pramnos\User\User::notify()` — the first line
+    anybody writes from this page, and the first that failed.
+
+    It went unreported because of *where* it fails. A notification is sent from a
+    scheduled pass, and a fatal in a scheduled pass is a silent nothing: the daemon logs
+    it and the next tick runs. Nobody is waiting on the response and there is no red
+    screen. If you worked around it with `(new Notifier())->sendNow($user, $notification)`,
+    that is the same path one line lower down and can go.
 
 ## `Message` — when there is no event to name
 

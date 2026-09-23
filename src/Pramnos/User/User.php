@@ -7,8 +7,32 @@ namespace Pramnos\User;
  * @author      Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
  * @license    MIT
  */
-class User extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiList\ApiListSource
+class User extends \Pramnos\Framework\Base implements
+    \Pramnos\Application\ApiList\ApiListSource,
+    \Pramnos\Notification\NotifiableInterface
 {
+    /**
+     * `$user->notify($notification)`, which the Notifications Guide has always documented.
+     *
+     * It said *"`Pramnos\User\User` already is one"* and it was not: the class implemented
+     * neither the interface nor the trait, so the guide's whole worked example ended in a
+     * fatal — `Call to undefined method Pramnos\User\User::notify()` — on the first line
+     * anybody writes from it.
+     *
+     * The shape of that failure is the reason it went unreported for so long: a
+     * notification is sent from a scheduled pass, and a fatal in a scheduled pass is a
+     * silent nothing rather than a red screen. The daemon logs it and the next tick runs.
+     *
+     * The trait's default routing was already correct for this class and always had been —
+     * `routeNotificationFor('mail')` reads `$this->email`, `'database'` reads
+     * `$this->userid`, and `DatabaseChannel` already falls back to `$notifiable->userid`.
+     * Every channel was built expecting this shape. Only the entry point was missing.
+     *
+     * An application overriding the routing does it the way the guide shows, by aliasing
+     * the trait's method — see "Per-user preferences" there.
+     */
+    use \Pramnos\Notification\NotifiableTrait;
+
 
     private $_userstable = null;
     private $_userdetailstable = null;
