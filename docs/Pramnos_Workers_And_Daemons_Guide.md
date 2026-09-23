@@ -1040,15 +1040,58 @@ The `s3` driver needs `aws/aws-sdk-php`, which is **not** a dependency of this f
 `composer require aws/aws-sdk-php` in the application that wants it. Without it the driver
 says so on construction rather than failing with a class-not-found from three frames down.
 
-!!! warning "The media system does not use it yet"
+### The media system publishes to a disk called `media`
 
-    `MediaObject` still writes to `www/uploads/` directly — twenty filesystem calls, and GD
-    writing with `imagejpeg($image, $path)`, which needs a real path a bucket does not have.
-    So configuring an `s3` disk today gives an application somewhere to put **its own**
-    files; it does not move the framework's uploads there.
+Name a disk `media` and the media system uses it. Name it anything else, or none at all,
+and nothing changes:
 
-    Until that lands, a shared mount is the answer for the media system on more than one
-    server.
+```php
+'storage' => [
+    'disks' => [
+        'media' => ['driver' => 's3', 'bucket' => …, 'url' => 'https://cdn.example.com'],
+    ],
+],
+```
+
+A disk name rather than a new setting, because a name is discoverable — somebody reading
+`app.php` sees what it is for — and one concept is cheaper than two.
+
+**With no `media` disk every path is a no-op.** The file stays in `www/uploads/`, served by
+the web server exactly as before, and nothing is copied. That is deliberate and not merely
+conservative: on one server, or on several sharing a mount, local disk *is* the right answer
+and a publish step would be a copy from a directory to itself.
+
+#### The work stays local; only the result is published
+
+GD writes with `imagejpeg($image, $path)` — a real filesystem path a bucket does not have.
+So the pipeline is unchanged: upload, resize and thumbnail locally, then publish what came
+out. **The local copies stay**, because they are the origin a later resize reads and, on a
+single server, also what is served; deleting them would make rendering a page depend on the
+disk being reachable.
+
+`$media->url` is already the key. It is the path relative to `www/` —
+`uploads/2026/09/x.png` — which is what the media system has stored since long before there
+was a disk, so nothing about the database changes.
+
+#### Ask for the address rather than building it
+
+```php
+<img src="<?php echo htmlspecialchars($media->publicUrl('thumb')); ?>">
+```
+
+`publicUrl()` is the disk's address when there is one and the site's own when there is not.
+A view concatenating `sURL` with the stored path keeps working — and keeps pointing at the
+server the file may no longer be on.
+
+#### Backfilling an existing library
+
+`republishToStorage()` puts anything that is not on the disk yet and skips what is, so it is
+cheap to run repeatedly over a whole library — which is what you want after configuring a
+disk for a site that already has ten thousand pictures, and what you want again after the
+disk was unreachable for an hour.
+
+Publishing is best effort: a disk that is down does not fail an upload the application has
+already accepted and saved. The row is the record; the disk is a copy of it.
 
 ### Sessions in a shared store, without touching `php.ini`
 

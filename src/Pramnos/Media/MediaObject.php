@@ -1748,6 +1748,12 @@ class MediaObject extends \Pramnos\Framework\Base
         }
         $this->name = $thename;
         $this->save();
+
+        // After `save()`, deliberately. The row is the record; the disk is a copy of it,
+        // and a publish that fails must not lose an upload the application has accepted.
+        // A no-op unless a `media` disk is configured — see publishToStorage().
+        $this->publishToStorage();
+
         return $this;
     }
 
@@ -2249,6 +2255,11 @@ class MediaObject extends \Pramnos\Framework\Base
                 $result = $database->query($sql);
 
                 if ($result->numRows == 0) {
+                    // The disk first, while the paths are still on the object: the keys
+                    // come from `url`, which survives the unlink, but reading them after
+                    // is a rule the next edit here has to remember.
+                    $this->deleteFromStorage();
+
                     foreach ($this->thumbnails as $image) {
                         @unlink($image->filename);
                     }
@@ -2311,6 +2322,260 @@ class MediaObject extends \Pramnos\Framework\Base
         if ($mediaid !== null && (string) $mediaid !== '' && (int) $mediaid > 0) {
             $this->load($mediaid);
         }
+    }
+
+    /**
+     * The disk media is published to, or **null** when nobody asked for one.
+     *
+     * ## How this stays optional
+     *
+     * A disk named `media` in `app/config/app.php` is the entire opt-in:
+     *
+     * ```php
+     * 'storage' => ['disks' => ['media' => ['driver' => 's3', … , 'url' => 'https://cdn…']]],
+     * ```
+     *
+     * With no such disk this answers null and **every path below does nothing** — the file
+     * stays where `uploadFile()` put it, `www/uploads/`, served by the web server exactly
+     * as before. That is deliberate rather than conservative: on one server, or on several
+     * sharing a mount, local disk is the right answer and a publish step would be a copy
+     * from a directory to itself.
+     *
+     * A disk called `media` rather than a new `media_disk` setting, because a name is
+     * discoverable — somebody reading `app.php` sees what it is for — and one concept is
+     * cheaper than two.
+     *
+     * @return \Pramnos\Storage\StorageInterface|null
+     */
+    protected function mediaDisk()
+    {
+        try {
+            $manager = \Pramnos\Storage\Storage::getManager();
+        } catch (\Throwable) {
+            // Storage misconfigured entirely. Local disk is the honest fallback and the
+            // file is already on it.
+            return null;
+        }
+
+        try {
+            return $manager->disk('media');
+        } catch (\Throwable) {
+            // No `media` disk: not an error, the answer to "was one asked for".
+            return null;
+        }
+    }
+
+    /**
+     * Copy this object's files onto the configured media disk.
+     *
+     * ## Why the work stays local and only the result is published
+     *
+     * GD writes with `imagejpeg($image, $path)` and `imagecopyresampled()` — real
+     * filesystem paths, which a bucket does not have. Rewriting the resize path to stream
+     * would mean rewriting `ResizeTools`, and a stream wrapper would hide the difference
+     * until it surfaced as a warning from inside GD.
+     *
+     * So the pipeline is unchanged: upload, resize and thumbnail locally, then publish what
+     * came out. The local copies stay — they are the origin that a later resize reads, and
+     * on a single server they are also what is served. Deleting them would make the
+     * framework depend on the disk being reachable to render a page.
+     *
+     * `$this->url` is already the key: it is the path relative to `www/`
+     * (`uploads/2026/09/x.png`), which is what the media system has stored for twenty
+     * years. Nothing about the database changes.
+     *
+     * Best effort, one file at a time. A disk that is down must not fail an upload the
+     * application has already accepted and saved — the row is correct, the local file is
+     * correct, and the publish is retried by {@see republishToStorage()}.
+     *
+     * @return int How many files were put on the disk
+     */
+    public function publishToStorage(): int
+    {
+        $disk = $this->mediaDisk();
+        if ($disk === null) {
+            return 0;
+        }
+
+        $published = 0;
+
+        foreach ($this->storableFiles() as $key => $localFile) {
+            try {
+                $contents = @file_get_contents($localFile);
+                if ($contents === false) {
+                    continue;
+                }
+
+                if ($disk->put($key, $contents)) {
+                    $published++;
+                }
+            } catch (\Exception $ex) {
+                /*
+                 * `\Exception`, not `\Throwable`, and the difference is the point.
+                 *
+                 * A disk that is down, a bucket that refuses, a path that will not write —
+                 * those are `Exception`s and they are what this absorbs, because an upload
+                 * the application has already accepted and saved must not fail over a
+                 * copy that can be retried.
+                 *
+                 * An `Error` is a fault in this code — a null disk, a method that is not
+                 * there — and swallowing it would make the bug invisible: the publish
+                 * would report zero files, which is also what "no disk configured" reports.
+                 * A mutation that removed the null guard above was caught by nothing until
+                 * this catch stopped being `\Throwable`.
+                 */
+                \Pramnos\Logs\Logger::log(
+                    'Media: could not publish ' . $key . ' to the media disk — '
+                    . $ex->getMessage(),
+                    'media'
+                );
+            }
+        }
+
+        return $published;
+    }
+
+    /**
+     * Publish anything that is not on the disk yet.
+     *
+     * For a backfill after a disk is configured, and for retrying a publish that failed
+     * while the disk was unreachable. Skips what is already there, so it is cheap to run
+     * over a whole library repeatedly.
+     *
+     * @return int How many files were newly put
+     */
+    public function republishToStorage(): int
+    {
+        $disk = $this->mediaDisk();
+        if ($disk === null) {
+            return 0;
+        }
+
+        $published = 0;
+
+        foreach ($this->storableFiles() as $key => $localFile) {
+            try {
+                if ($disk->exists($key)) {
+                    continue;
+                }
+
+                $contents = @file_get_contents($localFile);
+                if ($contents !== false && $disk->put($key, $contents)) {
+                    $published++;
+                }
+            } catch (\Exception) {
+                // Same reasoning as publishToStorage(), including why this is `Exception`
+                // rather than `Throwable`: a disk that cannot be reached is a retry, a
+                // fault in this code is not.
+            }
+        }
+
+        return $published;
+    }
+
+    /**
+     * Remove this object's files from the media disk.
+     *
+     * Called from `delete()` beside the `unlink()`s. A row whose files are gone locally and
+     * present on the disk is the worse half of the two: the local copy is a cache, and the
+     * disk is what a CDN reads.
+     *
+     * @return void
+     */
+    public function deleteFromStorage(): void
+    {
+        $disk = $this->mediaDisk();
+        if ($disk === null) {
+            return;
+        }
+
+        $keys = array_keys($this->storableFiles());
+        if ($keys === []) {
+            return;
+        }
+
+        try {
+            $disk->delete($keys);
+        } catch (\Exception $ex) {
+            \Pramnos\Logs\Logger::log(
+                'Media: could not remove ' . implode(', ', $keys) . ' from the media disk — '
+                . $ex->getMessage(),
+                'media'
+            );
+        }
+    }
+
+    /**
+     * The address a browser should use for this picture.
+     *
+     * With a media disk it is the disk's — a CDN, or the bucket itself. Without one it is
+     * the site root plus the stored path, which is what every view has been building by
+     * hand. Callers that ask here rather than concatenating keep working when a disk is
+     * added later, which is the point.
+     *
+     * @param  string $reason Which rendition: `thumb`, `medium`, `original`, or `''` for
+     *                        the file itself
+     * @return string
+     */
+    public function publicUrl(string $reason = ''): string
+    {
+        $key = (string) $this->url;
+
+        if ($reason !== '') {
+            foreach ($this->thumbnails as $thumb) {
+                if (($thumb->reason ?? '') === $reason && ($thumb->url ?? '') !== '') {
+                    $key = (string) $thumb->url;
+                    break;
+                }
+            }
+        }
+
+        if ($key === '') {
+            return '';
+        }
+
+        $disk = $this->mediaDisk();
+        if ($disk !== null) {
+            $fromDisk = $disk->url($key);
+            if ($fromDisk !== '') {
+                return $fromDisk;
+            }
+        }
+
+        // No disk, or a private one with no public base: the site's own copy.
+        return \Pramnos\Http\SiteUrl::to($key);
+    }
+
+    /**
+     * Every file this object owns, as `disk key => local path`.
+     *
+     * The original and every rendition. Keyed by `url` because that is already the path
+     * relative to `www/` and therefore already the disk key — the media system has stored
+     * it that way since long before there was a disk.
+     *
+     * A rendition sharing the original's file — `reason = 'original'` points at it — is
+     * naturally de-duplicated by the array key, so it is published once.
+     *
+     * @return array<string, string>
+     */
+    protected function storableFiles(): array
+    {
+        $files = [];
+
+        if ((string) $this->url !== '' && (string) $this->filename !== '') {
+            $files[(string) $this->url] = (string) $this->filename;
+        }
+
+        foreach ($this->thumbnails as $thumb) {
+            $key   = (string) ($thumb->url ?? '');
+            $local = (string) ($thumb->filename ?? '');
+
+            if ($key !== '' && $local !== '') {
+                $files[$key] = $local;
+            }
+        }
+
+        return $files;
     }
 
     /**

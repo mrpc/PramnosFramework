@@ -893,6 +893,58 @@ where all three bugs showed, and it is the pixel a rectangle fills and a silhoue
 not. A test that checks the middle passes on every one of them.
 
 
+## Putting media on object storage
+
+Name a storage disk `media` and uploads are published to it as well as written locally:
+
+```php
+// app/config/app.php
+'storage' => [
+    'disks' => [
+        'media' => [
+            'driver' => 's3',
+            'bucket' => envvar('APP_S3_BUCKET'),
+            'region' => envvar('APP_S3_REGION'),
+            'key'    => envvar('APP_S3_KEY'),
+            'secret' => envvar('APP_S3_SECRET'),
+            'url'    => 'https://cdn.example.com',
+        ],
+    ],
+],
+```
+
+Then ask for the address rather than building it:
+
+```php
+<img src="<?php echo htmlspecialchars($media->publicUrl('thumb')); ?>">
+```
+
+**With no `media` disk, none of this does anything** — the file stays in `www/uploads/`,
+`publicUrl()` answers the site's own address, and nothing is copied. Every existing
+installation is that case and is unaffected.
+
+The `s3` driver needs `aws/aws-sdk-php`, which is the application's dependency rather than
+the framework's: `composer require aws/aws-sdk-php`.
+
+### What is published, and what stays
+
+| | |
+|---|---|
+| Published | the original and every rendition, keyed by `url` — the path relative to `www/` |
+| Kept locally | all of them. The local copy is the origin a later resize reads, and on a single server it is also what is served |
+| On delete | `delete()` removes them from the disk as well |
+| Backfill | `republishToStorage()` puts what is missing and skips what is there |
+
+**Why the work stays local.** GD writes with `imagejpeg($image, $path)` and needs a real
+filesystem path, which a bucket does not have. So the resize pipeline is untouched and only
+its output is published — rather than a stream wrapper, which would hide the difference
+until it surfaced as a warning from inside GD.
+
+Publishing is best effort: a disk that is down does not fail an upload that has already been
+accepted and saved. The row is the record and the disk is a copy of it, which is also why
+`publishToStorage()` runs *after* `save()`.
+
+
 ## Best Practices
 
 ### 1. File Upload Security
