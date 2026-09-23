@@ -30,6 +30,7 @@ Every application registers these during `init()`:
 | `cache` | Whether the cache is on the store it was **configured** for. `degraded` when it fell back — the application works, on the wrong store. |
 | `hypertables` | Whether a declared hypertable is one, and whether a continuous aggregate is one. `degraded` when the catalogue disagrees with the declaration. |
 | `site_url` | The site's public root, and where it came from. `degraded` while it is only being inferred from the request. |
+| `session_storage` | Which store PHP keeps sessions in. `degraded` on `files`, which is local to one machine. |
 
 With the `authserver` feature enabled, one more is registered by
 `AuthServerServiceProvider`:
@@ -56,6 +57,26 @@ yourself if yours does.
     the missing extension, because the container is almost always up and the extension
     is almost always the answer. It reports `degraded`: the site is working, and a
     check that pages somebody for a working site is a check that gets muted.
+
+!!! note "Why `session_storage` is degraded on `files`"
+
+    `files` is PHP's default and is right on one machine: free, no dependency, nothing to
+    configure. On two it is the quietest failure in a deployment — a visitor whose next
+    request lands on the other node has no session, so they are signed out at random on a
+    site that is otherwise working, and it reads as an expiry, a cookie problem, a
+    `SameSite` mistake. Everything except a load balancer.
+
+    Nothing else reports it, which is the argument for a check: the application works,
+    every test passes, and the failure exists only in a topology the developer's machine
+    does not have.
+
+    `APP_SESSION_HANDLER=redis` in `.env` (or `'session' => ['handler' => 'redis']` in
+    `app/config/app.php`) turns it green. With no path it reuses the cache's host. Sticky
+    sessions at the load balancer are the other answer, and this check cannot see them —
+    if that is your arrangement, this one stays yellow deliberately.
+
+    The check names the store either way, because the common way to get this wrong is not
+    leaving it on files but pointing it at a Redis the other nodes do not use.
 
 !!! note "Why `site_url` is degraded when nothing is configured"
 

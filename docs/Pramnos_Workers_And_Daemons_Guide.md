@@ -995,6 +995,28 @@ makes and the reason the number is an argument rather than a constant.
 closure, so two unrelated closure tasks would share one lock and take turns not running.
 `onOneServer()` raises rather than letting that happen — pass `name:`.
 
+### Sessions in a shared store, without touching `php.ini`
+
+```php
+// app/config/app.php
+'session' => ['handler' => 'redis'],
+```
+
+or `APP_SESSION_HANDLER=redis` in `.env`, which wins over it.
+
+The handler is settable at run time as long as it is set **before** `session_start()`, and
+that is the window `Session::start()` already runs in — next to `use_strict_mode` and for
+the same reason. So this needs no `php.ini` a deployment may not control.
+
+With no `path`, the **cache's host is reused**: an application that has configured Redis for
+its cache has already said where Redis is, and a second copy of a hostname is a second thing
+to get wrong — silently, because a wrong session host signs people out rather than erroring.
+Give `'path'` explicitly when the two are different servers.
+
+It never fails the request. A handler PHP has not registered, a store that is down, a
+misspelling — all leave sessions on files, which is a working single server rather than a
+site that will not boot, and `health:check` says `session_storage` is degraded. Which store
+PHP has is `php -i | grep "save handlers"`.
 
 ## See also
 

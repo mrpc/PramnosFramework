@@ -4260,6 +4260,12 @@ class Application extends Base
         // the scheduler, has no `Host` header to infer from and builds `http:///…` into an
         // email or a webhook instead. Reads `$_SERVER` and the environment, nothing else.
         $registry::register(new \Pramnos\Health\Checks\SiteUrlCheck());
+
+        // Where PHP keeps sessions. `files` is right on one machine and the quietest
+        // failure in a deployment on two: a visitor whose next request lands on the other
+        // node has no session, and being signed out at random reads as an expiry rather
+        // than as a load balancer. Reads two ini settings and nothing else.
+        $registry::register(new \Pramnos\Health\Checks\SessionStorageCheck());
     }
 
 

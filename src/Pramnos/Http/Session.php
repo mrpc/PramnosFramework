@@ -398,6 +398,147 @@ class Session extends Base
     }
 
     /**
+     * Put the session in the store the application asked for, before it starts.
+     *
+     * ## Why this is here rather than in `php.ini`
+     *
+     * PHP keeps sessions in local files unless told otherwise, and on **one** server that
+     * is correct and free. On two it is the quietest failure in a deployment: a visitor
+     * whose next request lands on the other node has no session, so they are signed out at
+     * random — and it looks like an expiry, a cookie problem, anything but a load
+     * balancer. The framework never said anything about this, and the only remedies were
+     * sticky sessions at the balancer or a `php.ini` nobody deploying an application
+     * necessarily controls.
+     *
+     * The handler **is** settable at run time, as long as it is set before
+     * `session_start()` — which is exactly the window this method runs in, next to
+     * `use_strict_mode` and for the same reason. Verified rather than assumed:
+     * `session_module_name('redis')` returns the previous handler and the session lands in
+     * Redis.
+     *
+     * ```php
+     * // app/config/app.php
+     * 'session' => [
+     *     'handler' => 'redis',                  // any handler PHP has registered
+     *     'path'    => 'tcp://redis:6379',       // optional — see below
+     * ],
+     * ```
+     *
+     * `APP_SESSION_HANDLER` and `APP_SESSION_PATH` in the environment win over both, so a
+     * deployment can switch stores without an edit to a committed file.
+     *
+     * **With no `path`, the cache's own host is used.** An application that has configured
+     * Redis for its cache has already said where Redis is, and a second copy of a hostname
+     * is a second thing to get wrong — and one that only shows up as random sign-outs.
+     *
+     * ## What it does not do
+     *
+     * It does not fail. A handler PHP has not registered, a store that is down, a
+     * misspelling — any of those leave the session on files, which is a working single
+     * server rather than a site that will not boot. {@see \Pramnos\Health\Checks\SessionStorageCheck}
+     * is what says so, because "it works on one node" is precisely the state nobody
+     * notices.
+     *
+     * @return void
+     */
+    protected static function applyConfiguredStore(): void
+    {
+        $handler = static::configuredSessionValue('handler', 'APP_SESSION_HANDLER');
+
+        if ($handler === '' || $handler === ini_get('session.save_handler')) {
+            // Nothing asked for, or already there.
+            return;
+        }
+
+        // `session_module_name()` rather than `ini_set()`: it is the documented way to
+        // change the handler, it returns the previous one, and it warns rather than
+        // failing silently when the module is unknown.
+        if (@session_module_name($handler) === false) {
+            \Pramnos\Logs\Logger::log(
+                'Session store: PHP has no "' . $handler . '" save handler registered, so '
+                . 'sessions stay on ' . ini_get('session.save_handler') . '. '
+                . 'Registered handlers are listed by `php -i | grep "save handlers"`.',
+                'auth'
+            );
+
+            return;
+        }
+
+        $path = static::configuredSessionValue('path', 'APP_SESSION_PATH');
+
+        if ($path === '') {
+            $path = static::sessionPathFromCache($handler);
+        }
+
+        if ($path !== '') {
+            ini_set('session.save_path', $path);
+        }
+    }
+
+    /**
+     * One session setting, from the environment first and `app.php` second.
+     *
+     * The environment wins because that is where a deployment differs from a checkout —
+     * the same reason `envvar()` is what the scaffolded `app.php` reads everything through.
+     *
+     * @param string $key    Key under the `session` settings array
+     * @param string $envVar Environment variable that overrides it
+     */
+    protected static function configuredSessionValue(string $key, string $envVar): string
+    {
+        $fromEnv = getenv($envVar);
+        if (is_string($fromEnv) && trim($fromEnv) !== '') {
+            return trim($fromEnv);
+        }
+
+        if (isset($_ENV[$envVar]) && trim((string) $_ENV[$envVar]) !== '') {
+            return trim((string) $_ENV[$envVar]);
+        }
+
+        $configured = \Pramnos\Application\Settings::getSetting('session');
+        if (!is_array($configured)) {
+            return '';
+        }
+
+        return trim((string) ($configured[$key] ?? ''));
+    }
+
+    /**
+     * Where the cache says its Redis or Memcached lives, as a session save path.
+     *
+     * So an application that has configured one host does not configure it twice. The two
+     * are the same server in every deployment that has either, and a second copy is a
+     * second thing to get wrong — silently, because a wrong session host is a site that
+     * signs people out rather than one that errors.
+     *
+     * Returns `''` when the cache has nothing to say, in which case PHP's own default for
+     * that handler applies — which for Redis is `tcp://127.0.0.1:6379` and right on a
+     * single-host installation.
+     */
+    protected static function sessionPathFromCache(string $handler): string
+    {
+        $cache = \Pramnos\Application\Settings::getSetting('cache');
+        if (!is_array($cache)) {
+            return '';
+        }
+
+        $host = trim((string) ($cache['hostname'] ?? ''));
+        if ($host === '') {
+            return '';
+        }
+
+        $port = (int) ($cache['port'] ?? 0);
+
+        return match ($handler) {
+            'redis'     => 'tcp://' . $host . ':' . ($port > 0 ? $port : 6379),
+            // Memcached's save path is a plain host:port list, with no scheme.
+            'memcached',
+            'memcache'  => $host . ':' . ($port > 0 ? $port : 11211),
+            default     => '',
+        };
+    }
+
+    /**
      * Check if user is logged in or not
      * @return boolean
      */
@@ -431,6 +572,9 @@ class Session extends Base
             // ini changes on an already-active session. Rejects session IDs
             // not generated by the server (prevents URL/cookie fixation).
             ini_set('session.use_strict_mode', '1');
+
+            // And the store, for the same reason and in the same window.
+            static::applyConfiguredStore();
 
             $secure = static::isHttps();
             session_set_cookie_params([
