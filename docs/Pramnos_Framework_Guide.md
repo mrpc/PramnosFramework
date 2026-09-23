@@ -1210,6 +1210,44 @@ $result = (new MiddlewarePipeline())
     ->run($request, fn($req) => $controller->myAction());
 ```
 
+### A middleware can decide what the request *is*
+
+A middleware is not limited to what happens around the dispatch. It can change the
+route, and the application will dispatch what it decided:
+
+```php
+class HostRoutingMiddleware implements MiddlewareInterface
+{
+    public function handle(Request $request, callable $next): mixed
+    {
+        if ($request->getHeader('Host') === 'bio.example.com') {
+            $request->setController('bio')->setAction('geekdom');
+        }
+
+        return $next($request);
+    }
+}
+```
+
+This is most of the reason to have a pipeline at all — a `Host` header, a locale
+prefix, a maintenance switch, an A/B split: every one of them is "what is this
+request" answered from something other than the path.
+
+**How it works, and its one rule.** `init()` reads the route off the URL before the
+pipeline runs, so `exec()` reads the request again at dispatch and takes the later
+answer. The rule is that a route the application has assigned **by hand** still
+wins:
+
+| What happened between `init()` and `exec()` | What is dispatched |
+|---|---|
+| a middleware called `setController()` | the middleware's answer |
+| nothing | the URL's, exactly as before |
+| `$app->controller = 'dashboard';` | `dashboard` — an explicit statement outranks the URL |
+| `$app->exec('reports')` | `reports` — the most explicit of all |
+
+Set the action as well as the controller. A controller changed on its own leaves the
+path's action behind, which is rarely the pair you meant.
+
 ### Built-in Middleware
 
 | Class | Description |

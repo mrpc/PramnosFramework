@@ -106,6 +106,16 @@ class Application extends Base
      */
     public $action;
     /**
+     * What the URL said the route was, as {@see init()} read it.
+     *
+     * Kept so {@see exec()} can tell a route that nothing has touched since boot
+     * from one an application deliberately assigned — `$app->controller = 'x'`
+     * between `init()` and `exec()` must still win. Null until `init()` has run.
+     *
+     * @var array{0: string, 1: string}|null
+     */
+    private $routeAtInit = null;
+    /**
      * Controller information
      * @var string
      */
@@ -878,6 +888,9 @@ class Application extends Base
             $this->controller = $request->getController();
         }
         $this->action = $request->getAction();
+
+        // The route as the URL gave it. {@see adoptLateRouteChanges()}
+        $this->routeAtInit = [(string) $this->controller, (string) $this->action];
 
         //End of set session defaults
         $this->language = $this->resolveLanguage();
@@ -2230,6 +2243,70 @@ class Application extends Base
         return defined('sURL') ? (string) sURL : '';
     }
 
+    /**
+     * Take a route the request has been given since {@see init()} read it.
+     *
+     * ## The problem this solves
+     *
+     * `init()` copies the controller and action off the URL, and the middleware
+     * pipeline runs **after** it — the scaffolded entry point is `init()`, then
+     * `new MiddlewarePipeline()`, then `$pipeline->run($request, fn() => $app->exec())`.
+     * So a middleware calling `$request->setController('bio')->setAction('geekdom')`
+     * was writing to an object nothing read again, and `exec()` dispatched whatever
+     * the path had said.
+     *
+     * Deciding what a request *is* from something other than the path — a `Host`
+     * header, a locale prefix, a maintenance switch, an A/B split — is close to the
+     * whole reason to have a pipeline. It wrapped the dispatch, as documented, but
+     * only the *execution* of a decision already taken.
+     *
+     * ## Why it was invisible
+     *
+     * `Request::$_controller` is static, so the setter succeeded and
+     * `getController()` returned the new value straight back. A test asserting the
+     * middleware's decision passed. The first thing that ever disagreed was a
+     * production URL serving the wrong page.
+     *
+     * ## Why this cannot change an application that does not use it
+     *
+     * The request is only consulted when the route **still is** what `init()` read.
+     * An application that assigns `$app->controller` itself between the two calls
+     * has said something the URL did not, and keeps it. An explicit
+     * `exec('somecontroller')` argument is likewise untouched — it is the most
+     * explicit statement of all.
+     *
+     * And on a request no middleware touched, the value read here is the one
+     * `init()` already read, so the assignment is its own no-op.
+     *
+     * `getInstance()` rather than `new Request()`: constructing one re-runs
+     * `calcParams()`, which recomputes the controller from the URI — it would
+     * erase the very decision this is here to collect.
+     *
+     * @param  string $explicit The controller name passed to {@see exec()}, if any
+     * @return void
+     */
+    private function adoptLateRouteChanges(string $explicit): void
+    {
+        if ($explicit !== '' || $this->routeAtInit === null) {
+            return;
+        }
+
+        if ([(string) $this->controller, (string) $this->action] !== $this->routeAtInit) {
+            // Somebody assigned the route by hand. That outranks the URL.
+            return;
+        }
+
+        $request    = \Pramnos\Http\Request::getInstance();
+        $controller = (string) $request->getController();
+
+        if ($controller === '') {
+            return;
+        }
+
+        $this->controller = $controller;
+        $this->action     = $request->getAction();
+    }
+
     public function exec($coontrollerName = '')
     {
         $this->cspNonce = base64_encode(random_bytes(16));
@@ -2254,6 +2331,10 @@ class Application extends Base
          * an explicit `pramnos migrate` or DevPanel trigger.
          */
         $this->runAutoMigrations();
+
+        // A middleware may have decided what this request is. It runs after
+        // init(), so its answer has to be collected here or not at all.
+        $this->adoptLateRouteChanges((string) $coontrollerName);
 
         /*
          * Find the right controller to load
