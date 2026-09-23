@@ -5,6 +5,7 @@ use_cases:
   - Deciding between raw SQL and the fluent query builder
   - Diagnosing a query that returns nothing or the wrong rows
   - Holding a database handle in a long-lived worker or daemon
+  - Sending reads to a replica and writes to a primary
   - Reading a table's columns, types or foreign keys from code
 ---
 
@@ -1941,6 +1942,62 @@ class SecureDataHandler
 ```
 
 The Pramnos Database API provides a comprehensive, secure, and flexible foundation for all database operations, supporting both MySQL and PostgreSQL with advanced features for modern web applications.
+
+## Read/write replicas
+
+A primary for writes and one or more replicas for reads is how a database scales past one
+machine, and the routing is automatic: declare the two roles and application code does not
+change.
+
+```php
+'database' => [
+    'write' => [
+        'hostname' => 'db-primary',
+        'user'     => 'app',
+        'password' => '…',
+        'database' => 'myapp',
+    ],
+    'read' => [
+        'hostname' => 'db-replica',
+        'user'     => 'app',
+        'password' => '…',
+        'database' => 'myapp',
+    ],
+],
+```
+
+Either block may be partial — anything it omits falls back to the top-level connection
+settings, so a replica that differs only in hostname says only that.
+
+### How a statement picks a link
+
+`isWriteQuery()` reads the first keyword. `SELECT`, `SHOW`, `EXPLAIN`, `DESC` and
+`DESCRIBE` go to the read link; **everything else goes to the write link**, which is the
+safe direction to be wrong in — an unrecognised statement reaches the primary rather than
+being refused by a read-only replica.
+
+The two links are independent sessions. The configured time zone and collation are applied
+to each, and a link a failed statement has shown to be gone is replaced on the next call
+without disturbing the other one.
+
+### What to know before turning it on
+
+- **Replica lag.** A write and an immediate `SELECT` of the same row are two connections,
+  and the replica may not have the write yet. Code that must read its own write has to
+  avoid the split for that read — the usual shape is to use the value already in hand
+  rather than re-reading it.
+- **This is not failover.** Two hostnames are configuration, not a cluster: a primary that
+  is down is an outage, not a promotion. Put a proxy, a managed service or a virtual IP in
+  front and point the framework at that.
+- **One block means no split.** With neither `read` nor `write` present the framework uses
+  the single connection it always did, which is what every existing installation gets.
+
+On PostgreSQL, `DatabaseInspector::getReplicationStatus()` reports `pg_stat_replication` —
+client address, state, sync state and lag in seconds — and the DevPanel's database page
+renders it.
+
+See [One server to several](Pramnos_Multi_Server_Guide.md) for the rest of what changes
+when an application stops being on one machine.
 
 ## Session time zone (`database.timezone`)
 

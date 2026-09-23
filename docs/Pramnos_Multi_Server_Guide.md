@@ -224,17 +224,78 @@ exactly the asymmetry that hides this.
 
 ---
 
+## The three that look like gaps and are not
+
+Each of these is per-node by default and shared by configuration. None of them needs code.
+
+### Logs
+
+`var/logs/` is per node, and reading five machines to follow one request is not a plan. The
+logger writes to a **stream** as well as, or instead of, the file:
+
+```bash
+PRAMNOS_LOG_MODE=both    # files keep the LogViewer working, STDERR feeds the collector
+PRAMNOS_LOG_MODE=stream  # STDERR only
+```
+
+`both` is the usual choice on a container: the file stays where `LogViewer` expects it, and
+the same line reaches `docker logs` — which is to say whatever ships it to Loki, CloudWatch
+or journald. The env var is read per process, so a node can differ from its neighbours
+without a deployment. A `LOG_MODE` constant does the same for an installation that would
+rather set it in configuration, and `Logger::setOutputMode()` overrides both.
+
+### `var/cache/` and the write spool
+
+Both default to files, and a file cache on two nodes is two caches: one clears, the other
+serves yesterday. Both have a Redis driver, and neither announces that it is not using it —
+which is the actual failure mode, since every page still works.
+
+- **Cache** — configure the `redis` adapter. `Cache` falls back down the adapter list when
+  the one it was asked for cannot be reached, so the settings can say `redis` while the
+  cache is on local disk. That is what `CacheBackendCheck` is for: it reports **degraded**
+  when the running backend is not the configured one, and it is the check to watch before
+  the second node goes live.
+- **Write spool** — set the driver to `redis`. It falls back to the file on a Redis that
+  will not take the row, because making the request wait for the database is worse than a
+  local file — so the same caveat applies: verify the driver in use rather than the one in
+  settings.
+
+### Database
+
+Read/write splitting is built in and automatic. Declare the two roles in the `database`
+settings block:
+
+```php
+'database' => [
+    'write' => ['hostname' => 'db-primary', 'user' => 'app', 'password' => '…', 'database' => 'myapp'],
+    'read'  => ['hostname' => 'db-replica', 'user' => 'app', 'password' => '…', 'database' => 'myapp'],
+],
+```
+
+Every statement is then routed by its first keyword — `SELECT`, `SHOW`, `EXPLAIN`, `DESC`
+and `DESCRIBE` to the read link, everything else to the write link — so application code
+does not choose, and nothing that already works has to change. Each link is a separate
+session: the configured time zone and collation are applied to both, and a link a failed
+statement has shown to be gone is replaced on its own without taking the other one with it.
+
+What this does not give you is **failover**: the two hostnames are configuration, not a
+cluster, and a primary that is down is an outage rather than a promotion. That belongs to
+whatever is in front of the database — a proxy, a managed service, a virtual IP — and the
+framework is content to be pointed at it. Replica lag is the other thing to know about:
+a write followed immediately by its own `SELECT` can read the state before the write, so
+anything that must read its own write needs to stay on one connection.
+
+See [Database API](Pramnos_Database_API_Guide.md#readwrite-replicas) for the full
+configuration.
+
 ## What this framework does not solve for you
 
-Stated plainly, because a guide that only lists what works is not a guide:
+One thing, stated plainly, because a guide that only lists what works is not a guide:
 
-- **Local logs.** `var/logs/` is per node. Ship them somewhere, or read them per machine.
-- **`var/cache/` and any file spool.** The write spool has a `redis` driver; use it.
 - **Deploy consistency.** Nothing here ensures two nodes are running the same commit. That
   is the deployment tool's job, and the symptom of getting it wrong — half the requests
-  behaving like last week — is one nothing in the application can report.
-- **Database.** One database, and everything above assumes it. Replication, failover and
-  read splitting are out of scope; the framework talks to one connection.
+  behaving like last week — is one nothing in the application can report, because each node
+  answers correctly for the code it is running.
 
 ## Related
 
