@@ -54,24 +54,8 @@ class Webhook extends Controller
     /** Delivery queue and audit log. */
     protected const TABLE_EVENTS = 'applications.oauth2_webhook_events';
 
-    /**
-     * The event types an endpoint may subscribe to.
-     *
-     * Repeated from the table's own CHECK constraint on purpose: a value the
-     * database refuses should be refused here, with a message naming the
-     * alternatives, rather than reaching the driver and coming back as a
-     * constraint violation nobody can act on.
-     */
-    protected const EVENT_TYPES = [
-        'user_deauthorized',
-        'token_revoked',
-        'gdpr_request',
-        'user_profile_changed',
-        'device_deauthorized',
-        'account_deleted',
-        'scope_changed',
-        'permissions_changed',
-    ];
+    /** The event types an endpoint may subscribe to. {@see WebhookService::EVENT_TYPES} */
+    protected const EVENT_TYPES = WebhookService::EVENT_TYPES;
 
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
@@ -335,17 +319,10 @@ class Webhook extends Controller
         }
 
         // Refused here as well as at delivery, so the relying party hears it now rather
-        // than finding a column of failed deliveries later. A name that does not resolve
-        // yet is accepted: DNS is set up after registration as often as before it, and
-        // every delivery is checked again, pinned, by the client.
-        $host = (string) parse_url($url, PHP_URL_HOST);
-        foreach (\Pramnos\Security\OutboundUrl::addressesOf($host) as $address) {
-            if (!\Pramnos\Security\OutboundUrl::isPublicAddress($address)) {
-                return [
-                    'error'             => 'invalid_request',
-                    'error_description' => 'endpoint_url resolves to an address inside this network',
-                ];
-            }
+        // than finding a column of failed deliveries later.
+        $refusal = WebhookService::addressRefusal($url);
+        if ($refusal !== null) {
+            return ['error' => 'invalid_request', 'error_description' => $refusal];
         }
 
         if (!in_array($type, self::EVENT_TYPES, true)) {
@@ -367,50 +344,7 @@ class Webhook extends Controller
     /** Insert or replace this application's endpoint for one event type. */
     protected function storeEndpoint(int $appId, string $url, string $type, string $secret): void
     {
-        // Encrypted at rest. The signing key has to be recoverable — it is the HMAC
-        // key {@see \Pramnos\Auth\WebhookService::deliverEvent()} signs each
-        // delivery with — so hashing is not an option here the way it is for a
-        // password. Anyone who could read this column could forge a webhook the
-        // receiver would accept as ours.
-        //
-        // Left as-is when APP_KEY is unset: an installation without a key must still
-        // be able to register an endpoint, and the row converts itself on the next
-        // write. WebhookService reads through maybeDecrypt(), so both forms work.
-        if (\Pramnos\Security\Encrypter::isAvailable()) {
-            $secret = \Pramnos\Security\Encrypter::encrypt($secret);
-        }
-
-        $builder = $this->database()->queryBuilder();
-
-        $existing = $builder->table(self::TABLE_ENDPOINTS)
-            ->select(['webhook_id'])
-            ->where('appid', $appId)
-            ->where('webhook_type', $type)
-            ->first();
-
-        if ($existing && $existing->numRows > 0) {
-            $this->database()->queryBuilder()
-                ->table(self::TABLE_ENDPOINTS)
-                ->where('webhook_id', (int) $existing->fields['webhook_id'])
-                ->update([
-                    'endpoint_url' => $url,
-                    'secret_key'   => $secret,
-                    'is_active'    => true,
-                    'updated_at'   => date('Y-m-d H:i:s'),
-                ]);
-
-            return;
-        }
-
-        $this->database()->queryBuilder()
-            ->table(self::TABLE_ENDPOINTS)
-            ->insert([
-                'appid'        => $appId,
-                'endpoint_url' => $url,
-                'webhook_type' => $type,
-                'secret_key'   => $secret,
-                'is_active'    => true,
-            ]);
+        $this->service()->saveEndpoint($appId, $url, $type, $secret, WebhookService::REGISTERED_BY_CLIENT);
     }
 
     /**

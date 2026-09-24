@@ -649,7 +649,6 @@ class WebhookServiceTest extends TestCase
     {
         return [
             'loopback'       => ['https://127.0.0.1:19991/'],
-            'private'        => ['https://10.0.0.5/hooks'],
             'cloud metadata' => ['https://169.254.169.254/latest/meta-data/'],
             'plaintext'      => ['http://93.184.216.34/hooks'],
         ];

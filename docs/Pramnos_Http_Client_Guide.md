@@ -334,6 +334,32 @@ caller is usually showing one of the two to a user.
 into its own private network, and it does not limit the response. Pair it with
 `maxResponseBytes()` and `timeout()`, as above.
 
+### Letting it reach your own network
+
+Some addresses somebody else chose legitimately live on the operator's network — a partner
+service reached over the VPN, a receiver on the same LAN. `allowAddresses()` names the
+ranges the guard lets through although they are not public:
+
+```php
+use Pramnos\Security\OutboundUrl;
+
+Client::post($url)
+    ->forUserSuppliedUrl()
+    ->allowAddresses(OutboundUrl::PRIVATE_NETWORK_RANGES)   // or ['10.8.0.0/24']
+    ->send();
+```
+
+Everything else about the guard still holds — the scheme, the check on every hop, the
+pinned address — and one address outside the ranges still refuses the whole host.
+
+`OutboundUrl::PRIVATE_NETWORK_RANGES` is RFC 1918, carrier-grade NAT and IPv6 unique-local:
+an organisation's network. It deliberately leaves out loopback and link-local, where this
+machine's own ports and the cloud metadata address answer; a caller that really needs one
+names it (`'127.0.0.1/32'`). The ranges must come from the operator's configuration, never
+from the request — a list the requester supplies allows whatever the requester wants.
+`OutboundUrl::inRanges($address, $ranges)` is the matcher, for IPv4 and IPv6; a range that
+does not parse matches nothing.
+
 ---
 
 ## Timeouts and retries

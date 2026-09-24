@@ -31,6 +31,9 @@ use Pramnos\Framework\Testing\BaseTestCase;
  * that {@see testEveryAdvertisedEventTypeCanBeRegistered} holds the controller's constant against.
  */
 #[CoversClass(Webhook::class)]
+#[CoversClass(\Pramnos\Auth\WebhookService::class)]
+#[CoversClass(\Pramnos\Auth\Controllers\ApplicationsController::class)]
+#[CoversClass(\Pramnos\Framework\Migrations\AuthServer\AddRegisteredByToOauth2WebhookEndpoints::class)]
 class WebhookStorageTest extends BaseTestCase
 {
     private $db;
@@ -69,6 +72,7 @@ class WebhookStorageTest extends BaseTestCase
             \Pramnos\Framework\Migrations\AuthServer\CreateApplicationsTable::class,
             \Pramnos\Framework\Migrations\AuthServer\CreateOauth2WebhooksTables::class,
             \Pramnos\Framework\Migrations\AuthServer\AllowPermissionsChangedWebhook::class,
+            \Pramnos\Framework\Migrations\AuthServer\AddRegisteredByToOauth2WebhookEndpoints::class,
         ], $this->db);
 
         $this->appId      = $this->registerApplication('Webhook test client');
@@ -329,6 +333,271 @@ class WebhookStorageTest extends BaseTestCase
 
         // Assert
         $this->assertSame(0, $this->endpointCount());
+    }
+
+    // ── What an administrator can do from the application's screen ────────────
+
+    /** The store the admin screen writes through. */
+    private function service(): \Pramnos\Auth\WebhookService
+    {
+        return new \Pramnos\Auth\WebhookService($this->db);
+    }
+
+    /**
+     * An administrator's endpoint is recorded as theirs, and becomes the client's again
+     * when the client re-registers it.
+     *
+     * `registered_by` decides whether a delivery is guarded, so it has to follow whoever
+     * last set the address: an application re-registering over an administrator's entry
+     * must not inherit the trust that came with it.
+     */
+    public function testRegisteredByFollowsWhoeverLastSetTheAddress(): void
+    {
+        // Arrange
+        $this->service()->saveEndpoint(
+            $this->appId,
+            'https://10.8.0.5/hooks',
+            'token_revoked',
+            'admin-secret',
+            \Pramnos\Auth\WebhookService::REGISTERED_BY_ADMIN
+        );
+        $this->assertSame('admin', $this->endpointRow()['registered_by'] ?? null, 'precondition');
+
+        // Act — the application registers the same type through the API
+        $_POST = ['endpoint_url' => 'https://example.com/hook', 'webhook_type' => 'token_revoked'];
+        $this->controller()->register();
+
+        // Assert
+        $this->assertSame(1, $this->endpointCount(), 'the endpoint was replaced, not added');
+        $this->assertSame('client', $this->endpointRow()['registered_by'] ?? null);
+        $this->assertSame('https://example.com/hook', $this->storedUrl());
+    }
+
+    /**
+     * The listing for the screen counts deliveries per endpoint and carries no secret.
+     *
+     * The counts come from a grouped query over the events table, which is the part a
+     * double cannot check; the other application's endpoint and events must not appear.
+     */
+    public function testEndpointsForCountsDeliveriesAndLeavesOutTheSecret(): void
+    {
+        // Arrange
+        $this->service()->saveEndpoint($this->appId, 'https://example.com/a', 'token_revoked', 's1');
+        $mine = $this->firstEndpointId();
+        $this->service()->saveEndpoint($this->otherAppId, 'https://example.com/b', 'token_revoked', 's2');
+        $theirs = $this->firstEndpointId();
+        $this->queue($mine, 'sent');
+        $this->queue($mine, 'sent');
+        $this->queue($mine, 'failed');
+        $this->queue($theirs, 'pending');
+
+        // Act
+        $endpoints = $this->service()->endpointsFor($this->appId);
+
+        // Assert
+        $this->assertCount(1, $endpoints, 'only this application\'s endpoint is listed');
+        $this->assertArrayNotHasKey('secret_key', $endpoints[0]);
+        $this->assertSame('client', $endpoints[0]['registered_by']);
+        $this->assertSame(
+            ['pending' => 0, 'sent' => 2, 'failed' => 1, 'cancelled' => 0],
+            $endpoints[0]['events']
+        );
+    }
+
+    /** An application with no endpoints lists none, without querying the events. */
+    public function testEndpointsForAnApplicationWithNoneIsEmpty(): void
+    {
+        // Act
+        $endpoints = $this->service()->endpointsFor($this->appId);
+
+        // Assert
+        $this->assertSame([], $endpoints);
+    }
+
+    /**
+     * A new secret is issued only to the endpoint's own application, and is what is stored.
+     *
+     * The admin screen passes the application id from the page; an id belonging to
+     * another application must change nothing.
+     */
+    public function testRotatingASecretIsScopedToTheOwner(): void
+    {
+        // Arrange
+        $this->service()->saveEndpoint($this->appId, 'https://example.com/a', 'token_revoked', 'original');
+        $id = $this->firstEndpointId();
+
+        // Act
+        $refused = $this->service()->rotateEndpointSecret($this->otherAppId, $id);
+        $issued  = $this->service()->rotateEndpointSecret($this->appId, $id);
+
+        // Assert
+        $this->assertNull($refused, 'another application rotated this secret');
+        $this->assertIsString($issued);
+        $this->assertSame(64, strlen((string) $issued));
+        $this->assertSame(
+            $issued,
+            \Pramnos\Security\Encrypter::maybeDecrypt($this->storedSecret()),
+            'the stored secret is not the one issued'
+        );
+        $this->assertNull($this->service()->rotateEndpointSecret($this->appId, 0), 'no id, no rotation');
+    }
+
+    /**
+     * An endpoint is removed only by its own application.
+     */
+    public function testDeletingAnEndpointIsScopedToTheOwner(): void
+    {
+        // Arrange
+        $this->service()->saveEndpoint($this->appId, 'https://example.com/a', 'token_revoked', 's');
+        $id = $this->firstEndpointId();
+
+        // Act
+        $refused = $this->service()->deleteEndpoint($this->otherAppId, $id);
+        $count   = $this->endpointCount();
+        $deleted = $this->service()->deleteEndpoint($this->appId, $id);
+
+        // Assert
+        $this->assertFalse($refused);
+        $this->assertSame(1, $count, 'another application removed this endpoint');
+        $this->assertTrue($deleted);
+        $this->assertSame(0, $this->endpointCount());
+    }
+
+    /**
+     * The migration adds the column with `client` as its default, and takes it away again.
+     *
+     * The default is the property that matters: rows written before the column existed,
+     * and rows written by an application sharing this database with its own code, must
+     * come out as `client` — the guarded answer.
+     */
+    public function testTheMigrationAddsTheColumnWithClientAsItsDefault(): void
+    {
+        // Arrange
+        // The same stand-in application `runMigrations()` gives a migration: a database and nothing else.
+        $application = (new \ReflectionClass(Application::class))->newInstanceWithoutConstructor();
+        $application->database = $this->db;
+        $migration = new \Pramnos\Framework\Migrations\AuthServer\AddRegisteredByToOauth2WebhookEndpoints(
+            $application
+        );
+        $schema = $this->db->schema();
+
+        try {
+            // Act — down, then up again
+            $migration->down();
+            $afterDown = $schema->hasColumn('applications.oauth2_webhook_endpoints', 'registered_by');
+            $migration->down();   // a second down finds nothing to drop
+            $migration->up();
+            $migration->up();     // and a second up finds the column there
+
+            $this->db->queryBuilder()->table('applications.oauth2_webhook_endpoints')->insert([
+                'appid'        => $this->appId,
+                'endpoint_url' => 'https://example.com/raw',
+                'webhook_type' => 'token_revoked',
+                'secret_key'   => 'raw',
+            ]);
+
+            // Assert
+            $this->assertFalse($afterDown, 'down() left the column');
+            $this->assertSame('client', $this->endpointRow()['registered_by'] ?? null);
+        } finally {
+            $migration->up();
+        }
+    }
+
+    /** The applications screen, with its gate open and its view and redirect captured. */
+    private function applicationsScreen(): \Pramnos\Auth\Controllers\ApplicationsController
+    {
+        return new class(null) extends \Pramnos\Auth\Controllers\ApplicationsController {
+            public ?object $shown = null;
+
+            public ?string $redirectedTo = null;
+
+            protected function requireMinUserType(int $minType): bool
+            {
+                return false;
+            }
+
+            public function redirect($url = null, $quit = true, $code = '302')
+            {
+                $this->redirectedTo = (string) $url;
+            }
+
+            public function &getView($name = '', $type = '', $args = [])
+            {
+                $view = new #[\AllowDynamicProperties] class {
+                    public function display($layout = ''): mixed
+                    {
+                        return true;
+                    }
+                };
+                $this->shown = $view;
+
+                return $view;
+            }
+        };
+    }
+
+    /**
+     * An administrator's endpoint, saved through the screen, is the administrator's.
+     *
+     * The whole path against the database: the application is looked up, the row is
+     * written with `registered_by = admin`, and the page it returns to lists it that way.
+     */
+    public function testTheScreenSavesAnAdministratorsEndpointAndListsIt(): void
+    {
+        // Arrange
+        $token = \Pramnos\Http\Session::getInstance()->getCsrfToken();
+        $_POST = [
+            '_csrf_token'  => $token,
+            'appid'        => (string) $this->appId,
+            'endpoint_url' => 'https://127.0.0.1:8443/hooks',
+            'webhook_type' => 'account_deleted',
+        ];
+        $screen = $this->applicationsScreen();
+
+        try {
+            // Act
+            $screen->webhook();
+            $_GET['_option'] = (string) $this->appId;
+            $page = $this->applicationsScreen();
+            $page->view();
+
+            // Assert
+            $this->assertSame('admin', $this->endpointRow()['registered_by'] ?? null);
+            $this->assertSame('https://127.0.0.1:8443/hooks', $this->storedUrl());
+            $listed = $page->shown->webhooks ?? [];
+            $this->assertCount(1, $listed);
+            $this->assertSame('admin', $listed[0]['registered_by']);
+            $this->assertSame(\Pramnos\Auth\WebhookService::EVENT_TYPES, $page->shown->webhookTypes);
+        } finally {
+            unset($_GET['_option']);
+        }
+    }
+
+    /**
+     * An endpoint for an application id that does not exist is refused.
+     *
+     * The id comes from a hidden field, so it is whatever the form was made to say.
+     */
+    public function testTheScreenRefusesAnEndpointForAnApplicationThatDoesNotExist(): void
+    {
+        // Arrange
+        $token = \Pramnos\Http\Session::getInstance()->getCsrfToken();
+        $_POST = [
+            '_csrf_token'  => $token,
+            'appid'        => '987654321',
+            'endpoint_url' => 'https://example.com/hooks',
+            'webhook_type' => 'account_deleted',
+        ];
+
+        // Act
+        $this->applicationsScreen()->webhook();
+
+        // Assert
+        $this->assertSame(0, $this->endpointCount());
+        $orphan = $this->db->queryBuilder()->table('applications.oauth2_webhook_endpoints')
+            ->where('appid', 987654321)->count();
+        $this->assertSame(0, (int) $orphan);
     }
 
     // ── Fixture ───────────────────────────────────────────────────────────────

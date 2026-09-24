@@ -129,6 +129,12 @@ class WebhookSubscriptionTest extends BaseTestCase
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
         );
 
+        // `registered_by` from the real migration rather than the hand-built table: it is
+        // the column under change, so it should be the shipped definition.
+        $this->runMigrations([
+            \Pramnos\Framework\Migrations\AuthServer\AddRegisteredByToOauth2WebhookEndpoints::class,
+        ], $this->db);
+
         $this->appId = 4242;
     }
 

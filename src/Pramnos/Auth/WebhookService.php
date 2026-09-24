@@ -30,6 +30,30 @@ class WebhookService
     private const TABLE_ENDPOINTS = 'applications.oauth2_webhook_endpoints';
     private const TABLE_EVENTS    = 'applications.oauth2_webhook_events';
 
+    /**
+     * The event types an endpoint may subscribe to.
+     *
+     * Repeated from the table's own CHECK constraint on purpose: a value the database
+     * refuses should be refused before it gets there, with a message naming the
+     * alternatives, rather than coming back as a constraint violation nobody can act on.
+     */
+    public const EVENT_TYPES = [
+        'user_deauthorized',
+        'token_revoked',
+        'gdpr_request',
+        'user_profile_changed',
+        'device_deauthorized',
+        'account_deleted',
+        'scope_changed',
+        'permissions_changed',
+    ];
+
+    /** An endpoint the application registered itself, through `/Webhook/register`. */
+    public const REGISTERED_BY_CLIENT = 'client';
+
+    /** An endpoint an administrator entered on the application's screen. */
+    public const REGISTERED_BY_ADMIN = 'admin';
+
     private Database $database;
     private string $lastError = '';
 
@@ -151,7 +175,9 @@ class WebhookService
 
             $endpoint = $this->database->queryBuilder()
                 ->table(self::TABLE_ENDPOINTS)
-                ->select(['endpoint_url', 'secret_key', 'timeout_seconds'])
+                // Every column rather than a list: `registered_by` decides how far the
+                // delivery is trusted, and a database that has not run the migration adding
+                // it must still deliver — as `client`, the stricter answer.
                 ->where('webhook_id', (int) $event['webhook_id'])
                 ->first();
 
@@ -228,6 +254,242 @@ class WebhookService
         return (int) $count;
     }
 
+    // ── Endpoints ─────────────────────────────────────────────────────────────
+
+    /**
+     * The non-public ranges a client-registered endpoint may resolve to.
+     *
+     * From `authserver.webhooks` in `app/app.php`:
+     *
+     * - `allow_private` (default **true**) — the organisation's private network:
+     *   {@see \Pramnos\Security\OutboundUrl::PRIVATE_NETWORK_RANGES}, which is RFC 1918,
+     *   carrier-grade NAT and IPv6 unique-local. Loopback and link-local are not in it, so
+     *   the cloud metadata address stays out of reach either way.
+     * - `allow_private_ranges` — CIDR ranges allowed in addition, whatever `allow_private`
+     *   says. With `allow_private => false` this is the whole list: `['10.8.0.0/24']` lets
+     *   the VPN in and nothing else. A range outside the private network — `127.0.0.1/32` —
+     *   is allowed only by being named here.
+     *
+     * @return list<string>
+     */
+    public static function allowedPrivateRanges(): array
+    {
+        $application = \Pramnos\Application\Application::currentInstance();
+        $config      = is_object($application)
+            ? ($application->applicationInfo['authserver']['webhooks'] ?? [])
+            : [];
+        $config      = is_array($config) ? $config : [];
+
+        $ranges = ($config['allow_private'] ?? true)
+            ? \Pramnos\Security\OutboundUrl::PRIVATE_NETWORK_RANGES
+            : [];
+
+        foreach ((array) ($config['allow_private_ranges'] ?? []) as $range) {
+            $ranges[] = (string) $range;
+        }
+
+        return array_values(array_unique($ranges));
+    }
+
+    /**
+     * Why a client may not register this endpoint's host, or null if it may.
+     *
+     * Only the address is judged here — the URL's shape and scheme are the caller's to check
+     * first. A name that does not resolve yet is accepted: DNS is set up after registration
+     * as often as before it, and every delivery resolves the name again, checks it and pins
+     * the address.
+     */
+    public static function addressRefusal(string $url): ?string
+    {
+        $host    = (string) parse_url($url, PHP_URL_HOST);
+        $allowed = self::allowedPrivateRanges();
+
+        foreach (\Pramnos\Security\OutboundUrl::addressesOf($host) as $address) {
+            if (!\Pramnos\Security\OutboundUrl::isPublicAddress($address)
+                && !\Pramnos\Security\OutboundUrl::inRanges($address, $allowed)
+            ) {
+                return 'endpoint_url resolves to an address inside this network';
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Insert or replace an application's endpoint for one event type.
+     *
+     * One endpoint per (application, type): registering the same type again replaces the
+     * URL and the secret, which is what somebody does when they have lost the secret. It
+     * also replaces `registered_by`, so an application re-registering an endpoint an
+     * administrator entered makes it its own — and subject to the guard — again.
+     *
+     * @param string $secret       The plain signing secret; stored encrypted when APP_KEY is set
+     * @param string $registeredBy {@see REGISTERED_BY_CLIENT} or {@see REGISTERED_BY_ADMIN}
+     */
+    public function saveEndpoint(
+        int $appId,
+        string $url,
+        string $type,
+        string $secret,
+        string $registeredBy = self::REGISTERED_BY_CLIENT
+    ): void {
+        $fields = [
+            'endpoint_url'  => $url,
+            'secret_key'    => self::sealSecret($secret),
+            'is_active'     => true,
+            'registered_by' => $registeredBy,
+        ];
+
+        $existing = $this->database->queryBuilder()
+            ->table(self::TABLE_ENDPOINTS)
+            ->select(['webhook_id'])
+            ->where('appid', $appId)
+            ->where('webhook_type', $type)
+            ->first();
+
+        if ($existing && $existing->numRows > 0) {
+            $this->database->queryBuilder()
+                ->table(self::TABLE_ENDPOINTS)
+                ->where('webhook_id', (int) $existing->fields['webhook_id'])
+                ->update($fields + ['updated_at' => date('Y-m-d H:i:s')]);
+
+            return;
+        }
+
+        $this->database->queryBuilder()
+            ->table(self::TABLE_ENDPOINTS)
+            ->insert($fields + ['appid' => $appId, 'webhook_type' => $type]);
+    }
+
+    /**
+     * An application's endpoints, with how their deliveries have gone — never the secrets.
+     *
+     * @return list<array<string, mixed>> Each row: webhook_id, endpoint_url, webhook_type,
+     *                                    is_active, registered_by, created_at, updated_at,
+     *                                    and `events` — counts by status
+     */
+    public function endpointsFor(int $appId): array
+    {
+        $rows = $this->database->queryBuilder()
+            ->table(self::TABLE_ENDPOINTS)
+            ->where('appid', $appId)
+            ->orderBy('webhook_type')
+            ->get();
+
+        $endpoints = [];
+        while ($rows && $rows->fetch()) {
+            $row = (array) $rows->fields;
+            unset($row['secret_key']);
+            $row['registered_by'] = (string) ($row['registered_by'] ?? self::REGISTERED_BY_CLIENT);
+            $row['events']        = ['pending' => 0, 'sent' => 0, 'failed' => 0, 'cancelled' => 0];
+            $endpoints[(int) $row['webhook_id']] = $row;
+        }
+
+        if ($endpoints === []) {
+            return [];
+        }
+
+        $counts = $this->database->queryBuilder()
+            ->table(self::TABLE_EVENTS)
+            ->select(['webhook_id', 'status', 'COUNT(*) AS total'])
+            ->whereIn('webhook_id', array_keys($endpoints))
+            ->groupBy(['webhook_id', 'status'])
+            ->get();
+
+        while ($counts && $counts->fetch()) {
+            $id     = (int) $counts->fields['webhook_id'];
+            $status = (string) $counts->fields['status'];
+            if (isset($endpoints[$id]['events'][$status])) {
+                $endpoints[$id]['events'][$status] = (int) $counts->fields['total'];
+            }
+        }
+
+        return array_values($endpoints);
+    }
+
+    /**
+     * Remove one of an application's endpoints. False when it has no such endpoint.
+     *
+     * Scoped to the owner as well as to the id: an id is guessable, and ownership is the
+     * thing that must hold. Queued events are left for the delivery run to cancel, which
+     * keeps the audit trail honest about what was attempted.
+     */
+    public function deleteEndpoint(int $appId, int $webhookId): bool
+    {
+        if (!$this->ownsEndpoint($appId, $webhookId)) {
+            return false;
+        }
+
+        $this->database->queryBuilder()
+            ->table(self::TABLE_ENDPOINTS)
+            ->where('webhook_id', $webhookId)
+            ->where('appid', $appId)
+            ->delete();
+
+        return true;
+    }
+
+    /**
+     * Give one of an application's endpoints a new signing secret, and return it.
+     *
+     * Null when the application has no such endpoint. The value returned is the only
+     * readable copy: it is stored encrypted and never displayed again.
+     */
+    public function rotateEndpointSecret(int $appId, int $webhookId): ?string
+    {
+        if (!$this->ownsEndpoint($appId, $webhookId)) {
+            return null;
+        }
+
+        $secret = bin2hex(random_bytes(32));
+
+        $this->database->queryBuilder()
+            ->table(self::TABLE_ENDPOINTS)
+            ->where('webhook_id', $webhookId)
+            ->where('appid', $appId)
+            ->update([
+                'secret_key' => self::sealSecret($secret),
+                'updated_at' => date('Y-m-d H:i:s'),
+            ]);
+
+        return $secret;
+    }
+
+    /** Whether this endpoint exists and belongs to this application. */
+    private function ownsEndpoint(int $appId, int $webhookId): bool
+    {
+        if ($webhookId <= 0) {
+            return false;
+        }
+
+        $row = $this->database->queryBuilder()
+            ->table(self::TABLE_ENDPOINTS)
+            ->select(['webhook_id'])
+            ->where('webhook_id', $webhookId)
+            ->where('appid', $appId)
+            ->first();
+
+        return $row && $row->numRows > 0;
+    }
+
+    /**
+     * The secret as it is stored.
+     *
+     * Encrypted, because it has to be recoverable — it is the HMAC key each delivery is
+     * signed with — so hashing is not an option the way it is for a password. Anyone who
+     * could read the column could forge a webhook the receiver would accept as ours.
+     *
+     * Left as-is when APP_KEY is unset: an installation without a key must still be able to
+     * register an endpoint, and the row converts itself on the next write.
+     * {@see deliverEvent()} reads through `maybeDecrypt()`, so both forms work.
+     */
+    private static function sealSecret(string $secret): string
+    {
+        return \Pramnos\Security\Encrypter::isAvailable()
+            ? \Pramnos\Security\Encrypter::encrypt($secret)
+            : $secret;
+    }
+
     // ── Signature helpers ─────────────────────────────────────────────────────
 
     /**
@@ -292,15 +554,26 @@ class WebhookService
         $signature = self::buildSignature($body, $secret);
 
         /*
-         * The address is the relying party's, typed into `/Webhook/register`, so this is a
-         * fetch of a URL somebody else chose: `forUserSuppliedUrl()` refuses one that
-         * resolves inside this network and pins the address it checked, so the name cannot
-         * be rebound between the check and the POST. Redirects are not followed — a
-         * receiver that moved re-registers, it does not bounce a signed body elsewhere.
+         * An address the relying party typed into `/Webhook/register` is a URL somebody else
+         * chose: `forUserSuppliedUrl()` refuses one that resolves inside this network and pins
+         * the address it checked, so the name cannot be rebound between the check and the
+         * POST. Redirects are never followed — a receiver that moved re-registers, it does not
+         * bounce a signed body elsewhere.
          */
+        $client = \Pramnos\Http\Client::post($url);
+
+        /*
+         * An administrator's endpoint is delivered to as written: it is the operator's own
+         * statement about their network, and a receiver on this host or the VPN is exactly
+         * what one would type. Everything else goes through the guard, with the private
+         * ranges this installation allows.
+         */
+        if (($event['registered_by'] ?? self::REGISTERED_BY_CLIENT) !== self::REGISTERED_BY_ADMIN) {
+            $client->forUserSuppliedUrl()->allowAddresses(self::allowedPrivateRanges());
+        }
+
         try {
-            $response = \Pramnos\Http\Client::post($url)
-                ->forUserSuppliedUrl()
+            $response = $client
                 ->withoutRedirects()
                 ->body($body, 'application/json')
                 ->headers([

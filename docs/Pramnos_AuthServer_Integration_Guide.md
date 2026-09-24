@@ -6,6 +6,8 @@ use_cases:
   - Finding out why the server refused a token or authorization request
   - Reading a user's permissions from another application
   - Reacting to instant invalidation webhooks
+  - Letting webhooks reach a relying party on a VPN or private network
+  - Seeing, adding or removing an application's webhook endpoints as an administrator
 ---
 
 # Third-Party Integration Guide (Auth Server)
@@ -768,18 +770,6 @@ The endpoint URL must be `https://`. The event describes a person and is signed
 with a shared secret; over plaintext both are readable by anything on the path,
 which makes the signature decorative.
 
-It must also be on the **public internet**. The relying party chooses the address and
-this server makes the request, so an endpoint on loopback, a private range or the cloud
-metadata address (`169.254.169.254`) would let any registered client aim the server at
-its own network. Registration refuses a host that resolves to one of those
-(`endpoint_url resolves to an address inside this network`); a name that does not
-resolve yet is accepted, because every delivery resolves it again. Each delivery goes
-through `Http\Client::forUserSuppliedUrl()`: the host is checked, the checked address
-is pinned for the connection so the name cannot be rebound in between, and redirects
-are not followed — a receiver that answers `30x` has failed the delivery, and re-registers
-if it moved. A refused delivery is recorded as failed, with
-`Delivery refused or failed: …` as its reason.
-
 Event types: `user_deauthorized`, `token_revoked`, `gdpr_request`,
 `user_profile_changed`, `device_deauthorized`, `account_deleted`, `scope_changed`,
 `permissions_changed`. One endpoint per type per application.
@@ -802,6 +792,63 @@ $service->queueEvent('token_revoked', $userid, [...], null, null, $id);   // one
 The endpoint id is still matched against the event type and `is_active`, so
 naming one that does not subscribe queues nothing rather than queueing the wrong
 event.
+
+### Where a delivery may go
+
+The relying party chooses the address and this server makes the request, so the address
+is checked. What is allowed depends on who set it.
+
+**An endpoint the application registered** through `/Webhook/register` is judged at
+registration and again, pinned, at every delivery (`Http\Client::forUserSuppliedUrl()`):
+the host must resolve to a public address or to a range this installation allows. By
+default that includes the organisation's private network — RFC 1918, carrier-grade NAT
+(which is what Tailscale hands out) and IPv6 unique-local — because the usual deployment is
+an authorisation server and its relying parties on one VPN or LAN. It never includes
+loopback or link-local, where this server's own ports and the cloud metadata address
+(`169.254.169.254`) answer, unless a range naming them is listed.
+
+```php
+// app/app.php
+'authserver' => [
+    'webhooks' => [
+        'allow_private'        => true,              // the default
+        'allow_private_ranges' => [],                // CIDR ranges allowed in addition
+    ],
+],
+```
+
+| Configuration | A client may register |
+|---|---|
+| nothing set | public addresses and the private network |
+| `'allow_private' => false` | public addresses only |
+| `'allow_private' => false, 'allow_private_ranges' => ['10.8.0.0/24']` | public addresses and that VPN, nothing else private |
+| `'allow_private_ranges' => ['127.0.0.1/32']` | the above, plus this host |
+
+A refused registration answers `endpoint_url resolves to an address inside this network`. A
+name that does not resolve yet is accepted, because every delivery resolves it again.
+
+**An endpoint an administrator entered** on the application's page is delivered to as
+written — the operator's own statement about their network, needing no setting.
+
+Either way, redirects are not followed: a receiver answering `30x` has failed the delivery,
+and re-registers if it moved. A refused or failed delivery is recorded with
+`Delivery refused or failed: …` as its reason.
+
+### Managing endpoints from the administration area
+
+The application's page — `/admin/Applications/view/{appid}` — lists its endpoints: the event
+type, the URL, who set it (**Application** or **Administrator**), and how its deliveries have
+gone (sent, pending, failed). From the same card an administrator can:
+
+- **add an endpoint** for an event type, which replaces one already there. It is approved as
+  entered and recorded as the administrator's; the signing secret is shown once, in the
+  confirmation, and must be handed to the receiving application;
+- **issue a new secret** for one endpoint — the old one stops verifying at once;
+- **remove** one.
+
+An application that later registers the same event type through the API replaces the
+administrator's entry, and the address becomes the application's again — checked like any
+other it registers.
 
 ### Verifying a delivery
 

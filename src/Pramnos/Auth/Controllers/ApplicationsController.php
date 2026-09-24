@@ -20,6 +20,9 @@ use Pramnos\Html\Icon;
  *   - delete($id)    — soft-delete (status=0) + revoke all active tokens
  *   - tokens($id)    — list active tokens for an application
  *   - rotate($id)    — regenerate the client secret (apisecret)
+ *   - webhook()            — POST: add or replace an endpoint for one event type
+ *   - webhookrotate($id)   — POST: a new signing secret for one endpoint
+ *   - webhookdelete($id)   — POST: remove one endpoint
  *
  * All actions require authentication + usertype >= 90 (admin).
  *
@@ -33,7 +36,10 @@ class ApplicationsController extends Controller
 
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
-        $this->addAuthAction(['display', 'data', 'view', 'edit', 'save', 'delete', 'tokens', 'rotate']);
+        $this->addAuthAction([
+            'display', 'data', 'view', 'edit', 'save', 'delete', 'tokens', 'rotate',
+            'webhook', 'webhookrotate', 'webhookdelete',
+        ]);
         parent::__construct($application);
     }
 
@@ -110,6 +116,22 @@ class ApplicationsController extends Controller
          * to an application and this is the page for an application.
          */
         $view->capabilities = $this->capabilitiesReader()->describe((int) $app->fields['appid']);
+
+        /*
+         * Where this application's events go, whoever put the address there.
+         *
+         * An application registers its own endpoints through `/Webhook/register`, and until
+         * this list existed an operator had no way to see what it had registered, short of a
+         * query. The same card is where an administrator enters one: an address typed here is
+         * the operator's own and is delivered to as written, private network or not.
+         */
+        try {
+            $view->webhooks = $this->webhookService()->endpointsFor((int) $app->fields['appid']);
+        } catch (\Throwable) {
+            // Without the authserver webhook tables there is nothing to list.
+            $view->webhooks = [];
+        }
+        $view->webhookTypes = \Pramnos\Auth\WebhookService::EVENT_TYPES;
 
         return $view->display('view');
     }
@@ -549,7 +571,169 @@ class ApplicationsController extends Controller
         $this->redirect(adminUrl('applications/edit/') . $id);
     }
 
+    /**
+     * Add or replace an endpoint for one event type — POST from the application's page.
+     *
+     * Approved as it is entered: an administrator's address is recorded as
+     * `registered_by = admin` and delivered to as written, so a receiver on the VPN, the
+     * LAN or this host works without a setting. The one rule kept is `https`, because the
+     * event describes a person and is signed with a shared secret, and over plaintext both
+     * are readable by anything on the path.
+     *
+     * The signing secret is shown once, in the message, and stored encrypted.
+     */
+    public function webhook(): void
+    {
+        if ($this->requireMinUserType($this->requiredUserType)) {
+            return;
+        }
+
+        $appId = (int) ($_POST['appid'] ?? 0);
+        $back  = adminUrl('applications/view/') . $appId;
+
+        if (!$this->validWebhookPost()) {
+            $this->redirect($back);
+            return;
+        }
+
+        $url  = trim((string) ($_POST['endpoint_url'] ?? ''));
+        $type = trim((string) ($_POST['webhook_type'] ?? ''));
+
+        if ($url === '' || filter_var($url, FILTER_VALIDATE_URL) === false
+            || !str_starts_with(strtolower($url), 'https://')
+        ) {
+            $this->addError('The endpoint must be a full https:// URL.');
+            $this->redirect($back);
+            return;
+        }
+
+        if (!in_array($type, \Pramnos\Auth\WebhookService::EVENT_TYPES, true)) {
+            $this->addError('Choose one of the listed event types.');
+            $this->redirect($back);
+            return;
+        }
+
+        if ($appId <= 0 || !$this->applicationExists($appId)) {
+            $this->addError('That record no longer exists.');
+            $this->redirect(adminUrl('applications'));
+            return;
+        }
+
+        $secret = bin2hex(random_bytes(32));
+        $this->webhookService()->saveEndpoint(
+            $appId,
+            $url,
+            $type,
+            $secret,
+            \Pramnos\Auth\WebhookService::REGISTERED_BY_ADMIN
+        );
+
+        $this->addMessage(
+            'Saved. The signing secret for ' . $type . ' is ' . $secret . ' — give it to the '
+            . 'receiving application now; it is stored encrypted and cannot be shown again.'
+        );
+        $this->redirect($back);
+    }
+
+    /**
+     * A new signing secret for one endpoint — POST from the application's page.
+     *
+     * The old secret stops working at once, so the message says to hand the new one over.
+     */
+    public function webhookrotate(mixed $id = null): void
+    {
+        if ($this->requireMinUserType($this->requiredUserType)) {
+            return;
+        }
+
+        $appId     = (int) ($_POST['appid'] ?? 0);
+        $webhookId = (int) \Pramnos\Http\Request::staticGetOption();
+        $back      = adminUrl('applications/view/') . $appId;
+
+        if (!$this->validWebhookPost()) {
+            $this->redirect($back);
+            return;
+        }
+
+        $secret = $this->webhookService()->rotateEndpointSecret($appId, $webhookId);
+        if ($secret === null) {
+            $this->addError('That endpoint no longer exists.');
+            $this->redirect($back);
+            return;
+        }
+
+        $this->addMessage(
+            'The new signing secret is ' . $secret . ' — the old one no longer verifies. '
+            . 'Give it to the receiving application now; it cannot be shown again.'
+        );
+        $this->redirect($back);
+    }
+
+    /**
+     * Remove one endpoint — POST from the application's page.
+     */
+    public function webhookdelete(mixed $id = null): void
+    {
+        if ($this->requireMinUserType($this->requiredUserType)) {
+            return;
+        }
+
+        $appId     = (int) ($_POST['appid'] ?? 0);
+        $webhookId = (int) \Pramnos\Http\Request::staticGetOption();
+        $back      = adminUrl('applications/view/') . $appId;
+
+        if (!$this->validWebhookPost()) {
+            $this->redirect($back);
+            return;
+        }
+
+        if (!$this->webhookService()->deleteEndpoint($appId, $webhookId)) {
+            $this->addError('That endpoint no longer exists.');
+            $this->redirect($back);
+            return;
+        }
+
+        $this->addMessage('Endpoint removed.');
+        $this->redirect($back);
+    }
+
+    /** The webhook store (seam so tests can inject a double). */
+    protected function webhookService(): \Pramnos\Auth\WebhookService
+    {
+        return new \Pramnos\Auth\WebhookService(\Pramnos\Framework\Factory::getDatabase());
+    }
+
     // ── Private helpers ───────────────────────────────────────────────────────
+
+    /**
+     * A POST carrying this session's CSRF token, or false with the error already added.
+     *
+     * These three change where signed events go and what they are signed with, so a GET —
+     * a link, a prefetch — must not do it, and neither may a form on another site.
+     */
+    private function validWebhookPost(): bool
+    {
+        if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST'
+            || !\Pramnos\Http\Session::getInstance()->verifyCsrfToken((string) ($_POST['_csrf_token'] ?? ''))
+        ) {
+            $this->addError('That form had expired. Please try again.');
+            return false;
+        }
+
+        return true;
+    }
+
+    /** Whether an application with this id exists. */
+    protected function applicationExists(int $appId): bool
+    {
+        $row = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
+            ->table('#PREFIX#applications')
+            ->select(['appid'])
+            ->where('appid', $appId)
+            ->first();
+
+        return $row && $row->numRows > 0;
+    }
 
     /**
      * How many characters the `callback` column can hold, or 0 when it is unbounded.

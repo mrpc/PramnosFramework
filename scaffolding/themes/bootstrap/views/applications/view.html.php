@@ -6,6 +6,8 @@
  *   $this->app        — application row array (all fields from `applications` table)
  *   $this->tokenStats — array: total, active, revoked
  *   $this->lastUsers  — array of recent token rows with userid, username, lastused, ipaddress, scope
+ *   $this->webhooks     — this application's webhook endpoints (WebhookService::endpointsFor())
+ *   $this->webhookTypes — the event types an endpoint may subscribe to
  */
 $app        = $this->app ?? [];
 $tokenStats = $this->tokenStats ?? ['total' => 0, 'active' => 0, 'revoked' => 0];
@@ -297,6 +299,93 @@ $accessTypeLabel = function (int $t): string {
                         </ul>
                     <?php endif; ?>
                 <?php endif; ?>
+            </div>
+
+            <?php
+            /**
+             * Where this application's events are delivered.
+             *
+             * One row per event type. "Set by" says whose address it is: the
+             * application's own, registered through the API and checked against the
+             * private-network settings on every delivery — or an administrator's, entered
+             * below and delivered to as written. Adding a type that already has an
+             * endpoint replaces it, with a new secret.
+             */
+            $webhooks     = $this->webhooks ?? [];
+            $webhookTypes = $this->webhookTypes ?? [];
+            $csrf         = \Pramnos\Http\Middleware\CsrfMiddleware::tokenField();
+            ?>
+            <div class="mt-4" id="webhooks">
+                <h3 class="font-semibold">Webhooks</h3>
+
+                <?php if (empty($webhooks)): ?>
+                    <p class="text-muted small">
+                        No endpoints. The application can register its own through
+                        <code>/Webhook/register</code>, or you can add one here.
+                    </p>
+                <?php else: ?>
+                    <table class="table table-sm mb-3">
+                        <thead class="table-light small text-uppercase">
+                            <tr><th>Event</th><th>Endpoint</th><th>Set by</th><th>Deliveries</th><th></th></tr>
+                        </thead>
+                        <tbody>
+                        <?php foreach ($webhooks as $hook): ?>
+                            <?php $hookId = (int) $hook['webhook_id']; $ev = $hook['events'] ?? []; ?>
+                            <tr>
+                                <td class="font-mono"><?php echo htmlspecialchars((string) $hook['webhook_type'], ENT_QUOTES, 'UTF-8'); ?></td>
+                                <td class="font-mono"><?php echo htmlspecialchars((string) $hook['endpoint_url'], ENT_QUOTES, 'UTF-8'); ?></td>
+                                <td>
+                                    <?php if (($hook['registered_by'] ?? '') === 'admin'): ?>
+                                        <span class="badge bg-primary">Administrator</span>
+                                    <?php else: ?>
+                                        <span class="badge bg-light text-dark">Application</span>
+                                    <?php endif; ?>
+                                </td>
+                                <td>
+                                    <?php echo (int) ($ev['sent'] ?? 0); ?> sent ·
+                                    <?php echo (int) ($ev['pending'] ?? 0); ?> pending ·
+                                    <?php echo (int) ($ev['failed'] ?? 0); ?> failed
+                                </td>
+                                <td class="text-end text-nowrap">
+                                    <form method="post" style="display:inline" action="<?php echo adminUrl('applications/webhookrotate/' . $hookId); ?>">
+                                        <?php echo $csrf; ?>
+                                        <input type="hidden" name="appid" value="<?php echo $appId; ?>">
+                                        <button type="submit" class="btn btn-sm btn-outline-warning"
+                                                data-confirm="Issue a new signing secret? The current one stops verifying immediately.">New secret</button>
+                                    </form>
+                                    <form method="post" style="display:inline" action="<?php echo adminUrl('applications/webhookdelete/' . $hookId); ?>">
+                                        <?php echo $csrf; ?>
+                                        <input type="hidden" name="appid" value="<?php echo $appId; ?>">
+                                        <button type="submit" class="btn btn-sm btn-outline-danger"
+                                                data-confirm="Remove this endpoint? Events not yet delivered to it will not be.">Remove</button>
+                                    </form>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                <?php endif; ?>
+
+                <form method="post" action="<?php echo adminUrl('applications/webhook'); ?>" class="border rounded p-3">
+                    <?php echo $csrf; ?>
+                    <input type="hidden" name="appid" value="<?php echo $appId; ?>">
+                    <label class="form-label d-block mb-2">Event
+                        <select name="webhook_type" class="form-select form-select-sm" required>
+                            <?php foreach ($webhookTypes as $type): ?>
+                                <option value="<?php echo htmlspecialchars($type, ENT_QUOTES, 'UTF-8'); ?>"><?php echo htmlspecialchars($type, ENT_QUOTES, 'UTF-8'); ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </label>
+                    <label class="form-label d-block mb-2">Endpoint URL
+                        <input type="url" name="endpoint_url" class="form-control form-control-sm font-mono"
+                               placeholder="https://app.internal/hooks" pattern="https://.*" required>
+                    </label>
+                    <p class="text-muted small">
+                        An address entered here is delivered to as written, including one on a
+                        private network. It must be https. A type that already has an endpoint is replaced.
+                    </p>
+                    <button type="submit" class="btn btn-primary btn-sm">Save endpoint</button>
+                </form>
             </div>
 
         </div>

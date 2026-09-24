@@ -736,4 +736,119 @@ class OutboundUrlTest extends TestCase
             $this->assertNull($arguments[2]);
         }
     }
+
+    /**
+     * An address is inside a range when its leading bits match the network's.
+     *
+     * The boundaries are the cases: the first and last address of a range, the first
+     * one past it, a prefix that is not a whole number of bytes (`/12`, `/10`, `/7`), and
+     * a range written as a bare address.
+     *
+     * @param string       $address
+     * @param list<string> $ranges
+     * @param bool         $inside  Whether the address is in one of them
+     */
+    #[DataProvider('rangeMembership')]
+    public function testInRangesMatchesTheLeadingBits(string $address, array $ranges, bool $inside): void
+    {
+        // Act
+        $result = OutboundUrl::inRanges($address, $ranges);
+
+        // Assert
+        $this->assertSame($inside, $result);
+    }
+
+    /** @return array<string, array{string, list<string>, bool}> */
+    public static function rangeMembership(): array
+    {
+        return [
+            'first of a /24'               => ['10.8.0.0', ['10.8.0.0/24'], true],
+            'last of a /24'                => ['10.8.0.255', ['10.8.0.0/24'], true],
+            'first past a /24'             => ['10.8.1.0', ['10.8.0.0/24'], false],
+            'inside a /12'                 => ['172.31.255.255', ['172.16.0.0/12'], true],
+            'just past a /12'              => ['172.32.0.0', ['172.16.0.0/12'], false],
+            'inside carrier-grade NAT /10' => ['100.127.0.1', ['100.64.0.0/10'], true],
+            'just past it'                 => ['100.128.0.1', ['100.64.0.0/10'], false],
+            'ipv6 unique-local /7'         => ['fd12:3456::1', ['fc00::/7'], true],
+            'ipv6 outside it'              => ['fe80::1', ['fc00::/7'], false],
+            'a bare address is a /32'      => ['10.8.0.5', ['10.8.0.5'], true],
+            'and only that address'        => ['10.8.0.6', ['10.8.0.5'], false],
+            'second range matches'         => ['192.168.1.1', ['10.0.0.0/8', '192.168.0.0/16'], true],
+            'bracketed ipv6 address'       => ['[fd00::1]', ['fc00::/7'], true],
+            'no ranges'                    => ['10.0.0.1', [], false],
+        ];
+    }
+
+    /**
+     * A range that does not parse matches nothing — never everything.
+     *
+     * `(int) 'abc'` is 0, and `/0` is the whole address space, so a prefix read as a
+     * number before it is checked as one turns a typo in a config file into "allow every
+     * address". The families are kept apart too: an IPv4-mapped IPv6 address is not inside
+     * an IPv4 range, because it is not the same bytes.
+     *
+     * @param string $address
+     * @param string $range   Something that is not a usable range for this address
+     */
+    #[DataProvider('unusableRanges')]
+    public function testAnUnusableRangeMatchesNothing(string $address, string $range): void
+    {
+        // Act
+        $result = OutboundUrl::inRanges($address, [$range]);
+
+        // Assert
+        $this->assertFalse($result);
+    }
+
+    /** @return array<string, array{string, string}> */
+    public static function unusableRanges(): array
+    {
+        return [
+            'prefix is not a number'  => ['10.0.0.1', '10.0.0.0/abc'],
+            'prefix is empty'         => ['10.0.0.1', '10.0.0.0/'],
+            'prefix is negative'      => ['10.0.0.1', '10.0.0.0/-1'],
+            'prefix too long for v4'  => ['10.0.0.1', '10.0.0.0/33'],
+            'network is not an ip'    => ['10.0.0.1', 'vpn.internal/24'],
+            'mapped v6 vs v4 range'   => ['::ffff:10.0.0.1', '10.0.0.0/8'],
+            'v4 vs v6 range'          => ['10.0.0.1', '::/0'],
+            'address is not an ip'    => ['vpn.internal', '0.0.0.0/0'],
+        ];
+    }
+
+    /**
+     * The private-network list is an organisation's network, not this machine's.
+     *
+     * `allow_private` means "our services talk over a VPN or a LAN". It must not carry
+     * loopback, where this server's own admin ports answer, or link-local, where cloud
+     * metadata does.
+     *
+     * @param string $address
+     * @param bool   $inside
+     */
+    #[DataProvider('privateNetworkMembership')]
+    public function testThePrivateNetworkRangesLeaveOutThisMachine(string $address, bool $inside): void
+    {
+        // Act
+        $result = OutboundUrl::inRanges($address, OutboundUrl::PRIVATE_NETWORK_RANGES);
+
+        // Assert
+        $this->assertSame($inside, $result);
+    }
+
+    /** @return array<string, array{string, bool}> */
+    public static function privateNetworkMembership(): array
+    {
+        return [
+            '10/8'             => ['10.1.2.3', true],
+            '172.16/12'        => ['172.20.0.1', true],
+            '192.168/16'       => ['192.168.50.1', true],
+            'tailscale (CGNAT)' => ['100.101.102.103', true],
+            'ipv6 ULA'         => ['fd7a:115c:a1e0::1', true],
+            'loopback'         => ['127.0.0.1', false],
+            'ipv6 loopback'    => ['::1', false],
+            'cloud metadata'   => ['169.254.169.254', false],
+            'ipv6 link-local'  => ['fe80::1', false],
+            'a public address' => ['93.184.216.34', false],
+        ];
+    }
 }

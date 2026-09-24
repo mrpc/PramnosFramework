@@ -166,7 +166,6 @@ class WebhookControllerTest extends TestCase
     {
         return [
             'loopback'       => ['https://127.0.0.1/hooks'],
-            'private'        => ['https://10.0.0.5/hooks'],
             'cloud metadata' => ['https://169.254.169.254/latest/'],
             'ipv6 loopback'  => ['https://[::1]/hooks'],
         ];

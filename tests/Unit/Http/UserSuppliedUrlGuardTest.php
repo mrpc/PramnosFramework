@@ -82,6 +82,66 @@ class UserSuppliedUrlGuardTest extends TestCase
     }
 
     /**
+     * An operator's range lets its addresses through, and the fetch then happens.
+     *
+     * The case the allowlist exists for: a receiver on the organisation's VPN. The fake
+     * answers only if the guard let the request reach it, so a 200 here is the proof.
+     */
+    public function testAnAllowedRangeLetsItsAddressesThrough(): void
+    {
+        // Arrange
+        Client::fake(['*' => \Pramnos\Http\ClientResponse::make('ok', 200)]);
+        $client = $this->client('https://hooks.vpn.example', ['hooks.vpn.example' => ['10.8.0.5']])
+            ->allowAddresses(['10.8.0.0/24']);
+
+        // Act
+        $response = $client->send();
+
+        // Assert
+        $this->assertSame(200, $response->status());
+    }
+
+    /**
+     * An allowed range is exactly as wide as it says, and no wider.
+     *
+     * The private-network list in particular must not carry loopback or link-local with
+     * it: "our services talk over a private network" is not a reason to reach this
+     * machine or its cloud metadata.
+     *
+     * @param list<string> $ranges  What the operator allowed
+     * @param list<string> $answers What the host resolves to
+     */
+    #[DataProvider('outsideTheAllowedRange')]
+    public function testAnAddressOutsideTheAllowedRangeIsStillRefused(array $ranges, array $answers): void
+    {
+        // Arrange
+        Client::fake(['*' => \Pramnos\Http\ClientResponse::make('ok', 200)]);
+        $client = $this->client('https://host.example', ['host.example' => $answers])
+            ->allowAddresses($ranges);
+
+        // Assert
+        $this->expectException(ClientException::class);
+        $this->expectExceptionMessage('not a public address');
+
+        // Act
+        $client->send();
+    }
+
+    /** @return array<string, array{list<string>, list<string>}> */
+    public static function outsideTheAllowedRange(): array
+    {
+        $private = \Pramnos\Security\OutboundUrl::PRIVATE_NETWORK_RANGES;
+
+        return [
+            'the next /24'                        => [['10.8.0.0/24'], ['10.8.1.5']],
+            'loopback, with private allowed'      => [$private, ['127.0.0.1']],
+            'metadata, with private allowed'      => [$private, ['169.254.169.254']],
+            'ipv6 loopback, with private allowed' => [$private, ['::1']],
+            'one address of two outside'          => [['10.8.0.0/24'], ['10.8.0.5', '127.0.0.1']],
+        ];
+    }
+
+    /**
      * Every range that is not the public internet.
      *
      * A table rather than one case, because the ones people forget are not loopback —

@@ -165,6 +165,76 @@ final class OutboundUrl
     }
 
     /**
+     * The address space an organisation's own network is built from.
+     *
+     * The three RFC 1918 blocks, carrier-grade NAT — which is what Tailscale and several other
+     * VPNs hand out — and IPv6 unique-local. What an application means when it says "our
+     * services talk to each other over a private network".
+     *
+     * Deliberately **not** in it: loopback (`127/8`, `::1`), link-local (`169.254/16`, where
+     * cloud metadata answers, and `fe80::/10`) and the reserved blocks. Those are not somebody's
+     * network; they are this machine and its host, and allowing "private" is not a reason to
+     * reach them. A caller that genuinely needs one names it as a range of its own.
+     */
+    public const PRIVATE_NETWORK_RANGES = [
+        '10.0.0.0/8',
+        '172.16.0.0/12',
+        '192.168.0.0/16',
+        '100.64.0.0/10',
+        'fc00::/7',
+    ];
+
+    /**
+     * Is this address inside one of these CIDR ranges?
+     *
+     * IPv4 and IPv6 alike, compared on the packed bytes, so `::ffff:10.0.0.1` is not inside
+     * `10.0.0.0/8` — an IPv4-mapped address is a different family and is judged as one. A
+     * range that does not parse matches nothing, rather than everything.
+     *
+     * @param string       $address An IP address
+     * @param list<string> $ranges  CIDR ranges (`10.8.0.0/24`), or single addresses
+     * @return bool
+     */
+    public static function inRanges(string $address, array $ranges): bool
+    {
+        $packed = @inet_pton(trim($address, '[]'));
+        if ($packed === false) {
+            return false;
+        }
+
+        foreach ($ranges as $range) {
+            [$network, $bits] = array_pad(explode('/', trim((string) $range), 2), 2, null);
+            $base = @inet_pton((string) $network);
+
+            if ($base === false || strlen($base) !== strlen($packed)) {
+                continue;
+            }
+
+            // Checked as text before it becomes a number: `(int) 'abc'` is 0, and `/0` is
+            // the whole address space.
+            if ($bits !== null && !ctype_digit($bits)) {
+                continue;
+            }
+            $bits = $bits === null ? strlen($base) * 8 : (int) $bits;
+            if ($bits > strlen($base) * 8) {
+                continue;
+            }
+
+            $whole = intdiv($bits, 8);
+            $rest  = $bits % 8;
+            $mask  = $rest === 0 ? 0 : (0xFF << (8 - $rest)) & 0xFF;
+
+            if (substr($packed, 0, $whole) === substr($base, 0, $whole)
+                && ($rest === 0 || (ord($packed[$whole]) & $mask) === (ord($base[$whole]) & $mask))
+            ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * Where a response says to go next, checked — or `null` if it does not, or `false` if it may not.
      *
      * The whole difficulty of following a redirect safely, in one pure function, because that is what

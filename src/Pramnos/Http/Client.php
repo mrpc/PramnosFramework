@@ -81,7 +81,10 @@ class Client
     /** Whether the guard permits plain `http`. */
     private bool    $guardAllowHttp = false;
 
-    /** `host:port:ip` for `CURLOPT_RESOLVE`, set by the guard before each hop. */
+    /** @var list<string> CIDR ranges the guard accepts although they are not public. */
+    private array   $guardAllowRanges = [];
+
+        /** `host:port:ip` for `CURLOPT_RESOLVE`, set by the guard before each hop. */
     private string  $pinnedAddress  = '';
 
     // =========================================================================
@@ -464,6 +467,29 @@ class Client
         return $this;
     }
 
+    /**
+     * Let the guard through to these ranges, although they are not public.
+     *
+     * For a fetch whose addresses are chosen by somebody else and yet legitimately live on the
+     * operator's own network — a relying party reached over a VPN, a service on the same
+     * private LAN. Everything else about {@see forUserSuppliedUrl()} still holds: the scheme,
+     * the check on every hop, and the pinned address.
+     *
+     * The ranges are the **operator's** statement, never the user's: a list taken from the
+     * request would let the requester allow whatever it wanted.
+     * {@see \Pramnos\Security\OutboundUrl::PRIVATE_NETWORK_RANGES} is the usual answer to
+     * "our private network"; a range outside it — loopback, say — is allowed only by naming it.
+     *
+     * Has no effect unless the guard is on.
+     *
+     * @param list<string> $ranges CIDR ranges, or single addresses
+     */
+    public function allowAddresses(array $ranges): static
+    {
+        $this->guardAllowRanges = array_values(array_map('strval', $ranges));
+        return $this;
+    }
+
     // =========================================================================
     // Send
     // =========================================================================
@@ -553,7 +579,9 @@ class Client
         }
 
         foreach ($addresses as $address) {
-            if (!$this->isPublicAddress($address)) {
+            if (!$this->isPublicAddress($address)
+                && !\Pramnos\Security\OutboundUrl::inRanges($address, $this->guardAllowRanges)
+            ) {
                 // Named, because "it did not work" and "it pointed at your own network"
                 // are different answers and the caller is usually showing one to a user.
                 throw new ClientException(
