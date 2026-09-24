@@ -8,6 +8,7 @@
  *   $this->lastUsers  — array of recent token rows with userid, username, lastused, ipaddress, scope
  *   $this->webhooks     — this application's webhook endpoints (WebhookService::endpointsFor())
  *   $this->webhookTypes — the event types an endpoint may subscribe to
+ *   $this->webhookRequiresHttps — whether an endpoint must be https (WebhookService::requiresHttps())
  */
 $app        = $this->app ?? [];
 $tokenStats = $this->tokenStats ?? ['total' => 0, 'active' => 0, 'revoked' => 0];
@@ -313,6 +314,7 @@ $accessTypeLabel = function (int $t): string {
              */
             $webhooks     = $this->webhooks ?? [];
             $webhookTypes = $this->webhookTypes ?? [];
+            $httpsOnly    = $this->webhookRequiresHttps ?? true;
             $csrf         = \Pramnos\Http\Middleware\CsrfMiddleware::tokenField();
             ?>
             <div class="mt-4" id="webhooks">
@@ -378,11 +380,11 @@ $accessTypeLabel = function (int $t): string {
                     </label>
                     <label class="form-label d-block mb-2">Endpoint URL
                         <input type="url" name="endpoint_url" class="form-control form-control-sm font-mono"
-                               placeholder="https://app.internal/hooks" pattern="https://.*" required>
+                               placeholder="https://app.internal/hooks" pattern="<?php echo $httpsOnly ? 'https://.*' : 'https?://.*'; ?>" required>
                     </label>
                     <p class="text-muted small">
                         An address entered here is delivered to as written, including one on a
-                        private network. It must be https. A type that already has an endpoint is replaced.
+                        private network.<?php echo $httpsOnly ? ' It must be https.' : ''; ?> A type that already has an endpoint is replaced.
                     </p>
                     <button type="submit" class="btn btn-primary btn-sm">Save endpoint</button>
                 </form>

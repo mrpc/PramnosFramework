@@ -274,11 +274,7 @@ class WebhookService
      */
     public static function allowedPrivateRanges(): array
     {
-        $application = \Pramnos\Application\Application::currentInstance();
-        $config      = is_object($application)
-            ? ($application->applicationInfo['authserver']['webhooks'] ?? [])
-            : [];
-        $config      = is_array($config) ? $config : [];
+        $config = self::config();
 
         $ranges = ($config['allow_private'] ?? true)
             ? \Pramnos\Security\OutboundUrl::PRIVATE_NETWORK_RANGES
@@ -289,6 +285,39 @@ class WebhookService
         }
 
         return array_values(array_unique($ranges));
+    }
+
+    /**
+     * Whether an endpoint must be `https://`.
+     *
+     * `require_https` in `authserver.webhooks`, default **true**: the event describes a person
+     * and is signed with a shared secret, and over plaintext on the internet both are
+     * readable by anything on the path. Set it to `false` where the network is encrypted
+     * underneath — a VPN — or where receivers under development have no certificate.
+     *
+     * Deliberately not tied to this server's own development mode: whether *this* site is
+     * being developed says nothing about the receivers, which are other people's
+     * applications — one of them under development on somebody's own machine while this
+     * server is the live one.
+     */
+    public static function requiresHttps(): bool
+    {
+        return (bool) (self::config()['require_https'] ?? true);
+    }
+
+    /**
+     * `authserver.webhooks` from the application's configuration, or an empty array.
+     *
+     * @return array<string, mixed>
+     */
+    private static function config(): array
+    {
+        $application = \Pramnos\Application\Application::currentInstance();
+        $config      = is_object($application)
+            ? ($application->applicationInfo['authserver']['webhooks'] ?? [])
+            : [];
+
+        return is_array($config) ? $config : [];
     }
 
     /**
@@ -569,7 +598,8 @@ class WebhookService
          * ranges this installation allows.
          */
         if (($event['registered_by'] ?? self::REGISTERED_BY_CLIENT) !== self::REGISTERED_BY_ADMIN) {
-            $client->forUserSuppliedUrl()->allowAddresses(self::allowedPrivateRanges());
+            $client->forUserSuppliedUrl(!self::requiresHttps())
+                ->allowAddresses(self::allowedPrivateRanges());
         }
 
         try {

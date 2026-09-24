@@ -766,9 +766,10 @@ application can only ever see and change its own endpoints.
 | `POST /Webhook/test` | Queue a test event through the real pipeline |
 | `POST /Webhook/delete` | Remove one endpoint |
 
-The endpoint URL must be `https://`. The event describes a person and is signed
-with a shared secret; over plaintext both are readable by anything on the path,
-which makes the signature decorative.
+The endpoint URL must be `https://` unless the server says otherwise (`require_https`,
+below). The event describes a person and is signed with a shared secret; over
+plaintext on the internet both are readable by anything on the path, which makes the
+signature decorative.
 
 Event types: `user_deauthorized`, `token_revoked`, `gdpr_request`,
 `user_profile_changed`, `device_deauthorized`, `account_deleted`, `scope_changed`,
@@ -813,6 +814,7 @@ loopback or link-local, where this server's own ports and the cloud metadata add
     'webhooks' => [
         'allow_private'        => true,              // the default
         'allow_private_ranges' => [],                // CIDR ranges allowed in addition
+        'require_https'        => true,              // the default; false allows http://
     ],
 ],
 ```
@@ -823,9 +825,26 @@ loopback or link-local, where this server's own ports and the cloud metadata add
 | `'allow_private' => false` | public addresses only |
 | `'allow_private' => false, 'allow_private_ranges' => ['10.8.0.0/24']` | public addresses and that VPN, nothing else private |
 | `'allow_private_ranges' => ['127.0.0.1/32']` | the above, plus this host |
+| `'require_https' => false` | any of the above over `http://` as well |
 
 A refused registration answers `endpoint_url resolves to an address inside this network`. A
 name that does not resolve yet is accepted, because every delivery resolves it again.
+
+`require_https` applies to both kinds of endpoint. Turn it off where the network is
+encrypted underneath — a VPN — or while receivers under development have no certificate.
+It is a setting of its own rather than a consequence of this server's development mode on
+purpose: the receivers are other people's applications, and one of them may be under
+development on somebody's own machine while this server is the live one.
+
+**Testing webhooks from an application on your own machine.** The server has to be able to
+reach you, so the address is one of:
+
+- **a tunnel** (ngrok, Cloudflare Tunnel) — a public `https://` URL, accepted as it is;
+- **the VPN or LAN** you share with the server — a private address, accepted by default;
+  add `'require_https' => false` if your receiver speaks plain `http`;
+- **the server running on the same machine**, in Docker — register
+  `http://host.docker.internal:<port>/…`, which resolves to a private address, with
+  `require_https` off in that server's configuration.
 
 **An endpoint an administrator entered** on the application's page is delivered to as
 written — the operator's own statement about their network, needing no setting.

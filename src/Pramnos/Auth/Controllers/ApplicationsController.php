@@ -132,6 +132,7 @@ class ApplicationsController extends Controller
             $view->webhooks = [];
         }
         $view->webhookTypes = \Pramnos\Auth\WebhookService::EVENT_TYPES;
+        $view->webhookRequiresHttps = \Pramnos\Auth\WebhookService::requiresHttps();
 
         return $view->display('view');
     }
@@ -576,9 +577,9 @@ class ApplicationsController extends Controller
      *
      * Approved as it is entered: an administrator's address is recorded as
      * `registered_by = admin` and delivered to as written, so a receiver on the VPN, the
-     * LAN or this host works without a setting. The one rule kept is `https`, because the
-     * event describes a person and is signed with a shared secret, and over plaintext both
-     * are readable by anything on the path.
+     * LAN or this host works without a setting. The scheme follows
+     * {@see \Pramnos\Auth\WebhookService::requiresHttps()}, the same rule an application's
+     * own registration meets: `https` in production unless configured otherwise.
      *
      * The signing secret is shown once, in the message, and stored encrypted.
      */
@@ -599,10 +600,14 @@ class ApplicationsController extends Controller
         $url  = trim((string) ($_POST['endpoint_url'] ?? ''));
         $type = trim((string) ($_POST['webhook_type'] ?? ''));
 
+        $https  = \Pramnos\Auth\WebhookService::requiresHttps();
+        $scheme = strtolower((string) parse_url($url, PHP_URL_SCHEME));
         if ($url === '' || filter_var($url, FILTER_VALIDATE_URL) === false
-            || !str_starts_with(strtolower($url), 'https://')
+            || ($scheme !== 'https' && ($scheme !== 'http' || $https))
         ) {
-            $this->addError('The endpoint must be a full https:// URL.');
+            $this->addError($https
+                ? 'The endpoint must be a full https:// URL.'
+                : 'The endpoint must be a full http:// or https:// URL.');
             $this->redirect($back);
             return;
         }

@@ -188,7 +188,7 @@ class ApplicationsWebhookActionsTest extends TestCase
     #[DataProvider('refusedEndpoints')]
     public function testAnUnusableEndpointIsRefused(array $post, string $error): void
     {
-        // Arrange
+        // Arrange — https pinned on, so the plaintext case does not depend on the fixture
         $_POST = array_merge(
             $_POST,
             ['endpoint_url' => 'https://10.8.0.5/hooks', 'webhook_type' => 'token_revoked'],
@@ -196,7 +196,7 @@ class ApplicationsWebhookActionsTest extends TestCase
         );
 
         // Act
-        $this->controller->webhook();
+        $this->withWebhookConfig(['require_https' => true], fn() => $this->controller->webhook());
 
         // Assert
         $this->assertSame([], $this->controller->service->saved, 'nothing may be written');
@@ -214,6 +214,48 @@ class ApplicationsWebhookActionsTest extends TestCase
             'no csrf token'      => [['_csrf_token' => ''], 'expired'],
             'a stale csrf token' => [['_csrf_token' => 'another'], 'expired'],
         ];
+    }
+
+    /**
+     * With `require_https` off, an administrator can enter an `http://` receiver — one on
+     * a VPN, or one under development — but still not another scheme.
+     */
+    public function testWithHttpsNotRequiredAPlaintextEndpointIsSaved(): void
+    {
+        // Arrange
+        $_POST += ['endpoint_url' => 'http://localhost:8080/hooks', 'webhook_type' => 'token_revoked'];
+
+        // Act
+        $this->withWebhookConfig(['require_https' => false], fn() => $this->controller->webhook());
+        $_POST['endpoint_url'] = 'ftp://localhost/hooks';
+        $this->withWebhookConfig(['require_https' => false], fn() => $this->controller->webhook());
+
+        // Assert
+        $this->assertCount(1, $this->controller->service->saved);
+        $this->assertSame('http://localhost:8080/hooks', $this->controller->service->saved[0]['url']);
+        $this->assertSame(
+            ['The endpoint must be a full http:// or https:// URL.'],
+            $this->controller->errors
+        );
+    }
+
+    /** Run $act with `authserver.webhooks` set to $config, and put it back. */
+    private function withWebhookConfig(array $config, callable $act): mixed
+    {
+        $app   = \Pramnos\Application\Application::getInstance();
+        $had   = isset($app->applicationInfo['authserver']);
+        $saved = $app->applicationInfo['authserver'] ?? null;
+        $app->applicationInfo['authserver'] = ['webhooks' => $config];
+
+        try {
+            return $act();
+        } finally {
+            if ($had) {
+                $app->applicationInfo['authserver'] = $saved;
+            } else {
+                unset($app->applicationInfo['authserver']);
+            }
+        }
     }
 
     /**

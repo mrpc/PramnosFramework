@@ -99,18 +99,65 @@ class WebhookControllerTest extends TestCase
      */
     public function testAPlaintextEndpointIsRefused(): void
     {
-        // Arrange
+        // Arrange — pinned, so the answer does not depend on the fixture's configuration
         $controller = $this->controller();
         $_POST = ['endpoint_url' => 'http://app.example.com/hooks', 'webhook_type' => 'token_revoked'];
 
         // Act
-        $response = $controller->register();
+        $response = $this->withWebhookConfig(['require_https' => true], fn() => $controller->register());
         $body     = json_decode($response->getBody(), true);
 
         // Assert
         $this->assertSame(400, $response->getStatusCode());
-        $this->assertStringContainsString('https', $body['error_description']);
+        $this->assertSame('endpoint_url must use https', $body['error_description']);
         $this->assertSame([], $controller->stored);
+    }
+
+    /**
+     * With `require_https` off, a plaintext endpoint is accepted — and any other scheme
+     * still is not.
+     *
+     * For a network encrypted underneath, such as a VPN, or receivers under development
+     * with no certificate. `ftp://` is refused either way: a webhook is an HTTP POST.
+     */
+    public function testWithHttpsNotRequiredAPlaintextEndpointIsAccepted(): void
+    {
+        // Arrange
+        $controller = $this->controller();
+
+        // Act
+        $_POST    = ['endpoint_url' => 'http://app.example.com/hooks', 'webhook_type' => 'token_revoked'];
+        $accepted = $this->withWebhookConfig(['require_https' => false], fn() => $controller->register());
+        $_POST    = ['endpoint_url' => 'ftp://app.example.com/hooks', 'webhook_type' => 'token_revoked'];
+        $refused  = $this->withWebhookConfig(['require_https' => false], fn() => $controller->register());
+
+        // Assert
+        $this->assertSame(201, $accepted->getStatusCode());
+        $this->assertSame(400, $refused->getStatusCode());
+        $this->assertSame(
+            'endpoint_url must use http or https',
+            json_decode($refused->getBody(), true)['error_description']
+        );
+        $this->assertCount(1, $controller->stored);
+    }
+
+    /** Run $act with `authserver.webhooks` set to $config, and put it back. */
+    private function withWebhookConfig(array $config, callable $act): mixed
+    {
+        $app   = \Pramnos\Application\Application::getInstance();
+        $had   = isset($app->applicationInfo['authserver']);
+        $saved = $app->applicationInfo['authserver'] ?? null;
+        $app->applicationInfo['authserver'] = ['webhooks' => $config];
+
+        try {
+            return $act();
+        } finally {
+            if ($had) {
+                $app->applicationInfo['authserver'] = $saved;
+            } else {
+                unset($app->applicationInfo['authserver']);
+            }
+        }
     }
 
     /**

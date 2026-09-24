@@ -313,9 +313,16 @@ class Webhook extends Controller
         }
 
         // An event carries information about a person and is signed with a shared
-        // secret; sending either over plaintext gives both away.
-        if (!str_starts_with(strtolower($url), 'https://')) {
-            return ['error' => 'invalid_request', 'error_description' => 'endpoint_url must use https'];
+        // secret; sending either over plaintext gives both away — unless this
+        // installation says otherwise. {@see WebhookService::requiresHttps()}
+        $scheme = strtolower((string) parse_url($url, PHP_URL_SCHEME));
+        if ($scheme !== 'https' && ($scheme !== 'http' || WebhookService::requiresHttps())) {
+            return [
+                'error'             => 'invalid_request',
+                'error_description' => WebhookService::requiresHttps()
+                    ? 'endpoint_url must use https'
+                    : 'endpoint_url must use http or https',
+            ];
         }
 
         // Refused here as well as at delivery, so the relying party hears it now rather

@@ -522,6 +522,18 @@ class WebhookStorageTest extends BaseTestCase
                 $this->redirectedTo = (string) $url;
             }
 
+            // The page also shows the declared capabilities, whose tables this class does
+            // not create; that section has its own tests.
+            protected function capabilitiesReader(): \Pramnos\Auth\CapabilitiesSyncService
+            {
+                return new class(\Pramnos\Framework\Factory::getDatabase()) extends \Pramnos\Auth\CapabilitiesSyncService {
+                    public function describe(int $appId): array
+                    {
+                        return [];
+                    }
+                };
+            }
+
             public function &getView($name = '', $type = '', $args = [])
             {
                 $view = new #[\AllowDynamicProperties] class {

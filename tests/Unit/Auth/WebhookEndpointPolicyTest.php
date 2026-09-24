@@ -26,6 +26,9 @@ use Pramnos\Security\OutboundUrl;
  * - **An administrator**, on the application's screen. The operator's own statement about
  *   their network, delivered to as written.
  *
+ * Whether the address must be `https` is the other half: `require_https`, on unless
+ * configured off.
+ *
  * Every URL here is an IP literal, so the guard decides without DNS, and every delivery is
  * answered by a fake, so nothing leaves the container. A fake that answers `*` also means a
  * guard that failed open would make a refusal test fail rather than pass.
@@ -119,6 +122,45 @@ class WebhookEndpointPolicyTest extends TestCase
             array_merge(OutboundUrl::PRIVATE_NETWORK_RANGES, ['127.0.0.1/32']),
             $ranges
         );
+    }
+
+    /**
+     * `require_https` decides, and only it: default on.
+     *
+     * The server's own development mode is not consulted — it says whether this site is
+     * being developed, not whether a receiver has a certificate — so APP_DEBUG is set here
+     * to prove it changes nothing.
+     *
+     * @param array $config   What `authserver.webhooks` says
+     * @param bool  $required
+     */
+    #[DataProvider('httpsRules')]
+    public function testRequiresHttpsFollowsTheConfigurationAlone(array $config, bool $required): void
+    {
+        // Arrange
+        $this->configure($config);
+        $saved = getenv('APP_DEBUG');
+        putenv('APP_DEBUG=1');
+
+        try {
+            // Act
+            $result = WebhookService::requiresHttps();
+        } finally {
+            $saved === false ? putenv('APP_DEBUG') : putenv('APP_DEBUG=' . $saved);
+        }
+
+        // Assert
+        $this->assertSame($required, $result);
+    }
+
+    /** @return array<string, array{array, bool}> */
+    public static function httpsRules(): array
+    {
+        return [
+            'nothing set'   => [[], true],
+            'switched off'  => [['require_https' => false], false],
+            'switched on'   => [['require_https' => true], true],
+        ];
     }
 
     /**
@@ -249,6 +291,8 @@ class WebhookEndpointPolicyTest extends TestCase
             'row older than the column'          => [[], 'https://127.0.0.1/in', null, false],
             'admin, loopback'                    => [[], 'https://127.0.0.1/in', $admin, true],
             'admin, private, allow_private off'  => [['allow_private' => false], 'https://10.0.0.5/in', $admin, true],
+            'client, http, in production'        => [[], 'http://10.0.0.5/in', $client, false],
+            'client, http, https not required'   => [['require_https' => false], 'http://10.0.0.5/in', $client, true],
         ];
     }
 

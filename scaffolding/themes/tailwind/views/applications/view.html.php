@@ -8,6 +8,7 @@
  *   $this->lastUsers  — array of recent token rows with userid, username, lastused, ipaddress, scope
  *   $this->webhooks     — this application's webhook endpoints (WebhookService::endpointsFor())
  *   $this->webhookTypes — the event types an endpoint may subscribe to
+ *   $this->webhookRequiresHttps — whether an endpoint must be https (WebhookService::requiresHttps())
  */
 $app        = $this->app ?? [];
 $tokenStats = $this->tokenStats ?? ['total' => 0, 'active' => 0, 'revoked' => 0];
@@ -327,6 +328,7 @@ $accessTypeLabel = function (int $t): string {
              */
             $webhooks     = $this->webhooks ?? [];
             $webhookTypes = $this->webhookTypes ?? [];
+            $httpsOnly    = $this->webhookRequiresHttps ?? true;
             $csrf         = \Pramnos\Http\Middleware\CsrfMiddleware::tokenField();
             ?>
             <div class="mt-8" id="webhooks">
@@ -399,12 +401,12 @@ $accessTypeLabel = function (int $t): string {
                         <fieldset class="fieldset md:col-span-2">
                             <legend class="fieldset-legend">Endpoint URL</legend>
                             <input type="url" name="endpoint_url" class="input input-sm w-full font-mono"
-                                   placeholder="https://app.internal/hooks" pattern="https://.*" required>
+                                   placeholder="https://app.internal/hooks" pattern="<?php echo $httpsOnly ? 'https://.*' : 'https?://.*'; ?>" required>
                         </fieldset>
                     </div>
                     <p class="text-xs text-base-content/60 mt-2">
                         An address entered here is delivered to as written, including one on a
-                        private network. It must be https. A type that already has an endpoint is replaced.
+                        private network.<?php echo $httpsOnly ? ' It must be https.' : ''; ?> A type that already has an endpoint is replaced.
                     </p>
                     <div class="mt-3">
                         <button type="submit" class="btn btn-primary btn-sm">Save endpoint</button>

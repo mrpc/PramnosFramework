@@ -18,6 +18,9 @@ use Pramnos\Auth\WebhookService;
  */
 class ApplicationWebhooksCardTest extends TestCase
 {
+    /** What the page is told about https. */
+    private bool $httpsOnly = true;
+
     /** Render one theme's application page with these endpoints. */
     private function render(string $theme, array $webhooks): string
     {
@@ -30,6 +33,7 @@ class ApplicationWebhooksCardTest extends TestCase
         $view->capabilities = [];
         $view->webhooks     = $webhooks;
         $view->webhookTypes = WebhookService::EVENT_TYPES;
+        $view->webhookRequiresHttps = $this->httpsOnly;
 
         $file   = dirname(__DIR__, 4) . '/scaffolding/themes/' . $theme . '/views/applications/view.html.php';
         $render = \Closure::bind(function (string $file): void {
@@ -139,5 +143,24 @@ class ApplicationWebhooksCardTest extends TestCase
         $this->assertStringContainsString('/Webhook/register', $html);
         $this->assertStringContainsString('applications/webhook"', $html);
         $this->assertStringNotContainsString('webhookrotate', $html);
+    }
+
+    /**
+     * The form's own check follows the setting, so a browser does not refuse an `http://`
+     * address the server would accept.
+     */
+    #[DataProvider('themes')]
+    public function testTheFormsSchemeCheckFollowsTheSetting(string $theme): void
+    {
+        // Act
+        $strict = $this->render($theme, []);
+        $this->httpsOnly = false;
+        $relaxed = $this->render($theme, []);
+
+        // Assert
+        $this->assertStringContainsString('pattern="https://.*"', $strict);
+        $this->assertStringContainsString('It must be https.', $strict);
+        $this->assertStringContainsString('pattern="https?://.*"', $relaxed);
+        $this->assertStringNotContainsString('It must be https.', $relaxed);
     }
 }
