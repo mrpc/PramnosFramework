@@ -22,11 +22,32 @@ class ClientResponse
     public function __construct(
         private readonly int    $statusCode,
         private readonly string $body,
-        private readonly array  $headers = [],
+        array                   $headers = [],
         private readonly bool   $truncated = false,
         private readonly ?int   $bytes = null,
         private readonly ?float $elapsedMs = null
-    ) {}
+    ) {
+        /*
+         * Header names are lowercased here rather than assumed to arrive that way.
+         *
+         * {@see header()} looks them up lowercased, and the live path happens to build
+         * them that way — so the only responses this affected were **hand-built ones**,
+         * which is to say every fake in every test. `ClientResponse::make('', 302,
+         * ['Location' => …])` stored `Location` and answered `header('Location')` with an
+         * empty string, and nothing said so: an absent header and an unreadable one look
+         * identical to a caller.
+         */
+        $normalised = [];
+
+        foreach ($headers as $name => $value) {
+            $normalised[strtolower((string) $name)] = $value;
+        }
+
+        $this->headers = $normalised;
+    }
+
+    /** @var array<string, string> Response headers, keys lowercased by the constructor. */
+    private readonly array $headers;
 
     // =========================================================================
     // Factory helpers (used by Client::fake() and tests)

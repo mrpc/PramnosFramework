@@ -66,6 +66,24 @@ class Client
     /** Read at most this many body bytes, or null for no ceiling. */
     private ?int    $maxBytes       = null;
 
+    /**
+     * How many redirects to follow. `0` means none, and the caller sees the `30x`.
+     *
+     * Five and no way to change it was the shape this had, and that is the one setting
+     * that makes the client unusable for the case it is most often reached for: fetching
+     * an address **a user supplied**. See {@see withoutRedirects()}.
+     */
+    private int     $maxRedirects   = 5;
+
+    /** Whether the user-supplied-URL guard is on. {@see forUserSuppliedUrl()} */
+    private bool    $guardUrl       = false;
+
+    /** Whether the guard permits plain `http`. */
+    private bool    $guardAllowHttp = false;
+
+    /** `host:port:ip` for `CURLOPT_RESOLVE`, set by the guard before each hop. */
+    private string  $pinnedAddress  = '';
+
     // =========================================================================
     // Fake registry (used in tests to avoid real network calls)
     // =========================================================================
@@ -381,6 +399,71 @@ class Client
         return $this;
     }
 
+    /**
+     * Follow at most `$times` redirects. `0` refuses them outright.
+     *
+     * @param int $times Negative is treated as 0.
+     */
+    public function maxRedirects(int $times): static
+    {
+        $this->maxRedirects = max(0, $times);
+        return $this;
+    }
+
+    /**
+     * Do not follow redirects — hand the `30x` back to the caller.
+     *
+     * The client followed up to five and offered no way to say no, which makes it unsafe
+     * for the thing it is most often wanted for. **Fetching a user-supplied URL is
+     * server-side request forgery unless redirects stop at a host you have checked**: a
+     * perfectly public server answering `302 http://169.254.169.254/` defeats any amount
+     * of pre-flight DNS checking, because the check happened before the hop.
+     *
+     * Enough on its own when the caller wants to decide. {@see forUserSuppliedUrl()} is
+     * the whole guard.
+     */
+    public function withoutRedirects(): static
+    {
+        return $this->maxRedirects(0);
+    }
+
+    /**
+     * Fetch an address somebody else chose, safely.
+     *
+     * "Verify your site", "import from a URL", a webhook tester, an OG-preview fetcher, an
+     * RSS reader: the need is ordinary and the cost of getting it wrong is cloud metadata
+     * credentials rather than a broken page. Every application that needs it needs the
+     * same version of it, and the one that writes its own gets it subtly wrong — so it is
+     * here rather than in a comment telling people to be careful.
+     *
+     * With this on:
+     *
+     * - **`https` only**, unless `$allowHttp`. A scheme allowlist is the cheap half: no
+     *   `file://`, no `gopher://`, no `dict://`.
+     * - **Every hop's host must resolve to a public address.** Loopback, link-local
+     *   (including `169.254.169.254`), private ranges, CGNAT, multicast and reserved space
+     *   are refused.
+     * - **The resolved address is pinned** for the connection, so the name cannot answer
+     *   differently between the check and the fetch. That is DNS rebinding, and a guard
+     *   that resolves and then lets cURL resolve again has not closed it.
+     * - **Redirects are followed by this class, not by cURL**, so each hop is checked
+     *   before it is taken. `maxRedirects()` still bounds them; the default of five
+     *   applies, and `withoutRedirects()` turns them off entirely.
+     *
+     * A refusal is a {@see ClientException}, not a `false` — an address that was rejected
+     * for being internal must not be indistinguishable from one that was merely down.
+     *
+     * What it does **not** do: it cannot stop a public host proxying to its own private
+     * network, and it does not limit the response. Pair it with
+     * {@see maxResponseBytes()} and {@see timeout()}.
+     */
+    public function forUserSuppliedUrl(bool $allowHttp = false): static
+    {
+        $this->guardUrl       = true;
+        $this->guardAllowHttp = $allowHttp;
+        return $this;
+    }
+
     // =========================================================================
     // Send
     // =========================================================================
@@ -393,7 +476,216 @@ class Client
      */
     public function send(): ClientResponse
     {
-        return $this->executeWithRetry($this->resolveUrl());
+        if (!$this->guardUrl) {
+            return $this->executeWithRetry($this->resolveUrl());
+        }
+
+        return $this->sendGuarded($this->resolveUrl());
+    }
+
+
+    // =========================================================================
+    // The user-supplied-URL guard
+    // =========================================================================
+
+    /**
+     * Follow the redirect chain ourselves, checking every hop before taking it.
+     *
+     * The whole point: cURL following a redirect means the second request is made to an
+     * address nothing examined. A public host answering `302 http://169.254.169.254/`
+     * is the shape of the attack, and no amount of checking the *first* URL prevents it.
+     *
+     * A chain longer than {@see maxRedirects()} ends by returning the `30x` itself rather
+     * than raising — the same thing {@see withoutRedirects()} does, and the caller can see
+     * what happened.
+     */
+    private function sendGuarded(string $url): ClientResponse
+    {
+        $hops = 0;
+
+        while (true) {
+            $this->pinnedAddress = $this->checkUrl($url);
+
+            $response = $this->executeWithRetry($url);
+            $location = trim($response->header('Location'));
+
+            if (!$response->redirect() || $location === '' || $hops >= $this->maxRedirects) {
+                return $response;
+            }
+
+            $url = $this->absoluteUrl($url, $location);
+            $hops++;
+        }
+    }
+
+    /**
+     * Refuse the URL, or return the `host:port:ip` to pin the connection to.
+     *
+     * @throws ClientException When the scheme is not allowed, the host does not resolve,
+     *                         or any address it resolves to is not public.
+     */
+    private function checkUrl(string $url): string
+    {
+        // `parse_url()` answers false for a URL it cannot make sense of, and reading a
+        // key off false is a fatal. A malformed URL falls through to the scheme refusal,
+        // which is the right answer for it.
+        $parts  = parse_url($url) ?: [];
+        $scheme = strtolower((string) ($parts['scheme'] ?? ''));
+        $host   = trim((string) ($parts['host'] ?? ''), '[]');
+
+        $allowed = $this->guardAllowHttp ? ['http', 'https'] : ['https'];
+
+        if (!in_array($scheme, $allowed, true)) {
+            throw new ClientException(
+                'Refusing ' . ($scheme === '' ? 'a URL with no scheme' : $scheme . ':')
+                . ' — this request allows only ' . implode(' and ', $allowed)
+            );
+        }
+
+        if ($host === '') {
+            throw new ClientException('Refusing a URL with no host');
+        }
+
+        $addresses = $this->resolveHost($host);
+
+        if ($addresses === []) {
+            throw new ClientException('Refusing ' . $host . ' — it does not resolve');
+        }
+
+        foreach ($addresses as $address) {
+            if (!$this->isPublicAddress($address)) {
+                // Named, because "it did not work" and "it pointed at your own network"
+                // are different answers and the caller is usually showing one to a user.
+                throw new ClientException(
+                    'Refusing ' . $host . ' — it resolves to ' . $address
+                    . ', which is not a public address'
+                );
+            }
+        }
+
+        $port = (int) ($parts['port'] ?? ($scheme === 'https' ? 443 : 80));
+
+        return $host . ':' . $port . ':' . $addresses[0];
+    }
+
+    /**
+     * Every address a host resolves to, or the host itself when it is already one.
+     *
+     * `protected` so a test can answer without a network, which is the only way to
+     * exercise the refusals for addresses this machine cannot be made to resolve to.
+     *
+     * @return list<string>
+     */
+    protected function resolveHost(string $host): array
+    {
+        if (filter_var($host, FILTER_VALIDATE_IP) !== false) {
+            return [$host];
+        }
+
+        $addresses = gethostbynamel($host);
+        $addresses = is_array($addresses) ? $addresses : [];
+
+        if (function_exists('dns_get_record')) {
+            $records = @dns_get_record($host, DNS_AAAA);
+
+            foreach (is_array($records) ? $records : [] as $record) {
+                // @codeCoverageIgnoreStart
+                // A host with an AAAA record needs a real recursive resolver, which is
+                // an internet connection the test container must not depend on —
+                // `dns_get_record()` does not read /etc/hosts, so there is no local name
+                // that reaches here. The IPv6 *checking* is covered: the guard's tests
+                // feed v6 addresses in through the scripted resolver.
+                if (!empty($record['ipv6'])) {
+                    $addresses[] = (string) $record['ipv6'];
+                }
+                // @codeCoverageIgnoreEnd
+            }
+        }
+
+        return array_values(array_unique($addresses));
+    }
+
+    /**
+     * Is this an address on the public internet?
+     *
+     * `FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE` is most of the answer and is
+     * the part people reach for: between them they reject `10/8`, `172.16/12`,
+     * `192.168/16`, `fc00::/7`, `fec0::/10`, `0/8`, `127/8`, **`169.254/16`** — which is
+     * where cloud metadata lives — `240/4`, `::`, `::1`, `::ffff:0:0/96` (so an
+     * IPv4-mapped loopback cannot sneak through) and `fe80::/10`.
+     *
+     * What it does not reject, and this does: carrier-grade NAT, the IETF protocol block,
+     * the benchmarking block and multicast. None of them belongs in a fetch of somebody's
+     * home page, and `100.64/10` in particular is a real address space on a real network.
+     *
+     * Not covered, stated rather than implied: a **public** host that proxies into its own
+     * private network. No client-side check can see that one.
+     */
+    private function isPublicAddress(string $address): bool
+    {
+        $public = filter_var(
+            $address,
+            FILTER_VALIDATE_IP,
+            FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE
+        );
+
+        if ($public === false) {
+            return false;
+        }
+
+        if (filter_var($address, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) === false) {
+            return true;
+        }
+
+        $long = ip2long($address) & 0xFFFFFFFF;
+
+        foreach ([
+            ['100.64.0.0', 10],   // carrier-grade NAT
+            ['192.0.0.0',  24],   // IETF protocol assignments
+            ['198.18.0.0', 15],   // benchmarking
+            ['224.0.0.0',   4],   // multicast
+        ] as [$network, $bits]) {
+            $mask = (~0 << (32 - $bits)) & 0xFFFFFFFF;
+
+            if (($long & $mask) === ((ip2long($network) & 0xFFFFFFFF) & $mask)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * A `Location` header against the URL it came from.
+     *
+     * A redirect target may be absolute, root-relative or path-relative, and all three
+     * turn up in the wild. Resolved here rather than handed to cURL, because the whole
+     * reason this class is following the chain is that each hop has to be checked first.
+     */
+    private function absoluteUrl(string $base, string $location): string
+    {
+        if (preg_match('#^[a-z][a-z0-9+.-]*://#i', $location) === 1) {
+            return $location;
+        }
+
+        $parts  = parse_url($base);
+        $scheme = (string) ($parts['scheme'] ?? 'https');
+        $host   = (string) ($parts['host'] ?? '');
+        $port   = isset($parts['port']) ? ':' . $parts['port'] : '';
+        $root   = $scheme . '://' . $host . $port;
+
+        if (str_starts_with($location, '//')) {
+            return $scheme . ':' . $location;
+        }
+
+        if (str_starts_with($location, '/')) {
+            return $root . $location;
+        }
+
+        $path = (string) ($parts['path'] ?? '/');
+        $dir  = substr($path, 0, (int) strrpos($path, '/') + 1);
+
+        return $root . ($dir === '' ? '/' : $dir) . $location;
     }
 
     // =========================================================================
@@ -672,9 +964,18 @@ class Client
             CURLOPT_HTTPHEADER     => $curlHeaders,
             CURLOPT_SSL_VERIFYPEER => $this->verifySsl,
             CURLOPT_SSL_VERIFYHOST => $this->verifySsl ? 2 : 0,
-            CURLOPT_FOLLOWLOCATION => true,
-            CURLOPT_MAXREDIRS      => 5,
+            // The guard follows redirects itself, one checked hop at a time, so cURL is
+            // told not to. Otherwise the request never comes back through the check.
+            CURLOPT_FOLLOWLOCATION => !$this->guardUrl && $this->maxRedirects > 0,
+            CURLOPT_MAXREDIRS      => $this->maxRedirects,
         ];
+
+        if ($this->guardUrl && $this->pinnedAddress !== '') {
+            // Connect to the address that was checked, not to whatever the name answers
+            // now. Without this the guard is advisory: a name can return a public address
+            // to the resolver and a private one to cURL a moment later.
+            $options[CURLOPT_RESOLVE] = [$this->pinnedAddress];
+        }
 
         if (isset($writer)) {
             $options[CURLOPT_WRITEFUNCTION] = $writer;

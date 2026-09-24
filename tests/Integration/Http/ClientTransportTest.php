@@ -531,4 +531,41 @@ class ClientTransportTest extends TestCase
         // Assert — the path the server saw.
         $this->assertSame('/stations/7', $response->body());
     }
+
+    /**
+     * cURL follows a redirect by default, and stops when told to.
+     *
+     * The unit tests script the redirect through a fake; this one proves the curl option
+     * is actually set, against a server that really answers `302`. Those are different
+     * claims: `CURLOPT_FOLLOWLOCATION` set from the wrong variable would pass every fake
+     * in the suite and follow every redirect on the wire.
+     */
+    public function testRedirectsAreFollowedByDefaultAndRefusedOnRequest(): void
+    {
+        // Arrange — one server, two connections: the redirect and its target
+        $base = $this->serve(static function (int $i): string {
+            return $i === 0
+                ? self::response(302, '', ['Location' => '/landed'])
+                : self::response(200, 'arrived');
+        }, 2);
+
+        // Act
+        $followed = (new Client())->make('GET', $base . '/start')->send();
+
+        // Assert
+        $this->assertSame(200, $followed->status(), 'the default must still follow');
+        $this->assertSame('arrived', $followed->body());
+
+        // Arrange — a second server, because the first has served its two connections
+        $second = $this->serve(
+            static fn (): string => self::response(302, '', ['Location' => '/landed'])
+        );
+
+        // Act
+        $stopped = (new Client())->make('GET', $second . '/start')->withoutRedirects()->send();
+
+        // Assert — the caller sees the 30x and decides
+        $this->assertSame(302, $stopped->status());
+        $this->assertSame('/landed', $stopped->header('Location'));
+    }
 }

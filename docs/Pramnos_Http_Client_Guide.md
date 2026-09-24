@@ -5,6 +5,7 @@ use_cases:
   - Checking whether a streaming or long-lived endpoint is alive
   - Reading only part of a large or endless HTTP response
   - Writing tests for code that makes outbound HTTP calls
+  - Fetching a URL that a user supplied, without opening an SSRF hole
   - Diagnosing a request that times out or exhausts memory
   - Measuring outbound bandwidth or per-request timing
 ---
@@ -278,6 +279,60 @@ against ask less often.
 > service on a hand-rolled curl handle purely to read `curl_getinfo()`, and its
 > pooled poller had to redefine its `millis` column as "share of the batch's
 > elapsed time" because there was nothing else to divide.
+
+---
+
+## Redirects
+
+Up to five are followed by default. `maxRedirects()` changes that and
+`withoutRedirects()` hands the `30x` straight back:
+
+```php
+$response = Client::get($url)->withoutRedirects()->send();
+
+if ($response->redirect()) {
+    $where = $response->header('Location');
+}
+```
+
+## Fetching a URL somebody else typed
+
+`forUserSuppliedUrl()` is the guard for "verify your site", "import from a URL", a webhook
+tester, an OG-preview fetcher, an RSS reader — anything where the address comes from
+outside.
+
+```php
+$response = Client::get($url)
+    ->forUserSuppliedUrl()     // https only, public addresses only, checked per hop
+    ->maxResponseBytes(256 * 1024)
+    ->timeout(10)
+    ->send();
+```
+
+Without it, fetching a user-supplied URL is **server-side request forgery**, and the cost
+of getting it wrong is cloud metadata credentials rather than a broken page.
+
+**Why a pre-flight DNS check of your own is not enough.** The check happens before the
+request; a perfectly public host that answers `302 http://169.254.169.254/` is fetched on
+the *second* request, which nothing examined. Redirects are the hole, and they cannot be
+closed from outside the client.
+
+With the guard on:
+
+| | |
+|---|---|
+| **Scheme** | `https` only. `forUserSuppliedUrl(true)` also allows `http`, for sites that have not got a certificate yet. |
+| **Address** | Every address the host resolves to must be public. Loopback, private ranges, link-local (**including `169.254.169.254`**), carrier-grade NAT, the IETF and benchmarking blocks, multicast and reserved space are all refused — and one non-public address among several refuses the whole host, because "whichever record the fetch happened to use" is not a security property. |
+| **Rebinding** | The resolved address is pinned for the connection, so the name cannot answer differently between the check and the fetch. |
+| **Redirects** | Followed by the client, one checked hop at a time, bounded by `maxRedirects()`. A chain that exceeds it returns the `30x` rather than raising. |
+
+A refusal is a `ClientException` naming the address, not a `false` — a URL rejected for
+being internal must not be indistinguishable from one that was merely down, because the
+caller is usually showing one of the two to a user.
+
+**What it does not do**, stated rather than implied: it cannot see a public host proxying
+into its own private network, and it does not limit the response. Pair it with
+`maxResponseBytes()` and `timeout()`, as above.
 
 ---
 
