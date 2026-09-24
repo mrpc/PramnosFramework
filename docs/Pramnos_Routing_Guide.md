@@ -713,6 +713,68 @@ Re-run with --controllers=src/Api/Controllers if that is the API.
 Nothing is switched under you, and the check is skipped entirely when you passed
 `--controllers` yourself — naming the directory is a decision, not a guess to correct.
 
+### Routes registered on the router — `--routes`
+
+`#[Route]` attributes are one way to declare an API. The other is registering on the
+router, which is what the framework's own dispatcher reads and what the scaffolder
+generates in `src/Api/routes.php`. The generator could only see the first, so an
+application using the second got a document describing **nothing at all** — written over
+the previous one, exiting 0, with a line that reads like success.
+
+```
+php pramnos api:docs --routes=src/Api/routes.php
+```
+
+**A route file dispatches at the end** — `return $router->dispatch($newRequest);`, because
+its return value is the response — so including it to read the routes would run a
+controller. `Router::beginCollecting()` is what makes it possible: while collecting, every
+`dispatch()` is a no-op returning `null` and every router built is kept.
+
+```php
+Router::beginCollecting();
+try {
+    include $routeFile;          // registers; the dispatch at the end does nothing
+} finally {
+    $routes = Router::stopCollecting();
+}
+```
+
+Always in a `finally`. Collecting is process-wide, and a route file that raises would
+otherwise leave every later `dispatch()` silently doing nothing.
+
+It is a read, not a sandbox: including a route file runs whatever else that file does.
+Point it at a file your own application owns.
+
+**What a route can say is less than what an attribute can** — there is no docblock, no
+parameter types and no response schema, because a closure registered against a URI carries
+none of that. So this produces the *surface*: every address, every method, the path
+parameters, the tag (the first segment that is not a version prefix), and a `bearerAuth`
+requirement naming the scopes for routes that declare permissions. Use `--overrides` for
+the rest.
+
+Where both sources describe the same operation, **the attribute wins** — it has the
+schema, the router has only the address. The merge is per operation rather than per path,
+so a controller that documents one method of a resource does not erase the other three.
+
+### It refuses to write an empty document
+
+Zero operations from a scan is not a document, it is a failure — and writing it is the
+worst available outcome, because the previous file is destroyed, the exit code is 0, and
+the line printed reads like success to a deploy script and to a person skimming. One
+installation carried a ten-day-old file describing four scaffold endpoints while its real
+API had ninety-one addresses.
+
+```
+Scanned src/Api/Controllers (namespace App\Api\Controllers) and found no operations
+— refusing to write /srv/app/www/api/openapi.json.
+An empty document overwriting a good one is worse than no run at all. If the routes are
+registered on the router rather than declared with #[Route], pass
+--routes=src/Api/routes.php. If this API really has no operations yet, pass --allow-empty.
+```
+
+The command exits non-zero. `--allow-empty` is there for a new project that genuinely has
+no operations yet, which is a real state and not one to guess at.
+
 **`--namespace` follows `--controllers`.** It is derived from the application
 namespace in `app/app.php` plus the path after `src/`, so
 `--controllers=src/Api/Controllers` gives `App\Api\Controllers`. It used to append a

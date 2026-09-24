@@ -64,13 +64,105 @@ class Router extends Base implements RouterInterface
     private $_invalidScope = null;
 
     /**
+     * Whether routers are being built only to be read. {@see beginCollecting()}
+     */
+    private static bool $collecting = false;
+
+    /**
+     * Every router constructed while collecting.
+     *
+     * @var list<self>
+     */
+    private static array $collected = [];
+
+    /**
      * Class constructor
      * @param \Pramnos\Framework\Container $container IoC Container
      */
     public function __construct($container)
     {
         $this->container = $container;
+
+        if (self::$collecting) {
+            self::$collected[] = $this;
+        }
+
         parent::__construct();
+    }
+
+    /**
+     * Read an application's routes without serving a request.
+     *
+     * ## Why this exists
+     *
+     * A route file registers and then **dispatches** — the scaffolded `src/Api/routes.php`
+     * ends `return $router->dispatch($newRequest);`, because its return value is the
+     * response. So anything that wants to *see* the routes cannot simply include it: doing
+     * so runs a controller.
+     *
+     * That left `api:docs` able to read `#[Route]` attributes and nothing else. An
+     * application that registers its routes on the router — which is what the framework's
+     * own dispatcher reads, and what the scaffolder generates — got a document describing
+     * **nothing**, written over the previous one, with an exit code of 0 and a line that
+     * reads like success. One installation had ninety-one addresses and a ten-day-old
+     * fossil describing four.
+     *
+     * While collecting, every `dispatch()` is a no-op returning `null`, and every router
+     * built is kept. So:
+     *
+     * ```php
+     * Router::beginCollecting();
+     * try {
+     *     include $routeFile;          // registers; the dispatch at the end does nothing
+     * } finally {
+     *     $routes = Router::stopCollecting();
+     * }
+     * ```
+     *
+     * **It is a read, not a sandbox.** Including a route file runs whatever else that file
+     * does; this stops the dispatch, not the include. A caller should be asking for a file
+     * the application named.
+     */
+    public static function beginCollecting(): void
+    {
+        self::$collecting = true;
+        self::$collected  = [];
+    }
+
+    /** Are routers currently being collected rather than used? */
+    public static function isCollecting(): bool
+    {
+        return self::$collecting;
+    }
+
+    /**
+     * Stop collecting and return every route that was registered.
+     *
+     * Merged across routers, because a route file may build more than one — a group of
+     * public routes and a group of authenticated ones is an ordinary shape.
+     *
+     * @return array<string, array<string, array{permissions: mixed, hasPermissions: bool}>>
+     *         Keyed by HTTP method, then by URI.
+     */
+    public static function stopCollecting(): array
+    {
+        $routes = [];
+
+        foreach (self::$collected as $router) {
+            foreach ($router->getRoutesWithPermissions() as $method => $byUri) {
+                foreach ($byUri as $uri => $entry) {
+                    $routes[$method][$uri] = [
+                        'permissions'    => $entry['permissions'],
+                        'hasPermissions' => $entry['hasPermissions'],
+                    ];
+                }
+            }
+        }
+
+        self::$collecting = false;
+        self::$collected  = [];
+
+        return $routes;
     }
 
     /**
@@ -123,6 +215,11 @@ class Router extends Base implements RouterInterface
      */
     public function dispatch(\Pramnos\Http\Request $request, $userPermissions = array())
     {
+        if (self::$collecting) {
+            // Being read, not served. {@see beginCollecting()}
+            return null;
+        }
+
         $route = $this->getMatchedRoute($request);
         if ($route) {
             // Check permissions before executing
@@ -168,6 +265,11 @@ class Router extends Base implements RouterInterface
      */
     public function dispatchSafe(\Pramnos\Http\Request $request, $userPermissions = array())
     {
+        if (self::$collecting) {
+            // Being read, not served. {@see beginCollecting()}
+            return null;
+        }
+
         $route = $this->getMatchedRoute($request);
         
         if (!$route) {
@@ -223,6 +325,11 @@ class Router extends Base implements RouterInterface
      */
     public function dispatchWithoutPermissions(\Pramnos\Http\Request $request)
     {
+        if (self::$collecting) {
+            // Being read, not served. {@see beginCollecting()}
+            return null;
+        }
+
         $route = $this->getMatchedRoute($request);
         if ($route) {
             return $route->execute($this->container);

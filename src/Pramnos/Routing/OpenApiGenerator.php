@@ -109,6 +109,117 @@ class OpenApiGenerator
             }
         }
 
+        return $this->assemble($paths, $secured);
+    }
+
+    /**
+     * Generate the document from routes registered on a router.
+     *
+     * ## Why a second source
+     *
+     * `#[Route]` attributes are one way to declare an API and the router is the other, and
+     * the framework's own dispatcher reads the router. An application that registers its
+     * routes in `src/Api/routes.php` — which is what the scaffolder generates — was
+     * invisible to this generator: it produced a document with **no paths at all**, and
+     * said so in a line that reads like success.
+     *
+     * What a route can say is less than what an attribute can: there is no docblock, no
+     * parameter types and no response schema, because a closure registered against a URI
+     * carries none of that. So this produces the **surface** — every address, every method,
+     * the path parameters, and whether permissions were required — which is most of what
+     * a reader of an API document wants and all of what a route can honestly supply. Use
+     * `--overrides` for the rest.
+     *
+     * {@see \Pramnos\Routing\Router::beginCollecting()} is how the routes are obtained
+     * without serving a request.
+     *
+     * @param array<string, array<string, array{permissions?: mixed, hasPermissions?: bool}>> $routes
+     *        Keyed by HTTP method, then by URI, as `Router::stopCollecting()` returns.
+     * @return array<string,mixed>
+     */
+    public function fromRoutes(array $routes): array
+    {
+        $paths   = [];
+        $secured = false;
+
+        foreach ($routes as $httpMethod => $byUri) {
+            $verb = strtolower((string) $httpMethod);
+
+            // OPTIONS/HEAD are transport concerns, not documented operations — the same
+            // rule the attribute scan applies, so the two sources cannot disagree.
+            if ($verb === 'options' || $verb === 'head') {
+                continue;
+            }
+
+            foreach ($byUri as $uri => $entry) {
+                [$path, $params] = $this->normalizePath((string) $uri);
+
+                $operation = [
+                    'summary'   => strtoupper($verb) . ' ' . $path,
+                    'tags'      => [$this->tagFor($path)],
+                    'responses' => ['200' => ['description' => 'Successful response']],
+                ];
+
+                foreach ($params as $name) {
+                    $operation['parameters'][] = [
+                        'name'     => $name,
+                        'in'       => 'path',
+                        'required' => true,
+                        'schema'   => ['type' => 'string'],
+                    ];
+                }
+
+                if (!empty($entry['hasPermissions'])) {
+                    $operation['security'] = [['bearerAuth' => []]];
+                    $secured = true;
+
+                    $permissions = $entry['permissions'] ?? null;
+
+                    if ($permissions !== null && $permissions !== []) {
+                        // Named in the description rather than dropped: "which scope does
+                        // this need" is the question an API document is opened for, and
+                        // the router is the only place that knows.
+                        $operation['description'] = 'Requires: '
+                            . implode(', ', (array) $permissions);
+                    }
+                }
+
+                $paths[$path][$verb] = $operation;
+            }
+        }
+
+        return $this->assemble($paths, $secured);
+    }
+
+    /**
+     * The first path segment that is not a version prefix, as a tag.
+     *
+     * `/1.0/channels/{id}` tags as `channels`. Without it every operation lands under one
+     * heading and a document with ninety addresses is a single unreadable list.
+     */
+    private function tagFor(string $path): string
+    {
+        $segments = array_values(array_filter(explode('/', $path), static fn ($s) => $s !== ''));
+
+        foreach ($segments as $segment) {
+            if (preg_match('/^v?\d+(\.\d+)*$/', $segment) === 1) {
+                continue;
+            }
+
+            return str_starts_with($segment, '{') ? 'default' : $segment;
+        }
+
+        return 'default';
+    }
+
+    /**
+     * Wrap a set of paths in the document envelope.
+     *
+     * @param array<string, array<string, mixed>> $paths
+     * @return array<string,mixed>
+     */
+    private function assemble(array $paths, bool $secured): array
+    {
         ksort($paths);
 
         $document = ['openapi' => '3.0.3', 'info' => $this->info];

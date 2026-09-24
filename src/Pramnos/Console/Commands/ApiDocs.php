@@ -6,6 +6,7 @@ namespace Pramnos\Console\Commands;
 
 use Pramnos\Console\Make\StubRenderer;
 use Pramnos\Routing\OpenApiGenerator;
+use Pramnos\Routing\Router;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
@@ -66,6 +67,8 @@ class ApiDocs extends Command
             ->setDescription('Generate an OpenAPI document from #[Route] controllers')
             ->addOption('controllers', null, InputOption::VALUE_REQUIRED, 'Controllers directory (relative to project root). Default: the first of src/Api/Controllers or src/Controllers that exists', null)
             ->addOption('namespace', null, InputOption::VALUE_REQUIRED, 'Controllers namespace (derived from app/app.php and the controllers directory when omitted)')
+            ->addOption('routes', null, InputOption::VALUE_REQUIRED, 'A route file to read as well as the controllers, e.g. src/Api/routes.php. Registered routes become the API surface; #[Route] attributes still win where both describe the same operation')
+            ->addOption('allow-empty', null, InputOption::VALUE_NONE, 'Write the document even when it describes no operations. Off by default: an empty document overwriting a good one is worse than no run at all')
             ->addOption('output', null, InputOption::VALUE_REQUIRED, 'Output file for the OpenAPI JSON. Default: <document root>/api/openapi.json', null)
             ->addOption('title', null, InputOption::VALUE_REQUIRED, 'API title')
             ->addOption('api-version', null, InputOption::VALUE_REQUIRED, 'API version', '1.0.0')
@@ -126,12 +129,88 @@ class ApiDocs extends Command
             $overrides = $decoded;
         }
 
-        $document = (new OpenApiGenerator($info, $servers, $overrides))
-            ->fromDirectory($controllersPath, $namespace);
+        $generator = new OpenApiGenerator($info, $servers, $overrides);
+        $document  = $generator->fromDirectory($controllersPath, $namespace);
+
+        $routesOption = $input->getOption('routes');
+        $routesRead   = '';
+
+        if ($routesOption !== null) {
+            $routesPath = $this->resolve($base, (string) $routesOption);
+
+            if (!is_file($routesPath)) {
+                $output->writeln("<error>Route file not found: {$routesPath}</error>");
+                return Command::FAILURE;
+            }
+
+            try {
+                $fromRoutes = $generator->fromRoutes($this->collectRoutes($routesPath));
+            } catch (\Throwable $ex) {
+                $output->writeln(
+                    "<error>Could not read {$routesPath}: " . $ex->getMessage() . '</error>'
+                );
+                return Command::FAILURE;
+            }
+
+            // The attribute scan wins where both describe the same operation: it has the
+            // docblock, the parameter types and the response schema, and the router has
+            // the address. Merged per operation rather than per path, so a controller
+            // that documents one method of a resource does not erase the other three.
+            foreach ($fromRoutes['paths'] ?? [] as $path => $operations) {
+                foreach ($operations as $verb => $operation) {
+                    $document['paths'][$path][$verb] ??= $operation;
+                }
+            }
+
+            if (isset($fromRoutes['components']['securitySchemes'])) {
+                $document['components']['securitySchemes'] =
+                    ($document['components']['securitySchemes'] ?? [])
+                    + $fromRoutes['components']['securitySchemes'];
+            }
+
+            ksort($document['paths']);
+            $routesRead = $routesPath;
+        }
 
         $operationCount = 0;
         foreach ($document['paths'] ?? [] as $methods) {
             $operationCount += count($methods);
+        }
+
+        /*
+         * An empty document is a failure, not a document.
+         *
+         * Writing it is the worst available outcome: the previous file is destroyed, the
+         * command exits 0, and the line it prints — "Wrote 0 path(s), 0 operation(s)" —
+         * reads like success to a deploy script and to a person skimming. One installation
+         * carried a ten-day-old fossil describing four scaffold endpoints while its real
+         * API had ninety-one, because a scan that found nothing had overwritten the good
+         * one and said so quietly.
+         *
+         * `--allow-empty` is there for an API that genuinely has no operations yet, which
+         * is a real state for a new project and not one to guess at.
+         */
+        if ($operationCount === 0 && !$input->getOption('allow-empty')) {
+            $output->writeln(sprintf(
+                '<error>Scanned %s (namespace %s)%s and found no operations — refusing to write %s.</error>',
+                $controllersChosen,
+                $namespace,
+                $routesRead === '' ? '' : ' and ' . $routesRead,
+                $this->resolve(
+                    $base,
+                    $input->getOption('output') !== null
+                        ? (string) $input->getOption('output')
+                        : $this->defaultOutputFile($base)
+                )
+            ));
+            $output->writeln(
+                '<comment>An empty document overwriting a good one is worse than no run at '
+                . 'all. If the routes are registered on the router rather than declared '
+                . 'with #[Route], pass --routes=src/Api/routes.php. If this API really has '
+                . 'no operations yet, pass --allow-empty.</comment>'
+            );
+
+            return Command::FAILURE;
         }
 
         $outputOption = $input->getOption('output');
@@ -149,9 +228,10 @@ class ApiDocs extends Command
         );
 
         $output->writeln(sprintf(
-            '<info>Scanned %s (namespace %s)</info>',
+            '<info>Scanned %s (namespace %s)%s</info>',
             $controllersChosen,
-            $namespace
+            $namespace,
+            $routesRead === '' ? '' : ' and read ' . $routesRead
         ));
         $output->writeln(sprintf(
             '<info>Wrote %d path(s), %d operation(s) to %s</info>',
@@ -366,5 +446,41 @@ class ApiDocs extends Command
         }
 
         return $root . '\\' . implode('\\', $segments);
+    }
+
+    /**
+     * Read a route file without serving a request.
+     *
+     * A route file registers and then **dispatches** — the scaffolded `src/Api/routes.php`
+     * ends `return $router->dispatch($newRequest);`, because its return value is the
+     * response. Including it to see the routes would run a controller, which is why this
+     * generator could only ever read `#[Route]` attributes.
+     *
+     * {@see \Pramnos\Routing\Router::beginCollecting()} makes every dispatch a no-op and
+     * keeps the routers instead, so the include registers and stops.
+     *
+     * The `finally` matters more than it looks: a route file that raises would otherwise
+     * leave the whole process in collecting mode, and every later `dispatch()` — in a
+     * long-running console process, in a test — would silently do nothing.
+     *
+     * @return array<string, array<string, array{permissions: mixed, hasPermissions: bool}>>
+     */
+    protected function collectRoutes(string $routesPath): array
+    {
+        Router::beginCollecting();
+
+        try {
+            // Scoped in a closure so the file's own variables cannot land on this method,
+            // and so `$this` inside it is this command rather than nothing. A route file
+            // uses `$this` only to construct the router, which needs no behaviour from it
+            // while collecting.
+            (function () use ($routesPath): void {
+                include $routesPath;
+            })();
+        } finally {
+            $routes = Router::stopCollecting();
+        }
+
+        return $routes;
     }
 }
