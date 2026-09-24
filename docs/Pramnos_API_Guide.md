@@ -638,6 +638,7 @@ new \Pramnos\Http\Middleware\ApiAuthMiddleware(
     apiKeyChecker: fn(string $k) => $app->checkApiKey($k),
     authKey:       $app->authenticationKey,
     appNamespace:  $app->applicationInfo['namespace'] ?? null,
+    publicPaths:   $app->publicApiPaths(),   // addresses that need no key
 )
 ```
 
@@ -647,6 +648,55 @@ new \Pramnos\Http\Middleware\ApiAuthMiddleware(
 | API key invalid | 401 | `APIKeyInvalid` |
 | JWT malformed / unreadable | 403 | `InvalidAccessToken` |
 | JWT valid but user not found | 403 | `InvalidAccessToken` |
+
+#### An endpoint that must be reachable without a key
+
+Some endpoints exist precisely to be called by somebody who has no credential **yet**: a
+pairing handshake, an inbound webhook from a third party, a device-code poll. Declare them:
+
+```php
+// app/config/app.php
+'public_api_paths' => [
+    '/1.0/wordpress/pair',
+    '/1.0/hooks/*',
+],
+```
+
+Patterns are globs matched against the request path, query string ignored. Override
+`Api::publicApiPaths()` instead when the list is computed rather than written.
+
+**These addresses are open to the internet.** The framework stops asking for a key and
+asks nothing else, so whatever the endpoint needs — a signature, a one-time code, a rate
+limit — is the endpoint's own job. List exact routes rather than a prefix that will grow.
+
+A request that cannot say what path it is on is **not** public: the decision reads the
+request's own URI, not the process-wide static, because a static answers with whatever was
+written last and this decides whether authentication runs at all.
+
+#### An authentication scheme of your own
+
+`ApiAuthMiddleware` reads `Authorization: Bearer` as an access-token JWT and answers
+`InvalidAccessToken` before your endpoint runs — so `Authorization` is the framework's
+unless you take it first. `Api::configureApiPipeline()` is where:
+
+```php
+class Api extends \Pramnos\Application\Api
+{
+    protected function configureApiPipeline(\Pramnos\Http\MiddlewarePipeline $pipeline): void
+    {
+        $pipeline->pipe(new \App\Http\PluginTokenMiddleware());
+    }
+}
+```
+
+It is called after CORS and the JSON content type and **before authentication**, which is
+the position that matters: your middleware runs first, so it can answer a request itself or
+claim a header. To run *after* authentication, do the work in the controller — the
+pipeline's remaining position is the dispatch.
+
+Before this existed, the only seam was `checkApiKey()`, which is handed the key and nothing
+else — so declaring a route public meant reading `$_SERVER['REQUEST_URI']` from inside a
+method about a key, to work out which route it was on.
 
 #### Calling your own API from your own page
 

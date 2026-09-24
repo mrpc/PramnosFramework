@@ -59,14 +59,79 @@ class ApiAuthMiddleware implements MiddlewareInterface
      * @param string      $authKey        Symmetric HMAC key for HS256 JWT verification.
      * @param string|null $appNamespace   Application namespace used to resolve a custom User class.
      */
+    /**
+     * @param callable      $apiKeyChecker fn(string $key): bool — returns true for a valid API key.
+     * @param string        $authKey       Symmetric HMAC key for HS256 JWT verification.
+     * @param string|null   $appNamespace  Application namespace used to resolve a custom User class.
+     * @param list<string>  $publicPaths   Glob patterns this middleware lets through unauthenticated.
+     */
     public function __construct(
         private readonly mixed   $apiKeyChecker,
         private readonly string  $authKey       = '',
         private readonly ?string $appNamespace  = null,
+        private readonly array   $publicPaths   = [],
     ) {}
+
+    /**
+     * Is this one of the addresses the application declared open?
+     *
+     * ## Why an endpoint needs to be able to say this
+     *
+     * Every route needed an `apiKey` before routing happened, and the only caller exempt
+     * was the application's own signed-in page. So an endpoint whose whole job is to be
+     * reached by a caller that **has no credential yet** could not exist: a pairing
+     * handshake, an inbound webhook from a third party, a device-code poll. Each of those
+     * is an API endpoint by any reading, and none of them can present a key it has not
+     * been given.
+     *
+     * The workaround available from outside was an application's `checkApiKey()` — which
+     * is handed the key and nothing else — reaching into `$_SERVER['REQUEST_URI']` to work
+     * out which route it was on. A method about a key, deciding about a path, from a
+     * superglobal: wrong the day anything changes how the path is built.
+     *
+     * ## What it matches
+     *
+     * The request's **own** URI ({@see Request::ownRequestUri()}), not the process-wide
+     * static, because a static answers with whatever was written last and this decides
+     * whether authentication runs at all. **No path means no match**, so a caller that
+     * cannot tell takes the closed branch.
+     *
+     * Patterns are globs — `/1.0/wordpress/*` — matched against the path with a leading
+     * slash and no query string.
+     */
+    private function isPublicPath(Request $request): bool
+    {
+        if ($this->publicPaths === []) {
+            return false;
+        }
+
+        $uri = $request->ownRequestUri();
+
+        if ($uri === '') {
+            return false;
+        }
+
+        $path = '/' . ltrim(explode('?', $uri)[0], '/');
+
+        foreach ($this->publicPaths as $pattern) {
+            $pattern = '/' . ltrim((string) $pattern, '/');
+
+            if ($path === $pattern || fnmatch($pattern, $path)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     public function handle(Request $request, callable $next): mixed
     {
+        // An address the application declared open. Checked before everything, because
+        // the point of it is a caller that has no credential to present yet.
+        if ($this->isPublicPath($request)) {
+            return $next($request);
+        }
+
         // --- API key check ---
         if (empty($_SERVER['HTTP_APIKEY'])) {
             /**

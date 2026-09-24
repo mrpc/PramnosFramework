@@ -115,6 +115,63 @@ class Api extends Application
     }
 
     /**
+     * Addresses that need no API key, as glob patterns.
+     *
+     * An endpoint whose whole job is to be reached by a caller that **has no credential
+     * yet** — a pairing handshake, an inbound webhook from a third party, a device-code
+     * poll — could not exist: every route needed an `apiKey` before routing happened, and
+     * the only exempt caller was the application's own signed-in page.
+     *
+     * Declared rather than detected, in `app/config/app.php`:
+     *
+     * ```php
+     * 'public_api_paths' => ['/1.0/wordpress/pair', '/1.0/hooks/*'],
+     * ```
+     *
+     * …or by overriding this method when the list is computed rather than written.
+     *
+     * **These addresses are open to the internet.** The framework stops asking for a key
+     * and asks nothing else, so whatever the endpoint needs — a signature, a one-time
+     * code, a rate limit — is the endpoint's own job. List the exact routes, not a prefix
+     * that will grow.
+     *
+     * @return list<string>
+     */
+    protected function publicApiPaths(): array
+    {
+        $configured = $this->applicationInfo['public_api_paths'] ?? [];
+
+        return array_values(array_map('strval', (array) $configured));
+    }
+
+    /**
+     * Add the application's own middleware to the API pipeline.
+     *
+     * Called after CORS and the JSON content type and **before authentication**, which is
+     * the position that matters: middleware added here runs first, so it can answer a
+     * request itself, or take a header before the framework's middleware reads it.
+     *
+     * That second one is the reason this exists as well as {@see publicApiPaths()}.
+     * `ApiAuthMiddleware` reads `Authorization: Bearer` as an access-token JWT and answers
+     * `InvalidAccessToken` before the endpoint runs — so an application could not define
+     * an authentication scheme of its own on the header every HTTP client already knows
+     * how to send. Piping your own middleware here is how that header becomes yours.
+     *
+     * ```php
+     * protected function configureApiPipeline(\Pramnos\Http\MiddlewarePipeline $pipeline): void
+     * {
+     *     $pipeline->pipe(new \App\Http\PluginTokenMiddleware());
+     * }
+     * ```
+     *
+     * Does nothing by default. To run *after* authentication, do the work in the
+     * controller — the pipeline's remaining position is the dispatch itself.
+     */
+    protected function configureApiPipeline(\Pramnos\Http\MiddlewarePipeline $pipeline): void
+    {
+    }
+
+    /**
      * This API's version, resolved the way the constructor establishes it.
      *
      * `APIVERSION` when the API is running, then the application's `api_version`, then
@@ -283,10 +340,16 @@ class Api extends Application
         }
         $pipeline->pipe($cors);
         $pipeline->pipe(new \Pramnos\Http\Middleware\JsonResponseMiddleware());
+
+        // The application's own middleware, before authentication — which is the
+        // position that lets it claim a header or answer a route itself.
+        $this->configureApiPipeline($pipeline);
+
         $pipeline->pipe(new \Pramnos\Http\Middleware\ApiAuthMiddleware(
             apiKeyChecker: [$this, 'checkApiKey'],
             authKey:       $this->authenticationKey,
             appNamespace:  $this->applicationInfo['namespace'] ?? null,
+            publicPaths:   $this->publicApiPaths(),
         ));
 
         $request   = \Pramnos\Framework\Factory::getRequest();

@@ -732,4 +732,148 @@ class ApiAuthMiddlewareTest extends TestCase
 
         return $csrf;
     }
+
+    // ── Routes an application declared open ──────────────────────────────────
+
+    /**
+     * A declared public path is reached with no credential at all.
+     *
+     * The finding: every route needed an `apiKey` before routing happened, so an endpoint
+     * whose whole job is to be reached by a caller that **has no credential yet** — a
+     * pairing handshake, an inbound webhook from a third party, a device-code poll —
+     * could not exist. The only exempt caller was the application's own signed-in page.
+     */
+    public function testADeclaredPublicPathNeedsNoApiKey(): void
+    {
+        // Arrange — no HTTP_APIKEY, no session, nothing
+        $mw = new ApiAuthMiddleware(
+            apiKeyChecker: fn (): bool => false,
+            publicPaths:   ['/1.0/wordpress/pair'],
+        );
+
+        // Act
+        $result = $mw->handle(
+            Request::create('/1.0/wordpress/pair', 'POST'),
+            fn (): string => 'the endpoint ran'
+        );
+
+        // Assert
+        $this->assertSame('the endpoint ran', $result);
+    }
+
+    /**
+     * Everything else still needs one.
+     *
+     * The control. A list that opened the whole API would satisfy the test above and be
+     * the worst possible version of this change.
+     */
+    public function testAnUndeclaredPathStillNeedsAKey(): void
+    {
+        // Arrange
+        $mw = new ApiAuthMiddleware(
+            apiKeyChecker: fn (): bool => true,
+            publicPaths:   ['/1.0/wordpress/pair'],
+        );
+
+        // Act
+        $result = (string) $mw->handle(
+            Request::create('/1.0/accounts/list', 'GET'),
+            fn (): string => 'the endpoint ran'
+        );
+
+        // Assert
+        $this->assertStringContainsString('APIKeyMissing', $result);
+    }
+
+    /**
+     * A glob covers a family of addresses.
+     *
+     * `/1.0/hooks/*` is how an inbound-webhook surface is declared without listing every
+     * provider — and the trailing segment is matched, not merely the prefix, so
+     * `/1.0/hooksomething` is not caught by it.
+     */
+    public function testAGlobMatchesTheFamilyAndNotItsNeighbour(): void
+    {
+        // Arrange
+        $mw = new ApiAuthMiddleware(
+            apiKeyChecker: fn (): bool => false,
+            publicPaths:   ['/1.0/hooks/*'],
+        );
+
+        // Act
+        $inside  = $mw->handle(Request::create('/1.0/hooks/stripe', 'POST'), fn (): string => 'in');
+        $outside = (string) $mw->handle(Request::create('/1.0/hooksomething', 'POST'), fn (): string => 'in');
+
+        // Assert
+        $this->assertSame('in', $inside);
+        $this->assertStringContainsString('APIKeyMissing', $outside);
+    }
+
+    /**
+     * A query string does not change which route it is.
+     *
+     * `?code=…` on a pairing callback is ordinary, and a pattern nobody wrote a `*` for
+     * would otherwise stop matching the moment a parameter appeared.
+     */
+    public function testAQueryStringDoesNotDefeatTheMatch(): void
+    {
+        // Arrange
+        $mw = new ApiAuthMiddleware(
+            apiKeyChecker: fn (): bool => false,
+            publicPaths:   ['/1.0/wordpress/pair'],
+        );
+
+        // Act
+        $result = $mw->handle(
+            Request::create('/1.0/wordpress/pair?code=abc123', 'GET'),
+            fn (): string => 'the endpoint ran'
+        );
+
+        // Assert
+        $this->assertSame('the endpoint ran', $result);
+    }
+
+    /**
+     * A request that cannot say what path it is on takes the closed branch.
+     *
+     * `ownRequestUri()` is empty where there is no request, and the process-wide static it
+     * would otherwise fall back to answers with whatever was written last. This decides
+     * whether authentication runs at all, so "I cannot tell" has to mean "not public" —
+     * the same reasoning `CsrfMiddleware::isExempt()` is built on, and for the same reason.
+     */
+    public function testARequestWithNoPathIsNotPublic(): void
+    {
+        // Arrange — a bare Request carries no own URI
+        $mw = new ApiAuthMiddleware(
+            apiKeyChecker: fn (): bool => false,
+            publicPaths:   ['*'],
+        );
+
+        // Act
+        $result = (string) $mw->handle(new Request(), fn (): string => 'the endpoint ran');
+
+        // Assert
+        $this->assertStringContainsString('APIKeyMissing', $result);
+    }
+
+    /**
+     * With no list, nothing changes.
+     *
+     * Every existing installation passes no patterns, and the behaviour there must be
+     * exactly what it was.
+     */
+    public function testWithNoListTheBehaviourIsUnchanged(): void
+    {
+        // Arrange
+        $mw = new ApiAuthMiddleware(apiKeyChecker: fn (): bool => true);
+
+        // Act
+        $result = (string) $mw->handle(
+            Request::create('/1.0/anything', 'GET'),
+            fn (): string => 'the endpoint ran'
+        );
+
+        // Assert
+        $this->assertStringContainsString('APIKeyMissing', $result);
+    }
 }
