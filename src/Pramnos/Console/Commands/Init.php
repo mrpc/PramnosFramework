@@ -2505,20 +2505,25 @@ CSS;
 
         $this->ensurePackageJsonApiScripts($namespace);
 
-        // Add generated output to .gitignore
-        $gitignorePath = $this->targetBaseDir . '/.gitignore';
-        if (file_exists($gitignorePath)) {
-            $existing = (string) file_get_contents($gitignorePath);
-            if (!str_contains($existing, $this->webRoot . '/api/docs') && !$this->skipWrite('.gitignore')) {
-                file_put_contents(
-                    $gitignorePath,
-                    "\n# API documentation output\n"
-                    . $this->webRoot . "/api/openapi*.json\n"
-                    . $this->webRoot . "/api/docs/\n",
-                    FILE_APPEND
-                );
-            }
-        }
+        /*
+         * The API document and its viewer are **committed**, not ignored.
+         *
+         * They used to be appended to `.gitignore` as "generated output", and the result
+         * was `/api/openapi.json` and `/api/docs/` answering **403 on every live site the
+         * scaffold has ever made**. Nobody sees it locally, because both files are on disk
+         * and both work; it is only wrong on the server, where nobody is reading the API
+         * documentation of their own application.
+         *
+         * Neither is build output in the sense that word usually carries. The document is
+         * written by a CLI command that a deploy does not run — a deploy is
+         * `git reset --hard`, `composer install`, `migrate` — and the viewer is a static
+         * page with a `<script src>` to a CDN and a `spec-url` to its sibling. There is
+         * nothing to build and nothing machine-specific in either. **A file that is not in
+         * the commit is a file production does not have.**
+         *
+         * What keeps a committed artefact honest is a test that fails when it has drifted
+         * from the routes, not an ignore rule; the generated `.gitignore` says so.
+         */
     }
 
     /**

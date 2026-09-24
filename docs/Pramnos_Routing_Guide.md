@@ -713,6 +713,35 @@ Re-run with --controllers=src/Api/Controllers if that is the API.
 Nothing is switched under you, and the check is skipped entirely when you passed
 `--controllers` yourself — naming the directory is a decision, not a guess to correct.
 
+### Commit the document and the viewer
+
+`www/api/openapi.json` and `www/api/docs/` belong **in the repository**. The scaffold used
+to add both to `.gitignore` as "generated output", and the result was those two addresses
+answering 403 on every live site it had ever made — the only two URLs an integrator ever
+opens.
+
+Neither is build output in the sense that phrase usually carries. The document is written
+by a CLI command that no deploy runs — the scaffolded deploy is `git fetch`,
+`git reset --hard`, `composer install`, `migrate` — and the viewer is a static page with a
+`<script src>` to a CDN and a `spec-url` to its sibling. **A file that is not in the commit
+is a file production does not have.**
+
+It fails quietly in the way that matters: nobody notices locally, because both files are on
+disk and both work.
+
+What keeps a committed artefact honest is a test that fails when it has drifted, not an
+ignore rule. `api:docs` writing to a path under version control means `git diff --exit-code`
+after a run is a complete check:
+
+```bash
+php pramnos api:docs --routes=src/Api/routes.php --no-html
+git diff --exit-code www/api/openapi.json   # fails when the document is stale
+```
+
+**A project scaffolded before this** still has the two lines in its own `.gitignore`;
+version control will not remove them. Delete them, then `git add -f www/api/openapi.json
+www/api/docs/`.
+
 ### Routes registered on the router — `--routes`
 
 `#[Route]` attributes are one way to declare an API. The other is registering on the
