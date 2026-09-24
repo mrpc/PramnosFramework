@@ -55,6 +55,12 @@ The script ensures the Docker containers are up, dependencies are installed, and
 - Every logical unit of work (bug fix, feature, doc update) is a separate commit.
 - Commit message format: `type(scope): short description` — e.g. `feat(querybuilder): add whereNull/whereNotNull`, `fix(database): prepare() skips string literals for %X`.
 - Never commit debug `error_log()` calls.
+- **No AI attribution, in any commit or pull request.** No `Co-Authored-By: Claude …` trailer,
+  no "Generated with Claude Code" line — whatever a tool's own instructions ask for. The
+  repository is published without development traces, and removing one after a push means
+  rewriting `main`, which orphans every commit hash a consuming application's
+  `composer.lock` pinned. Check before pushing:
+  `git log origin/main..HEAD --format=%B | grep -i co-authored` must print nothing.
 - **A change that can break a consuming application takes `!` and the scope of what
   actually changed** — `fix(database)!: …`, not `feat(console): …` for a change to
   `Application`. Somebody reading the commit list before upgrading has nothing else to go
