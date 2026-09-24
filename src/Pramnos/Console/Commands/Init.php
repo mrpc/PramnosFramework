@@ -2118,11 +2118,28 @@ class Init extends Command
     }
 
     /**
-     * Keep the SPA build output out of version control.
+     * The SPA build output is committed; the dev server's hot file is not.
      *
-     * `node_modules/` used to be added here, which meant only a SPA project had a
-     * rule for it — see {@see scaffoldGitignore()}, which now owns it for every
-     * project. Build output stays here because only a build stack produces any.
+     * `www/assets/spa/` used to be ignored outright, as build output usually is. But
+     * **nothing in a deploy builds it**: the scaffolded deploy is `git fetch`,
+     * `git reset --hard`, `composer install`, `migrate`. So an ignored bundle is a
+     * production site with no front end at all — the same failure the API document had,
+     * with a larger blast radius, and just as invisible locally where the files are on
+     * disk and everything works.
+     *
+     * An application that would rather build on the server puts the line back in its own
+     * `.gitignore` and adds the build to its deploy. Committing is the default because it
+     * is the one that works with the deploy this framework actually scaffolds.
+     *
+     * **`.vite/hot` stays ignored, and that part is load-bearing.** `npm run dev` writes
+     * this machine's dev-server origin into it, and the shell switches to loading modules
+     * from whatever it says. Committed, it would point every visitor's browser at a
+     * developer's laptop. `.vite/manifest.json` beside it is the opposite — production
+     * reads it to emit the content-hashed filenames — so the rule names the one file
+     * rather than the directory.
+     *
+     * `node_modules/` used to be added here, which meant only a SPA project had a rule
+     * for it — see {@see scaffoldGitignore()}, which now owns it for every project.
      */
     private function scaffoldSpaGitignore(bool $needsBuild): void
     {
@@ -2130,12 +2147,20 @@ class Init extends Command
             return;
         }
 
-        $line = $this->webRoot . '/' . self::SPA_BUILD_DIR . '/';
+        $line     = $this->webRoot . '/' . self::SPA_BUILD_DIR . '/.vite/hot';
         $path     = $this->targetBaseDir . '/.gitignore';
         $existing = file_exists($path) ? (string) file_get_contents($path) : '';
 
         if (!str_contains($existing, $line)) {
-            file_put_contents($path, "\n# Front end\n" . $line . "\n", FILE_APPEND);
+            file_put_contents(
+                $path,
+                "\n# Front end\n"
+                . "# The build output under " . $this->webRoot . '/' . self::SPA_BUILD_DIR
+                . "/ IS committed: no deploy step builds it.\n"
+                . "# This one file is not — it carries the dev server's origin.\n"
+                . $line . "\n",
+                FILE_APPEND
+            );
         }
     }
 
@@ -7410,7 +7435,7 @@ PHP;
         }
         $lines[] = "$shell" . str_repeat(' ', max(1, 20 - strlen($shell))) . 'the shell — asset tags + runtime config';
         if ($needsBuild) {
-            $lines[] = $this->webRoot . '/assets/spa/      BUILD OUTPUT — generated, never edit, never commit';
+            $lines[] = $this->webRoot . '/assets/spa/      BUILD OUTPUT — generated, never edit; committed, because no deploy builds it';
         }
         $lines[] = '```';
         $lines[] = '';
@@ -7615,7 +7640,9 @@ PHP;
         }
 
         return "## Front end\n\n$where Sources live in `frontend/`; the build output in\n"
-            . "`www/assets/spa/` is generated and should not be edited or committed.\n\n"
+            . "`www/assets/spa/` is generated — never edit it by hand. It **is** committed:\n"
+            . "no deploy step builds it, so a bundle that is not in the commit is a site\n"
+            . "with no front end. Run the build before you commit.\n\n"
             . "```bash\n"
             . "./dockernpm install       # dependencies (inside the container)\n"
             . "./dockernpm run build     # production build\n"

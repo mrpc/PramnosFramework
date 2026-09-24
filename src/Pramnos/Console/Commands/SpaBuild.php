@@ -36,8 +36,12 @@ class SpaBuild extends SpaCommandBase
             ->addOption('watch', 'w', InputOption::VALUE_NONE, 'Rebuild on every change instead of building once')
             ->setHelp(
                 "Builds this project's SPA into www/assets/spa/.\n\n"
-                . "That directory is generated: never edit it and never commit it. The\n"
-                . "filenames carry a content hash, which is what busts the cache on deploy."
+                . "That directory is generated: never edit it by hand. It IS committed —\n"
+                . "no deploy step builds it, so a bundle that is not in the commit is a\n"
+                . "site with no front end. Run this before you commit.\n\n"
+                . "The filenames carry a content hash, which is what busts the cache on\n"
+                . "deploy. .vite/hot is the one file that stays out: it carries this\n"
+                . "machine's dev-server origin."
             );
     }
 

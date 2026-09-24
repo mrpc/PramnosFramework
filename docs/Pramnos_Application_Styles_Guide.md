@@ -567,6 +567,36 @@ first build, and in production:
   paths stamped with their modification time (`/assets/js/main.js?v=…`). A deploy
   changes the mtime, the browser refetches, unchanged assets stay cached.
 
+### The bundle is committed
+
+`www/assets/spa/` goes **into the repository**, and it is the one thing about the build
+output worth knowing before a first deploy.
+
+Nothing in a deploy builds it. The webhook this framework scaffolds runs `git fetch`,
+`git reset --hard`, `composer install`, `migrate` — no `npm install`, no `npm run build`,
+and a production server usually has no Node at all. So an ignored bundle is a **site with
+no front end**, and it is invisible locally, where the files are on disk and everything
+works.
+
+So the working loop is: build, then commit.
+
+```bash
+./dockernpm run build
+git add www/assets/spa && git commit
+```
+
+`www/assets/spa/.vite/hot` is the one file that stays out, and it is not tidiness. `npm run
+dev` writes *this machine's* dev-server origin into it, and the shell then loads modules
+from whatever it says — committed, it would point every visitor's browser at a developer's
+laptop. `.vite/manifest.json` beside it is the opposite: production reads it for the
+content-hashed filenames, so it must be committed. The scaffolded `.gitignore` names the
+one file rather than the directory for exactly that reason.
+
+**To build on the server instead**, put `www/assets/spa/` back in your own `.gitignore` and
+add the build to your deploy commands. That is a legitimate arrangement and it is not the
+default, because the default has to be the one that works with the deploy the framework
+actually generates.
+
 The shell itself sends `Cache-Control: no-cache, must-revalidate` — a cached
 shell would keep pointing at assets that no longer exist. Complete the discipline
 in the web server by setting `Cache-Control: max-age=31536000, immutable` on the
