@@ -194,6 +194,18 @@ class Request extends Base
         // whole point of it. {@see $ownUri}
         self::$requestUri = '';
         self::$requestMethod = 'GET';
+        /*
+         * The superglobals are **left alone**, deliberately.
+         *
+         * Clearing them here looks like completing the reset and is the opposite: the
+         * established way to build a request for a test is to write `$_SERVER` and *then*
+         * call this, so that `new Request()` reads it — `PageCacheTest::request()` is one
+         * of several. Unsetting them turns that into a request for nothing.
+         *
+         * A caller that wants the pair set coherently uses {@see create()}, which writes
+         * both. This method forgets the framework's own derived state, which is what it is
+         * named for.
+         */
         self::$rawInput = null;
         self::$originalRequest = '';
         self::$originalRequestNoChange = '';
@@ -252,6 +264,28 @@ class Request extends Base
         $request->ownUri     = trim((string) $uri, '/');
         self::$requestUri    = $request->ownUri;
         self::$requestMethod = strtoupper($method);
+
+        /*
+         * And the superglobals, because the framework reads them back.
+         *
+         * `__construct()` copies `$_SERVER['REQUEST_METHOD']` **over** the static whenever
+         * that key is set. So a request created as a `POST` stopped being one the moment
+         * anything constructed another `Request` — which `Controller::_runThroughMiddleware()`
+         * does on every middleware-guarded action, from inside the very dispatch under test.
+         *
+         * The cost was a test that passed for the wrong reason: `CsrfMiddleware` skips safe
+         * methods, so a `POST` that had quietly become a `GET` sailed through the check the
+         * test existed to prove, and only failed when some earlier test in the run happened
+         * to leave `REQUEST_METHOD` behind. Setting the static alone was never enough to say
+         * "this is a POST", and nothing said so.
+         *
+         * Nothing in `src/` calls this method — it is how a test builds a request — so
+         * writing the superglobals here changes no application's behaviour. It makes a
+         * created request survive contact with the framework, which is the whole point of
+         * creating one.
+         */
+        $_SERVER['REQUEST_URI']    = '/' . $request->ownUri;
+        $_SERVER['REQUEST_METHOD'] = self::$requestMethod;
 
         return $request;
     }

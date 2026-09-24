@@ -36,10 +36,14 @@ class DebugGrantDispatchTest extends TestCase
 
     private string $savedMethod = 'GET';
 
+    /** `$_SERVER['REQUEST_METHOD']` as it was, or null when it was not set. */
+    private ?string $savedServerMethod = null;
+
     protected function setUp(): void
     {
         $this->savedKey    = getenv('APP_KEY') === false ? null : (string) getenv('APP_KEY');
         $this->savedMethod = (string) Request::$requestMethod;
+        $this->savedServerMethod = $_SERVER['REQUEST_METHOD'] ?? null;
 
         putenv('APP_KEY=test-key-for-grant-dispatch');
         $_ENV['APP_KEY'] = 'test-key-for-grant-dispatch';
@@ -57,7 +61,19 @@ class DebugGrantDispatchTest extends TestCase
         $user->usertype = 99;
         \Pramnos\Application\Application::getInstance()->currentUser = $user;
 
-        Request::$requestMethod = 'POST';
+        /*
+         * The superglobal as well as the static, because the static alone does not hold.
+         *
+         * `Request::__construct()` copies `$_SERVER['REQUEST_METHOD']` over it, and
+         * `Controller::_runThroughMiddleware()` constructs a Request on every
+         * middleware-guarded action — from inside the dispatch these tests exercise. So a
+         * `POST` declared only as a static became a `GET` on the way in, `CsrfMiddleware`
+         * skipped it as a safe method, and the check this class exists to prove was never
+         * reached. It passed anyway whenever an earlier test in the run happened to leave
+         * `REQUEST_METHOD` set to `POST`, which is a test passing for the wrong reason.
+         */
+        Request::$requestMethod    = 'POST';
+        $_SERVER['REQUEST_METHOD'] = 'POST';
         DebugAccess::reset();
     }
 
@@ -72,6 +88,13 @@ class DebugGrantDispatchTest extends TestCase
         }
 
         Request::$requestMethod = $this->savedMethod;
+
+        if ($this->savedServerMethod === null) {
+            unset($_SERVER['REQUEST_METHOD']);
+        } else {
+            $_SERVER['REQUEST_METHOD'] = $this->savedServerMethod;
+        }
+
         $_POST = array();
         \Pramnos\Application\Application::getInstance()->currentUser = null;
 

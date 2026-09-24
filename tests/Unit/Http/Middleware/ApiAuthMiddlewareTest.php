@@ -843,7 +843,13 @@ class ApiAuthMiddlewareTest extends TestCase
      */
     public function testARequestWithNoPathIsNotPublic(): void
     {
-        // Arrange — a bare Request carries no own URI
+        // Arrange — no REQUEST_URI at all, which is the console and is the state the
+        // guard exists for. A bare `new Request()` is not that: in a web process it
+        // reads the superglobal and has a path like any other.
+        $savedUri = $_SERVER['REQUEST_URI'] ?? null;
+        unset($_SERVER['REQUEST_URI']);
+        Request::resetInstance();
+
         $mw = new ApiAuthMiddleware(
             apiKeyChecker: fn (): bool => false,
             publicPaths:   ['*'],
@@ -854,6 +860,12 @@ class ApiAuthMiddlewareTest extends TestCase
 
         // Assert
         $this->assertStringContainsString('APIKeyMissing', $result);
+
+        // Put the process back as it was.
+        if ($savedUri !== null) {
+            $_SERVER['REQUEST_URI'] = $savedUri;
+        }
+        Request::resetInstance();
     }
 
     /**

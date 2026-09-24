@@ -281,6 +281,49 @@ An email-tracking endpoint that redeems a one-time token is the usual case: ther
 *is* the feature.
 
 
+## Saying what request a test is making
+
+`Request::create('/path', 'POST')` is how, and it is worth knowing why the obvious
+alternatives do not hold:
+
+```php
+$request = Request::create('/debug/grant', 'POST');
+```
+
+It sets the statics **and** `$_SERVER['REQUEST_URI']` / `$_SERVER['REQUEST_METHOD']`,
+because the framework reads those back. `Request::__construct()` copies
+`$_SERVER['REQUEST_METHOD']` over the static whenever that key is set, and the framework
+builds requests of its own mid-dispatch — `Controller::_runThroughMiddleware()` does it on
+every middleware-guarded action. So this:
+
+```php
+Request::$requestMethod = 'POST';   // not enough
+```
+
+…lasts exactly until the code under test constructs a request, and then it is whatever
+`$_SERVER` says.
+
+**That failure is silent and it looks like a pass.** `CsrfMiddleware` skips safe methods, so
+a `POST` that had quietly become a `GET` sailed through the token check the test existed to
+prove. It stayed green for as long as some earlier test in the run happened to leave
+`REQUEST_METHOD` set to `POST`, and went red the day the order changed.
+
+Writing `$_SERVER` yourself and then calling `Request::resetInstance()` is the other
+supported shape, and several suites use it:
+
+```php
+$_SERVER['REQUEST_URI']    = '/api/stations';
+$_SERVER['REQUEST_METHOD'] = 'POST';
+Request::resetInstance();
+$request = new Request();
+```
+
+`resetInstance()` forgets the framework's derived state and **leaves `$_SERVER` alone** —
+deliberately, because clearing it would turn the block above into a request for nothing.
+
+Restore what you changed in `tearDown()`. A leftover `REQUEST_METHOD` is what made the
+failure above order-dependent, and the next one will be the same shape.
+
 ## Posting a form in a test
 
 ```php

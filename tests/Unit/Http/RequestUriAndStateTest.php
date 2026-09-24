@@ -415,4 +415,73 @@ class RequestUriAndStateTest extends TestCase
         // Assert
         $this->assertSame('', Request::$originalRequestNoChange);
     }
+
+    /**
+     * A request created as a `POST` is still a `POST` after another one is constructed.
+     *
+     * `create()` used to set only the statics, and `__construct()` copies
+     * `$_SERVER['REQUEST_METHOD']` **over** the static whenever that key is set. So the
+     * method a test declared survived exactly until the framework built a request of its
+     * own — which `Controller::_runThroughMiddleware()` does on every middleware-guarded
+     * action, from inside the dispatch under test.
+     *
+     * What that cost was a test passing for the wrong reason. `CsrfMiddleware` skips safe
+     * methods, so a `POST` that had quietly become a `GET` sailed through the check the
+     * test existed to prove — and only failed when an earlier test in the run happened to
+     * leave `REQUEST_METHOD` behind. `DebugGrantDispatchTest` was green on its own and red
+     * in a full run, for that.
+     */
+    public function testACreatedPostSurvivesAnotherRequestBeingBuilt(): void
+    {
+        // Arrange
+        Request::create('/debug/grant', 'POST');
+
+        // Act — what the framework does on a middleware-guarded action
+        $built = new Request();
+
+        // Assert
+        $this->assertSame('POST', $built->getRequestMethod());
+        $this->assertSame('POST', Request::$requestMethod);
+    }
+
+    /**
+     * And the URI likewise.
+     *
+     * The same fragility on the other half: an address declared for a test stopped being
+     * the address as soon as anything read `$_SERVER` again.
+     */
+    public function testACreatedUriSurvivesAnotherRequestBeingBuilt(): void
+    {
+        // Arrange
+        Request::create('/debug/grant', 'POST');
+
+        // Act
+        $built = new Request();
+
+        // Assert
+        $this->assertSame('debug/grant', $built->ownRequestUri());
+    }
+
+    /**
+     * `resetInstance()` leaves the superglobals alone.
+     *
+     * Clearing them looks like completing the reset and is the opposite: the established
+     * way to build a request for a test is to write `$_SERVER` and *then* reset, so that
+     * `new Request()` reads it. Unsetting them turns that into a request for nothing —
+     * which is what happened when this was tried, and `PageCacheTest` caught it.
+     */
+    public function testTheResetLeavesTheSuperglobalsAlone(): void
+    {
+        // Arrange — the shape several suites use
+        $_SERVER['REQUEST_URI']    = '/api/stations';
+        $_SERVER['REQUEST_METHOD'] = 'POST';
+
+        // Act
+        Request::resetInstance();
+        $built = new Request();
+
+        // Assert
+        $this->assertSame('api/stations', $built->ownRequestUri());
+        $this->assertSame('POST', $built->getRequestMethod());
+    }
 }
