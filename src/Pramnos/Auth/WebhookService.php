@@ -291,43 +291,40 @@ class WebhookService
 
         $signature = self::buildSignature($body, $secret);
 
-        $ch = curl_init($url);
-        if ($ch === false) {
-            $this->lastError = 'curl_init() failed';
+        /*
+         * The address is the relying party's, typed into `/Webhook/register`, so this is a
+         * fetch of a URL somebody else chose: `forUserSuppliedUrl()` refuses one that
+         * resolves inside this network and pins the address it checked, so the name cannot
+         * be rebound between the check and the POST. Redirects are not followed — a
+         * receiver that moved re-registers, it does not bounce a signed body elsewhere.
+         */
+        try {
+            $response = \Pramnos\Http\Client::post($url)
+                ->forUserSuppliedUrl()
+                ->withoutRedirects()
+                ->body($body, 'application/json')
+                ->headers([
+                    'X-Webhook-Signature'  => $signature,
+                    'X-Webhook-Event-Type' => $eventType,
+                    'X-Webhook-Timestamp'  => (string) $timestamp,
+                    'User-Agent'           => 'PramnosFramework-Webhook/1.0',
+                ])
+                ->timeout($timeout)
+                ->connectTimeout(min($timeout, 5))
+                // Only the first 200 bytes are kept, for the error; nothing reads more.
+                ->maxResponseBytes(4096)
+                ->send();
+        } catch (\Pramnos\Http\ClientException $e) {
+            $this->lastError = 'Delivery refused or failed: ' . $e->getMessage();
             return false;
         }
 
-        curl_setopt_array($ch, [
-            CURLOPT_POST           => true,
-            CURLOPT_POSTFIELDS     => $body,
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT        => $timeout,
-            CURLOPT_CONNECTTIMEOUT => min($timeout, 5),
-            CURLOPT_HTTPHEADER     => [
-                'Content-Type: application/json',
-                'X-Webhook-Signature: '  . $signature,
-                'X-Webhook-Event-Type: ' . $eventType,
-                'X-Webhook-Timestamp: '  . $timestamp,
-                'User-Agent: PramnosFramework-Webhook/1.0',
-            ],
-        ]);
-
-        $response = curl_exec($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        $curlErr  = curl_error($ch);
-
-        if ($curlErr !== '') {
-            $this->lastError = 'cURL error: ' . $curlErr;
-            return false;
-        }
-
-        if ($httpCode >= 200 && $httpCode < 300) {
+        if ($response->successful()) {
             $this->lastError = '';
             return true;
         }
 
-        $preview = is_string($response) ? substr($response, 0, 200) : '';
-        $this->lastError = "HTTP {$httpCode}: {$preview}";
+        $this->lastError = 'HTTP ' . $response->status() . ': ' . substr($response->body(), 0, 200);
         return false;
     }
 }

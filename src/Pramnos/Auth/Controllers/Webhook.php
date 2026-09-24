@@ -334,6 +334,20 @@ class Webhook extends Controller
             return ['error' => 'invalid_request', 'error_description' => 'endpoint_url must use https'];
         }
 
+        // Refused here as well as at delivery, so the relying party hears it now rather
+        // than finding a column of failed deliveries later. A name that does not resolve
+        // yet is accepted: DNS is set up after registration as often as before it, and
+        // every delivery is checked again, pinned, by the client.
+        $host = (string) parse_url($url, PHP_URL_HOST);
+        foreach (\Pramnos\Security\OutboundUrl::addressesOf($host) as $address) {
+            if (!\Pramnos\Security\OutboundUrl::isPublicAddress($address)) {
+                return [
+                    'error'             => 'invalid_request',
+                    'error_description' => 'endpoint_url resolves to an address inside this network',
+                ];
+            }
+        }
+
         if (!in_array($type, self::EVENT_TYPES, true)) {
             return [
                 'error'             => 'invalid_request',

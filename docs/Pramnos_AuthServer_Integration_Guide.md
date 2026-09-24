@@ -768,6 +768,18 @@ The endpoint URL must be `https://`. The event describes a person and is signed
 with a shared secret; over plaintext both are readable by anything on the path,
 which makes the signature decorative.
 
+It must also be on the **public internet**. The relying party chooses the address and
+this server makes the request, so an endpoint on loopback, a private range or the cloud
+metadata address (`169.254.169.254`) would let any registered client aim the server at
+its own network. Registration refuses a host that resolves to one of those
+(`endpoint_url resolves to an address inside this network`); a name that does not
+resolve yet is accepted, because every delivery resolves it again. Each delivery goes
+through `Http\Client::forUserSuppliedUrl()`: the host is checked, the checked address
+is pinned for the connection so the name cannot be rebound in between, and redirects
+are not followed — a receiver that answers `30x` has failed the delivery, and re-registers
+if it moved. A refused delivery is recorded as failed, with
+`Delivery refused or failed: …` as its reason.
+
 Event types: `user_deauthorized`, `token_revoked`, `gdpr_request`,
 `user_profile_changed`, `device_deauthorized`, `account_deleted`, `scope_changed`,
 `permissions_changed`. One endpoint per type per application.

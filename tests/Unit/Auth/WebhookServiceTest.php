@@ -23,9 +23,9 @@ use Pramnos\Database\QueryBuilder;
  * by passing a PHPUnit mock Database that records QueryBuilder calls and
  * returns controlled Result fixtures.
  *
- * The curl code-path in deliverEvent() is tested separately by exposing the
- * protected method via an anonymous subclass and pointing it at an unreachable
- * URL to trigger a cURL error without a real network dependency.
+ * deliverEvent() itself is tested by exposing it via an anonymous subclass and
+ * answering through Client::fake(). Endpoints are IP literals, so the
+ * user-supplied-URL guard decides without DNS and nothing leaves the container.
  */
 class WebhookServiceTest extends TestCase
 {
@@ -576,21 +576,11 @@ class WebhookServiceTest extends TestCase
     // ── deliverEvent (protected, tested via subclass) ─────────────────────────
 
     /**
-     * deliverEvent() must return false and set lastError when cURL reports an error.
-     *
-     * When the target URL is unreachable (connection refused), cURL sets a non-empty
-     * error string. deliverEvent() must detect this and return false rather than
-     * treating the connection failure as a non-2xx HTTP response.
-     *
-     * Uses a port that is virtually guaranteed not to have a listener
-     * (port 19991) to reliably trigger a cURL connection error without any
-     * dependency on an external network.
+     * The service with deliverEvent() and lastError reachable from a test.
      */
-    public function testDeliverEventReturnsFalseOnCurlError(): void
+    private function exposedService(): WebhookService
     {
-        // Arrange — expose protected deliverEvent() via anonymous subclass
-        $db = $this->createMock(Database::class);
-        $service = new class($db) extends WebhookService {
+        return new class($this->createMock(Database::class)) extends WebhookService {
             public function publicDeliverEvent(array $event): bool
             {
                 return $this->deliverEvent($event);
@@ -602,24 +592,164 @@ class WebhookServiceTest extends TestCase
                 return $ref->getValue($this);
             }
         };
+    }
 
-        // Act — point at a non-existent local port; cURL should fail immediately
-        $result = $service->publicDeliverEvent([
-            'payload'          => '{"event":"test"}',
-            'secret_key'       => 'test-secret',
-            'endpoint_url'     => 'http://127.0.0.1:19991/',
-            'event_type'       => 'token_revoked',
-            'timeout_seconds'  => 1,
-        ]);
+    /** One queued event, pointed at $url. */
+    private function eventFor(string $url): array
+    {
+        return [
+            'payload'         => '{"event":"test"}',
+            'secret_key'      => 'test-secret',
+            'endpoint_url'    => $url,
+            'event_type'      => 'token_revoked',
+            'timeout_seconds' => 1,
+        ];
+    }
 
-        // Assert
-        $this->assertFalse($result,
-            'deliverEvent must return false when cURL reports a connection error');
-        $lastError = $service->publicGetLastError();
-        $this->assertNotEmpty($lastError,
-            'lastError must be set to a non-empty string on cURL failure');
-        $this->assertStringStartsWith('cURL error:', $lastError,
-            'lastError must be prefixed with "cURL error:" for connection failures');
+    /**
+     * An endpoint inside this network is never requested.
+     *
+     * The relying party typed the address, and this server makes the request, so a
+     * delivery to loopback, a private host or the cloud metadata address is
+     * server-side request forgery with a signed body attached. Registration refuses
+     * these too, but a row can predate that check, and a name can be re-pointed after
+     * it — the delivery is where the guard has to hold.
+     *
+     * A fake is registered for every URL: if the guard failed open, the delivery would
+     * succeed against it rather than fail, so the test cannot pass by accident.
+     *
+     * @param string $url An endpoint whose host is not a public address
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('internalEndpoints')]
+    public function testDeliverEventRefusesAnEndpointInsideThisNetwork(string $url): void
+    {
+        // Arrange
+        $requested = false;
+        \Pramnos\Http\Client::fake(['*' => function () use (&$requested) {
+            $requested = true;
+            return \Pramnos\Http\ClientResponse::make('ok', 200);
+        }]);
+        $service = $this->exposedService();
+
+        try {
+            // Act
+            $result = $service->publicDeliverEvent($this->eventFor($url));
+
+            // Assert
+            $this->assertFalse($result);
+            $this->assertFalse($requested, 'no request may be made to an internal address');
+            $this->assertStringStartsWith('Delivery refused or failed:', $service->publicGetLastError());
+        } finally {
+            \Pramnos\Http\Client::resetFakes();
+        }
+    }
+
+    /** @return array<string, array{string}> */
+    public static function internalEndpoints(): array
+    {
+        return [
+            'loopback'       => ['https://127.0.0.1:19991/'],
+            'private'        => ['https://10.0.0.5/hooks'],
+            'cloud metadata' => ['https://169.254.169.254/latest/meta-data/'],
+            'plaintext'      => ['http://93.184.216.34/hooks'],
+        ];
+    }
+
+    /**
+     * A public endpoint that answers 2xx is a successful delivery.
+     *
+     * An IP literal, so the guard's resolution needs no network, and a fake behind it,
+     * so the request does not leave the container. The fake also confirms the request
+     * was made — which the refusal test above proves does not happen for an internal one.
+     */
+    public function testDeliverEventSucceedsOnA2xxFromAPublicEndpoint(): void
+    {
+        // Arrange
+        $requested = false;
+        \Pramnos\Http\Client::fake(['https://93.184.216.34/*' => function () use (&$requested) {
+            $requested = true;
+            return \Pramnos\Http\ClientResponse::make('', 204);
+        }]);
+        $service = $this->exposedService();
+
+        try {
+            // Act
+            $result = $service->publicDeliverEvent($this->eventFor('https://93.184.216.34/hooks'));
+
+            // Assert
+            $this->assertTrue($result);
+            $this->assertTrue($requested);
+            $this->assertSame('', $service->publicGetLastError());
+        } finally {
+            \Pramnos\Http\Client::resetFakes();
+        }
+    }
+
+    /**
+     * A non-2xx answer fails the delivery and says what came back.
+     *
+     * A 302 is included on purpose: redirects are not followed, because a receiver
+     * that bounces a signed body to another address has moved, and should re-register
+     * rather than have the body follow it somewhere nobody checked.
+     *
+     * @param int $status The receiver's answer
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('failedAnswers')]
+    public function testDeliverEventFailsOnANon2xxAnswer(int $status): void
+    {
+        // Arrange
+        \Pramnos\Http\Client::fake(['https://93.184.216.34/*' => \Pramnos\Http\ClientResponse::make(
+            'receiver says no',
+            $status,
+            ['Location' => 'https://169.254.169.254/']
+        )]);
+        $service = $this->exposedService();
+
+        try {
+            // Act
+            $result = $service->publicDeliverEvent($this->eventFor('https://93.184.216.34/hooks'));
+
+            // Assert
+            $this->assertFalse($result);
+            $this->assertSame("HTTP {$status}: receiver says no", $service->publicGetLastError());
+        } finally {
+            \Pramnos\Http\Client::resetFakes();
+        }
+    }
+
+    /** @return array<string, array{int}> */
+    public static function failedAnswers(): array
+    {
+        return ['redirect' => [302], 'client error' => [410], 'server error' => [503]];
+    }
+
+    /**
+     * A transport failure fails the delivery with the client's reason.
+     *
+     * Connection refused, a timeout, a TLS error: the client raises, and the delivery
+     * must record why rather than let the exception out of the queue worker.
+     */
+    public function testDeliverEventFailsWhenTheConnectionFails(): void
+    {
+        // Arrange
+        \Pramnos\Http\Client::fake(['https://93.184.216.34/*' => function () {
+            throw new \Pramnos\Http\ClientException('Connection refused');
+        }]);
+        $service = $this->exposedService();
+
+        try {
+            // Act
+            $result = $service->publicDeliverEvent($this->eventFor('https://93.184.216.34/hooks'));
+
+            // Assert
+            $this->assertFalse($result);
+            $this->assertSame(
+                'Delivery refused or failed: Connection refused',
+                $service->publicGetLastError()
+            );
+        } finally {
+            \Pramnos\Http\Client::resetFakes();
+        }
     }
 
     /**

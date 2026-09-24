@@ -114,6 +114,65 @@ class WebhookControllerTest extends TestCase
     }
 
     /**
+     * An endpoint inside this server's network is refused at registration.
+     *
+     * The relying party chooses the address and this server makes the request, so
+     * without this a client could point deliveries at loopback, a private host or the
+     * cloud metadata address. Delivery refuses them too; refusing here tells the
+     * client now, instead of leaving a column of failed deliveries to be found later.
+     *
+     * @param string $url An https URL whose host is not a public address
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('internalUrls')]
+    public function testAnEndpointInsideThisNetworkIsRefused(string $url): void
+    {
+        // Arrange
+        $controller = $this->controller();
+        $_POST = ['endpoint_url' => $url, 'webhook_type' => 'token_revoked'];
+
+        // Act
+        $response = $controller->register();
+        $body     = json_decode($response->getBody(), true);
+
+        // Assert
+        $this->assertSame(400, $response->getStatusCode());
+        $this->assertStringContainsString('inside this network', $body['error_description']);
+        $this->assertSame([], $controller->stored, 'nothing is written for a refused address');
+    }
+
+    /**
+     * A name that does not resolve yet is accepted.
+     *
+     * DNS is set up after registration as often as before it, and refusing here would
+     * make the order matter to the relying party for no gain: every delivery resolves
+     * the name again, checks it and pins the address, so the delivery is the guard.
+     */
+    public function testANameThatDoesNotResolveYetIsAccepted(): void
+    {
+        // Arrange — `.invalid` is reserved never to resolve (RFC 6761)
+        $controller = $this->controller();
+        $_POST = ['endpoint_url' => 'https://hooks.not-yet.invalid/in', 'webhook_type' => 'token_revoked'];
+
+        // Act
+        $response = $controller->register();
+
+        // Assert
+        $this->assertSame(201, $response->getStatusCode());
+        $this->assertCount(1, $controller->stored);
+    }
+
+    /** @return array<string, array{string}> */
+    public static function internalUrls(): array
+    {
+        return [
+            'loopback'       => ['https://127.0.0.1/hooks'],
+            'private'        => ['https://10.0.0.5/hooks'],
+            'cloud metadata' => ['https://169.254.169.254/latest/'],
+            'ipv6 loopback'  => ['https://[::1]/hooks'],
+        ];
+    }
+
+    /**
      * A malformed URL is refused before anything is written.
      *
      * @param string $url A value that is not a usable endpoint
