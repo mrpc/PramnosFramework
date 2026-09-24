@@ -200,6 +200,12 @@ class WebhookEndpointPolicyTest extends TestCase
             'the LAN beside it, narrowly'        => [$narrow, 'https://192.168.1.5/in', true],
             'loopback, when named'               => [['allow_private_ranges' => ['127.0.0.1']], 'https://127.0.0.1/in', false],
             'a name that does not resolve yet'   => [['allow_private' => false], 'https://hooks.not-yet.invalid/in', false],
+            // Carrier-grade NAT is where Tailscale lives, and PHP's filters call it
+            // public — so `allow_private => false` admitted the operator's own VPN,
+            // by checking it against an allow-list it was not on and then waving it
+            // through anyway. The setting that exists to keep that network out did not.
+            'the VPN, with allow_private off'    => [['allow_private' => false], 'https://100.101.102.103/in', true],
+            'the VPN, by default'                => [[], 'https://100.101.102.103/in', false],
         ];
     }
 

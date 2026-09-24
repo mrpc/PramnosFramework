@@ -636,51 +636,18 @@ class Client
     /**
      * Is this an address on the public internet?
      *
-     * `FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE` is most of the answer and is
-     * the part people reach for: between them they reject `10/8`, `172.16/12`,
-     * `192.168/16`, `fc00::/7`, `fec0::/10`, `0/8`, `127/8`, **`169.254/16`** — which is
-     * where cloud metadata lives — `240/4`, `::`, `::1`, `::ffff:0:0/96` (so an
-     * IPv4-mapped loopback cannot sneak through) and `fe80::/10`.
+     * One implementation, in {@see \Pramnos\Security\OutboundUrl::isPublicAddress()}.
      *
-     * What it does not reject, and this does: carrier-grade NAT, the IETF protocol block,
-     * the benchmarking block and multicast. None of them belongs in a fetch of somebody's
-     * home page, and `100.64/10` in particular is a real address space on a real network.
-     *
-     * Not covered, stated rather than implied: a **public** host that proxies into its own
-     * private network. No client-side check can see that one.
+     * This method had its own copy — the same two filter flags plus a range table for what
+     * they miss — and the copy was the stricter of the two. **Two answers to one security
+     * question is one answer too many**: the looser one is what the rest of the framework
+     * had started calling, so carrier-grade NAT counted as public everywhere except here.
+     * A predicate that decides whether a fetch may leave the building is exactly the kind
+     * that must exist once.
      */
     private function isPublicAddress(string $address): bool
     {
-        $public = filter_var(
-            $address,
-            FILTER_VALIDATE_IP,
-            FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE
-        );
-
-        if ($public === false) {
-            return false;
-        }
-
-        if (filter_var($address, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) === false) {
-            return true;
-        }
-
-        $long = ip2long($address) & 0xFFFFFFFF;
-
-        foreach ([
-            ['100.64.0.0', 10],   // carrier-grade NAT
-            ['192.0.0.0',  24],   // IETF protocol assignments
-            ['198.18.0.0', 15],   // benchmarking
-            ['224.0.0.0',   4],   // multicast
-        ] as [$network, $bits]) {
-            $mask = (~0 << (32 - $bits)) & 0xFFFFFFFF;
-
-            if (($long & $mask) === ((ip2long($network) & 0xFFFFFFFF) & $mask)) {
-                return false;
-            }
-        }
-
-        return true;
+        return \Pramnos\Security\OutboundUrl::isPublicAddress($address);
     }
 
     /**

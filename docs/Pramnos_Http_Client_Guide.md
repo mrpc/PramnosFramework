@@ -352,6 +352,9 @@ Client::post($url)
 Everything else about the guard still holds — the scheme, the check on every hop, the
 pinned address — and one address outside the ranges still refuses the whole host.
 
+There are two lists and they answer different questions. `OutboundUrl::NEVER_PUBLIC_RANGES`
+is what PHP's address filters miss — carrier-grade NAT, the IETF protocol block, the
+benchmarking block, multicast — and it makes `isPublicAddress()` mean what it says.
 `OutboundUrl::PRIVATE_NETWORK_RANGES` is RFC 1918, carrier-grade NAT and IPv6 unique-local:
 an organisation's network. It deliberately leaves out loopback and link-local, where this
 machine's own ports and the cloud metadata address answer; a caller that really needs one

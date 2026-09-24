@@ -154,15 +154,52 @@ final class OutboundUrl
      * `FILTER_FLAG_NO_PRIV_RANGE` and `NO_RES_RANGE` between them cover loopback, the three private
      * IPv4 blocks, link-local (which is where cloud metadata lives), the reserved blocks, and their
      * IPv6 equivalents including unique-local `fc00::/7`.
+     *
+     * **They are not the whole answer, and the gap was load-bearing.** Those two flags alone called
+     * carrier-grade NAT public — the same `100.64.0.0/10` that {@see PRIVATE_NETWORK_RANGES} names
+     * two dozen lines below as *"what Tailscale and several other VPNs hand out"*. One class said an
+     * address was both private and public, and the consequence was not academic: an endpoint policy
+     * with `allow_private => false` admitted the operator's VPN, because the range was checked
+     * against an allow-list it was not on and then waved through as public anyway.
+     *
+     * So the flags are the floor and {@see NEVER_PUBLIC_RANGES} is the rest of it. A caller that
+     * genuinely wants one of these names it through an allow-list, which is the only way any
+     * non-public range should ever be reachable.
      */
     public static function isPublicAddress(string $address): bool
     {
-        return filter_var(
+        if (filter_var(
             $address,
             FILTER_VALIDATE_IP,
             FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE
-        ) !== false;
+        ) === false) {
+            return false;
+        }
+
+        return !self::inRanges($address, self::NEVER_PUBLIC_RANGES);
     }
+
+    /**
+     * Address space that is not the public internet and that PHP's filters miss.
+     *
+     * - **`100.64.0.0/10`** — carrier-grade NAT, and a real network: Tailscale hands it out.
+     * - **`192.0.0.0/24`** — IETF protocol assignments.
+     * - **`198.18.0.0/15`** — benchmarking, which is routed on some networks.
+     * - **`224.0.0.0/4`** — multicast. Not a host, and not something a fetch should reach.
+     *
+     * Separate from {@see PRIVATE_NETWORK_RANGES} because the two answer different questions.
+     * This one is "is this the public internet"; that one is "is this the kind of private network
+     * an organisation runs its own services on", and only the second is something an operator
+     * would sensibly switch on wholesale.
+     *
+     * @var list<string>
+     */
+    public const NEVER_PUBLIC_RANGES = [
+        '100.64.0.0/10',
+        '192.0.0.0/24',
+        '198.18.0.0/15',
+        '224.0.0.0/4',
+    ];
 
     /**
      * The address space an organisation's own network is built from.

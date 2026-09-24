@@ -851,4 +851,70 @@ class OutboundUrlTest extends TestCase
             'a public address' => ['93.184.216.34', false],
         ];
     }
+
+    /**
+     * The ranges PHP's filters call public and are not.
+     *
+     * `NO_PRIV_RANGE|NO_RES_RANGE` is the floor, not the answer. On its own it said
+     * `100.64.0.0/10` was public — the same block this class's own
+     * `PRIVATE_NETWORK_RANGES` names as *"what Tailscale and several other VPNs hand
+     * out"*. One class, two answers about one address.
+     *
+     * It was load-bearing rather than untidy: `WebhookService` gates a relying party's
+     * endpoint on `isPublicAddress() || inRanges($allowed)`, so with
+     * `allow_private => false` a carrier-grade NAT address was checked against an
+     * allow-list it was not on and then waved through as public anyway. The setting that
+     * exists to keep the operator's VPN out did not.
+     *
+     * @param string $address The address
+     * @param bool   $public  Whether it is on the public internet
+     */
+    #[DataProvider('addressesTheFiltersMiss')]
+    public function testTheRangesPhpsFiltersCallPublicAndAreNot(string $address, bool $public): void
+    {
+        // Act + Assert
+        $this->assertSame($public, OutboundUrl::isPublicAddress($address), $address);
+    }
+
+    /** @return array<string, array{string, bool}> */
+    public static function addressesTheFiltersMiss(): array
+    {
+        return [
+            'carrier-grade NAT, low'   => ['100.64.0.1', false],
+            'carrier-grade NAT, mid'   => ['100.100.0.1', false],
+            'carrier-grade NAT, high'  => ['100.127.255.254', false],
+            'just past CGNAT'          => ['100.128.0.1', true],
+            'just before CGNAT'        => ['100.63.255.255', true],
+            'IETF protocol block'      => ['192.0.0.8', false],
+            'benchmarking'             => ['198.19.0.1', false],
+            'multicast'                => ['239.1.1.1', false],
+            'a real public address'    => ['93.184.216.34', true],
+            'loopback still refused'   => ['127.0.0.1', false],
+        ];
+    }
+
+    /**
+     * Nothing is both private and public.
+     *
+     * The contradiction stated as an invariant rather than as a list of addresses: every
+     * range this class calls an organisation's private network must fail `isPublicAddress()`.
+     * It did not, for one of the five.
+     */
+    public function testNothingIsBothPrivateAndPublic(): void
+    {
+        // Arrange — one address from inside each private range
+        $inside = ['10.1.2.3', '172.20.0.1', '192.168.50.1', '100.101.102.103', 'fd7a::1'];
+
+        foreach ($inside as $address) {
+            // Assert
+            $this->assertTrue(
+                OutboundUrl::inRanges($address, OutboundUrl::PRIVATE_NETWORK_RANGES),
+                $address . ' should be in the private network'
+            );
+            $this->assertFalse(
+                OutboundUrl::isPublicAddress($address),
+                $address . ' is in PRIVATE_NETWORK_RANGES and was also called public'
+            );
+        }
+    }
 }

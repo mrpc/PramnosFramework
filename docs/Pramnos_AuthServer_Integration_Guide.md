@@ -808,6 +808,13 @@ an authorisation server and its relying parties on one VPN or LAN. It never incl
 loopback or link-local, where this server's own ports and the cloud metadata address
 (`169.254.169.254`) answer, unless a range naming them is listed.
 
+**`allow_private => false` really does exclude carrier-grade NAT.** It is worth saying
+because PHP's own address filters do not: `FILTER_FLAG_NO_PRIV_RANGE|NO_RES_RANGE` calls
+`100.64.0.0/10` public, and the check is "public **or** in an allowed range" — so the
+Tailscale block was tested against an allow-list it was not on and then admitted as public
+anyway. `OutboundUrl::NEVER_PUBLIC_RANGES` is the rest of what those flags miss: CGNAT, the
+IETF protocol block, the benchmarking block and multicast.
+
 ```php
 // app/app.php
 'authserver' => [
