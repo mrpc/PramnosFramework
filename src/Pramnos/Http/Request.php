@@ -190,6 +190,15 @@ class Request extends Base
     public static function resetInstance(): void
     {
         self::$instance = null;
+        /*
+         * And the factory's copy, which is the same fact cached twice.
+         *
+         * `Factory::getRequest()` holds its own reference — it has to, because it returns
+         * by reference and a test substitutes a mock through that. Clearing one and not
+         * the other left the framework dispatching with the request from before the reset.
+         * {@see \Pramnos\Framework\Factory::resetRequest()} for what that cost.
+         */
+        \Pramnos\Framework\Factory::resetRequest();
         // The instances' own `$ownUri` needs no reset: it belongs to the object, which is the
         // whole point of it. {@see $ownUri}
         self::$requestUri = '';

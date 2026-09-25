@@ -324,6 +324,30 @@ deliberately, because clearing it would turn the block above into a request for 
 Restore what you changed in `tearDown()`. A leftover `REQUEST_METHOD` is what made the
 failure above order-dependent, and the next one will be the same shape.
 
+### `Factory::getRequest()` follows the reset
+
+`Request::resetInstance()` clears the factory's cached request too, so the request the
+framework dispatches with is the one your reset produced.
+
+It did not, for a while: the factory cached in a **function** static, which nothing outside
+that method can clear. After a reset there were two request objects, and the stale one was
+what `Api::exec()` handed to the middleware pipeline. The visible symptom was narrow and
+alarming — an endpoint listed in `public_api_paths` answered `403 APIKeyMissing` in tests
+and correctly in production, because `ApiAuthMiddleware` reads the request's own URI and the
+bootstrap's request had none.
+
+**`Factory::getRequest()` returns by reference, and that is an API.** Substituting a mock
+works, and is how several suites here do it:
+
+```php
+$request = &Factory::getRequest();
+$request = $mock;
+```
+
+Which is why the cache still exists rather than being deleted — the reference has to point
+at something that outlives the call. `Factory::resetRequest()` is the way to clear it, and
+`Request::resetInstance()` calls it for you.
+
 ## Posting a form in a test
 
 ```php

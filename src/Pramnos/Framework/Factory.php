@@ -147,17 +147,60 @@ class Factory
     }
 
     /**
-     * Return a pramnos_request object
-     * @staticvar pramnos_request $instance
+     * The shared request, as a **class** static so it can be reached from outside.
+     *
+     * It was a function static, which nothing outside that method can clear — and
+     * {@see \Pramnos\Http\Request::resetInstance()} has to. See {@see resetRequest()}.
+     *
+     * @var \Pramnos\Http\Request|null
+     */
+    private static $requestInstance = null;
+
+    /**
+     * Return the shared request object.
+     *
+     * Returned **by reference**, and that is an API rather than an accident: a test
+     * substitutes a mock with `$r = &Factory::getRequest(); $r = $mock;`, which only
+     * works while the reference points at something that outlives the call. So the cache
+     * stays — what changed is that it is now reachable. {@see resetRequest()}
+     *
      * @return \Pramnos\Http\Request
      */
     public static function &getRequest()
     {
-        static $instance=null;
-        if (!is_object($instance)) {
-            $instance = \Pramnos\Http\Request::getInstance();
+        if (!is_object(self::$requestInstance)) {
+            self::$requestInstance = \Pramnos\Http\Request::getInstance();
         }
-        return $instance;
+
+        return self::$requestInstance;
+    }
+
+    /**
+     * Forget the shared request, so the next call takes the current one.
+     *
+     * Called by {@see \Pramnos\Http\Request::resetInstance()}, which is where the need
+     * came from: that method clears `Request::$instance` and the derived statics and says
+     * so in its own doc-block, and it could not clear a **function** static held here. So
+     * after a reset there were two request objects — a fresh one, and the bootstrap's still
+     * cached in this class — and the second was the one `Api::exec()` handed to the
+     * middleware pipeline.
+     *
+     * Almost nothing noticed, because routing reads `$_GET['r']`. `ApiAuthMiddleware` did:
+     * `isPublicPath()` reads the request's **own** URI and treats an empty one as no match,
+     * deliberately, so a caller that cannot tell takes the closed branch. Under a test
+     * runner the bootstrap's request had no `REQUEST_URI` at all, so its own URI was `''`
+     * for ever and **every declared-public endpoint answered 403** — in tests only, while
+     * production answered correctly.
+     *
+     * That is the expensive shape of quiet: an application testing an endpoint it declared
+     * open gets a 403 it cannot explain, and the natural next move is to decide the
+     * declaration is wrong and widen it. A security change made to fix a harness artefact.
+     *
+     * @return void
+     */
+    public static function resetRequest(): void
+    {
+        self::$requestInstance = null;
     }
 
     /**

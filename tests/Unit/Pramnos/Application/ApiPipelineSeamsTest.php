@@ -205,4 +205,111 @@ class ApiPipelineSeamsTest extends TestCase
         // Assert
         $this->assertStringContainsString('APIKeyMissing', $this->documentContent());
     }
+
+    /**
+     * A declared-public endpoint is reachable — through the request the pipeline uses.
+     *
+     * The symptom reported: every request to a path in `public_api_paths` answered
+     * **403 APIKeyMissing under a test runner**, while the same endpoint answered
+     * correctly in production.
+     *
+     * `Factory::getRequest()` cached its answer in a **function static**, which
+     * `Request::resetInstance()` cannot reach — it clears `Request::$instance` and the
+     * derived statics, and documents itself as doing exactly that. So after a reset there
+     * were two request objects, and the stale one was what `Api::exec()` handed to the
+     * pipeline. `ApiAuthMiddleware::isPublicPath()` reads the request's *own* URI and
+     * treats an empty one as no match — deliberately — and under a test runner the
+     * bootstrap's request had no `REQUEST_URI` at all, so its own URI was `''` for ever.
+     *
+     * The quiet part is what makes it worth a test: an application gets a 403 it cannot
+     * explain on an endpoint it declared open, and the natural next move is to widen the
+     * declaration — a security change made to fix a harness artefact.
+     */
+    public function testADeclaredPublicEndpointIsReachedThroughTheFactorysRequest(): void
+    {
+        // Arrange — the address, then the reset, which is the order a test writes
+        $savedUri = $_SERVER['REQUEST_URI'] ?? null;
+        $_SERVER['REQUEST_URI'] = '/1.0/wordpress/pair';
+        \Pramnos\Http\Request::resetInstance();
+
+        $api = new class extends Api {
+            public $database;
+            public $applicationInfo = [
+                'name'             => 'test',
+                'public_api_paths' => ['/1.0/wordpress/pair'],
+            ];
+            public $controller = 'test';
+            public $action = 'test';
+
+            public function __construct()
+            {
+            }
+        };
+
+        $api->database = $this->createMock(\Pramnos\Database\Database::class);
+        $_SESSION['usertoken'] = new class {
+            public $tokentype = 'api';
+            public $lastActionId = 1;
+            public function addAction() {}
+            public function updateAction($id, $status, $time, $record) {}
+        };
+
+        // Act — no API key anywhere
+        unset($_SERVER['HTTP_APIKEY']);
+        $api->exec('test');
+        $written = $this->documentContent();
+
+        // Assert
+        $this->assertStringNotContainsString(
+            'APIKeyMissing',
+            $written,
+            'the pipeline was handed a stale request, so the declared path matched nothing'
+        );
+
+        // Put the process back.
+        if ($savedUri === null) {
+            unset($_SERVER['REQUEST_URI']);
+        } else {
+            $_SERVER['REQUEST_URI'] = $savedUri;
+        }
+        \Pramnos\Http\Request::resetInstance();
+    }
+
+    /**
+     * The factory hands back the request the reset produced, not the one before it.
+     *
+     * The invariant underneath the test above, asserted directly: **one cache, one
+     * owner.** A second cache in another class is a second answer to "what is this
+     * request", and the two disagree exactly when somebody resets — which is to say, in
+     * every test that builds a request of its own.
+     */
+    public function testTheFactoryFollowsAResetRatherThanHoldingItsOwnCopy(): void
+    {
+        // Arrange
+        $savedUri = $_SERVER['REQUEST_URI'] ?? null;
+
+        $_SERVER['REQUEST_URI'] = '/first/address';
+        \Pramnos\Http\Request::resetInstance();
+        $before = \Pramnos\Framework\Factory::getRequest();
+
+        // Act — what any test does between two cases
+        $_SERVER['REQUEST_URI'] = '/second/address';
+        \Pramnos\Http\Request::resetInstance();
+        $after = \Pramnos\Framework\Factory::getRequest();
+
+        // Assert
+        $this->assertSame('first/address', $before->ownRequestUri());
+        $this->assertSame('second/address', $after->ownRequestUri());
+        $this->assertNotSame($before, $after, 'the factory kept a copy the reset could not reach');
+
+        // And within one request it is still a singleton — the cache moved, it did not go.
+        $this->assertSame($after, \Pramnos\Framework\Factory::getRequest());
+
+        if ($savedUri === null) {
+            unset($_SERVER['REQUEST_URI']);
+        } else {
+            $_SERVER['REQUEST_URI'] = $savedUri;
+        }
+        \Pramnos\Http\Request::resetInstance();
+    }
 }
