@@ -564,6 +564,36 @@ Whatever expression you use, **assert in a test that it equals what PHP computes
 A digest the database writes and the application does not match on is an
 authentication outage, and nothing else in the suite would notice.
 
+## Queued statements run when `up()` returns
+
+`addQuery()` queues; the runner empties the queue as soon as `up()` (or `down()`) returns.
+So this is complete, and nothing else is needed:
+
+```php
+public function up(): void
+{
+    $this->addQuery('ALTER TABLE articles MODIFY author VARCHAR(500) NULL');
+}
+```
+
+Calling `executeQueries()` yourself still works and is still the way to read the number of
+rejections at the point they happen. The queue is cleared each time, so the runner's own
+call finds nothing left — a migration that flushes its own queue does not run twice.
+
+!!! warning "Why this is worth a section"
+
+    It did not always. `executeQueries()` is `protected` and **nothing called it**, so a
+    migration that queued two `ALTER TABLE`s and returned was recorded as **Ran** and
+    changed nothing — on development, on the test database and on production at once, with
+    all three ledgers agreeing it had worked. It was found by measuring the schema
+    afterwards.
+
+    **A recorded no-op cannot be re-run.** Correcting the migration file helps nobody who
+    already has the row, so the repair is a *second* migration — one mistyped line costing
+    two migrations and a paragraph explaining why there are two. If you have a migration
+    from before this that used `addQuery()` without `executeQueries()`, check the schema
+    rather than the ledger.
+
 ## When a statement is refused
 
 `addQuery()` queues statements and `executeQueries()` runs them **tolerantly**: a

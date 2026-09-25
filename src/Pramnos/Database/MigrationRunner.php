@@ -514,6 +514,15 @@ class MigrationRunner
                     \Pramnos\Database\SchemaBuilder::resetDeferredCapabilities();
 
                     $migration->up();
+
+                    // `addQuery()` queues; this is what empties the queue. Without it a
+                    // migration that queued its statements and returned was recorded as
+                    // Ran and changed nothing — and a recorded no-op cannot be re-run, so
+                    // the repair is a second migration rather than a corrected file.
+                    // Inside the transaction, so a queued statement is committed with the
+                    // rest of the migration's work.
+                    $migration->runQueuedQueries();
+
                     $elapsed = microtime(true) - $start;
 
                     if ($useTransaction) {
@@ -691,6 +700,8 @@ class MigrationRunner
             if (isset($map[$slug])) {
                 try {
                     $map[$slug]->down();
+                    // The same queue, on the way back down.
+                    $map[$slug]->runQueuedQueries();
                 } catch (\Throwable $e) {
                     $downSucceeded = false;
                     \Pramnos\Logs\Logger::log(

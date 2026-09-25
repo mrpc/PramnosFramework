@@ -308,11 +308,49 @@ abstract class Migration extends \Pramnos\Framework\Base
 
     /**
      * Adds a SQL query to the execution queue.
+     *
+     * The queue is emptied by the runner as soon as `up()` (or `down()`) returns, so a
+     * migration that queues statements and returns has run them. {@see runQueuedQueries()}
+     *
      * @param string $query
      */
     protected function addQuery($query)
     {
         $this->queriesToExecute[] = $query;
+    }
+
+    /**
+     * Run whatever `addQuery()` queued, and report how many the database rejected.
+     *
+     * ## Why this is public and why the runner calls it
+     *
+     * `executeQueries()` is `protected`, and **no framework code called it**. So a
+     * migration that queued two `ALTER TABLE`s and returned was recorded as **Ran** and
+     * changed nothing — on development, on the test database and on production, all three,
+     * with the ledger saying it had worked.
+     *
+     * The care had gone into the wrong half. `executeQueries()` records every statement the
+     * database rejected so the runner can write "ran, with N rejected" and `migrate:status`
+     * can show it; the runner already reads `failedStatementSummary()` and has a result
+     * code for it. All of that was unreachable.
+     *
+     * **What made it expensive is the recovery.** A no-op that is *recorded* cannot be
+     * re-run, so correcting the migration file helps nobody who already has the row — the
+     * fix has to be a second migration. One mistyped line costs two migrations and a
+     * paragraph explaining why there are two.
+     *
+     * A migration that calls `executeQueries()` itself is unaffected: the queue is cleared
+     * each time, so this finds nothing left to run.
+     *
+     * @return int Number of statements the database rejected.
+     */
+    public function runQueuedQueries(): int
+    {
+        if ($this->queriesToExecute === []) {
+            return 0;
+        }
+
+        return $this->executeQueries();
     }
 
     /**
