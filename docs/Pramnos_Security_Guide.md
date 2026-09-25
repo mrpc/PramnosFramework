@@ -243,7 +243,7 @@ control.
 | `session_idle_timeout` | a session left open on a shared screen | somebody is signed out while reading |
 | `session_absolute_timeout` | a session that stays valid for a year because it is used daily | everybody re-authenticates on a schedule |
 | `revoke_sessions_on_password_change` | the attacker keeping the account after the owner "fixes" it | other devices are signed out, which reads as a fault if it was routine hygiene |
-| `require_second_factor_from_usertype` | an administrator with a password and nothing else | a step-up the person did not choose; it resolves to a mailed code, so it cannot lock them out |
+| `require_second_factor_from_usertype` | an administrator with a password and nothing else | a step-up the person did not choose; it resolves to a mailed code, so it cannot lock them out — and demands nothing while the installation has no mail to send it by |
 | `password_history` | "change it" meaning "type the same one again" | somebody who wants their old password back cannot have it, and support cannot give it to them |
 | `totp_replay_cache` | one TOTP code completing two logins inside the same 30-second window | needs a cache that can count atomically (Redis, memcached); without one the older guard applies and nothing is refused |
 | `human_check` | a script submitting the sign-in, registration or reset form thousands of times for free | the visitor's battery, and a browser with no Web Worker or no `crypto.subtle` cannot submit the form at all |
@@ -329,6 +329,13 @@ because a login that fails when Redis is down is worse than the window.
 anybody out, and that is deliberate: an account above the floor with nothing enrolled is asked
 for a code by email, which every account can satisfy — enrolment happens *after* signing in,
 so refusing the mail would be a lockout by design.
+
+That holds only while mail can be sent. With `smtp_host` empty the code would never arrive, so
+the floor demands nothing and the password is let through. This is the state of a fresh
+installation, where the first administrator is signing in to configure mail among everything
+else; the enrolment switch below is what stops that account at the setup screen until it holds
+a real factor. Set both, and an installation without mail is still not an installation whose
+administrators sign in with a password alone for long.
 
 Which means that switch alone leaves an administrator holding nothing but a mailbox, and a
 mailed code is the weakest factor here: it is one mailbox compromise from being no factor at

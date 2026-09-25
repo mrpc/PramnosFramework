@@ -478,6 +478,12 @@ what it had. `totp` is always in the list whether or not you write it — an app
 cannot switch off the method its existing accounts are enrolled in by adding a config
 key, which is what omitting it would otherwise mean.
 
+**Declaring it is not enough on its own: the installation has to be able to send mail.**
+`EmailSecondFactor::isAvailable()` is false while `smtp_host` is empty
+(`Email::isConfigured()`). A code nobody can receive is not a factor, so with no mail the
+method is not offered, and an account that enabled it is treated as not having it rather
+than asked for digits that never arrive.
+
 **The account decides it wants it**, from its own security screen, behind its own
 password (`user_twofactor.email_enabled`). Attaching a second factor is a change to how
 an account authenticates, so a borrowed session must not be able to make it — in either
@@ -733,6 +739,11 @@ mailbox is the one thing every account has. `require_2fa` therefore imposes a ma
 on an account with no factor at all, regardless of that account's own email-factor
 switch: the demand is the site's, not the account's, and an account with nothing set up is
 exactly the one a stolen password threatens most.
+
+**A mailbox is only a factor when the installation can send mail.** With `smtp_host` empty,
+`authlink` resolves as `require_2fa` does, and the mailed-code fallback becomes the passkey
+when the account has one and nothing when it has neither. That is weaker than a code, and it
+is the only answer that is not a wall in front of every account on the installation.
 
 A device the account has used before is never questioned by any of them, so this costs a
 step on unrecognised browsers and nothing on the rest.

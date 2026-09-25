@@ -7,6 +7,7 @@ namespace Pramnos\Tests\Unit\Auth;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use Pramnos\Application\Application;
+use Pramnos\Application\Settings;
 use Pramnos\Auth\EmailSecondFactor;
 
 /**
@@ -23,8 +24,22 @@ class EmailSecondFactorConfigTest extends TestCase
     /** @var array<string,mixed>|null */
     private ?array $savedInstances = null;
 
+    private mixed $savedSmtpHost = null;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        // An installation that can send mail, unless a test says otherwise: the method is
+        // only available when it can. In memory only.
+        $this->savedSmtpHost = Settings::getSetting('smtp_host');
+        Settings::setSetting('smtp_host', '127.0.0.1', false);
+    }
+
     protected function tearDown(): void
     {
+        Settings::setSetting('smtp_host', (string) $this->savedSmtpHost, false);
+
         if ($this->savedInstances !== null) {
             $reflection = new \ReflectionProperty(Application::class, 'appInstances');
             $reflection->setValue(null, $this->savedInstances);
@@ -82,6 +97,26 @@ class EmailSecondFactorConfigTest extends TestCase
         // Act & Assert
         $this->assertTrue(EmailSecondFactor::isAvailable());
         $this->assertSame(['totp', 'email'], EmailSecondFactor::allowedMethods());
+    }
+
+    /**
+     * Declared but with no mail to send it by, the method is not available.
+     *
+     * A code that cannot be delivered is not a factor. Offered, it is a switch that enrols
+     * nothing; enabled, it is a prompt for digits that never arrive, on an account whose only
+     * factor it may be. Unavailable, the account is treated as not having it — which the
+     * login's other rules already know how to handle.
+     */
+    public function testDeclaredButWithNoMailItIsNotAvailable(): void
+    {
+        // Arrange
+        $this->withApplicationInfo(['auth' => ['twofactor_methods' => ['totp', 'email']]]);
+        Settings::setSetting('smtp_host', '  ', false);
+
+        // Act & Assert
+        $this->assertFalse(EmailSecondFactor::isAvailable(), 'a blank host is no host');
+        $this->assertSame(['totp', 'email'], EmailSecondFactor::allowedMethods(),
+            'what the application allows is unchanged; only whether it can be used');
     }
 
     /**

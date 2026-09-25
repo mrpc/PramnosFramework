@@ -36,12 +36,18 @@ class EmailSecondFactorTest extends BaseTestCase
     private int $uid = 0;
     private ?array $savedInstances = null;
 
+    private mixed $savedSmtpHost = null;
+
     protected function setUp(): void
     {
         if (!defined('CONFIG')) {
             define('CONFIG', 'tests' . DS . 'fixtures' . DS . 'app');
         }
         Settings::loadSettings(ROOT . DS . 'tests' . DS . 'fixtures' . DS . 'app' . DS . 'settings.php');
+        // Mail that can be sent: the email factor exists only when it can. In memory only,
+        // restored in tearDown.
+        $this->savedSmtpHost = Settings::getSetting('smtp_host');
+        Settings::setSetting('smtp_host', '127.0.0.1', false);
         Application::getInstance();
 
         $reference = &\Pramnos\Database\Database::getInstance();
@@ -95,6 +101,8 @@ class EmailSecondFactorTest extends BaseTestCase
             $reflection->setValue(null, $this->savedInstances);
             $this->savedInstances = null;
         }
+
+        Settings::setSetting('smtp_host', (string) $this->savedSmtpHost, false);
 
         parent::tearDown();
     }

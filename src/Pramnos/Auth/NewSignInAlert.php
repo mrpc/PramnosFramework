@@ -463,6 +463,12 @@ class NewSignInAlert
      * accounts that have set nothing up — which are the accounts a stolen password
      * threatens most.
      *
+     * **A mailbox is only a factor when mail can be sent** ({@see \Pramnos\Email\Email::isConfigured()}).
+     * Without it, `authlink` resolves as `require_2fa` does, and the mailed-code fallback
+     * becomes the passkey when the account has one and nothing when it has neither. Nothing
+     * is weaker than a code, and it is the only answer that is not a lockout: a link or a
+     * code nobody can receive is a wall in front of every account on the installation.
+     *
      * **Whether the device is new is the caller's answer, not this method's.** That
      * question costs a query against the activity log, and this is otherwise pure policy —
      * a resolver that read the database could not be tested without one, and the caller
@@ -486,7 +492,9 @@ class NewSignInAlert
             return array();
         }
 
-        if ($action === 'authlink') {
+        $canMail = \Pramnos\Email\Email::isConfigured();
+
+        if ($action === 'authlink' && $canMail) {
             return array('authlink');
         }
 
@@ -499,6 +507,10 @@ class NewSignInAlert
 
         if ($hasTotp) {
             return $hasPasskey ? array('twofactor', 'passkey') : array('twofactor');
+        }
+
+        if (!$canMail) {
+            return $hasPasskey ? array('passkey') : array();
         }
 
         return array(EmailSecondFactor::METHOD);

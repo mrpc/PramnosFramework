@@ -589,9 +589,17 @@ class LoginFlow
          * account above the floor with nothing enrolled is asked for a mailed code, which
          * every account can satisfy. What it *does* do is make the step-up unavoidable, so
          * the person is pushed towards enrolling something better.
+         *
+         * **Only while mail can be sent.** On an installation with no mail — a fresh one,
+         * typically, where the first administrator is signing in to configure it — the code
+         * would never arrive and the administrator would have no way in at all. There the
+         * password is let through, and `require_factor_enrolment_from_usertype` is what
+         * stops the account at the enrolment screen until it holds a real factor.
          */
         $factorFloor = SecurityPolicy::secondFactorFromUsertype();
-        if ($factorFloor > 0 && $methods === [] && $this->usertypeOf($userId) >= $factorFloor) {
+        if ($factorFloor > 0 && $methods === [] && $this->usertypeOf($userId) >= $factorFloor
+            && \Pramnos\Email\Email::isConfigured()
+        ) {
             $methods[] = EmailSecondFactor::METHOD;
         }
 

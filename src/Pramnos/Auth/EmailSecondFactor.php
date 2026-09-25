@@ -106,10 +106,16 @@ class EmailSecondFactor
      * Read from `auth.twofactor_methods`, which names every method the application
      * allows. Absent means the historical set — TOTP only — so an application that has
      * never heard of this key is unaffected by its existence.
+     *
+     * **And only when mail can be sent** ({@see \Pramnos\Email\Email::isConfigured()}). A
+     * code that cannot be delivered is not a factor: an account whose only factor it is
+     * would be asked for digits that never arrive, with no other way in. With no mail the
+     * method is not offered, and an account that enabled it is treated as not having it.
      */
     public static function isAvailable(): bool
     {
-        return in_array(self::METHOD, self::allowedMethods(), true);
+        return in_array(self::METHOD, self::allowedMethods(), true)
+            && \Pramnos\Email\Email::isConfigured();
     }
 
     /**

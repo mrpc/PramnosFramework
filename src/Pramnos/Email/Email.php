@@ -1606,6 +1606,21 @@ class Email extends \Pramnos\Framework\Base
     }
 
     /**
+     * Can this installation send mail at all?
+     *
+     * The transport is SMTP and nothing else, so with no `smtp_host` every send fails. Ask
+     * this before promising somebody a message they need in order to get in — a sign-in
+     * code, a sign-in link. A promise nobody can keep is a lockout, not a security step.
+     *
+     * It says whether sending is set up, not whether the server answers: a host that is
+     * down is an outage, and an outage is not something a login policy should route around.
+     */
+    public static function isConfigured(): bool
+    {
+        return trim((string) \Pramnos\Application\Settings::getSetting('smtp_host')) !== '';
+    }
+
+    /**
      * Send an email
      * @param string $subject
      * @param string $body

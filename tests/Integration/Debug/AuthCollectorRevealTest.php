@@ -55,12 +55,18 @@ class AuthCollectorRevealTest extends BaseTestCase
     /** A valid base32 TOTP seed. */
     private const SECRET = 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP';
 
+    private mixed $savedSmtpHost = null;
+
     protected function setUp(): void
     {
         if (!defined('CONFIG')) {
             define('CONFIG', 'tests' . DS . 'fixtures' . DS . 'app');
         }
         Settings::loadSettings($this->settingsFixture());
+        // Mail that can be sent: the email factor exists only when it can. In memory only,
+        // restored in tearDown.
+        $this->savedSmtpHost = Settings::getSetting('smtp_host');
+        Settings::setSetting('smtp_host', '127.0.0.1', false);
         $application = Application::getInstance();
 
         $reference = &\Pramnos\Database\Database::getInstance();
@@ -128,6 +134,8 @@ class AuthCollectorRevealTest extends BaseTestCase
 
         RequestIdentity::reset();
         $_SESSION = [];
+
+        Settings::setSetting('smtp_host', (string) $this->savedSmtpHost, false);
 
         parent::tearDown();
     }

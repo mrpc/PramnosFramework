@@ -59,6 +59,12 @@ class LoginFlowTest extends TestCase
          * matches what production does.
          */
         $this->savedInstances = $this->installApplication(['totp', 'email']);
+
+        // …and one that can send mail, for the same reason: the email factor and the floor's
+        // mailed code both exist only when it can. In memory only, restored in tearDown.
+        $this->savedSmtpHost = \Pramnos\Application\Settings::getSetting('smtp_host');
+        \Pramnos\Application\Settings::setSetting('smtp_host', '127.0.0.1', false);
+
         $this->flow = new TestableLoginFlow();
     }
 
@@ -72,10 +78,14 @@ class LoginFlowTest extends TestCase
                 ->setValue(null, $this->savedInstances);
             $this->savedInstances = null;
         }
+
+        \Pramnos\Application\Settings::setSetting('smtp_host', (string) $this->savedSmtpHost, false);
     }
 
     /** @var array<string,mixed>|null */
     private ?array $savedInstances = null;
+
+    private mixed $savedSmtpHost = null;
 
     /**
      * Install an application declaring the given second-factor methods.
@@ -881,6 +891,52 @@ class LoginFlowTest extends TestCase
             $this->flow->pendingFactors()
         );
         $this->assertContains('email', $names);
+    }
+
+    /**
+     * With no mail, the floor lets the password through instead of demanding a code.
+     *
+     * The demanded code would never arrive. On a fresh installation — the first administrator
+     * signing in to configure it, mail among the things not yet configured — that was an
+     * account with no way in at all, and it was the only administrator. The enrolment wall is
+     * what holds the account afterwards; the floor must not make the first sign-in impossible.
+     */
+    public function testWithNoMailTheFloorDemandsNothing(): void
+    {
+        // Arrange — the same privileged account, on an installation with no SMTP host
+        $this->installApplication(['totp', 'email'], ['require_second_factor_from_usertype' => 90]);
+        \Pramnos\Application\Settings::setSetting('smtp_host', '', false);
+        $this->flow->fakeAuth->response = $this->successResponse(7);
+        $this->flow->usertype           = 99;
+
+        // Act
+        $result = $this->flow->attempt('alice', 'secret');
+
+        // Assert
+        $this->assertFalse($result->needsStepUp(), 'a code nobody can receive is a lockout');
+        $this->assertTrue($result->isSuccess());
+    }
+
+    /**
+     * With no mail, an account with an authenticator is still asked for it.
+     *
+     * The floor only ever covered accounts with nothing; losing mail must not become a way
+     * past a factor the account actually holds.
+     */
+    public function testWithNoMailAnEnrolledAccountIsStillAsked(): void
+    {
+        // Arrange
+        $this->installApplication(['totp', 'email'], ['require_second_factor_from_usertype' => 90]);
+        \Pramnos\Application\Settings::setSetting('smtp_host', '', false);
+        $this->flow->fakeAuth->response     = $this->successResponse(7);
+        $this->flow->fakeTwoFactor->enabled = true;
+        $this->flow->usertype               = 99;
+
+        // Act
+        $result = $this->flow->attempt('alice', 'secret');
+
+        // Assert
+        $this->assertSame(['twofactor'], $result->stepUpMethods);
     }
 
     /**

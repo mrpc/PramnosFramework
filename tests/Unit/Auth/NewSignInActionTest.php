@@ -20,7 +20,9 @@ use Pramnos\Auth\NewSignInAlert;
  * is that **none of them can demand something the account cannot do**: a policy that asks
  * for a passkey from a user base that has none is not a security setting, it is an outage
  * with a checkbox. Every strict reading therefore has a fallback, and the last fallback is
- * a mailed code, because a mailbox is the one factor every account has.
+ * a mailed code, because a mailbox is the one factor every account has — **while the
+ * installation can send mail**. Without it the mailbox is not a factor, and the fallbacks
+ * stop at what the account holds.
  */
 #[CoversClass(NewSignInAlert::class)]
 class NewSignInActionTest extends TestCase
@@ -31,14 +33,22 @@ class NewSignInActionTest extends TestCase
 
     private mixed $savedAction = null;
 
+    private mixed $savedSmtpHost = null;
+
     protected function setUp(): void
     {
         $this->savedAction = Settings::getSetting(NewSignInAlert::ACTION_SETTING);
+
+        // An installation that can send mail, unless a test says otherwise — every mailed
+        // answer below exists only when it can.
+        $this->savedSmtpHost = Settings::getSetting('smtp_host');
+        Settings::setSetting('smtp_host', '127.0.0.1', false);
     }
 
     protected function tearDown(): void
     {
         Settings::setSetting(NewSignInAlert::ACTION_SETTING, (string) $this->savedAction, false);
+        Settings::setSetting('smtp_host', (string) $this->savedSmtpHost, false);
         parent::tearDown();
     }
 
@@ -180,7 +190,7 @@ class NewSignInActionTest extends TestCase
     }
 
     /**
-     * `authlink` needs no fallback: every account has a mailbox.
+     * `authlink` needs no fallback while mail can be sent: every account has a mailbox.
      */
     public function testTheAuthLinkIsAlwaysSatisfiable(): void
     {
@@ -206,5 +216,45 @@ class NewSignInActionTest extends TestCase
 
         // Act & Assert
         $this->assertSame([], NewSignInAlert::requiredFor(1, self::FRESH, false, false));
+    }
+
+    /**
+     * With no mail, `authlink` asks for what the account holds, and nothing when it holds
+     * nothing.
+     *
+     * A link nobody can receive is a wall in front of every account on the installation. So
+     * the link resolves as `require_2fa` does: the app when there is one, the passkey when
+     * that is all there is. An account with neither is let through, because the only thing
+     * left to ask for is the mail that cannot be sent.
+     */
+    public function testWithNoMailTheAuthLinkFallsBackToWhatTheAccountHolds(): void
+    {
+        // Arrange
+        $this->withAction('authlink');
+        Settings::setSetting('smtp_host', '', false);
+
+        // Act & Assert
+        $this->assertSame(['twofactor'], NewSignInAlert::requiredFor(7, self::FRESH, true, false));
+        $this->assertSame(['passkey'], NewSignInAlert::requiredFor(7, self::FRESH, false, true));
+        $this->assertSame([], NewSignInAlert::requiredFor(7, self::FRESH, false, false));
+    }
+
+    /**
+     * With no mail, `require_2fa` never imposes a mailed code.
+     *
+     * The code was the fallback for an account with no factor; with nothing to send it, the
+     * passkey stands in when the account has one, and the demand lapses when it has none.
+     */
+    public function testWithNoMailRequireTwoFactorImposesNoCode(): void
+    {
+        // Arrange
+        $this->withAction('require_2fa');
+        Settings::setSetting('smtp_host', '', false);
+
+        // Act & Assert
+        $this->assertSame([], NewSignInAlert::requiredFor(7, self::FRESH, false, false));
+        $this->assertSame(['passkey'], NewSignInAlert::requiredFor(7, self::FRESH, false, true));
+        $this->assertSame(['twofactor'], NewSignInAlert::requiredFor(7, self::FRESH, true, false),
+            'a factor the account holds is still asked for');
     }
 }
