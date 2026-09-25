@@ -15,6 +15,14 @@ class TestableTwoFactorAuth extends TwoFactorAuth
 {
     public array $redirectedTo = [];
 
+    /** The last view handed out, so a test can read what the action assigned to it. */
+    public ?object $lastView = null;
+
+    public function issuerForTest(): string
+    {
+        return $this->issuer();
+    }
+
     public function redirect($url = null, $quit = true, $code = '302')
     {
         if ($url === null) {
@@ -41,6 +49,7 @@ class TestableTwoFactorAuth extends TwoFactorAuth
                 return 'mock html view for twofactor ' . $view;
             }
         };
+        $this->lastView = $view;
         return $view;
     }
 }
@@ -319,6 +328,72 @@ class TwoFactorAuthTest extends BaseTestCase
         $this->assertEmpty($this->controller->redirectedTo);
         $doc = \Pramnos\Framework\Factory::getDocument();
         $this->assertSame('2FA Setup', $doc->title);
+    }
+
+    /**
+     * The QR code names the site, not the framework.
+     *
+     * `startSetup()` defaults its issuer to `Pramnos`, and the controller never passed one: every
+     * installation's authenticator entry was called `Pramnos`, which a person reading a list of
+     * codes cannot match to the site they are signing in to.
+     */
+    public function testTheQrCodeIsIssuedInTheSitesName(): void
+    {
+        // Arrange
+        $this->setMockUser(80);
+        $saved = \Pramnos\Application\Settings::getSetting('auth_brand_name');
+        \Pramnos\Application\Settings::setSetting('auth_brand_name', 'Example Sign-In', false);
+
+        try {
+            // Act
+            ob_start();
+            $this->controller->setup();
+            ob_end_clean();
+
+            // Assert — the issuer is in the otpauth URI the QR code encodes (carried
+            // url-encoded inside the image URL, hence the decode)
+            $uri = urldecode((string) ($this->controller->lastView->setupData['qr_code_url'] ?? ''));
+            $this->assertStringContainsString(rawurlencode('Example Sign-In'), $uri);
+            $this->assertStringNotContainsString('issuer=Pramnos', $uri);
+        } finally {
+            \Pramnos\Application\Settings::setSetting('auth_brand_name', (string) $saved, false);
+        }
+    }
+
+    /**
+     * The issuer falls back from the brand name to the site name to the application's name.
+     *
+     * The same order the sign-in card uses, so the name on the card and the name in the app agree;
+     * `Pramnos` only when nothing names the site at all.
+     */
+    public function testTheIssuerFallsBackInTheSameOrderAsTheSignInCard(): void
+    {
+        // Arrange
+        $savedBrand = \Pramnos\Application\Settings::getSetting('auth_brand_name');
+        $savedSite  = \Pramnos\Application\Settings::getSetting('sitename');
+        $app        = $this->controller->application;
+        $savedInfo  = $app->applicationInfo;
+
+        try {
+            // Act & Assert — each step, with the ones above it empty
+            \Pramnos\Application\Settings::setSetting('auth_brand_name', 'Brand', false);
+            \Pramnos\Application\Settings::setSetting('sitename', 'Site', false);
+            $app->applicationInfo = ['name' => 'App'];
+            $this->assertSame('Brand', $this->controller->issuerForTest());
+
+            \Pramnos\Application\Settings::setSetting('auth_brand_name', ' ', false);
+            $this->assertSame('Site', $this->controller->issuerForTest(), 'a blank brand is no brand');
+
+            \Pramnos\Application\Settings::setSetting('sitename', '', false);
+            $this->assertSame('App', $this->controller->issuerForTest());
+
+            $app->applicationInfo = [];
+            $this->assertSame('Pramnos', $this->controller->issuerForTest());
+        } finally {
+            \Pramnos\Application\Settings::setSetting('auth_brand_name', (string) $savedBrand, false);
+            \Pramnos\Application\Settings::setSetting('sitename', (string) $savedSite, false);
+            $app->applicationInfo = $savedInfo;
+        }
     }
 
     public function testSetupVerifiesCodeAndRedirects(): void

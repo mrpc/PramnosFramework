@@ -2416,6 +2416,13 @@ $svc->regenerateBackupCodesForOperator($userId);              // administrative,
 $svc->cleanupExpiredSessions();                               // removes used/expired setup rows
 ```
 
+**The issuer is the name the authenticator app files the account under.** `startSetup()`
+takes it as a third argument and defaults to `Pramnos`, which names the framework rather than
+the site. The `TwoFactorAuth` controller passes `auth_brand_name`, then `sitename`, then the
+application's `name` from `app.php` — the same order the sign-in card brands itself with, so the
+name on the card and the name in the app agree. Override `issuer()` to choose another. It is only
+a label: changing it later renames nothing in an app that has already scanned the code.
+
 **Backup codes come from enrolment, not from setup.** `startSetup()` deliberately
 returns none. It used to return a generated set, and the setup screen listed them under
 "save these, they will not be shown again" — but `completeSetup()` generates and stores

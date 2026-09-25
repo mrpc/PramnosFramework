@@ -90,7 +90,8 @@ class TwoFactorAuth extends Controller
 
         $setupData = $this->twoFactorService->startSetup(
             $currentUser->userid,
-            $currentUser->email
+            $currentUser->email,
+            $this->issuer()
         );
 
         $view = $this->getView('twofactor');
@@ -102,6 +103,33 @@ class TwoFactorAuth extends Controller
         $doc->title = t('2FA Setup');
 
         return $view->display('setup');
+    }
+
+    /**
+     * The name the authenticator app files this account under.
+     *
+     * The same chain the sign-in screens brand themselves with — `auth_brand_name`, then
+     * `sitename` — and then the application's own name. Without it the entry was called
+     * `Pramnos`, the service's default: the framework's name, which a person looking at a list
+     * of codes cannot match to anything they signed up for.
+     *
+     * Only the label: changing it later renames nothing in an app that already scanned it.
+     */
+    protected function issuer(): string
+    {
+        $info = is_object($this->application) ? ($this->application->applicationInfo ?? []) : [];
+
+        foreach ([
+            \Pramnos\Application\Settings::getSetting('auth_brand_name'),
+            \Pramnos\Application\Settings::getSetting('sitename'),
+            $info['name'] ?? null,
+        ] as $name) {
+            if (is_string($name) && trim($name) !== '') {
+                return trim($name);
+            }
+        }
+
+        return 'Pramnos';
     }
 
     /**
