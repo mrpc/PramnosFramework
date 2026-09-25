@@ -187,6 +187,17 @@ class FrameworkSchedule
                 'description' => 'Write rows buffered out of the request path',
             ],
 
+            // The mail outbox. `Email::queue()` and every queueable notification — the
+            // security alerts among them — write a row and return; this is what sends it.
+            // It existed with no schedule behind it, so those rows sat `queued` for ever
+            // and nothing said a message had not gone. Every minute, because a security
+            // alert that arrives an hour late has missed the window it was for, and an
+            // empty outbox is one indexed query.
+            'mail:flush' => [
+                'cadence'     => [['everyMinute']],
+                'description' => 'Send the mail waiting in the outbox',
+            ],
+
             // Writes that were queued because their chunk was compressed.
             // Hourly: these are late by definition, and each run may decompress
             // and recompress a chunk, which is not something to do every minute.

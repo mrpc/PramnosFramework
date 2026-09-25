@@ -56,6 +56,29 @@ class FrameworkScheduleTest extends TestCase
     }
 
     /**
+     * The mail outbox is sent every minute.
+     *
+     * `Email::queue()` and every queueable notification — security alerts among them — write
+     * a row and return, and `mail:flush` is the only thing that sends it. With no schedule behind
+     * it, those rows stayed `queued` for ever and nothing reported that a message had not gone.
+     * Every minute, because a security alert is only useful while the session it warns about is
+     * still going on.
+     */
+    public function testTheMailOutboxIsSentEveryMinute(): void
+    {
+        // Act
+        FrameworkSchedule::register();
+
+        // Assert
+        $flush = array_values(array_filter(
+            Scheduler::all(),
+            static fn($task): bool => $task->getSummary()['handler'] === 'mail:flush'
+        ));
+        $this->assertCount(1, $flush, 'the outbox has a sender');
+        $this->assertSame('* * * * *', $flush[0]->getSummary()['expression']);
+    }
+
+    /**
      * Loading twice does not register anything twice.
      *
      * A command that loads definitions and then loads them again would

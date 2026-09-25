@@ -1454,8 +1454,11 @@ An address that has opted out is not queued at all — it is recorded as refused
 ./yourapp mail:flush --dry-run      # list it, send nothing
 ```
 
-Run it from the scheduler, every few minutes. It moves each row to sent or failed **in place**,
-so a message has one row for its whole life and the history screens need no union.
+The framework schedules it every minute — a `work` process or a `schedule:run` crontab line is
+all it needs. Disable it with `FrameworkSchedule::disable('mail:flush')` only if something else
+sends the outbox; otherwise every queued message, the security alerts included, stays `queued`
+and nothing says it did not go. It moves each row to sent or failed **in place**, so a message
+has one row for its whole life and the history screens need no union.
 
 It is a worker, so unlike `mail:prune` it does its job by default — a dry run is an option, not
 the default.
