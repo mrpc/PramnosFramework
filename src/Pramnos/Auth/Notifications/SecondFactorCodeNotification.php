@@ -105,6 +105,29 @@ class SecondFactorCodeNotification implements NotificationInterface
     }
 
     /**
+     * The template an operator may write instead of the text above.
+     *
+     * `{code}` is what the person is looking for and `{minutes}` is how long they have;
+     * `{sitename}` so a template can name the site without the operator hard-coding it.
+     *
+     * Declared, not inferred. A notification that says nothing here keeps the text
+     * compiled into the class, which is what every one of them did until this existed.
+     *
+     * @return array{category: string, vars: array<string, string|int>}
+     */
+    public function storedMailTemplate(): array
+    {
+        return array(
+            'category' => 'auth.twofactor_code',
+            'vars'     => array(
+                'code'     => $this->code,
+                'minutes'  => (int) max(1, round($this->ttl / 60)),
+                'sitename' => $this->siteName,
+            ),
+        );
+    }
+
+    /**
      * The code this notification carries.
      *
      * For a test that needs to assert what was sent without parsing a mail body.

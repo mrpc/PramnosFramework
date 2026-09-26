@@ -92,6 +92,28 @@ class NewDeviceAuthLinkNotification implements NotificationInterface
         );
     }
 
+    /**
+     * The template an operator may write instead of the text above.
+     *
+     * `{url}` is the whole message — a template that omits it sends somebody a mail with
+     * no way to do the thing it is about, which is the one placeholder worth naming in
+     * the administration screen's help text.
+     *
+     * @return array{category: string, vars: array<string, string|int>}
+     */
+    public function storedMailTemplate(): array
+    {
+        return array(
+            'category' => 'auth.new_device_link',
+            'vars'     => array(
+                'url'      => $this->url,
+                'minutes'  => (int) max(1, round($this->ttl / 60)),
+                'device'   => $this->device,
+                'sitename' => $this->siteName,
+            ),
+        );
+    }
+
     /** The URL this notification carries, for a test that asserts what was sent. */
     public function url(): string
     {

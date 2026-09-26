@@ -100,10 +100,15 @@ class MailChannel implements ChannelInterface
 
         $data = $notification->toMail($notifiable);
 
+        // An operator's template wins over the text compiled into the class, field by
+        // field. {@see applyTemplate()}
+        $data = $this->applyTemplate($notification, $data);
+
         $email = $this->createEmailSender();
         $email->setTo($address);
         $email->setSubject($data['subject'] ?? '');
         $email->setBody($data['body'] ?? '');
+
 
         if (!empty($data['from'])) {
             $email->setFrom($data['from']);
@@ -114,6 +119,12 @@ class MailChannel implements ChannelInterface
         }
 
         $this->applyOptions($email, $notification);
+
+        // After applyOptions(), which sets the wrapper the *class* asked for: when an
+        // operator's template names one, theirs is the later decision and wins.
+        if (!empty($data['emailtemplate'])) {
+            $email->setTemplate((string) $data['emailtemplate']);
+        }
 
         /*
          * Queued only when the notification asks, and the default is the safe half.
@@ -131,6 +142,136 @@ class MailChannel implements ChannelInterface
         }
 
         $email->send();
+    }
+
+    /**
+     * Let an operator's `mailtemplates` row replace what the class composed.
+     *
+     * ## Why this is here rather than in each notification
+     *
+     * The `mailtemplates` table, its model and a full administration screen — list, edit,
+     * delete and **test send** — shipped long ago, and **nothing read a template when
+     * sending**. An operator could write one, save it, send themselves a test of it, and
+     * every real message still went out with the text compiled into the class. A screen
+     * that implies a capability the system does not have is worse than no screen.
+     *
+     * This is the one place every notification's mail passes through, so wiring it here
+     * makes each one overridable by declaring a key rather than by repeating a lookup.
+     *
+     * ## The rule
+     *
+     * A notification opts in by declaring `storedMailTemplate(): array`, read through
+     * `method_exists()` like `unsubscribeList()` and `queueable()` beside it — so nothing
+     * has to implement it and a notification that says nothing behaves exactly as before:
+     *
+     * ```php
+     * public function storedMailTemplate(): array
+     * {
+     *     return [
+     *         'category' => 'auth.twofactor_code',
+     *         'vars'     => ['code' => $this->code, 'minutes' => $minutes],
+     *     ];
+     * }
+     * ```
+     *
+     * **`storedMailTemplate()`, not `mailTemplate()`** — that name was taken, by the
+     * optional declaration naming the *HTML wrapper*. Two different things, and reusing
+     * the name meant `applyOptions()` casting this array to a string and setting the
+     * wrapper to `Array`. Caught by the first test written against it.
+     *
+     * **Field by field, and empty means keep the default.** A row whose body is empty is
+     * an operator who filled in the subject and nothing else, not an instruction to send an
+     * empty email. So a non-empty template subject replaces the subject, a non-empty
+     * template body replaces the body, and anything left blank keeps what the class wrote.
+     *
+     * The template's `emailtemplate` column — the HTML wrapper — is applied too, because
+     * choosing the wrapper is most of why an operator opens this screen, and until now
+     * that field was written to the database and read only by a test send.
+     *
+     * The language is the reader's: `Notifier` has already switched the catalogue to the
+     * notifiable's own before any channel runs, so asking for the current one here asks for
+     * theirs.
+     *
+     * A lookup that raises — no table on an installation that never migrated messaging —
+     * leaves the composed message alone. A template is an override; failing to find one is
+     * not a failure to send.
+     *
+     * @param  array<string, mixed> $data What `toMail()` composed
+     * @return array<string, mixed>
+     */
+    protected function applyTemplate(NotificationInterface $notification, array $data): array
+    {
+        if (!method_exists($notification, 'storedMailTemplate')) {
+            return $data;
+        }
+
+        $declared = (array) $notification->storedMailTemplate();
+        $category = trim((string) ($declared['category'] ?? ''));
+
+        if ($category === '') {
+            return $data;
+        }
+
+        try {
+            $template = $this->templateFor($category);
+        } catch (\Throwable $exception) {
+            // The guard is here rather than inside the seam, because the seam is
+            // overridable: an application's own lookup must not be able to stop the mail
+            // either. A template is an override; failing to find one is not a failure to
+            // send.
+            \Pramnos\Logs\Logger::log(
+                'MailChannel could not look up the template "' . $category . '": '
+                . $exception->getMessage(),
+                'mail'
+            );
+
+            return $data;
+        }
+
+        if ($template === null) {
+            return $data;
+        }
+
+        $rendered = \Pramnos\Messaging\MailTemplate::fill(
+            $template,
+            (array) ($declared['vars'] ?? [])
+        );
+
+        if ($rendered['subject'] !== '') {
+            $data['subject'] = $rendered['subject'];
+        }
+
+        if ($rendered['body'] !== '') {
+            $data['body'] = $rendered['body'];
+        }
+
+        $wrapper = trim((string) ($template['emailtemplate'] ?? ''));
+
+        if ($wrapper !== '') {
+            $data['emailtemplate'] = $wrapper;
+        }
+
+        return $data;
+    }
+
+    /**
+     * The stored template for a category, or null when there is none.
+     *
+     * `['subject' => …, 'body' => …, 'emailtemplate' => …]`, unsubstituted.
+     *
+     * A thin, overridable seam — the same idiom as `MailTemplatesController::mailer()` —
+     * so the substitution rules above can be tested without a database. The language is
+     * the reader's: `Notifier` switches the catalogue to the notifiable's own before any
+     * channel runs, so asking for the current one asks for theirs.
+     *
+     * It may raise — an installation that never migrated the messaging tables has no such
+     * table — and {@see applyTemplate()} absorbs that, so a missing table still sends mail.
+     */
+    protected function templateFor(string $category): ?array
+    {
+        $language = (string) \Pramnos\Translator\Language::getInstance()->currentlang();
+
+        return \Pramnos\Messaging\MailTemplate::lookup($category, $language);
     }
 
     /**

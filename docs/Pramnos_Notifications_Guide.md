@@ -265,6 +265,76 @@ Two consequences:
 - **A mail composed by hand does not get this**, because it never goes through the
   Notifier. See the [Internationalization guide](Pramnos_Internationalization_Guide.md).
 
+## Letting an operator rewrite the text
+
+Every mail a notification sends can be replaced by a template an operator writes in
+**Administration → Mail templates**, without touching the code.
+
+A notification opts in by declaring the template's category and the variables it offers:
+
+```php
+public function storedMailTemplate(): array
+{
+    return [
+        'category' => 'auth.twofactor_code',
+        'vars'     => ['code' => $this->code, 'minutes' => 10, 'sitename' => $this->siteName],
+    ];
+}
+```
+
+The operator writes `{code}`, `{minutes}` and `{sitename}` in the subject and body, and
+`MailChannel` substitutes them on the way out.
+
+### The rule: empty keeps the default
+
+Each field is answered on its own.
+
+| Template row | What is sent |
+|---|---|
+| no row for the category | the text compiled into the notification |
+| subject and body filled in | both from the template |
+| subject filled in, body blank | the operator's subject, the **built-in** body |
+| body filled in, subject blank | the built-in subject, the operator's body |
+
+A row whose body is empty is an operator who filled in the subject and left the rest alone
+— not an instruction to send an empty email. A channel that read the row wholesale would
+send one, silently, to everybody, for as long as nobody looked.
+
+The template's **HTML wrapper** is applied too, and it wins over one the notification asked
+for: choosing the wrapper is most of why somebody opens that screen.
+
+### Language, and the one template somebody wrote
+
+The reader's language first, then the site's default, then **any row for the category**.
+
+That last step is deliberate. An operator who wrote one template, in one language, meant it
+to be used — and refusing it because the recipient's tag does not match would look exactly
+like the feature not working, with no way to tell the two apart.
+
+### What does not change
+
+A notification that declares nothing is never looked up and behaves exactly as before, so
+an installation that has written no templates pays nothing. An unknown placeholder is left
+**visible** rather than blanked, because `{firstname}` showing up in a test send is a
+mistake somebody can see; deleting it silently would make the template look correct in the
+editor and arrive wrong.
+
+A lookup that fails — an installation that never migrated the messaging tables — leaves the
+composed message alone and logs why. A template is an override; failing to find one is not
+a failure to send.
+
+### The categories the framework ships
+
+| Category | Sent when | Variables |
+|---|---|---|
+| `auth.twofactor_code` | a second-factor code is mailed | `code`, `minutes`, `sitename` |
+| `auth.new_device_link` | a sign-in link goes to a new device | `url`, `minutes`, `device`, `sitename` |
+| `auth.new_signin` | an account is told about a new sign-in | `when`, `timestamp`, `sitename` |
+| `auth.security_change` | a password, address or factor changed | `what`, `detail`, `when`, `timestamp`, `sitename` |
+
+`{url}` in the second one is the whole message: a template that omits it mails somebody no
+way to do the thing it is about.
+
 ## Transactional or not
 
 A notification may declare `unsubscribeList(): string`. When it does, two things happen

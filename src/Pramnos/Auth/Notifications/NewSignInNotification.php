@@ -233,6 +233,27 @@ class NewSignInNotification implements NotificationInterface
     }
 
     /**
+     * The template an operator may write instead of the text above.
+     *
+     * The timestamp is offered formatted as well as raw: a template is written by somebody
+     * editing a text box, not by somebody who can call `date()`, so `{when}` has to arrive
+     * readable.
+     *
+     * @return array{category: string, vars: array<string, string|int>}
+     */
+    public function storedMailTemplate(): array
+    {
+        return array(
+            'category' => 'auth.new_signin',
+            'vars'     => array(
+                'when'      => date('Y-m-d H:i', $this->when),
+                'timestamp' => $this->when,
+                'sitename'  => $this->siteName,
+            ),
+        );
+    }
+
+    /**
      * The fingerprint being reported.
      *
      * @return string

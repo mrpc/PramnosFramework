@@ -190,6 +190,29 @@ class SecurityChangeNotification implements NotificationInterface
     }
 
     /**
+     * The template an operator may write instead of the text above.
+     *
+     * `{what}` is the constant naming the change and `{detail}` its specifics, so one
+     * template can cover every security change or an operator can write one per kind by
+     * branching on `{what}` in the text they author.
+     *
+     * @return array{category: string, vars: array<string, string|int>}
+     */
+    public function storedMailTemplate(): array
+    {
+        return array(
+            'category' => 'auth.security_change',
+            'vars'     => array(
+                'what'      => $this->what,
+                'detail'    => $this->detail,
+                'when'      => date('Y-m-d H:i', $this->when),
+                'timestamp' => $this->when,
+                'sitename'  => $this->siteName,
+            ),
+        );
+    }
+
+    /**
      * One line naming what happened, in the words the reader would use.
      *
      * Not the constant, and not the method name: "FACTOR_ADDED" tells a person nothing,
