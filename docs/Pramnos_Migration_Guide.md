@@ -681,6 +681,41 @@ returns `false` without throwing — a statement that cannot be prepared.
 `executeQueries()` counts both. A check that only caught exceptions kept missing
 the quieter one.
 
+## Changing an existing column
+
+Use the schema builder, not hand-written `ALTER TABLE`:
+
+```php
+public function up(): void
+{
+    $schema = new \Pramnos\Database\SchemaBuilder($this->application->database);
+
+    $schema->alterTable('articles', function ($table) {
+        $table->modifyColumn('author', 'string', ['length' => 500]);   // widen
+        $table->modifyColumn('body', 'text');                          // retype
+        $table->modifyColumn('score', 'integer')->nullable()->default(0);
+    });
+}
+```
+
+`modifyColumn(string $name, string $type, array $attrs = [])` rewrites the definition of an
+existing column and returns a `ColumnDefinition`, so the same fluent modifiers as column
+creation are available. It compiles to `MODIFY COLUMN` on MySQL and to the right set of
+`ALTER COLUMN … TYPE` / `SET NOT NULL` / `SET DEFAULT` sub-statements on PostgreSQL — and
+**only for the attributes you actually set**, so retyping a column does not silently reset
+its nullability or its default.
+
+[Schema Builder Guide](Pramnos_Schema_Builder_Guide.md#alter-table) has the whole
+`alterTable()` vocabulary: adding, dropping and renaming columns, indexes and foreign keys.
+
+!!! tip "Why this section exists"
+
+    The capability was documented on the schema-builder page and mentioned nowhere here —
+    and this is the page somebody writing a migration reads. A project widening two columns
+    concluded there was no supported way to change one and wrote vendor-specific
+    `ALTER TABLE` by hand, three times. **A feature documented only where the reader is not
+    looking reads as absent.**
+
 ## Migration Features
 
 ### Conditional DDL (Capabilities Check)
