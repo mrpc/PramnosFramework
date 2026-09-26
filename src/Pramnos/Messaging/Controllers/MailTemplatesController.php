@@ -8,6 +8,7 @@ use Pramnos\Application\Controller;
 use Pramnos\Framework\Factory;
 use Pramnos\Html\Icon;
 use Pramnos\Messaging\MailTemplate;
+use Pramnos\Messaging\SystemMailTemplates;
 
 /**
  * The administration screens for reusable message templates.
@@ -114,6 +115,9 @@ class MailTemplatesController extends Controller
         $view->template     = $template->getData();
         $view->types        = self::TYPES;
         $view->placeholders = self::placeholders($template);
+        // The sentence saying when this mail goes out. `auth.new_signin` does not tell an
+        // operator whether editing it is safe; empty for an application's own category.
+        $view->categoryNote  = SystemMailTemplates::describe((string) $template->category);
 
         return $view->display('view');
     }
@@ -147,6 +151,9 @@ class MailTemplatesController extends Controller
         $view->isNew        = $id === 0;
         $view->types        = self::TYPES;
         $view->placeholders = self::placeholders($template);
+        // The sentence saying when this mail goes out. `auth.new_signin` does not tell an
+        // operator whether editing it is safe; empty for an application's own category.
+        $view->categoryNote  = SystemMailTemplates::describe((string) $template->category);
 
         return $view->display('edit');
     }
@@ -317,7 +324,24 @@ class MailTemplatesController extends Controller
      */
     public static function placeholders(MailTemplate $template): array
     {
+        /*
+         * What the category *offers*, before what the text already *uses*.
+         *
+         * This read the text and nothing else, which is fine for a template somebody has
+         * written and useless for the one case that matters: a blank row. The framework
+         * seeds its own categories empty — blank means "use the built-in text" — so an
+         * operator opening one for the first time was shown no placeholders at all and had
+         * to find `{code}` in the source.
+         *
+         * Both, and in this order, because an application's own category is not in the
+         * registry and its placeholders can only come from the text.
+         */
         $found = [];
+
+        foreach (SystemMailTemplates::placeholdersFor((string) $template->category) as $name) {
+            $found[$name] = true;
+        }
+
         foreach ([(string) $template->defaulttext, (string) $template->defaultsubject] as $source) {
             if (preg_match_all('/\{([a-zA-Z0-9_.]+)\}/', $source, $matches)) {
                 foreach ($matches[1] as $name) {

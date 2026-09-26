@@ -6,7 +6,8 @@
  *   $this->template     — the row (empty when creating)
  *   $this->isNew        — bool
  *   $this->types        — channel number => label
- *   $this->placeholders — the {names} this template already uses
+ *   $this->placeholders — the {names} this message offers
+ *   $this->categoryNote — when this mail is sent, for a category the framework declares
  *
  * The three lookup fields — category, language, type — are together and explained,
  * because they are not descriptive: the framework *finds* a template by them, so a typo in
@@ -16,6 +17,8 @@
 $t      = is_array($this->template ?? null) ? $this->template : [];
 $types  = is_array($this->types ?? null) ? $this->types : [];
 $holds  = is_array($this->placeholders ?? null) ? $this->placeholders : [];
+// What this category is for, when the framework knows. Empty for an application's own.
+$note   = (string) ($this->categoryNote ?? '');
 $id     = (int) ($t['templateid'] ?? 0);
 $e      = static fn ($v): string => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
 ?>
@@ -82,7 +85,7 @@ $e      = static fn ($v): string => htmlspecialchars((string) $v, ENT_QUOTES, 'U
                           spellcheck="false"><?php echo $e($t['defaulttext'] ?? ''); ?></textarea>
                 <p class="text-xs text-base-content/60 mt-1">
                     Markup is kept — an email template is markup. Placeholders are
-                    <code>{name}</code>; the ones already here:
+                    <code>{name}</code>; the ones this message offers:
                     <?php if ($holds === []): ?>
                     <span class="text-base-content/50">none yet</span>
                     <?php else: ?>
@@ -90,6 +93,11 @@ $e      = static fn ($v): string => htmlspecialchars((string) $v, ENT_QUOTES, 'U
                         <code class="badge badge-ghost badge-xs">{<?php echo $e($placeholder); ?>}</code>
                         <?php endforeach; ?>
                     <?php endif; ?>
+                    <?php if ($note !== ''): ?>
+                    <br><span class="text-base-content/70"><?php echo $e($note); ?></span>
+                    <?php endif; ?>
+                    <br><span class="text-base-content/70">Leave a field empty to keep the
+                    built-in text for it.</span>
                 </p>
             </div>
 

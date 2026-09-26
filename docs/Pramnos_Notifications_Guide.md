@@ -323,7 +323,21 @@ A lookup that fails — an installation that never migrated the messaging tables
 composed message alone and logs why. A template is an override; failing to find one is not
 a failure to send.
 
-### The categories the framework ships
+### They are already in the editor
+
+`migrate` seeds one row per category, so **Administration → Mail templates** lists them
+without anybody having to know the names. Each is seeded **blank** — which is what makes it
+safe: blank means "use the built-in text", so a seeded installation behaves exactly as an
+unseeded one until somebody types something.
+
+Seeding the real wording would look friendlier and is a trap. The row would fork from the
+class the moment the framework improved a sentence, fixed a translation or added a security
+note, and the installation would keep sending the old one for ever with nothing to say why.
+
+The editor shows **the placeholders the category offers**, not only the ones already in the
+text — a blank row would otherwise advertise nothing — together with a line saying when the
+message is sent, because `auth.new_signin` does not tell anybody whether editing it is safe.
+An operator's row is never overwritten: a category that already has one is left alone.
 
 | Category | Sent when | Variables |
 |---|---|---|
@@ -334,6 +348,15 @@ a failure to send.
 
 `{url}` in the second one is the whole message: a template that omits it mails somebody no
 way to do the thing it is about.
+
+`Pramnos\Messaging\SystemMailTemplates` is where that table lives in code, and it is what
+the editor reads. A test compares it against what the notifications actually supply, in both
+directions — a placeholder advertised and not supplied renders as `{like_this}` in somebody's
+email, and a category a notification answers to but the registry omits is an override nobody
+can find.
+
+**An application's own categories** are its own business: the registry answers nothing for
+them and the editor falls back to the placeholders it finds in the text, as it always did.
 
 ## Transactional or not
 

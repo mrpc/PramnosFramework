@@ -53,6 +53,9 @@ class MailTemplateLookupTest extends BaseTestCase
             \Pramnos\Framework\Migrations\Messaging\CreateMailtemplatesTable::class,
         ], $this->db);
 
+        // The seeding migration is exercised in `SystemMailTemplatesSeedTest`; here the
+        // table starts empty so each case controls exactly which rows exist.
+
         $this->db->queryBuilder()->table('#PREFIX#mailtemplates')->truncate();
     }
 
