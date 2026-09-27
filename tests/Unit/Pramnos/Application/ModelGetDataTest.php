@@ -562,31 +562,123 @@ class ModelGetDataTest extends TestCase
      */
     public function testEveryDeclaredBasePropertyIsExcluded(): void
     {
-        // Arrange
-        $listed  = (new \ReflectionClass(Model::class))
-            ->getConstant('INTERNAL_PROPERTIES');
+        // Arrange — every layer that declares no columns of its own. `OrmModel` is here
+        // because it was not, and that is exactly how fourteen of its properties came to
+        // be published as columns by every endpoint answering an ORM model.
+        $layers = [
+            \Pramnos\Framework\Base::class => Model::class,
+            Model::class                    => Model::class,
+            \Pramnos\Application\OrmModel::class => \Pramnos\Application\OrmModel::class,
+        ];
+
         $missing = [];
 
-        // Act — Model's own properties and everything it inherits from Base
-        foreach ([Model::class, \Pramnos\Framework\Base::class] as $class) {
-            foreach ((new \ReflectionClass($class))->getProperties() as $property) {
+        // Act
+        foreach ($layers as $declaring => $excluder) {
+            $method = new \ReflectionMethod($excluder, 'internalProperties');
+            $listed = $method->invoke(null);
+
+            foreach ((new \ReflectionClass($declaring))->getProperties() as $property) {
                 if ($property->isStatic()) {
                     continue;
                 }
+                if ($property->getDeclaringClass()->getName() !== $declaring) {
+                    continue;
+                }
                 if (!isset($listed[$property->getName()])) {
-                    $missing[] = $class . '::$' . $property->getName();
+                    $missing[] = $declaring . '::$' . $property->getName();
                 }
             }
         }
+
+        $this->assertNotEmpty($layers, 'the sweep found no layer to check');
 
         // Assert
         $this->assertSame(
             [],
             $missing,
-            'A property declared on the base is machinery, not a column. Add it to '
-            . 'Model::INTERNAL_PROPERTIES — with the type filter off by default, '
-            . 'this list is the only thing keeping it out of every payload.'
+            'A property declared on a layer that has no columns is machinery, not a '
+            . 'column. Add it to that layer\'s internalProperties() — with the type '
+            . 'filter off by default, this list is the only thing keeping it out of '
+            . 'every payload.'
         );
+    }
+
+    /**
+     * An ORM model answers its columns and nothing else.
+     *
+     * The finding, as the shape a reader sees: one column in, one key out. The previous
+     * test asserts the *list* is complete; this asserts the **payload**, because the two
+     * fail differently — a list that is right while `getData()` reads a different one is
+     * the bug that was there.
+     *
+     * Thirteen keys of bookkeeping came before the first real column, and two of them
+     * (`fillable`, `guarded`) are the write allowlist: publishing them tells a caller
+     * exactly which fields an endpoint accepts from a request body.
+     *
+     * @return void
+     */
+    public function testAnOrmModelAnswersItsColumnsAndNothingElse(): void
+    {
+        // Arrange
+        $model = new class (ServiceController::shared()) extends \Pramnos\Application\OrmModel {
+            /** @var string */
+            protected $_dbtable = 'ormprobe';
+            /** @var int|null */
+            public $id = 7;
+            /** @var string|null */
+            public $name = 'a name';
+        };
+
+        // Act
+        $data = $model->getData();
+
+        // Assert
+        $this->assertSame(['id' => 7, 'name' => 'a name'], $data);
+
+        // Named individually, because "the array is small" is the assertion above and
+        // "the write allowlist is not in it" is the one somebody will come looking for.
+        $this->assertArrayNotHasKey('fillable', $data);
+        $this->assertArrayNotHasKey('guarded', $data);
+        $this->assertArrayNotHasKey('casts', $data);
+    }
+
+    /**
+     * The exclusion list is memoised per class, and two classes do not share one.
+     *
+     * `getData()` runs once per row of a list, so the list is built once and kept. A memo
+     * keyed on the wrong thing is the failure worth a test: one model would answer with
+     * another's exclusions, and the symptom — a column missing from a payload, or an
+     * internal appearing in one — points nowhere near the cache.
+     *
+     * @return void
+     */
+    public function testTheExclusionListIsPerClassAndStable(): void
+    {
+        // Arrange — two ORM models with different columns
+        $first = new class (ServiceController::shared()) extends \Pramnos\Application\OrmModel {
+            /** @var string */
+            protected $_dbtable = 'first';
+            /** @var int|null */
+            public $id = 1;
+        };
+
+        $second = new class (ServiceController::shared()) extends \Pramnos\Application\OrmModel {
+            /** @var string */
+            protected $_dbtable = 'second';
+            /** @var string|null */
+            public $label = 'x';
+        };
+
+        // Act — twice each, so the second call is the memoised path
+        $firstAgain  = $first->getData();
+        $secondAgain = $second->getData();
+
+        // Assert
+        $this->assertSame(['id' => 1], $first->getData());
+        $this->assertSame(['id' => 1], $firstAgain);
+        $this->assertSame(['label' => 'x'], $second->getData());
+        $this->assertSame(['label' => 'x'], $secondAgain);
     }
 
     /**

@@ -1625,6 +1625,47 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
     );
 
     /**
+     * Every property name that is machinery rather than a column, for **this** class.
+     *
+     * ## Why a method and not only the constant
+     *
+     * `INTERNAL_PROPERTIES` knows the *base* model's internals, and `getData()` filtered
+     * against it alone. `OrmModel` declares fourteen of its own — `fillable`, `guarded`,
+     * `casts`, `timestamps`, `softDelete`, `loadedRelations`, `eagerLoad` and the rest —
+     * and nothing added them to the list, **so they read as columns**. Every endpoint
+     * answering an ORM model published thirteen keys of bookkeeping before the first real
+     * one, to browsers and over MCP.
+     *
+     * Two of them matter more than the noise. `fillable` and `guarded` are the *write
+     * allowlist*: publishing them tells a caller exactly which fields an endpoint will
+     * accept from a request body, which is otherwise something to guess at.
+     *
+     * A constant cannot be extended — a subclass redefining it shadows the parent's and
+     * loses everything in it — so each layer adds to this instead:
+     *
+     * ```php
+     * protected static function internalProperties(): array
+     * {
+     *     return parent::internalProperties() + ['myOwnSwitch' => true];
+     * }
+     * ```
+     *
+     * Called as `static::` from `getData()`, so the answer is the one belonging to the
+     * class the instance actually is.
+     *
+     * Memoised per class: `getData()` runs once per row of a list, and rebuilding an
+     * array of forty names each time is work with a known answer.
+     *
+     * @return array<string, true>
+     */
+    protected static function internalProperties(): array
+    {
+        static $byClass = [];
+
+        return $byClass[static::class] ??= self::INTERNAL_PROPERTIES;
+    }
+
+    /**
      * Return every column, including `NULL`, booleans and decoded JSON.
      *
      * **On.** Set it to `false` in a base model class to get the historical shape
@@ -1697,7 +1738,7 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
             // Skipping the merge when `_data` is empty was measured too and gives
             // nothing (1.299 µs): merging an empty array is already cheap, so the
             // branch would be code earning its keep in nobody's benchmark.
-            return array_diff_key($source, self::INTERNAL_PROPERTIES);
+            return array_diff_key($source, static::internalProperties());
         }
 
         // The pre-1.2 shape: only numbers and strings, which silently drops NULL,
@@ -1706,7 +1747,7 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
         // over the columns rather than over every property, because the internals are
         // gone before it starts.
         $data = array();
-        foreach (array_diff_key($source, self::INTERNAL_PROPERTIES) as $key => $value) {
+        foreach (array_diff_key($source, static::internalProperties()) as $key => $value) {
             if (is_numeric($value) || is_string($value)) {
                 $data[$key] = $value;
             }

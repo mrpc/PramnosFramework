@@ -76,6 +76,62 @@ abstract class OrmModel extends Model
     use HasRelationships;
 
     /**
+     * Everything this layer declares is machinery, so all of it is excluded from a payload.
+     *
+     * ## What was happening
+     *
+     * `getData()` filtered against the base model's list, which does not know this class.
+     * So `fillable`, `guarded`, `casts`, `timestamps`, `createdAtColumn`, `updatedAtColumn`,
+     * `softDelete`, `deletedAtColumn`, `withTrashedFlag`, `onlyTrashedFlag`,
+     * `withoutScopes`, `loadedRelations`, `eagerLoad` and `_pendingScopes` **read as
+     * columns**: every endpoint answering an ORM model published thirteen keys of
+     * bookkeeping before the first real one, to browsers and over MCP.
+     *
+     * `fillable` and `guarded` are the write allowlist. Publishing them tells a caller
+     * exactly which fields an endpoint will accept from a request body, which is otherwise
+     * something to guess at.
+     *
+     * ## Why the list is derived rather than written out
+     *
+     * **This class declares no columns** — columns belong to the concrete models that
+     * extend it — so every instance property declared here or in the traits it uses is
+     * machinery, by construction. That is the same argument the base's own guard test
+     * makes one layer up, and a hand-written list would go stale the first time a trait
+     * gained a property. It went stale exactly that way: the base's list is maintained and
+     * derived-from-the-class-tested, and this layer was simply never in it.
+     *
+     * Reflection runs once per class; {@see Model::internalProperties()} memoises.
+     *
+     * @return array<string, true>
+     */
+    protected static function internalProperties(): array
+    {
+        static $byClass = [];
+
+        if (isset($byClass[static::class])) {
+            return $byClass[static::class];
+        }
+
+        $own = [];
+
+        foreach ((new \ReflectionClass(self::class))->getProperties() as $property) {
+            if ($property->isStatic()) {
+                continue;
+            }
+
+            // Declared here or by one of this class's traits — a trait's property reports
+            // the using class as its declarer, which is what makes this cover them.
+            if ($property->getDeclaringClass()->getName() !== self::class) {
+                continue;
+            }
+
+            $own[$property->getName()] = true;
+        }
+
+        return $byClass[static::class] = parent::internalProperties() + $own;
+    }
+
+    /**
      * Pending local scope calls accumulated by applyScope().
      * @var array<int, array{string, array}>
      */

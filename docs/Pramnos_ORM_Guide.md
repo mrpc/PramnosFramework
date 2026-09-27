@@ -491,6 +491,44 @@ foreach (array_slice($recentPosts, 0, 10) as $post) {
 }
 ```
 
+## `getData()` answers columns, and only columns
+
+```php
+$post->getData();   // ['post_id' => 42, 'body' => '…', 'scheduled_at' => null]
+```
+
+Everything this layer declares — `fillable`, `guarded`, `casts`, `timestamps`,
+`softDelete`, `loadedRelations`, `eagerLoad` and the rest — is machinery and is filtered
+out. The list is **derived** from the class rather than written out: `OrmModel` declares no
+columns of its own, so every instance property it or its traits declare is machinery by
+construction, and a trait that gains one is covered the day it does.
+
+A model that adds its own switch excludes it the same way:
+
+```php
+protected static function internalProperties(): array
+{
+    return parent::internalProperties() + ['myOwnSwitch' => true];
+}
+```
+
+A constant would not do: a subclass redefining one shadows the parent's and loses
+everything in it.
+
+!!! warning "This is why it is filtered rather than allowlisted"
+
+    `getData()` used to filter against the base model's list alone, which does not know
+    this class — so thirteen keys of bookkeeping came before the first real column in every
+    endpoint that answered an ORM model.
+
+    Two of them are worth more than the noise. **`fillable` and `guarded` are the write
+    allowlist**: publishing them tells a caller exactly which fields an endpoint will accept
+    from a request body, which is otherwise something to guess at.
+
+    The alternative shape — a `$columns` allowlist per model — would be worse here. These
+    models are legacy-compatible and several declare no column list at all, so filtering
+    *out* the internals is the change that does not break them.
+
 ## Scoping a model to a tenant — refuse the row *and* empty the model
 
 A model that must never hand out another organisation's row does it by overriding `load()`:
