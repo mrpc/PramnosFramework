@@ -4,6 +4,7 @@ use_cases:
   - Polling many endpoints at once instead of one at a time
   - Checking whether a streaming or long-lived endpoint is alive
   - Reading only part of a large or endless HTTP response
+  - Fetching a page or feed that comes back compressed
   - Writing tests for code that makes outbound HTTP calls
   - Fetching a URL that a user supplied, without opening an SSRF hole
   - Diagnosing a request that times out or exhausts memory
@@ -281,6 +282,23 @@ against ask less often.
 > elapsed time" because there was nothing else to divide.
 
 ---
+
+## Compressed answers
+
+Every request advertises the encodings this cURL was built with, and the body is **decoded
+before you see it**. There is nothing to turn on and nothing to check.
+
+Worth knowing because the alternative fails in a way that points at the wrong end. cURL only
+inflates when it was told to advertise; without that it sends no `Accept-Encoding` **and
+does not inflate** — and servers compress anyway. A feed that answered
+`Content-Encoding: gzip` to a request that asked for nothing was handed to a parser as
+compressed bytes, which recorded "the answer was not a feed we could read". True, and about
+the parser. Nothing logs a decoding failure, because no decoding was attempted. CDNs and
+caching plugins make it common enough to meet in any crawler.
+
+**`maxResponseBytes()` counts the decoded size**, not the bytes off the wire — cURL inflates
+before the ceiling sees anything. That is the size that matters for memory, and it is what
+keeps a few compressed kilobytes that expand into gigabytes from being held whole.
 
 ## Redirects
 

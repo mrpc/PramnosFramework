@@ -568,4 +568,78 @@ class ClientTransportTest extends TestCase
         $this->assertSame(302, $stopped->status());
         $this->assertSame('/landed', $stopped->header('Location'));
     }
+
+    /**
+     * A body the server compressed without being asked is decoded.
+     *
+     * cURL only inflates when `CURLOPT_ENCODING` is set; without it the body arrives
+     * exactly as sent. Servers compress anyway — `Content-Encoding: gzip` in answer to a
+     * request that sent no `Accept-Encoding` — and CDNs and caching plugins make that
+     * common enough to meet in any crawler.
+     *
+     * **The failure points at the wrong end.** A feed reader handed compressed bytes
+     * recorded "the answer was not a feed we could read", which is true and says nothing
+     * about the cause. Nothing upstream is broken and nothing logs a decoding failure,
+     * because no decoding was attempted.
+     *
+     * Against a real socket, because the claim is about a cURL option: a fake would prove
+     * the test's own gzip round-trip and nothing else.
+     */
+    public function testACompressedBodyNobodyAskedForIsDecoded(): void
+    {
+        // Arrange
+        $plain      = str_repeat('<item>a feed</item>', 50);
+        $compressed = (string) gzencode($plain);
+
+        $base = $this->serve(static function () use ($compressed): string {
+            return "HTTP/1.1 200 X\r\n"
+                . "Content-Encoding: gzip\r\n"
+                . 'Content-Length: ' . strlen($compressed) . "\r\n"
+                . "Connection: close\r\n\r\n"
+                . $compressed;
+        });
+
+        // Act
+        $response = (new Client())->make('GET', $base . '/feed')->send();
+
+        // Assert
+        $this->assertSame(200, $response->status());
+        $this->assertSame($plain, $response->body(), 'the body arrived still compressed');
+    }
+
+    /**
+     * The response ceiling counts the **decoded** size.
+     *
+     * The question worth answering rather than assuming, because it is the one that
+     * decides whether the ceiling still protects memory: cURL inflates before calling the
+     * write function, so a small compressed body that expands past the limit is truncated
+     * on the way in rather than after it has been held whole.
+     *
+     * A gzip bomb is the extreme of it — a few kilobytes that become gigabytes — and a
+     * ceiling counting the wire size would let every one of them through.
+     */
+    public function testTheCeilingCountsTheDecodedSize(): void
+    {
+        // Arrange — 20 KB of plain text in well under 1 KB compressed
+        $plain      = str_repeat('x', 20000);
+        $compressed = (string) gzencode($plain);
+        $this->assertLessThan(2000, strlen($compressed), 'the fixture does not compress');
+
+        $base = $this->serve(static function () use ($compressed): string {
+            return "HTTP/1.1 200 X\r\n"
+                . "Content-Encoding: gzip\r\n"
+                . 'Content-Length: ' . strlen($compressed) . "\r\n"
+                . "Connection: close\r\n\r\n"
+                . $compressed;
+        });
+
+        // Act — a ceiling above the compressed size and far below the decoded one
+        $response = (new Client())->make('GET', $base . '/big')
+            ->maxResponseBytes(5000)
+            ->send();
+
+        // Assert
+        $this->assertTrue($response->truncated(), 'the ceiling counted the wire size');
+        $this->assertLessThanOrEqual(5000, strlen($response->body()));
+    }
 }

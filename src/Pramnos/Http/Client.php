@@ -959,6 +959,26 @@ class Client
             CURLOPT_HTTPHEADER     => $curlHeaders,
             CURLOPT_SSL_VERIFYPEER => $this->verifySsl,
             CURLOPT_SSL_VERIFYHOST => $this->verifySsl ? 2 : 0,
+            /*
+             * Advertise every encoding this cURL was built with, and decode the answer.
+             *
+             * An empty string is cURL's "all of them": it sends the `Accept-Encoding`
+             * header and inflates the body before anybody sees it. Without it cURL sends
+             * no such header **and does not inflate**, which is fine right up until a
+             * server compresses anyway.
+             *
+             * They do. `https://bleedingcool.com/feed/` answers `Content-Encoding: gzip`
+             * to a request that asked for nothing, and `body()` was the compressed bytes —
+             * a feed reader recorded it as "the answer was not a feed we could read",
+             * which is true and points at the wrong end. CDNs and caching plugins make
+             * that common enough to meet in any crawler.
+             *
+             * The ceiling in {@see maxResponseBytes()} counts what comes out of this, not
+             * what came off the wire, because cURL inflates before calling the write
+             * function — which is the size that matters for memory, and is asserted rather
+             * than assumed.
+             */
+            CURLOPT_ENCODING       => '',
             // The guard follows redirects itself, one checked hop at a time, so cURL is
             // told not to. Otherwise the request never comes back through the check.
             CURLOPT_FOLLOWLOCATION => !$this->guardUrl && $this->maxRedirects > 0,
