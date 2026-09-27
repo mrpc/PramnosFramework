@@ -114,7 +114,9 @@ class SystemMailTemplatesMatchTheNotificationsTest extends TestCase
             $declared[$this->declarationOf($class)['category']] = $name;
         }
 
-        $registered = array_keys(SystemMailTemplates::all());
+        // The framework's own, not `all()`: an application's registered categories are
+        // answered for by its own notifications and its own test.
+        $registered = array_keys(SystemMailTemplates::builtIn());
 
         // Assert
         sort($registered);
@@ -223,7 +225,7 @@ class SystemMailTemplatesMatchTheNotificationsTest extends TestCase
      */
     public function testEveryCategoryExplainsItself(): void
     {
-        foreach (SystemMailTemplates::all() as $category => $entry) {
+        foreach (SystemMailTemplates::builtIn() as $category => $entry) {
             // Assert
             $this->assertNotSame('', trim($entry['title']), $category . ' has no title');
             $this->assertGreaterThan(

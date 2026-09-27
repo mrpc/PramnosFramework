@@ -355,8 +355,38 @@ directions — a placeholder advertised and not supplied renders as `{like_this}
 email, and a category a notification answers to but the registry omits is an override nobody
 can find.
 
-**An application's own categories** are its own business: the registry answers nothing for
-them and the editor falls back to the placeholders it finds in the text, as it always did.
+### Registering your own category
+
+An application's mail belongs in that screen on the same terms. Register it from a service
+provider's `boot()`, or from `Application.php`:
+
+```php
+use Pramnos\Messaging\SystemMailTemplates;
+
+SystemMailTemplates::register([
+    'shop.order_shipped' => [
+        'title'        => 'Order shipped',
+        'description'  => 'Sent when an order leaves the warehouse.',
+        'placeholders' => ['ordernumber', 'trackingurl', 'sitename'],
+    ],
+]);
+```
+
+The editor then shows your placeholders and your sentence exactly as it shows the
+framework's — no subclass, no override.
+
+**The framework's own win a collision.** An application cannot redefine what
+`auth.twofactor_code` advertises: the notification supplying those variables is the
+framework's, and a registry entry that disagreed would put `{like_this}` in somebody's email
+with the screen's blessing.
+
+Registering is about **what the editor shows**. Whether a row exists is a separate question,
+answered by a seeding migration — the framework seeds its own four and an application seeds
+its own, in its own migration, for the same reasons and blank for the same reasons.
+
+A category nobody registered still works: the editor falls back to the placeholders it finds
+in the text, as it always did. What it cannot do is describe a blank one, which is why
+registering is worth the three lines.
 
 ## Transactional or not
 

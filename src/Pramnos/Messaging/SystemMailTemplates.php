@@ -44,7 +44,95 @@ namespace Pramnos\Messaging;
 final class SystemMailTemplates
 {
     /**
-     * Every category the framework itself sends, and what it offers.
+     * Categories an application registered. {@see register()}
+     *
+     * @var array<string, array{title: string, description: string, placeholders: list<string>}>
+     */
+    private static array $registered = [];
+
+    /**
+     * Tell the editor about a category this application sends.
+     *
+     * ## Why this exists
+     *
+     * The registry was written for the framework's own four, and `placeholdersFor()` said
+     * an application's category is "one the framework does not declare — which it documents
+     * itself". **There was nowhere to do that documenting.** An application sending its own
+     * mail through `MailChannel` got what the framework's categories got before the registry
+     * existed: a category name, an empty body and nothing else.
+     *
+     * That is the sentence this class was written to make false, left true for everybody
+     * except the framework. Worse, it read as finished from the outside — the doc-block
+     * invited an application to document its own, so the absence looked like a decision.
+     *
+     * Call it from a service provider's `boot()` or from the application's `Application.php`:
+     *
+     * ```php
+     * SystemMailTemplates::register([
+     *     'shop.order_shipped' => [
+     *         'title'        => 'Order shipped',
+     *         'description'  => 'Sent when an order leaves the warehouse.',
+     *         'placeholders' => ['ordernumber', 'trackingurl', 'sitename'],
+     *     ],
+     * ]);
+     * ```
+     *
+     * **The framework's own win a collision.** An application cannot redefine what
+     * `auth.twofactor_code` advertises, because the notification supplying those variables
+     * is the framework's and the two lists have to agree — a registry entry that disagreed
+     * would put `{like_this}` in somebody's email with the screen's blessing.
+     *
+     * Registering is about what the **editor shows**. Whether a row exists for the category
+     * is a separate question, answered by a seeding migration; the framework seeds its own
+     * four and an application seeds its own, in its own migration, for the same reason and
+     * in the same shape.
+     *
+     * @param array<string, array{title: string, description: string, placeholders: list<string>}> $entries
+     * @return void
+     */
+    public static function register(array $entries): void
+    {
+        foreach ($entries as $category => $entry) {
+            self::$registered[(string) $category] = [
+                'title'        => (string) ($entry['title'] ?? $category),
+                'description'  => (string) ($entry['description'] ?? ''),
+                'placeholders' => array_values(array_map('strval', (array) ($entry['placeholders'] ?? []))),
+            ];
+        }
+    }
+
+    /**
+     * Forget every registration.
+     *
+     * Registrations are process-wide, and a test run is one process: a category registered
+     * by one test would answer for the next.
+     *
+     * @return void
+     */
+    public static function reset(): void
+    {
+        self::$registered = [];
+    }
+
+    /**
+     * Every category this installation sends — the framework's, plus registered ones.
+     *
+     * The framework's own are merged **last**, so they cannot be redefined. {@see register()}
+     *
+     * @return array<string, array{title: string, description: string, placeholders: list<string>}>
+     */
+    public static function all(): array
+    {
+        return array_merge(self::$registered, self::builtIn());
+    }
+
+    /**
+     * Only the categories the framework itself sends.
+     *
+     * Separate from {@see all()} because two callers need exactly this and would be wrong
+     * with the other: the seeding migration, which must not invent rows for an application's
+     * mail, and the test comparing this registry against the framework's own notifications,
+     * which would fail on any category no framework notification answers to.
      *
      * `description` is what the screen shows above the editor: a sentence saying when this
      * mail goes out, because "auth.new_signin" does not tell an operator whether editing it
@@ -52,7 +140,7 @@ final class SystemMailTemplates
      *
      * @return array<string, array{title: string, description: string, placeholders: list<string>}>
      */
-    public static function all(): array
+    public static function builtIn(): array
     {
         return [
             'auth.twofactor_code' => [
@@ -83,8 +171,10 @@ final class SystemMailTemplates
     }
 
     /**
-     * The placeholders a category offers, or an empty list for one the framework does not
-     * declare — an application's own category, which it documents itself.
+     * The placeholders a category offers, or an empty list for one nobody declared.
+     *
+     * An application's own category answers here once it has been registered.
+     * {@see register()}
      *
      * @return list<string>
      */

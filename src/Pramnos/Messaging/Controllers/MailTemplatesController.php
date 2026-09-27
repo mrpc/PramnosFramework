@@ -114,7 +114,7 @@ class MailTemplatesController extends Controller
         $view               = $this->getView('mailtemplates');
         $view->template     = $template->getData();
         $view->types        = self::TYPES;
-        $view->placeholders = self::placeholders($template);
+        $view->placeholders = static::placeholders($template);
         // The sentence saying when this mail goes out. `auth.new_signin` does not tell an
         // operator whether editing it is safe; empty for an application's own category.
         $view->categoryNote  = SystemMailTemplates::describe((string) $template->category);
@@ -150,7 +150,7 @@ class MailTemplatesController extends Controller
         $view->template     = $template->getData();
         $view->isNew        = $id === 0;
         $view->types        = self::TYPES;
-        $view->placeholders = self::placeholders($template);
+        $view->placeholders = static::placeholders($template);
         // The sentence saying when this mail goes out. `auth.new_signin` does not tell an
         // operator whether editing it is safe; empty for an application's own category.
         $view->categoryNote  = SystemMailTemplates::describe((string) $template->category);
@@ -273,7 +273,7 @@ class MailTemplatesController extends Controller
         }
 
         $body = (string) $template->defaulttext;
-        foreach (self::placeholders($template) as $placeholder) {
+        foreach (static::placeholders($template) as $placeholder) {
             $body = str_replace('{' . $placeholder . '}', '[' . $placeholder . ']', $body);
         }
 
@@ -324,6 +324,16 @@ class MailTemplatesController extends Controller
      */
     public static function placeholders(MailTemplate $template): array
     {
+        /*
+         * Called as `static::placeholders()`, not `self::`.
+         *
+         * `Init.php` generates a subclass of this controller for every application and its
+         * doc-block invites overriding — so a `public static` method here is an extension
+         * point whether or not it was meant as one, and late static binding is what makes
+         * it one. With `self::` an application's override was reachable only by calling it
+         * directly, which is the one caller the framework never uses: a unit test of the
+         * override passed while the screen showed none of it.
+         */
         /*
          * What the category *offers*, before what the text already *uses*.
          *

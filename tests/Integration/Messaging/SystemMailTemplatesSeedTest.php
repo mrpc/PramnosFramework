@@ -102,7 +102,7 @@ class SystemMailTemplatesSeedTest extends BaseTestCase
 
         // Assert
         $rows     = $this->rows();
-        $declared = SystemMailTemplates::all();
+        $declared = SystemMailTemplates::builtIn();
         $this->assertNotEmpty($declared, 'the sweep found nothing to check');
 
         foreach ($declared as $category => $declaration) {

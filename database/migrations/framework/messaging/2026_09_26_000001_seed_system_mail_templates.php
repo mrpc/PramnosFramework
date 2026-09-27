@@ -24,6 +24,13 @@ use Pramnos\Messaging\SystemMailTemplates;
  * improved a sentence, fixed a translation or added a security note, and the installation
  * would keep sending the old one for ever with nothing to say why.
  *
+ * ## The framework's own only
+ *
+ * `builtIn()` rather than `all()`: an application registers its categories with the editor
+ * and seeds their rows in its own migration. A framework migration inventing rows for mail
+ * it does not send would be guessing, and the guess would be wrong the moment the
+ * application's registration changed.
+ *
  * ## Why it is safe to re-run
  *
  * A category that already has a row — because somebody wrote one, or because this ran
@@ -46,7 +53,7 @@ class SeedSystemMailTemplates extends Migration
             $language = 'en';
         }
 
-        foreach (SystemMailTemplates::all() as $category => $declared) {
+        foreach (SystemMailTemplates::builtIn() as $category => $declared) {
             $existing = $db->queryBuilder()->table('#PREFIX#mailtemplates')
                 ->where('category', $category)
                 ->where('type', \Pramnos\Messaging\MailTemplate::TYPE_EMAIL)
@@ -77,7 +84,7 @@ class SeedSystemMailTemplates extends Migration
     {
         $db = $this->application->database;
 
-        foreach (array_keys(SystemMailTemplates::all()) as $category) {
+        foreach (array_keys(SystemMailTemplates::builtIn()) as $category) {
             // Only rows still untouched. An operator who wrote something keeps it — a
             // rollback of the seeding is not a reason to delete somebody's work.
             $db->queryBuilder()->table('#PREFIX#mailtemplates')
