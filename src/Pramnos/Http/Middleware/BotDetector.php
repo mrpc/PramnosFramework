@@ -158,6 +158,13 @@ class BotDetector
         if ($userAgent === '') {
             return false;
         }
+
+        $crawlerDetect = $this->crawlerDetect();
+
+        if ($crawlerDetect !== null) {
+            return (bool) $crawlerDetect->isCrawler($userAgent);
+        }
+
         foreach (self::$patterns as $pattern => $_) {
             if (preg_match($pattern, $userAgent)) {
                 return true;
@@ -167,6 +174,83 @@ class BotDetector
     }
 
     /**
+     * `jaybizzle/crawler-detect`, when the application installed it.
+     *
+     * ## Why the built-in list is not enough
+     *
+     * Thirty-five patterns, one of which is a generic `bot` — so the list catches more than
+     * that count suggests, and SemrushBot, AhrefsBot, PetalBot and headless Chrome are
+     * already among them. Measured rather than assumed, because "it misses the obvious
+     * ones" is the easy story and it is not the true one.
+     *
+     * **What it misses are the crawlers that do not say "bot"**: `python-requests`,
+     * `Go-http-client`, `okhttp`, Scrapy, Zabbix, link unfurlers, `Google-InspectionTool`.
+     * Those are also the ones most likely to be hammering a site.
+     *
+     * Which is enough to keep a session table from filling up — what this class was
+     * extracted to do — and not enough to count visits: a counter that lets them through
+     * reports crawlers as readers, and the number stops being comparable with anything else
+     * measuring the same site.
+     *
+     * The library is one compiled regular expression over about 1,500 crawlers, and it is
+     * maintained — which is the part a hand-kept list cannot be. A new crawler appears
+     * every week and nobody notices the day this list stops covering them, because the
+     * symptom is a number that is slightly too high.
+     *
+     * ## Why `suggest` rather than `require`
+     *
+     * The same reasoning as `matomo/device-detector` beside it, and as the push library:
+     * a framework that pulled a crawler list into every application's `vendor/` would
+     * impose it on every project that never counts a visit. Without it this class answers
+     * exactly as it did, so nothing an installation relies on changes by upgrading.
+     *
+     * Resolved once per instance. The library compiles its regular expression in the
+     * constructor, and this is called per request in the session tracker.
+     */
+    protected function crawlerDetect(): ?object
+    {
+        if ($this->crawlerDetect !== false) {
+            return $this->crawlerDetect;
+        }
+
+        $class = $this->crawlerDetectClass();
+
+        if (!class_exists($class)) {
+            return $this->crawlerDetect = null;
+        }
+
+        return $this->crawlerDetect = new $class();
+    }
+
+    /**
+     * The class to look for.
+     *
+     * A seam, and a small one: the library is in `require-dev` here precisely so the suite
+     * exercises the path an application gets by installing it — which leaves the **absent**
+     * path unreachable, and that is the path every installation that does not install it
+     * takes. A test names a class that is not there and gets the real branch.
+     *
+     * It is also where an application would point at a compatible detector of its own,
+     * which is the only reason to make it `protected` rather than a constant.
+     *
+     * @return class-string|string
+     */
+    protected function crawlerDetectClass(): string
+    {
+        return '\\Jaybizzle\\CrawlerDetect\\CrawlerDetect';
+    }
+
+    /**
+     * The resolved library, `null` when it is absent, `false` before the first look.
+     *
+     * Three states rather than two, because "absent" is an answer worth remembering: a
+     * `null` cache would ask `class_exists()` again on every call.
+     *
+     * @var object|null|false
+     */
+    private $crawlerDetect = false;
+
+    /**
      * Return the human-readable bot name for a known bot user-agent, or an
      * empty string if the agent is not recognised.
      *
@@ -174,11 +258,27 @@ class BotDetector
      */
     public function botName(string $userAgent): string
     {
+        if ($userAgent === '') {
+            return '';
+        }
+
+        // The framework's own patterns first, because they carry a name somebody wrote —
+        // "Googlebot" rather than whichever fragment of the agent string the library's
+        // regular expression happened to match. The library is the wider net, not the
+        // better label.
         foreach (self::$patterns as $pattern => $name) {
             if (preg_match($pattern, $userAgent)) {
                 return $name;
             }
         }
+
+        $crawlerDetect = $this->crawlerDetect();
+
+        if ($crawlerDetect !== null && $crawlerDetect->isCrawler($userAgent)) {
+            // What it matched on, which is the closest thing to a name it has.
+            return trim((string) $crawlerDetect->getMatches());
+        }
+
         return '';
     }
 }

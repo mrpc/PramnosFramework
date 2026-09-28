@@ -1,7 +1,10 @@
 {
     "name": "mrpc/pramnosframework",
     "description": "The Pramnos Framework.",
-    "keywords": ["framework", "pramnos"],
+    "keywords": [
+        "framework",
+        "pramnos"
+    ],
     "license": "MIT",
     "homepage": "https://github.com/mrpc/PramnosFramework",
     "authors": [
@@ -27,10 +30,11 @@
         "web-auth/webauthn-lib": "^5.3"
     },
     "suggest": {
-        "pusher/pusher-php-server": "^7.0 — required for PusherDriver (Broadcasting) to push events to Pusher or any Pusher-compatible server (Reverb)",
-        "matomo/device-detector": "^6.5 — required for Helpers::getBrowser() to return a version, platform, OS version and engine. Without it only the browser name is filled in: PHP's own get_browser() needs a browscap.ini that a default installation does not have.",
+        "pusher/pusher-php-server": "^7.0 \u2014 required for PusherDriver (Broadcasting) to push events to Pusher or any Pusher-compatible server (Reverb)",
+        "matomo/device-detector": "^6.5 \u2014 required for Helpers::getBrowser() to return a version, platform, OS version and engine. Without it only the browser name is filled in: PHP's own get_browser() needs a browscap.ini that a default installation does not have.",
         "vrana/adminer": "Serves Adminer at /adminer behind the application's own gate: root usertype on any deployment, or the DevPanel's gate in a development environment. A suggest rather than a require, because a framework that shipped a database browser into every application's vendor/ would enlarge the attack surface of applications that never asked for one.",
-        "minishlink/web-push": "^11.0 — required by the PushChannel to encrypt a web-push payload (RFC 8291) and sign the VAPID JWT (RFC 8292). A suggest rather than a require, because a framework that pulled a push library into every application's vendor/ would impose it on every project that never sends a notification. Without it the channel logs why and sends nothing, which is a better failure than a message that silently never arrives."
+        "minishlink/web-push": "^11.0 \u2014 required by the PushChannel to encrypt a web-push payload (RFC 8291) and sign the VAPID JWT (RFC 8292). A suggest rather than a require, because a framework that pulled a push library into every application's vendor/ would impose it on every project that never sends a notification. Without it the channel logs why and sends nothing, which is a better failure than a message that silently never arrives.",
+        "jaybizzle/crawler-detect": "^1.2 \u2014 widens BotDetector from the framework's own ~35 patterns to about 1,500 maintained ones. Needed by anything counting visits: a counter that lets SemrushBot, GPTBot, ClaudeBot, headless Chrome and uptime monitors through reports crawlers as readers. A suggest rather than a require, because an application that never counts a visit should not carry a crawler list; without it BotDetector answers exactly as it always did."
     },
     "require-dev": {
         "php": ">=8.1",
@@ -39,7 +43,8 @@
         "symfony/css-selector": "^5.4",
         "pusher/pusher-php-server": "^7.0",
         "aws/aws-sdk-php": "^3.0",
-        "matomo/device-detector": "^6.5"
+        "matomo/device-detector": "^6.5",
+        "jaybizzle/crawler-detect": "^1.2"
     },
     "autoload": {
         "files": [
@@ -61,6 +66,5 @@
     "config": {
         "platform-check": false
     },
-    "scripts": {
-    }
+    "scripts": {}
 }

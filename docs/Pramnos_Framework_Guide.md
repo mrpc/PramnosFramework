@@ -835,6 +835,47 @@ The framework's own write paths already call it: signing in, the pending two-fac
 step, passkey challenges, validation errors and old input, flash messages and
 errors, and `?lang=`.
 
+## Telling a crawler from a reader — `BotDetector`
+
+```php
+$detector = new \Pramnos\Http\Middleware\BotDetector();
+
+if ($detector->isBot($_SERVER['HTTP_USER_AGENT'] ?? '')) {
+    $name = $detector->botName($_SERVER['HTTP_USER_AGENT'] ?? '');
+}
+```
+
+Out of the box it carries about thirty-five patterns, one of which is a generic `bot` — so
+it catches more than that count suggests: SemrushBot, AhrefsBot, PetalBot, Bytespider and
+headless Chrome are all among them.
+
+**What it misses are the crawlers that do not say "bot"**: `python-requests`,
+`Go-http-client`, `okhttp`, Scrapy, Zabbix, link unfurlers, `Google-InspectionTool`. Those
+are also the ones most likely to be hammering a site.
+
+That is enough for what it was built for — keeping crawlers out of the `sessions` table —
+and not enough to **count** anything. A counter that lets them through reports crawlers as
+readers, and the symptom is a number slightly too high, which nobody can see is wrong.
+
+### Widening it
+
+```bash
+composer require jaybizzle/crawler-detect
+```
+
+One compiled regular expression over about 1,500 crawlers, and **maintained** — which is the
+part a hand-kept list cannot be, because a new crawler appears every week and the day the
+list stops covering them is a day nothing reports. `isBot()` uses it when it is there.
+
+A `suggest` rather than a `require`, for the same reason as `matomo/device-detector` beside
+it: an application that never counts a visit should not carry a crawler list. **Without it
+this class answers exactly as it always did**, so upgrading changes nothing an installation
+relies on.
+
+`botName()` consults the framework's own patterns **first**, because they carry a label
+somebody wrote — `Googlebot` — while the library can only report which fragment of the agent
+string it matched on. The library is the wider net, not the better label.
+
 ## Declining session tracking
 
 `SessionTrackingMiddleware` records visitors in the `sessions` table. It runs
