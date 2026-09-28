@@ -3411,6 +3411,25 @@ class Application extends Base
 
                 try {
                     $object->up();
+
+                    /*
+                     * `addQuery()` queues; this is what empties the queue.
+                     *
+                     * `MigrationRunner` learned to do this and **this path did not** — the
+                     * legacy loader, which `upgrade()` uses and which `exec()` reaches on
+                     * its own when the version check fails. So a legacy migration that
+                     * queued its statements and returned was recorded in `schemaversion`
+                     * and changed nothing, exactly as the other path did before it was
+                     * fixed. Two callers, one fix, and only one of them had it.
+                     *
+                     * Guarded on the base class because this loader requires only that the
+                     * class exists: a legacy migration extending nothing is a shape it has
+                     * always accepted.
+                     */
+                    if ($object instanceof \Pramnos\Database\Migration) {
+                        $object->runQueuedQueries();
+                    }
+
                     $sql = $this->database->prepareQuery(
                         "insert into `#PREFIX#schemaversion` (`key`) values (%s);",
                         $object->version
@@ -3437,6 +3456,26 @@ class Application extends Base
                         );
                     }
                 } finally {
+                    /*
+                     * The cached column lists, whatever happened above.
+                     *
+                     * `getColumns()` caches a table's schema for an hour, so a migration
+                     * that added a column left every reader answering without it until the
+                     * hour was up — and a payload indexing a row by name emits an
+                     * undefined-key warning ahead of the body, which makes the JSON
+                     * unparseable. The screen says it could not load anything and nothing
+                     * reports a failure.
+                     *
+                     * In the `finally` rather than after the insert, because a migration
+                     * that threw **half way** is the case that matters most: some of its
+                     * DDL ran, the ledger has no row, and the cache is now wrong about a
+                     * table nobody knows changed.
+                     *
+                     * `SchemaBuilder` already flushes the tables its own methods touch, so
+                     * this is for the raw SQL that DDL is explicitly allowed to be.
+                     */
+                    $this->database?->forgetAllColumns();
+
                     // Only ours to clear. startMaintenance() returns early when the
                     // file is already there, so a flag an operator put up by hand
                     // must survive a migration run rather than be lifted by it.

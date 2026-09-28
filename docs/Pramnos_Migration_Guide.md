@@ -580,6 +580,10 @@ Calling `executeQueries()` yourself still works and is still the way to read the
 rejections at the point they happen. The queue is cleared each time, so the runner's own
 call finds nothing left — a migration that flushes its own queue does not run twice.
 
+This holds on **both** paths that run a migration: `MigrationRunner`, and
+`Application::runMigration()` — the legacy loader that `upgrade()` uses and that `exec()`
+reaches on its own when the version check fails.
+
 !!! warning "Why this is worth a section"
 
     It did not always. `executeQueries()` is `protected` and **nothing called it**, so a
@@ -1010,7 +1014,24 @@ worse than none, because the table it misses is the one the migration was about.
 A `migrate` that finds nothing pending flushes nothing — that is the common case on every
 deploy of a project whose schema has not moved, and it stays free.
 
-**What is still on you:** a schema changed by hand, outside `migrate`. That is what
+**Every path that runs a migration flushes**, not only `migrate`:
+
+| | When |
+|---|---|
+| `MigrationRunner::run()` | a batch that ran anything |
+| `MigrationRunner::rollback()` | a rollback that undid anything |
+| `Application::runMigration()` | always, in a `finally` |
+
+The rollback matters for the opposite reason to the rest: a `down()` that **drops** a column
+leaves every reader believing it is still there, so code selects a column the database no
+longer has and the failure is a query error a long way from the rollback.
+
+The legacy loader flushes in a `finally` rather than after success, because a migration that
+raised **half way** is the worst of the three outcomes — some of its DDL ran, the ledger has
+no row, and the cache is now wrong about a table nobody knows changed.
+
+**What is still on you:** a schema changed by hand, outside `migrate`, and — on more than
+one node — the other machines, whose own caches this cannot reach. That is what
 `cache:clear` is for, and it is why a deploy script that runs `migrate` and then
 `cache:clear` was never wrong to.
 

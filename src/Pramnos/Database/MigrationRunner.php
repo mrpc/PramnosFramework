@@ -723,6 +723,23 @@ class MigrationRunner
             }
         }
 
+        /*
+         * A rollback changes the schema too, and the cached column lists have to go.
+         *
+         * `run()` has done this since the day a raw `ALTER TABLE … ADD COLUMN` left
+         * `getColumns()` an hour stale; the mirror case was missed. A `down()` that drops
+         * or renames a column leaves every reader believing it is still there, which is
+         * the more confusing direction: code selects a column the database no longer has
+         * and the failure is a query error a long way from the rollback.
+         *
+         * It became reachable in more cases when the runner started emptying the
+         * `addQuery()` queue on this path too — before that, a `down()` written against
+         * the queue changed nothing at all.
+         */
+        if ($rolledBack !== []) {
+            $this->db?->forgetAllColumns();
+        }
+
         return ['rolledBack' => $rolledBack];
     }
 

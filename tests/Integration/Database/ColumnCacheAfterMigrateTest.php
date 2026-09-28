@@ -261,4 +261,101 @@ class ColumnCacheAfterMigrateTest extends BaseTestCase
             'an empty batch flushed the cache, which every deploy would pay for'
         );
     }
+
+    /**
+     * A rollback flushes it too.
+     *
+     * `run()` has done this since a raw `ALTER TABLE … ADD COLUMN` left `getColumns()` an
+     * hour stale. The mirror case was missed, and it is the more confusing direction: a
+     * `down()` that drops a column leaves every reader believing it is still there, so
+     * code selects a column the database no longer has and the failure is a query error a
+     * long way from the rollback.
+     */
+    public function testARollbackLeavesNoStaleCache(): void
+    {
+        // Arrange — a migration that adds the column and whose down() drops it again
+        $table  = $this->quoted();
+        $column = $this->quote('is_competitor');
+
+        $migration = new class ($this->applicationFor(), $table, $column) extends Migration {
+            public string $feature = 'core';
+            public string $scope   = 'app';
+            public $description    = 'Adds and drops a column with raw SQL';
+
+            private string $slug = '';
+
+            public function __construct(
+                $application,
+                private string $tableSql,
+                private string $columnSql
+            ) {
+                parent::__construct($application);
+            }
+
+            public function up(): void
+            {
+                $this->DB()->query(
+                    'ALTER TABLE ' . $this->tableSql . ' ADD COLUMN ' . $this->columnSql . ' INT NULL'
+                );
+            }
+
+            public function down(): void
+            {
+                $this->DB()->query(
+                    'ALTER TABLE ' . $this->tableSql . ' DROP COLUMN ' . $this->columnSql
+                );
+            }
+
+            public function getSlug(): string
+            {
+                // Memoised — the runner keys a map by this and looks each migration up in
+                // it, so an answer that changes per call is a map nothing matches.
+                if ($this->slug === '') {
+                    $this->slug = 'column_cache_rollback_' . bin2hex(random_bytes(4));
+                }
+
+                return $this->slug;
+            }
+        };
+
+        $runner = new MigrationRunner($this->db);
+        $runner->run([$migration]);
+        $this->assertContains('is_competitor', $this->cachedColumns(), 'the migration did not run');
+
+        // Act
+        $result = $runner->rollback([$migration]);
+
+        // Assert — it rolled back, and nothing still believes the column is there
+        $this->assertNotEmpty($result['rolledBack'] ?? [], 'nothing was rolled back');
+        $this->assertNotContains(
+            'is_competitor',
+            $this->cachedColumns(),
+            'the cache still holds a column the rollback dropped'
+        );
+    }
+
+    /**
+     * A rollback that rolled nothing back does not flush.
+     *
+     * The same argument as the empty batch above: the flush costs a re-introspection per
+     * table, and a `migrate:rollback` with nothing to undo is not a reason to pay it.
+     */
+    public function testARollbackThatDidNothingLeavesTheCacheAlone(): void
+    {
+        // Arrange
+        $this->assertSame(['id', 'name'], $this->cachedColumns());
+        $this->db->query(
+            'ALTER TABLE ' . $this->quoted() . ' ADD COLUMN ' . $this->quote('sneaked') . ' INT NULL'
+        );
+
+        // Act — a history table of its own, so "nothing recorded" is true rather than
+        // hoped for. The shared one carries whatever the tests before this recorded, and
+        // `rollback()` with no migrations still clears those rows and counts them.
+        $history = 'ccam_empty_' . bin2hex(random_bytes(4));
+        (new MigrationRunner($this->db, $history))->rollback([]);
+        $this->db->query('DROP TABLE IF EXISTS ' . $this->quote($history));
+
+        // Assert
+        $this->assertSame(['id', 'name'], $this->cachedColumns());
+    }
 }
