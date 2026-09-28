@@ -222,6 +222,36 @@ return [
 ];
 ```
 
+#### What the fingerprint covers
+
+The fast path is a single indexed lookup for a key like
+`__fw_auto_55_2026_09_20_000001_1f3a9c02b4de`, recorded in the ledger once a request has
+found everything applied. Its four parts are the number of eligible migration files, the
+latest timestamp among them, a digest of the whole set, and the `migration_cutoff` when one
+is configured.
+
+**The digest is what makes it correct**; the count and the timestamp are kept because this
+string ends up as a row somebody eventually reads. A count alone misses a deploy that
+removes one migration and adds another, and a latest timestamp misses anything added behind
+it — so the set on disk and the set that ran could differ while the key stayed the same,
+and the fast path would go on answering "up to date" indefinitely.
+
+**Every `*.php` file in the scanned directories counts**, not only
+`YYYY_MM_DD_HHmmss_*.php` ones. This matters for an application on the `MigrationNNNN`
+convention: with only timestamped files counted, adding `Migration0151.php` changed nothing
+in the key, every request took the fast path, and the migration stayed pending until an
+unrelated framework migration happened to change the count. A directory holding *only*
+untimestamped migrations produced an empty set, and an empty set made the whole check return
+before it began.
+
+Deciding this from filenames is the point — the check loads no PHP, which is what lets it
+run on every request. For an untimestamped file that means the slug is taken from the
+filename where it properly comes from the class short name. The two agree whenever the file
+is named after the class it declares, and where they do not, the derived slug fails to match
+the ledger and reads as pending: that costs one request the full load, after which the
+fingerprint records and the fast path resumes. Wrong in the direction of more checking, not
+less.
+
 #### Applying migrations by hand: `migrations.auto`
 
 An installation that applies its migrations during a watched deploy window — a
@@ -924,7 +954,23 @@ Migration files use the timestamp prefix: `YYYY_MM_DD_HHMMSS_description.php`
 2026_05_30_143000_create_posts_table.php
 ```
 
-The timestamp determines execution order.
+The timestamp determines execution order. The separator after it is an **underscore**: the
+prefix is recognised by pattern, and a file named `2026_05_14_000050-AddSomething.php` is not
+a timestamped migration — it is an untimestamped one whose whole basename becomes its name.
+It still runs, because the loader reads classes rather than filenames, but it sorts with the
+timestampless and it is not what anybody reading the directory will assume.
+
+An **untimestamped** file — `Migration0151.php`, the older convention — is supported and
+counted. Its slug comes from the **class short name**, converted from camelCase to
+snake_case, because a class name cannot begin with a digit and so cannot carry the timestamp:
+`Migration0151` becomes `migration0151`, `CreateUsersTable` becomes `create_users_table`.
+Name the file after the class, which the convention does anyway; see
+[What the fingerprint covers](#what-the-fingerprint-covers) for what happens when it does
+not.
+
+Framework migrations are always timestamped, and a unit test asserts it over the real
+directories — one file had a hyphen where the convention has an underscore, and nothing could
+see it until the fingerprint started counting untimestamped files.
 
 ### Framework vs Application Migrations
 

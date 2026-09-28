@@ -132,19 +132,34 @@ class MigrationLoader
     }
 
     /**
-     * Scans directories for timestamped migration filenames and returns a
-     * slug → timestamp map WITHOUT loading (require-ing) any PHP file.
+     * Scans directories for migration filenames and returns a slug → timestamp map
+     * WITHOUT loading (require-ing) any PHP file.
      *
-     * Only files whose basename matches YYYY_MM_DD_HHmmss_slug.php are
-     * included. Non-timestamped files (e.g. Migration0126.php) are ignored
-     * because their slug depends on the class short-name which cannot be
-     * derived from the filename alone.
+     * **Every `*.php` file counts**, not only the timestamped ones. A file named
+     * `YYYY_MM_DD_HHmmss_slug.php` contributes its slug and its timestamp; anything else
+     * contributes {@see Migration::slugFromFileName()} and an empty timestamp, which is
+     * already what every consumer of this map treats as "no timestamp, so no cutoff applies"
+     * — the same rule `MigrationRunner::filterCutoff()` has always applied to an object with
+     * no timestamp.
+     *
+     * Excluding them was not free, and the cost was silent. This map is what the
+     * request-lifecycle check fingerprints, so a directory gaining `Migration0151.php`
+     * changed neither the count nor the latest timestamp: every request kept taking the fast
+     * path and the migration stayed pending until some unrelated file happened to change the
+     * count. A directory holding *only* untimestamped migrations produced an empty map, and
+     * an empty map makes the whole check return before it starts.
+     *
+     * The slug of an untimestamped migration properly comes from its class short name, which
+     * cannot be known without including the file — the thing this method exists not to do.
+     * The filename is the same name by convention, and being wrong is bounded: an unmatched
+     * slug reads as pending, which costs that one request the full load, after which the
+     * fingerprint records and the fast path resumes.
      *
      * Used by MigrationRunner::hasPendingFromSlugs() for a fast "anything
      * pending?" check that avoids disk I/O of loading every PHP migration file.
      *
      * @param string[] $dirs Absolute paths of directories to scan.
-     * @return array<string, string> [slug => YYYY_MM_DD_HHmmss timestamp]
+     * @return array<string, string> [slug => YYYY_MM_DD_HHmmss timestamp, or '' when untimestamped]
      */
     public static function slugsFromDirectories(array $dirs): array
     {
@@ -157,6 +172,12 @@ class MigrationLoader
                 $base = basename($file, '.php');
                 if (preg_match('/^(\d{4}_\d{2}_\d{2}_\d{6})_(.+)$/', $base, $m)) {
                     $result[strtolower($m[2])] = $m[1];
+                    continue;
+                }
+
+                $slug = Migration::slugFromFileName($base);
+                if ($slug !== '') {
+                    $result[$slug] = '';
                 }
             }
         }

@@ -4145,11 +4145,28 @@ class Application extends Base
             }
         }
 
-        // Compute fingerprint: count + latest timestamp of eligible files.
+        /*
+         * Compute the fingerprint: count, latest timestamp, and a digest of the whole map.
+         *
+         * The count and the timestamp are kept because this string ends up as a row in the
+         * ledger and somebody eventually reads it there, but neither is what makes it
+         * correct. A count misses a deploy that removes one migration and adds another, and
+         * a latest timestamp misses anything added behind it — so the set that ran and the
+         * set on disk could differ while the key stayed the same, and the fast path would go
+         * on answering "up to date" for ever.
+         *
+         * The digest covers slug *and* timestamp for every eligible file, so adding,
+         * removing or renaming any of them changes the key, and nothing has to be guessed
+         * about which changes matter. It still loads no PHP.
+         */
         $timestamps  = array_filter(array_values($slugTimestamps)); // drop empty-ts entries
         $latestTs    = !empty($timestamps) ? max($timestamps) : '0';
         $count       = count($slugTimestamps);
-        $fingerprint = "__fw_auto_{$count}_{$latestTs}" . ($cutoff !== '' ? "_{$cutoff}" : '');
+        $ordered     = $slugTimestamps;
+        ksort($ordered);
+        $digest      = substr(sha1(json_encode($ordered) ?: ''), 0, 12);
+        $fingerprint = "__fw_auto_{$count}_{$latestTs}_{$digest}"
+            . ($cutoff !== '' ? "_{$cutoff}" : '');
 
         $histTable = $this->getMigrationHistoryTable();
         $quote     = $this->database->type === 'postgresql' ? '"' : '`';

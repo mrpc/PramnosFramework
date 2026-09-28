@@ -237,6 +237,30 @@ abstract class Migration extends \Pramnos\Framework\Base
     }
 
     /**
+     * The slug a migration file's name implies, without loading the file.
+     *
+     * The authority on a migration's slug is {@see getSlug()}, and it needs the object: for
+     * an untimestamped migration the slug comes from the **class** short name, which nothing
+     * can know until the file has been included.
+     *
+     * This answers the same question from the filename alone, and it is right whenever the
+     * file is named after the class it declares — which is the convention every migration in
+     * both directories follows, and the only convention the loader's own
+     * `MigrationNNNN.php` naming allows.
+     *
+     * It exists because the request-lifecycle check deliberately does not load PHP to decide
+     * whether anything is pending. Being wrong is bounded and self-correcting: a slug that
+     * does not match the ledger reads as pending, which sends that one request through the
+     * full load, after which the fingerprint records and the fast path resumes.
+     *
+     * @param string $basename The file's basename, with or without the `.php` extension.
+     */
+    public static function slugFromFileName(string $basename): string
+    {
+        return static::extractSlugFromName(basename($basename, '.php'));
+    }
+
+    /**
      * Returns the YYYY_MM_DD_HHmmss timestamp prefix, or null when unavailable.
      *
      * Checks the migration file's basename first (because PHP class names

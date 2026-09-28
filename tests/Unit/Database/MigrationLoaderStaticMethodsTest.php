@@ -133,10 +133,27 @@ class MigrationLoaderStaticMethodsTest extends TestCase
     }
 
     /**
-     * Non-timestamped filenames (e.g. Migration0126.php) must be silently
-     * ignored — their slug depends on the class short-name, not the filename.
+     * Non-timestamped filenames count too, with an empty timestamp.
+     *
+     * They used to be skipped, on the reasoning that an untimestamped migration's slug comes
+     * from its class short name and the filename cannot be trusted to match. The reasoning
+     * is sound and the consequence was not: this map is what the request-lifecycle check
+     * fingerprints, so a directory gaining `Migration0151.php` changed neither its size nor
+     * its latest timestamp, every request took the fast path, and the migration stayed
+     * pending until an unrelated file happened to change the count. A directory holding only
+     * untimestamped migrations produced an empty map, which makes the check return before it
+     * starts.
+     *
+     * The filename is the class name by convention, and where it is not, the derived slug
+     * simply fails to match the ledger and reads as pending — which costs one request the
+     * full load and then records. Being occasionally wrong in the direction of *more*
+     * checking is the opposite failure from the one above.
+     *
+     * The empty timestamp is not a placeholder: `filterCutoff()` and
+     * `hasPendingFromSlugs()` have always let a migration with no timestamp through, because
+     * a cutoff is a date comparison and there is no date to compare.
      */
-    public function testIgnoresNonTimestampedFilenames(): void
+    public function testNonTimestampedFilenamesCountWithNoTimestamp(): void
     {
         // Arrange
         $dir = sys_get_temp_dir() . '/pramnos_slug_test_' . uniqid();
@@ -149,9 +166,15 @@ class MigrationLoaderStaticMethodsTest extends TestCase
             // Act
             $result = MigrationLoader::slugsFromDirectories([$dir]);
 
-            // Assert – only the timestamped file appears
-            $this->assertCount(1, $result);
-            $this->assertArrayHasKey('valid', $result);
+            // Assert – all three, the timestamped one alone carrying a timestamp
+            $this->assertCount(3, $result);
+            $this->assertSame('2024_01_01_000000', $result['valid']);
+            $this->assertSame('', $result['migration0126']);
+            $this->assertSame(
+                '',
+                $result['create_users_table'],
+                'the camelCase class convention resolves to the same slug getSlug() derives'
+            );
         } finally {
             array_map('unlink', glob($dir . '/*.php') ?: []);
             rmdir($dir);
@@ -247,6 +270,13 @@ class MigrationLoaderStaticMethodsTest extends TestCase
     /**
      * slugsFromDirectories() operates on real framework migration directories
      * and must return at least one slug when run from the source tree.
+     *
+     * Every framework migration is timestamped — rule 9 of the project's own conventions —
+     * so every value here must be a timestamp. That makes this a guard on the filenames as
+     * much as on the method: one framework migration was named
+     * `2026_05_14_000050-AddMissing….php`, with a hyphen where the convention has an
+     * underscore, and until this method counted untimestamped files there was nothing
+     * anywhere that could notice.
      */
     public function testRealFrameworkMigrationsReturnSlugs(): void
     {
