@@ -4001,7 +4001,11 @@ class Database extends \Pramnos\Framework\Base
         // the process and re-running the command does not clear it either.
         return $this->query(
             $sql, !$fresh, 3600,
-            self::columnCacheCategory($tableName, (string) $this->prefix),
+            self::columnCacheCategory(
+                $tableName,
+                (string) $this->prefix,
+                $this->connectionCacheKey()
+            ),
             false, $skipDataFix
         );
     }
@@ -4023,14 +4027,55 @@ class Database extends \Pramnos\Framework\Base
      * On a shared Redis that is one installation's schema answering the other's
      * `getColumns()`, and those columns decide model fields and generated forms.
      *
-     * @param string $tableName Table name, `#PREFIX#` and all
-     * @param string $prefix    The installation's table prefix. Defaults to none,
-     *                          which is correct for a caller that has already
-     *                          resolved the name.
+     * **And the connection is in it too**, which is the same mistake one layer over. The
+     * prefix was resolved and the *database* was not, so two databases behind one cache
+     * shared a column list per table name. Measured: a model saved against a test database
+     * silently dropped three columns a migration had just added, because a command against
+     * the dev database — same Redis, migration not yet run — had rewritten
+     * `schema_columns_properties` with its older list, and `Model::_save()` used that. The
+     * columns read back as null and nothing refused anything.
+     *
+     * One installation's test and dev databases are the common case, and the one that hurts
+     * most: the two are *meant* to differ while a migration is being written.
+     *
+     * Entries written under the old key become unreachable rather than wrong — they expire
+     * on their own, and the change is a one-time invalidation nobody has to run.
+     *
+     * @param string $tableName  Table name, `#PREFIX#` and all
+     * @param string $prefix     The installation's table prefix. Defaults to none,
+     *                           which is correct for a caller that has already
+     *                           resolved the name.
+     * @param string $connection What identifies this connection — the database, plus the
+     *                           schema where there is one. {@see connectionCacheKey()}
      */
-    public static function columnCacheCategory(string $tableName, string $prefix = ''): string
+    public static function columnCacheCategory(
+        string $tableName,
+        string $prefix = '',
+        string $connection = ''
+    ): string {
+        $table = str_replace('#PREFIX#', $prefix, $tableName);
+
+        return 'schema_columns_' . ($connection === '' ? '' : $connection . '_') . $table;
+    }
+
+    /**
+     * What tells this connection apart from another behind the same cache.
+     *
+     * The database, and on PostgreSQL the schema as well — two schemas in one database
+     * hold two tables of the same name, which is the arrangement `authserver.x` relies on.
+     *
+     * Empty when neither is known, which keeps the key the shape it had: a connection that
+     * cannot say which database it is on has nothing to scope by, and inventing something
+     * would be worse than the bug.
+     */
+    private function connectionCacheKey(): string
     {
-        return 'schema_columns_' . str_replace('#PREFIX#', $prefix, $tableName);
+        $parts = array_filter([
+            (string) ($this->database ?? ''),
+            (string) ($this->schema ?? ''),
+        ], static fn (string $part): bool => $part !== '');
+
+        return implode('_', $parts);
     }
 
     /**
@@ -4053,7 +4098,11 @@ class Database extends \Pramnos\Framework\Base
     {
         try {
             $this->cacheflush(
-                self::columnCacheCategory($tableName, (string) $this->prefix)
+                self::columnCacheCategory(
+                    $tableName,
+                    (string) $this->prefix,
+                    $this->connectionCacheKey()
+                )
             );
         } catch (\Throwable) {
             // See above.

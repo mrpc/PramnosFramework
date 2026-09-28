@@ -1030,6 +1030,22 @@ The legacy loader flushes in a `finally` rather than after success, because a mi
 raised **half way** is the worst of the three outcomes — some of its DDL ran, the ledger has
 no row, and the cache is now wrong about a table nobody knows changed.
 
+### The key carries the connection
+
+`schema_columns_<database>_<schema>_<table>`, with the prefix resolved. Two databases behind
+one cache — an installation's test and dev, or two installations on one Redis — keep their
+own column lists.
+
+They did not, and the failure is the quiet kind. A model saved against a test database
+silently dropped three columns a migration had just added, because a command run against the
+dev database on the same Redis, with that migration not yet applied, had rewritten
+`schema_columns_properties` with its older list. `Model::_save()` used that list, the columns
+read back as null, and nothing refused anything.
+
+Test and dev is both the common case and the worst one: the two are *meant* to differ while
+a migration is being written, which is exactly when somebody is reading the result and
+drawing conclusions from it.
+
 **What is still on you:** a schema changed by hand, outside `migrate`, and — on more than
 one node — the other machines, whose own caches this cannot reach. That is what
 `cache:clear` is for, and it is why a deploy script that runs `migrate` and then

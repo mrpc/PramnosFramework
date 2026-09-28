@@ -91,4 +91,66 @@ class ColumnCacheKeyTest extends TestCase
             Database::columnCacheCategory('authserver.roles', 'msd_')
         );
     }
+
+    /**
+     * Two databases, two keys.
+     *
+     * The same bug one layer over, and the one that was left. The prefix was resolved into
+     * the key and the **database** was not, so two databases behind one cache shared a
+     * column list per table name.
+     *
+     * Measured rather than imagined: a model saved against a test database silently dropped
+     * three columns a migration had just added, because a command against the dev database
+     * — same Redis, migration not yet run — had rewritten `schema_columns_properties` with
+     * its older list, and `Model::_save()` used that. The columns read back as null and
+     * nothing refused anything.
+     *
+     * One installation's test and dev databases are the common case and the one that hurts
+     * most, because the two are *meant* to differ while a migration is being written.
+     */
+    public function testDifferentDatabasesGetDifferentKeys(): void
+    {
+        // Act
+        $dev  = Database::columnCacheCategory('#PREFIX#properties', 'gd_', 'glideday_dev');
+        $test = Database::columnCacheCategory('#PREFIX#properties', 'gd_', 'glideday_test');
+
+        // Assert
+        $this->assertNotSame($dev, $test,
+            'two databases must not share one schema cache entry');
+        $this->assertSame('schema_columns_glideday_dev_gd_properties', $dev);
+        $this->assertSame('schema_columns_glideday_test_gd_properties', $test);
+    }
+
+    /**
+     * Two schemas in one database are two keys.
+     *
+     * PostgreSQL holds two tables of the same name in two schemas, which is the arrangement
+     * `authserver.x` relies on. A key that stopped at the database name would put them back
+     * together.
+     */
+    public function testDifferentSchemasGetDifferentKeys(): void
+    {
+        // Act
+        $public = Database::columnCacheCategory('roles', '', 'app_public');
+        $auth   = Database::columnCacheCategory('roles', '', 'app_authserver');
+
+        // Assert
+        $this->assertNotSame($public, $auth);
+    }
+
+    /**
+     * A connection that cannot say which database it is on keeps the old shape.
+     *
+     * Empty is the honest answer for a hand-built connection or a test double, and
+     * inventing something to scope by would be worse than the bug: two callers that
+     * invented differently would stop sharing a cache entry they are entitled to.
+     */
+    public function testNoConnectionIdentityLeavesTheKeyAsItWas(): void
+    {
+        // Act + Assert
+        $this->assertSame(
+            'schema_columns_alpha_users',
+            Database::columnCacheCategory('#PREFIX#users', 'alpha_')
+        );
+    }
 }
