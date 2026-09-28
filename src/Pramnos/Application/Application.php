@@ -4266,6 +4266,50 @@ class Application extends Base
     }
 
     /**
+     * The schema version this database is actually on, read from the migration ledger.
+     *
+     * `applicationInfo['database_version']` is a *declaration*: the version the code expects.
+     * This is the *observation*: the highest version among the application migrations the
+     * ledger records as having run successfully. The two drift the moment a migration runs
+     * without somebody also editing the settings file, which is the normal case — and a
+     * footer or an API field printing the declaration then reports a version the database
+     * left behind several deploys ago.
+     *
+     * Returns null when nothing versioned has been applied, which is the honest answer for a
+     * fresh install and for an application whose migrations declare no `$version` at all.
+     * Callers that need a string should decide their own fallback rather than have one
+     * invented here.
+     *
+     * Deliberately **not** written back into `applicationInfo['database_version']`: that key
+     * is the gate {@see checkversion()} opens, and it only opens when the key is set. Filling
+     * it from here would switch the legacy `upgrade()` path back on for every installation
+     * that had switched it off by leaving the key alone.
+     *
+     * @param string $scope Migration scope to report on; the application's by default.
+     * @return string|null The applied version, or null when the ledger holds none.
+     */
+    public function databaseVersion(string $scope = 'app'): ?string
+    {
+        if (!$this->database) {
+            return null;
+        }
+
+        try {
+            $runner = new \Pramnos\Database\MigrationRunner(
+                $this->database,
+                $this->getMigrationHistoryTable(),
+                $this
+            );
+
+            return $runner->latestVersion($scope);
+        } catch (\Throwable) {
+            // No history table yet, or a connection that cannot answer. A version nobody can
+            // read is not a reason to fail the request that only wanted to print it.
+            return null;
+        }
+    }
+
+    /**
      * Check if there is a new version of the database available
      * Return true if we are in current version
      * @var string $version Version to check. Leave empty for latest

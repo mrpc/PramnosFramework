@@ -416,6 +416,50 @@ Two things it will not do, both deliberate:
 A migration with no `$version` — every modern, timestamped one — is skipped, so
 pointing this at a mixed directory is safe.
 
+### The schema version an application reports
+
+A slug sorts by the day somebody wrote the file. It is not a number a footer can print, and
+`applicationInfo['database_version']` — the settings key the legacy path checked — is a
+*declaration*: the version the code expects, correct only while somebody keeps editing it by
+hand. The two drift on the first deploy that forgets to, and then the site reports a schema
+version several migrations behind its schema.
+
+So the ledger stores the version as well, and it can be read back:
+
+```php
+$applied = $this->application->databaseVersion();   // '0.150', or null
+```
+
+`Application::databaseVersion()` returns the **highest `$version` among the migrations the
+ledger records as successfully applied**, for the `app` scope by default — pass `'framework'`
+to ask about the framework's own, which are numbered independently and must not be folded in.
+`MigrationRunner::latestVersion()` is the same answer without an `Application`.
+
+Three exclusions, each of which is a row in the same table:
+
+- **Anything but a success.** A migration recorded as having run with errors is retried on
+  the next run, so it has not been applied; reporting its version would name a schema whose
+  columns may not exist.
+- **Rows with no version.** The fingerprint row the request-lifecycle check writes is
+  bookkeeping, not a migration, and every timestamped migration that declares no `$version`
+  is simply not an answer to this question.
+- **String ordering.** Versions are compared with `version_compare()`, because `0.100` is
+  above `0.099` and a string comparison — an SQL `ORDER BY` included — puts it below.
+
+`null` means the ledger holds no versioned migration: a fresh install, or an application
+whose migrations are all timestamped files that declare none. It is deliberately not a `'0'`,
+because a wrong number in a footer reads like an answer.
+
+Adopted rows carry their version too — adoption goes through the same recording path — so an
+installation coming off the legacy ledger keeps reporting the number it has been reporting
+for years.
+
+**This does not write `applicationInfo['database_version']`.** That key is the gate
+`checkversion()` opens, and it only opens when the key is set; filling it from the ledger
+would switch the legacy `upgrade()` path back on for every installation that had switched it
+off by leaving the key alone. An application that wants the value in its own settings array
+can assign it — knowing that it is asking for the legacy path as well.
+
 ### A whole history is refused on a database that is not new
 
 Adoption handles the case where the history is *somewhere else in the same table*. It
@@ -928,19 +972,31 @@ $result = $runner->run($migrations, [
 
 ### History Table Schema
 
-`ensureHistoryTable()` creates `framework_migrations` if it does not exist:
+`ensureHistoryTable()` creates the ledger — `schemaversion` by default, see
+[The ledger's name](#the-ledgers-name-on-an-installation-with-a-prefix) — if it does not
+exist:
 
 ```sql
-migration        VARCHAR(255)   -- slug, e.g. 'create_users_table'
-scope            VARCHAR(255)   DEFAULT 'app'
-feature          VARCHAR(255)   NULL
-batch            INT            NULL
-execution_time   DOUBLE         NULL    -- seconds
-result           SMALLINT       DEFAULT 1   -- 1=success, 0=failed
-error_message    TEXT           NULL
-description      VARCHAR(255)   NULL
-ran_at           TIMESTAMP      DEFAULT NOW()
+`key`            VARCHAR(255)   PRIMARY KEY  -- slug, e.g. '2026_09_28_000001_add_thing'
+`extra`          VARCHAR(255)   NULL         -- the migration's $description
+`version`        VARCHAR(50)    NULL         -- the migration's $version, when it declares one
+`scope`          VARCHAR(255)   DEFAULT 'app'
+`feature`        VARCHAR(255)   NULL
+`batch`          INT            NULL
+`execution_time` DOUBLE         NULL         -- seconds
+`result`         SMALLINT       DEFAULT 1    -- 1=success, 2=ran with errors, 0=failed
+`error_message`  TEXT           NULL
+`when`           TIMESTAMP      DEFAULT NOW()
 ```
+
+The first three column names are what the legacy ledger used, and they are kept because
+this is the same table: an installation that migrated through `Application::runMigration()`
+for years has rows in it already.
+
+**The table upgrades itself.** Every column after `extra` is added on the next
+`ensureHistoryTable()` call if it is missing — through `ADD COLUMN IF NOT EXISTS` on
+PostgreSQL and a schema lookup on MySQL, which has no such clause. No migration file adds a
+column to the migration ledger, because it has to be readable before migrations can run.
 
 ### Sorting
 

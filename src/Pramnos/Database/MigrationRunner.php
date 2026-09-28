@@ -318,6 +318,7 @@ class MigrationRunner
                 \"when\"          TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
                 \"key\"           VARCHAR(255)  PRIMARY KEY,
                 \"extra\"         VARCHAR(255)  NULL,
+                \"version\"       VARCHAR(50)   NULL,
                 \"scope\"         VARCHAR(255)  NOT NULL DEFAULT 'app',
                 \"feature\"       VARCHAR(255)  NULL,
                 \"batch\"         INTEGER       NULL,
@@ -327,6 +328,7 @@ class MigrationRunner
             )");
             // PostgreSQL supports ADD COLUMN IF NOT EXISTS directly.
             $newCols = [
+                '"version"'         => 'VARCHAR(50) NULL',
                 '"scope"'           => "VARCHAR(255) NOT NULL DEFAULT 'app'",
                 '"feature"'         => 'VARCHAR(255) NULL',
                 '"batch"'           => 'INTEGER NULL',
@@ -344,6 +346,7 @@ class MigrationRunner
                 `when`           TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 `key`            VARCHAR(255)  NOT NULL PRIMARY KEY,
                 `extra`          VARCHAR(255)  NULL,
+                `version`        VARCHAR(50)   NULL,
                 `scope`          VARCHAR(255)  NOT NULL DEFAULT 'app',
                 `feature`        VARCHAR(255)  NULL,
                 `batch`          INT           NULL,
@@ -354,6 +357,7 @@ class MigrationRunner
             // MySQL lacks ADD COLUMN IF NOT EXISTS; check via schema introspection.
             $schema  = $db->schema();
             $newCols = [
+                'version'        => 'VARCHAR(50) NULL',
                 'scope'          => "VARCHAR(255) NOT NULL DEFAULT 'app'",
                 'feature'        => 'VARCHAR(255) NULL',
                 'batch'          => 'INT NULL',
@@ -1448,6 +1452,62 @@ class MigrationRunner
     }
 
     /**
+     * The highest schema version the history table says was applied successfully.
+     *
+     * The ledger is keyed by slug — `2026_05_28_000001_add_something` — which sorts by the
+     * day somebody wrote the file and is not a number an application can print. A migration
+     * that declares a `$version` now stores it alongside, so the question "which schema
+     * version is this database on" has an answer that comes from what actually ran, rather
+     * than from a settings value somebody has to remember to bump.
+     *
+     * Three things are deliberately excluded:
+     *
+     * - **Anything but `RESULT_OK`.** A migration recorded as `RESULT_RAN_WITH_ERRORS` is
+     *   retried on the next run, so it has not been applied; counting it would report a
+     *   version whose columns may not exist. This matches {@see getRanSlugs()}.
+     * - **Rows with no version.** Fingerprint rows and slug-only migrations carry none, and
+     *   a bookkeeping row is not a schema version.
+     * - **String ordering.** `version_compare()`, because `0.100` is above `0.99` and a
+     *   string comparison puts it below — which is exactly the range these numbers reach
+     *   once an application has been maintained for a few years.
+     *
+     * @param string $scope Which scope to ask about; `app` by default, because the framework's
+     *                      own migrations are versioned independently of the application's.
+     * @return string|null The highest version, or null when nothing versioned has run.
+     */
+    public function latestVersion(string $scope = 'app'): ?string
+    {
+        // Raw rather than the query builder: `historyTableName()` has already resolved the
+        // prefix and the PostgreSQL schema, so handing the name to the builder would resolve
+        // it a second time. Every other statement in this class reads the table the same way.
+        $historyTable = $this->historyTableName();
+        $db    = $this->requireDb();
+        $quote = $db->type === 'postgresql' ? '"' : '`';
+
+        $result = $db->query(
+            $db->prepareQuery(
+                "SELECT {$quote}version{$quote} FROM {$quote}{$historyTable}{$quote}
+                 WHERE {$quote}scope{$quote} = %s AND {$quote}result{$quote} = %d
+                   AND {$quote}version{$quote} IS NOT NULL AND {$quote}version{$quote} <> ''",
+                $scope,
+                self::RESULT_OK
+            )
+        );
+
+        $highest = null;
+        while ($result && $result->fetch()) {
+            // The query has already excluded NULL and '', so anything arriving here is a
+            // version.
+            $version = (string) $result->fields['version'];
+            if ($highest === null || version_compare($version, $highest, '>')) {
+                $highest = $version;
+            }
+        }
+
+        return $highest;
+    }
+
+    /**
      * Inserts a row into the history table for a migration execution.
      *
      * @param Migration   $migration    The migration object.
@@ -1470,6 +1530,11 @@ class MigrationRunner
 
         $feature      = $migration->feature      !== '' ? $migration->feature : null;
         $extra        = $migration->description  !== '' ? mb_substr($migration->description, 0, 255) : null;
+        // The version the migration declares, so the ledger answers "which schema version is
+        // this database on" without the caller holding a second copy of the number. A slug is
+        // not a version: it sorts by date and says nothing an application footer can print.
+        $version      = (string) ($migration->version ?? '');
+        $version      = ($version !== '' && $version !== $slug) ? mb_substr($version, 0, 50) : null;
         $errorMessage = ($errorMessage !== null) ? mb_substr($errorMessage, 0, 65535) : null;
         $execTime     = number_format($elapsed, 6, '.', '');
 
@@ -1477,28 +1542,32 @@ class MigrationRunner
             $db->query(
                 $db->prepareQuery(
                     "INSERT INTO \"{$historyTable}\"
-                     (\"key\", \"extra\", \"scope\", \"feature\", \"batch\", \"execution_time\", \"result\", \"error_message\")
-                     VALUES (%s, %s, %s, %s, %d, %s, %d, %s)
+                     (\"key\", \"extra\", \"version\", \"scope\", \"feature\", \"batch\", \"execution_time\", \"result\", \"error_message\")
+                     VALUES (%s, %s, %s, %s, %s, %d, %s, %d, %s)
                      ON CONFLICT (\"key\") DO UPDATE SET
                        \"when\" = NOW(), \"extra\" = EXCLUDED.\"extra\",
+                       \"version\" = EXCLUDED.\"version\",
                        \"scope\" = EXCLUDED.\"scope\", \"feature\" = EXCLUDED.\"feature\",
                        \"batch\" = EXCLUDED.\"batch\", \"execution_time\" = EXCLUDED.\"execution_time\",
                        \"result\" = EXCLUDED.\"result\", \"error_message\" = EXCLUDED.\"error_message\"",
-                    $slug, $extra, $migration->scope, $feature, $batch, $execTime, $result, $errorMessage
+                    $slug, $extra, $version, $migration->scope, $feature, $batch, $execTime,
+                    $result, $errorMessage
                 )
             );
         } else {
             $db->query(
                 $db->prepareQuery(
                     "INSERT INTO `{$historyTable}`
-                     (`key`, `extra`, `scope`, `feature`, `batch`, `execution_time`, `result`, `error_message`)
-                     VALUES (%s, %s, %s, %s, %d, %s, %d, %s)
+                     (`key`, `extra`, `version`, `scope`, `feature`, `batch`, `execution_time`, `result`, `error_message`)
+                     VALUES (%s, %s, %s, %s, %s, %d, %s, %d, %s)
                      ON DUPLICATE KEY UPDATE
-                       `extra` = VALUES(`extra`), `scope` = VALUES(`scope`),
+                       `extra` = VALUES(`extra`), `version` = VALUES(`version`),
+                       `scope` = VALUES(`scope`),
                        `feature` = VALUES(`feature`), `batch` = VALUES(`batch`),
                        `execution_time` = VALUES(`execution_time`),
                        `result` = VALUES(`result`), `error_message` = VALUES(`error_message`)",
-                    $slug, $extra, $migration->scope, $feature, $batch, $execTime, $result, $errorMessage
+                    $slug, $extra, $version, $migration->scope, $feature, $batch, $execTime,
+                    $result, $errorMessage
                 )
             );
         }
