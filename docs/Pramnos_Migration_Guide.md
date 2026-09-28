@@ -454,6 +454,19 @@ Adopted rows carry their version too — adoption goes through the same recordin
 installation coming off the legacy ledger keeps reporting the number it has been reporting
 for years.
 
+**Rows recorded before the column existed are filled in.** `recordHistory()` writes the
+version of a migration it is recording *now*, and a migration that has already run is
+excluded from every later run — so adding the column would otherwise leave an entire
+existing history at null, on exactly the installations that have a version worth reporting.
+`adoptLegacyVersions()` therefore also supplies the version of a slug the ledger already
+holds without one, and since `migrate` calls it before deciding anything is pending, **one
+`php pramnos migrate` after upgrading is enough** even when nothing is pending. It annotates
+the row; it does not re-run the migration.
+
+The migration object is the only place that number exists — the row holds a slug, and
+nothing maps one to the other — which is why this happens where the objects are in hand and
+not as a migration of the ledger itself.
+
 **This does not write `applicationInfo['database_version']`.** That key is the gate
 `checkversion()` opens, and it only opens when the key is set; filling it from the ledger
 would switch the legacy `upgrade()` path back on for every installation that had switched it

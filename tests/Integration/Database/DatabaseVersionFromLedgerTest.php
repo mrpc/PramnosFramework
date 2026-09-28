@@ -300,6 +300,70 @@ class DatabaseVersionFromLedgerTest extends TestCase
     }
 
     /**
+     * A row recorded before the column existed has its version filled in.
+     *
+     * This is the case the change would otherwise miss entirely, and it is the one the
+     * report came from: an installation's migrations have all run, so `getPending()`
+     * excludes every one of them and `recordHistory()` never touches those rows again.
+     * Adding the column without this leaves the whole existing history at null and
+     * `databaseVersion()` answering null — on precisely the installations that have a
+     * version worth reporting — until the next new migration happens to run.
+     *
+     * The migration object is the only place the number exists: the row holds a slug, and
+     * nothing anywhere maps one to the other.
+     */
+    public function testAHistoryRowFromBeforeTheColumnIsFilledInOnTheNextRun(): void
+    {
+        // Arrange — a migration that ran, with its version then cleared, which is exactly
+        // the row the previous version of this code wrote
+        $migrations = [$this->versioned('0.150', 'migration0150', 'dbversion_probe_one')];
+        $this->runner()->run($migrations);
+        $this->db->query(
+            'UPDATE ' . $this->q(self::HISTORY) . ' SET ' . $this->q('version') . ' = NULL'
+        );
+        $this->assertNull(
+            $this->app->databaseVersion(),
+            'the fixture must start from the broken state, or this case proves nothing'
+        );
+
+        // Act — the same migrations, with nothing pending
+        $this->runner()->run($migrations);
+
+        // Assert
+        $this->assertSame('0.150', $this->app->databaseVersion());
+    }
+
+    /**
+     * The backfill does not re-run the migration it is filling in for.
+     *
+     * The row says the work was done. Touching one of its columns must not become a reason
+     * to do the work again — which is the failure this whole subsystem is most afraid of,
+     * and the reason `--dry-run` exists on the command next door.
+     */
+    public function testTheBackfillRecordsAndDoesNotExecute(): void
+    {
+        // Arrange — recorded as run, version cleared, and the table it creates dropped so
+        // that a second execution would be visible
+        $migrations = [$this->versioned('0.151', 'migration0151', 'dbversion_probe_one')];
+        $this->runner()->run($migrations);
+        $this->db->query(
+            'UPDATE ' . $this->q(self::HISTORY) . ' SET ' . $this->q('version') . ' = NULL'
+        );
+        $this->db->query('DROP TABLE ' . $this->q('dbversion_probe_one'));
+
+        // Act
+        $result = $this->runner()->run($migrations);
+
+        // Assert — filled in, and its up() was never reached
+        $this->assertSame('0.151', $this->app->databaseVersion());
+        $this->assertSame([], $result['ran'], 'nothing was pending, so nothing may have run');
+        $this->assertFalse(
+            $this->db->schema()->hasTable('dbversion_probe_one'),
+            'the backfill executed the migration it was only supposed to annotate'
+        );
+    }
+
+    /**
      * A table that predates the column grows one.
      *
      * The history table is older than most of what it now records: installations have it

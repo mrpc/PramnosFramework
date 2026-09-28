@@ -1335,16 +1335,43 @@ class MigrationRunner
     {
         $this->ensureHistoryTable();
 
-        $known    = $this->historyKeys();
-        $adopted  = [];
-        $batch    = $dryRun ? 0 : $this->nextBatch();
+        $known       = $this->historyKeys();
+        $unversioned = $this->historyKeysWithoutVersion();
+        $adopted     = [];
+        $backfilled  = [];
+        $batch       = $dryRun ? 0 : $this->nextBatch();
 
         foreach ($migrations as $migration) {
             $version = (string) ($migration->version ?? '');
             $slug    = $migration->getSlug();
 
-            // No version to match on, or the runner already knows this slug.
-            if ($version === '' || $version === $slug || isset($known[$slug])) {
+            // No version to match on.
+            if ($version === '' || $version === $slug) {
+                continue;
+            }
+
+            /*
+             * Already recorded, but recorded before the ledger had a place to put the
+             * version — so fill it in.
+             *
+             * `recordHistory()` writes the version of a migration it is recording *now*,
+             * and `getPending()` excludes a slug that is already there. Without this, an
+             * installation's whole existing history keeps a null version for ever and
+             * `latestVersion()` answers null until the next migration happens to run —
+             * which reports nothing on precisely the installations that have a version
+             * worth reporting.
+             *
+             * The migration object is the only thing that knows the number: the ledger row
+             * holds a slug, and no mapping between the two exists anywhere else.
+             */
+            if (isset($known[$slug])) {
+                if (isset($unversioned[$slug])) {
+                    $backfilled[$slug] = $version;
+                    if (!$dryRun) {
+                        $this->setHistoryVersion($slug, $version);
+                    }
+                }
+
                 continue;
             }
 
@@ -1367,7 +1394,66 @@ class MigrationRunner
             }
         }
 
+        if ($backfilled !== []) {
+            \Pramnos\Logs\Logger::log(
+                'Filled in the recorded version of ' . count($backfilled)
+                . ' migration(s) whose history row predates the version column: '
+                . implode(', ', array_keys($backfilled)) . '.',
+                'migrations'
+            );
+        }
+
         return $adopted;
+    }
+
+    /**
+     * Writes the version onto a history row that already exists.
+     *
+     * Raw rather than the query builder for the reason the whole class is: `historyTableName()`
+     * has already resolved the prefix and the PostgreSQL schema.
+     */
+    private function setHistoryVersion(string $slug, string $version): void
+    {
+        $historyTable = $this->historyTableName();
+        $db    = $this->requireDb();
+        $quote = $db->type === 'postgresql' ? '"' : '`';
+
+        $db->query(
+            $db->prepareQuery(
+                "UPDATE {$quote}{$historyTable}{$quote} SET {$quote}version{$quote} = %s
+                 WHERE {$quote}key{$quote} = %s",
+                mb_substr($version, 0, 50),
+                $slug
+            )
+        );
+    }
+
+    /**
+     * The keys of history rows that carry no version, as a set.
+     *
+     * Asked separately from {@see historyKeys()} rather than folded into it, because that
+     * one is a membership test over every row including the legacy version-keyed ones, and
+     * this is a much smaller question: which rows are missing a value that can be supplied.
+     *
+     * @return array<string, true>
+     */
+    private function historyKeysWithoutVersion(): array
+    {
+        $historyTable = $this->historyTableName();
+        $db    = $this->requireDb();
+        $quote = $db->type === 'postgresql' ? '"' : '`';
+
+        $result = $db->query(
+            "SELECT {$quote}key{$quote} FROM {$quote}{$historyTable}{$quote}
+             WHERE {$quote}version{$quote} IS NULL OR {$quote}version{$quote} = ''"
+        );
+
+        $keys = [];
+        while ($result && $result->fetch()) {
+            $keys[(string) $result->fields['key']] = true;
+        }
+
+        return $keys;
     }
 
     /**
