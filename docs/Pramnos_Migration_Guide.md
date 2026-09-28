@@ -435,19 +435,27 @@ ledger records as successfully applied**, for the `app` scope by default — pas
 to ask about the framework's own, which are numbered independently and must not be folded in.
 `MigrationRunner::latestVersion()` is the same answer without an `Application`.
 
-Three exclusions, each of which is a row in the same table:
+**Both conventions are read.** The legacy path writes the version as the row's *key* and
+nothing else — `INSERT INTO schemaversion (key) VALUES ('0.147')` — so an installation that
+has never run this runner has its whole version history there and nowhere else. A row with
+no `version` is therefore read through its key, and the answer is the highest of both sets.
+
+A key counts as a version only when it is **digits and dots, with at least one dot**:
+`0.147`, `2.0.1`. That is deliberately narrower than "looks like a version". Every slug this
+runner writes carries a letter or an underscore — `2026_09_28_000001_add_thing`,
+`migration0148`, `__fw_auto_3_…` — so the two sets cannot overlap by accident, and a bare
+`2026` stays out because it is a number rather than a version.
+
+Two exclusions:
 
 - **Anything but a success.** A migration recorded as having run with errors is retried on
   the next run, so it has not been applied; reporting its version would name a schema whose
   columns may not exist.
-- **Rows with no version.** The fingerprint row the request-lifecycle check writes is
-  bookkeeping, not a migration, and every timestamped migration that declares no `$version`
-  is simply not an answer to this question.
 - **String ordering.** Versions are compared with `version_compare()`, because `0.100` is
   above `0.099` and a string comparison — an SQL `ORDER BY` included — puts it below.
 
-`null` means the ledger holds no versioned migration: a fresh install, or an application
-whose migrations are all timestamped files that declare none. It is deliberately not a `'0'`,
+`null` means neither source holds a version: a fresh install, or an application whose
+migrations are all timestamped files that declare none. It is deliberately not a `'0'`,
 because a wrong number in a footer reads like an answer.
 
 Adopted rows carry their version too — adoption goes through the same recording path — so an

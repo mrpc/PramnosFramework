@@ -1546,20 +1546,30 @@ class MigrationRunner
      * version is this database on" has an answer that comes from what actually ran, rather
      * than from a settings value somebody has to remember to bump.
      *
-     * Three things are deliberately excluded:
+     * **Two sources, because the ledger has always had two conventions.** The legacy path —
+     * `Application::runMigration()` — writes the version as the row's `key` and nothing else:
+     * `INSERT INTO schemaversion (key) VALUES ('0.147')`. That is a record of a migration
+     * that ran, as good as any, and on an installation that has never run this runner it is
+     * the only record there is. So a row with no `version` is read through its key, and the
+     * answer is the highest of both sets.
+     *
+     * A key counts as a version only when it is **digits and dots and nothing else**, with at
+     * least one dot — `0.147`, `2.0.1`. That excludes every slug this runner writes
+     * (`2026_09_28_000001_add_thing`, `migration0148`) and the fingerprint row
+     * (`__fw_auto_3_…`) on their characters rather than on a guess about their meaning.
+     *
+     * Two things are deliberately excluded:
      *
      * - **Anything but `RESULT_OK`.** A migration recorded as `RESULT_RAN_WITH_ERRORS` is
      *   retried on the next run, so it has not been applied; counting it would report a
      *   version whose columns may not exist. This matches {@see getRanSlugs()}.
-     * - **Rows with no version.** Fingerprint rows and slug-only migrations carry none, and
-     *   a bookkeeping row is not a schema version.
      * - **String ordering.** `version_compare()`, because `0.100` is above `0.99` and a
      *   string comparison puts it below — which is exactly the range these numbers reach
      *   once an application has been maintained for a few years.
      *
      * @param string $scope Which scope to ask about; `app` by default, because the framework's
      *                      own migrations are versioned independently of the application's.
-     * @return string|null The highest version, or null when nothing versioned has run.
+     * @return string|null The highest version, or null when neither source holds one.
      */
     public function latestVersion(string $scope = 'app'): ?string
     {
@@ -1572,9 +1582,9 @@ class MigrationRunner
 
         $result = $db->query(
             $db->prepareQuery(
-                "SELECT {$quote}version{$quote} FROM {$quote}{$historyTable}{$quote}
-                 WHERE {$quote}scope{$quote} = %s AND {$quote}result{$quote} = %d
-                   AND {$quote}version{$quote} IS NOT NULL AND {$quote}version{$quote} <> ''",
+                "SELECT {$quote}key{$quote}, {$quote}version{$quote}
+                 FROM {$quote}{$historyTable}{$quote}
+                 WHERE {$quote}scope{$quote} = %s AND {$quote}result{$quote} = %d",
                 $scope,
                 self::RESULT_OK
             )
@@ -1582,15 +1592,34 @@ class MigrationRunner
 
         $highest = null;
         while ($result && $result->fetch()) {
-            // The query has already excluded NULL and '', so anything arriving here is a
-            // version.
-            $version = (string) $result->fields['version'];
+            $version = (string) ($result->fields['version'] ?? '');
+
+            if ($version === '') {
+                $version = self::versionFromKey((string) $result->fields['key']);
+                if ($version === null) {
+                    continue;
+                }
+            }
+
             if ($highest === null || version_compare($version, $highest, '>')) {
                 $highest = $version;
             }
         }
 
         return $highest;
+    }
+
+    /**
+     * The version a legacy ledger row carries as its key, or null when the key is not one.
+     *
+     * Digits and dots, at least one dot. Deliberately narrower than "looks like a version":
+     * a bare `2026` would match a looser pattern and is far more likely to be part of
+     * something else, and every slug this runner writes carries a letter or an underscore,
+     * so the two sets cannot overlap by accident.
+     */
+    private static function versionFromKey(string $key): ?string
+    {
+        return preg_match('/^\d+(?:\.\d+)+$/', $key) === 1 ? $key : null;
     }
 
     /**

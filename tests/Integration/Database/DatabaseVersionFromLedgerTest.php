@@ -231,7 +231,7 @@ class DatabaseVersionFromLedgerTest extends TestCase
      */
     public function testAnUnversionedHistoryReportsNothing(): void
     {
-        // Arrange — a migration that ran, declaring no version
+        // Arrange — a migration that ran, declaring no version, under a slug-shaped key
         $this->runner()->run([
             $this->versioned('', 'migration_without_a_version', 'dbversion_probe_one'),
         ]);
@@ -240,8 +240,104 @@ class DatabaseVersionFromLedgerTest extends TestCase
         // Act
         $reported = $this->app->databaseVersion();
 
+        // Assert — neither source has anything, and neither key was mistaken for a version
+        $this->assertNull($reported);
+    }
+
+    /**
+     * A ledger that only ever knew the legacy convention still answers.
+     *
+     * `Application::runMigration()` writes the version as the row's **key** and nothing
+     * else — `INSERT INTO schemaversion (key) VALUES ('0.147')`. An installation that has
+     * never run this runner has a ledger made entirely of those, and the version column it
+     * has just grown is empty in every row. Answering null there would be reporting nothing
+     * about a database that has recorded its version on every upgrade for years.
+     *
+     * Nothing has to be run or adopted first: this is a read of what is already there.
+     */
+    public function testTheLegacyConventionIsReadFromTheKey(): void
+    {
+        // Arrange — three legacy rows and no version column values at all
+        $this->runner()->ensureHistoryTable();
+        foreach (['0.099', '0.147', '0.100'] as $legacy) {
+            $this->db->query(
+                $this->db->prepareQuery(
+                    'INSERT INTO ' . $this->q(self::HISTORY) . ' (' . $this->q('key')
+                    . ') VALUES (%s)',
+                    $legacy
+                )
+            );
+        }
+
+        // Act
+        $reported = $this->app->databaseVersion();
+
+        // Assert — and `0.147` beats `0.100`, which beats `0.099`
+        $this->assertSame('0.147', $reported);
+    }
+
+    /**
+     * A slug is never mistaken for a version.
+     *
+     * This is the whole risk of reading the key: the column holds two different things and
+     * nothing labels which. The test is on characters, not meaning — every slug this runner
+     * writes carries a letter or an underscore, and the fingerprint row carries both — so
+     * the two sets cannot overlap. A bare year is excluded too: `2026` is a number, not a
+     * version, and requiring a dot is what keeps it out.
+     */
+    public function testNothingThatIsNotAVersionIsReadAsOne(): void
+    {
+        // Arrange — every shape of key the ledger actually contains, none a version
+        $this->runner()->ensureHistoryTable();
+        $notVersions = [
+            '2026_09_28_000001_add_something',   // a modern slug
+            'migration0148',                     // a legacy class slug
+            '__fw_auto_3_2026_09_28_000003',     // the fingerprint row
+            '2026',                              // digits, but no dot
+            'v1.2',                              // a tag, not a recorded version
+        ];
+        foreach ($notVersions as $key) {
+            $this->db->query(
+                $this->db->prepareQuery(
+                    'INSERT INTO ' . $this->q(self::HISTORY) . ' (' . $this->q('key')
+                    . ') VALUES (%s)',
+                    $key
+                )
+            );
+        }
+        $this->assertNotEmpty($notVersions, 'the sweep found nothing to check');
+
+        // Act
+        $reported = $this->app->databaseVersion();
+
         // Assert
         $this->assertNull($reported);
+    }
+
+    /**
+     * The two sources are one answer, not one falling back to the other.
+     *
+     * A ledger can hold both at once — this is what an installation mid-migration to the
+     * runner looks like — and the question is what version the database is on, not which
+     * convention recorded it. Reading the column and stopping there would report `0.010`
+     * on a database the legacy path had taken to `0.200`.
+     */
+    public function testTheHighestOfBothConventionsWins(): void
+    {
+        // Arrange — one row from each convention, the legacy one higher
+        $this->runner()->run([
+            $this->versioned('0.010', 'migration0010', 'dbversion_probe_one'),
+        ]);
+        $this->db->query(
+            $this->db->prepareQuery(
+                'INSERT INTO ' . $this->q(self::HISTORY) . ' (' . $this->q('key')
+                . ') VALUES (%s)',
+                '0.200'
+            )
+        );
+
+        // Act & Assert
+        $this->assertSame('0.200', $this->app->databaseVersion());
     }
 
     /**
