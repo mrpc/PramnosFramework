@@ -24,6 +24,7 @@ use Pramnos\Document\Document;
 use Pramnos\Auth\Gate;
 use Pramnos\Framework\Testing\DocumentIsolation;
 use Pramnos\Framework\Testing\GateIsolation;
+use Pramnos\Framework\Testing\ServerGlobalIsolation;
 use Pramnos\Framework\Testing\RequestIdentityIsolation;
 use Pramnos\Http\RequestIdentity;
 
@@ -189,6 +190,57 @@ class IsolationExtensionsTest extends TestCase
     }
 
     /**
+     * `ServerGlobalIsolation` hands the next test the `$_SERVER` the run started with.
+     *
+     * Fourteen test classes emptied it, and the tests that paid were elsewhere — a console command
+     * with no `PHP_SELF`, a URL with a port and no host — warnings that appeared only in a full
+     * run. What a test adds, and what it removes, must both be undone.
+     */
+    public function testServerGlobalIsolationRestoresTheRunsServer(): void
+    {
+        // Arrange — the snapshot is taken at bootstrap; reached here without the sealed facade
+        $saved = $_SERVER;
+        $extension = new ServerGlobalIsolation();
+        (new \ReflectionProperty($extension, 'snapshot'))->setValue($extension, ['PHP_SELF' => 'phpunit', 'argv' => []]);
+        $_SERVER = ['REQUEST_METHOD' => 'POST'];
+
+        // Act
+        $extension->notify($this->makeEvent());
+        $restored = $_SERVER;
+        $_SERVER = $saved;
+
+        // Assert — the leaked key is gone, and the removed one is back
+        $this->assertSame(['PHP_SELF' => 'phpunit', 'argv' => []], $restored);
+    }
+
+    /**
+     * The snapshot is `$_SERVER` as it stood when the extension booted.
+     *
+     * Taken after the bootstrap script, so what a project's `tests/bootstrap.php` sets up is part
+     * of what every test starts from rather than something the first reset throws away.
+     */
+    public function testServerGlobalIsolationSnapshotsAtBootstrap(): void
+    {
+        // Arrange
+        $extension = new ServerGlobalIsolation();
+        $configuration = (new \PHPUnit\TextUI\Configuration\Builder())->build([]);
+        $_SERVER['PRAMNOS_SNAPSHOT_PROBE'] = 'present';
+
+        // Act — bootstrap() records, then tries to subscribe on the facade the run has sealed
+        try {
+            $extension->bootstrap($configuration, new Facade(), ParameterCollection::fromArray([]));
+        } catch (EventFacadeIsSealedException) {
+            // Expected inside a running suite; the snapshot is taken before the registration.
+        }
+        unset($_SERVER['PRAMNOS_SNAPSHOT_PROBE']);
+        $extension->notify($this->makeEvent());
+
+        // Assert
+        $this->assertSame('present', $_SERVER['PRAMNOS_SNAPSHOT_PROBE'] ?? null);
+        unset($_SERVER['PRAMNOS_SNAPSHOT_PROBE']);
+    }
+
+    /**
      * Both extensions attempt a real subscription, and subscribe *themselves*.
      *
      * A reset method nobody calls is the failure mode with no symptom: the suite
@@ -208,7 +260,9 @@ class IsolationExtensionsTest extends TestCase
      */
     public function testEveryExtensionRegistersItselfAsASubscriber(): void
     {
-        foreach ([new RequestIdentityIsolation(), new DocumentIsolation(), new GateIsolation()] as $extension) {
+        $extensions = [new RequestIdentityIsolation(), new DocumentIsolation(), new GateIsolation(), new ServerGlobalIsolation()];
+        $this->assertNotEmpty($extensions, 'the sweep found nothing to check');
+        foreach ($extensions as $extension) {
             // Arrange
             $configuration = (new \PHPUnit\TextUI\Configuration\Builder())->build([]);
             $sealed        = false;

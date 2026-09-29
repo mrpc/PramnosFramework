@@ -37,6 +37,12 @@
             paid for.
         -->
         <bootstrap class="Pramnos\Framework\Testing\GateIsolation"/>
+        <!--
+            $_SERVER is a superglobal, and fourteen test classes emptied it. The tests that
+            paid were elsewhere: a console command with no PHP_SELF, a URL with a port and
+            no host — warnings that appeared only in a full run.
+        -->
+        <bootstrap class="Pramnos\Framework\Testing\ServerGlobalIsolation"/>
     </extensions>
 
     <testsuites>

@@ -5752,8 +5752,8 @@ PHP;
          displayDetailsOnTestsThatTriggerWarnings="true">
     <extensions>
         <!--
-            The framework has two singletons that are per-request in production and
-            process-wide in a test run. Without these, state left by one test answers
+            Request state — the identity, the document, the gate, the server globals — is
+            per-request in production and process-wide in a test run. Without these, state left by one test answers
             for every test after it — and the failure surfaces in some unrelated test
             far away, where it looks like a bug in that test. This cost the framework
             itself 135 failures once, and three more on a separate occasion.
@@ -5764,6 +5764,7 @@ PHP;
         <bootstrap class="Pramnos\\Framework\\Testing\\RequestIdentityIsolation"/>
         <bootstrap class="Pramnos\\Framework\\Testing\\DocumentIsolation"/>
         <bootstrap class="Pramnos\\Framework\\Testing\\GateIsolation"/>
+        <bootstrap class="Pramnos\\Framework\\Testing\\ServerGlobalIsolation"/>
     </extensions>
 
     <testsuites>

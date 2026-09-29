@@ -1455,11 +1455,11 @@ mean.
 
 ## Isolating process-wide state
 
-Two framework singletons are **per-request in production and process-wide in a test
-run**. A test run is thousands of "requests" in one PHP process, so state one test
-establishes answers for every test after it.
+Request state is **per-request in production and process-wide in a test run**. A test run is
+thousands of "requests" in one PHP process, so state one test establishes answers for every
+test after it.
 
-Both are registered in `phpunit.xml`, and a project scaffolded by `pramnos init` gets
+Each extension resets one piece of it; all are registered in `phpunit.xml`, and a project scaffolded by `pramnos init` gets
 them already:
 
 ```xml
@@ -1467,6 +1467,7 @@ them already:
     <bootstrap class="Pramnos\Framework\Testing\RequestIdentityIsolation"/>
     <bootstrap class="Pramnos\Framework\Testing\DocumentIsolation"/>
     <bootstrap class="Pramnos\Framework\Testing\GateIsolation"/>
+    <bootstrap class="Pramnos\Framework\Testing\ServerGlobalIsolation"/>
 </extensions>
 ```
 
@@ -1475,12 +1476,13 @@ them already:
 | `RequestIdentityIsolation` | An identity sealed by one test stays sealed. A controller test running after a middleware test finds itself signed in as somebody it never authenticated — **135 failures**, in tests that had nothing to do with authentication. |
 | `DocumentIsolation` | `Document` is a mutable singleton per type. A test that sets `->type = 'json'` is writing to the shared HTML document, and the next test that renders gets it — **three failures**, each of which appeared only in a full run. |
 | `GateIsolation` | `Gate` keeps abilities, policies and hooks in statics. A `Gate::before(fn () => true)` registered by one test would allow everything for every test after it — and the failure lands in a test asserting that an ordinary user is *refused*. Written **with** the feature rather than after the failures. |
+| `ServerGlobalIsolation` | `$_SERVER` is a superglobal. Fourteen of the framework's test classes started with `$_SERVER = []`, and the tests that paid were elsewhere: a console command with no `PHP_SELF`, a URL with a port and no host — **warnings in a full run only**. It is restored to what it was after the bootstrap script, so what `tests/bootstrap.php` sets is kept. |
 
-Both reset at `PreparationStarted`, which is **before `setUp()`** — so a test that
+All reset at `PreparationStarted`, which is **before `setUp()`** — so a test that
 deliberately seals an identity or configures a document still gets exactly what it asked
 for. There is nothing to opt out of and nothing to call.
 
-**Why extensions rather than `setUp()`.** Both are reached indirectly: a controller calls
+**Why extensions rather than `setUp()`.** All are reached indirectly: a controller calls
 a middleware, which seals an identity; a controller asks the Factory, which asks the
 Document. So any list of "the tests that need to reset this" is a list that goes out of
 date the moment somebody adds a test — silently, and with the failure appearing somewhere
