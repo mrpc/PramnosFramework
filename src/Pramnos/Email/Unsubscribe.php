@@ -201,7 +201,26 @@ class Unsubscribe
         static::applyOptOut($email, $list);
         static::recordConsent($email, $list, false);
 
+        // An opt-in subscription ends by the same routes: the footer link, one-click, the
+        // preferences page. Best effort — the opt-out above is what suppresses mail.
+        try {
+            (new MailingList())->markUnsubscribed($email, $list);
+        } catch (\Throwable $e) {
+            \Pramnos\Logs\Logger::log('Could not end the opt-in subscription of ' . $email . ': ' . $e->getMessage(), 'email');
+        }
+
         return $recorded;
+    }
+
+    /**
+     * Record that an account granted or withdrew consent to a list.
+     *
+     * The same trail `optOut()` and `optIn()` write, for a caller that changes a subscription
+     * some other way — {@see MailingList::confirm()}. Silent for an address with no account.
+     */
+    public static function recordListConsent(string $email, string $list, bool $granted): void
+    {
+        static::recordConsent(static::normalise($email), static::normaliseList($list), $granted);
     }
 
     /**

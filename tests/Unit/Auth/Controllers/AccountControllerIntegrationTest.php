@@ -500,9 +500,9 @@ class AccountControllerIntegrationTest extends TestCase
 
     /**
      * Fully confirmed POST must erase the user's data (one delete per GDPR
-     * table, two for the invitations the account sent and came from, and the
-     * users row = 9 deletes), log the user out, and redirect to the site root
-     * with message=account_deleted.
+     * table, two for the invitations the account sent and came from, one for its
+     * mailing-list rows, and the users row = 10 deletes), log the user out, and
+     * redirect to the site root with message=account_deleted.
      */
     public function testDeleteAccountPostSuccessErasesDataAndRedirects(): void
     {
@@ -513,8 +513,8 @@ class AccountControllerIntegrationTest extends TestCase
         $this->bypassCsrf();
         $this->controller->verifyPasswordResult = true;
 
-        // 6 GDPR-related tables + 2 for invitations + users = 9 delete() calls expected
-        $this->queryBuilderMock->expects($this->exactly(9))
+        // 6 GDPR-related tables + 2 for invitations + 1 mailing lists + users = 10 delete() calls
+        $this->queryBuilderMock->expects($this->exactly(10))
             ->method('delete')
             ->willReturn(1);
 

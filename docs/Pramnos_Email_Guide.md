@@ -5,6 +5,7 @@ use_cases:
   - Tracking or debugging delivery
   - Offering an unsubscribe link and passing Gmail's bulk-sender rules
   - Declaring the kinds of mail an application sends, and offering preferences over them
+  - Running a newsletter people opt in to, with or without an account
   - Understanding the plain-text part, or why a message reads badly in a text-only client
   - Working out which headers a message carries and why
   - Putting a Gmail action button on a message, or finding out why one is not showing
@@ -933,6 +934,79 @@ The parts that are not code:
   button.
 - Every message goes out as `multipart/alternative` with a plain-text part, which `Email` builds
   from the HTML — see below, because for a long time it built a bad one.
+
+---
+
+## Opt-in mailing lists: a newsletter
+
+Everything above is **opt-out**: a list's mail goes to everybody who has not left it. That is
+right for a digest an account turned on in its settings. A newsletter is marketing, and GDPR and
+ePrivacy expect the other default — it goes only to those who agreed, and the agreement has to be
+provable. Declare the type `optIn`:
+
+```php
+use Pramnos\Email\MailType;
+use Pramnos\Email\MailTypes;
+
+MailTypes::register(new MailType(
+    'newsletter',
+    'Newsletter',
+    'News about the product, once a month.',
+    list: 'newsletter',
+    optIn: true,
+));
+```
+
+A send of that type goes **only to a confirmed subscriber**; to anybody else it is refused and
+recorded, exactly as a send to an opted-out address is (`Not sent: … has not subscribed to
+"newsletter"`). `MailTypes::allows()` answers the same way. An opt-in type must name a list —
+`new MailType(…, optIn: true)` without one throws.
+
+### Subscribers, account or not
+
+`Pramnos\Email\MailingList` keeps who asked, in `pramnos.mailing_list_subscribers` — one row per
+list and address, with the account's id when the address has one. The people waiting for
+registration to open are exactly the ones a landing-page form is for, so an account is not needed.
+
+```php
+$lists = new \Pramnos\Email\MailingList();
+
+$lists->subscribe('newsletter', $email, [
+    'source'   => 'landing',          // form, account, wordpress, import…
+    'consent'  => $sentenceShown,     // the words the person agreed to, as shown
+    'language' => 'el',               // what to write to them in
+    'ip'       => $ip,
+]);                                   // pending, and a confirmation mail
+
+$lists->isSubscribed('newsletter', $email);   // true only once confirmed
+$lists->unsubscribe('newsletter', $email);
+```
+
+The rules it keeps:
+
+| | |
+|---|---|
+| **Double opt-in** | A new address gets a confirmation mail and stays `pending` until the link is followed. The mail is transactional. |
+| **The link is not the confirmation** | It opens a page with a button. Mail scanners follow every link in a message and would otherwise confirm on the reader's behalf. |
+| **Signed and expiring** | A `MailAction` token for this list and address, valid seven days. It confirms only a `pending` row, so an old link does not put back an address that left. |
+| **At most one more mail an hour** | Asking again for a pending address resends only after `RESEND_AFTER`. |
+| **Proved addresses skip the mail** | `'confirmed' => true` for an account's own verified address, or an address arriving on a signed link to it. |
+| **Leaving by any route ends it** | `Unsubscribe::optOut()` marks the row unsubscribed — the footer link, one-click, the preferences page; `all` ends every list. |
+| **Coming back restores only this list** | Confirming clears an opt-out of *this* list, not of `all`: somebody who left everything and then asked for the newsletter did not ask for everything else back. |
+
+`subscribe()` returns what happened (`confirmation_sent`, `already_pending`, `already_confirmed`,
+`confirmed`) for the caller's log. **A public form must answer the same whatever it returns**, or
+it becomes a way to find out who is subscribed.
+
+### The consent trail
+
+Each row keeps the sentence the person agreed to, where they agreed (`source`), the address the
+request came from, and when they asked, confirmed and left. For an address with an account,
+confirming also writes an `authserver.user_consents` event, as leaving does.
+
+The rows are part of the account's data: `Account` exports them under **Mailing lists** and
+erases them, found by account **and** by address, so a subscription made before the account
+existed goes with it. The table is on the personal-data denial list, with `emailoptouts`.
 
 ---
 

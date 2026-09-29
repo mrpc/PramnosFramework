@@ -48,13 +48,23 @@ final class MailType
      * @param string $label       What a person sees on a preferences page
      * @param string $description One sentence: what stops arriving if this is turned off
      * @param string $list        The unsubscribe list this belongs to, or '' for transactional
+     * @param bool   $optIn       Sent only to confirmed subscribers of the list (a newsletter),
+     *                            rather than to everybody who has not left it. See
+     *                            {@see \Pramnos\Email\MailingList}.
      */
     public function __construct(
         public readonly string $name,
         public readonly string $label,
         public readonly string $description = '',
-        public readonly string $list = ''
+        public readonly string $list = '',
+        public readonly bool $optIn = false
     ) {
+        if ($optIn && trim($list) === '') {
+            throw new \InvalidArgumentException(
+                'Mail type "' . $name . '" is opt-in and names no list: an opt-in type is sent to a '
+                . "list's confirmed subscribers, so it needs a list to have any."
+            );
+        }
     }
 
     /**
@@ -71,7 +81,7 @@ final class MailType
         return trim($this->list) === '';
     }
 
-    /** @return array{name: string, label: string, description: string, list: string, transactional: bool} */
+    /** @return array{name: string, label: string, description: string, list: string, transactional: bool, opt_in: bool} */
     public function toArray(): array
     {
         return [
@@ -80,6 +90,7 @@ final class MailType
             'description'   => $this->description,
             'list'          => $this->list,
             'transactional' => $this->transactional(),
+            'opt_in'        => $this->optIn,
         ];
     }
 }

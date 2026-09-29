@@ -27,6 +27,7 @@ class MailTypeSendTest extends TestCase
         MailTypes::reset();
         MailTypes::register(new MailType('digest', 'Weekly digest', 'Every Monday.', 'digest'));
         MailTypes::register(new MailType('receipt', 'Receipts', 'What you paid for.'));
+        MailTypes::register(new MailType('newsletter', 'Newsletter', 'Monthly.', 'newsletter', true));
         parent::setUp();
     }
 
@@ -312,6 +313,46 @@ class MailTypeSendTest extends TestCase
         };
     }
 
+    /**
+     * An opt-in type is not sent to an address that never confirmed, and says why.
+     *
+     * The opposite default from an ordinary list: a newsletter goes only to those who agreed,
+     * so "has not left it" is not enough. The refusal is recorded like an opt-out's.
+     */
+    public function testAnOptInTypeIsNotSentToAnAddressThatNeverConfirmed(): void
+    {
+        // Arrange
+        $email = $this->mailer();
+        $email->type('newsletter')->setTo('stranger@example.com')->setBody('<p>News</p>');
+
+        // Act
+        $sent = $email->send();
+
+        // Assert
+        $this->assertFalse($sent);
+        $this->assertSame('', $email->delivered);
+        $this->assertStringContainsString('has not subscribed to "newsletter"', $email->getLastError());
+        $this->assertSame([false], $email->recorded);
+    }
+
+    /**
+     * A confirmed subscriber gets it, with the list's unsubscribe wiring.
+     */
+    public function testAnOptInTypeIsSentToAConfirmedSubscriber(): void
+    {
+        // Arrange
+        $email = $this->mailer();
+        $email->subscribedTo = ['newsletter'];
+        $email->type('newsletter')->setTo('reader@example.com')->setBody('<p>News</p>');
+
+        // Act
+        $sent = $email->send();
+
+        // Assert
+        $this->assertTrue($sent, $email->getLastError());
+        $this->assertSame('newsletter', $email->unsubscribeListValue());
+    }
+
     private function mailer(): object
     {
         return new class () extends Email {
@@ -333,6 +374,14 @@ class MailTypeSendTest extends TestCase
             protected function recordMail(bool $success): void
             {
                 $this->recorded[] = $success;
+            }
+
+            /** @var list<string> Opt-in lists this address confirmed. */
+            public array $subscribedTo = [];
+
+            protected function subscribed(string $address, string $list): bool
+            {
+                return in_array($list, $this->subscribedTo, true);
             }
 
             protected function optedOut(string $address, string $list): bool

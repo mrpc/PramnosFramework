@@ -191,7 +191,25 @@ class MailTypes
             return true;
         }
 
+        // An opt-in list goes only to its confirmed subscribers; leaving it by any route ends
+        // the subscription, so the opt-out records need not be asked as well.
+        if (static::get($name)?->optIn) {
+            return (new MailingList())->isSubscribed($list, $email);
+        }
+
         return !Unsubscribe::isOptedOut($email, $list);
+    }
+
+    /** The registered type that names this list, or null. */
+    public static function byList(string $list): ?MailType
+    {
+        foreach (static::all() as $type) {
+            if ($type->list !== '' && $type->list === $list) {
+                return $type;
+            }
+        }
+
+        return null;
     }
 
     /** Forget everything. For tests, and for an application rebuilding the list at runtime. */

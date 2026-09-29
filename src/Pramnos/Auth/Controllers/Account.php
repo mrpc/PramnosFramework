@@ -2184,6 +2184,10 @@ class Account extends Controller
             'account_details'  => fn (): array => $this->exportUserDetails($userId),
             'privacy_settings' => fn (): array => $this->getPrivacySettings($userId),
             'activity_log'     => fn (): array => $this->getActivityLog($userId, 1000),
+            // By account and by address: a subscription made before the account existed is
+            // this person's too.
+            'mailing_lists'    => fn (): array => (new \Pramnos\Email\MailingList($db))
+                ->rowsFor($userId, (string) ($userData['email'] ?? '')),
         ] as $section => $read) {
             try {
                 $export[$section] = $read();
@@ -2236,6 +2240,7 @@ class Account extends Controller
             'Account details',
             'Privacy settings',
             'Activity log',
+            'Mailing lists',
         ];
         if (\Pramnos\Event\Event::hasListeners('account.data_export')) {
             $labels[] = 'Application-specific data';
@@ -2525,6 +2530,13 @@ class Account extends Controller
         // Invitations it sent hold other people's addresses; the one it came from, its own.
         // Kept in the service that owns the table, so the rule lives with the rows.
         (new \Pramnos\Auth\Invitations($db))->forgetUser($userId);
+
+        // Mailing-list rows by account and by address, read before the account row goes.
+        $account = $db->queryBuilder()->table('#PREFIX#users')->select('email')->where('userid', $userId)->first();
+        (new \Pramnos\Email\MailingList($db))->forgetUser(
+            $userId,
+            $account && $account->numRows > 0 ? (string) $account->fields['email'] : ''
+        );
 
         $db->queryBuilder()
             ->table('#PREFIX#users')

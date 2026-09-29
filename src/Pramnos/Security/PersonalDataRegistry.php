@@ -292,6 +292,9 @@ class PersonalDataRegistry
             'mails',
             'notifications',
             'pushtokens',
+            // Addresses, with or without an account: who left a list, and who asked for one.
+            'emailoptouts',
+            'mailing_list_subscribers',
         );
     }
 

@@ -502,7 +502,16 @@ class Email extends \Pramnos\Framework\Base
             return true;
         }
 
-        if ($this->optedOut($address, $list)) {
+        if (MailTypes::get((string) $this->mailType)?->optIn) {
+            if (!$this->subscribed($address, $list)) {
+                // The opt-in counterpart of the refusal below, recorded the same way: a
+                // newsletter to an address that never confirmed is the one message that must
+                // not go, and the `mails` row says why it did not.
+                $this->lastError = 'Not sent: ' . $address . ' has not subscribed to "' . $list . '".';
+
+                return false;
+            }
+        } elseif ($this->optedOut($address, $list)) {
             /*
              * Not an error, and not silent either.
              *
@@ -523,6 +532,12 @@ class Email extends \Pramnos\Framework\Base
         }
 
         return true;
+    }
+
+    /** Is this address a confirmed subscriber of an opt-in list? A seam, like {@see optedOut()}. */
+    protected function subscribed(string $address, string $list): bool
+    {
+        return (new MailingList())->isSubscribed($list, $address);
     }
 
     /** Has this address left this list? A seam, so a send can be tested without a store. */
