@@ -38,6 +38,9 @@ readonly class LoginFlowResult
     /** Password verified; a second factor is required to finish. */
     public const STEP_UP_REQUIRED = 'step_up_required';
 
+    /** The password was right, but the account has not confirmed its address yet. */
+    public const EMAIL_UNVERIFIED = 'email_unverified';
+
     /**
      * @param string        $status           One of the status constants above.
      * @param int|null       $userId          The user id on SUCCESS / STEP_UP_REQUIRED, null otherwise.
@@ -77,6 +80,17 @@ readonly class LoginFlowResult
     public static function stepUpRequired(int $userId, array $methods): self
     {
         return new self(self::STEP_UP_REQUIRED, $userId, 0, array_values($methods));
+    }
+
+    /** The password verified; the account is waiting to confirm its address. */
+    public static function emailUnverified(int $userId): self
+    {
+        return new self(self::EMAIL_UNVERIFIED, $userId);
+    }
+
+    public function isEmailUnverified(): bool
+    {
+        return $this->status === self::EMAIL_UNVERIFIED;
     }
 
     public function isSuccess(): bool

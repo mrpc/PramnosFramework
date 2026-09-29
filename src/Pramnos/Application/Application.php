@@ -1518,6 +1518,13 @@ class Application extends Base
         // Token Actions audit log — auth feature, nested under Users because
         // that is what it is: a view of one account's activity.
         if (in_array('auth', $features, true)) {
+            // Invitations — 98 under usertype: inviting ends in an account, which is a
+            // superuser's call unless `admin.invitations` has been granted.
+            NavRegistry::register(new NavItem(
+                'admin.invitations', 'Invitations', $admin('Invitations'),
+                NavSection::Admin, 6, requireAuth: true, minUserType: 98,
+                feature: 'auth', icon: 'mail', group: 'People',
+            ));
             NavRegistry::register(new NavItem(
                 'admin.tokenactions', 'Token Actions', $admin('TokenActions'),
                 NavSection::Admin, 26, requireAuth: true, minUserType: 80,

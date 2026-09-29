@@ -70,6 +70,8 @@ class Account extends Controller
             // Public because the link is opened from a mail client, in a browser that may
             // never have seen this session — the token is the credential.
             'authlink',
+            // The same, for the link that confirms a self-registered address.
+            'confirmemail',
         ]);
         // Authenticated account-management actions.
         $this->addAuthAction([
@@ -414,6 +416,8 @@ class Account extends Controller
             return null;
         }
 
+        $this->rememberInvitation();
+
         if (!$this->registrationIsOpen()) {
             return $this->renderRegister(['error' => 'registration_closed']);
         }
@@ -465,9 +469,101 @@ class Account extends Controller
 
         \Pramnos\Auth\ActivityLog::record($userId, 'account_registered');
 
-        $this->addMessage('Your account has been created. Please sign in.');
+        if ($this->afterRegistration($userId)) {
+            $this->addMessage('Your account has been created. We have sent a link to your email '
+                . 'address — open it to confirm the address, then sign in.');
+        } else {
+            $this->addMessage('Your account has been created. Please sign in.');
+        }
         $this->redirect(sURL . 'login');
         return null;
+    }
+
+    /**
+     * The link in the mail that confirms a self-registered address.
+     */
+    public function confirmemail(): mixed
+    {
+        $userId = $this->emailVerification()->confirm($this->query('token'));
+
+        if ($userId === null) {
+            $this->addError('That confirmation link is not valid any more. Sign in to be sent a new one.');
+        } else {
+            $this->addMessage('Your email address is confirmed. You can sign in now.');
+        }
+        $this->redirect(sURL . 'login');
+        return null;
+    }
+
+    /** Where an invitation link's token is kept between the link and the submitted form. */
+    public const INVITATION_SESSION_KEY = 'registration_invitation_token';
+
+    /**
+     * Keep the `?invite=` token of the link that brought the visitor here, for the POST that
+     * follows. Only a hex token is kept: anything else is not one of ours.
+     */
+    protected function rememberInvitation(): void
+    {
+        $token = $this->query('invite');
+        if ($token !== '' && ctype_xdigit($token)) {
+            $_SESSION[self::INVITATION_SESSION_KEY] = $token;
+        }
+    }
+
+    /**
+     * The live invitation this registration is using, or null.
+     *
+     * @return array<string, mixed>|null
+     */
+    protected function pendingInvitation(): ?array
+    {
+        $token = (string) ($_SESSION[self::INVITATION_SESSION_KEY] ?? '');
+        if ($token === '') {
+            return null;
+        }
+
+        try {
+            return $this->invitations()->find($token);
+        } catch (\Throwable $e) {
+            // No invitations table on this installation: there is no invitation to find.
+            return null;
+        }
+    }
+
+    /**
+     * What follows a created account: an invitation is used up — which also confirms the
+     * address, since its link reached it — or, under a policy that requires it, the address
+     * confirmation is started. Returns whether the account now waits for that confirmation.
+     */
+    protected function afterRegistration(int $userId): bool
+    {
+        $token = (string) ($_SESSION[self::INVITATION_SESSION_KEY] ?? '');
+        if ($token !== '' && $this->pendingInvitation() !== null) {
+            unset($_SESSION[self::INVITATION_SESSION_KEY]);
+            $this->invitations()->accept($token, $userId);
+
+            return false;
+        }
+
+        if (\Pramnos\Auth\RegistrationPolicy::requiresEmailVerification()) {
+            $this->emailVerification()->begin($userId);
+
+            return true;
+        }
+
+        return false;
+    }
+
+    /** Seam for tests. */
+    protected function invitations(): \Pramnos\Auth\Invitations
+    {
+        return new \Pramnos\Auth\Invitations();
+    }
+
+    /** Seam for tests. */
+    protected function emailVerification(): \Pramnos\Auth\EmailVerification
+    {
+        return new \Pramnos\Auth\EmailVerification();
     }
 
     /**
@@ -908,6 +1004,9 @@ class Account extends Controller
         if ($result->needsStepUp()) {
             return $this->renderStepUp(['methods' => $result->stepUpMethods]);
         }
+        if ($result->isEmailUnverified()) {
+            return $this->renderLogin(['error' => 'email_unverified', 'username' => $username]);
+        }
         if ($result->isLocked()) {
             return $this->renderLogin([
                 'error'          => 'locked',
@@ -1119,7 +1218,7 @@ class Account extends Controller
             strtolower($this->setting('auth_allow_registration')),
             ['1', 'true', 'yes', 'on'],
             true
-        );
+        ) || $this->pendingInvitation() !== null;
     }
 
     /**
@@ -1149,6 +1248,18 @@ class Account extends Controller
         if ($email === '' || filter_var($email, FILTER_VALIDATE_EMAIL) === false) {
             return 'invalid_email';
         }
+
+        // An invitation is for one address: registering another with its link would be using
+        // somebody else's invitation. Without one, open registration keeps to the domain list.
+        $invitation = $this->pendingInvitation();
+        if ($invitation !== null) {
+            if (\Pramnos\Auth\Invitations::normalizeEmail($email) !== (string) $invitation['email']) {
+                return 'invite_email_mismatch';
+            }
+        } elseif (!\Pramnos\Auth\RegistrationPolicy::allowsEmail($email)) {
+            return 'email_domain_not_allowed';
+        }
+
         return null;
     }
 
@@ -1207,6 +1318,8 @@ class Account extends Controller
         $view->formData       = [];
         $view->registrationOpen = $this->registrationIsOpen();
         $view->humanCheck       = $this->humanCheckChallenge('register');
+        // The invited address, so the form can show it rather than ask for it.
+        $view->invitedEmail     = (string) ($this->pendingInvitation()['email'] ?? '');
         foreach ($ctx as $key => $value) {
             $view->$key = $value;
         }

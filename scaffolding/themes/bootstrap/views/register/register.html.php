@@ -22,6 +22,8 @@ $messages = [
     'username_taken'         => 'That username is already taken.',
     'invalid_email'          => 'Please enter a valid email address.',
     'email_unavailable'      => 'That email address cannot be used to create an account.',
+    'invite_email_mismatch'  => 'This invitation is for another email address.',
+    'email_domain_not_allowed' => 'Accounts can only be created with an address at an allowed domain.',
     'password_required'      => 'Please choose a password.',
     'password_too_short'     => 'Your password must be at least 8 characters long.',
     'password_needs_digit'   => 'Your password must contain at least one digit.',
@@ -75,7 +77,7 @@ $closed    = ($this->registrationOpen ?? true) === false;
                         <div class="mb-3">
                             <label for="email" class="form-label">Email Address</label>
                             <input type="email" name="email" id="email" class="form-control" required autocomplete="email"
-                                   value="<?php echo htmlspecialchars($this->formData['email'] ?? ''); ?>">
+                                   value="<?php echo htmlspecialchars(($this->invitedEmail ?? '') !== '' ? $this->invitedEmail : ($this->formData['email'] ?? '')); ?>"<?php echo ($this->invitedEmail ?? '') !== '' ? ' readonly' : ''; ?>>
                         </div>
                         <div class="mb-3">
                             <label for="password" class="form-label">Password</label>

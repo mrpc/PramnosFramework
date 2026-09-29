@@ -79,6 +79,15 @@ class ApiAccount extends Controller
             ], 429);
         }
 
+        // The password was right; the address is not confirmed yet. Not "invalid credentials",
+        // which would send the person to reset a password that works.
+        if ($result->isEmailUnverified()) {
+            return Response::json([
+                'error'             => 'email_unverified',
+                'error_description' => 'Confirm the email address first: open the link that was mailed to it.',
+            ], 403);
+        }
+
         if ($result->status === \Pramnos\Auth\LoginFlowResult::STEP_UP_REQUIRED) {
             return Response::json([
                 'error'             => 'two_factor_required',

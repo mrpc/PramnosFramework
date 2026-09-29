@@ -2641,6 +2641,64 @@ class OAuth2Controller extends \Pramnos\Application\Controller
 }
 ```
 
+## Registration: open, by domain, by invitation
+
+Self-service registration at `/register` is **off** unless something opens it. Three things can:
+
+| Setting | Effect |
+| --- | --- |
+| `auth_allow_registration` | open to anybody |
+| `auth_registration_domains` | with the above, only addresses at these domains — `example.com, example.org`; whole domains, so `evil-example.com` is not `example.com` |
+| an **invitation** | open for one address, while everything else stays closed |
+
+**Confirming the address.** `auth_registration_verify_email` holds a self-registered account back
+until it follows a link mailed to it (`register/confirmemail`, valid `auth_email_verify_ttl_hours`,
+48). It is **always on when a domain list is set** — otherwise anybody could type an address at the
+domain and hold an account relying parties believe belongs to it. Until then sign-in answers
+`email_unverified` rather than signing in, and signing in again after ten minutes mails a new link.
+Only accounts that were held back this way are stopped; an older account with `validated = 0` is
+not. `validated` is what the ID token's `email_verified` is read from, so it is now true only when
+somebody checked.
+
+### Invitations
+
+```php
+use Pramnos\Auth\Invitations;
+
+$made = (new Invitations())->invite('maria@example.com', [
+    'invitedBy'      => $admin->userid,
+    'organizationId' => 7,        // joins on acceptance
+    'roleId'         => 3,        // and is given this role
+    'note'           => 'Finance team',
+    'metadata'       => ['plan' => 'gold'],
+]);
+$made['link'];   // https://…/register?invite=… — shown once; only Token::lookup() of it is stored
+```
+
+- The link opens registration for **that address only** (`invite_email_mismatch` otherwise), and
+  following it confirms the address, so an invited account is not asked to.
+- It works **once** — the row is claimed by an update conditioned on it being unused, so two
+  registrations racing on one link cannot both succeed — and for `auth_invitation_ttl_hours`
+  (**48**).
+- One live invitation per address: a new one withdraws the old. None for an address that has an
+  account. A role belonging to an organisation goes only with an invitation into it.
+- `resend()` issues a new token (the old one cannot be recovered from its hash) and `revoke()`
+  withdraws; `all()` lists with a `state` — waiting, accepted, revoked, expired.
+- Accepting fires **`invitation.accepted`** with the row and the new account's id — the place for
+  whatever an application attached as `metadata`:
+
+```php
+\Pramnos\Event\Event::listen(Invitations::EVENT_ACCEPTED, function (array $invitation, int $userId): void {
+    $extra = json_decode((string) $invitation['metadata'], true) ?? [];
+    // …
+});
+```
+
+The **Invitations** administration screen (`admin.invitations`; usertype 98 under
+`admin_access = usertype`) invites, shows the link once, resends and withdraws. Only somebody who
+may open Roles can attach a role. The mail's text is the `auth.invitation` template; the
+confirmation mail's is `auth.verify_email`.
+
 ## Configuration
 
 ### Authentication Settings
@@ -2654,7 +2712,6 @@ return [
         'session_timeout' => env('SESSION_TIMEOUT', 1800), // 30 minutes
         'remember_me_duration' => env('REMEMBER_ME_DURATION', 2592000), // 30 days
         'password_hash_algo' => PASSWORD_ARGON2ID,
-        'require_email_verification' => env('REQUIRE_EMAIL_VERIFICATION', true),
         'enable_mfa' => env('ENABLE_MFA', false),
     ],
     
@@ -2667,6 +2724,9 @@ return [
     ]
 ];
 ```
+
+Email confirmation at registration is a setting rather than a configuration key — see
+[Registration](#registration-open-by-domain-by-invitation).
 
 ### Database Setup
 

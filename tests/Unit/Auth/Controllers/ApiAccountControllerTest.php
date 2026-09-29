@@ -203,6 +203,49 @@ class ApiAccountControllerTest extends TestCase
      * four possible answers becomes on the wire — a client has nothing else to go on.
      */
 
+    /**
+     * An account that has not confirmed its address gets no token, and is told why — a 403
+     * `email_unverified`, not the `invalid_credentials` that would send it to reset a password
+     * that works.
+     */
+    public function testAnUnconfirmedAccountIsToldToConfirm(): void
+    {
+        // Arrange
+        $controller = new class extends ApiAccount {
+            protected function requestMethod(): string
+            {
+                return 'POST';
+            }
+
+            protected function input(string $key): mixed
+            {
+                return ['username' => 'maria', 'password' => 'pw'][$key] ?? null;
+            }
+
+            protected function loginFlow(): \Pramnos\Auth\ApiLoginFlow
+            {
+                return new class extends \Pramnos\Auth\ApiLoginFlow {
+                    public function __construct()
+                    {
+                    }
+
+                    public function attempt(string $username, string $password, bool $remember = true): \Pramnos\Auth\LoginFlowResult
+                    {
+                        return \Pramnos\Auth\LoginFlowResult::emailUnverified(9);
+                    }
+                };
+            }
+        };
+
+        // Act
+        [$status, $body] = $this->readJson($controller->login());
+
+        // Assert
+        $this->assertSame(403, $status);
+        $this->assertSame('email_unverified', $body['error'] ?? null);
+        $this->assertArrayNotHasKey('access_token', $body);
+    }
+
     /** A controller whose flow answers `completeTwoFactor()` as the test says. */
     private function secondLeg(\Pramnos\Auth\LoginFlowResult $answer, string $code = '123456'): object
     {

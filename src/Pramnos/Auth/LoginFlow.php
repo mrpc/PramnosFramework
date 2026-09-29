@@ -166,6 +166,17 @@ class LoginFlow
         }
 
         $userId  = (int) $response['uid'];
+
+        // After the password, so only somebody who knows it learns the account is waiting —
+        // and before any session exists. A fresh link goes out, at most every ten minutes.
+        $verification = $this->emailVerification();
+        if ($verification->isPending($userId)) {
+            $verification->resendIfDue($userId);
+            $this->lockout()->clearSuccessfulLoginState('identifier', $identifier);
+
+            return LoginFlowResult::emailUnverified($userId);
+        }
+
         $methods = $this->stepUpMethods($userId);
 
         if ($methods !== []) {
@@ -727,6 +738,11 @@ class LoginFlow
     protected function auth(): Auth
     {
         return $this->auth ??= \Pramnos\Framework\Factory::getAuth();
+    }
+
+    protected function emailVerification(): EmailVerification
+    {
+        return new EmailVerification();
     }
 
     protected function lockout(): Loginlockout

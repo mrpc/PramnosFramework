@@ -245,6 +245,29 @@ class InitAuthEntryPointsTest extends TestCase
     }
 
     /**
+     * Every login form says what "email_unverified" means.
+     *
+     * It is the one sign-in refusal that is not the visitor's mistake to retry: the account exists
+     * and the password was right, and the form has to say to open the mailed link — a raw key, or
+     * the generic "invalid credentials", would send them to reset a password that works.
+     */
+    public function testEveryLoginFormExplainsAnUnconfirmedAddress(): void
+    {
+        // Arrange
+        $themes = dirname(__DIR__, 3) . '/scaffolding/themes';
+        $checked = ['plain-css', 'bootstrap', 'tailwind'];
+        $this->assertNotEmpty($checked, 'the sweep found nothing to check');
+
+        foreach ($checked as $theme) {
+            // Act
+            $code = (string) file_get_contents($themes . '/' . $theme . '/views/login/login.html.php');
+
+            // Assert
+            $this->assertStringContainsString("'email_unverified'", $code, "{$theme} login form");
+        }
+    }
+
+    /**
      * Every register form knows the error keys the controller sends.
      *
      * `renderRegister()` passes a key, not a sentence, so the controller does not
@@ -261,6 +284,7 @@ class InitAuthEntryPointsTest extends TestCase
             'invalid_email', 'email_unavailable', 'password_required',
             'password_too_short', 'password_needs_digit', 'password_needs_symbol',
             'passwords_do_not_match', 'registration_failed',
+            'invite_email_mismatch', 'email_domain_not_allowed',
         ];
         $themes = dirname(__DIR__, 3) . '/scaffolding/themes';
 

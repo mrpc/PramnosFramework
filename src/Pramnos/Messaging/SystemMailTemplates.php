@@ -167,6 +167,18 @@ final class SystemMailTemplates
                     . 'changes. {what} names the change and {detail} describes it.',
                 'placeholders' => ['what', 'detail', 'when', 'timestamp', 'sitename'],
             ],
+            'auth.invitation' => [
+                'title'        => 'Invitation to register',
+                'description'  => 'Sent when somebody is invited to create an account. The '
+                    . 'link opens registration for this address only; without {link} it cannot be used.',
+                'placeholders' => ['link', 'hours', 'inviter', 'note', 'sitename'],
+            ],
+            'auth.verify_email' => [
+                'title'        => 'Confirm your email address',
+                'description'  => 'Sent after self-registration when the address has to be '
+                    . 'confirmed before the account can sign in. Without {link} it cannot be.',
+                'placeholders' => ['link', 'hours', 'username', 'sitename'],
+            ],
         ];
     }
 

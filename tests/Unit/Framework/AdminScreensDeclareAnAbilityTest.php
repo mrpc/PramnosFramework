@@ -95,4 +95,35 @@ class AdminScreensDeclareAnAbilityTest extends TestCase
         $this->assertGreaterThan(10, $scanned, 'the sweep found nothing to check');
         $this->assertSame([], $missing);
     }
+
+    /**
+     * The Invitations screen is registered with the auth feature, at 98 — inviting ends in an
+     * account, a superuser's decision under usertype — and not without the feature.
+     */
+    public function testTheInvitationsScreenIsRegisteredWithTheAuthFeature(): void
+    {
+        // Arrange
+        $saved = \Pramnos\Application\NavRegistry::all();
+        \Pramnos\Application\NavRegistry::reset();
+
+        try {
+            // Act
+            (new \Pramnos\Application\Application())->registerDefaultNavItems(['auth']);
+            $with = array_column(\Pramnos\Application\NavRegistry::all(), null, 'id');
+            \Pramnos\Application\NavRegistry::reset();
+            (new \Pramnos\Application\Application())->registerDefaultNavItems([]);
+            $without = array_column(\Pramnos\Application\NavRegistry::all(), 'id');
+        } finally {
+            \Pramnos\Application\NavRegistry::reset();
+            foreach ($saved as $item) {
+                \Pramnos\Application\NavRegistry::register($item);
+            }
+        }
+
+        // Assert
+        $this->assertArrayHasKey('admin.invitations', $with);
+        $this->assertSame(98, $with['admin.invitations']->minUserType);
+        $this->assertSame('auth', $with['admin.invitations']->feature);
+        $this->assertNotContains('admin.invitations', $without);
+    }
 }

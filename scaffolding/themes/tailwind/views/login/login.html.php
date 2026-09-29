@@ -17,6 +17,7 @@ $errorMessages = [
     'invalid_token'       => 'Your session expired. Please try again.',
     'missing_credentials' => 'Please enter your username and password.',
     'invalid_credentials' => 'Invalid username or password.',
+    'email_unverified'    => 'Confirm your email address first: open the link we emailed you. Signing in again after ten minutes sends a new one.',
     'locked'              => 'Too many attempts. Please wait a moment and try again.',
     'session_expired'     => 'Your login session expired. Please sign in again.',
 ];

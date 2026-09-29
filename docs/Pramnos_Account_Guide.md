@@ -39,6 +39,15 @@ Many installations do not offer this — accounts are created by an administrato
 or by whatever system owns the people using it. On those, the page tells you
 registration is closed rather than disappearing.
 
+**Invited?** An invitation mail carries a link that opens the form for your address — it is
+filled in and cannot be changed, because the invitation is for you. The link works once and
+expires after two days unless the server says otherwise; ask whoever invited you for a new one.
+
+**Asked to confirm your address?** Some servers accept only addresses at certain domains, or ask
+every new account to confirm its address. Then you are mailed a link after registering, and you
+cannot sign in until you open it. Signing in before that tells you so, and after ten minutes a
+new link is sent.
+
 Creating an account does not sign you in: you are sent to the sign-in page, so the
 first sign-in goes through the same checks as every other one.
 

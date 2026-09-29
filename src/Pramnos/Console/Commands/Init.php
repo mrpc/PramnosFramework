@@ -8727,6 +8727,26 @@ class Users extends FrameworkUsersController
 PHP;
 
         $this->writeFile('src/Admin/Controllers/Users.php', $usersController);
+
+        $invitationsController = <<<PHP
+<?php
+
+declare(strict_types=1);
+
+namespace {$namespace}\\Admin\\Controllers;
+
+use Pramnos\\Auth\\Controllers\\InvitationsController as FrameworkInvitationsController;
+
+/**
+ * Invitations to register.
+ *
+ * Delegates all actions to the framework InvitationsController.
+ */
+class Invitations extends FrameworkInvitationsController
+{
+}
+PHP;
+        $this->writeFile('src/Admin/Controllers/Invitations.php', $invitationsController);
     }
 
     private function scaffoldSettingsWiring(string $namespace): void
