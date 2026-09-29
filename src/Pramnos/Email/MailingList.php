@@ -165,6 +165,23 @@ class MailingList
     }
 
     /**
+     * The row's status — `pending`, `confirmed`, `unsubscribed` — or null when there is none.
+     *
+     * What a screen shows: a pending address is not subscribed, but "check your inbox" is a
+     * different thing to tell somebody than "off".
+     */
+    public function statusOf(string $list, string $email): ?string
+    {
+        try {
+            $row = $this->find($list, self::normalizeEmail($email));
+        } catch (\Throwable) {
+            return null;
+        }
+
+        return $row === null ? null : (string) $row['status'];
+    }
+
+    /**
      * Take an address off a list — through `Unsubscribe`, so the opt-out record, the handlers
      * and the consent trail are the same as for any other way of leaving.
      */

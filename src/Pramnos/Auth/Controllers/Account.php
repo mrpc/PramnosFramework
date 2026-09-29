@@ -1679,6 +1679,8 @@ class Account extends Controller
                 isset($_POST['notifysignin'])
             );
 
+            $this->saveMailingLists($currentUser);
+
             \Pramnos\Auth\ActivityLog::record((int) $currentUser->userid, 'privacy_settings_updated', [
                 'analytics'    => isset($_POST['analytics']),
                 'marketing'    => isset($_POST['marketing']),
@@ -1696,8 +1698,86 @@ class Account extends Controller
         $view                   = $this->getView('OAuth2');
         $view->routeBase        = $this->routeBase;
         $view->privacySettings  = $this->getPrivacySettings((int) $currentUser->userid);
+        $view->mailingLists     = $this->mailingListChoices($currentUser);
 
         return $view->display('privacy_settings');
+    }
+
+    /**
+     * The opt-in lists this account can join, and where it stands on each.
+     *
+     * Off by default, as consent to marketing has to be: a list the account never joined is
+     * shown unticked. A pending one says so, because "check your inbox" is not "off".
+     *
+     * @return list<array{list: string, label: string, description: string, status: string}>
+     */
+    protected function mailingListChoices(object $user): array
+    {
+        $email = trim((string) ($user->email ?? ''));
+        if ($email === '') {
+            return [];
+        }
+
+        $lists   = new \Pramnos\Email\MailingList();
+        $choices = [];
+        foreach (\Pramnos\Email\MailTypes::all() as $type) {
+            if (!$type->optIn) {
+                continue;
+            }
+            $choices[] = [
+                'list'        => $type->list,
+                'label'       => $type->label,
+                'description' => $type->description,
+                'status'      => $lists->statusOf($type->list, $email) ?? '',
+            ];
+        }
+
+        return $choices;
+    }
+
+    /**
+     * Join or leave the opt-in lists the form names under `lists[…]`.
+     *
+     * Ticking subscribes the account's own address. A **verified** address needs no second mail
+     * to prove what is already proved; an unverified one gets the confirmation mail, like anybody
+     * else. Unticking is the same as the unsubscribe link. Best effort: a list that cannot be
+     * written is logged, and the rest of the settings still save.
+     */
+    protected function saveMailingLists(object $user): void
+    {
+        $email  = trim((string) ($user->email ?? ''));
+        $wanted = (array) ($_POST['lists'] ?? []);
+
+        if ($email === '') {
+            return;
+        }
+
+        $lists = new \Pramnos\Email\MailingList();
+        foreach (\Pramnos\Email\MailTypes::all() as $type) {
+            if (!$type->optIn) {
+                continue;
+            }
+
+            try {
+                $on = isset($wanted[$type->list]);
+                $is = $lists->isSubscribed($type->list, $email);
+
+                if ($on && !$is) {
+                    $lists->subscribe($type->list, $email, [
+                        'source'    => 'account',
+                        'consent'   => $type->description,
+                        'userid'    => (int) $user->userid,
+                        'confirmed' => (int) ($user->validated ?? 0) === 1,
+                        'language'  => (string) ($user->language ?? ''),
+                        'ip'        => (string) \Pramnos\Http\Request::clientIp(''),
+                    ]);
+                } elseif (!$on && $is) {
+                    $lists->unsubscribe($type->list, $email, 'account');
+                }
+            } catch (\Throwable $e) {
+                \Pramnos\Logs\Logger::logError('Could not save the ' . $type->list . ' subscription of user ' . $user->userid . ': ' . $e->getMessage(), $e);
+            }
+        }
     }
 
     // ── Security overview ─────────────────────────────────────────────────────

@@ -189,7 +189,11 @@ class Unsubscribe extends \Pramnos\Application\Controller
         $rows = '';
 
         foreach ($types as $type) {
-            $off   = $this->isOptedOut($email, $type->list);
+            // An opt-in list is "on" only for a confirmed subscriber; everything else is on
+            // unless the address left it.
+            $off   = $type->optIn
+                ? !$this->isSubscribed($email, $type->list)
+                : $this->isOptedOut($email, $type->list);
             $token = UnsubscribeService::token($email, $type->list);
             $url   = UnsubscribeService::url($token) . ($off ? '&a=in' : '');
 
@@ -207,7 +211,34 @@ class Unsubscribe extends \Pramnos\Application\Controller
     /** Undo an opt-out. A seam, like {@see optOut()}. */
     protected function optIn(string $email, string $list): bool
     {
+        /*
+         * Turning an opt-in list back on subscribes the address outright: the link is signed for
+         * this address, so following it proves the mailbox as well as a confirmation mail would.
+         */
+        if (MailTypes::byList($list)?->optIn) {
+            $type = MailTypes::byList($list);
+
+            try {
+                (new \Pramnos\Email\MailingList())->subscribe($list, $email, [
+                    'source'    => 'preferences',
+                    'consent'   => $type->description,
+                    'confirmed' => true,
+                    'ip'        => (string) \Pramnos\Http\Request::clientIp(''),
+                ]);
+            } catch (\Throwable) {
+                return false;
+            }
+
+            return true;
+        }
+
         return UnsubscribeService::optIn($email, $list);
+    }
+
+    /** Is the address a confirmed subscriber of an opt-in list? A seam, like {@see isOptedOut()}. */
+    protected function isSubscribed(string $email, string $list): bool
+    {
+        return (new \Pramnos\Email\MailingList())->isSubscribed($list, $email);
     }
 
     /** Is this address off this list? A seam, like {@see optOut()}. */

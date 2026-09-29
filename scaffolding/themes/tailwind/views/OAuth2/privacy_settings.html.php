@@ -4,6 +4,7 @@
  *
  * Variables:
  *   $this->privacySettings — array {analytics: bool, marketing: bool, notifysignin: bool}
+ *   $this->mailingLists    — opt-in lists: list<array{list, label, description, status}>
  *   $this->routeBase       — Account controller route base
  */
 $routeBase = $this->routeBase ?? 'Account';
@@ -74,6 +75,27 @@ $this->activeNav = 'privacy';
                                 </p>
                             </div>
                         </label>
+                        <?php foreach ((array) ($this->mailingLists ?? []) as $choice):
+    $listId  = 'list-' . preg_replace('/[^a-z0-9_-]/i', '', (string) $choice['list']);
+    $checked = in_array($choice['status'], ['confirmed', 'pending'], true);
+?>
+                        <label class="flex items-start gap-3 cursor-pointer mt-4">
+                            <div class="mt-0.5">
+                                <input type="checkbox" id="<?php echo $listId; ?>" name="lists[<?php echo htmlspecialchars((string) $choice['list'], ENT_QUOTES); ?>]" value="1"
+                                       class="checkbox checkbox-primary checkbox-sm"
+                                       <?php echo $checked ? 'checked' : ''; ?>>
+                            </div>
+                            <div>
+                                <span class="font-semibold text-base-content"><?php echo htmlspecialchars((string) $choice['label'], ENT_QUOTES); ?></span>
+                                <p class="text-sm text-base-content/70 mt-0.5">
+                                    <?php echo htmlspecialchars((string) $choice['description'], ENT_QUOTES); ?>
+                                    <?php if ($choice['status'] === 'pending'): ?>
+                                        <strong>Waiting for you to confirm: check your inbox for the link.</strong>
+                                    <?php endif; ?>
+                                </p>
+                            </div>
+                        </label>
+                        <?php endforeach; ?>
                     </div>
 
                     <button type="submit"

@@ -1035,6 +1035,18 @@ would subscribe everybody whose provider checks links. The token is the credenti
 needs no session. An expired or foreign token, and a row no longer pending, each get a page that
 says so.
 
+### On the account screen and the preferences page
+
+**Account → Privacy** lists every opt-in type as a checkbox, **off** until the account joins —
+consent to marketing is not a default. Ticking it subscribes the account's own address: at once
+when the address is verified (`validated = 1`), with the confirmation mail when it is not, and the
+screen says a pending list is waiting to be confirmed. Unticking is the same as the unsubscribe
+link. The form posts `lists[<list>]`.
+
+`/unsubscribe`'s preferences page shows opt-in types too, **on only for a confirmed subscriber**.
+Turning one back on from there subscribes the address outright, with `source = preferences`: the
+link is signed for that address, which proves the mailbox as well as a confirmation mail would.
+
 ### The consent trail
 
 Each row keeps the sentence the person agreed to, where they agreed (`source`), the address the

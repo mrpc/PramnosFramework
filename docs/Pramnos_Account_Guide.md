@@ -160,6 +160,11 @@ access and invalidates its tokens immediately.
 Toggle privacy preferences such as usage-analytics sharing and marketing emails.
 Changes are saved immediately and recorded in your activity log.
 
+Each opt-in mailing list the site runs — a newsletter, say — appears here too, unticked until
+you join it. With a confirmed address, ticking it subscribes you at once; otherwise you are sent a
+link to confirm, and the screen says it is waiting. Unticking is the same as the unsubscribe link
+in the mail.
+
 ---
 
 ## Export my data (GDPR)

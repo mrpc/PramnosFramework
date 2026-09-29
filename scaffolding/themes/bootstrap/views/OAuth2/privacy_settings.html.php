@@ -4,6 +4,7 @@
  *
  * Variables:
  *   $this->privacySettings — array {analytics: bool, marketing: bool, notifysignin: bool}
+ *   $this->mailingLists    — opt-in lists: list<array{list, label, description, status}>
  *   $this->routeBase       — Account controller route base
  */
 $routeBase = $this->routeBase ?? 'Account';
@@ -77,6 +78,28 @@ $this->activeNav = 'privacy';
                                 Email me when my account is signed in to from a browser or device I have not used before. You will not be emailed when your browser updates, or when your network address changes.
                             </div>
                         </div>
+
+                        <?php foreach ((array) ($this->mailingLists ?? []) as $choice):
+    $listId  = 'list-' . preg_replace('/[^a-z0-9_-]/i', '', (string) $choice['list']);
+    $checked = in_array($choice['status'], ['confirmed', 'pending'], true);
+?>
+                        <div class="mb-4">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" role="switch"
+                                       id="<?php echo $listId; ?>" name="lists[<?php echo htmlspecialchars((string) $choice['list'], ENT_QUOTES); ?>]" value="1"
+                                       <?php echo $checked ? 'checked' : ''; ?>>
+                                <label class="form-check-label fw-semibold" for="<?php echo $listId; ?>">
+                                    <?php echo htmlspecialchars((string) $choice['label'], ENT_QUOTES); ?>
+                                </label>
+                            </div>
+                            <div class="form-text ms-4">
+                                <?php echo htmlspecialchars((string) $choice['description'], ENT_QUOTES); ?>
+                                <?php if ($choice['status'] === 'pending'): ?>
+                                    <strong>Waiting for you to confirm: check your inbox for the link.</strong>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+                        <?php endforeach; ?>
 
                         <button type="submit" class="btn btn-primary">Save Preferences</button>
                         <?php

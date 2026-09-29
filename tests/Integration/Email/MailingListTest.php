@@ -79,6 +79,7 @@ class MailingListTest extends BaseTestCase
 
     protected function tearDown(): void
     {
+        $_POST = [];
         $this->db->queryBuilder()->table(MailingList::TABLE)->where('email', $this->address)->delete();
         $this->db->queryBuilder()->table('pramnos.emailoptouts')->whereRaw('LOWER(email) = ?', [$this->address])->delete();
         MailTypes::reset();
@@ -345,5 +346,97 @@ class MailingListTest extends BaseTestCase
 
         $this->expectException(\InvalidArgumentException::class);
         new MailType('broken', 'Broken', '', '', true);
+    }
+
+    // ── The account screen and the preferences page ─────────────────────────────
+
+    /**
+     * The account screen lists the opt-in lists, off until joined, and says when one is pending.
+     *
+     * Off by default, as consent to marketing has to be; "pending" is shown as such, because
+     * "check your inbox" is not "off".
+     */
+    public function testTheAccountScreenListsTheOptInListsWithTheirState(): void
+    {
+        // Arrange — the newsletter pending; the digest is not opt-in, so it is not listed
+        $this->lists()->subscribe('newsletter', $this->address);
+        $account = $this->account();
+        $user    = (object) ['userid' => 555001, 'email' => $this->address];
+
+        // Act
+        $choices = (new \ReflectionMethod($account, 'mailingListChoices'))->invoke($account, $user);
+
+        // Assert
+        $this->assertSame([[
+            'list' => 'newsletter', 'label' => 'Newsletter', 'description' => 'News, monthly.', 'status' => 'pending',
+        ]], $choices);
+    }
+
+    /**
+     * Ticking the box with a verified address subscribes it at once; unticking leaves.
+     *
+     * A verified address needs no mail to prove what is already proved. Unticking is the same as
+     * the unsubscribe link, so the opt-out is recorded too.
+     */
+    public function testTheAccountScreenJoinsAndLeaves(): void
+    {
+        // Arrange
+        $account = $this->account();
+        $save    = new \ReflectionMethod($account, 'saveMailingLists');
+        $user    = (object) ['userid' => 555001, 'email' => $this->address, 'validated' => 1, 'language' => 'el'];
+
+        // Act — tick, then untick
+        $_POST = ['lists' => ['newsletter' => '1']];
+        $save->invoke($account, $user);
+        $joined = $this->row();
+        $_POST = [];
+        $save->invoke($account, $user);
+
+        // Assert
+        $this->assertSame(MailingList::CONFIRMED, $joined['status']);
+        $this->assertSame('account', $joined['source']);
+        $this->assertSame('News, monthly.', $joined['consent_text']);
+        $this->assertSame(MailingList::UNSUBSCRIBED, $this->row()['status']);
+        $this->assertTrue(Unsubscribe::isOptedOut($this->address, 'newsletter'));
+    }
+
+    /**
+     * The preferences page shows an opt-in list as off until confirmed, and turning it back on
+     * from there subscribes at once — the link is signed for the address.
+     */
+    public function testThePreferencesPageTreatsAnOptInListAsOffUntilJoined(): void
+    {
+        // Arrange
+        $page = new class extends \Pramnos\Application\Controllers\Unsubscribe {
+            public function __construct()
+            {
+            }
+
+            public function prefs(string $email): string
+            {
+                return $this->preferences($email);
+            }
+
+            public function turnOn(string $email, string $list): bool
+            {
+                return $this->optIn($email, $list);
+            }
+        };
+
+        // Act
+        $before = $page->prefs($this->address);
+        $on     = $page->turnOn($this->address, 'newsletter');
+
+        // Assert
+        $this->assertMatchesRegularExpression('/Newsletter<\/strong> — <span class="off">not receiving/', $before);
+        $this->assertTrue($on);
+        $this->assertTrue($this->lists()->isSubscribed('newsletter', $this->address));
+        $this->assertSame('preferences', $this->row()['source']);
+        $this->assertStringContainsString('Newsletter</strong> — receiving', $page->prefs($this->address));
+    }
+
+    private function account(): \Pramnos\Auth\Controllers\Account
+    {
+        return (new \ReflectionClass(\Pramnos\Auth\Controllers\Account::class))->newInstanceWithoutConstructor();
     }
 }

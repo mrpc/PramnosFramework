@@ -4,6 +4,7 @@
  *
  * Variables:
  *   $this->privacySettings — array {analytics: bool, marketing: bool, notifysignin: bool}
+ *   $this->mailingLists    — opt-in lists: list<array{list, label, description, status}>
  *   $this->routeBase       — Account controller route base
  */
 $routeBase = $this->routeBase ?? 'Account';
@@ -85,6 +86,28 @@ $this->activeNav = 'privacy';
                                 </div>
                             </label>
                         </div>
+
+                        <?php foreach ((array) ($this->mailingLists ?? []) as $choice):
+    $listId  = 'list-' . preg_replace('/[^a-z0-9_-]/i', '', (string) $choice['list']);
+    $checked = in_array($choice['status'], ['confirmed', 'pending'], true);
+?>
+                        <div class="form-group" style="margin-bottom:24px">
+                            <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer">
+                                <input type="checkbox" id="<?php echo $listId; ?>" name="lists[<?php echo htmlspecialchars((string) $choice['list'], ENT_QUOTES); ?>]" value="1"
+                                       style="margin-top:3px"
+                                       <?php echo $checked ? 'checked' : ''; ?>>
+                                <div>
+                                    <strong><?php echo htmlspecialchars((string) $choice['label'], ENT_QUOTES); ?></strong>
+                                    <p style="font-size:.85em;color:#666;margin:4px 0 0">
+                                        <?php echo htmlspecialchars((string) $choice['description'], ENT_QUOTES); ?>
+                                        <?php if ($choice['status'] === 'pending'): ?>
+                                            <strong>Waiting for you to confirm: check your inbox for the link.</strong>
+                                        <?php endif; ?>
+                                    </p>
+                                </div>
+                            </label>
+                        </div>
+                        <?php endforeach; ?>
 
                         <button type="submit" class="btn btn-primary">Save Preferences</button>
                         <?php
