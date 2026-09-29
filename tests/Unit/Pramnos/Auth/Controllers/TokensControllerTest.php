@@ -86,7 +86,9 @@ class TokensControllerTest extends BaseTestCase
         // DELETE, not TRUNCATE: the real users table is referenced by the
         // userstogroups FK, which makes TRUNCATE fail on MySQL.
         $db->query("DELETE FROM `#PREFIX#users` WHERE `userid` = 1");
-        $db->query("TRUNCATE TABLE `applications`");
+        // DELETE for the same reason: migrated tables such as application settings hold a
+        // foreign key to `applications`, and MySQL refuses to TRUNCATE a referenced table.
+        $db->query("DELETE FROM `applications`");
 
         $db->query("INSERT INTO `#PREFIX#users` (`userid`, `username`, `email`) VALUES (1, 'testuser', 'test@test.com')");
         $db->query("INSERT INTO `applications` (`appid`, `name`, `apikey`, `apisecret`) VALUES (100, 'Test App', 'dummy_key', 'dummy_secret')");

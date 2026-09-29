@@ -61,18 +61,17 @@ class ScopesPostgreSQLIntegrationTest extends TestCase
         }
 
         $this->testAppIds = [];
-        // Drop any leftover table from a previous interrupted run, then recreate
-        // with the limited schema needed for these tests.
-        $this->db->query('DROP TABLE IF EXISTS "applications"');
         $this->ensureApplicationsTable();
     }
 
     protected function tearDown(): void
     {
-        // Drop the limited-schema table created in setUp() so it does not
-        // interfere with FrameworkMigrationsPostgreSQLTest, which expects the
-        // full applications schema after running the authserver migration up().
-        $this->db->query('DROP TABLE IF EXISTS "applications"');
+        // Only this test's rows. The table is shared: application settings, stats and webhook
+        // endpoints hold foreign keys to it, so dropping it fails once any of them exists — and
+        // replacing it with a narrower copy broke every later test that expected the real one.
+        if ($this->testAppIds !== []) {
+            $this->db->queryBuilder()->table('applications')->whereIn('appid', $this->testAppIds)->delete();
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -80,18 +79,13 @@ class ScopesPostgreSQLIntegrationTest extends TestCase
     // -------------------------------------------------------------------------
 
     /**
-     * Ensure the applications table exists with a minimal schema for PostgreSQL.
+     * The canonical `applications`, from the migrations that build it in production.
+     *
+     * Built if absent and never replaced — see Testing\Schema for why a hand-rolled copy is a trap.
      */
     private function ensureApplicationsTable(): void
     {
-        $this->db->query('CREATE TABLE IF NOT EXISTS "applications" (
-            "appid"     SERIAL PRIMARY KEY,
-            "name"      VARCHAR(191) NOT NULL,
-            "apikey"    VARCHAR(191) NOT NULL,
-            "apisecret" VARCHAR(191) NOT NULL DEFAULT \'\',
-            "status"    INT NOT NULL DEFAULT 0,
-            "scope"     TEXT NULL
-        )');
+        \Pramnos\Framework\Testing\Schema::table('applications', $this->db);
     }
 
     /**

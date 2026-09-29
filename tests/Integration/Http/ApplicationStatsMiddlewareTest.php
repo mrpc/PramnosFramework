@@ -30,6 +30,9 @@ class ApplicationStatsMiddlewareTest extends BaseTestCase
 
     private int $appId = 0;
 
+    /** @var array<string, bool> Whether this test created each table, and so must drop it. */
+    private array $built = [];
+
     protected function setUp(): void
     {
         if (!defined('CONFIG')) {
@@ -49,6 +52,12 @@ class ApplicationStatsMiddlewareTest extends BaseTestCase
         }
 
         Schema::table('applications', $this->db);
+        // Remembered so tearDown removes only what this test built: both tables hold a foreign
+        // key to `applications`, and a suite that drops or truncates `applications` elsewhere
+        // cannot do it while they are left behind.
+        foreach (['applications.application_settings', 'applications.application_stats'] as $table) {
+            $this->built[$table] = !$this->db->schema()->hasTable($table);
+        }
         $this->runMigrations([
             \Pramnos\Framework\Migrations\AuthServer\CreateApplicationsSchema::class,
             \Pramnos\Framework\Migrations\Applications\CreateApplicationSettingsTable::class,
@@ -67,6 +76,13 @@ class ApplicationStatsMiddlewareTest extends BaseTestCase
         $this->db->queryBuilder()->table('applications.application_stats')->where('appid', $this->appId)->delete();
         $this->db->queryBuilder()->table('applications')->where('appid', $this->appId)->delete();
         unset($_SERVER['CONTENT_LENGTH']);
+
+        // Stats first: nothing else references it, and on TimescaleDB it is a hypertable.
+        foreach (['applications.application_stats', 'applications.application_settings'] as $table) {
+            if ($this->built[$table] ?? false) {
+                $this->db->schema()->dropIfExists($table);
+            }
+        }
 
         parent::tearDown();
     }

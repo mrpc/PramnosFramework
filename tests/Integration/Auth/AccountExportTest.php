@@ -111,18 +111,9 @@ class AccountExportTest extends BaseTestCase
         $this->db->query('SET FOREIGN_KEY_CHECKS = 0');
         $this->db->query("DROP TABLE IF EXISTS `{$p}applications`");
         $this->db->query('SET FOREIGN_KEY_CHECKS = 1');
-        $this->db->query("CREATE TABLE `{$p}applications` (
-            `appid` INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-            `name` VARCHAR(255) NOT NULL DEFAULT '',
-            `apikey` VARCHAR(255) NOT NULL DEFAULT '',
-            `apisecret` VARCHAR(255) NOT NULL DEFAULT '',
-            `description` TEXT NULL,
-            `status` TINYINT NOT NULL DEFAULT 1,
-            -- Present in the real table since it was created; absent here, which
-            -- is why a query selecting it failed in the fixture and not in an
-            -- application.
-            `url` VARCHAR(500) NULL
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        // The canonical `applications`, not a copy with the six columns the collectors read: the
+        // table is shared, and the copy was left behind for every later test to insert into.
+        \Pramnos\Framework\Testing\Schema::table('applications', $this->db);
 
         $this->db->query("CREATE TABLE IF NOT EXISTS `{$p}authserver_oauth2_user_consents` (
             `id` bigint AUTO_INCREMENT PRIMARY KEY,
