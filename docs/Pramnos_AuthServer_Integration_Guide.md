@@ -526,6 +526,23 @@ grant_type=authorization_code
 You receive an `access_token` (and an `id_token` when `openid` was requested).
 Fetch profile claims from `GET /oauth/userinfo` with the access token.
 
+### Binding the token to one resource
+
+Add `resource` to the token request (RFC 8707) when the token is for one endpoint of this server
+— an MCP client always does:
+
+```
+POST /oauth/token
+grant_type=authorization_code&code=…&code_verifier=…&redirect_uri=…&client_id=…
+&resource=https://example.com/api/1.0/mcp
+```
+
+The access token's `aud` becomes `["<client_id>", "https://example.com/api/1.0/mcp"]`, and an
+endpoint that checks its audience — the MCP endpoint does — refuses a token bound to anything
+else. The resource must be an absolute URI on this server's own origin with no fragment;
+anything else is `400 invalid_target`, not silently ignored. Without `resource` the token is
+bound to no resource and `aud` is the client id alone.
+
 ### Your client secret is required, on every grant
 
 If a secret is registered for your client, the token endpoint will not

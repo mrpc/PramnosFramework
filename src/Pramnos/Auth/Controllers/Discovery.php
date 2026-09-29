@@ -305,6 +305,28 @@ class Discovery extends Controller
     }
 
     /**
+     * Is this URI one of this site's own protected resources?
+     *
+     * What a `resource` parameter (RFC 8707) may name here: an absolute URI on this site's
+     * origin, with no fragment. This server issues tokens for its own endpoints only, so a
+     * resource anywhere else is `invalid_target` — a token audience-bound to another host is a
+     * token this server cannot vouch that host will honour.
+     */
+    public static function isOwnResource(string $uri): bool
+    {
+        $parts = parse_url($uri);
+
+        if (!is_array($parts) || isset($parts['fragment']) || !isset($parts['scheme'], $parts['host'])) {
+            return false;
+        }
+
+        $origin = strtolower($parts['scheme'] . '://' . $parts['host'])
+            . (isset($parts['port']) ? ':' . $parts['port'] : '');
+
+        return self::origin() !== '' && $origin === strtolower(self::origin());
+    }
+
+    /**
      * `scheme://host[:port]` of the site, with no path.
      *
      * The well-known location is defined against the host, not the directory a site is served
@@ -314,7 +336,7 @@ class Discovery extends Controller
      * `/.well-known/oauth-protected-resource/*` to it — the scaffolded `.htaccess` sits in the
      * subdirectory and will not see it.
      */
-    private static function origin(): string
+    public static function origin(): string
     {
         $parts = parse_url(\Pramnos\Http\SiteUrl::get());
 

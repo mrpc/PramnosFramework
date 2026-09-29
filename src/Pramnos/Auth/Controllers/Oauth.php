@@ -282,6 +282,24 @@ class Oauth extends Controller
                 ->withHeader('Pragma', 'no-cache');
         }
 
+        /*
+         * RFC 8707: a client may say which resource the token is for, and an MCP client always
+         * does. The resource goes into the token's `aud`, so the endpoint can refuse a token that
+         * was issued for another one. A resource that is not this site's own is refused rather
+         * than ignored — ignoring it would hand back a token the client believes is bound when
+         * it is not.
+         */
+        $resource = $_POST['resource'] ?? null;
+        if ($resource !== null) {
+            if (!is_string($resource) || !Discovery::isOwnResource($resource)) {
+                return $this->respondJson([
+                    'error'             => 'invalid_target',
+                    'error_description' => 'The resource is not one this server issues tokens for.',
+                ], 400, ['endpoint' => 'token']);
+            }
+            $this->oauth2Factory->forResource(rtrim($resource, '/'));
+        }
+
         try {
             $psrFactory  = new Psr17Factory();
             $psrRequest  = $this->buildPsrServerRequest($psrFactory);
@@ -1490,8 +1508,19 @@ class Oauth extends Controller
     // ── Auth code generation ──────────────────────────────────────────────────
 
     /**
-     * Generate an authorization code and store it in the DB.
-     * Returns the opaque code string.
+     * Issue an authorization code the token endpoint can redeem.
+     *
+     * The code is **League's**: an encrypted payload naming the client, user, scopes, redirect
+     * URI and PKCE challenge, whose row `AuthCodeRepository` writes. `/oauth/token` hands every
+     * code to League's `AuthCodeGrant`, which decrypts it — so a code in any other form is
+     * refused there with `Cannot decrypt the authorization code`, after the person has already
+     * approved the consent screen.
+     *
+     * This controller validates the request itself (client, redirect URI, scopes, PKCE format)
+     * and only then asks League to issue, so nothing League would add at validation — its own
+     * redirect-URI rules, its public-client PKCE requirement — changes who gets a code.
+     *
+     * @throws \RuntimeException when the client does not exist or is inactive
      */
     private function generateAuthCode(
         string $clientId,
@@ -1501,51 +1530,45 @@ class Oauth extends Controller
         ?string $codeChallenge       = null,
         ?string $codeChallengeMethod = null
     ): string {
-        $code    = bin2hex(random_bytes(32));
-        $expires = time() + 600; // 10 minutes
+        $this->oauth2Factory ??= new OAuth2ServerFactory($this);
 
-        $db = \Pramnos\Framework\Factory::getDatabase();
-
-        // Get application ID from client_id (apikey)
-        $appResult = $db->queryBuilder()
-            ->table('#PREFIX#applications')
-            ->select('appid')
-            ->where('apikey', $clientId)
-            ->where('status', 1)
-            ->first();
-
-        if (!$appResult || $appResult->numRows == 0) {
+        $client = (new \Pramnos\Auth\OAuth2\Repositories\ClientRepository($this))->getClientEntity($clientId);
+        if ($client === null) {
             throw new \RuntimeException('Invalid client');
         }
-        $appId = (int) $appResult->fields['appid'];
 
-        $db->queryBuilder()
-            ->table('#PREFIX#usertokens')
-            ->insert([
-                'token'               => $code,
-                'userid'              => $userId,
-                'applicationid'       => $appId,
-                'tokentype'           => 'auth_code',
-                'scope'               => $scope,
-                'notes'               => $redirectUri,
-                'code_challenge'      => $codeChallenge       ?? '',
-                'code_challenge_method' => $codeChallengeMethod ?? 'plain',
-                'expires'             => $expires,
-                'status'              => 1,
-                'created'             => time(),
-                /*
-                 * **Not optional, despite carrying nothing.** `usertokens.deviceinfo` is
-                 * `TEXT NOT NULL`, and MySQL cannot give a TEXT column a default — so
-                 * omitting it was refused outright under strict mode with `Field
-                 * 'deviceinfo' doesn't have a default value`, and this endpoint could not
-                 * issue an authorization code at all. Every other writer of this table
-                 * already passed `''`; this one did not, and the fixtures it was tested
-                 * against declared the column nullable, so nothing said so.
-                 */
-                'deviceinfo'          => '',
-            ]);
+        $user = new \Pramnos\Auth\OAuth2\Entities\UserEntity();
+        $user->setIdentifier((string) $userId);
 
-        return $code;
+        // Scopes this server does not define are dropped rather than refused: the consent
+        // screen already showed the person what was being granted, from the same table.
+        $scopeRepository = $this->oauth2Factory->makeScopeRepository();
+        $scopes = [];
+        foreach (\Pramnos\User\Token::parseScopes($scope) as $identifier) {
+            $entity = $scopeRepository->getScopeEntityByIdentifier($identifier);
+            if ($entity !== null) {
+                $scopes[] = $entity;
+            }
+        }
+
+        $request = new \League\OAuth2\Server\RequestTypes\AuthorizationRequest();
+        $request->setGrantTypeId('authorization_code');
+        $request->setClient($client);
+        $request->setUser($user);
+        $request->setScopes($scopes);
+        $request->setRedirectUri($redirectUri);
+        if ($codeChallenge !== null && $codeChallenge !== '') {
+            $request->setCodeChallenge($codeChallenge);
+            $request->setCodeChallengeMethod($codeChallengeMethod ?: 'plain');
+        }
+        $request->setAuthorizationApproved(true);
+
+        $redirect = $this->oauth2Factory->createAuthorizationServer()
+            ->completeAuthorizationRequest($request, (new Psr17Factory())->createResponse());
+
+        parse_str((string) parse_url($redirect->getHeaderLine('Location'), PHP_URL_QUERY), $query);
+
+        return (string) ($query['code'] ?? '');
     }
 
     // ── User helpers ──────────────────────────────────────────────────────────

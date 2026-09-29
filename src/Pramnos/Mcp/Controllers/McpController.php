@@ -71,7 +71,9 @@ class McpController extends Controller
 
         $user = $this->authenticatedUser();
 
-        if ($user === null) {
+        // A token bound to another resource is treated as no token: the client is sent back
+        // to get one for this endpoint, which is what the 401 says how to do.
+        if ($user === null || !$this->tokenIsForThisEndpoint()) {
             return $this->unauthenticated();
         }
 
@@ -206,9 +208,54 @@ class McpController extends Controller
      */
     protected function resourceMetadataUrl(): string
     {
-        $path = (string) parse_url((string) ($_SERVER['REQUEST_URI'] ?? ''), PHP_URL_PATH);
+        return \Pramnos\Auth\Controllers\Discovery::protectedResourceMetadataUrl($this->endpointPath());
+    }
 
-        return \Pramnos\Auth\Controllers\Discovery::protectedResourceMetadataUrl($path);
+    /**
+     * Was the caller's token issued for this endpoint — or for no resource in particular?
+     *
+     * RFC 8707 puts the resource a token was requested for into its `aud`, and the MCP
+     * authorization spec requires the server to check it: otherwise a token a client obtained
+     * for some other resource — and passed on, or had taken — works here too.
+     *
+     * A token whose `aud` names no URL at all is not bound to a resource and is accepted. Every
+     * token this framework issued before resource binding existed is one of those (their `aud`
+     * is a client id), and so is one requested without `resource`, `mcp:token`'s included.
+     * Refusing them would break every connection configured by hand.
+     */
+    protected function tokenIsForThisEndpoint(): bool
+    {
+        $token = \Pramnos\Http\Request::accessToken();
+        if ($token === null) {
+            return true;
+        }
+
+        // The signature was verified by the middleware that identified the caller; this reads
+        // a claim of a token already accepted, it does not decide whether to accept it.
+        $segments = explode('.', $token);
+        $claims   = json_decode((string) base64_decode(strtr($segments[1] ?? '', '-_', '+/')), true);
+        $audience = is_array($claims) ? (array) ($claims['aud'] ?? []) : [];
+
+        $resources = array_map(
+            static fn (string $uri): string => rtrim($uri, '/'),
+            array_filter($audience, static fn ($aud): bool => is_string($aud) && str_contains($aud, '://'))
+        );
+
+        if ($resources === []) {
+            return true;
+        }
+
+        return in_array(
+            \Pramnos\Auth\Controllers\Discovery::origin() . '/' . $this->endpointPath(),
+            $resources,
+            true
+        );
+    }
+
+    /** This endpoint's path from the host root, without slashes at either end. */
+    private function endpointPath(): string
+    {
+        return trim((string) parse_url((string) ($_SERVER['REQUEST_URI'] ?? ''), PHP_URL_PATH), '/');
     }
 
     /**

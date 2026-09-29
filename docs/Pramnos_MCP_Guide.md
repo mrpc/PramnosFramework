@@ -1420,6 +1420,13 @@ The address is the RFC 9728 §3.1 path-suffixed form, built from the **site's** 
 than from the API's `sURL`, and the document there answers with the endpoint itself as its
 `resource` — clients check that it matches the URL they were given.
 
+**A token issued for another resource is refused.** An MCP client sends
+`resource=https://example.com/api/1.0/mcp` on the token request (RFC 8707), and the token's `aud`
+then names that URL beside the client id. The endpoint accepts a token whose `aud` names it, and
+one whose `aud` names no URL at all — every token requested without `resource`, `mcp:token`'s
+included, so a connection configured by hand keeps working. A token bound only to some other
+resource gets the same `401` as no token, which sends the client to get one for this endpoint.
+
 ### Connecting Claude.ai, ChatGPT or any remote MCP client
 
 The person pastes `https://example.com/api/1.0/mcp` into the assistant's connector settings.
@@ -1431,7 +1438,7 @@ The assistant then does the rest, and every step has to answer:
 | Read the resource metadata | `/.well-known/oauth-protected-resource/api/1.0/mcp` | The scaffolded `.htaccess` rule that passes the suffix to `Discovery` |
 | Read the server metadata | `/.well-known/oauth-authorization-server` | Lists `code_challenge_methods_supported` and `none` among the auth methods |
 | Register itself | `POST /oauth/register` | `'oauth_dynamic_registration' => true` in `app.php` |
-| Sign in, consent, exchange | `/oauth/authorize`, `/oauth/token` | The ordinary code flow with PKCE |
+| Sign in, consent, exchange | `/oauth/authorize`, `/oauth/token` | The ordinary code flow with PKCE; `resource` binds the token to the endpoint |
 
 A project scaffolded with `authserver` has all of it. An older one needs two lines — the
 registration switch in `app/app.php`, and this rule beside the other well-known rules in

@@ -386,6 +386,58 @@ class FullAuthorizationCodeFlowTest extends TestCase
         }
     }
 
+    /**
+     * A code issued by the framework's own `/oauth/authorize` is redeemable at `/oauth/token`.
+     *
+     * The controller used to write a raw hex code to `usertokens` itself, while the token
+     * endpoint hands every code to League's `AuthCodeGrant`, which decrypts it — so every code
+     * the authorization endpoint ever issued was refused with *Cannot decrypt the authorization
+     * code*, after the person had approved the consent screen. Nothing noticed because the other
+     * tests here drive League's own authorize step, never the controller's.
+     *
+     * The exchange also carries `resource` (RFC 8707), as an MCP client's does, and the token's
+     * `aud` must name it beside the client id — that is what lets the MCP endpoint refuse a
+     * token issued for something else.
+     */
+    public function testACodeFromTheControllerIsRedeemedAndBoundToTheResource(): void
+    {
+        // Arrange — the controller and the token endpoint share one factory, as they share
+        // one installation's keys in production
+        $factory = $this->factory();
+        $oauth   = (new \ReflectionClass(\Pramnos\Auth\Controllers\Oauth::class))->newInstanceWithoutConstructor();
+        $oauth->application = $this->app;
+        (new \ReflectionProperty($oauth, 'oauth2Factory'))->setValue($oauth, $factory);
+
+        $verifier  = rtrim(strtr(base64_encode(random_bytes(32)), '+/', '-_'), '=');
+        $challenge = rtrim(strtr(base64_encode(hash('sha256', $verifier, true)), '+/', '-_'), '=');
+
+        $code = (new \ReflectionMethod($oauth, 'generateAuthCode'))->invoke(
+            $oauth, self::CLIENT_ID, self::USER_ID, 'read', self::REDIRECT_URI, $challenge, 'S256'
+        );
+
+        // Act — the exchange, for a resource
+        $resource = 'https://self.test/api/1.0/mcp';
+        $response = $factory->forResource($resource)->createAuthorizationServer()->respondToAccessTokenRequest(
+            (new ServerRequest('POST', 'https://self.test/oauth/token'))->withParsedBody([
+                'grant_type'    => 'authorization_code',
+                'client_id'     => self::CLIENT_ID,
+                'client_secret' => self::CLIENT_SECRET,
+                'code'          => $code,
+                'redirect_uri'  => self::REDIRECT_URI,
+                'code_verifier' => $verifier,
+            ]),
+            new Psr7Response()
+        );
+        $tokens = json_decode((string) $response->getBody(), true);
+
+        // Assert — redeemed, accepted, and audience-bound to both the client and the resource
+        $this->assertSame(200, $response->getStatusCode(), (string) $response->getBody());
+        $this->assertTrue($this->tokenIsAccepted((string) $tokens['access_token']));
+
+        $claims = json_decode((string) base64_decode(strtr(explode('.', $tokens['access_token'])[1], '-_', '+/')), true);
+        $this->assertSame([self::CLIENT_ID, $resource], $claims['aud']);
+    }
+
     // -------------------------------------------------------------------------
     // The bridge, and the fixtures
     // -------------------------------------------------------------------------

@@ -20,8 +20,14 @@ class AccessTokenRepository implements AccessTokenRepositoryInterface
 {
     private \Pramnos\Application\Controller $controller;
 
-    public function __construct(\Pramnos\Application\Controller $controller)
-    {
+    /**
+     * @param string|null $resource The resource (RFC 8707) every token this repository hands
+     *                              out is for — the `resource` of the token request in hand.
+     */
+    public function __construct(
+        \Pramnos\Application\Controller $controller,
+        private readonly ?string $resource = null
+    ) {
         $this->controller = $controller;
     }
 
@@ -41,6 +47,7 @@ class AccessTokenRepository implements AccessTokenRepositoryInterface
         $token = new AccessTokenEntity();
         $token->setClient($clientEntity);
         $token->setUserIdentifier($userIdentifier);
+        $token->setResource($this->resource);
         foreach ($scopes as $scope) {
             $token->addScope($scope);
         }

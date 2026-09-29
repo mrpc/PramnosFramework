@@ -40,6 +40,7 @@ class OAuth2ServerFactory
     private string $publicKeyPath;
     private string $encryptionKey;
     private \Pramnos\Application\Controller $controller;
+    private ?string $resource = null;
 
     /**
      * Where the signing key pair lives when nothing says otherwise.
@@ -83,7 +84,7 @@ class OAuth2ServerFactory
     {
         $clientRepo       = new ClientRepository($this->controller);
         $scopeRepo        = new ScopeRepository();
-        $accessTokenRepo  = new AccessTokenRepository($this->controller);
+        $accessTokenRepo  = new AccessTokenRepository($this->controller, $this->resource);
         $authCodeRepo     = new AuthCodeRepository($this->controller);
         $refreshTokenRepo = new RefreshTokenRepository($this->controller);
         $userRepo         = new UserRepository();
@@ -118,6 +119,22 @@ class OAuth2ServerFactory
         $server->enableGrantType($refreshTokenGrant, new \DateInterval('PT1H'));
 
         return $server;
+    }
+
+    /**
+     * Issue the tokens of the next authorization server for one resource (RFC 8707).
+     *
+     * The resource is added to each access token's `aud`, beside the client id. A method
+     * rather than a parameter of {@see createAuthorizationServer()}, so an application that
+     * overrides that method keeps loading.
+     *
+     * @param string|null $resource An absolute URI the caller has already validated, or null.
+     */
+    public function forResource(?string $resource): static
+    {
+        $this->resource = $resource;
+
+        return $this;
     }
 
     /**
