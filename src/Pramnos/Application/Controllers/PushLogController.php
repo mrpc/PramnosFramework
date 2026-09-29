@@ -32,6 +32,9 @@ use Pramnos\Push\Log;
  */
 class PushLogController extends Controller
 {
+    /** The administration ability that opens this screen — its menu item's id. */
+    protected string $adminAbility = 'admin.pushlog';
+
     /** Minimum usertype. The same floor as the email history it sits beside. */
     protected int $requiredUserType = 80;
 

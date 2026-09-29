@@ -27,6 +27,9 @@ use Pramnos\Application\Controller;
  */
 class TokenActionsController extends Controller
 {
+    /** The administration ability that opens this screen — its menu item's id. */
+    protected string $adminAbility = 'admin.tokenactions';
+
     /** Minimum usertype to access any token-actions action. */
     protected int $requiredUserType = 80;
 

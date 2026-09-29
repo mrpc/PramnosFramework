@@ -16,6 +16,9 @@ use Pramnos\Logs\Logger;
  */
 class LogController extends Controller
 {
+    /** The administration ability that opens this screen — its menu item's id. */
+    protected string $adminAbility = 'admin.logs';
+
     /**
      * Send header (wrapper for testing)
      */

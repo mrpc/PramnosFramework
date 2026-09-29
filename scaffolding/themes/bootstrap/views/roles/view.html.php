@@ -60,6 +60,7 @@ $role = $this->role;
             </table>
         </div>
     </div>
+    <?php $this->insert('../partials/admin_screens'); ?>
     <div class="card mb-4">
         <div class="card-header fw-semibold">Held by <?php echo count($this->holders ?? []); ?> user(s)</div>
         <div class="card-body">

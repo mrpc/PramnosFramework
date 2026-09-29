@@ -620,6 +620,75 @@ Routes with no permissions declared are never refused here.
 
 ---
 
+## Administration screens: by usertype or by permission
+
+Every screen in the administration area has an **ability named after its menu item** —
+`admin.users`, `admin.roles`, `admin.logs` — declared on its controller:
+
+```php
+class Reports extends \Pramnos\Application\Controller
+{
+    protected string $adminAbility = 'admin.reports';   // the NavItem's id
+    protected int $requiredUserType = 80;               // the floor, for usertype mode
+}
+```
+
+`Controller::exec()` checks it before **any** action runs, so an action that forgets its own
+check is still behind it. The menu item and the screen ask the same question by the same name,
+so a link cannot show a screen that refuses, or hide one that opens.
+
+Which question that is depends on one setting, **`admin_access`**:
+
+| `admin_access` | A screen opens for | Two administrators at 90 |
+| --- | --- | --- |
+| `usertype` (default) | anybody at or above the screen's `$requiredUserType` | see the same area |
+| `permissions` | whoever holds the screen's ability — granted to them or to a role they hold | see what each was given |
+
+Under `permissions`:
+
+- **Nothing granted means closed.** Unlike an ordinary menu permission, silence is a no here:
+  the grant *is* the access.
+- **The superuser opens everything** — usertype at or above `admin_superuser_usertype`, **98**
+  unless set — so switching modes before granting anything cannot lock the last administrator out.
+- **A refused screen sends you to the first one you may open**, with a message, rather than out
+  of the area.
+- The area's own floor, `admin.min_usertype`, still applies on top — somebody below it does not
+  reach any screen, whatever they hold.
+
+### Granting screens
+
+The **Administration screens** panel on a **user's** page grants screens to that person; the
+same panel on a **role's** page grants them to everyone holding the role. On a user's page a
+second column shows what they can open in the end — through their roles and usertype as well.
+
+The panel can be changed by the superuser or by somebody holding `admin.permissions`, and only
+for the screens that editor can open themselves: a grant is the access, so handing out one you do
+not hold would go round every other check.
+
+In code, the same rows:
+
+```php
+use Pramnos\Auth\AdminAccess;
+
+AdminAccess::setGrants('role', $supportRoleId, ['admin.users', 'admin.logs'], $whatTheEditorMayGrant);
+AdminAccess::grantsFor('user', 42);                  // ['admin.users']
+AdminAccess::allows($user, 'admin.roles', 90);       // what the screen will answer
+```
+
+A grant is an `allow` row in `authserver.permissions` — object `admin.users`, action `view`, no
+record id. `setGrants()` touches only those; a deny written on the Permissions screen stays, and
+wins.
+
+### An application's own screens
+
+Register the menu item in the Admin section and declare the same id on the controller. It then
+appears in the panel, is granted like the framework's own, and is guarded in `exec()`. A screen
+with public actions on the same controller — a monitor endpoint — lists them in
+`$adminPublicActions`. `AdminScreensDeclareAnAbilityTest` fails when a framework screen and its
+menu item disagree.
+
+---
+
 ## Navigation
 
 `NavRegistry` hides menu items the user may not use. Its rule is the same three-valued one,
@@ -631,6 +700,9 @@ and its docblock is worth quoting because the edge case is the whole design:
 | permission set | no | — | kept |
 | permission set | yes | explicitly denied | removed |
 | permission set | yes | no rule for it | **kept — silence is not a deny** |
+
+An Admin item under `admin_access = permissions` is the exception: it is shown only when its
+ability is granted — see [Administration screens](#administration-screens-by-usertype-or-by-permission).
 
 A menu that vanished because nobody had granted anything yet would look like a broken
 install, which is exactly what happened before the framework had a permission system.

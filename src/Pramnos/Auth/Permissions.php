@@ -274,6 +274,19 @@ class Permissions extends \Pramnos\Framework\Base
     }
 
     /**
+     * Forget every answer this instance and the query cache hold.
+     *
+     * For code that writes `authserver.permissions` itself rather than through
+     * {@see allow()} / {@see deny()}, which already do this — without it, the request that
+     * changed a grant keeps reading the old one from memory.
+     */
+    public function clearCache(): void
+    {
+        $this->_cache = array();
+        $this->db()->cacheflush('permissions');
+    }
+
+    /**
      * Check if a subject has access to a privilege of an element
      * of a resource.
      * @param string $subject A user id, a group id, or whatever

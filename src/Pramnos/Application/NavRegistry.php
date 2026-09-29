@@ -88,6 +88,16 @@ class NavRegistry
     }
 
     /**
+     * Every registered item, unfiltered.
+     *
+     * @return list<NavItem>
+     */
+    public static function all(): array
+    {
+        return array_values(static::$items);
+    }
+
+    /**
      * Returns all registered item ids.
      *
      * @return string[]
@@ -108,6 +118,7 @@ class NavRegistry
      *   0. guestOnly=true    AND user is logged in          → removed  (e.g. Login link)
      *   1. requireAuth=true  AND no user logged in          → removed
      *   2. minUserType > 0   AND user->usertype < min       → removed
+     *      (an Admin item under `admin_access = permissions`: not granted → removed)
      *   3. permission set    AND explicitly denied          → removed
      *   4. permission set    AND no rule for it              → kept (silence is not a deny)
      *   5. feature set       AND feature not in $features   → removed
@@ -159,8 +170,14 @@ class NavRegistry
             return false;
         }
 
-        // Rule 2 — usertype minimum
-        if ($item->minUserType > 0) {
+        // Rule 2 — usertype minimum, or, for an administration screen under
+        // `admin_access = permissions`, the grant that opens it. The same question the
+        // screen asks, by the same name, so a link cannot show what the screen refuses.
+        if ($item->section === NavSection::Admin && \Pramnos\Auth\AdminAccess::usesPermissions()) {
+            if (!$isLoggedIn || !\Pramnos\Auth\AdminAccess::allows($user, $item->id, $item->minUserType)) {
+                return false;
+            }
+        } elseif ($item->minUserType > 0) {
             if (!$isLoggedIn || (int) $user->usertype < $item->minUserType) {
                 return false;
             }

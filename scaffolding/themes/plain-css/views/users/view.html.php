@@ -187,6 +187,8 @@ $this->activeNav = 'users_view';
             </div>
             <?php endif; ?>
 
+
+            <?php $this->insert('../partials/admin_screens'); ?>
         </div>
     </div>
 </div>

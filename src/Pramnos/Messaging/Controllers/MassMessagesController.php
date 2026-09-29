@@ -37,6 +37,9 @@ use Pramnos\Messaging\MassMessageDispatcher;
  */
 class MassMessagesController extends Controller
 {
+    /** The administration ability that opens this screen — its menu item's id. */
+    protected string $adminAbility = 'admin.massmessages';
+
     /** Minimum usertype. This screen mails everybody, so it is not for a junior operator. */
     protected int $requiredUserType = 90;
 

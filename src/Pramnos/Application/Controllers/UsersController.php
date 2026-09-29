@@ -29,6 +29,11 @@ use Pramnos\User\User;
  */
 class UsersController extends Controller
 {
+    /** The administration ability that opens this screen — its menu item's id. */
+    protected string $adminAbility = 'admin.users';
+
+    use \Pramnos\Auth\Controllers\AdminScreenGrants;
+
     /** Minimum usertype required to access this controller. */
     protected int $requiredUserType = 80;
 
@@ -42,9 +47,19 @@ class UsersController extends Controller
             // Per-user settings and per-user permissions, edited where the user is.
             'types',
             'savesetting', 'deletesetting', 'grantpermission', 'revokepermission',
-            'notify', 'sendnotification', 'signinalerts',
+            'notify', 'sendnotification', 'signinalerts', 'adminscreens',
         ]);
         parent::__construct($application);
+    }
+
+    protected function adminScreenSubject(): string
+    {
+        return 'user';
+    }
+
+    protected function adminScreenReturnUrl(int $subjectId): string
+    {
+        return adminUrl('users/view/') . $subjectId;
     }
 
     /**
@@ -114,6 +129,7 @@ class UsersController extends Controller
         $view->recentTokens = $recentTokens;
         // Everything else the framework records about this account — see userRecords().
         $view->records      = $this->userRecords($id, (string) $user->email);
+        $view->adminScreens = $this->adminScreensFor($id, $user);
         return $view->display('view');
     }
 

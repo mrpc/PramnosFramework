@@ -215,6 +215,8 @@ $fullName = trim(($user['firstname'] ?? '') . ' ' . ($user['lastname'] ?? ''));
             </div>
             <?php endif; ?>
 
+
+            <?php $this->insert('../partials/admin_screens'); ?>
         </div>
     </div>
 </div>

@@ -30,6 +30,25 @@ class Controller extends \Pramnos\Framework\Base
     protected $user_permissions = array();
 
     /**
+     * The administration ability this screen is, e.g. `admin.users` — its menu item's id.
+     *
+     * Declared by every administration screen. It makes {@see requireMinUserType()} ask
+     * {@see \Pramnos\Auth\AdminAccess} rather than compare usertypes, which under
+     * `admin_access = permissions` means the screen opens for whoever was granted it.
+     * Empty for everything that is not an administration screen.
+     */
+    protected string $adminAbility = '';
+
+    /**
+     * Actions of an administration screen that answer without its ability — a public
+     * monitor endpoint on the same controller, say. Everything else is checked by
+     * {@see exec()} before it runs.
+     *
+     * @var list<string>
+     */
+    protected array $adminPublicActions = [];
+
+    /**
      * Whether the current user may do something.
      *
      * A short form of `\Pramnos\Auth\Gate::allows()` for the place it is asked most —
@@ -333,6 +352,15 @@ class Controller extends \Pramnos\Framework\Base
     {
         if ($action === '') {
             $action = 'display';
+        }
+        // An administration screen is checked here, once, before any action runs — so an
+        // action that forgets its own check is still behind the screen's ability. The floor
+        // is the screen's own `$requiredUserType` where it declares one, which is what
+        // decides under `admin_access = usertype`.
+        if ($this->adminAbility !== ''
+            && !in_array(strtolower((string) $action), array_map('strtolower', $this->adminPublicActions), true)
+            && $this->requireMinUserType($this->adminFloor())) {
+            return null;
         }
         if ($action == 'display') {
             $this->addBreadcrumb($this->title);
@@ -864,14 +892,48 @@ class Controller extends \Pramnos\Framework\Base
      * merely not senior enough is not helped by being asked to sign in again, and being
      * asked would read as a broken session.
      *
+     * A screen that declares {@see $adminAbility} is decided by
+     * {@see \Pramnos\Auth\AdminAccess}: by this same floor under `admin_access = usertype`,
+     * by the grant under `permissions`. Refused there, somebody signed in is sent to the first
+     * administration screen they may open, with a message — not to the site root, which from
+     * inside the area reads as having been thrown out.
+     *
      * @param  int  $minType The usertype floor for this screen
      * @return bool Whether the request was refused
      */
+    /** The usertype floor {@see exec()} checks an administration screen against. */
+    protected function adminFloor(): int
+    {
+        return property_exists($this, 'requiredUserType') ? (int) $this->requiredUserType : 0;
+    }
+
     protected function requireMinUserType(int $minType): bool
     {
         $user = \Pramnos\User\User::getCurrentUser();
+        $user = $user === false ? null : $user;
 
-        if ($user === null || $user === false || (int) $user->usertype < $minType) {
+        if ($this->adminAbility !== '') {
+            if (\Pramnos\Auth\AdminAccess::allows($user, $this->adminAbility, $minType)) {
+                return false;
+            }
+
+            $landing = null;
+            if ($user !== null && \Pramnos\Auth\AdminAccess::usesPermissions()) {
+                $landing = \Pramnos\Auth\AdminAccess::landingFor(
+                    $user,
+                    (array) ($this->application->applicationInfo['features'] ?? []),
+                    $this->adminAbility
+                );
+                if ($landing !== null) {
+                    $this->addError('You do not have access to that screen.');
+                }
+            }
+            $this->redirect($landing ?? (defined('sURL') ? \sURL : '/'));
+
+            return true;
+        }
+
+        if ($user === null || (int) $user->usertype < $minType) {
             $this->redirect(defined('sURL') ? \sURL : '/');
 
             return true;

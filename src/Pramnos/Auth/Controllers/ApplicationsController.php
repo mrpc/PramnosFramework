@@ -31,6 +31,9 @@ use Pramnos\Html\Icon;
  */
 class ApplicationsController extends Controller
 {
+    /** The administration ability that opens this screen — its menu item's id. */
+    protected string $adminAbility = 'admin.applications';
+
     /** Minimum usertype to access any applications action. */
     protected int $requiredUserType = 90;
 

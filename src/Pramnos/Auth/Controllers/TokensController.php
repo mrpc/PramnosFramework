@@ -35,6 +35,9 @@ use Pramnos\Application\Controller;
  */
 class TokensController extends Controller
 {
+    /** The administration ability that opens this screen — its menu item's id. */
+    protected string $adminAbility = 'admin.tokens';
+
     /** Minimum usertype for the global, cross-user token views (display/revoke). */
     protected int $requiredUserType = 90;
 

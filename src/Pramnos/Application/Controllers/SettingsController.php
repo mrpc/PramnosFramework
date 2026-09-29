@@ -30,6 +30,9 @@ use Pramnos\Framework\Factory;
  */
 class SettingsController extends Controller
 {
+    /** The administration ability that opens this screen — its menu item's id. */
+    protected string $adminAbility = 'admin.settings';
+
     /**
      * Default login lockout policy (failed-attempts => lockout-seconds).
      * @var array<int, int>

@@ -46,6 +46,11 @@ use Pramnos\Html\Icon;
  */
 class RolesController extends Controller
 {
+    /** The administration ability that opens this screen — its menu item's id. */
+    protected string $adminAbility = 'admin.roles';
+
+    use AdminScreenGrants;
+
     /** Minimum usertype to access any roles action. */
     protected int $requiredUserType = 90;
 
@@ -53,9 +58,19 @@ class RolesController extends Controller
     {
         $this->addAuthAction([
             'display', 'data', 'view', 'edit', 'save', 'delete',
-            'members', 'addmember', 'removemember',
+            'members', 'addmember', 'removemember', 'adminscreens',
         ]);
         parent::__construct($application);
+    }
+
+    protected function adminScreenSubject(): string
+    {
+        return 'role';
+    }
+
+    protected function adminScreenReturnUrl(int $subjectId): string
+    {
+        return adminUrl('roles/view/') . $subjectId;
     }
 
     // ── Actions ───────────────────────────────────────────────────────────────
@@ -192,6 +207,7 @@ class RolesController extends Controller
         $view->organisation = $this->organizationLabel($role);
         $view->permissions  = $this->permissionsOfRole($roleId);
         $view->holders      = $this->holderRows($role);
+        $view->adminScreens = $this->adminScreensFor($roleId);
 
         return $view->display('view');
     }

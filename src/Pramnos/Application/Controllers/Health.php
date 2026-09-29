@@ -32,6 +32,12 @@ use Pramnos\User\User;
  */
 class Health extends Controller
 {
+    /** The administration ability that opens this screen — its menu item's id. */
+    protected string $adminAbility = 'admin.health';
+
+    /** The monitor endpoints answer without it: an uptime check is not signed in. */
+    protected array $adminPublicActions = ['check', 'status'];
+
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
         $this->addAuthAction(['display', 'phpinfo']);
