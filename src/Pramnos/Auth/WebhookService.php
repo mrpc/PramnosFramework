@@ -157,14 +157,124 @@ class WebhookService
     public static function permissionsChanged(string $subjectType, int $subjectId, array $context = []): void
     {
         try {
-            (new self(\Pramnos\Framework\Factory::getDatabase()))->queueEvent(
-                'permissions_changed',
-                $subjectType === 'user' ? $subjectId : null,
-                ['subject_type' => $subjectType, 'subject_id' => $subjectId] + $context
-            );
+            (new self(\Pramnos\Framework\Factory::getDatabase()))->queuePermissionsChanged($subjectType, $subjectId, $context);
         } catch (\Throwable) {
             // Invalidation is best-effort; the grant it reports has already been written.
         }
+    }
+
+    /**
+     * Queue `permissions_changed` for the applications the change concerns.
+     *
+     * A permission with an `app_id` in the context concerns that application alone. Otherwise
+     * the applications of the people affected — the user, or everybody holding the role — as
+     * the server knows them: an unexpired token, or a recorded consent. An application nobody
+     * affected has used hears nothing: it holds no cache for them.
+     *
+     * @param array<string, mixed> $context
+     * @return int Events queued
+     */
+    public function queuePermissionsChanged(string $subjectType, int $subjectId, array $context = []): int
+    {
+        $appId = (int) ($context['app_id'] ?? 0);
+        $apps  = $appId > 0
+            ? [$appId]
+            : $this->applicationsOf($subjectType === 'role' ? $this->holdersOf($subjectId) : [$subjectId]);
+
+        return $this->queueEventForApplications(
+            'permissions_changed',
+            $subjectType === 'user' ? $subjectId : null,
+            ['subject_type' => $subjectType, 'subject_id' => $subjectId] + $context,
+            $apps
+        );
+    }
+
+    /**
+     * {@see queueEvent()}, to the subscribed endpoints of these applications only.
+     *
+     * @param list<int> $appIds An empty list queues nothing
+     */
+    public function queueEventForApplications(string $eventType, ?int $userId, array $payload, array $appIds): int
+    {
+        $appIds = array_values(array_unique(array_filter(array_map('intval', $appIds), static fn (int $id): bool => $id > 0)));
+        if ($appIds === []) {
+            return 0;
+        }
+
+        $endpoints = $this->database->queryBuilder()
+            ->table(self::TABLE_ENDPOINTS)
+            ->select(['webhook_id'])
+            ->where('webhook_type', $eventType)
+            ->where('is_active', 1)
+            ->whereIn('appid', $appIds)
+            ->get();
+
+        $count = 0;
+        while ($endpoints && $endpoints->fetch()) {
+            $count += $this->queueEvent($eventType, $userId, $payload, null, null, (int) $endpoints->fields['webhook_id']);
+        }
+
+        return $count;
+    }
+
+    /**
+     * The applications these users hold an unexpired token for, or have consented to.
+     *
+     * @param list<int> $userIds
+     * @return list<int>
+     */
+    protected function applicationsOf(array $userIds): array
+    {
+        $userIds = array_values(array_filter(array_map('intval', $userIds), static fn (int $id): bool => $id > 0));
+        if ($userIds === []) {
+            return [];
+        }
+
+        $apps   = [];
+        $result = $this->database->queryBuilder()->table('#PREFIX#usertokens')
+            ->select(['applicationid'])
+            ->whereIn('userid', $userIds)
+            ->where('status', 1)
+            ->where('applicationid', '>', 0)
+            ->where(function ($q) {
+                $q->where('expires', 0)->orWhere('expires', '>', time());
+            })
+            ->get();
+        while ($result && $result->fetch()) {
+            $apps[] = (int) $result->fields['applicationid'];
+        }
+
+        if ($this->database->schema()->hasTable('authserver.oauth2_user_consents')) {
+            $result = $this->database->queryBuilder()->table('authserver.oauth2_user_consents')
+                ->select(['applicationid'])
+                ->whereIn('userid', $userIds)
+                ->get();
+            while ($result && $result->fetch()) {
+                $apps[] = (int) $result->fields['applicationid'];
+            }
+        }
+
+        return array_values(array_unique($apps));
+    }
+
+    /** @return list<int> The users holding a role now. */
+    protected function holdersOf(int $roleId): array
+    {
+        if ($roleId <= 0 || !$this->database->schema()->hasTable(\Pramnos\Auth\Role::assignmentTable())) {
+            return [];
+        }
+
+        $result = $this->database->queryBuilder()->table(\Pramnos\Auth\Role::assignmentTable())
+            ->select(['userid'])
+            ->where('roleid', $roleId)
+            ->where('is_active', true)
+            ->get();
+        $holders = [];
+        while ($result && $result->fetch()) {
+            $holders[] = (int) $result->fields['userid'];
+        }
+
+        return $holders;
     }
 
     // ── Queue processing ──────────────────────────────────────────────────────

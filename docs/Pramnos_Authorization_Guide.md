@@ -290,6 +290,11 @@ The body sent is `{"subject_type": …, "subject_id": …}` plus the context. A 
 no user: the subscriber drops the cache of everyone holding it. The call never throws — the
 change it reports has already been written.
 
+It goes to the applications the change concerns, not to every subscriber: with an `app_id` in
+the context, that application alone; otherwise the applications the user — or each holder of the
+role — has an unexpired token for or has consented to. `WebhookService::queueEventForApplications()`
+does the same for any event.
+
 ### `hasPermission()` on your user
 
 Several framework call sites ask the user object directly:

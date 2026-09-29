@@ -207,6 +207,8 @@ class PermissionsController extends Controller
             'object_type' => $objectType,
             'action'      => $action,
             'operation'   => $id > 0 ? 'update' : 'create',
+            // An application's grant concerns that application alone.
+            'app_id'      => (int) ($data['app_id'] ?? 0) ?: null,
         ]);
 
         $this->addMessage('Saved.');
@@ -246,7 +248,7 @@ class PermissionsController extends Controller
             $this->emitPermissionsChanged(
                 (string) ($row->fields['subject_type'] ?? ''),
                 (int) ($row->fields['subject_id'] ?? 0),
-                ['operation' => 'delete']
+                ['operation' => 'delete', 'app_id' => (int) ($row->fields['app_id'] ?? 0) ?: null]
             );
         }
 
@@ -269,11 +271,9 @@ class PermissionsController extends Controller
      */
     protected function emitPermissionsChanged(string $subjectType, int $subjectId, array $context): void
     {
-        $userId  = $subjectType === 'user' ? $subjectId : null;
-        $payload = ['subject_type' => $subjectType, 'subject_id' => $subjectId] + $context;
-
         try {
-            $this->webhookService()->queueEvent('permissions_changed', $userId, $payload);
+            // To the applications the change concerns — see WebhookService::queuePermissionsChanged().
+            $this->webhookService()->queuePermissionsChanged($subjectType, $subjectId, $context);
         } catch (\Throwable) {
             // Non-fatal: invalidation is best-effort.
         }

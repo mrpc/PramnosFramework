@@ -269,47 +269,123 @@ class WebhookSubscriptionTest extends BaseTestCase
         $this->assertSame(99, (int) $row->fields['user_id']);
     }
 
-    /**
-     * `permissionsChanged()` queues the event for a user, naming them.
-     *
-     * The one call every writer of grants and role assignments makes. A subscriber keys its
-     * cache on the user, so the user id has to be on the row, and the payload says whose.
-     */
-    public function testPermissionsChangedForAUserNamesThem(): void
+    /** A live token of this user for this test's application, which is how the server knows they use it. */
+    private function userUsesTheApplication(int $userId): void
     {
-        // Arrange
-        $this->subscribe('permissions_changed');
-
-        // Act
-        WebhookService::permissionsChanged('user', 77, ['operation' => 'role_assigned', 'roleid' => 3]);
-
-        // Assert
-        $row = $this->db->queryBuilder()->table('applications.oauth2_webhook_events')
-            ->select(['user_id', 'payload'])->where('event_type', 'permissions_changed')->first();
-        $this->assertSame(77, (int) $row->fields['user_id']);
-        $payload = json_decode((string) $row->fields['payload'], true);
-        $this->assertSame(['subject_type' => 'user', 'subject_id' => 77, 'operation' => 'role_assigned', 'roleid' => 3], $payload);
+        $this->db->query('SET FOREIGN_KEY_CHECKS=0');
+        $this->db->queryBuilder()->table('#PREFIX#usertokens')->insert([
+            'userid' => $userId, 'tokentype' => 'access_token', 'token' => 'wh-' . $userId,
+            'token_lookup' => hash('sha256', 'wh-' . $userId . microtime()), 'created' => time(), 'status' => 1,
+            'expires' => time() + 600, 'lastused' => time(), 'notes' => '', 'actions' => 0, 'removedate' => 0,
+            'deviceinfo' => '', 'scope' => '', 'applicationid' => $this->appId,
+        ]);
+        $this->db->query('SET FOREIGN_KEY_CHECKS=1');
     }
 
     /**
-     * `permissionsChanged()` for a role names no user and carries the role.
+     * `permissionsChanged()` for a user reaches the applications that user uses, naming them.
      *
-     * `user_id` is a foreign key to users: 0 is refused on a database that enforces it, so a
-     * role change is NULL there and the subscriber reads the role from the payload.
+     * The one call every writer of grants and role assignments makes. A subscriber keys its
+     * cache on the user, so the user id has to be on the row, and the payload says whose. An
+     * application the user has never used holds no cache for them and is not told.
      */
-    public function testPermissionsChangedForARoleNamesNoUser(): void
+    public function testPermissionsChangedForAUserReachesTheirApplications(): void
+    {
+        // Arrange
+        $this->subscribe('permissions_changed');
+
+        try {
+            // Act — before the user has used the application, then after
+            WebhookService::permissionsChanged('user', 77, ['operation' => 'role_assigned', 'roleid' => 3]);
+            $before = $this->db->queryBuilder()->table('applications.oauth2_webhook_events')->where('event_type', 'permissions_changed')->count();
+            $this->userUsesTheApplication(77);
+            WebhookService::permissionsChanged('user', 77, ['operation' => 'role_assigned', 'roleid' => 3]);
+
+            // Assert
+            $this->assertSame(0, $before, 'an application the user never used is not told');
+            $row = $this->db->queryBuilder()->table('applications.oauth2_webhook_events')
+                ->select(['user_id', 'payload'])->where('event_type', 'permissions_changed')->first();
+            $this->assertSame(77, (int) $row->fields['user_id']);
+            $this->assertSame(['subject_type' => 'user', 'subject_id' => 77, 'operation' => 'role_assigned', 'roleid' => 3],
+                json_decode((string) $row->fields['payload'], true));
+        } finally {
+            $this->db->queryBuilder()->table('#PREFIX#usertokens')->where('userid', 77)->delete();
+        }
+    }
+
+    /**
+     * A permission of one application concerns that application alone, whoever holds it.
+     *
+     * For a role the event names no user — `user_id` is a foreign key, so 0 is not a value it can
+     * hold — and the payload carries the role.
+     */
+    public function testAnApplicationsPermissionReachesThatApplicationOnly(): void
     {
         // Arrange
         $this->subscribe('permissions_changed');
 
         // Act
-        WebhookService::permissionsChanged('role', 9, ['operation' => 'deactivate']);
+        WebhookService::permissionsChanged('role', 9, ['operation' => 'deactivate', 'app_id' => $this->appId]);
+        WebhookService::permissionsChanged('role', 9, ['operation' => 'deactivate', 'app_id' => $this->appId + 1]);
 
         // Assert
-        $row = $this->db->queryBuilder()->table('applications.oauth2_webhook_events')
-            ->select(['user_id', 'payload'])->where('event_type', 'permissions_changed')->first();
-        $this->assertNull($row->fields['user_id'], 'a role change is about no one user');
-        $this->assertSame('role', json_decode((string) $row->fields['payload'], true)['subject_type']);
+        $rows = $this->db->queryBuilder()->table('applications.oauth2_webhook_events')
+            ->select(['user_id', 'payload'])->where('event_type', 'permissions_changed')->get();
+        $this->assertSame(1, (int) $rows->numRows, 'the other application\'s permission is not this one\'s business');
+        $this->assertNull($rows->fields['user_id'], 'a role change is about no one user');
+        $this->assertSame('role', json_decode((string) $rows->fields['payload'], true)['subject_type']);
+    }
+
+    /**
+     * A recorded consent counts as using the application, token or not.
+     */
+    public function testAConsentCountsAsUsingTheApplication(): void
+    {
+        // Arrange
+        $this->runMigrations([\Pramnos\Framework\Migrations\AuthServer\CreateOauth2UserConsentsTable::class], $this->db);
+        $this->subscribe('permissions_changed');
+        $this->db->query('SET FOREIGN_KEY_CHECKS=0');
+        $this->db->queryBuilder()->table('authserver.oauth2_user_consents')->where('userid', 79)->delete();
+        $this->db->queryBuilder()->table('authserver.oauth2_user_consents')->insert(['userid' => 79, 'applicationid' => $this->appId, 'scope' => 'openid']);
+        $this->db->query('SET FOREIGN_KEY_CHECKS=1');
+
+        try {
+            // Act
+            WebhookService::permissionsChanged('user', 79, ['operation' => 'update']);
+
+            // Assert
+            $this->assertSame(1, $this->db->queryBuilder()->table('applications.oauth2_webhook_events')
+                ->where('event_type', 'permissions_changed')->count());
+        } finally {
+            $this->db->queryBuilder()->table('authserver.oauth2_user_consents')->where('userid', 79)->delete();
+        }
+    }
+
+    /**
+     * A role's change reaches the applications its holders use.
+     */
+    public function testARolesChangeReachesItsHoldersApplications(): void
+    {
+        // Arrange — user 78 holds role 31 and uses the application
+        $this->runMigrations([\Pramnos\Framework\Migrations\AuthServer\CreateAuthserverUserRolesTable::class], $this->db);
+        $this->subscribe('permissions_changed');
+        $this->db->query('SET FOREIGN_KEY_CHECKS=0');
+        $this->db->queryBuilder()->table('authserver.user_roles')->where('roleid', 31)->delete();
+        $this->db->queryBuilder()->table('authserver.user_roles')->insert(['userid' => 78, 'roleid' => 31, 'is_active' => 1]);
+        $this->db->query('SET FOREIGN_KEY_CHECKS=1');
+        $this->userUsesTheApplication(78);
+
+        try {
+            // Act
+            WebhookService::permissionsChanged('role', 31, ['operation' => 'update']);
+
+            // Assert
+            $this->assertSame(1, $this->db->queryBuilder()->table('applications.oauth2_webhook_events')
+                ->where('event_type', 'permissions_changed')->count());
+        } finally {
+            $this->db->queryBuilder()->table('#PREFIX#usertokens')->where('userid', 78)->delete();
+            $this->db->queryBuilder()->table('authserver.user_roles')->where('roleid', 31)->delete();
+        }
     }
 
     /**

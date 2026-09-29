@@ -967,7 +967,12 @@ webhook to your registered webhook URL:
 
 On receipt, **drop that user's cached permissions** so the next request re-fetches
 from `/api/internal/permissions`. When `subject_type` is `role`, drop the cache of every
-user holding that role — or all of it, if you do not track who holds what. Webhook deliveries are HMAC-SHA256 signed and
+user holding that role — or all of it, if you do not track who holds what.
+
+It is sent to **your** application only when the change concerns it: a permission with your
+`app_id`, or a user — or a holder of the role — who uses your application, meaning an unexpired
+token or a recorded consent. A change about somebody who never signed in to your application
+does not reach you: you hold no cache for them. Webhook deliveries are HMAC-SHA256 signed and
 retried — verify the signature before acting.
 
 This is what makes lightweight tokens safe: permissions change instantly without
