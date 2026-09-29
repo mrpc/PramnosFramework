@@ -599,6 +599,38 @@ what it does now.
 recording it anywhere, so nothing separates "issued by a client that is gone" from "never an OAuth
 token" — and a sweep would have to guess, which here means revoking working credentials.
 
+### Managing applications from your own screen: `ApplicationService`
+
+The administration area's applications screens are HTML. An application with its own panel —
+an SPA, a developer portal — writes its own JSON endpoints and calls the service those screens
+call, so the screen is yours and the rules stay the framework's:
+
+```php
+$apps = new \Pramnos\Auth\ApplicationService($db);
+
+$check = $apps->validate($input);               // ['fields' => …, 'error' => ?string]
+$new   = $apps->create($input);                 // ['appid', 'apikey', 'secret'] — secret shown once
+$apps->update($appId, $input);                  // false when there is no such application
+$secret = $apps->rotateSecret($appId);          // the new secret once, or null
+$apps->deactivate($appId);                      // revokes its active tokens, then switches it off
+$apps->tokens($appId);                          // active tokens, never the token values
+$apps->find($appId);                            // the public description, no secrets
+```
+
+- **Input** has the administration form's fields and defaults. Callbacks may be typed one per
+  line, comma-separated or spaced; they are stored as one space-separated list. A script-only
+  scheme is refused by name. A list longer than a legacy `varchar(255)` column is refused
+  with the fix. `create()` and `update()` throw `InvalidArgumentException` carrying the
+  sentence `validate()` returns. It is plain text, so escape it if you render it as HTML.
+- **The client secret is stored hashed.** `create()` and `rotateSecret()` return it, and
+  nothing can read it back. Existing tokens survive a rotation, because they do not depend on
+  the secret.
+- **Retiring keeps the rows.** Tokens become status 3 (revoked) and the application status 0,
+  for the audit trail.
+- **Who may call your endpoints is yours to decide.** The service checks the input, not the
+  caller. Webhook endpoints are managed through `WebhookService` (`saveEndpoint()`,
+  `rotateEndpointSecret()`, `deleteEndpoint()`).
+
 ## 3. Logging a user in — Authorization Code + PKCE
 
 Use the Authorization Code flow with **PKCE** (recommended for all clients).

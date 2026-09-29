@@ -282,6 +282,8 @@ class ApplicationsControllerIntegrationTest extends BaseTestCase
         $_POST['name'] = 'Updated App';
         $_POST['appid'] = '1';
 
+        // The application exists: the service checks before it writes.
+        $this->queryBuilderMock->method('first')->willReturn((object) ['numRows' => 1, 'fields' => ['appid' => 1]]);
         $this->queryBuilderMock->expects($this->once())->method('update')->willReturn(true);
 
         ob_start();
@@ -380,6 +382,8 @@ class ApplicationsControllerIntegrationTest extends BaseTestCase
 
     public function testDelete()
     {
+        // The application exists: the service checks before it writes.
+        $this->queryBuilderMock->method('first')->willReturn((object) ['numRows' => 1, 'fields' => ['appid' => 1]]);
         $this->queryBuilderMock->expects($this->exactly(2))->method('update')->willReturn(true);
 
         ob_start();
@@ -414,6 +418,8 @@ class ApplicationsControllerIntegrationTest extends BaseTestCase
 
     public function testRotate()
     {
+        // The application exists: the service checks before it writes.
+        $this->queryBuilderMock->method('first')->willReturn((object) ['numRows' => 1, 'fields' => ['appid' => 1]]);
         $this->queryBuilderMock->expects($this->once())->method('update')->willReturn(true);
 
         ob_start();
@@ -432,5 +438,35 @@ class ApplicationsControllerIntegrationTest extends BaseTestCase
             '/^The new client secret is [0-9a-f]{64} — copy it now/u',
             (string) $messages[0]
         );
+    }
+
+    /**
+     * Rotating, updating or deleting an application that is not there says so, and writes nothing.
+     *
+     * Rotation used to generate a secret, update zero rows and show the operator a secret that
+     * belonged to nothing.
+     */
+    public function testActingOnAMissingApplicationSaysSoAndWritesNothing(): void
+    {
+        // Arrange — no row
+        $this->queryBuilderMock->method('first')->willReturn((object) ['numRows' => 0, 'fields' => []]);
+        $this->queryBuilderMock->expects($this->never())->method('update');
+        $_GET['_option'] = 99;
+        $_POST['name']   = 'Somebody';
+        $_POST['appid']  = '99';
+
+        // Act
+        ob_start();
+        $this->controller->rotate();
+        $this->controller->delete();
+        $this->controller->save();
+        ob_end_clean();
+
+        // Assert — three refusals, and no secret shown
+        $this->assertSame(
+            array_fill(0, 3, 'That record no longer exists.'),
+            array_values($_SESSION['_errors'] ?? [])
+        );
+        $this->assertSame([], array_values($_SESSION['_messages'] ?? []));
     }
 }

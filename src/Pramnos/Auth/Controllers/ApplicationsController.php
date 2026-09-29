@@ -303,168 +303,30 @@ class ApplicationsController extends Controller
             return;
         }
 
-        $id          = (int)    ($_POST['appid']           ?? 0);
-        $name        = trim((string) ($_POST['name']           ?? ''));
-        $description = trim((string) ($_POST['description']    ?? ''));
-        $callback    = trim((string) ($_POST['callback']       ?? ''));
-        $scope       = trim((string) ($_POST['scope']          ?? ''));
-        $status      = (int)    ($_POST['status']          ?? 1);
-        $apptype     = (int)    ($_POST['apptype']         ?? 0);
-        $accesstype  = (int)    ($_POST['accesstype']      ?? 0);
-        $apiversion  = trim((string) ($_POST['apiversion']     ?? 'v1'));
-        $appversion  = trim((string) ($_POST['appversion']     ?? ''));
-        $public      = isset($_POST['public']) ? 1 : 0;
-        $organization    = trim((string) ($_POST['organization']    ?? ''));
-        $organizationurl = trim((string) ($_POST['organizationurl'] ?? ''));
-        $url             = trim((string) ($_POST['url']             ?? ''));
-        $supportemail    = trim((string) ($_POST['supportemail']    ?? ''));
-        $termsurl        = trim((string) ($_POST['termsurl']        ?? ''));
-        $privacyurl      = trim((string) ($_POST['privacyurl']      ?? ''));
-        $public_key      = trim((string) ($_POST['public_key']      ?? ''));
-        $jwks_uri        = trim((string) ($_POST['jwks_uri']        ?? ''));
+        $id      = (int) ($_POST['appid'] ?? 0);
+        $service = $this->applicationService();
 
-        if ($name === '') {
-            $this->addError('A name is required.');
-            $this->redirect(adminUrl('applications/edit/') . $id);
-            return;
-        }
-
-        /*
-         * The callback field holds a **list**, and it is normalised on save.
-         *
-         * One application has several legitimate callbacks — the same client on localhost,
-         * on staging and in production — and the field is a textarea so an operator can
-         * type them however they like: one per line, comma-separated, or spaced. What is
-         * stored is one space-separated list, so what the endpoint reads back is the same
-         * shape whoever typed it.
-         *
-         * A single value normalises to a list of one, so nothing stored before this reads
-         * differently.
-         */
-        $callbacks = \Pramnos\Auth\Application::parseRedirectUris($callback);
-
-        /*
-         * A scheme that is only ever script is refused **here, out loud**.
-         *
-         * `parseRedirectUris()` drops it on read, which is the safe behaviour and the
-         * silent one: an operator who pasted one would see it saved and never take effect.
-         * This is the one place there is somebody to tell.
-         */
-        foreach (preg_split('/[\s,]+/', $callback) ?: [] as $candidate) {
-            $candidate = trim($candidate);
-            if ($candidate !== '' && \Pramnos\Auth\Application::isRefusedScheme($candidate)) {
-                $this->addError(
-                    'That callback scheme is not allowed: ' . htmlspecialchars($candidate, ENT_QUOTES)
-                    . '. A callback may be http(s) or an app scheme like myapp://oauth.'
+        // The rules — callback normalisation, refused schemes, the column's width — are the
+        // service's, so an application's own screen calling it gets the same answers as this one.
+        try {
+            if ($id > 0) {
+                if (!$service->update($id, $_POST, $this->callbackCeiling())) {
+                    $this->addError('That record no longer exists.');
+                    $this->redirect(adminUrl('applications'));
+                    return;
+                }
+                $this->addMessage('Saved.');
+            } else {
+                $created = $service->create($_POST, $this->callbackCeiling());
+                $this->addMessage(
+                    'Saved. The client secret is ' . $created['secret'] . ' — copy it now, '
+                    . 'it is stored hashed and cannot be shown again.'
                 );
-                $this->redirect(adminUrl('applications/edit/') . $id);
-                return;
             }
-        }
-
-        $callback = implode(' ', $callbacks);
-
-        /*
-         * And it refuses an overflow rather than letting the driver truncate it.
-         *
-         * On an installation whose `applications` table predates the migration system the
-         * column is still `varchar(255)` — `create_applications_table` was skipped by the
-         * cutoff, so its `text` never applied. Three long callbacks plus separators is
-         * about 190 characters, so a fourth raises `value too long for type character
-         * varying(255)` from the driver: a message that names the column and not the fix.
-         *
-         * The framework's own migration widens it (`2026_09_08_000001`), which is why this
-         * says *run migrations* rather than *shorten your URLs*.
-         */
-        $ceiling = $this->callbackCeiling();
-        if ($ceiling > 0 && strlen($callback) > $ceiling) {
-            $this->addError(
-                'Those callbacks are ' . strlen($callback) . ' characters and this database '
-                . 'still limits the field to ' . $ceiling . '. Run the framework migrations '
-                . 'to widen it, then save again.'
-            );
+        } catch (\InvalidArgumentException $refused) {
+            $this->addError(htmlspecialchars($refused->getMessage(), ENT_QUOTES));
             $this->redirect(adminUrl('applications/edit/') . $id);
             return;
-        }
-
-        // Clamp to valid apptype/accesstype ranges.
-        $apptype    = max(0, min(5, $apptype));
-        $accesstype = max(0, min(2, $accesstype));
-        $status     = max(0, min(1, $status));
-
-        $db = \Pramnos\Framework\Factory::getDatabase();
-
-        $fields = [
-            'name'            => $name,
-            'description'     => $description !== '' ? $description : null,
-            'callback'        => $callback !== '' ? $callback : null,
-            'scope'           => $scope !== '' ? $scope : null,
-            'status'          => $status,
-            'apptype'         => $apptype,
-            'accesstype'      => $accesstype,
-            'apiversion'      => $apiversion !== '' ? $apiversion : 'v1',
-            'appversion'      => $appversion,
-            'public'          => $public,
-            // Unchecked means public — a client that cannot hold a secret. Read from
-            // its own field rather than from `public` above, which is about being
-            // listed in a directory and has nothing to do with client authentication.
-            'is_confidential' => isset($_POST['is_confidential']) ? 1 : 0,
-            'organization'    => $organization !== '' ? $organization : null,
-            'organizationurl' => $organizationurl !== '' ? $organizationurl : null,
-            'url'             => $url !== '' ? $url : null,
-            'supportemail'    => $supportemail !== '' ? $supportemail : null,
-            'termsurl'        => $termsurl !== '' ? $termsurl : null,
-            'privacyurl'      => $privacyurl !== '' ? $privacyurl : null,
-            'public_key'      => $public_key !== '' ? $public_key : null,
-            'jwks_uri'        => $jwks_uri !== '' ? $jwks_uri : null,
-        ];
-
-        // Only when the form sends it — the bundled forms do, as a hidden 0 behind the checkbox —
-        // so an application's older copy of the form does not quietly revoke a trusted client.
-        if (array_key_exists('trusted', $_POST) && $db->schema()->hasColumn('applications', 'trusted')) {
-            $fields['trusted'] = (int) $_POST['trusted'] === 1 ? 1 : 0;   // the checkbox, after the hidden 0
-        }
-
-        // The lifetimes, likewise only when sent: blank is the server default, stored as NULL.
-        foreach (['access_token_ttl', 'refresh_token_ttl'] as $ttl) {
-            if (array_key_exists($ttl, $_POST) && $db->schema()->hasColumn('applications', $ttl)) {
-                $fields[$ttl] = (int) $_POST[$ttl] > 0 ? (int) $_POST[$ttl] : null;
-            }
-        }
-
-        if ($id > 0) {
-            $db->queryBuilder()
-                ->table('#PREFIX#applications')
-                ->where('appid', $id)
-                ->update($fields);
-        } else {
-            // The secret is generated once, hashed for storage, and shown to the
-            // operator in the flash message below — after this it cannot be read
-            // back, which is the point of hashing it.
-            $plainSecret = bin2hex(random_bytes(32));
-
-            $fields['apikey']    = bin2hex(random_bytes(16));
-            $fields['apisecret'] = \Pramnos\Auth\PasswordHash::make($plainSecret);
-            $fields['added']     = time();
-
-            // A separate realtime key, encrypted rather than hashed: unlike the
-            // client secret it has to be read back to sign a channel with.
-            $broadcastSecret = bin2hex(random_bytes(32));
-            $fields['broadcast_secret'] = \Pramnos\Security\Encrypter::isAvailable()
-                ? \Pramnos\Security\Encrypter::encrypt($broadcastSecret)
-                : $broadcastSecret;
-            $db->queryBuilder()
-                ->table('#PREFIX#applications')
-                ->insert($fields);
-        }
-
-        if ($id === 0) {
-            $this->addMessage(
-                'Saved. The client secret is ' . $plainSecret . ' — copy it now, '
-                . 'it is stored hashed and cannot be shown again.'
-            );
-        } else {
-            $this->addMessage('Saved.');
         }
 
         $this->redirect(adminUrl('applications'));
@@ -487,20 +349,11 @@ class ApplicationsController extends Controller
             return;
         }
 
-        $db = \Pramnos\Framework\Factory::getDatabase();
-
-        // Revoke all active tokens for this application
-        $db->queryBuilder()
-            ->table('#PREFIX#usertokens')
-            ->where('applicationid', $id)
-            ->where('status', 1)
-            ->update(['status' => 3, 'removedate' => time()]);
-
-        // Soft-delete the application
-        $db->queryBuilder()
-            ->table('#PREFIX#applications')
-            ->where('appid', $id)
-            ->update(['status' => 0]);
+        if (!$this->applicationService()->deactivate($id)) {
+            $this->addError('That record no longer exists.');
+            $this->redirect(adminUrl('applications'));
+            return;
+        }
 
         $this->addMessage('Deleted.');
         $this->redirect(adminUrl('applications'));
@@ -538,14 +391,7 @@ class ApplicationsController extends Controller
         $doc        = \Pramnos\Framework\Factory::getDocument();
         $doc->title = 'Tokens — ' . htmlspecialchars((string) ($app->fields['name'] ?? ''), ENT_QUOTES);
 
-        $tokens = $db->queryBuilder()
-            ->table('#PREFIX#usertokens ut')
-            ->join('#PREFIX#users u', 'ut.userid', '=', 'u.userid')
-            ->select(['ut.tokenid', 'u.username', 'ut.scope', 'ut.expires', 'ut.lastused', 'ut.status', 'ut.ipaddress', 'ut.tokentype'])
-            ->where('ut.applicationid', $appId)
-            ->where('ut.status', 1)
-            ->orderBy('ut.lastused', 'desc')
-            ->get();
+        $tokens = $this->applicationService()->tokens($appId);
 
         $view         = $this->getView('applications');
         $view->app    = $app->fields;
@@ -572,13 +418,12 @@ class ApplicationsController extends Controller
             return;
         }
 
-        $newSecret = bin2hex(random_bytes(32));
-
-        \Pramnos\Framework\Factory::getDatabase()
-            ->queryBuilder()
-            ->table('#PREFIX#applications')
-            ->where('appid', $id)
-            ->update(['apisecret' => \Pramnos\Auth\PasswordHash::make($newSecret)]);
+        $newSecret = $this->applicationService()->rotateSecret($id);
+        if ($newSecret === null) {
+            $this->addError('That record no longer exists.');
+            $this->redirect(adminUrl('applications'));
+            return;
+        }
 
         // Shown once, here. The column holds a hash from now on, so this message is
         // the only place the value exists in readable form — rotating without
@@ -720,6 +565,12 @@ class ApplicationsController extends Controller
         $this->redirect($back);
     }
 
+    /** The application rules (seam so tests can inject a double). {@see \Pramnos\Auth\ApplicationService} */
+    protected function applicationService(): \Pramnos\Auth\ApplicationService
+    {
+        return new \Pramnos\Auth\ApplicationService(\Pramnos\Framework\Factory::getDatabase());
+    }
+
     /** The webhook store (seam so tests can inject a double). */
     protected function webhookService(): \Pramnos\Auth\WebhookService
     {
@@ -749,13 +600,7 @@ class ApplicationsController extends Controller
     /** Whether an application with this id exists. */
     protected function applicationExists(int $appId): bool
     {
-        $row = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
-            ->table('#PREFIX#applications')
-            ->select(['appid'])
-            ->where('appid', $appId)
-            ->first();
-
-        return $row && $row->numRows > 0;
+        return $this->applicationService()->exists($appId);
     }
 
     /**
@@ -775,34 +620,6 @@ class ApplicationsController extends Controller
      */
     protected function callbackCeiling(): int
     {
-        try {
-            $db = \Pramnos\Framework\Factory::getDatabase();
-
-            $result = $db->query(
-                $db->prepareQuery(
-                    "SELECT COALESCE(character_maximum_length, 0) AS len
-                       FROM information_schema.columns
-                      WHERE table_name = %s AND column_name = 'callback'
-                      ORDER BY table_schema
-                      LIMIT 1",
-                    $db->prefix . 'applications'
-                )
-            );
-
-            if (!$result || !$result->numRows) {
-                // PostgreSQL puts the table in a schema rather than behind a prefix.
-                $result = $db->query(
-                    "SELECT COALESCE(character_maximum_length, 0) AS len
-                       FROM information_schema.columns
-                      WHERE table_name = 'applications' AND column_name = 'callback'
-                      ORDER BY table_schema
-                      LIMIT 1"
-                );
-            }
-
-            return $result && $result->numRows ? (int) ($result->fields['len'] ?? 0) : 0;
-        } catch (\Throwable) {
-            return 0;
-        }
+        return $this->applicationService()->callbackCeiling();
     }
 }

@@ -69,6 +69,9 @@ class WebhookStorageTest extends BaseTestCase
          * `public.applications` — an invented number is refused by the database, and "one client
          * cannot reach another's endpoint" is only a claim about two rows that exist.
          */
+        // `oauth2_webhook_events.user_id` references `users` on PostgreSQL, so the events table
+        // cannot be created without it — and other tests drop it. Built here, not assumed.
+        \Pramnos\User\User::setupDb();
         $this->runMigrations([
             \Pramnos\Framework\Migrations\AuthServer\CreateApplicationsSchema::class,
             \Pramnos\Framework\Migrations\AuthServer\CreateApplicationsTable::class,

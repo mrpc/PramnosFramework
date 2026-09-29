@@ -66,6 +66,9 @@ final class Schema
             \Pramnos\Framework\Migrations\AuthServer\CreateApplicationsTable::class,
             \Pramnos\Framework\Migrations\AuthServer\AddSystemuserToApplications::class,
             \Pramnos\Framework\Migrations\Applications\WidenApplicationsCallback::class,
+            \Pramnos\Framework\Migrations\AuthServer\AddExtendedInfoToApplications::class,
+            \Pramnos\Framework\Migrations\AuthServer\AddBroadcastSecretToApplications::class,
+            \Pramnos\Framework\Migrations\AuthServer\AddIsConfidentialToApplications::class,
         ],
         /*
          * The table's own shape, and not the foreign keys.
