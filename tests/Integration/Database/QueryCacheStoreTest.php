@@ -209,6 +209,78 @@ class QueryCacheStoreTest extends BaseTestCase
         );
     }
 
+    // ── Two databases behind one cache ────────────────────────────────────────
+
+    /**
+     * The same statement against two databases is two entries.
+     *
+     * The key was `md5(sql)` under the table prefix, so two databases behind one store — a test
+     * database and its dev site, two installations on one Redis — answered each other's
+     * `SELECT … FROM settings` and each other's user 42 for the TTL. Rows, not column lists: a
+     * leak, not a stale read.
+     */
+    public function testTheSameStatementOnTwoDatabasesIsTwoEntries(): void
+    {
+        // Arrange
+        $sql = 'SELECT * FROM settings /* ' . $this->category . ' */';
+
+        // Act — the same statement read by a connection that names another database
+        $this->db->cacheStore($sql, $this->rows(1), $this->category, 600);
+        $otherRead = $this->onAnotherDatabase(fn () => $this->db->cacheRead($sql, $this->category));
+
+        // Assert
+        $this->assertFalse($otherRead, 'one database answered a query from the other\'s cached rows');
+        $this->assertSame($this->rows(1), $this->db->cacheRead($sql, $this->category), 'its own entry was lost');
+    }
+
+    /**
+     * Flushing a category on one database leaves the other's entries alone.
+     *
+     * `cacheflush()` has to build the same key as the store — a flush on one database that emptied
+     * the other's category and left its own would invalidate the wrong reads after every write.
+     */
+    public function testAFlushOnOneDatabaseLeavesTheOther(): void
+    {
+        // Arrange
+        $sql = 'SELECT * FROM userlist_probe /* ' . $this->category . ' */';
+        $this->db->cacheStore($sql, $this->rows(1), $this->category, 600);
+        $this->onAnotherDatabase(fn () => $this->db->cacheStore($sql, $this->rows(2), $this->category, 600));
+
+        // Act
+        $this->onAnotherDatabase(fn () => $this->db->cacheflush($this->category));
+
+        // Assert
+        $this->assertFalse(
+            $this->onAnotherDatabase(fn () => $this->db->cacheRead($sql, $this->category)),
+            'the flush did not reach its own entry'
+        );
+        $this->assertSame($this->rows(1), $this->db->cacheRead($sql, $this->category), 'the flush emptied the other database');
+    }
+
+    /**
+     * The installation prefix `Cache` was configured with stays in the key.
+     *
+     * It used to be replaced by the table prefix — empty on most installations — so SQL entries
+     * sat outside the installation's keyspace, where its own `cache:clear` and a test bootstrap
+     * flushing its prefix could not see them.
+     */
+    public function testTheInstallationPrefixStaysInTheKey(): void
+    {
+        // Arrange
+        Settings::setSetting('cache', ['method' => 'file', 'prefix' => 'installationprobe']);
+
+        // Act
+        $prefix = $this->sqlCacheOf($this->db)->prefix;
+
+        // Assert
+        $this->assertStringStartsWith('installationprobe', $prefix, 'the installation prefix was replaced');
+        $this->assertStringContainsString(
+            str_replace('_', '', (string) $this->db->database),
+            $prefix,
+            'the database is not in the key'
+        );
+    }
+
     // ── Compression ───────────────────────────────────────────────────────────
 
     /**
@@ -400,21 +472,37 @@ class QueryCacheStoreTest extends BaseTestCase
      */
     private function rawCachedValue(string $sql): mixed
     {
-        $cache = \Pramnos\Cache\Cache::getInstance($this->category, 'sql', '');
-        $cache->category = $this->category;
-        $cache->prefix   = (new \ReflectionProperty(Database::class, 'prefix'))
-            ->getValue($this->db);
+        $cache = $this->sqlCacheOf($this->db);
 
         return $cache->load(md5($sql));
     }
 
     private function writeRawCachedValue(string $sql, string $value): void
     {
-        $cache = \Pramnos\Cache\Cache::getInstance($this->category, 'sql', '');
-        $cache->category = $this->category;
-        $cache->prefix   = (new \ReflectionProperty(Database::class, 'prefix'))
-            ->getValue($this->db);
+        $cache = $this->sqlCacheOf($this->db);
         $cache->timeout  = 600;
         $cache->save($value, md5($sql));
+    }
+    /**
+     * Run a call as a connection to another database, then put the name back.
+     *
+     * The same object rather than a clone: a cloned connection closes the shared handle when it is
+     * destroyed. The cache methods read only the name, which is exactly the point.
+     */
+    private function onAnotherDatabase(callable $call): mixed
+    {
+        $name = $this->db->database;
+        $this->db->database = $name . '_other';
+        try {
+            return $call();
+        } finally {
+            $this->db->database = $name;
+        }
+    }
+
+    /** The cache instance `cacheStore()` itself uses for this class's category. */
+    private function sqlCacheOf(Database $db): \Pramnos\Cache\Cache
+    {
+        return (new \ReflectionMethod(Database::class, 'sqlCache'))->invoke($db, $this->category);
     }
 }

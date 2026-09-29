@@ -2809,12 +2809,27 @@ class Database extends \Pramnos\Framework\Base
     }
 
     /**
-     * Expire cache entries matching a query pattern and category
-     * @param string $query Cache key pattern to expire
-     * @param string|null $category Cache category (optional)
-     * @return void
+     * The cache instance a SQL result is read from, written to and flushed from.
+     *
+     * One place, because the key has to be the same shape for all four — a flush that builds a
+     * different key from the store empties nothing.
+     *
+     * **The prefix names the installation, the table prefix and the connection.** It used to be
+     * the table prefix alone, assigned over the installation prefix `Cache` had been configured
+     * with — empty on most installations. The key was then `<category>_<md5(sql)>` and nothing
+     * else, so two databases behind one Redis running the same statement shared one entry: two
+     * sites read each other's `settings`, and a test database that reuses userids answered a
+     * user 42 from the previous run's `userlist`. The same fault {@see columnCacheCategory()}
+     * already closes for column lists, in the cache whose contents are rows.
+     *
+     * Underscores are stripped here because `Cache::_generateCacheName()` strips them from the
+     * prefix before a write, while `clear()` hands the adapter the prefix as it was set — the two
+     * would otherwise name different category indexes whenever a part has an underscore in it.
+     *
+     * @param string|null $category Cache category
+     * @return \Pramnos\Cache\Cache
      */
-    public function cacheExpire($query, $category = NULL)
+    private function sqlCache($category)
     {
         $cacheSettings = \Pramnos\Application\Settings::getSetting('cache');
         // No opinion when the setting says nothing: an empty method lets Cache
@@ -2822,17 +2837,37 @@ class Database extends \Pramnos\Framework\Base
         // store nobody configured, and the connection failure downgraded the
         // SQL cache to a private file store.
         $cacheMethod = '';
-        if (is_array($cacheSettings) && isset($cacheSettings['method'])) {
-            $cacheMethod = $cacheSettings['method'];
-        } elseif (is_object($cacheSettings) && isset($cacheSettings->method)) {
-            $cacheMethod = $cacheSettings->method;
+        $installation = '';
+        if (is_array($cacheSettings)) {
+            $cacheMethod = $cacheSettings['method'] ?? '';
+            $installation = (string) ($cacheSettings['prefix'] ?? '');
+        } elseif (is_object($cacheSettings)) {
+            $cacheMethod = $cacheSettings->method ?? '';
+            $installation = (string) ($cacheSettings->prefix ?? '');
         }
         $cache = \Pramnos\Cache\Cache::getInstance($category, 'sql', $cacheMethod);
-        // Fix: Ensure the category is set correctly on the singleton instance
-        if ($category !== NULL) {
+        // The instance is shared per category; the category is set again every call.
+        if ($category !== NULL && $category !== "") {
             $cache->category = $category;
         }
-        $cache->prefix = $this->prefix;
+        $parts = array_filter(
+            [$installation, (string) $this->prefix, $this->connectionCacheKey()],
+            static fn (string $part): bool => $part !== ''
+        );
+        $cache->prefix = str_replace('_', '', implode('-', $parts));
+
+        return $cache;
+    }
+
+    /**
+     * Expire cache entries matching a query pattern and category
+     * @param string $query Cache key pattern to expire
+     * @param string|null $category Cache category (optional)
+     * @return void
+     */
+    public function cacheExpire($query, $category = NULL)
+    {
+        $cache = $this->sqlCache($category);
         $cache_name = md5($query);
         return $cache->delete($cache_name);
     }
@@ -2849,23 +2884,7 @@ class Database extends \Pramnos\Framework\Base
     function cacheStore($query, $resultArray,
         $category = NULL, $cachetime=3600)
     {
-        $cacheSettings = \Pramnos\Application\Settings::getSetting('cache');
-        // No opinion when the setting says nothing: an empty method lets Cache
-        // use the configured store. Defaulting to 'memcached' here asked for a
-        // store nobody configured, and the connection failure downgraded the
-        // SQL cache to a private file store.
-        $cacheMethod = '';
-        if (is_array($cacheSettings) && isset($cacheSettings['method'])) {
-            $cacheMethod = $cacheSettings['method'];
-        } elseif (is_object($cacheSettings) && isset($cacheSettings->method)) {
-            $cacheMethod = $cacheSettings->method;
-        }
-        $cache = \Pramnos\Cache\Cache::getInstance($category, 'sql', $cacheMethod);
-        // Fix: Ensure the category is set correctly on the singleton instance
-        if ($category !== NULL) {
-            $cache->category = $category;
-        }
-        $cache->prefix = $this->prefix;
+        $cache = $this->sqlCache($category);
         $cache_name = md5($query);
         $cache->extradata = $query;
         $cache->timeout = $cachetime;
@@ -2908,23 +2927,7 @@ class Database extends \Pramnos\Framework\Base
      */
     function cacheRead($query, $category = "")
     {
-        $cacheSettings = \Pramnos\Application\Settings::getSetting('cache');
-        // No opinion when the setting says nothing: an empty method lets Cache
-        // use the configured store. Defaulting to 'memcached' here asked for a
-        // store nobody configured, and the connection failure downgraded the
-        // SQL cache to a private file store.
-        $cacheMethod = '';
-        if (is_array($cacheSettings) && isset($cacheSettings['method'])) {
-            $cacheMethod = $cacheSettings['method'];
-        } elseif (is_object($cacheSettings) && isset($cacheSettings->method)) {
-            $cacheMethod = $cacheSettings->method;
-        }
-        $cache = \Pramnos\Cache\Cache::getInstance($category, 'sql', $cacheMethod);
-        // Fix: Ensure the category is set correctly on the singleton instance
-        if ($category !== NULL && $category !== "") {
-            $cache->category = $category;
-        }
-        $cache->prefix = $this->prefix;
+        $cache = $this->sqlCache($category);
         $cache_name = md5($query);
         $cachedData = $cache->load($cache_name);
         
@@ -2963,23 +2966,7 @@ class Database extends \Pramnos\Framework\Base
      */
     function cacheflush($category = "")
     {
-        $cacheSettings = \Pramnos\Application\Settings::getSetting('cache');
-        // No opinion when the setting says nothing: an empty method lets Cache
-        // use the configured store. Defaulting to 'memcached' here asked for a
-        // store nobody configured, and the connection failure downgraded the
-        // SQL cache to a private file store.
-        $cacheMethod = '';
-        if (is_array($cacheSettings) && isset($cacheSettings['method'])) {
-            $cacheMethod = $cacheSettings['method'];
-        } elseif (is_object($cacheSettings) && isset($cacheSettings->method)) {
-            $cacheMethod = $cacheSettings->method;
-        }
-        $cache = \Pramnos\Cache\Cache::getInstance($category, 'sql', $cacheMethod);
-        // Fix: Ensure the category is set correctly on the singleton instance
-        if ($category !== NULL && $category !== "") {
-            $cache->category = $category;
-        }
-        $cache->prefix = $this->prefix;
+        $cache = $this->sqlCache($category);
         return $cache->clear($category);
     }
 

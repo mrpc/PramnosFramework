@@ -310,6 +310,23 @@ $redis = \Pramnos\Redis\ConnectionManager::forConfig([
 `newConnection()` is for a blocking `SUBSCRIBE` and nothing else — it opens a socket that
 nothing will close until the process ends.
 
+### Whose rows a cached query is
+
+A cached query — `->get(true, $seconds, $category)`, `User::load()`'s `userlist`, the settings
+read — is stored under a prefix built from three things: the installation prefix from the
+`cache` settings, the table prefix, and the connection's database (plus the schema on
+PostgreSQL). The key itself is `md5` of the statement and its bindings.
+
+All three, because a Redis is routinely shared: two sites on one server, or one site's test
+and development databases. With the statement alone in the key, two databases running
+`SELECT … FROM settings` share one entry, and a user 42 on one answers for user 42 on the
+other for the TTL. The column cache is scoped the same way, by
+`Database::columnCacheCategory()`.
+
+`Database::cacheflush($category)` builds the same prefix, so a write on one database empties
+its own category and leaves the other's. Clear SQL entries through it rather than by matching
+keys — the key's shape is the framework's to change.
+
 ### Application Settings Integration
 
 The cache system automatically loads configuration from application settings:
