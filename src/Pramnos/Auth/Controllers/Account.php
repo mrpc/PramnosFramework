@@ -470,10 +470,10 @@ class Account extends Controller
         \Pramnos\Auth\ActivityLog::record($userId, 'account_registered');
 
         if ($this->afterRegistration($userId)) {
-            $this->addMessage('Your account has been created. We have sent a link to your email '
-                . 'address — open it to confirm the address, then sign in.');
+            $this->addMessage(t('Your account has been created. We have sent a link to your email '
+                . 'address — open it to confirm the address, then sign in.'));
         } else {
-            $this->addMessage('Your account has been created. Please sign in.');
+            $this->addMessage(t('Your account has been created. Please sign in.'));
         }
         $this->redirect(sURL . 'login');
         return null;
@@ -487,9 +487,9 @@ class Account extends Controller
         $userId = $this->emailVerification()->confirm($this->query('token'));
 
         if ($userId === null) {
-            $this->addError('That confirmation link is not valid any more. Sign in to be sent a new one.');
+            $this->addError(t('That confirmation link is not valid any more. Sign in to be sent a new one.'));
         } else {
-            $this->addMessage('Your email address is confirmed. You can sign in now.');
+            $this->addMessage(t('Your email address is confirmed. You can sign in now.'));
         }
         $this->redirect(sURL . 'login');
         return null;
