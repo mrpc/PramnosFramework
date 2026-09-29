@@ -981,6 +981,45 @@ class OauthTest extends TestCase
     }
 
     /**
+     * Without the server's signing key the JWT bearer grant issues nothing.
+     *
+     * It fell back to HS256 signed with the client id — a public value — so any caller could mint
+     * a token that verified. No key means no token, and a server error that says why.
+     */
+    public function testTheJwtBearerGrantRefusesWithoutASigningKey(): void
+    {
+        // Arrange — a valid assertion, and a server whose key is missing
+        $_SERVER['REQUEST_METHOD'] = 'POST';
+        $res = openssl_pkey_new(['digest_alg' => 'sha256', 'private_key_bits' => 2048, 'private_key_type' => OPENSSL_KEYTYPE_RSA]);
+        openssl_pkey_export($res, $privateKey);
+        $this->db->queryBuilder()->table('applications')->insert([
+            'appid' => 3, 'name' => 'Keyless', 'status' => 1, 'apikey' => 'keyless_client',
+            'public_key' => openssl_pkey_get_details($res)['key'],
+        ]);
+        $_POST = [
+            'grant_type'            => 'client_credentials',
+            'client_assertion'      => \Pramnos\Auth\JWT::encode(['iss' => 'keyless_client', 'sub' => 'keyless_client',
+                'aud' => 'https://localhost', 'exp' => time() + 60, 'iat' => time()], $privateKey, 'RS256'),
+            'client_assertion_type' => 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer',
+            'client_id'             => 'keyless_client',
+        ];
+        $controller = new class (new Application()) extends Oauth {
+            protected function signingKeyPath(): string
+            {
+                return '/nonexistent/private.key';
+            }
+        };
+
+        // Act
+        $response = $controller->token();
+
+        // Assert
+        $this->assertSame(500, $response->getStatusCode());
+        $this->assertSame('server_error', json_decode($response->getBody(), true)['error']);
+        $this->assertSame(0, $this->db->queryBuilder()->table('usertokens')->where('applicationid', 3)->count(), 'no token was stored');
+    }
+
+    /**
      * The page an authorize failure produced.
      *
      * The error page used to be `echo`ed, so a test captured the output stream. It

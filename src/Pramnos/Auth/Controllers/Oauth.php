@@ -1951,14 +1951,19 @@ class Oauth extends Controller
             'token_type' => 'access_token',
         ];
 
-        $privateKeyPath = ROOT . \DS . 'app' . \DS . 'keys' . \DS . 'private.key';
-        if (file_exists($privateKeyPath)) {
-            $privateKey = (string) file_get_contents($privateKeyPath);
-            $token = \Pramnos\Auth\JWT::encode($payload, $privateKey, 'RS256');
-        } else {
-            // Fallback to symmetric signing when RSA keys are unavailable
-            $token = \Pramnos\Auth\JWT::encode($payload, $clientId);
+        // The server's own signing key, the one the JWKS publishes — or no token. There is no
+        // symmetric fallback: the only secret both sides would share here is the client id,
+        // which is public, and a token signed with it is one anybody can mint.
+        $privateKeyPath = $this->signingKeyPath();
+        if (!is_readable($privateKeyPath)) {
+            \Pramnos\Logs\Logger::logError('OAuth: the JWT bearer grant has no signing key at ' . $privateKeyPath);
+
+            return $this->respondJson([
+                'error'             => 'server_error',
+                'error_description' => 'The server cannot sign tokens.',
+            ], 500);
         }
+        $token = \Pramnos\Auth\JWT::encode($payload, (string) file_get_contents($privateKeyPath), 'RS256');
 
         // Persist the token so introspect() / revoke() can find it
         $db = \Pramnos\Framework\Factory::getDatabase();
@@ -1983,6 +1988,12 @@ class Oauth extends Controller
             'scope'              => $scope,
             'client_auth_method' => 'jwt_bearer',
         ]);
+    }
+
+    /** The private key this server signs its own tokens with — the one the JWKS publishes. */
+    protected function signingKeyPath(): string
+    {
+        return \Pramnos\Auth\OAuth2\OAuth2ServerFactory::defaultPrivateKeyPath();
     }
 
     /**

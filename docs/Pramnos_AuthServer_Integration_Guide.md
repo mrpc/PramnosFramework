@@ -203,6 +203,12 @@ answers with a server error rather than a token, this is one of the things to ch
 the log carries `Could not create a system user for application <id>` or `Could not
 resolve a system user for client <id>`.
 
+A client with a registered `public_key` can authenticate its `client_credentials` request with
+a signed assertion instead of a secret (`client_assertion_type =
+urn:ietf:params:oauth:client-assertion-type:jwt-bearer`, RFC 7523 §2.2). The token it receives
+is signed RS256 with the server's own key — the one `jwks_uri` publishes. A server with no
+signing key answers `server_error` and issues nothing.
+
 If you need a token that acts *as* a particular person without that person signing
 in, that is the JWT bearer grant (RFC 7523 §2.1) rather than this one — it must be
 enabled per client, because its holder can obtain a token for any user.
