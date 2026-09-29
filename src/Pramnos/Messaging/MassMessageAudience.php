@@ -237,6 +237,20 @@ class MassMessageAudience
      */
     public function preview(array $criteria = [], int $sample = 25): array
     {
+        if ($this->listOf($criteria) !== '') {
+            $recipients = $this->listRecipients($this->listOf($criteria));
+            $window     = array_slice($recipients, 0, max(1, $sample));
+
+            return [
+                'total'     => count($recipients),
+                'sample'    => array_map(static fn (array $r): array => [
+                    'userid'   => (int) ($r['userid'] ?? 0), 'username' => '', 'email' => $r['email'],
+                    'usertype' => 0, 'language' => $r['language'], 'lastlogin' => 0,
+                ], $window),
+                'truncated' => max(0, count($recipients) - count($window)),
+            ];
+        }
+
         $ids = $this->resolve($criteria);
         $total = count($ids);
 
@@ -507,6 +521,47 @@ class MassMessageAudience
      *
      * @param array<string, mixed> $criteria
      */
+    /**
+     * The mailing list these criteria send to, or '' for an audience of accounts.
+     *
+     * `mailing_list` names an opt-in list, and when it is set the audience is that list's
+     * confirmed subscribers — account or not — and nothing else: the account criteria describe
+     * accounts, and a subscriber who never registered has none of the properties they filter on.
+     */
+    public function listOf(array $criteria): string
+    {
+        $list = trim((string) ($criteria['mailing_list'] ?? ''));
+
+        return $list !== '' && \Pramnos\Email\MailTypes::byList($list)?->optIn ? $list : '';
+    }
+
+    /**
+     * A list's confirmed subscribers, as recipients: one per address, and one per account.
+     *
+     * A subscriber who is also an account is one recipient, not two — two rows for one
+     * account (it subscribed under two addresses) keep the first.
+     *
+     * @return list<array{userid: int, email: string, language: string}>
+     */
+    public function listRecipients(string $list): array
+    {
+        $seenAccounts = [];
+        $recipients   = [];
+
+        foreach ((new \Pramnos\Email\MailingList($this->database))->confirmedSubscribers($list) as $row) {
+            $userId = (int) ($row['userid'] ?? 0);
+            if ($userId > 0) {
+                if (isset($seenAccounts[$userId])) {
+                    continue;
+                }
+                $seenAccounts[$userId] = true;
+            }
+            $recipients[] = ['userid' => $userId, 'email' => $row['email'], 'language' => $row['language']];
+        }
+
+        return $recipients;
+    }
+
     public function count(array $criteria = []): int
     {
         return count($this->resolve($criteria));

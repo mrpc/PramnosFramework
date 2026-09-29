@@ -461,7 +461,18 @@ class MassMessagesController extends Controller
 
         $dispatcher = new MassMessageDispatcher();
         $criteria   = $this->criteriaOf($message);
-        $audience   = (new MassMessageAudience())->resolve($criteria);
+        $audiences  = new MassMessageAudience();
+        $list       = $audiences->listOf($criteria);
+
+        if ($list !== '' && (int) $message->type !== MassMessage::TYPE_EMAIL) {
+            // A subscriber with no account has no inbox here and no push subscription.
+            $this->addError('A mailing list can only be sent an email.');
+            $this->redirect(adminUrl('MassMessages/view/') . $id);
+
+            return;
+        }
+
+        $audience = $list !== '' ? $audiences->listRecipients($list) : $audiences->resolve($criteria);
 
         if ($audience === []) {
             $this->addError('Those criteria match nobody, so nothing was queued.');
@@ -470,7 +481,7 @@ class MassMessagesController extends Controller
             return;
         }
 
-        $queued = $dispatcher->queue($id, $audience);
+        $queued = $list !== '' ? $dispatcher->queueAddresses($id, $audience) : $dispatcher->queue($id, $audience);
 
         if ($queued === 0) {
             // The one refusal worth its own message: everything else here is recoverable,
@@ -549,6 +560,8 @@ class MassMessagesController extends Controller
             // and will be skipped at delivery — and the count is the number that decides
             // whether the send happens at all.
             'exclude_optouts' => trim((string) $request->get('exclude_optouts', '', 'post')),
+            // An opt-in list's confirmed subscribers instead of accounts; see MassMessageAudience::listOf().
+            'mailing_list'    => trim((string) $request->get('mailing_list', '', 'post')),
         ], static fn ($value): bool => $value !== '' && $value !== 0);
 
         /*

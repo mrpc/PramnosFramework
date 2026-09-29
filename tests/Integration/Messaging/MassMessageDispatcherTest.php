@@ -85,6 +85,13 @@ class MassMessageDispatcherTest extends BaseTestCase
 
     protected function tearDown(): void
     {
+        \Pramnos\Email\MailTypes::reset();
+        try {
+            $this->db->queryBuilder()->table(\Pramnos\Email\MailingList::TABLE)->where('list', 'newsletter')->delete();
+        } catch (\Throwable) {
+            // Not built by every test.
+        }
+
         foreach (['#PREFIX#massmessagerecipients', '#PREFIX#massmessages'] as $table) {
             try {
                 $this->db->queryBuilder()->table($table)->where('messageid', $this->messageId)->delete();
@@ -107,6 +114,119 @@ class MassMessageDispatcherTest extends BaseTestCase
         parent::tearDown();
     }
 
+    // ── Sending to a mailing list ────────────────────────────────────────────
+
+    /** Two confirmed subscribers of an opt-in list: one with an account, one without. */
+    private function newsletter(): array
+    {
+        \Pramnos\Email\MailTypes::reset();
+        \Pramnos\Email\MailTypes::register(new \Pramnos\Email\MailType('newsletter', 'Newsletter', 'Monthly.', list: 'newsletter', optIn: true));
+        $this->db->queryBuilder()->table(\Pramnos\Email\MailingList::TABLE)->where('list', 'newsletter')->delete();
+
+        $lists   = new \Pramnos\Email\MailingList($this->db);
+        $account = $this->db->queryBuilder()->table('#PREFIX#users')->select('email')->where('userid', $this->users[0])->first()->fields['email'];
+        $lists->subscribe('newsletter', $account, ['confirmed' => true, 'userid' => $this->users[0], 'language' => 'en']);
+        $lists->subscribe('newsletter', 'waiting.list@example.com', ['confirmed' => true, 'language' => 'el']);
+        $lists->subscribe('newsletter', 'never.confirmed@example.com', ['source' => 'landing']);
+        $this->db->queryBuilder()->table('#PREFIX#massmessages')->where('messageid', $this->messageId)
+            ->update(['type' => MassMessage::TYPE_EMAIL, 'request' => json_encode(['mailing_list' => 'newsletter'])]);
+
+        return [strtolower((string) $account), 'waiting.list@example.com'];
+    }
+
+    /**
+     * A list's audience is its confirmed subscribers, account or not — and one per account.
+     *
+     * glideday's list is mostly people with no account yet: the dispatcher could only send to
+     * a `userid`. A subscriber who is also an account is one recipient, not two, and a pending
+     * address is nobody's recipient.
+     */
+    public function testAListsAudienceIsItsConfirmedSubscribersOnePerAccount(): void
+    {
+        // Arrange
+        [$account, $stranger] = $this->newsletter();
+        $this->db->queryBuilder()->table(\Pramnos\Email\MailingList::TABLE)->insert([
+            'list' => 'newsletter', 'email' => 'second.address@example.com', 'userid' => $this->users[0],
+            'status' => 'confirmed', 'created_at' => time(),
+        ]);
+        $audience = new \Pramnos\Messaging\MassMessageAudience($this->db);
+
+        // Act
+        $recipients = $audience->listRecipients('newsletter');
+        $preview    = $audience->preview(['mailing_list' => 'newsletter']);
+
+        // Assert
+        $this->assertSame([$account, $stranger], array_column($recipients, 'email'));
+        $this->assertSame([$this->users[0], 0], array_column($recipients, 'userid'));
+        $this->assertSame(2, $preview['total']);
+        $this->assertSame('', $audience->listOf(['mailing_list' => 'digest']), 'only an opt-in list is an audience');
+    }
+
+    /**
+     * Queued by address: the row keeps the address and the language, `userid` 0 without an
+     * account — and a message that already has recipients is not queued again.
+     */
+    public function testAListIsQueuedByAddress(): void
+    {
+        // Arrange
+        $this->newsletter();
+        $dispatcher = new MassMessageDispatcher($this->db);
+        $recipients = (new \Pramnos\Messaging\MassMessageAudience($this->db))->listRecipients('newsletter');
+
+        // Act
+        $queued = $dispatcher->queueAddresses($this->messageId, array_merge($recipients, [['email' => 'WAITING.list@example.com']]));
+        $again  = $dispatcher->queueAddresses($this->messageId, $recipients);
+
+        // Assert
+        $rows = $this->db->queryBuilder()->table('#PREFIX#massmessagerecipients')
+            ->where('messageid', $this->messageId)->orderBy('recipientid')->get()->fetchAll();
+        $this->assertSame(2, $queued, 'an address in the audience twice is one recipient');
+        $this->assertSame(0, $again);
+        $this->assertSame('waiting.list@example.com', $rows[1]['email']);
+        $this->assertSame(0, (int) $rows[1]['userid']);
+        $this->assertSame('el', $rows[1]['language']);
+    }
+
+    /**
+     * Each subscriber is sent the list's mail type, at the address that subscribed — and one who
+     * left between queueing and sending is skipped, and counted as done.
+     */
+    public function testAListIsSentThroughItsMailTypeAndSkipsWhoLeft(): void
+    {
+        // Arrange
+        [$account, $stranger] = $this->newsletter();
+        $dispatcher = new WatchedMailDispatcher($this->db);
+        $dispatcher->queueAddresses($this->messageId, (new \Pramnos\Messaging\MassMessageAudience($this->db))->listRecipients('newsletter'));
+        (new \Pramnos\Email\MailingList($this->db))->markUnsubscribed($account, 'newsletter');
+
+        // Act
+        $stats = $dispatcher->dispatch(10);
+
+        // Assert — one mail, to the stranger, as a newsletter; both rows are done
+        $this->assertSame(['attempted' => 2, 'delivered' => 2, 'failed' => 0], $stats);
+        $this->assertCount(1, $dispatcher->sent);
+        $this->assertSame($stranger, (string) $dispatcher->sent[0]->to);
+        $this->assertSame('newsletter', (new \ReflectionProperty(\Pramnos\Email\Email::class, 'mailType'))->getValue($dispatcher->sent[0]));
+    }
+
+    /** A recipient with an address is only ever sent an email. */
+    public function testAnAddressRecipientOfAnotherKindOfMessageFails(): void
+    {
+        // Arrange
+        $this->newsletter();
+        $this->db->queryBuilder()->table('#PREFIX#massmessages')->where('messageid', $this->messageId)
+            ->update(['type' => MassMessage::TYPE_MESSAGE]);
+        $dispatcher = new WatchedMailDispatcher($this->db);
+        $dispatcher->queueAddresses($this->messageId, [['email' => 'waiting.list@example.com']]);
+
+        // Act
+        $stats = $dispatcher->dispatch(10);
+
+        // Assert
+        $this->assertSame(1, $stats['failed']);
+        $this->assertSame([], $dispatcher->sent);
+    }
+
     // ── Fixture ──────────────────────────────────────────────────────────────
 
     /** From the real migrations, so a test cannot pass against a schema nobody ships. */
@@ -122,6 +242,9 @@ class MassMessageDispatcherTest extends BaseTestCase
             \Pramnos\Framework\Migrations\Messaging\CreateMessagesTable::class,
             \Pramnos\Framework\Migrations\Messaging\CreateMassmessagesTable::class,
             \Pramnos\Framework\Migrations\Messaging\CreateMassmessagerecepientsTable::class,
+            \Pramnos\Framework\Migrations\Messaging\AddAddressToMassmessagerecipients::class,
+            \Pramnos\Framework\Migrations\Messaging\CreateEmailoptoutsTable::class,
+            \Pramnos\Framework\Migrations\Messaging\CreateMailingListSubscribersTable::class,
         ]);
     }
 

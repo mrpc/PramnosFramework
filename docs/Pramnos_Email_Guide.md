@@ -662,6 +662,21 @@ The compose screen counts the audience **before** anybody presses send, because 
 the one number that changes an operator's mind, and it is exactly the number nobody has when
 the send is a loop somebody wrote in a controller.
 
+### Sending to a mailing list
+
+The compose form's **Or send to a mailing list** replaces the account criteria with an opt-in
+list's confirmed subscribers — with or without an account (criteria key `mailing_list`). The
+preview counts and samples them the same way.
+
+- A subscriber who is also an account is **one** recipient, however many addresses it subscribed
+  under; a pending address is nobody's recipient.
+- Recipients are queued **by address** (`massmessagerecipients.email`, with `userid` 0 when there
+  is no account) and each is written to in the language it subscribed in.
+- Each message goes out as the list's `MailType`, so the list's unsubscribe header and link come
+  with it; a subscriber who left between queueing and sending is skipped and counted as done.
+- A list can only be sent an **email** — a subscriber with no account has no inbox here and no
+  push subscription — and the screen refuses the send otherwise.
+
 ## What kinds of mail this application sends
 
 A *kind* — «password reset», «weekly digest», «sign-in alert» — is the thing a person means

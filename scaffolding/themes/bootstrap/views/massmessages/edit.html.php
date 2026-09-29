@@ -238,6 +238,24 @@ $checked  = static fn ($value): string => ($value ?? true) !== false ? ' checked
                 Active accounts only
             </label>
 
+            <?php
+$optInLists = array_filter(\Pramnos\Email\MailTypes::all(), static fn ($type) => $type->optIn);
+if ($optInLists !== []): ?>
+            <div>
+                <label class="block text-sm font-medium mb-1" for="mailing_list">Or send to a mailing list</label>
+                <select name="mailing_list" id="mailing_list" class="form-select form-select-sm">
+                    <option value="">— the accounts matched above —</option>
+                    <?php foreach ($optInLists as $type): ?>
+                        <option value="<?php echo $e($type->list); ?>" <?php echo (($criteria['mailing_list'] ?? '') === $type->list) ? 'selected' : ''; ?>><?php echo $e($type->label); ?></option>
+                    <?php endforeach; ?>
+                </select>
+                <p class="text-xs text-muted mt-1">
+                    Its confirmed subscribers, with or without an account, each in their own language and with the list's
+                    unsubscribe link. The account criteria above are then ignored. Email only.
+                </p>
+            </div>
+            <?php endif; ?>
+
             <div>
                 <label class="block text-sm font-medium mb-1" for="exclude_optouts">Exclude anyone who unsubscribed from</label>
                 <input type="text" name="exclude_optouts" id="exclude_optouts" class="form-control form-control-sm"

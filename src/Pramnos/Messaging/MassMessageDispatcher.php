@@ -122,6 +122,54 @@ class MassMessageDispatcher
      *
      * @return array{attempted:int,delivered:int,failed:int}
      */
+    /**
+     * Queue recipients that carry their own address — a mailing list's subscribers.
+     *
+     * The counterpart of {@see queue()} for an audience that is not only accounts: a row gets
+     * `userid` 0 when the address has no account, and keeps the address that subscribed and its
+     * language either way. The same refusals — a message that already has recipients, and a
+     * duplicate address — apply.
+     *
+     * @param iterable<array{userid?: int, email: string, language?: string}> $recipients
+     */
+    public function queueAddresses(int $messageId, iterable $recipients): int
+    {
+        if ($messageId < 1 || $this->recipientCount($messageId) > 0) {
+            return 0;
+        }
+
+        $written = 0;
+        $seen    = [];
+
+        foreach ($recipients as $recipient) {
+            $email = strtolower(trim((string) ($recipient['email'] ?? '')));
+
+            if ($email === '' || isset($seen[$email])) {
+                continue;
+            }
+            $seen[$email] = true;
+
+            $this->database->queryBuilder()
+                ->table('#PREFIX#massmessagerecipients')
+                ->insert([
+                    'messageid' => $messageId,
+                    'userid'    => max(0, (int) ($recipient['userid'] ?? 0)),
+                    'email'     => $email,
+                    'language'  => substr((string) ($recipient['language'] ?? ''), 0, 10),
+                    'status'    => MassMessageRecipient::STATUS_PENDING,
+                ]);
+
+            $written++;
+        }
+
+        $this->database->queryBuilder()
+            ->table('#PREFIX#massmessages')
+            ->where('messageid', $messageId)
+            ->update(['totalrecipients' => $written]);
+
+        return $written;
+    }
+
     public function dispatch(int $limit = self::DEFAULT_BATCH): array
     {
         $stats = ['attempted' => 0, 'delivered' => 0, 'failed' => 0];
@@ -137,7 +185,11 @@ class MassMessageDispatcher
             foreach ($batch as $recipient) {
                 $stats['attempted']++;
 
-                if ($this->deliver($message, (int) $recipient['userid'])) {
+                $delivered = trim((string) ($recipient['email'] ?? '')) !== ''
+                    ? $this->deliverToAddress($message, $recipient)
+                    : $this->deliver($message, (int) $recipient['userid']);
+
+                if ($delivered) {
                     $this->markRecipient(
                         (int) $recipient['recipientid'],
                         MassMessageRecipient::STATUS_DELIVERED
@@ -392,6 +444,64 @@ class MassMessageDispatcher
      *
      * @param array<string, mixed> $options
      */
+    /**
+     * Send to a recipient that carries its own address: a mailing list's subscriber.
+     *
+     * In the subscriber's own language, through the list's {@see \Pramnos\Email\MailType},
+     * so the unsubscribe header and link come with it. A subscriber who left the list between
+     * queueing and now is skipped, and counted as done, the way an opted-out account is.
+     *
+     * @param array<string, mixed> $recipient A `massmessagerecipients` row
+     */
+    protected function deliverToAddress(array $message, array $recipient): bool
+    {
+        if ((int) ($message['type'] ?? MassMessage::TYPE_EMAIL) !== MassMessage::TYPE_EMAIL) {
+            return false;
+        }
+
+        $email   = (string) $recipient['email'];
+        $options = $this->optionsOf($message);
+        $list    = $this->listOf($message) ?: (trim((string) ($options['list'] ?? '')) ?: static::UNSUBSCRIBE_LIST);
+        $type    = \Pramnos\Email\MailTypes::byList($list);
+
+        if ($type?->optIn ? !(new \Pramnos\Email\MailingList($this->database))->isSubscribed($list, $email)
+                          : \Pramnos\Email\Unsubscribe::isOptedOut($email, $list)) {
+            return true;
+        }
+
+        return (bool) \Pramnos\Translator\Language::using(
+            trim((string) ($recipient['language'] ?? '')),
+            function () use ($message, $email, $options, $list, $type): bool {
+                $mailer = $this->mailer();
+                $mailer->subject = (string) ($message['subject'] ?? '');
+                $mailer->body    = (string) ($message['message'] ?? '');
+                $mailer->to      = $email;
+
+                if ($type !== null) {
+                    $mailer->type($type->name);
+                } else {
+                    $mailer->offerUnsubscribe($list, $email);
+                }
+                $mailer->module = 'massmessage';
+
+                $this->applyOptions($mailer, $options);
+
+                return (bool) $mailer->send();
+            }
+        );
+    }
+
+    /** The mailing list a message was addressed to, from its stored criteria. */
+    protected function listOf(array $message): string
+    {
+        $request = $message['request'] ?? null;
+        if (is_string($request)) {
+            $request = json_decode($request, true);
+        }
+
+        return is_array($request) ? trim((string) ($request['mailing_list'] ?? '')) : '';
+    }
+
     protected function applyOptions(\Pramnos\Email\Email $mailer, array $options): void
     {
         if (array_key_exists('template', $options)) {

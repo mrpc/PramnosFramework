@@ -63,6 +63,9 @@ class MassMessagesScreenTest extends BaseTestCase
         $this->runMigrations([
             \Pramnos\Framework\Migrations\Messaging\CreateMassmessagesTable::class,
             \Pramnos\Framework\Migrations\Messaging\CreateMassmessagerecepientsTable::class,
+            \Pramnos\Framework\Migrations\Messaging\AddAddressToMassmessagerecipients::class,
+            \Pramnos\Framework\Migrations\Messaging\CreateEmailoptoutsTable::class,
+            \Pramnos\Framework\Migrations\Messaging\CreateMailingListSubscribersTable::class,
         ], $this->db);
         \Pramnos\User\User::setupDb();
 
@@ -508,6 +511,68 @@ class MassMessagesScreenTest extends BaseTestCase
             $controller->messages[0] ?? '',
             'the operator is not told that delivery happens later'
         );
+    }
+
+    /**
+     * A message to a mailing list is queued by address, subscribers without an account included.
+     *
+     * The screen's audience was accounts only. For a list, the confirmed subscribers are the
+     * audience, and a pending address is not among them. Run on both backends, because the
+     * recipient rows gained two columns.
+     */
+    public function testAMessageToAMailingListIsQueuedByAddress(): void
+    {
+        // Arrange
+        \Pramnos\Email\MailTypes::reset();
+        \Pramnos\Email\MailTypes::register(new \Pramnos\Email\MailType('screen-news', 'News', 'Monthly.', list: 'screen-news', optIn: true));
+        $lists = new \Pramnos\Email\MailingList($this->db);
+        $lists->subscribe('screen-news', 'screen.reader@example.com', ['confirmed' => true, 'language' => 'el']);
+        $lists->subscribe('screen-news', 'screen.pending@example.com', ['source' => 'test']);
+        $id = $this->seed('To the list', MassMessage::STATUS_PENDING, json_encode(['mailing_list' => 'screen-news']));
+        $controller = $this->controller();
+        $this->postWithToken($id);
+
+        try {
+            // Act
+            $controller->send($id);
+
+            // Assert
+            $row = $this->db->queryBuilder()->table('#PREFIX#massmessagerecipients')->where('messageid', $id)->first()->fields;
+            $this->assertSame([], $controller->errors, json_encode($controller->errors));
+            $this->assertSame(1, $this->recipientCount($id), 'the pending address is not a recipient');
+            $this->assertSame('screen.reader@example.com', $row['email']);
+            $this->assertSame(0, (int) $row['userid']);
+            $this->assertSame('el', $row['language']);
+        } finally {
+            $this->db->queryBuilder()->table(\Pramnos\Email\MailingList::TABLE)->where('list', 'screen-news')->delete();
+            \Pramnos\Email\MailTypes::reset();
+        }
+    }
+
+    /**
+     * A mailing list is only ever sent an email: a subscriber without an account has no inbox
+     * here and no push subscription.
+     */
+    public function testAMailingListCannotBeSentAnythingButAnEmail(): void
+    {
+        // Arrange
+        \Pramnos\Email\MailTypes::reset();
+        \Pramnos\Email\MailTypes::register(new \Pramnos\Email\MailType('screen-news', 'News', 'Monthly.', list: 'screen-news', optIn: true));
+        $id = $this->seed('Internal to a list', MassMessage::STATUS_PENDING, json_encode(['mailing_list' => 'screen-news']));
+        $this->db->queryBuilder()->table('#PREFIX#massmessages')->where('messageid', $id)->update(['type' => MassMessage::TYPE_MESSAGE]);
+        $controller = $this->controller();
+        $this->postWithToken($id);
+
+        try {
+            // Act
+            $controller->send($id);
+
+            // Assert
+            $this->assertStringContainsString('only be sent an email', $controller->errors[0] ?? '');
+            $this->assertSame(0, $this->recipientCount($id));
+        } finally {
+            \Pramnos\Email\MailTypes::reset();
+        }
     }
 
     /**
