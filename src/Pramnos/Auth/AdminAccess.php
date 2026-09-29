@@ -240,6 +240,7 @@ final class AdminAccess
 
         if ($add !== [] || $remove !== []) {
             Permissions::getInstance()->clearCache();
+            WebhookService::permissionsChanged($subjectType, $subjectId, ['operation' => 'update']);
         }
 
         return ['added' => $add, 'removed' => $remove];
@@ -347,6 +348,7 @@ final class AdminAccess
 
         if ($changed !== []) {
             Permissions::getInstance()->clearCache();
+            WebhookService::permissionsChanged($subjectType, $subjectId, ['operation' => 'update']);
         }
 
         return $changed;

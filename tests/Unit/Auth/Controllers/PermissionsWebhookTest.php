@@ -107,6 +107,10 @@ class PermissionsWebhookTest extends BaseTestCase
 
         $db = $this->createMock(Database::class);
         $db->method('queryBuilder')->willReturn($qb);
+        // The audience columns are looked up before a save; this store has none.
+        $schema = $this->createMock(\Pramnos\Database\SchemaBuilder::class);
+        $schema->method('hasColumn')->willReturn(false);
+        $db->method('schema')->willReturn($schema);
         $ref = $db;
     }
 
@@ -125,13 +129,13 @@ class PermissionsWebhookTest extends BaseTestCase
         $this->assertSame('create', $call['payload']['operation']);
     }
 
-    /** A role-subject targets user 0 and carries the subject in the payload. */
-    public function testEmitForRoleTargetsZeroWithSubjectInPayload(): void
+    /** A role-subject names no user (NULL, which the foreign key accepts) and carries the subject in the payload. */
+    public function testEmitForRoleNamesNoUserAndCarriesTheSubject(): void
     {
         $this->controller->callEmit('role', 9, ['operation' => 'delete']);
 
         $call = $this->controller->spy->calls[0];
-        $this->assertSame(0, $call['user'], 'Role changes target user 0 (broad invalidation)');
+        $this->assertNull($call['user'], 'a role change names no user: 0 would violate the foreign key');
         $this->assertSame('role', $call['payload']['subject_type']);
         $this->assertSame(9, $call['payload']['subject_id']);
     }
@@ -229,7 +233,7 @@ class PermissionsWebhookTest extends BaseTestCase
 
         $this->assertCount(1, $this->controller->spy->calls);
         $this->assertSame('delete', $this->controller->spy->calls[0]['payload']['operation']);
-        $this->assertSame(0, $this->controller->spy->calls[0]['user'], 'role subject → user 0');
+        $this->assertNull($this->controller->spy->calls[0]['user'], 'role subject → no user');
         $this->assertSame(3, $this->controller->spy->calls[0]['payload']['subject_id']);
     }
 

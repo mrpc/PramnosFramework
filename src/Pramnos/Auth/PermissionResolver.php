@@ -13,8 +13,9 @@ use Pramnos\Database\Database;
  * active roles they hold from authserver.user_roles), scoped to one application,
  * and returns the effective grants. The deny-over-allow resolution mirrors the
  * effective_permissions view: for each (object_type, object_id, action) a deny
- * wins when its top priority exceeds the top allow priority; otherwise an allow
- * present grants; otherwise deny.
+ * wins when its top priority is at least the top allow priority — a tie goes to
+ * the deny — otherwise an allow present grants; otherwise deny. The priority is
+ * compared as stored, the same on every database.
  *
  * ABAC conditions are NOT evaluated here — they are passed through with each
  * grant so the calling application evaluates them against its own request
@@ -358,9 +359,9 @@ class PermissionResolver implements PermissionResolverInterface
                 }
             }
 
-            // Mirror effective_permissions: deny wins when its top priority
-            // exceeds the top allow priority; else allow if any; else deny.
-            if ($maxDeny !== null && $maxDeny > ($maxAllow ?? 0)) {
+            // Mirror effective_permissions: deny wins when its top priority is at
+            // least the top allow priority; else allow if any; else deny.
+            if ($maxDeny !== null && $maxDeny >= ($maxAllow ?? 0)) {
                 $grant = 'deny';
             } elseif ($maxAllow !== null) {
                 $grant = 'allow';

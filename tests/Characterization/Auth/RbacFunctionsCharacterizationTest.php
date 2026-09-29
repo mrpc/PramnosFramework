@@ -105,14 +105,14 @@ class RbacFunctionsCharacterizationTest extends TestCase
     }
 
     /**
-     * Explicit deny (higher priority than any allow) → check_permission_with_inheritance() returns FALSE.
+     * A deny at the same priority as an allow → check_permission_with_inheritance() returns FALSE.
      *
-     * The deny trigger auto-adds 1000 to priority, so the deny entry always wins
-     * when both allow and deny exist for the same subject+object+action.
+     * The view gives a tie to the deny, so a deny and an allow entered at the same priority
+     * decide as a deny without any trigger adjusting the stored value.
      */
     public function testCheckPermissionDirectDenyReturnsFalse(): void
     {
-        // Arrange — insert allow then deny; trigger bumps deny priority to 1010
+        // Arrange — an allow and a deny, both at priority 5
         $this->db->execute(
             "INSERT INTO authserver.permissions
              (subject_type, subject_id, object_type, object_id, action, grant_type, priority)
@@ -121,7 +121,7 @@ class RbacFunctionsCharacterizationTest extends TestCase
         $this->db->execute(
             "INSERT INTO authserver.permissions
              (subject_type, subject_id, object_type, object_id, action, grant_type, priority)
-             VALUES ('user', 2, 'report', '99', 'write', 'deny', 0)"
+             VALUES ('user', 2, 'report', '99', 'write', 'deny', 5)"
         );
 
         // Act
@@ -130,7 +130,7 @@ class RbacFunctionsCharacterizationTest extends TestCase
         );
 
         // Assert — deny dominates allow → false
-        $this->assertFalse((bool) $r->fields['granted'], 'Deny (priority 1010) must override allow (priority 5)');
+        $this->assertFalse((bool) $r->fields['granted'], 'A deny must win a tie with an allow');
     }
 
     /**
@@ -298,7 +298,7 @@ class RbacFunctionsCharacterizationTest extends TestCase
             "INSERT INTO authserver.user_roles (userid, roleid, is_active)
              VALUES (30, {$roleId}, TRUE)"
         );
-        // Direct deny on user 30 (trigger bumps priority to 1000)
+        // Direct deny on user 30
         $this->db->execute(
             "INSERT INTO authserver.permissions
              (subject_type, subject_id, object_type, object_id, action, grant_type, priority)
@@ -490,6 +490,101 @@ class RbacFunctionsCharacterizationTest extends TestCase
         );
     }
 
+    /**
+     * Deactivating the role of somebody who has left its organisation is allowed.
+     *
+     * The membership trigger guards a grant. An UPDATE that sets `is_active` to false grants
+     * nothing, and refusing it left an ex-member holding the role with no way to take it off
+     * them short of deleting the row.
+     */
+    public function testAnOrganisationRoleCanBeDeactivatedAfterTheMemberLeft(): void
+    {
+        // Arrange — user 60 is a member of org 1 and holds its role, then leaves
+        $this->db->execute("INSERT INTO public.organizations (organization_id, name) VALUES (1, 'Org') ON CONFLICT DO NOTHING");
+        $role = $this->db->execute(
+            "INSERT INTO authserver.roles (role_name, organization_id, is_active)
+             VALUES ('org_role_leaving', 1, TRUE) RETURNING roleid"
+        );
+        $role->fetch();
+        $roleId = (int) $role->fields['roleid'];
+        $this->db->execute("INSERT INTO authserver.user_organizations (userid, organization_id, is_active) VALUES (60, 1, TRUE)");
+        $this->db->execute("INSERT INTO authserver.user_roles (userid, roleid, is_active) VALUES (60, {$roleId}, TRUE)");
+        $this->db->execute("UPDATE authserver.user_organizations SET is_active = FALSE WHERE userid = 60");
+
+        // Act — take the role away
+        $this->db->execute("UPDATE authserver.user_roles SET is_active = FALSE WHERE userid = 60 AND roleid = {$roleId}");
+
+        // Assert
+        $r = $this->db->execute("SELECT is_active FROM authserver.user_roles WHERE userid = 60 AND roleid = {$roleId}");
+        $r->fetch();
+        $this->assertFalse((bool) $r->fields['is_active'], 'the role must be deactivated');
+
+        // Assert — giving it back is still refused: the user is no longer a member
+        $this->expectException(\Exception::class);
+        $this->db->execute("UPDATE authserver.user_roles SET is_active = TRUE WHERE userid = 60 AND roleid = {$roleId}");
+    }
+
+    /**
+     * Editing a deny row leaves its priority as it is.
+     *
+     * The dropped trigger added 1000 on every UPDATE, so a deny grew each time anything on it
+     * changed. Stored priority is now what was written.
+     */
+    public function testEditingADenyDoesNotChangeItsPriority(): void
+    {
+        // Arrange
+        $this->db->execute(
+            "INSERT INTO authserver.permissions
+             (subject_type, subject_id, object_type, object_id, action, grant_type, priority)
+             VALUES ('user', 70, 'doc', '1', 'read', 'deny', 100)"
+        );
+
+        // Act — an edit that does not touch the priority
+        $this->db->execute("UPDATE authserver.permissions SET description = 'edited' WHERE subject_id = 70");
+
+        // Assert
+        $r = $this->db->execute("SELECT priority FROM authserver.permissions WHERE subject_id = 70");
+        $r->fetch();
+        $this->assertSame(100, (int) $r->fields['priority'], 'the stored priority must be the one written');
+    }
+
+    /**
+     * The migration brings inflated deny priorities back to what was typed, and down() undoes it.
+     *
+     * Down restores the +1000 trigger, so a deny written at 100 and edited once is stored at
+     * 2100 — the state of an installation before the migration. Running up() must leave 100.
+     */
+    public function testTheMigrationRestoresInflatedDenyPriorities(): void
+    {
+        // Arrange — the older state: trigger back, one deny inserted and edited
+        $app = $this->getMockBuilder(Application::class)->disableOriginalConstructor()->getMock();
+        $app->database = $this->db;
+        $migration = $this->loadMigration('authserver', 'UnifyAuthserverDenyRule', $app);
+        $migration->down();
+        $this->db->execute(
+            "INSERT INTO authserver.permissions
+             (subject_type, subject_id, object_type, object_id, action, grant_type, priority)
+             VALUES ('user', 80, 'doc', '1', 'read', 'deny', 100)"
+        );
+        $this->db->execute("UPDATE authserver.permissions SET description = 'edited' WHERE subject_id = 80");
+        $r = $this->db->execute("SELECT priority FROM authserver.permissions WHERE subject_id = 80");
+        $r->fetch();
+        $this->assertSame(2100, (int) $r->fields['priority'], 'the older trigger inflates on insert and on update');
+
+        // Act
+        $migration->up();
+
+        // Assert
+        $r = $this->db->execute("SELECT priority FROM authserver.permissions WHERE subject_id = 80");
+        $r->fetch();
+        $this->assertSame(100, (int) $r->fields['priority'], 'up() must restore the priority that was typed');
+        $t = $this->db->execute(
+            "SELECT COUNT(*) AS n FROM information_schema.triggers WHERE trigger_name = 'trigger_set_permission_priority'"
+        );
+        $t->fetch();
+        $this->assertSame(0, (int) $t->fields['n'], 'the +1000 trigger must be gone');
+    }
+
     // =========================================================================
     // Helpers
     // =========================================================================
@@ -530,6 +625,7 @@ class RbacFunctionsCharacterizationTest extends TestCase
             ['authserver', 'CreateAuthserverEffectivePermissionsView'],
             ['authserver', 'CreateAuthserverUserOrganizationsTable'],
             ['authserver', 'CreateAuthserverRbacFunctions'],
+            ['authserver', 'UnifyAuthserverDenyRule'],
         ];
 
         foreach ($chain as [$feature, $class]) {

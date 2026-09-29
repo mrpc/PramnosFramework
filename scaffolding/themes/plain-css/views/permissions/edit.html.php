@@ -23,7 +23,6 @@ $isNew = empty($p['permissionid']);
                         <select name="subject_type" style="width:100%;padding:8px;border:1px solid #ccc;border-radius:4px">
                             <option value="user" <?php echo ($p['subject_type'] ?? 'user') === 'user' ? 'selected' : ''; ?>>User</option>
                             <option value="role" <?php echo ($p['subject_type'] ?? '') === 'role' ? 'selected' : ''; ?>>Role</option>
-                            <option value="group" <?php echo ($p['subject_type'] ?? '') === 'group' ? 'selected' : ''; ?>>Group</option>
                         </select>
                     </div>
                     <div style="flex:1;min-width:200px">
@@ -48,6 +47,25 @@ $isNew = empty($p['permissionid']);
                             <option value="allow" <?php echo ($p['grant_type'] ?? 'allow') === 'allow' ? 'selected' : ''; ?>>Allow</option>
                             <option value="deny" <?php echo ($p['grant_type'] ?? '') === 'deny' ? 'selected' : ''; ?>>Deny</option>
                         </select>
+                    </div>
+                    <div style="flex:1;min-width:200px">
+                        <label style="display:block;font-weight:600;margin-bottom:4px">Priority</label>
+                        <input type="number" name="priority" min="0" style="width:100%;padding:8px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box" value="<?php echo (int)($p['priority'] ?? 100); ?>">
+                        <div style="font-size:.85em;color:#666;margin-top:4px">The higher priority decides; a deny wins a tie.</div>
+                    </div>
+                    <div style="flex:1;min-width:200px">
+                        <label style="display:block;font-weight:600;margin-bottom:4px">Application ID</label>
+                        <input type="number" name="app_id" min="1" style="width:100%;padding:8px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box" value="<?php echo htmlspecialchars((string)($p['app_id'] ?? '')); ?>" placeholder="Leave blank for every application">
+                    </div>
+                    <div style="flex:1;min-width:200px">
+                        <label style="display:block;font-weight:600;margin-bottom:4px">Expires</label>
+                        <input type="datetime-local" name="expires_at" style="width:100%;padding:8px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box" value="<?php echo htmlspecialchars(substr(str_replace(' ', 'T', (string)($p['expires_at'] ?? '')), 0, 16)); ?>">
+                        <div style="font-size:.85em;color:#666;margin-top:4px">Leave blank for a permanent grant.</div>
+                    </div>
+                    <div style="flex:1 1 100%">
+                        <label style="display:block;font-weight:600;margin-bottom:4px">Conditions (JSON)</label>
+                        <textarea name="conditions" rows="3" style="width:100%;padding:8px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box" placeholder='{"location_id": [1, 2]}'><?php echo htmlspecialchars((string)($p['conditions'] ?? '')); ?></textarea>
+                        <div style="font-size:.85em;color:#666;margin-top:4px">Passed to the application with the grant, which evaluates it. Leave blank for an unconditional grant.</div>
                     </div>
                 </div>
                 <div style="margin-top:12px;display:flex;gap:8px">

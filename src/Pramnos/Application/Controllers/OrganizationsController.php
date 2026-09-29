@@ -443,6 +443,8 @@ class OrganizationsController extends Controller
                 ['userid', $orgCol],
                 ['granted_by', 'is_active']
             );
+        // Membership decides which of the organisation's roles count for this user.
+        \Pramnos\Auth\WebhookService::permissionsChanged('user', $userId, ['operation' => 'membership_added', 'organization_id' => $orgId]);
 
         $this->addMessage('Added.');
         $this->redirect(adminUrl('organizations/') . $orgId . '/members');
@@ -506,6 +508,7 @@ class OrganizationsController extends Controller
             ->where('userid', $userId)
             ->where($orgCol, $orgId)
             ->update(['is_active' => 0]);
+        \Pramnos\Auth\WebhookService::permissionsChanged('user', $userId, ['operation' => 'membership_removed', 'organization_id' => $orgId]);
 
         $this->addMessage('Removed.');
         $this->redirect(adminUrl('organizations/') . $orgId . '/members');

@@ -110,7 +110,8 @@ class WebhookService
 
         $endpoints = $query->get();
 
-        if ($endpoints->numRows === 0) {
+        // No result at all is an installation without the webhook tables: nothing subscribes.
+        if (!$endpoints || $endpoints->numRows === 0) {
             return 0;
         }
 
@@ -136,6 +137,34 @@ class WebhookService
         }
 
         return $count;
+    }
+
+    /**
+     * Tell subscribers that what a user or a role may do has changed, so they drop their cache.
+     *
+     * Called by every writer of grants and role assignments — `Permissions`, `AdminAccess`,
+     * `Role`, and the admin screens that write rows themselves — so an application caching
+     * `/api/internal/permissions` hears about a change however it was made.
+     *
+     * For a role the event names no user (`user_id` NULL: the column is a foreign key, so 0 is
+     * not a value it can hold) and the payload carries the role, so the subscriber invalidates
+     * every holder. Best-effort: a missing webhook table or a failed insert never breaks the
+     * write it follows.
+     *
+     * @param 'user'|'role'        $subjectType
+     * @param array<string, mixed> $context Extra payload — `operation`, `object_type`, `action`…
+     */
+    public static function permissionsChanged(string $subjectType, int $subjectId, array $context = []): void
+    {
+        try {
+            (new self(\Pramnos\Framework\Factory::getDatabase()))->queueEvent(
+                'permissions_changed',
+                $subjectType === 'user' ? $subjectId : null,
+                ['subject_type' => $subjectType, 'subject_id' => $subjectId] + $context
+            );
+        } catch (\Throwable) {
+            // Invalidation is best-effort; the grant it reports has already been written.
+        }
     }
 
     // ── Queue processing ──────────────────────────────────────────────────────

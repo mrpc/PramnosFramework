@@ -108,7 +108,13 @@ class Role extends Model
      */
     public function save(): static
     {
-        return parent::_save();
+        parent::_save();
+        if ((int) $this->roleid > 0) {
+            // Its active flag or its organisation may have changed, and with it every holder's grants.
+            WebhookService::permissionsChanged('role', (int) $this->roleid, ['operation' => 'update']);
+        }
+
+        return $this;
     }
 
     /**
@@ -135,7 +141,10 @@ class Role extends Model
             ->where('roleid', $roleid)
             ->delete();
 
-        return (bool) parent::_delete($roleid);
+        $deleted = (bool) parent::_delete($roleid);
+        WebhookService::permissionsChanged('role', $roleid, ['operation' => 'delete']);
+
+        return $deleted;
     }
 
     /**
@@ -198,6 +207,7 @@ class Role extends Model
                 ['userid', 'roleid'],
                 ['granted_by', 'expires_at', 'is_active']
             );
+        WebhookService::permissionsChanged('user', $userId, ['operation' => 'role_assigned', 'roleid' => (int) $this->roleid]);
 
         return true;
     }
@@ -226,6 +236,7 @@ class Role extends Model
             ->where('userid', $userId)
             ->where('roleid', (int) $this->roleid)
             ->update(['is_active' => 0]);
+        WebhookService::permissionsChanged('user', $userId, ['operation' => 'role_revoked', 'roleid' => (int) $this->roleid]);
 
         return true;
     }

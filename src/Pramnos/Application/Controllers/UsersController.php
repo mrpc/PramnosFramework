@@ -1252,6 +1252,9 @@ class UsersController extends Controller
                     'priority'     => max(0, (int) \Pramnos\Http\Request::staticGet('priority', 100, 'post', 'int')),
                     'granted_by'   => $operator ? (int) $operator->userid : null,
                 ]);
+            \Pramnos\Auth\WebhookService::permissionsChanged('user', $id, [
+                'object_type' => $objectType, 'action' => $action, 'operation' => 'create',
+            ]);
             \Pramnos\Auth\ActivityLog::record($id, 'permission_granted', [
                 'object_type' => $objectType,
                 'action'      => $action,
@@ -1297,6 +1300,7 @@ class UsersController extends Controller
                 ->delete();
 
             if ($affected) {
+                \Pramnos\Auth\WebhookService::permissionsChanged('user', $id, ['operation' => 'delete']);
                 \Pramnos\Auth\ActivityLog::record($id, 'permission_revoked', [
                     'permission' => $permissionId,
                     'by'         => (int) (User::getCurrentUser()->userid ?? 0),

@@ -261,6 +261,28 @@ class PermissionResolverTest extends TestCase
         $this->assertSame('allow', $g['grant']);
     }
 
+    /**
+     * A deny and an allow at the same priority: the deny decides.
+     *
+     * The tie is the case an administrator makes without thinking about priority — both rows
+     * at the form's default — and a deny that loses it is a deny that does nothing. The rule is
+     * the resolver's own, so it holds on every database and needs no trigger to inflate the
+     * deny's stored priority.
+     */
+    public function testADenyWinsATie(): void
+    {
+        // Arrange — an allow on the user, a deny on a role they hold, both at 100
+        $this->assignRole(self::ROLE);
+        $this->perm(['action' => 'export', 'grant_type' => 'allow', 'priority' => 100]);
+        $this->perm(['subject_type' => 'role', 'subject_id' => self::ROLE, 'action' => 'export', 'grant_type' => 'deny', 'priority' => 100]);
+
+        // Act
+        $g = $this->grantFor($this->resolver->resolve(self::USER, self::APP), 'invoice', 'export');
+
+        // Assert
+        $this->assertSame('deny', $g['grant'], 'at equal priority the deny must decide');
+    }
+
     public function testGlobalPermissionAppliesRegardlessOfApp(): void
     {
         $this->perm(['action' => 'read', 'app_id' => null]); // global

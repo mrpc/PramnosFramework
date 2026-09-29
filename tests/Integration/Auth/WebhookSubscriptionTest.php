@@ -270,6 +270,68 @@ class WebhookSubscriptionTest extends BaseTestCase
     }
 
     /**
+     * `permissionsChanged()` queues the event for a user, naming them.
+     *
+     * The one call every writer of grants and role assignments makes. A subscriber keys its
+     * cache on the user, so the user id has to be on the row, and the payload says whose.
+     */
+    public function testPermissionsChangedForAUserNamesThem(): void
+    {
+        // Arrange
+        $this->subscribe('permissions_changed');
+
+        // Act
+        WebhookService::permissionsChanged('user', 77, ['operation' => 'role_assigned', 'roleid' => 3]);
+
+        // Assert
+        $row = $this->db->queryBuilder()->table('applications.oauth2_webhook_events')
+            ->select(['user_id', 'payload'])->where('event_type', 'permissions_changed')->first();
+        $this->assertSame(77, (int) $row->fields['user_id']);
+        $payload = json_decode((string) $row->fields['payload'], true);
+        $this->assertSame(['subject_type' => 'user', 'subject_id' => 77, 'operation' => 'role_assigned', 'roleid' => 3], $payload);
+    }
+
+    /**
+     * `permissionsChanged()` for a role names no user and carries the role.
+     *
+     * `user_id` is a foreign key to users: 0 is refused on a database that enforces it, so a
+     * role change is NULL there and the subscriber reads the role from the payload.
+     */
+    public function testPermissionsChangedForARoleNamesNoUser(): void
+    {
+        // Arrange
+        $this->subscribe('permissions_changed');
+
+        // Act
+        WebhookService::permissionsChanged('role', 9, ['operation' => 'deactivate']);
+
+        // Assert
+        $row = $this->db->queryBuilder()->table('applications.oauth2_webhook_events')
+            ->select(['user_id', 'payload'])->where('event_type', 'permissions_changed')->first();
+        $this->assertNull($row->fields['user_id'], 'a role change is about no one user');
+        $this->assertSame('role', json_decode((string) $row->fields['payload'], true)['subject_type']);
+    }
+
+    /**
+     * Without the webhook tables, `permissionsChanged()` does nothing and does not throw.
+     *
+     * It follows a grant that has already been written; an installation without webhooks must
+     * not have its permission screens fail on the notification.
+     */
+    public function testPermissionsChangedWithoutTheTablesIsSilent(): void
+    {
+        // Arrange
+        $this->db->query("DROP TABLE IF EXISTS `{$this->events}`");
+        $this->db->query("DROP TABLE IF EXISTS `{$this->endpoints}`");
+
+        // Act
+        WebhookService::permissionsChanged('user', 1);
+
+        // Assert — reaching here is the assertion: nothing escaped
+        $this->assertFalse($this->db->schema()->hasTable('applications.oauth2_webhook_endpoints'));
+    }
+
+    /**
      * An event nobody subscribed to is not queued.
      *
      * One row per *subscribed* endpoint, so an event type with no endpoint is a

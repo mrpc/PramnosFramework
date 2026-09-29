@@ -247,6 +247,49 @@ $permissions = $resolver->resolve($userId, $appId);   // string[]
 Used by the router and by anything that needs the whole set at once rather than one check
 at a time. `PermissionResolverInterface` exists so an application can substitute its own.
 
+### How an allow and a deny are decided
+
+Rows for the same object and action — from the user and from every active role they hold —
+are compared by `priority`: **the higher priority decides, and a deny wins a tie.** Two rows at
+the default 100 are a deny; an allow at 500 overrides a deny at 100, which is how one exception
+is carved out of a broad refusal. Nothing but an allow is an implicit deny.
+
+The priority is compared as it is stored, and stored as it was written — the same on MySQL and
+PostgreSQL. `PermissionResolver`, the `authserver.effective_permissions` view and the PL/pgSQL
+helpers that read it all apply this one rule.
+
+### The Permissions screen
+
+`Admin → Access → Permissions` edits `authserver.permissions` rows directly:
+
+| Field | Meaning |
+| --- | --- |
+| Subject | a **user** or a **role**, by id — the two the resolver reads; anything else is refused |
+| Object type / Object ID | what is protected; a blank id means every object of the type |
+| Action | `read`, `update`, `*`… |
+| Grant | allow or deny |
+| Priority | see above; 100 unless set |
+| Application ID | the one application the grant applies within; blank for every application |
+| Expires | when the grant stops counting; blank for permanent |
+| Conditions | a JSON object passed with the grant to the application, which evaluates it; blank for unconditional |
+
+### Telling applications that something changed
+
+Every write that changes what somebody may do queues a `permissions_changed` webhook: a row on
+this screen, a grant or revocation on a user's page, a decision in the Administration screens
+panel, `Permissions::allow()` / `deny()` / `removePermission()`, a role saved, deactivated or
+deleted, a role given or taken, and an organisation membership added or removed. All of them go
+through one call, which an application's own writer should use too:
+
+```php
+\Pramnos\Auth\WebhookService::permissionsChanged('user', $userId, ['operation' => 'update']);
+\Pramnos\Auth\WebhookService::permissionsChanged('role', $roleId, ['operation' => 'deactivate']);
+```
+
+The body sent is `{"subject_type": …, "subject_id": …}` plus the context. A role's event names
+no user: the subscriber drops the cache of everyone holding it. The call never throws — the
+change it reports has already been written.
+
 ### `hasPermission()` on your user
 
 Several framework call sites ask the user object directly:
@@ -332,7 +375,9 @@ Deleting the *role* does remove its assignments, because a row naming a role tha
 longer exists is not history anybody can read.
 
 Removing somebody from an **organisation** touches none of this: their assignments
-stay, stop counting while they are out, and count again if they return.
+stay, stop counting while they are out, and count again if they return. Their organisation's role can
+still be taken from them after they have left: on PostgreSQL the membership trigger guards a
+grant, and deactivating an assignment grants nothing.
 
 ## Multi-tenancy: scoping to an organisation
 

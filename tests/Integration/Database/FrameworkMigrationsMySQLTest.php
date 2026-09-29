@@ -1397,6 +1397,49 @@ class FrameworkMigrationsMySQLTest extends TestCase
     }
 
     /**
+     * UnifyAuthserverDenyRule: on MySQL the view gives a priority tie to the deny.
+     *
+     * MySQL never had the PostgreSQL trigger that inflated a deny's priority, so a deny and an
+     * allow at the same priority decided as an allow here and as a deny there. The view now
+     * compares with `>=` on both, so the same rows decide the same way.
+     */
+    public function testTheViewGivesATieToTheDenyOnMySQL(): void
+    {
+        // Arrange — the view's dependencies, the view, and the migration under test
+        foreach ([
+            'CreateAuthserverRolesTable', 'CreateAuthserverPermissionsTable', 'CreateAuthserverUserRolesTable',
+            'CreateAuthserverAuditLogTable', 'CreateAuthserverPermissionTemplatesTable',
+            'CreateAuthserverRoleTemplatesTable', 'CreateAuthserverPermissionInheritanceTable',
+            'CreateAuthserverEffectivePermissionsView',
+        ] as $class) {
+            $this->loadMigration('authserver', $class)->up();
+        }
+        $m = $this->loadMigration('authserver', 'UnifyAuthserverDenyRule');
+        foreach (['allow', 'deny'] as $grant) {
+            $this->db->query(
+                "INSERT INTO `authserver_permissions`
+                 (subject_type, subject_id, object_type, object_id, action, grant_type, priority)
+                 VALUES ('user', 1, 'report', '42', 'read', '{$grant}', 100)"
+            );
+        }
+        $grant = fn () => $this->db->query(
+            "SELECT effective_grant FROM `authserver_effective_permissions`
+             WHERE subject_type='user' AND subject_id=1 AND object_type='report' AND action='read'"
+        )->fields['effective_grant'];
+        $this->assertSame('allow', $grant(), 'before the migration a tie went to the allow on MySQL');
+
+        // Act
+        $m->up();
+
+        // Assert
+        $this->assertSame('deny', $grant(), 'a tie must go to the deny');
+
+        // Assert — down() puts the older comparison back
+        $m->down();
+        $this->assertSame('allow', $grant(), 'down() must restore the older view');
+    }
+
+    /**
      * CreateAuthserverEffectivePermissionsView must create the
      * authserver_effective_permissions view on MySQL.
      *

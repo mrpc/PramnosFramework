@@ -14,10 +14,10 @@ use Pramnos\Auth\WebhookService;
  * Requires both the `authserver` feature and the RBAC schema to be present
  * (i.e., the `create_authserver_permissions_table` migration must have run).
  *
- * Subject types: 'user', 'role'.
+ * Subject types: 'user', 'role' — the two the resolver reads; anything else is refused.
  * Object types: any resource identifier (e.g. 'reports', 'users', 'settings').
  * Actions: any verb (e.g. 'view', 'edit', 'delete', '*').
- * Grant types: 'allow' | 'deny' — deny entries take absolute priority.
+ * Grant types: 'allow' | 'deny' — the higher priority wins, and a deny wins a tie.
  *
  * Actions:
  *   - display()         — DataTable of all permission records
@@ -43,7 +43,7 @@ class PermissionsController extends Controller
     {
         $this->addAuthAction(['display', 'edit', 'save', 'delete', 'assign']);
         // POST with the session's token, or refused before the action runs: see Controller::exec().
-        $this->addWriteAction(['save', 'delete']);
+        $this->addWriteAction(['save', 'delete', 'assign']);
         parent::__construct($application);
     }
 
@@ -135,9 +135,29 @@ class PermissionsController extends Controller
         $grantType   = in_array($_POST['grant_type'] ?? '', ['allow', 'deny'], true)
             ? (string) $_POST['grant_type'] : 'allow';
         $priority    = max(0, (int) ($_POST['priority'] ?? 100));
+        $appId       = (int) ($_POST['app_id'] ?? 0);
+        $expiresAt   = trim((string) ($_POST['expires_at'] ?? ''));
+        $conditions  = trim((string) ($_POST['conditions'] ?? ''));
 
         if ($subjectType === '' || $objectType === '' || $action === '') {
             $this->addError('Please fill in the required fields.');
+            $this->redirect(adminUrl('permissions/edit/') . $id);
+            return;
+        }
+        // The resolver reads users and roles; a grant to anything else would be stored and never apply.
+        if (!in_array($subjectType, ['user', 'role'], true)) {
+            $this->addError('A permission is granted to a user or a role.');
+            $this->redirect(adminUrl('permissions/edit/') . $id);
+            return;
+        }
+        if ($conditions !== '' && !is_array(json_decode($conditions, true))) {
+            $this->addError('Conditions must be a JSON object, such as {"location_id": [1, 2]}.');
+            $this->redirect(adminUrl('permissions/edit/') . $id);
+            return;
+        }
+        $expires = $expiresAt !== '' ? strtotime($expiresAt) : null;
+        if ($expires === false) {
+            $this->addError('The expiry is not a date.');
             $this->redirect(adminUrl('permissions/edit/') . $id);
             return;
         }
@@ -156,6 +176,19 @@ class PermissionsController extends Controller
             'priority'     => $priority,
             'granted_by'   => $grantedBy,
         ];
+        // Each only when the form sends it, so an application's older copy of the form does not
+        // clear an expiry, an audience or a condition it cannot see.
+        if (array_key_exists('expires_at', $_POST)) {
+            $data['expires_at'] = $expires !== null ? date('Y-m-d H:i:s', $expires) : null;
+        }
+        // Audience and ABAC arrived with a later migration; an installation without it keeps working.
+        $hasAudience = $db->schema()->hasColumn('authserver.permissions', 'app_id');
+        if ($hasAudience && array_key_exists('app_id', $_POST)) {
+            $data['app_id'] = $appId > 0 ? $appId : null;
+        }
+        if ($hasAudience && array_key_exists('conditions', $_POST)) {
+            $data['conditions'] = $conditions !== '' ? $conditions : null;
+        }
 
         if ($id > 0) {
             $db->queryBuilder()
@@ -225,16 +258,18 @@ class PermissionsController extends Controller
      * Queue a `permissions_changed` webhook so subscribed applications drop the
      * affected user's cached permissions and re-fetch (feature 7 invalidation).
      *
-     * For a user-subject the event targets that user; for role/application
-     * subjects it targets user 0 and the payload carries the subject, letting a
-     * subscriber invalidate every affected user. Delivery failures are swallowed:
+     * For a user-subject the event targets that user; for a role it names no user
+     * (NULL — `user_id` is a foreign key, so 0 is not a value it can hold) and the
+     * payload carries the subject, letting a subscriber invalidate every holder.
+     * The same event every other writer sends through {@see WebhookService::permissionsChanged()};
+     * this one keeps its own seam so the screen's tests can spy on it. Delivery failures are swallowed:
      * a webhook problem must never break permission administration.
      *
      * @param array<string,mixed> $context extra payload fields (object_type, action, operation…)
      */
     protected function emitPermissionsChanged(string $subjectType, int $subjectId, array $context): void
     {
-        $userId  = $subjectType === 'user' ? $subjectId : 0;
+        $userId  = $subjectType === 'user' ? $subjectId : null;
         $payload = ['subject_type' => $subjectType, 'subject_id' => $subjectId] + $context;
 
         try {
@@ -285,6 +320,12 @@ class PermissionsController extends Controller
                 'priority'     => max(0, (int) ($_POST['priority'] ?? 100)),
                 'granted_by'   => $current ? (int) $current->userid : null,
             ]);
+
+        $this->emitPermissionsChanged('user', $userId, [
+            'object_type' => $objectType,
+            'action'      => $action,
+            'operation'   => 'create',
+        ]);
 
         $this->addMessage('Assigned.');
         $this->redirect(adminUrl('permissions'));

@@ -23,7 +23,6 @@ $isNew = empty($p['permissionid']);
                         <select name="subject_type" class="input input-sm w-full">
                             <option value="user" <?php echo ($p['subject_type'] ?? 'user') === 'user' ? 'selected' : ''; ?>>User</option>
                             <option value="role" <?php echo ($p['subject_type'] ?? '') === 'role' ? 'selected' : ''; ?>>Role</option>
-                            <option value="group" <?php echo ($p['subject_type'] ?? '') === 'group' ? 'selected' : ''; ?>>Group</option>
                         </select>
                     </div>
                     <div >
@@ -48,6 +47,25 @@ $isNew = empty($p['permissionid']);
                             <option value="allow" <?php echo ($p['grant_type'] ?? 'allow') === 'allow' ? 'selected' : ''; ?>>Allow</option>
                             <option value="deny" <?php echo ($p['grant_type'] ?? '') === 'deny' ? 'selected' : ''; ?>>Deny</option>
                         </select>
+                    </div>
+                    <div >
+                        <label class="block text-sm font-medium text-base-content mb-1">Priority</label>
+                        <input type="number" name="priority" min="0" class="input input-sm w-full" value="<?php echo (int)($p['priority'] ?? 100); ?>">
+                        <div class="text-xs opacity-70 mt-1">The higher priority decides; a deny wins a tie.</div>
+                    </div>
+                    <div >
+                        <label class="block text-sm font-medium text-base-content mb-1">Application ID</label>
+                        <input type="number" name="app_id" min="1" class="input input-sm w-full" value="<?php echo htmlspecialchars((string)($p['app_id'] ?? '')); ?>" placeholder="Leave blank for every application">
+                    </div>
+                    <div >
+                        <label class="block text-sm font-medium text-base-content mb-1">Expires</label>
+                        <input type="datetime-local" name="expires_at" class="input input-sm w-full" value="<?php echo htmlspecialchars(substr(str_replace(' ', 'T', (string)($p['expires_at'] ?? '')), 0, 16)); ?>">
+                        <div class="text-xs opacity-70 mt-1">Leave blank for a permanent grant.</div>
+                    </div>
+                    <div class="md:col-span-2">
+                        <label class="block text-sm font-medium text-base-content mb-1">Conditions (JSON)</label>
+                        <textarea name="conditions" rows="3" class="input input-sm w-full" placeholder='{"location_id": [1, 2]}'><?php echo htmlspecialchars((string)($p['conditions'] ?? '')); ?></textarea>
+                        <div class="text-xs opacity-70 mt-1">Passed to the application with the grant, which evaluates it. Leave blank for an unconditional grant.</div>
                     </div>
                 </div>
                 <div class="mt-4 flex gap-2">

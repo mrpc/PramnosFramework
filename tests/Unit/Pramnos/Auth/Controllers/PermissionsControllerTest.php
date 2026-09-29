@@ -338,6 +338,137 @@ class PermissionsControllerTest extends BaseTestCase
         }
     }
 
+    /** Run save() to its redirect; the redirect is how every branch ends. */
+    private function saveAndRedirect(): void
+    {
+        $ended = null;
+        try {
+            $this->controller->save();
+        } catch (\RuntimeException $e) {
+            $ended = $e->getMessage();
+        }
+        $this->assertSame('redirect_quit', $ended, 'save() must end in a redirect');
+    }
+
+    /**
+     * The form's priority, audience, expiry and conditions reach the row.
+     *
+     * These are the columns the resolver decides with. Without them on the form a grant could
+     * not be limited to one application, given an end date or a condition, and every save reset
+     * the priority to 100 — which for a deny meant losing any override set elsewhere.
+     */
+    public function testSaveStoresPriorityAudienceExpiryAndConditions(): void
+    {
+        // Arrange
+        $this->setMockUser(90);
+        $_POST = [
+            'permissionid' => 1, 'subject_type' => 'user', 'subject_id' => 2,
+            'object_type' => 'reports', 'action' => 'view', 'grant_type' => 'deny',
+            'priority' => '250', 'app_id' => '7', 'expires_at' => '2031-05-04T10:30',
+            'conditions' => '{"location_id": [1, 2]}',
+        ];
+
+        // Act
+        $this->saveAndRedirect();
+
+        // Assert
+        $row = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
+            ->table('authserver.permissions')->where('permissionid', 1)->first()->fields;
+        $this->assertSame(250, (int) $row['priority']);
+        $this->assertSame(7, (int) $row['app_id']);
+        $this->assertSame('2031-05-04 10:30:00', (string) $row['expires_at']);
+        $this->assertSame(['location_id' => [1, 2]], json_decode((string) $row['conditions'], true));
+    }
+
+    /**
+     * Blank audience, expiry and conditions store NULL: every application, permanent, unconditional.
+     */
+    public function testSaveStoresBlanksAsNull(): void
+    {
+        // Arrange
+        $this->setMockUser(90);
+        $_POST = [
+            'permissionid' => 1, 'subject_type' => 'user', 'subject_id' => 2,
+            'object_type' => 'reports', 'action' => 'view',
+            'app_id' => '', 'expires_at' => '', 'conditions' => '',
+        ];
+
+        // Act
+        $this->saveAndRedirect();
+
+        // Assert
+        $row = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
+            ->table('authserver.permissions')->where('permissionid', 1)->first()->fields;
+        $this->assertNull($row['app_id']);
+        $this->assertNull($row['expires_at']);
+        $this->assertNull($row['conditions']);
+    }
+
+    /**
+     * A form that does not send the audience, expiry or conditions leaves them as they are.
+     *
+     * An application's own copy of the edit view, made before the fields existed, must not
+     * clear what somebody set through the framework's form or in code.
+     */
+    public function testSaveLeavesFieldsTheFormDidNotSend(): void
+    {
+        // Arrange — the row has all three
+        $db = \Pramnos\Framework\Factory::getDatabase();
+        $db->queryBuilder()->table('authserver.permissions')->where('permissionid', 1)
+            ->update(['app_id' => 7, 'expires_at' => '2031-05-04 10:30:00', 'conditions' => '{"a":1}']);
+        $this->setMockUser(90);
+        $_POST = ['permissionid' => 1, 'subject_type' => 'user', 'subject_id' => 2,
+            'object_type' => 'reports', 'action' => 'view'];
+
+        // Act
+        $this->saveAndRedirect();
+
+        // Assert
+        $row = $db->queryBuilder()->table('authserver.permissions')->where('permissionid', 1)->first()->fields;
+        $this->assertSame(7, (int) $row['app_id']);
+        $this->assertSame('2031-05-04 10:30:00', (string) $row['expires_at']);
+        $this->assertSame('{"a":1}', (string) $row['conditions']);
+    }
+
+    /**
+     * A subject the resolver does not read — the form offered "Group" — is refused, not stored.
+     *
+     * @return array<string, array{array<string, string>, string}>
+     */
+    public static function refusedInput(): array
+    {
+        $base = ['subject_id' => '2', 'object_type' => 'reports', 'action' => 'view'];
+
+        return [
+            'a group'         => [['subject_type' => 'group'] + $base, 'A permission is granted to a user or a role.'],
+            'conditions'      => [['subject_type' => 'user', 'conditions' => '{not json'] + $base, 'Conditions must be a JSON object, such as {"location_id": [1, 2]}.'],
+            'a scalar'        => [['subject_type' => 'user', 'conditions' => '5'] + $base, 'Conditions must be a JSON object, such as {"location_id": [1, 2]}.'],
+            'an expiry'       => [['subject_type' => 'user', 'expires_at' => 'next blue moon'] + $base, 'The expiry is not a date.'],
+        ];
+    }
+
+    /**
+     * Input that would store a grant which never applies, or a value the resolver cannot read,
+     * is refused with a message and writes nothing.
+     *
+     * @param array<string, string> $post
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('refusedInput')]
+    public function testSaveRefusesInputThatCouldNotApply(array $post, string $message): void
+    {
+        // Arrange
+        $this->setMockUser(90);
+        $_POST = ['permissionid' => 0] + $post;
+
+        // Act
+        $this->saveAndRedirect();
+
+        // Assert
+        $this->assertContains($message, $_SESSION['_errors'] ?? []);
+        $this->assertSame(1, \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
+            ->table('authserver.permissions')->count(), 'nothing may be written');
+    }
+
     public function testSaveRedirectsWhenMissingFields(): void
     {
         $this->setMockUser(90);

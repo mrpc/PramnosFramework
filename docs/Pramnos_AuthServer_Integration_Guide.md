@@ -896,15 +896,17 @@ php bin/pramnos project:publish-views --group=applications --force
 
 ## 6. Instant invalidation — webhooks
 
-When an administrator changes a user's permissions, the server queues a
-**`permissions_changed`** webhook to your registered webhook URL:
+When a user's permissions change — a grant, a role given or taken, a role edited or
+deactivated, an organisation membership — the server queues a **`permissions_changed`**
+webhook to your registered webhook URL:
 
 ```json
-{ "event": "permissions_changed", "user_id": 123, "client_id": 45 }
+{ "subject_type": "user", "subject_id": 123, "operation": "role_assigned", "roleid": 7 }
 ```
 
 On receipt, **drop that user's cached permissions** so the next request re-fetches
-from `/api/internal/permissions`. Webhook deliveries are HMAC-SHA256 signed and
+from `/api/internal/permissions`. When `subject_type` is `role`, drop the cache of every
+user holding that role — or all of it, if you do not track who holds what. Webhook deliveries are HMAC-SHA256 signed and
 retried — verify the signature before acting.
 
 This is what makes lightweight tokens safe: permissions change instantly without

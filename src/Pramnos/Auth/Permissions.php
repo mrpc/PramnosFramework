@@ -590,6 +590,11 @@ class Permissions extends \Pramnos\Framework\Base
 
         $this->_cache = array();
         $database->cacheflush('permissions');
+        WebhookService::permissionsChanged($mapped, (int) $subject, [
+            'object_type' => $resource,
+            'action'      => $action,
+            'operation'   => $value === null ? 'delete' : 'update',
+        ]);
 
         return $this;
     }

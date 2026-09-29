@@ -325,6 +325,7 @@ class RolesController extends Controller
             ->table('authserver.roles')
             ->where('roleid', $id)
             ->update(['is_active' => 0]);
+        \Pramnos\Auth\WebhookService::permissionsChanged('role', $id, ['operation' => 'deactivate']);
 
         $this->addMessage('Deactivated.');
         $this->redirect(adminUrl('roles'));
