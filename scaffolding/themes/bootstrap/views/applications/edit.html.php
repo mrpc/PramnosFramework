@@ -144,6 +144,16 @@ $accessTypes = [0 => 'REST (API Key)', 1 => 'OAuth2', 2 => 'Legacy API Only'];
                                 and cannot use the client-credentials grant. A public client <strong>must</strong> have a registered redirect URI (OAuth2 tab), or no one can sign in with it. <a href="<?php echo \Pramnos\Auth\Application::CALLBACK_GUIDE_URL; ?>" target="_blank" rel="noopener">What the difference means &rarr;</a>
                             </div>
                         </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-semibold d-block">Trusted</label>
+                            <input type="hidden" name="trusted" value="0">
+                            <div class="form-check form-switch mt-1">
+                                <input class="form-check-input" type="checkbox" name="trusted" value="1" id="chk_trusted"
+                                    <?php echo ((int)($app['trusted'] ?? 0) === 1) ? 'checked' : ''; ?>>
+                                <label class="form-check-label" for="chk_trusted">First-party — no consent screen</label>
+                            </div>
+                            <div class="form-text">Skips the consent screen: users signing in to it are not asked to approve its scopes. For your own first-party applications only — never for one a third party runs.</div>
+                        </div>
                     </div>
                 </div></div>
             </div>

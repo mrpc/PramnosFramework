@@ -131,6 +131,16 @@ $inp = 'width:100%;padding:8px;border:1px solid #ccc;border-radius:4px;box-sizin
                             and cannot use the client-credentials grant. A public client <strong>must</strong> have a registered redirect URI (OAuth2 tab), or no one can sign in with it. <a href="<?php echo \Pramnos\Auth\Application::CALLBACK_GUIDE_URL; ?>" target="_blank" rel="noopener">What the difference means &rarr;</a>
                         </p>
                     </div>
+                    <div>
+                        <label style="display:block;font-weight:600;margin-bottom:4px;font-size:13px">Trusted</label>
+                        <input type="hidden" name="trusted" value="0">
+                        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-top:6px">
+                            <input type="checkbox" name="trusted" value="1"
+                                <?php echo ((int)($app['trusted'] ?? 0) === 1) ? 'checked' : ''; ?>>
+                            <span style="font-size:13px">First-party — no consent screen</span>
+                        </label>
+                        <p style="font-size:11px;color:#888;margin-top:4px">Skips the consent screen: users signing in to it are not asked to approve its scopes. For your own first-party applications only — never for one a third party runs.</p>
+                    </div>
                 </div>
             </div>
         </div>

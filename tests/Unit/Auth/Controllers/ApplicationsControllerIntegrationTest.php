@@ -296,6 +296,44 @@ class ApplicationsControllerIntegrationTest extends BaseTestCase
         );
     }
 
+    /**
+     * The trusted switch is saved when the form sends it, and left alone when it does not.
+     *
+     * The column existed and the consent screen read it, but no form had the field and save()
+     * never wrote it: marking a first-party application took SQL. The bundled forms post a hidden
+     * 0 behind the checkbox; an older copy without the field must not revoke a trusted client.
+     */
+    public function testTrustedIsSavedOnlyWhenTheFormSendsIt(): void
+    {
+        // Arrange
+        $schema = $this->createMock(\Pramnos\Database\SchemaBuilder::class);
+        $schema->method('hasColumn')->willReturn(true);
+        $this->dbMock->method('schema')->willReturn($schema);
+        $written = [];
+        $this->queryBuilderMock->method('update')->willReturnCallback(function (array $fields) use (&$written) {
+            $written[] = $fields;
+
+            return true;
+        });
+
+        foreach ([['1', 1], ['0', 0], [null, null]] as [$posted, $expected]) {
+            $_POST = ['name' => 'First party', 'appid' => '1'] + ($posted !== null ? ['trusted' => $posted] : []);
+
+            // Act
+            ob_start();
+            $this->controller->save();
+            ob_end_clean();
+
+            // Assert
+            $fields = end($written);
+            if ($expected === null) {
+                $this->assertArrayNotHasKey('trusted', $fields, 'a form without the field leaves it as it is');
+            } else {
+                $this->assertSame($expected, $fields['trusted']);
+            }
+        }
+    }
+
     public function testSaveMissingName()
     {
         $_POST['name'] = '';

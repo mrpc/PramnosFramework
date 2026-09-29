@@ -316,7 +316,10 @@ client can instead register itself, where the server allows it — see
 
 Applications marked **trusted** (internal/first-party) skip the user consent
 screen; untrusted (third-party) applications always show consent and receive
-only the scopes the user approves.
+only the scopes the user approves. **Trusted** is a switch on the application's edit screen
+(beside *Client Type*); it is saved only when the form sends it, so an application's own older
+copy of the form leaves it as it was. Mark only your own applications trusted — a trusted client
+is never asked about, whatever it requests.
 
 ### When a redirect URI is required
 

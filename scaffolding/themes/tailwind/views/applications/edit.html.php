@@ -119,6 +119,14 @@ $card = 'bg-base-100 rounded-xl shadow-xs border border-base-300 p-5 mb-4';
                             it ships with, every user of it has. A public client uses PKCE
                             and cannot use the client-credentials grant. A public client <strong>must</strong> have a registered redirect URI (OAuth2 tab), or no one can sign in with it. <a href="<?php echo \Pramnos\Auth\Application::CALLBACK_GUIDE_URL; ?>" target="_blank" rel="noopener">What the difference means &rarr;</a>
                         </p></div>
+                    <div><label class="<?php echo $lbl; ?>">Trusted</label>
+                        <input type="hidden" name="trusted" value="0">
+                        <label class="flex items-center gap-2 mt-1 cursor-pointer">
+                            <input type="checkbox" name="trusted" value="1" class="w-4 h-4"
+                                <?php echo ((int)($app['trusted'] ?? 0) === 1) ? 'checked' : ''; ?>>
+                            <span class="text-sm text-base-content/80">First-party — no consent screen</span>
+                        </label>
+                        <p class="text-xs text-base-content/60 mt-1">Skips the consent screen: users signing in to it are not asked to approve its scopes. For your own first-party applications only — never for one a third party runs.</p></div>
                 </div>
             </div>
         </div>

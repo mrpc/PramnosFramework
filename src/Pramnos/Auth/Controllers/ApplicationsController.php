@@ -419,6 +419,12 @@ class ApplicationsController extends Controller
             'jwks_uri'        => $jwks_uri !== '' ? $jwks_uri : null,
         ];
 
+        // Only when the form sends it — the bundled forms do, as a hidden 0 behind the checkbox —
+        // so an application's older copy of the form does not quietly revoke a trusted client.
+        if (array_key_exists('trusted', $_POST) && $db->schema()->hasColumn('applications', 'trusted')) {
+            $fields['trusted'] = (int) $_POST['trusted'] === 1 ? 1 : 0;   // the checkbox, after the hidden 0
+        }
+
         if ($id > 0) {
             $db->queryBuilder()
                 ->table('#PREFIX#applications')
