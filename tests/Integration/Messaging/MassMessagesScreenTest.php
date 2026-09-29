@@ -338,6 +338,95 @@ class MassMessagesScreenTest extends BaseTestCase
         $this->assertSame(['Message saved. Nothing has been sent yet.'], $controller->messages);
     }
 
+    /**
+     * Saved to a mailing list, a message is an email that unsubscribes from that list, and the
+     * record names the list alone.
+     *
+     * The form offers a channel and the account criteria whatever is chosen; a script hides them
+     * when a list is picked, and this is the rule behind it, applied whether the script ran or
+     * not. Push or an internal message to a list would reach nobody without an account, and an
+     * unsubscribe link to another list would take the reader off the wrong thing.
+     */
+    public function testAMessageSavedToAListIsAnEmailThatUnsubscribesFromIt(): void
+    {
+        // Arrange
+        $controller = $this->controller();
+        $_POST      = [
+            'messageid'    => 0,
+            'subject'      => 'Newsletter, October',
+            'message'      => '<p>News.</p>',
+            'type'         => (string) MassMessage::TYPE_PUSH,
+            'language'     => 'el',
+            'mailing_list' => 'screen-news',
+            'list'         => 'massmessages',
+        ];
+        Request::resetInstance();
+
+        // Act
+        $controller->save();
+
+        // Assert
+        $row = $this->rowBySubject('Newsletter, October');
+        $this->assertNotNull($row, 'nothing was saved');
+        $this->created[] = (int) $row['messageid'];
+        $this->assertSame(MassMessage::TYPE_EMAIL, (int) $row['type'], 'a list is sent an email');
+        $stored = json_decode((string) $row['request'], true);
+        $this->assertSame('screen-news', $stored['options']['list'] ?? null, 'it unsubscribes from the list');
+        $this->assertArrayNotHasKey('language', $stored, 'the account criteria are not part of the record');
+        $this->assertSame('screen-news', $stored['mailing_list']);
+    }
+
+    /**
+     * The form: account-only fields hide when a list is chosen, the channel and the unsubscribe
+     * list follow it, and tracking starts ticked on a new message when tracking is on.
+     */
+    public function testTheFormFollowsTheChosenList(): void
+    {
+        foreach (['bootstrap', 'tailwind', 'plain-css'] as $theme) {
+            // Act
+            $view = (string) file_get_contents(ROOT . '/scaffolding/themes/' . $theme . '/views/massmessages/edit.html.php');
+
+            // Assert
+            $this->assertSame(2, substr_count($view, 'class="mm-accounts-only"'), $theme . ': the account criteria and the opt-out filter');
+            $this->assertStringContainsString("getElementById('mailing_list')", $view, $theme);
+            $this->assertStringContainsString("unsub.readOnly = chosen", $view, $theme);
+            $this->assertStringContainsString('($tracking && $id === 0)', $view, $theme . ': tracking ticked on a new message');
+
+            // Act — rendered for a new draft addressed to a list, with tracking on
+            \Pramnos\Email\MailTypes::reset();
+            \Pramnos\Email\MailTypes::register(new \Pramnos\Email\MailType('screen-news', 'News', 'Monthly.', list: 'screen-news', optIn: true));
+            $data = new class extends \stdClass {
+                /** The breadcrumb partial, which this test is not about. */
+                public function insert(string $partial): void
+                {
+                }
+            };
+            foreach ([
+                'message' => [], 'types' => [MassMessage::TYPE_EMAIL => 'Email', MassMessage::TYPE_PUSH => 'Push'],
+                'criteria' => ['mailing_list' => 'screen-news'], 'options' => [], 'languages' => [], 'templates' => [],
+                'tracking' => true, 'audienceSize' => 3, 'groups' => [], 'organizations' => [],
+                'preview' => [], 'previewed' => false,
+            ] as $property => $value) {
+                $data->$property = $value;
+            }
+            $render = \Closure::bind(function (string $file): void {
+                include $file;
+            }, $data, null);
+            ob_start();
+            try {
+                $render(ROOT . '/scaffolding/themes/' . $theme . '/views/massmessages/edit.html.php');
+            } finally {
+                $html = (string) ob_get_clean();
+                \Pramnos\Email\MailTypes::reset();
+            }
+
+            // Assert
+            $this->assertSame(2, substr_count($html, 'class="mm-accounts-only" hidden'), $theme . ': hidden before any script runs');
+            $this->assertMatchesRegularExpression('/id="list"[^>]*value="screen-news"[^>]*readonly/s', $html, $theme . ': the unsubscribe list is the list');
+            $this->assertMatchesRegularExpression('/name="tracking"[^>]*checked/s', $html, $theme . ': tracking starts ticked');
+        }
+    }
+
     /** A future date makes it scheduled rather than pending. */
     public function testAScheduledMessageIsMarkedScheduled(): void
     {

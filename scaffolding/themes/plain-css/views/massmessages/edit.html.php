@@ -47,6 +47,7 @@ $options   = is_array($this->options ?? null) ? $this->options : [];
 $languages = is_array($this->languages ?? null) ? $this->languages : [];
 $templates = is_array($this->templates ?? null) ? $this->templates : [];
 $tracking  = (bool) ($this->tracking ?? false);
+$chosenList = (string) ($criteria['mailing_list'] ?? '');
 $day       = static fn ($stamp): string => (int) $stamp > 0 ? date('Y-m-d', (int) $stamp) : '';
 $id       = (int) ($message['messageid'] ?? 0);
 $e        = static fn ($v): string => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
@@ -103,6 +104,8 @@ $checked  = static fn ($value): string => ($value ?? true) !== false ? ' checked
                 <h3 class="font-medium">Audience</h3>
                 <span style="background:#0d6efd;color:#fff;padding:2px 8px;border-radius:10px;font-size:12px"><?php echo number_format($size); ?> account(s)</span>
             </div>
+
+            <div class="mm-accounts-only"<?php echo $chosenList !== '' ? ' hidden' : ''; ?>>
 
             <div style="display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(220px,1fr))">
                 <div>
@@ -238,6 +241,8 @@ $checked  = static fn ($value): string => ($value ?? true) !== false ? ' checked
                 Active accounts only
             </label>
 
+            </div>
+
             <?php
 $optInLists = array_filter(\Pramnos\Email\MailTypes::all(), static fn ($type) => $type->optIn);
 if ($optInLists !== []): ?>
@@ -256,7 +261,7 @@ if ($optInLists !== []): ?>
             </div>
             <?php endif; ?>
 
-            <div>
+            <div class="mm-accounts-only"<?php echo $chosenList !== '' ? ' hidden' : ''; ?>>
                 <label style="display:block;font-size:0.85em;margin-bottom:4px" for="exclude_optouts">Exclude anyone who unsubscribed from</label>
                 <input type="text" name="exclude_optouts" id="exclude_optouts" style="width:100%;padding:6px 8px"
                        placeholder="massmessages"
@@ -368,7 +373,7 @@ if ($optInLists !== []): ?>
                 <div>
                     <label style="display:block;font-size:0.85em;margin-bottom:4px" for="list">Unsubscribe list</label>
                     <input type="text" name="list" id="list" style="width:100%;padding:6px 8px" placeholder="massmessages"
-                           value="<?php echo $e((string) ($options['list'] ?? '')); ?>">
+                           value="<?php echo $e($chosenList !== '' ? $chosenList : (string) ($options['list'] ?? '')); ?>"<?php echo $chosenList !== '' ? ' readonly' : ''; ?>>
                     <p style="color:#666;font-size:0.8em;display:block;margin-top:4px">
                         What a reader is unsubscribing <em>from</em>. Empty means the shared
                         `massmessages` list — one button, no more announcements.
@@ -379,7 +384,7 @@ if ($optInLists !== []): ?>
             <label style="display:flex;gap:8px;align-items:flex-start">
                 <input type="checkbox" name="tracking" value="1" 
                        <?php echo $tracking ? '' : 'disabled'; ?>
-                       <?php echo !empty($options['tracking']) ? 'checked' : ''; ?>>
+                       <?php echo (!empty($options['tracking']) || ($tracking && $id === 0)) ? 'checked' : ''; ?>>
                 <span>
                     Track opens and clicks
                     <span style="color:#666;font-size:0.8em;display:block">
@@ -445,4 +450,32 @@ if ($optInLists !== []): ?>
             </span>
         </div>
     </form>
+
+<script>
+/*
+ * A mailing list is reached by email only, and its subscribers unsubscribe from that list: when
+ * one is chosen, the account criteria go, the channel is email, and the unsubscribe list is the
+ * list itself. The server applies the same rule on save; this only keeps the form honest.
+ */
+(function () {
+    var list = document.getElementById('mailing_list');
+    var type = document.getElementById('type');
+    var unsub = document.getElementById('list');
+    if (!list || !type) { return; }
+    var email = '<?php echo (int) \Pramnos\Messaging\MassMessage::TYPE_EMAIL; ?>';
+    var typed = unsub ? unsub.value : '';
+    function apply() {
+        var chosen = list.value !== '';
+        document.querySelectorAll('.mm-accounts-only').forEach(function (el) { el.hidden = chosen; });
+        if (chosen) { type.value = email; }
+        Array.prototype.forEach.call(type.options, function (o) { o.disabled = chosen && o.value !== email; });
+        if (unsub) {
+            unsub.value = chosen ? list.value : typed;
+            unsub.readOnly = chosen;
+        }
+    }
+    list.addEventListener('change', apply);
+    apply();
+})();
+</script>
 </div>

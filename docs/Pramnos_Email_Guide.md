@@ -675,7 +675,12 @@ preview counts and samples them the same way.
 - Each message goes out as the list's `MailType`, so the list's unsubscribe header and link come
   with it; a subscriber who left between queueing and sending is skipped and counted as done.
 - A list can only be sent an **email** — a subscriber with no account has no inbox here and no
-  push subscription — and the screen refuses the send otherwise.
+  push subscription. Saving a message addressed to a list makes it one, sets its unsubscribe list
+  to the list itself, and stores the list as the whole audience: the account criteria are not
+  kept beside it. A message stored otherwise is refused at send.
+- On the form, choosing a list hides the account criteria and the opt-out filter, fixes the
+  channel to email and fills in the unsubscribe list, read-only. **Track opens and clicks** starts
+  ticked on a new message wherever tracking is switched on.
 
 ## What kinds of mail this application sends
 

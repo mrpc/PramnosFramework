@@ -385,6 +385,20 @@ class MassMessagesController extends Controller
 
         $criteria = $this->criteriaFrom($request);
         $options  = $this->optionsFrom($request);
+        $type     = (int) $request->get('type', MassMessage::TYPE_EMAIL, 'post', 'int');
+
+        /*
+         * A mailing list is its own audience: reached by email only — a subscriber with no
+         * account has no inbox here and no push subscription — and unsubscribing from what it
+         * was sent as, the list itself. The account criteria are dropped rather than kept
+         * beside it, so the record says who the message was for.
+         */
+        $list = (string) ($criteria['mailing_list'] ?? '');
+        if ($list !== '') {
+            $criteria        = ['mailing_list' => $list];
+            $options['list'] = $list;
+            $type            = MassMessage::TYPE_EMAIL;
+        }
 
         $scheduled = trim((string) $request->get('scheduled', '', 'post'));
         $scheduled = $scheduled === '' ? 0 : (int) strtotime($scheduled);
@@ -392,7 +406,7 @@ class MassMessagesController extends Controller
         $message->subject   = $subject;
         // Markup on purpose: this is the body of a message.
         $message->message   = (string) $request->get('message', '', 'post');
-        $message->type      = (int) $request->get('type', MassMessage::TYPE_EMAIL, 'post', 'int');
+        $message->type      = $type;
         $message->sender    = (int) (\Pramnos\User\User::getCurrentUser()->userid ?? 0) ?: null;
         $message->scheduled = $scheduled > 0 ? $scheduled : 0;
         $message->status    = $scheduled > 0
