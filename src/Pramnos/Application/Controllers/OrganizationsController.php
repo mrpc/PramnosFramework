@@ -260,7 +260,7 @@ class OrganizationsController extends Controller
         $name        = trim((string) ($_POST['name']        ?? ''));
         $description = trim((string) ($_POST['description'] ?? ''));
         $orgType     = trim((string) ($_POST['org_type']    ?? ''));
-        $isActive    = isset($_POST['is_active']) ? 1 : 0;
+        $isActive    = (int) ($_POST['is_active'] ?? 0) === 1 ? 1 : 0;
 
         // CSRF validation.
         $session = \Pramnos\Http\Session::getInstance();
@@ -279,15 +279,29 @@ class OrganizationsController extends Controller
         $db = \Pramnos\Framework\Factory::getDatabase();
 
         if ($id > 0) {
+            $fields = [
+                'name'        => $name,
+                'description' => $description !== '' ? $description : null,
+            ];
+
+            /*
+             * Only what the form sends. None of the bundled edit forms had these two fields, so
+             * saving an organisation read the missing checkbox as "off" — every edit deactivated
+             * it — and the missing type as "none". A form that carries them (the bundled ones do
+             * now, `is_active` with a hidden 0 before the checkbox) changes them; one that does
+             * not, such as an application's older copy of the view, leaves them alone.
+             */
+            if (array_key_exists('org_type', $_POST)) {
+                $fields['org_type'] = $orgType !== '' ? $orgType : null;
+            }
+            if (array_key_exists('is_active', $_POST)) {
+                $fields['is_active'] = $isActive;
+            }
+
             $db->queryBuilder()
                 ->table('organizations')
                 ->where('organization_id', $id)
-                ->update([
-                    'name'        => $name,
-                    'description' => $description !== '' ? $description : null,
-                    'org_type'    => $orgType !== '' ? $orgType : null,
-                    'is_active'   => $isActive,
-                ]);
+                ->update($fields);
         } else {
             $db->queryBuilder()
                 ->table('organizations')

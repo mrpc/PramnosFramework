@@ -245,6 +245,58 @@ class OrganizationsControllerIntegrationTest extends TestCase
         $this->assertStringContainsString('REDIRECTED_TO:', $echoed);
     }
 
+    /**
+     * A form without the two fields leaves them as they are.
+     *
+     * None of the bundled edit forms had `is_active` or `org_type`, so saving read the missing
+     * checkbox as "off" and deactivated every organisation that was edited — and cleared its
+     * type. Found by msdauthserver. An application's older copy of the view still lacks them.
+     */
+    public function testSavingWithoutTheFieldsLeavesStatusAndTypeAlone()
+    {
+        // Arrange
+        $_POST = ['organization_id' => '1', 'name' => 'Renamed', '_csrf_token' => \Pramnos\Http\Session::getInstance()->getCsrfToken()];
+        $written = null;
+        $this->queryBuilderMock->method('update')->willReturnCallback(function (array $fields) use (&$written) {
+            $written = $fields;
+            return true;
+        });
+
+        // Act
+        ob_start();
+        $this->controller->save();
+        ob_end_clean();
+
+        // Assert
+        $this->assertSame('Renamed', $written['name']);
+        $this->assertArrayNotHasKey('is_active', $written);
+        $this->assertArrayNotHasKey('org_type', $written);
+    }
+
+    /**
+     * The bundled form sends both: the hidden 0 and the checkbox, so unticking deactivates.
+     */
+    public function testSavingWithTheFieldsWritesThem()
+    {
+        // Arrange — the checkbox unticked: only the hidden 0 arrives
+        $_POST = ['organization_id' => '1', 'name' => 'Corp', 'org_type' => 'school', 'is_active' => '0',
+            '_csrf_token' => \Pramnos\Http\Session::getInstance()->getCsrfToken()];
+        $written = null;
+        $this->queryBuilderMock->method('update')->willReturnCallback(function (array $fields) use (&$written) {
+            $written = $fields;
+            return true;
+        });
+
+        // Act
+        ob_start();
+        $this->controller->save();
+        ob_end_clean();
+
+        // Assert
+        $this->assertSame(0, $written['is_active']);
+        $this->assertSame('school', $written['org_type']);
+    }
+
     public function testSaveMissingName()
     {
         $_POST['name'] = '';

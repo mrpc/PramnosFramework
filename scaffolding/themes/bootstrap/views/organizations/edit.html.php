@@ -25,6 +25,14 @@ $isNew = empty($org['organization_id']);
                     <label class="form-label">Description</label>
                     <textarea name="description" class="form-control" rows="3"><?php echo htmlspecialchars($org['description'] ?? ''); ?></textarea>
                 </div>
+                <div class="mb-3">
+                    <label class="form-label">Type</label>
+                    <input type="text" name="org_type" class="form-control" value="<?php echo htmlspecialchars((string) ($org['org_type'] ?? '')); ?>" placeholder="company, school, department…">
+                </div>
+                <div class="mb-3">
+                    <input type="hidden" name="is_active" value="0">
+                    <label><input type="checkbox" name="is_active" value="1" <?php echo (int) ($org['is_active'] ?? 1) === 1 ? 'checked' : ''; ?>> Active</label>
+                </div>
                 <div class="d-flex gap-2">
                     <button type="submit" class="btn btn-primary">Save</button>
                     <a href="<?php echo adminUrl('Organizations'); ?>" class="btn btn-outline-secondary">Cancel</a>
