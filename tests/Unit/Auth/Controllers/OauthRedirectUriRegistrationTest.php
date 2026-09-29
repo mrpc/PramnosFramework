@@ -105,18 +105,24 @@ class OauthRedirectUriRegistrationTest extends TestCase
 
     /**
      * Make the client the endpoint will load answer with this `callback` column.
+     *
+     * A confidential client with a secret unless told otherwise — the client for which a
+     * registration is optional. The two other shapes are what the last tests in this file
+     * are about.
      */
-    private function clientRegisters(?string $callback): void
+    private function clientRegisters(?string $callback, int $confidential = 1, ?string $secret = '$2y$10$hashed'): void
     {
         $row = new \stdClass();
         $row->numRows = 1;
         $row->fields = [
-            'appid'    => 42,
-            'name'     => 'A Client',
-            'apikey'   => 'client-42',
-            'status'   => 1,
-            'scope'    => 'profile',
-            'callback' => $callback,
+            'appid'           => 42,
+            'name'            => 'A Client',
+            'apikey'          => 'client-42',
+            'apisecret'       => $secret,
+            'is_confidential' => $confidential,
+            'status'          => 1,
+            'scope'           => 'profile',
+            'callback'        => $callback,
         ];
 
         $this->queryBuilderMock->method('first')->willReturn($row);
@@ -248,14 +254,12 @@ class OauthRedirectUriRegistrationTest extends TestCase
     }
 
     /**
-     * A client with nothing registered keeps working, and is recorded.
+     * A confidential client with a secret and nothing registered keeps working, and is recorded.
      *
-     * Deliberately **not** refused. There is no registration to check against, and
-     * refusing would stop authorization requests that work today on every installation
-     * whose `callback` column is empty — a behaviour change on the strength of a rule the
-     * framework has never enforced. So the condition is written down instead, naming the
-     * client, so somebody can fill the registration in deliberately rather than under a
-     * login that has stopped working.
+     * Deliberately **not** refused: for this client a registration is the operator's choice.
+     * A code delivered somewhere unexpected is useless without the secret, and refusing would
+     * stop authorization requests that work today on every installation whose `callback`
+     * column is empty. So the condition is written down instead, naming the client.
      */
     public function testAClientWithNoRegisteredCallbackStillWorks(): void
     {
@@ -572,5 +576,76 @@ class RegistrationTestableOauth extends Oauth
             }
         };
         return $view;
+    }
+
+    // ── A client that cannot keep a secret must have a registration ─────────────
+
+    /**
+     * A public client with nothing registered is refused.
+     *
+     * For this client the registration is the only thing binding a code to it: its secret, if
+     * it has one, is shipped inside the app and every user holds it. Issuing would send a code
+     * to whatever `redirect_uri` a link names — and a user who approved the app before is not
+     * even shown a consent screen. RFC 6749 §3.1.2.2 makes registration a MUST here.
+     */
+    public function testAPublicClientWithNoRegisteredCallbackIsRefused(): void
+    {
+        // Arrange — public, although a secret is stored
+        $this->clientRegisters(null, confidential: 0);
+
+        // Act
+        $out = $this->authorizeWith('https://attacker.example/cb');
+
+        // Assert — refused, nothing issued, no policy widened toward the named address
+        $this->assertStringContainsString('Authorization Error', $out);
+        $this->assertStringContainsString('needs a registered redirect URI', $out);
+        $this->assertStringNotContainsString('REDIRECTED_TO:', $out);
+        $this->assertArrayNotHasKey(Oauth::FORM_ACTION_SESSION_KEY, $_SESSION ?? []);
+    }
+
+    /**
+     * A client with no secret stored is refused too, whatever `is_confidential` says.
+     *
+     * The token endpoint accepts such a client with no secret at all, so "confidential" on a
+     * row with an empty `apisecret` is a label, not a protection. Asserted for NULL and for
+     * the empty string, the two ways the column is empty.
+     */
+    #[DataProvider('missingSecrets')]
+    public function testAClientWithNoSecretAndNoRegisteredCallbackIsRefused(?string $secret): void
+    {
+        // Arrange — marked confidential, holds nothing
+        $this->clientRegisters(null, confidential: 1, secret: $secret);
+
+        // Act
+        $out = $this->authorizeWith('https://attacker.example/cb');
+
+        // Assert
+        $this->assertStringContainsString('Authorization Error', $out);
+        $this->assertStringNotContainsString('REDIRECTED_TO:', $out);
+    }
+
+    /** @return array<string, array{0:?string}> */
+    public static function missingSecrets(): array
+    {
+        return ['NULL' => [null], 'empty string' => [''], 'whitespace' => ['  ']];
+    }
+
+    /**
+     * With a registration, a public client works exactly as a confidential one does.
+     *
+     * The rule is "register", not "public clients are refused": the registered URI is
+     * accepted and the unregistered one still is not.
+     */
+    public function testAPublicClientWithARegisteredCallbackWorks(): void
+    {
+        // Arrange
+        $this->clientRegisters('https://client.example/cb', confidential: 0, secret: null);
+
+        // Act
+        $registered = $this->authorizeWith('https://client.example/cb');
+
+        // Assert
+        $this->assertStringNotContainsString('Authorization Error', $registered);
+        $this->assertStringContainsString('REDIRECTED_TO:', $registered);
     }
 }

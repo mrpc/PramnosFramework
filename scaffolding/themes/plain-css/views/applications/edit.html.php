@@ -32,6 +32,18 @@ $inp = 'width:100%;padding:8px;border:1px solid #ccc;border-radius:4px;box-sizin
         </div>
     <?php endif; ?>
 
+    <?php if (!empty($app['appid']) && \Pramnos\Auth\Application::needsARegisteredCallback($app)): ?>
+        <div role="status" class="" style="background:#fff3cd;border:1px solid #ffe69c;padding:10px 16px;border-radius:4px;margin-bottom:12px;color:#664d03">
+            <strong>This application cannot sign anyone in yet.</strong>
+            It cannot keep a client secret &mdash; it is marked public, or it has no secret stored &mdash;
+            and it has no registered redirect URI. For such a client the registered URI is the only
+            thing tying a sign-in code to it, so the authorization endpoint refuses every sign-in
+            until one is added. Add the exact callback URI(s) the application uses under
+            <em>OAuth2 Redirect URI(s)</em>.
+            <a href="<?php echo \Pramnos\Auth\Application::CALLBACK_GUIDE_URL; ?>" target="_blank" rel="noopener">Why this is required &rarr;</a>
+        </div>
+    <?php endif; ?>
+
     <?php if (!$isNew && !empty($app['apikey'])): ?>
         <div style="background:#d1ecf1;border:1px solid #bee5eb;padding:10px 16px;border-radius:4px;margin-bottom:12px;display:flex;align-items:center;gap:16px">
             <div style="font-size:13px"><strong>Client ID:</strong> <code style="background:#fff;padding:2px 4px;border-radius:3px"><?php echo htmlspecialchars($app['apikey'] ?? ''); ?></code></div>
@@ -106,7 +118,7 @@ $inp = 'width:100%;padding:8px;border:1px solid #ccc;border-radius:4px;box-sizin
                         </label>
                     </div>
                     <div>
-                        <label style="display:block;font-weight:600;margin-bottom:4px;font-size:13px">Client Type</label>
+                        <label style="display:block;font-weight:600;margin-bottom:4px;font-size:13px" title="Confidential: runs on a server you control and keeps its client secret there. Public: a browser app, mobile app or desktop app &mdash; anything you ship to users, because every user then has its secret. A public client must have a registered redirect URI, or no one can sign in with it.">Client Type</label>
                         <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-top:6px">
                             <input type="checkbox" name="is_confidential" value="1"
                                 <?php echo ((int)($app['is_confidential'] ?? 1) === 1) ? 'checked' : ''; ?>>
@@ -115,7 +127,7 @@ $inp = 'width:100%;padding:8px;border:1px solid #ccc;border-radius:4px;box-sizin
                         <p style="font-size:11px;color:#888;margin-top:4px">
                             Untick for a single-page app or a mobile binary: whatever secret
                             it ships with, every user of it has. A public client uses PKCE
-                            and cannot use the client-credentials grant.
+                            and cannot use the client-credentials grant. A public client <strong>must</strong> have a registered redirect URI (OAuth2 tab), or no one can sign in with it. <a href="<?php echo \Pramnos\Auth\Application::CALLBACK_GUIDE_URL; ?>" target="_blank" rel="noopener">What the difference means &rarr;</a>
                         </p>
                     </div>
                 </div>
@@ -151,9 +163,9 @@ $inp = 'width:100%;padding:8px;border:1px solid #ccc;border-radius:4px;box-sizin
             <div class="card" style="border:1px solid #ddd;border-radius:4px;padding:16px;margin-bottom:16px">
                 <div style="display:grid;gap:12px">
                     <div>
-                        <label style="display:block;font-weight:600;margin-bottom:4px;font-size:13px">OAuth2 Redirect URI(s) / Callback</label>
+                        <label style="display:block;font-weight:600;margin-bottom:4px;font-size:13px" title="The exact addresses this application may receive a sign-in code at. Optional for a confidential client that keeps its secret; required for a public one, or one with no secret, because for those it is the only thing tying the code to the application.">OAuth2 Redirect URI(s) / Callback</label>
                         <textarea name="callback" style="<?php echo $inp; ?>;font-family:monospace" rows="3" placeholder="https://app.example.com/callback&#10;One URI per line, or comma-separated"><?php echo htmlspecialchars($app['callback'] ?? ''); ?></textarea>
-                        <small style="color:#888;font-size:11px">Allowed redirect URIs for OAuth2 flows.</small>
+                        <small style="color:#888;font-size:11px">Allowed redirect URIs for OAuth2 flows. Exact match. Required when the client is public or has no secret. <a href="<?php echo \Pramnos\Auth\Application::CALLBACK_GUIDE_URL; ?>" target="_blank" rel="noopener">What the difference means &rarr;</a></small>
                     </div>
                     <div>
                         <label style="display:block;font-weight:600;margin-bottom:4px;font-size:13px">Allowed Scopes</label>

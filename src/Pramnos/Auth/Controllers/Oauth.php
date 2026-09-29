@@ -1046,15 +1046,15 @@ class Oauth extends Controller
      * default ports, dot segments and percent-encoding. Registering the URI a client
      * actually uses is cheaper than being right about all of that.
      *
-     * **Registration is optional, and recommended — not enforced.** Whether a client has a
-     * `callback` on file is the application's decision about its own clients, the way it is
-     * on every large authorization server: the registration is what buys exact-match
-     * protection, and an operator who has not made it has not asked the framework to
-     * refuse traffic on their behalf. Refusing would stop authorization requests that work
-     * today on every installation whose `callback` column is empty, on the strength of a
-     * rule this framework has never enforced.
+     * **Registration is optional for a confidential client, and required for one that
+     * cannot keep a secret.** For a confidential client it is the operator's decision: the
+     * registration buys exact-match protection, and a code sent somewhere unexpected is
+     * still useless without the secret. For a public client, or one with no secret stored
+     * ({@see \Pramnos\Auth\Application::needsARegisteredCallback()}), the registration is
+     * the only thing binding the code to the client, so it is refused without one — RFC 6749
+     * §3.1.2.2 makes it a MUST for exactly those.
      *
-     * So an unregistered client is recorded once per request, with the recommendation in
+     * So an unregistered confidential client is recorded once per request, with the recommendation in
      * the line, and the caller declines to widen `form-action` for it. It keeps exactly the
      * policy it had, so nothing it could not do before becomes possible now — and filling
      * the registration in is a deliberate improvement rather than an emergency under a
@@ -1063,13 +1063,38 @@ class Oauth extends Controller
      * @param  array<string,mixed> $client   The row from {@see loadClient()}
      * @param  string              $redirect The `redirect_uri` this request asked for
      * @return bool                          Whether a registration vouched for it
-     * @throws \InvalidArgumentException     When there is a registration and it disagrees
+     * @throws \InvalidArgumentException     When there is a registration and it disagrees, or
+     *                                       none for a client that cannot keep a secret
      */
     protected function redirectUriIsRegistered(array $client, string $redirect): bool
     {
         $registered = \Pramnos\Auth\Application::parseRedirectUris(
             isset($client['callback']) ? (string) $client['callback'] : null
         );
+
+        if ($registered === [] && \Pramnos\Auth\Application::needsARegisteredCallback($client)) {
+            /*
+             * A client that cannot keep a secret, with no callback on file.
+             *
+             * Nothing else binds the code to this client: the token endpoint accepts it with
+             * no secret (or with one every user of the app has). Issuing here would send a
+             * code to whatever address the link names — and a user who has approved this app
+             * before is not even shown a consent screen on the way. RFC 6749 §3.1.2.2 makes
+             * registration a MUST for exactly this client, so the endpoint refuses rather
+             * than recommends. A confidential client with a secret is unaffected below.
+             */
+            $this->logDecision('refused: client cannot keep a secret and has no registered redirect URI', [
+                'endpoint'     => 'authorize',
+                'client_id'    => (string) ($client['apikey'] ?? ''),
+                'redirect_uri' => $redirect,
+                'ip'           => (string) ($_SERVER['REMOTE_ADDR'] ?? ''),
+            ]);
+
+            throw new \InvalidArgumentException(
+                'This application cannot sign anyone in yet: it has no client secret it can keep, '
+                . 'so it needs a registered redirect URI. Ask the administrator to add one.'
+            );
+        }
 
         if ($registered === []) {
             $this->logDecision(

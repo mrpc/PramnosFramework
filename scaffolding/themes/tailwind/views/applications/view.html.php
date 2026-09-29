@@ -38,6 +38,18 @@ $accessTypeLabel = function (int $t): string {
         </span>
     </div>
 
+    <?php if (!empty($app['appid']) && \Pramnos\Auth\Application::needsARegisteredCallback($app)): ?>
+        <div role="status" class="alert alert-warning mb-4 block">
+            <strong>This application cannot sign anyone in yet.</strong>
+            It cannot keep a client secret &mdash; it is marked public, or it has no secret stored &mdash;
+            and it has no registered redirect URI. For such a client the registered URI is the only
+            thing tying a sign-in code to it, so the authorization endpoint refuses every sign-in
+            until one is added. Add the exact callback URI(s) the application uses under
+            <em>OAuth2 Redirect URI(s)</em>.
+            <a href="<?php echo \Pramnos\Auth\Application::CALLBACK_GUIDE_URL; ?>" target="_blank" rel="noopener">Why this is required &rarr;</a>
+        </div>
+    <?php endif; ?>
+
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <!-- Left: credentials + stats + actions -->
         <div class="space-y-4">

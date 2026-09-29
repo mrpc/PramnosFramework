@@ -3,6 +3,7 @@ use_cases:
   - Connecting a third-party application to the auth server
   - Implementing an OAuth2 Authorization Code + PKCE flow against it
   - Registering a client's redirect URI, or debugging one the server refuses
+  - Deciding whether a client is confidential or public, and why a public one needs a redirect URI
   - Finding out why the server refused a token or authorization request
   - Reading a user's permissions from another application
   - Reacting to instant invalidation webhooks
@@ -311,11 +312,100 @@ Applications marked **trusted** (internal/first-party) skip the user consent
 screen; untrusted (third-party) applications always show consent and receive
 only the scopes the user approves.
 
-### Register your redirect URI — recommended, and matched exactly
+### When a redirect URI is required
 
-Registering a client's callback (`applications.callback`) is **optional and strongly
-recommended**, the way it is on every large authorization server. It is what buys you two
-things:
+**Short version:** a client that runs on a server you control and keeps its secret there may
+go without a registered redirect URI. Every other client — a browser app, a mobile app, a
+desktop app, or any client with no secret stored — **must** have one, and until it does the
+authorization endpoint refuses every sign-in for it. The admin screens warn about such a client
+on its page and on its edit form.
+
+#### Confidential and public, in practice
+
+The **Client Type** switch on the application's edit form (`applications.is_confidential`)
+records one fact: *can this client keep a secret?*
+
+| | Confidential | Public |
+|---|---|---|
+| Where the client's code runs | A server you control | The user's device: a browser (SPA), a phone, a desktop |
+| Who can read its client secret | Only you | Every user of the app — it is inside what you shipped |
+| What the secret proves at `/oauth/token` | That the caller is the real client | Nothing: anybody who unpacked the app has it |
+| What ties an authorization code to the client | The secret | The registered redirect URI, and PKCE |
+| `client_credentials` grant | Allowed | Refused by the token endpoint |
+| Registered redirect URI | Optional, recommended | **Required** |
+
+When in doubt, ask where the code that calls `/oauth/token` runs. If it is on a machine the
+user holds, the client is public, whatever else is true of it.
+
+#### Which clients the server treats as unable to keep a secret
+
+Two conditions, and either is enough:
+
+1. **Client Type is public** (`is_confidential = 0`). The admin screen still issues such a
+   client a secret when it is created, and the token endpoint still asks for it — but a
+   secret shipped inside an app is known to everybody who has the app, so it protects nothing
+   and the server does not count it.
+2. **No secret is stored** (`apisecret` empty or NULL). The token endpoint then accepts a
+   request that presents no secret at all, whatever Client Type says. Clients created through
+   [dynamic client registration](#dynamic-client-registration-rfc-7591) are like this, and so
+   are rows written before secrets existed.
+
+`Pramnos\Auth\Application::cannotKeepASecret($row)` answers this question, and
+`needsARegisteredCallback($row)` adds "…and has no usable registered redirect URI" — the exact
+condition the authorization endpoint refuses and the admin screens warn about. A `callback`
+holding only separators, or only a refused scheme such as `javascript:`, counts as none.
+
+#### Why the redirect URI is what matters
+
+An authorization code is delivered to the `redirect_uri` named in the request, and whoever holds
+the code can exchange it for a token. For a confidential client the exchange needs the secret,
+so a code that reaches the wrong address is useless. For a client that cannot keep a secret,
+nothing at the token endpoint tells the real client from anybody else:
+
+1. Somebody builds an `/oauth/authorize` link with the client's `client_id` — a public
+   identifier, visible in every copy of the app — and a `redirect_uri` of their own.
+2. A user who is signed in, and who has approved this app before, opens it. The consent
+   screen is skipped, because the app is already approved.
+3. The code goes to the address in the link, and its holder exchanges it with no secret, or
+   with the one every user of the app has. They now hold a token for that user.
+
+PKCE does not prevent this: whoever builds the link chooses the challenge, and so holds the
+verifier. **Exact matching against a registered redirect URI** is the only thing that stops
+the code from leaving for an address the client does not own. That is why RFC 6749 §3.1.2.2
+makes registration a *MUST* for public clients, and why this server enforces it.
+
+#### What the refusal looks like
+
+The person signing in sees an authorization error page:
+
+> This application cannot sign anyone in yet: it has no client secret it can keep, so it needs
+> a registered redirect URI. Ask the administrator to add one.
+
+`oauth.log` records it with the client id and the requested address:
+
+```
+refused: client cannot keep a secret and has no registered redirect URI | endpoint=authorize client_id=… redirect_uri=… ip=…
+```
+
+Nothing is issued and the `form-action` policy is not widened toward the requested address.
+
+#### Fixing it
+
+Open the application in the admin area and, on the **OAuth2** tab, enter every address the
+application really receives its code at under **OAuth2 Redirect URI(s)** — one per line, each
+exactly as the application sends it (see the matching rules below). The warning disappears once
+there is one.
+
+If the client is in fact a server-side application that keeps its secret, tick **Client Type**
+instead. That is only correct if the secret never leaves your servers.
+
+### Register your redirect URI — optional for a confidential client, and matched exactly
+
+For a client that cannot keep a secret, registration is required — see
+[When a redirect URI is required](#when-a-redirect-uri-is-required). For a **confidential**
+client with a secret, registering its callback (`applications.callback`) is **optional and
+strongly recommended**, the way it is on every large authorization server. It is what buys you
+two things:
 
 - `/oauth/authorize` **refuses any `redirect_uri` that is not on the list** — RFC 6749
   §3.1.2, and the reason the RFC asks for it is that the destination is a URL an
@@ -323,10 +413,10 @@ things:
 - The server widens its `form-action` policy for that origin, so a login that goes through
   the sign-in form completes (see the note below).
 
-A client with nothing registered still works exactly as it did, and **still gets the
-`form-action` widening**: the endpoint accepted its `redirect_uri`, so the policy says so.
-The condition is recorded in `oauth.log` with the recommendation. Whether to register is
-the operator's call about their own clients, not the framework's.
+A confidential client with a secret and nothing registered keeps working, and **still gets
+the `form-action` widening**: the endpoint accepted its `redirect_uri`, so the policy says so.
+The condition is recorded in `oauth.log` with the recommendation. For this client, whether to
+register is the operator's call.
 
 !!! warning "A CSP cannot enforce what the layer below it does not"
     The widening was briefly gated on the registration, on the reasoning that the two
@@ -567,7 +657,12 @@ database query. Lose it and the only route forward is rotating to a new one.
 
 A **public** client is one that cannot keep a secret: a single-page app or a mobile
 binary, where whatever you ship inside it every user of it has. Register it with
-**Client Type** unticked and it is issued no secret and asked for none.
+**Client Type** unticked, and **register its redirect URI** — without one it cannot sign
+anyone in; [When a redirect URI is required](#when-a-redirect-uri-is-required) explains why.
+
+The admin screen issues every new client a secret, public or not, and the token endpoint asks
+for whatever secret is stored. A client that must authenticate with no secret at all is one
+whose `apisecret` is empty — which is what dynamic registration creates.
 
 A public client authenticates its authorization code with **PKCE** instead, which is
 why the `code_challenge` above is not optional advice. It cannot use

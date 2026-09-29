@@ -575,6 +575,53 @@ class Application extends \Pramnos\Application\Model
         return (int) $this->is_confidential === 1;
     }
 
+    /**
+     * Where the guide explains why a client that cannot keep a secret needs a redirect URI.
+     *
+     * The admin screens link here from the warning and from the fields' help, so the long
+     * explanation lives once, in the guide, and the screen says only enough to act on.
+     */
+    public const CALLBACK_GUIDE_URL =
+        'https://mrpc.github.io/PramnosFramework/Pramnos_AuthServer_Integration_Guide/#when-a-redirect-uri-is-required';
+
+    /**
+     * Is this client unable to keep a secret — so a secret proves nothing about who holds a code?
+     *
+     * Two ways to be that client:
+     *
+     * - **Public** (`is_confidential = 0`): a single-page app or a mobile binary. Whatever
+     *   secret it ships with, every user of it has, so the token endpoint asking for it does
+     *   not tell the real client from anybody who unpacked it.
+     * - **No secret stored** (`apisecret` empty): the token endpoint accepts a request with no
+     *   secret at all ({@see validateCredentials()}), whatever `is_confidential` says. A
+     *   client registered through dynamic registration is one, and so is an old row written
+     *   before secrets existed.
+     *
+     * @param array<string, mixed> $row An `applications` row.
+     */
+    public static function cannotKeepASecret(array $row): bool
+    {
+        return (int) ($row['is_confidential'] ?? 1) === 0
+            || trim((string) ($row['apisecret'] ?? '')) === '';
+    }
+
+    /**
+     * Is this a client that cannot sign anybody in until it has a registered redirect URI?
+     *
+     * For such a client the registration is the only thing binding an authorization code to
+     * it: without one, `/oauth/authorize` would deliver a code to whatever `redirect_uri` a
+     * link names, and whoever holds that code redeems it with nothing else. RFC 6749
+     * §3.1.2.2 makes registration a **MUST** for exactly these clients. So the authorization
+     * endpoint refuses them, and the admin screens warn.
+     *
+     * @param array<string, mixed> $row An `applications` row.
+     */
+    public static function needsARegisteredCallback(array $row): bool
+    {
+        return self::cannotKeepASecret($row)
+            && self::parseRedirectUris(isset($row['callback']) ? (string) $row['callback'] : null) === [];
+    }
+
     /** Return allowed scopes as an array. */
     public function getScopes(): array
     {
