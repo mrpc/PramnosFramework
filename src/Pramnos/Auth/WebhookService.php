@@ -102,50 +102,6 @@ class WebhookService
         ?int    $tokenId    = null,
         ?int    $onlyEndpoint = null
     ): int {
-        return $this->queueTo($eventType, $userId, $payload, $deviceCode, $tokenId, $onlyEndpoint, null);
-    }
-
-    /**
-     * Queue an event for the subscribed endpoints of these applications only.
-     *
-     * {@see queueEvent()} fans out to every application subscribed to the type, which is right
-     * for `token_revoked`. An application's event is often scoped — «this station went live»
-     * concerns the applications authorised for this station, not every subscriber. The caller
-     * decides who is in scope; the framework only narrows the fan-out to that list. An empty
-     * list queues nothing, never everything.
-     *
-     * @param list<int> $appIds
-     * @return int The number of event rows inserted
-     */
-    public function queueEventForApplications(
-        string $eventType,
-        ?int $userId,
-        array $payload,
-        array $appIds
-    ): int {
-        $appIds = array_values(array_unique(array_map('intval', $appIds)));
-        if ($appIds === []) {
-            return 0;
-        }
-
-        return $this->queueTo($eventType, $userId, $payload, null, null, null, $appIds);
-    }
-
-    /**
-     * One event row per active endpoint subscribed to the type, narrowed as asked.
-     *
-     * @param list<int>|null $appIds Only these applications' endpoints; null for every one
-     * @return int
-     */
-    private function queueTo(
-        string $eventType,
-        ?int $userId,
-        array $payload,
-        ?string $deviceCode,
-        ?int $tokenId,
-        ?int $onlyEndpoint,
-        ?array $appIds
-    ): int {
         $query = $this->database->queryBuilder()
             ->table(self::TABLE_ENDPOINTS)
             ->select(['webhook_id', 'retry_count'])
@@ -154,9 +110,6 @@ class WebhookService
 
         if ($onlyEndpoint !== null) {
             $query->where('webhook_id', $onlyEndpoint);
-        }
-        if ($appIds !== null) {
-            $query->whereIn('appid', $appIds);
         }
 
         $endpoints = $query->get();

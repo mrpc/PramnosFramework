@@ -15,8 +15,8 @@ use Pramnos\Routing\Router;
  * Refusing an API key its application's scopes do not cover.
  *
  * `applications.scope` was saved and never read, so a key issued read-only could write. The
- * matching decides whether a route's declaration means anything; the fail-closed rule decides
- * whether protecting a route leaves it open to every key issued before it was protected.
+ * column has one reading — `Application::scopesBeyond()`, which the token endpoint applies too —
+ * and the key is held to it.
  */
 #[CoversClass(ApiKeyScopeMiddleware::class)]
 #[CoversClass(RouteDiscovery::class)]
@@ -78,31 +78,42 @@ class ApiKeyScopeMiddlewareTest extends TestCase
     }
 
     /**
-     * `*` and trailing wildcards cover what they match, and nothing else.
+     * A scope matches exactly, by the rule the token endpoint applies to the same column.
      *
-     * The router's own scope matching, so a scope means the same on a key and on a route.
+     * `Application::scopesBeyond()` is the one rule for `applications.scope`; a key does not get
+     * a looser reading of it than an access token does.
      */
-    public function testWildcardsMatchLikeTheRouter(): void
+    public function testAScopeMatchesExactlyAsAtTheTokenEndpoint(): void
     {
-        // Act & Assert
-        $this->assertSame('passed', $this->answer($this->granting(['stations:write'], ['*'])));
-        $this->assertSame('passed', $this->answer($this->granting(['stations:write'], ['stations:*'])));
-        $this->assertSame(
-            'insufficient_scope',
-            $this->answer($this->granting(['stats:read'], ['stations:*']))['error'] ?? null,
-            'a namespace wildcard covered another namespace'
-        );
+        // Act
+        $answer = $this->answer($this->granting(['stations:write'], ['stations:*']));
+
+        // Assert — `stations:*` is a scope name here, not a pattern
+        $this->assertSame('insufficient_scope', $answer['error'] ?? null);
     }
 
     /**
-     * A key with no scopes is refused on a route that declares any.
+     * An application with no Allowed Scopes is not restricted, as the edit form says.
      *
-     * Fail closed: protecting a route must not leave it open to the keys issued before.
+     * «Empty: no restriction beyond the server's own scopes» — what every client registered
+     * before the column was enforced relies on, at the token endpoint and here alike.
      */
-    public function testAKeyWithNoScopesIsRefused(): void
+    public function testAnApplicationWithNoScopesIsNotRestricted(): void
     {
         // Act
-        $answer = $this->answer($this->granting(['stations:read'], []));
+        $answer = $this->answer($this->granting(['stations:write'], []));
+
+        // Assert
+        $this->assertSame('passed', $answer);
+    }
+
+    /**
+     * A key nothing knows is refused: nothing says what it may do.
+     */
+    public function testAnUnknownKeyIsRefused(): void
+    {
+        // Act
+        $answer = $this->answer(new ApiKeyScopeMiddleware(['stations:read'], static fn (): bool => false));
 
         // Assert
         $this->assertSame('insufficient_scope', $answer['error'] ?? null);

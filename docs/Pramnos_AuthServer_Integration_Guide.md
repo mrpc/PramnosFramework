@@ -617,7 +617,9 @@ $apps->tokens($appId);                          // active tokens, never the toke
 $apps->find($appId);                            // the public description, no secrets
 ```
 
-- **Input** has the administration form's fields and defaults. Callbacks may be typed one per
+- **Input** has the administration form's fields and defaults. `trusted`,
+  `access_token_ttl` and `refresh_token_ttl` change only when present, and only where the column
+  exists. Callbacks may be typed one per
   line, comma-separated or spaced; they are stored as one space-separated list. A script-only
   scheme is refused by name. A list longer than a legacy `varchar(255)` column is refused
   with the fix. `create()` and `update()` throw `InvalidArgumentException` carrying the

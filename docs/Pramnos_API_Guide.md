@@ -755,22 +755,22 @@ $router->post('/api/v1/stations', [Stations::class, 'store'])
 #[Route('/api/v1/stations', methods: 'POST', apiKeyScopes: ['stations:write'])]
 ```
 
-Put it after `ApiAuthMiddleware`. Every declared scope must be granted. A granted `*` covers
-everything, and `stations:*` covers `stations:read` and `stations:write`. A refusal is `403`
-with `"error": "insufficient_scope"`, naming the missing scopes.
+Put it after `ApiAuthMiddleware`. Every declared scope must be among the application's
+**Allowed Scopes**, by the rule the token endpoint applies to the same field,
+`Application::scopesBeyond()`: an exact match, and **an empty field restricts nothing**. A
+refusal is `403` with `"error": "insufficient_scope"`, naming the missing scopes.
 
-- **A key whose application lists no scopes is refused** on a route that declares any, so
-  protecting a route does not leave it open to keys issued before it was protected. Grant
-  scopes to existing applications before adding the declaration — `*` keeps a key
-  unrestricted.
+- **An application with no Allowed Scopes is not restricted.** To hold a key to a route,
+  give its application a list; the declaration then refuses what the list leaves out.
+- **A key with no application row is refused**: nothing says what it may do.
 - **A route that declares nothing is unaffected**, and so is a request with no key — the
   application's own signed-in page, admitted on its session — and one with the site's own key.
 - `apiKeyScopes` is not `permissions`. The route's `permissions` are the scopes of the signed-in
   user's **token**; `apiKeyScopes` are the scopes of the **client** calling. A route can
   declare both.
 - A key stored somewhere other than `applications` passes a resolver:
-  `new ApiKeyScopeMiddleware(['stations:write'], fn (string $key): ?array => $scopesOf($key))`,
-  where `null` means the key is the application itself.
+  `new ApiKeyScopeMiddleware(['stations:write'], fn (string $key): array|null|false => …)` —
+  the Allowed Scopes, `null` for the application itself, `false` for a key nothing knows.
 
 #### Usage per application: `ApplicationStatsMiddleware`
 

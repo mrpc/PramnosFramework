@@ -24,13 +24,12 @@ use Pramnos\Http\Request;
  * ```
  *
  * Runs **after** `ApiAuthMiddleware`, which has already refused an invalid key. Every required
- * scope must be granted; a granted scope may be `*` or end in a wildcard (`stations:*`), as in
- * the router's own scope matching. The refusal is `403` with `error: insufficient_scope`, the
- * OAuth2 vocabulary.
+ * scope must be among the application's **Allowed Scopes**, by the one rule the token endpoint
+ * applies too — {@see \Pramnos\Auth\Application::scopesBeyond()}: an exact match, and an empty
+ * list restricts nothing, as the edit form says. The refusal is `403` with
+ * `error: insufficient_scope`, the OAuth2 vocabulary. A route that declares none is unaffected.
  *
- * **Fails closed.** A key whose application lists no scopes has none, so it is refused on a
- * route that declares any — a route an application chose to protect does not open to keys
- * issued before it did. A route that declares none is unaffected.
+ * A key with no application row is refused outright: nothing says what it may do.
  *
  * **The application itself is not a client.** A request with no key — the application's own
  * signed-in page, admitted by `ApiAuthMiddleware` on its session — and the site's own key
@@ -43,8 +42,9 @@ class ApiKeyScopeMiddleware implements MiddlewareInterface
 
     /**
      * @param list<string>  $required The scopes the route needs, all of them.
-     * @param \Closure|null $scopesOf `fn (string $apiKey): ?array` — the key's granted scopes,
-     *                                or null for a key that is the application itself. Defaults
+     * @param \Closure|null $scopesOf `fn (string $apiKey): array|null|false` — the key's Allowed
+     *                                Scopes (empty: no restriction), null for a key that is the
+     *                                application itself, false for a key nothing knows. Defaults
      *                                to reading `applications.scope`.
      */
     public function __construct(array $required, private ?\Closure $scopesOf = null)
@@ -71,10 +71,9 @@ class ApiKeyScopeMiddleware implements MiddlewareInterface
             return $next($request);
         }
 
-        $missing = array_values(array_filter(
-            $this->required,
-            static fn (string $scope): bool => !self::isGranted($scope, $granted)
-        ));
+        $missing = $granted === false
+            ? $this->required
+            : \Pramnos\Auth\Application::scopesBeyond($granted, $this->required);
 
         if ($missing === []) {
             return $next($request);
@@ -84,14 +83,14 @@ class ApiKeyScopeMiddleware implements MiddlewareInterface
     }
 
     /**
-     * The scopes the key's application was granted, or null when the key is the site's own.
+     * The key's Allowed Scopes, null when the key is the site's own, false when no row knows it.
      *
      * The site key is the one {@see \Pramnos\Application\Api::checkApiKey()} accepts without a
-     * row: the hash of the site's address. A key with no application row is granted nothing.
+     * row: the hash of the site's address.
      *
-     * @return list<string>|null
+     * @return list<string>|null|false
      */
-    public static function grantedScopes(string $apiKey): ?array
+    public static function grantedScopes(string $apiKey): array|null|false
     {
         if (defined('sURL') && hash_equals(md5(str_replace('/api/', '/', (string) sURL)), $apiKey)) {
             return null;
@@ -99,34 +98,10 @@ class ApiKeyScopeMiddleware implements MiddlewareInterface
 
         $application = new \Pramnos\Application\Api\Apikey($apiKey);
         if ((int) $application->appid === 0) {
-            return [];
+            return false;
         }
 
         return \Pramnos\User\Token::parseScopes((string) $application->scope);
-    }
-
-    /**
-     * Whether one required scope is covered by the granted list.
-     *
-     * Exact, `*`, or a granted pattern with `*` in it — the router's matching, so a scope means
-     * the same thing on a key as it does on a route.
-     *
-     * @param list<string> $granted
-     */
-    private static function isGranted(string $required, array $granted): bool
-    {
-        foreach ($granted as $scope) {
-            if ($scope === $required || $scope === '*') {
-                return true;
-            }
-            if (str_contains($scope, '*')
-                && preg_match('/^' . str_replace('\*', '.*', preg_quote($scope, '/')) . '$/', $required) === 1
-            ) {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     /**

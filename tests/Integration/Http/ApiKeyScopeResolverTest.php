@@ -79,11 +79,12 @@ class ApiKeyScopeResolverTest extends BaseTestCase
     }
 
     /**
-     * An application saved with no scope grants nothing, and so does a key with no row.
+     * An application saved with no scope has an empty list; a key with no row is unknown.
      *
-     * Empty rather than null: null would mean «the application itself» and skip the check.
+     * Empty is «no restriction», the column's rule; `false` is «nothing knows this key», which is
+     * refused. Neither is null, which would mean the application itself.
      */
-    public function testNoScopeAndNoRowGrantNothing(): void
+    public function testNoScopeIsEmptyAndNoRowIsUnknown(): void
     {
         // Arrange
         $this->db->queryBuilder()->table('applications')->insert([
@@ -96,6 +97,6 @@ class ApiKeyScopeResolverTest extends BaseTestCase
 
         // Assert
         $this->assertSame([], $unscoped);
-        $this->assertSame([], $unknown);
+        $this->assertFalse($unknown);
     }
 }

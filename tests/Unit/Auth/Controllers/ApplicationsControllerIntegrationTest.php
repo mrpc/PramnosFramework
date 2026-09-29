@@ -311,6 +311,8 @@ class ApplicationsControllerIntegrationTest extends BaseTestCase
         $schema = $this->createMock(\Pramnos\Database\SchemaBuilder::class);
         $schema->method('hasColumn')->willReturn(true);
         $this->dbMock->method('schema')->willReturn($schema);
+        // The application exists: the service checks before it writes.
+        $this->queryBuilderMock->method('first')->willReturn((object) ['numRows' => 1, 'fields' => ['appid' => 1]]);
         $written = [];
         $this->queryBuilderMock->method('update')->willReturnCallback(function (array $fields) use (&$written) {
             $written[] = $fields;
@@ -345,6 +347,8 @@ class ApplicationsControllerIntegrationTest extends BaseTestCase
         $schema = $this->createMock(\Pramnos\Database\SchemaBuilder::class);
         $schema->method('hasColumn')->willReturn(true);
         $this->dbMock->method('schema')->willReturn($schema);
+        // The application exists: the service checks before it writes.
+        $this->queryBuilderMock->method('first')->willReturn((object) ['numRows' => 1, 'fields' => ['appid' => 1]]);
         $written = null;
         $this->queryBuilderMock->method('update')->willReturnCallback(function (array $fields) use (&$written) {
             $written = $fields;
