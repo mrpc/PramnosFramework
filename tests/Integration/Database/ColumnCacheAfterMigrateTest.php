@@ -58,7 +58,7 @@ class ColumnCacheAfterMigrateTest extends BaseTestCase
         if (!defined('CONFIG')) {
             define('CONFIG', 'tests' . DS . 'fixtures' . DS . 'app');
         }
-        Settings::loadSettings(ROOT . DS . 'tests' . DS . 'fixtures' . DS . 'app' . DS . 'settings.php');
+        Settings::loadSettings($this->settingsFixture());
         Application::getInstance();
 
         $this->db = Connection::fresh();
@@ -80,7 +80,17 @@ class ColumnCacheAfterMigrateTest extends BaseTestCase
     {
         $this->drop();
 
+        // Back on the default database: the PostgreSQL sibling points the singleton elsewhere.
+        Settings::loadSettings(ROOT . DS . 'tests' . DS . 'fixtures' . DS . 'app' . DS . 'settings.php');
+        $reference = &Database::getInstance();
+        $reference = null;
+
         parent::tearDown();
+    }
+
+    protected function settingsFixture(): string
+    {
+        return ROOT . DS . 'tests' . DS . 'fixtures' . DS . 'app' . DS . 'settings.php';
     }
 
     private function quote(string $identifier): string
@@ -234,6 +244,50 @@ class ColumnCacheAfterMigrateTest extends BaseTestCase
             $this->cachedColumns(),
             'the column cache is still holding the pre-migration list'
         );
+    }
+
+    /**
+     * A model sees the migration's column at once — in its field list and when it saves.
+     *
+     * The model built its own cache key from its qualified table name (`public.properties` on
+     * PostgreSQL), and the migration's flush built another from the bare one, so the flush
+     * reported success and the model went on reading — and saving against — the old column list
+     * for up to an hour: a new column written as NULL, silently.
+     */
+    public function testAModelSeesTheMigrationsColumnAtOnce(): void
+    {
+        // Arrange — the model reads its columns, which caches them
+        $table = $this->table;
+        $model = fn () => new class ($table) extends \Pramnos\Application\Model {
+            // The probe table has no generated key, and a model leaves its key out of an insert;
+            // `name` is left out instead, so `id` and the new column are both written.
+            protected $_primaryKey = 'name';
+
+            public function __construct(string $table)
+            {
+                $this->_dbtable = '#PREFIX#' . $table;
+            }
+
+            public function save(): void
+            {
+                $this->_isnew = true;
+                $this->_save();
+            }
+        };
+        $this->assertSame(['id', 'name'], $model()->apiListSchemaFields());
+
+        // Act — the migration, then a save that sets the new column
+        (new MigrationRunner($this->db))->run([$this->migration()]);
+        $fields = $model()->apiListSchemaFields();
+        $row = $model();
+        $row->id = 1;
+        $row->is_competitor = 7;
+        $row->save();
+
+        // Assert
+        $this->assertContains('is_competitor', $fields, 'the field list is the pre-migration one');
+        $stored = $this->db->query('SELECT ' . $this->quote('is_competitor') . ' AS c FROM ' . $this->quoted());
+        $this->assertSame(7, (int) $stored->fields['c'], 'the save dropped the new column');
     }
 
     /**

@@ -589,7 +589,8 @@ panel is framework-owned.
 ### Operational & diagnostic commands
 
 ```bash
-# Flush the application cache (all categories, or one with --category)
+# Flush the application cache and the database's query cache
+# (all categories, or one with --category; --all flushes the whole backend)
 php bin/pramnos cache:clear
 php bin/pramnos cache:clear --category=views
 

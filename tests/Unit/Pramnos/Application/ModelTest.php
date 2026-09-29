@@ -1151,7 +1151,7 @@ class ModelTest extends TestCase
             ['Field' => 'meta', 'Type' => 'json', 'Null' => 'YES']
         ];
         Model::$columnCache['test_users'] = $columns;
-        Model::$columnCache['schema_columns_test_users'] = $columns;
+        Model::$columnCache[\Pramnos\Database\Database::getInstance()->columnCacheKey('test_users')] = $columns;
 
         $refMethod = new \ReflectionMethod($model, '_getFieldTypes');
         

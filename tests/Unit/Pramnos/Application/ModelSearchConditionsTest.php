@@ -66,7 +66,7 @@ class ModelSearchConditionsTest extends TestCase
                 ["Field" => "name", "Type" => "varchar(255)"],
                 ["Field" => "price", "Type" => "decimal(10,2)"]
             ],
-            "schema_columns_joined_table" => [
+            $this->database->columnCacheKey("joined_table") => [
                 ["Field" => "id", "Type" => "int(11)"],
                 ["Field" => "user_id", "Type" => "int(11)"],
                 ["Field" => "title", "Type" => "varchar(255)"]
@@ -146,7 +146,7 @@ class ModelSearchConditionsTest extends TestCase
                 ["Field" => "name", "Type" => "character varying(255)"],
                 ["Field" => "price", "Type" => "numeric(10,2)"]
             ],
-            "schema_columns_joined_table" => [
+            $this->database->columnCacheKey("joined_table") => [
                 ["Field" => "id", "Type" => "integer"],
                 ["Field" => "user_id", "Type" => "integer"],
                 ["Field" => "title", "Type" => "character varying(255)"]

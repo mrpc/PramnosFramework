@@ -90,6 +90,27 @@ class CacheClearTest extends TestCase
     }
 
     /**
+     * A clear reaches the database's query cache as well, for the same category.
+     *
+     * The query cache is a store of its own — column lists among it — so a clear that left it
+     * behind left the stale column list a schema change was run to fix. `--all` flushes the
+     * whole backend already and needs no second call.
+     */
+    public function testAClearReachesTheQueryCacheToo(): void
+    {
+        // Arrange
+        $tester = $this->makeTester(static fn (): bool => true);
+
+        // Act
+        $tester->execute(['--category' => 'schema_columns_x']);
+        $tester->execute([]);
+        $tester->execute(['--all' => true]);
+
+        // Assert
+        $this->assertSame(['schema_columns_x', ''], $this->lastCommand->queryCleared);
+    }
+
+    /**
      * --all and --category ask for opposite things; accepting both would make
      * the outcome depend on argument order.
      */
@@ -144,6 +165,14 @@ class CacheClearTest extends TestCase
             {
                 $this->flushedEverything = true;
                 return ($this->clearImpl)('__ALL__');
+            }
+
+            /** @var list<string> The categories the query cache was cleared for. */
+            public array $queryCleared = [];
+
+            protected function clearQueryCache(string $category): void
+            {
+                $this->queryCleared[] = $category;
             }
         };
         $this->lastCommand = $command;

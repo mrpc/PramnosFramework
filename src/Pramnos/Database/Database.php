@@ -4001,11 +4001,7 @@ class Database extends \Pramnos\Framework\Base
         // the process and re-running the command does not clear it either.
         return $this->query(
             $sql, !$fresh, 3600,
-            self::columnCacheCategory(
-                $tableName,
-                (string) $this->prefix,
-                $this->connectionCacheKey()
-            ),
+            $this->columnCacheKey($tableName),
             false, $skipDataFix
         );
     }
@@ -4068,6 +4064,31 @@ class Database extends \Pramnos\Framework\Base
      * cannot say which database it is on has nothing to scope by, and inventing something
      * would be worse than the bug.
      */
+    /**
+     * The cache key of a table's column list on this connection — the one every reader and every
+     * flush uses.
+     *
+     * The table is named any way the framework names it — `#PREFIX#users`, `pramnos_users`, or
+     * on PostgreSQL `public.properties` as {@see \Pramnos\Application\Model::getFullTableName()}
+     * writes it — and all of them are one key: the prefix resolved, and the connection's own
+     * schema dropped, since a table in it is the same table with or without the qualifier. A
+     * table in another schema (`authserver.roles`) keeps its schema.
+     *
+     * `Model` built its own key from the qualified name and the flush built this one from the
+     * bare name, so a migration's flush reported success and the model saved against the old
+     * column list for up to an hour.
+     */
+    public function columnCacheKey(string $tableName): string
+    {
+        $table  = str_replace('#PREFIX#', (string) $this->prefix, trim($tableName, '`"'));
+        $schema = (string) ($this->schema ?? '');
+        if ($schema !== '' && str_starts_with($table, $schema . '.')) {
+            $table = substr($table, strlen($schema) + 1);
+        }
+
+        return self::columnCacheCategory($table, '', $this->connectionCacheKey());
+    }
+
     private function connectionCacheKey(): string
     {
         $parts = array_filter([
@@ -4097,13 +4118,9 @@ class Database extends \Pramnos\Framework\Base
     public function forgetColumns(string $tableName): void
     {
         try {
-            $this->cacheflush(
-                self::columnCacheCategory(
-                    $tableName,
-                    (string) $this->prefix,
-                    $this->connectionCacheKey()
-                )
-            );
+            $this->cacheflush($this->columnCacheKey($tableName));
+            // And the list a model keeps for the rest of the process, which no store holds.
+            \Pramnos\Application\Model::$columnCache = [];
         } catch (\Throwable) {
             // See above.
         }

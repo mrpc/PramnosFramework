@@ -46,6 +46,11 @@ class CacheClear extends Command
 
         try {
             $ok = $everything ? $this->flushEverything() : $this->clearCache($category);
+            if (!$everything) {
+                // The query cache is a store of its own — column lists among it — and a
+                // clear that leaves it behind leaves the answer somebody ran this for.
+                $this->clearQueryCache($category);
+            }
         } catch (\Throwable $e) {
             $output->writeln('<error>Cache clear failed: ' . $e->getMessage() . '</error>');
             return Command::FAILURE;
@@ -81,6 +86,22 @@ class CacheClear extends Command
     protected function clearCache(string $category): bool
     {
         return Cache::getInstance()->clear($category);
+    }
+
+    /**
+     * Clear the database's query cache too, for the same category.
+     *
+     * `Database` caches under its own `sql` store with the table prefix, which the default
+     * cache instance does not reach — so a column list a schema change had made stale survived
+     * `cache:clear`. Best effort: an installation with no database has no query cache.
+     */
+    protected function clearQueryCache(string $category): void
+    {
+        try {
+            \Pramnos\Framework\Factory::getDatabase()->cacheflush($category);
+        } catch (\Throwable) {
+            // Nothing to clear.
+        }
     }
 
     /**

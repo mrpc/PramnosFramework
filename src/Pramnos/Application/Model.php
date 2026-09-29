@@ -448,7 +448,7 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
                 //
                 // The key is still built so the two paths can be told apart in the
                 // query log, and so anybody enabling this has one less thing to write.
-                $cacheKey = "schema_columns_" . $this->getFullTableName();
+                $cacheKey = $database->columnCacheKey($this->getFullTableName());
                 $result = $database->query($sql, false, 3600, $cacheKey);
                 self::$columnCache[$this->getFullTableName()] = array();
                 while ($result->fetch()) {
@@ -2216,7 +2216,7 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
                 
                 // Replace prefixes
                 $fullTableName = str_replace('#PREFIX#', $database->prefix, $tableName);
-                $cacheKey = "schema_columns_{$fullTableName}";
+                $cacheKey = $database->columnCacheKey($fullTableName);
                 
                 // Ensure this joined table's cache is populated
                 if (!isset(self::$columnCache[$cacheKey])) {
@@ -2458,7 +2458,7 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
         $database = \Pramnos\Database\Database::getInstance();
         $fields = array();
         $tableName = $this->getFullTableName();
-        $cacheKey = "schema_columns_{$tableName}";
+        $cacheKey = $database->columnCacheKey($tableName);
         
         // Get main table fields
         if (isset(self::$columnCache[$this->getFullTableName()])) {
@@ -2545,7 +2545,7 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
         try {
             $sql = $this->columnIntrospectionSql($tableName);
             
-            $cacheKey = "schema_columns_{$tableName}";
+            $cacheKey = $database->columnCacheKey($tableName);
             $result = $database->query($sql, true, 3600, $cacheKey);
             
             // Initialize cache for this table
@@ -2613,7 +2613,7 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
                     if ($match[2] === $alias) {
                         $tableName = trim($match[1], '`"');
                         $fullTableName = str_replace('#PREFIX#', $database->prefix, $tableName);
-                        $cacheKey = "schema_columns_{$fullTableName}";
+                        $cacheKey = $database->columnCacheKey($fullTableName);
                         break;
                     }
                 }
