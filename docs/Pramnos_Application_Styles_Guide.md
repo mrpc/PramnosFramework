@@ -206,11 +206,8 @@ document](#typed-endpoints-from-the-openapi-document) — and it delegates to
 endpoints, and `lib/api.js` is yours to adapt to how your application
 authenticates.
 
-> Filed by a project building a Svelte admin panel against the scaffolding,
-> which wrote its own client and reported that the docs presented the stub as
-> *the* contract without saying which parts assume `src/Api/`. This is not a
-> bug in the stub — it is legitimate divergence — but a reader meeting it should
-> not have to derive that from the code.
+The generated file's own header says the same and points here, so the assumption is stated
+where somebody meets the code.
 
 ### Using a Model outside an MVC request
 

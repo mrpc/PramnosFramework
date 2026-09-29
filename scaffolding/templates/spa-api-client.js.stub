@@ -21,6 +21,14 @@
  *
  * Errors arrive as ApiError with the HTTP status attached, so a screen can react
  * to 401 (sign in again) or 422 (field errors) instead of parsing messages.
+ *
+ * **This is the contract of a project built on `Pramnos\Application\Api`.** An
+ * application that routes with `#[Route]` and authenticates with
+ * `Authorization: Bearer` shares none of the `apiKey` / `accessToken` / login
+ * parts. What to replace, and what is worth keeping either way (ApiError, the
+ * 204 handling, the debug-panel recording), is tabled in the Application Styles
+ * Guide, § "What the scaffolded API client assumes — and what to replace":
+ * vendor/mrpc/pramnosframework/docs/Pramnos_Application_Styles_Guide.md
  */
 
 import { record as recordDebug, reportError as reportDebugError } from './debug.js';
