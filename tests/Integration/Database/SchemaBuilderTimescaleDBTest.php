@@ -240,6 +240,86 @@ class SchemaBuilderTimescaleDBTest extends SchemaBuilderPostgreSQLTest
     }
 
     /**
+     * A real-time aggregate created over rows it already has keeps seeing the open bucket.
+     *
+     * glideday's finding: created `WITH DATA`, the aggregate materialised the open bucket too,
+     * which moved its watermark to that bucket's end — so rows arriving later in the same
+     * bucket were invisible until it closed. Four rollups over site statistics lost a day that
+     * way. Now the closed buckets are materialised and the open one stays live.
+     */
+    public function testARealTimeAggregateStillSeesRowsArrivingInTheOpenBucket(): void
+    {
+        // Arrange — a closed hour and the current one already have rows
+        $this->schema->createTable('sb_cagg_src', function ($t) {
+            $t->timestampTz('recorded_at');
+            $t->float('value')->nullable();
+        });
+        $this->schema->createHypertable('sb_cagg_src', 'recorded_at', ['chunk_time_interval' => '1 day']);
+        $this->db->execute("INSERT INTO sb_cagg_src VALUES (date_trunc('hour', now()) - interval '90 minutes', 1)");
+        $this->db->execute("INSERT INTO sb_cagg_src VALUES (date_trunc('hour', now()), 1)");
+
+        $this->schema->createContinuousAggregate(
+            'sb_cagg_hourly',
+            "SELECT time_bucket('1 hour', recorded_at) AS bucket, COUNT(*) AS n
+               FROM sb_cagg_src GROUP BY bucket",
+            ['timescaledb.materialized_only' => false]
+        );
+
+        // Act — a row arrives in the open hour after the aggregate was made
+        $this->db->execute("INSERT INTO sb_cagg_src VALUES (date_trunc('hour', now()) + interval '1 second', 1)");
+
+        // Assert — the open hour counts both of its rows; the closed hour was materialised
+        $open = $this->db->execute(
+            "SELECT n FROM sb_cagg_hourly WHERE bucket = date_trunc('hour', now())"
+        );
+        $this->assertSame(2, (int) $open->fields['n'], 'the open bucket must stay live');
+
+        $closed = $this->db->execute(
+            "SELECT n FROM sb_cagg_hourly WHERE bucket = date_trunc('hour', now()) - interval '1 hour' * 2"
+        );
+        $this->assertSame(1, (int) $closed->fields['n'], 'a closed bucket is in the aggregate');
+    }
+
+    /**
+     * Over an integer time column the aggregate is still created, and the empty history said.
+     *
+     * The initial refresh ends at `now()`, which an integer-time aggregate refuses — it takes
+     * an integer window. That must not fail the migration: the aggregate exists and is correct,
+     * and its refresh policy materialises the history as it runs.
+     */
+    public function testAnIntegerTimeAggregateIsCreatedAlthoughItsFirstRefreshIsRefused(): void
+    {
+        // Arrange — an integer-time hypertable with the integer_now function TimescaleDB needs
+        $this->db->execute('DROP MATERIALIZED VIEW IF EXISTS sb_int_hourly CASCADE');
+        $this->db->execute('DROP TABLE IF EXISTS sb_int_src CASCADE');
+        $this->db->execute('CREATE TABLE sb_int_src (ts bigint NOT NULL, value double precision)');
+        $this->db->execute("SELECT create_hypertable('sb_int_src', 'ts', chunk_time_interval => 86400)");
+        $this->db->execute(
+            'CREATE OR REPLACE FUNCTION sb_int_now() RETURNS bigint LANGUAGE SQL STABLE '
+            . 'AS $$ SELECT extract(epoch FROM now())::bigint $$'
+        );
+        $this->db->execute("SELECT set_integer_now_func('sb_int_src', 'sb_int_now')");
+
+        try {
+            // Act
+            $this->schema->createContinuousAggregate(
+                'sb_int_hourly',
+                'SELECT time_bucket(3600, ts) AS bucket, COUNT(*) AS n FROM sb_int_src GROUP BY bucket'
+            );
+
+            // Assert — it exists as a continuous aggregate
+            $rows = $this->db->execute(
+                "SELECT COUNT(*) AS cnt FROM timescaledb_information.continuous_aggregates WHERE view_name = 'sb_int_hourly'"
+            );
+            $this->assertSame(1, (int) $rows->fields['cnt']);
+        } finally {
+            $this->db->execute('DROP MATERIALIZED VIEW IF EXISTS sb_int_hourly CASCADE');
+            $this->db->execute('DROP TABLE IF EXISTS sb_int_src CASCADE');
+            $this->db->execute('DROP FUNCTION IF EXISTS sb_int_now()');
+        }
+    }
+
+    /**
      * A second createContinuousAggregate() on the same name keeps the first
      * definition instead of raising.
      *

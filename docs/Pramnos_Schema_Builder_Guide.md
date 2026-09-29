@@ -486,6 +486,16 @@ fallback with the three costs it carries are in
 **[Caching an aggregate: continuous aggregate, or materialised view](Pramnos_Hypertable_Guide.md#caching-an-aggregate-continuous-aggregate-or-materialised-view)**.
 Read it before designing a rollup, not after the refusal.
 
+**What is materialised when it is created.** The aggregate is created `WITH NO DATA` and then
+refreshed up to `now()`. TimescaleDB materialises only buckets that lie wholly inside a refresh
+window, so every closed bucket is filled in and **the open one is left live**: a real-time
+aggregate (`timescaledb.materialized_only = false`) goes on showing rows that arrive in it.
+PostgreSQL's default, `WITH DATA`, would materialise the open bucket as well and move the
+watermark to its end — freezing it at the moment of creation until it closed, which the refresh
+policy cannot undo because it refreshes closed buckets only. Over an integer time column the
+initial refresh is refused (it takes an integer window); the aggregate is created empty, the
+`migrations` log says so, and its refresh policy fills it in.
+
 `createContinuousAggregate()` is safe to call against a name that is already taken: it
 returns without issuing any DDL and writes a line to the `migrations` log saying the
 existing definition was kept.

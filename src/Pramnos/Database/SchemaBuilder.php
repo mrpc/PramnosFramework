@@ -1311,10 +1311,39 @@ class SchemaBuilder
              * loud, correct answer for both causes, and `health:check` reports any view
              * that is a plain materialised view when its declaration says otherwise.
              */
+            /*
+             * `WITH NO DATA`, then a refresh that ends **now**.
+             *
+             * PostgreSQL's default is `WITH DATA`, which materialises every bucket — the open
+             * one included. A real-time aggregate reads raw rows only after its watermark, and
+             * materialising the open bucket moves the watermark to that bucket's end, so
+             * everything arriving later in it was invisible until the bucket closed; the refresh
+             * policy cannot fix it either, because with an `end_offset` it refreshes only closed
+             * buckets. glideday lost a day of site statistics to exactly that.
+             *
+             * `refresh_continuous_aggregate()` materialises only buckets that lie **wholly**
+             * inside the window, so a window ending at `now()` takes every closed bucket and
+             * leaves the open one live — without this code having to know the bucket width.
+             */
             $this->db->query(
                 "CREATE MATERIALIZED VIEW {$resolved} WITH ("
-                . implode(', ', $withParts) . ") AS {$sql}"
+                . implode(', ', $withParts) . ") AS {$sql} WITH NO DATA"
             );
+
+            try {
+                $this->db->query(
+                    "CALL refresh_continuous_aggregate('" . str_replace("'", "''", $resolved) . "', NULL, now())"
+                );
+            } catch (\Throwable $e) {
+                // An integer time column takes an integer window, not now(). The aggregate
+                // exists and is correct; its refresh policy materialises the history as it
+                // runs. Said so rather than left silent.
+                \Pramnos\Logs\Logger::log(
+                    'Continuous aggregate ' . $name . ' was created empty; its history is '
+                    . 'materialised by its refresh policy (' . $e->getMessage() . ')',
+                    'migrations'
+                );
+            }
         } elseif ($this->capabilities->isPostgreSQL()) {
             $this->db->query("CREATE MATERIALIZED VIEW {$resolved} AS {$sql}");
         } else {
