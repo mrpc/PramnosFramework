@@ -33,6 +33,17 @@ $navItems = [
     ['key' => 'security',     'href' => $routeBase . '/security',     'label' => 'Security'],
     ['key' => 'privacy',      'href' => $routeBase . '/privacy',      'label' => 'Privacy'],
 ];
+// For somebody who manages an organisation, the way to it — and for nobody else.
+$_signedIn = \Pramnos\User\User::getCurrentUser();
+if (is_object($_signedIn) && (int) ($_signedIn->userid ?? 0) >= 2) {
+    try {
+        if (\Pramnos\Auth\OrganizationAdmin::managedBy($_signedIn) !== []) {
+            $navItems[] = ['key' => 'organization', 'href' => 'organization', 'label' => 'Organisations'];
+        }
+    } catch (\Throwable) {
+        // No organisation tables: nothing to manage.
+    }
+}
 ?>
 <div class="md:col-span-1">
     <div class="card bg-base-100 shadow-sm overflow-hidden">

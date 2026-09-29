@@ -389,6 +389,50 @@ stay, stop counting while they are out, and count again if they return. Their or
 still be taken from them after they have left: on PostgreSQL the membership trigger guards a
 grant, and deactivating an assignment grants nothing.
 
+## An organisation's own administrator
+
+Somebody can be given one organisation to run — its members, its invitations, who holds its
+roles — without any of the administration area. They are whoever is allowed `manage` on the
+object `organization` with that organisation's id:
+
+```php
+Permissions::getInstance()->allow($userId, 'organization', 'manage', (string) $orgId);
+// or to a role of the organisation, which its members then hold
+```
+
+A permission rather than a flag, so a deny, an expiry and the audit trail work as for any other
+grant, and it can come through a role. A superuser manages every organisation.
+`OrganizationAdmin::manages($user, $orgId)` is the check; `managedBy($user)` lists them.
+
+**What they can do, in that organisation only** — at `/organization`, with a link in the account
+sidebar for anybody who manages one:
+
+| | |
+| --- | --- |
+| Add by address | an account becomes a member at once; an address with no account gets an invitation into the organisation — either with one of its roles |
+| Remove a member | the membership ends; their assignments stay and stop counting |
+| Give / take a role | only the organisation's own roles, and only one that allows nothing the manager is not allowed themselves |
+| Invitations | see them, and withdraw one still waiting |
+
+Roles are created and edited by an administrator, not here — a manager assigns what exists. Every
+change is written to the affected account's activity log and sent as `permissions_changed`.
+
+The same addresses answer JSON for a script (`Accept: application/json` or `X-Requested-With`):
+
+| | |
+| --- | --- |
+| `GET organization` | `{organizations: [{organization_id, name}]}` |
+| `GET organization/view/{id}` | `{organization_id, name, members, roles, invitations}` |
+| `POST organization/add/{id}` | `email`, optional `roleid` |
+| `POST organization/remove/{id}` | `userid` |
+| `POST organization/giverole/{id}`, `takerole/{id}` | `userid`, `roleid` |
+| `POST organization/withdraw/{id}` | `invitation` |
+
+A write answers `{ok, message}`, a refusal `{ok: false, error}` with `401`, `403` or `422`. Writes
+are `POST` with the session's token — the form field or `X-CSRF-Token` — so they are for a
+signed-in browser, including a single-page application on the same site. `OrganizationAdmin` is
+the service underneath, for an application's own API.
+
 ## Multi-tenancy: scoping to an organisation
 
 The schema has `organizations`, `user_organizations`, and an organisation column on
