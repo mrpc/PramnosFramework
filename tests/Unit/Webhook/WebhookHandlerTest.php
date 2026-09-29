@@ -103,6 +103,35 @@ class FlushingWebhookHandler extends WebhookHandler
 }
 
 /**
+ * The real `flushResponse()` and the real `respond()`, with only the SAPI line and the
+ * `exit` stubbed — so what `respond()` writes after a flush can be observed.
+ */
+class AnsweredWebhookHandler extends WebhookHandler
+{
+    protected function closeConnection(): void
+    {
+    }
+
+    protected function finish(): never
+    {
+        throw new WebhookResponseCapturedException(0, []);
+    }
+
+    /** @param array<string, mixed> $data */
+    public function flushThenRespond(int $code, array $data): void
+    {
+        $this->flushResponse(202, ['status' => 'accepted']);
+        $this->respond($code, $data);
+    }
+
+    /** @param array<string, mixed> $data */
+    public function respondOnly(int $code, array $data): void
+    {
+        $this->respond($code, $data);
+    }
+}
+
+/**
  * Unit tests for WebhookHandler.
  *
  * The handler calls exit() to send HTTP responses, so tests exercise the
@@ -1067,6 +1096,56 @@ class WebhookHandlerTest extends TestCase
         $ref = new \ReflectionMethod($object, $method);
         return $ref->invokeArgs($object, $args);
     }
-}
 
-} // end namespace Pramnos\Tests\Unit\Webhook
+    /**
+     * After the answer has been flushed, `respond()` writes nothing more.
+     *
+     * glideday's finding: with `respondFirst()` on, every deploy still ended in `respond()`,
+     * which set a status and two headers on a response already sent — three warnings per
+     * deploy in production's PHP log, 174 of them by the time they were counted. The deploy
+     * worked; the warnings were noise in the one log somebody reads when it does not.
+     */
+    public function testRespondWritesNothingOnceTheAnswerWasFlushed(): void
+    {
+        // Arrange
+        $handler = new AnsweredWebhookHandler('a-secret', sys_get_temp_dir(), '');
+        $before  = ignore_user_abort();
+
+        // Act
+        ob_start();
+        try {
+            $handler->flushThenRespond(200, ['status' => 'ok']);
+        } catch (WebhookResponseCapturedException) {
+            // finish(), standing in for exit
+        }
+        $printed = (string) ob_get_clean();
+        ignore_user_abort((bool) $before);
+
+        // Assert — only the flushed body; the second answer never reached the output
+        $this->assertSame('{"status":"accepted"}', $printed);
+    }
+
+    /**
+     * Without a flush, `respond()` still answers as it always did.
+     *
+     * The control: a guard that silenced every answer would pass the test above.
+     */
+    public function testRespondStillAnswersWhenNothingWasFlushed(): void
+    {
+        // Arrange
+        $handler = new AnsweredWebhookHandler('a-secret', sys_get_temp_dir(), '');
+
+        // Act
+        ob_start();
+        try {
+            $handler->respondOnly(200, ['status' => 'ok']);
+        } catch (WebhookResponseCapturedException) {
+            // finish(), standing in for exit
+        }
+        $printed = (string) ob_get_clean();
+
+        // Assert
+        $this->assertSame('{"status":"ok"}', $printed);
+    }
+}
+}

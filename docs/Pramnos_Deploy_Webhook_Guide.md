@@ -68,6 +68,10 @@ green either way.
 output, on both paths. If you watch for red deliveries to know a deploy broke,
 watch the log instead.
 
+Once the answer has gone out, nothing more is written to the response: the run ends
+without touching the status or the headers, so a deploy leaves no *headers already
+sent* warnings in the PHP log.
+
 For a webhook whose commands are fast and whose caller genuinely reads the answer:
 
 ```php

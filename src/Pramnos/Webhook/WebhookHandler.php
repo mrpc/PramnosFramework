@@ -58,6 +58,9 @@ class WebhookHandler
      */
     private bool $respondFirst = true;
 
+    /** Whether flushResponse() has already answered and released the caller. */
+    private bool $flushed = false;
+
     /**
      * @param string $secret     HMAC secret configured in the webhook provider.
      *                           Must not be empty — constructor throws if it is.
@@ -463,6 +466,8 @@ class WebhookHandler
         ignore_user_abort(true);
         @set_time_limit(0);
 
+        $this->flushed = true;
+
         http_response_code($code);
         header('Content-Type: application/json; charset=UTF-8');
         header('Cache-Control: no-cache, no-store');
@@ -501,15 +506,33 @@ class WebhookHandler
 
     protected function respond(int $code, array $data): never
     {
-        http_response_code($code);
-        header('Content-Type: application/json; charset=UTF-8');
-        header('Cache-Control: no-cache, no-store');
+        /*
+         * After flushResponse() the answer is already on the wire and the caller released.
+         * Setting a status or a header then is not an answer, only a warning — three per
+         * deploy in production's PHP log, 174 of them by the time glideday counted. The
+         * outcome is in webhook.log by now, so there is nothing left to do but stop.
+         */
+        if (!$this->flushed) {
+            http_response_code($code);
+            header('Content-Type: application/json; charset=UTF-8');
+            header('Cache-Control: no-cache, no-store');
 
-        if ($code !== 204 && !empty($data)) {
-            echo json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            if ($code !== 204 && !empty($data)) {
+                echo json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            }
         }
 
+        $this->finish();
+    }
+
+    /**
+     * End the request. Its own method so a test can run the real {@see respond()}.
+     */
+    protected function finish(): never
+    {
+        // @codeCoverageIgnoreStart
         exit;
+        // @codeCoverageIgnoreEnd
     }
 
     /**
