@@ -94,7 +94,8 @@ $checked  = static fn ($value): string => ($value ?? true) !== false ? ' checked
                 <textarea name="message" id="message" data-pf-editor="<?php echo $e(\Pramnos\Html\MessageEditor::mode()); ?>" rows="12" class="textarea textarea-sm w-full font-mono text-xs"><?php echo $e($message['message'] ?? ''); ?></textarea>
                 <p class="text-xs text-base-content/60 mt-1">
                     Markup, kept as written — it is the body of a message. It is escaped
-                    wherever this screen displays it.
+                    wherever this screen displays it. For push the field is plain: a notification
+                    carries text, and gets the text of any markup left in it.
                 </p>
             </div>
         </div>
@@ -484,3 +485,28 @@ if ($optInLists !== []): ?>
 })();
 </script>
 </div>
+<script>
+/*
+ * A push notification is text: with the channel set to push the body is the bare field, and the
+ * editor comes back for email or an internal message, which both keep markup. Run once the
+ * editor has enhanced the field (its own DOMContentLoaded listener is registered first).
+ */
+(function () {
+    var type = document.getElementById('type');
+    var body = document.getElementById('message');
+    if (!type || !body) { return; }
+    var push = '<?php echo (int) \Pramnos\Messaging\MassMessage::TYPE_PUSH; ?>';
+    function channel() {
+        var plain = type.value === push;
+        if (window.PfEditor) { window.PfEditor.plain(body, plain); }
+        var tiny = window.tinymce ? window.tinymce.get('message') : null;
+        if (tiny) { plain ? tiny.hide() : tiny.show(); }
+    }
+    type.addEventListener('change', channel);
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', channel);
+    } else {
+        channel();
+    }
+})();
+</script>

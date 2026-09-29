@@ -538,6 +538,12 @@ A form marks its field and prints the scripts:
 <?php echo \Pramnos\Html\MessageEditor::scripts(\Pramnos\Html\MessageEditor::mode()); ?>
 ```
 
+Headings, lists and quotes in the area are styled by a small scoped stylesheet `scripts()`
+prints, so a theme whose CSS reset flattens them (Tailwind's preflight) still shows what the
+markup is. On the mass-message form the editor gives way to the bare field when the channel is
+**push** — a notification carries text — and comes back for email and an internal message, which
+both keep markup; `window.PfEditor.plain(textarea, bool)` does the same for any form.
+
 Without JavaScript the textarea is simply there. `pf-editor.js` ships with the other `pf-*.js`
 files: `init` writes it and `project:resync --js` brings it to a project made before it existed.
 `window.PfEditor.enhance(textarea)` enhances a field added after the page loaded.

@@ -11,7 +11,8 @@
  * styles — a word processor's markup is the commonest reason a message looks broken in Outlook.
  * No dependency, no CDN, nothing for a Content-Security-Policy to refuse.
  *
- *   window.PfEditor.enhance(textarea)   // for a textarea added after the page loaded
+ *   window.PfEditor.enhance(textarea)      // for a textarea added after the page loaded
+ *   window.PfEditor.plain(textarea, true)  // the bare textarea, for a channel that is text only
  */
 (function () {
     'use strict';
@@ -32,6 +33,8 @@
     function exec(command, value) {
         document.execCommand(command, false, value);
     }
+
+    var editors = new WeakMap();
 
     function enhance(textarea) {
         if (!textarea || textarea.getAttribute('data-pf-editor-ready') === '1') {
@@ -84,7 +87,8 @@
             switch (command) {
                 case 'h2':
                 case 'h3':
-                    exec('formatBlock', command);
+                    // The bracketed form: Chrome takes a bare tag name, Firefox and Safari do not.
+                    exec('formatBlock', '<' + command + '>');
                     break;
                 case 'ul':
                     exec('insertUnorderedList');
@@ -106,7 +110,7 @@
                     break;
                 case 'clear':
                     exec('removeFormat');
-                    exec('formatBlock', 'p');
+                    exec('formatBlock', '<p>');
                     break;
                 case 'source':
                     if (!source) {
@@ -167,13 +171,43 @@
         wrap.appendChild(area);
         wrap.appendChild(textarea);
         textarea.hidden = true;
+
+        // Text only — push has no markup — shows the bare field and hides the toolbar; back
+        // again, the area takes up whatever the field now holds.
+        editors.set(textarea, function (on) {
+            if (on === source && bar.hidden === on) {
+                return;
+            }
+            if (on) {
+                sync();
+            } else {
+                area.innerHTML = textarea.value;
+            }
+            source = on;
+            bar.hidden = on;
+            area.hidden = on;
+            textarea.hidden = !on;
+        });
+    }
+
+    function plain(textarea, on) {
+        var toggle = editors.get(textarea);
+        if (toggle) {
+            toggle(Boolean(on));
+        }
     }
 
     function init() {
+        // Enter starts a paragraph rather than a <div>, which is what a mail client expects.
+        try {
+            exec('defaultParagraphSeparator', 'p');
+        } catch (e) {
+            // An engine without the command keeps its own separator.
+        }
         Array.prototype.forEach.call(document.querySelectorAll('textarea[data-pf-editor="builtin"]'), enhance);
     }
 
-    window.PfEditor = { enhance: enhance };
+    window.PfEditor = { enhance: enhance, plain: plain };
 
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', init);

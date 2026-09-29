@@ -72,6 +72,7 @@ class MessageEditorTest extends TestCase
 
         // Assert
         $this->assertStringContainsString('assets/js/pf-editor.js', $builtin);
+        $this->assertStringContainsString('.pf-editor-area h2{font-size:1.5em', $builtin, 'headings look like headings whatever the theme resets');
         $this->assertStringContainsString('src="/vendor/tinymce.min.js"', $tinymce);
         $this->assertStringContainsString('"license_key":"abc"', $tinymce);
         $this->assertStringContainsString('textarea[data-pf-editor=\"tinymce\"]', $tinymce);
@@ -100,6 +101,7 @@ class MessageEditorTest extends TestCase
             // Assert
             $this->assertStringContainsString('data-pf-editor="<?php echo $e(\Pramnos\Html\MessageEditor::mode()); ?>"', $compose, $theme);
             $this->assertStringContainsString('MessageEditor::scripts(\Pramnos\Html\MessageEditor::mode())', $compose, $theme);
+            $this->assertStringContainsString('window.PfEditor.plain(body, plain)', $compose, $theme . ': push is written plain');
             $this->assertStringContainsString('data-pf-editor="builtin"', $notify, $theme);
             $this->assertStringContainsString('MessageEditor::scripts(\Pramnos\Html\MessageEditor::BUILTIN)', $notify, $theme);
         }

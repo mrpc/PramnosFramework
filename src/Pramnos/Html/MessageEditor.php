@@ -38,6 +38,26 @@ final class MessageEditor
     /** Where TinyMCE comes from unless the application says — the version `assets.json` lists. */
     public const TINYMCE_CDN = 'https://cdn.jsdelivr.net/npm/tinymce@7.2.0/tinymce.min.js';
 
+    /**
+     * How the builtin editor's area shows what it holds.
+     *
+     * A theme's CSS reset — Tailwind's preflight is the common one — makes a heading the size
+     * of body text and takes the bullets off a list, so the markup is there and looks like
+     * nothing happened. Scoped to the area, so the page around it is untouched; printed as an
+     * inline `<style>`, which the document gives the CSP nonce.
+     */
+    public const BUILTIN_CSS = '.pf-editor-area h2{font-size:1.5em;font-weight:600;line-height:1.3;margin:.6em 0 .3em}'
+        . '.pf-editor-area h3{font-size:1.25em;font-weight:600;line-height:1.3;margin:.6em 0 .3em}'
+        . '.pf-editor-area p{margin:0 0 .6em}'
+        . '.pf-editor-area ul{list-style:disc;padding-left:1.5em;margin:0 0 .6em}'
+        . '.pf-editor-area ol{list-style:decimal;padding-left:1.5em;margin:0 0 .6em}'
+        . '.pf-editor-area li{display:list-item}'
+        . '.pf-editor-area blockquote{border-left:3px solid #ccc;margin:0 0 .6em;padding-left:.8em;color:#555}'
+        . '.pf-editor-area a{color:#0b57d0;text-decoration:underline}'
+        . '.pf-editor-area strong,.pf-editor-area b{font-weight:700}'
+        . '.pf-editor-area em,.pf-editor-area i{font-style:italic}'
+        . '.pf-editor-area img{max-width:100%;height:auto}';
+
     /** The application's choice, or `builtin`. An unknown value reads as `builtin`. */
     public static function mode(): string
     {
@@ -52,7 +72,8 @@ final class MessageEditor
         $attr = static fn (string $v): string => htmlspecialchars($v, ENT_QUOTES, 'UTF-8');
 
         if ($mode === self::BUILTIN) {
-            return '<script src="' . $attr((defined('sURL') ? (string) \sURL : '/') . 'assets/js/pf-editor.js') . '"></script>';
+            return '<style>' . self::BUILTIN_CSS . '</style>'
+                . '<script src="' . $attr((defined('sURL') ? (string) \sURL : '/') . 'assets/js/pf-editor.js') . '"></script>';
         }
 
         if ($mode === self::TINYMCE) {
