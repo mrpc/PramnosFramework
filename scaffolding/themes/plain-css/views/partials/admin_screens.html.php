@@ -19,16 +19,23 @@ $_forUser = ($_as['subject'] ?? '') === 'user';
         <?php if (empty($_as['permissionsMode'])): ?>
             <div role="status" style="padding:10px;background:#eef6fc;border:1px solid #bcdcf2;margin-bottom:12px">
                 Screens are opened by usertype on this installation (<code>admin_access = usertype</code>), so
-                these grants take effect only once it is set to <code>permissions</code>.
+                these decisions take effect only once it is set to <code>mixed</code> or <code>permissions</code>.
             </div>
         <?php endif; ?>
+        <p style="color:#777;font-size:12px">
+            <?php if (($_as['mode'] ?? '') === 'mixed'): ?>
+                <strong>Default</strong> follows the screen's usertype floor; <strong>Allow</strong> opens it below the floor, <strong>Deny</strong> closes it above. A deny from the user or any of their roles wins.
+            <?php elseif (($_as['mode'] ?? '') === 'permissions'): ?>
+                <strong>Default</strong> is closed; <strong>Allow</strong> opens the screen, <strong>Deny</strong> keeps it closed even when a role allows it.
+            <?php endif; ?>
+        </p>
         <form method="post" action="<?php echo $_e($_as['action']); ?>">
             <?php echo \Pramnos\Http\Middleware\CsrfMiddleware::tokenField(); ?>
             <table class="table" style="width:100%;border-collapse:collapse">
                 <thead style="background:#f5f5f5;text-align:left">
                     <tr>
                         <th>Screen</th>
-                        <th><?php echo $_forUser ? 'Granted directly' : 'Granted'; ?></th>
+                        <th><?php echo $_forUser ? 'Decided for this user' : 'Decided for this role'; ?></th>
                         <?php if ($_forUser): ?><th>Can open</th><?php endif; ?>
                     </tr>
                 </thead>
@@ -36,12 +43,16 @@ $_forUser = ($_as['subject'] ?? '') === 'user';
                 <?php foreach ($_as['rows'] as $_row): ?>
                     <tr>
                         <td><?php echo $_e($_row['label']); ?> <code style="color:#777"><?php echo $_e($_row['ability']); ?></code></td>
-                        <td>
-                            <input type="checkbox" name="abilities[]"
-                                   value="<?php echo $_e($_row['ability']); ?>"
-                                   aria-label="<?php echo $_e($_row['label']); ?>"
-                                   <?php echo !empty($_row['granted']) ? 'checked' : ''; ?>
-                                   <?php echo (empty($_as['canEdit']) || empty($_row['grantable'])) ? 'disabled' : ''; ?>>
+                        <td style="white-space:nowrap">
+                            <?php foreach (['default' => 'Default', 'allow' => 'Allow', 'deny' => 'Deny'] as $_value => $_text): ?>
+                                <label style="margin-right:10px;white-space:nowrap">
+                                    <input type="radio" name="abilities[<?php echo $_e($_row['ability']); ?>]"
+                                           value="<?php echo $_value; ?>"
+                                           <?php echo ($_row['decision'] ?? 'default') === $_value ? 'checked' : ''; ?>
+                                           <?php echo (empty($_as['canEdit']) || empty($_row['grantable'])) ? 'disabled' : ''; ?>>
+                                    <?php echo $_text; ?>
+                                </label>
+                            <?php endforeach; ?>
                         </td>
                         <?php if ($_forUser): ?>
                             <td><?php echo !empty($_row['effective'])

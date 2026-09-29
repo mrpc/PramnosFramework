@@ -11,7 +11,7 @@ use Pramnos\Application\Settings;
 /**
  * Who may open which administration screen.
  *
- * Two models, chosen by the `admin_access` setting:
+ * Three models, chosen by the `admin_access` setting:
  *
  * - **`usertype`** (the default) — each screen has a usertype floor, 80 or 90, and everybody
  *   above it sees the same area. This is how the framework has always worked, and an
@@ -20,10 +20,14 @@ use Pramnos\Application\Settings;
  *   `admin.roles`, and is open to whoever holds it, granted directly or through a role. Two
  *   administrators can then see different areas. Nothing granted means nothing open: deny by
  *   default, because in this mode the grant *is* the access.
+ * - **`mixed`** — the usertype floor, with grants on top: an explicit **allow** opens a screen to
+ *   somebody below its floor, an explicit **deny** closes it to somebody above it, and a screen
+ *   with neither is decided by the floor. With nothing granted it behaves exactly like
+ *   `usertype`, which makes it the safe way to start using grants on a running installation.
  *
- * The superuser — usertype ≥ `admin_superuser_usertype`, 98 unless set — sees every screen in
- * both models, so an installation that switches to permissions before granting anything still
- * has somebody who can grant.
+ * A deny always wins over an allow, from the user or from any of their roles. The superuser —
+ * usertype ≥ `admin_superuser_usertype`, 98 unless set — sees every screen in every model, so an
+ * installation cannot lock out the last administrator.
  *
  * The screen and its menu item ask the same question with the same name, so a screen cannot be
  * open while its link is hidden, or listed while it refuses.
@@ -39,10 +43,18 @@ final class AdminAccess
     /** The privilege an administration ability is granted as. */
     public const PRIVILEGE = 'view';
 
-    /** Whether screens are granted by permission rather than by usertype. */
+    /** `usertype`, `permissions` or `mixed`; anything else reads as `usertype`. */
+    public static function mode(): string
+    {
+        $mode = strtolower(trim((string) Settings::getSetting(self::MODE_SETTING, 'usertype')));
+
+        return in_array($mode, ['permissions', 'mixed'], true) ? $mode : 'usertype';
+    }
+
+    /** Whether grants take part in the decision — `permissions` or `mixed`. */
     public static function usesPermissions(): bool
     {
-        return strtolower(trim((string) Settings::getSetting(self::MODE_SETTING, 'usertype'))) === 'permissions';
+        return self::mode() !== 'usertype';
     }
 
     /** The usertype that opens every screen. */
@@ -68,7 +80,8 @@ final class AdminAccess
 
         $usertype = (int) ($user->usertype ?? 0);
 
-        if (!self::usesPermissions()) {
+        $mode = self::mode();
+        if ($mode === 'usertype') {
             return $usertype >= $minUserType;
         }
 
@@ -76,19 +89,35 @@ final class AdminAccess
             return true;
         }
 
+        // ponytail: the three-valued ask bypasses Permissions' per-request cache, so a menu of
+        // ~17 screens resolves ~17 times per admin page. Memoise per user and request if that
+        // shows up in a profile; a memo here would go stale when a caller writes grants through
+        // Permissions::allow()/deny() directly.
         try {
-            return Permissions::getInstance()->isAllowed(
+            // Three answers: allowed, denied, or no rule at all — a deny beats an allow.
+            $verdict = Permissions::getInstance()->isAllowed(
                 (int) $user->userid,
                 $ability,
-                self::PRIVILEGE
-            ) === true;
+                self::PRIVILEGE,
+                '',
+                'module',
+                'user',
+                false
+            );
         } catch (\Throwable $e) {
-            // Closed, not open: in this mode a permission is the only thing standing between
-            // an account and the screen, so a store that cannot answer answers no.
+            // Closed, not open: a permission may be the only thing standing between an account
+            // and the screen, so a store that cannot answer answers no.
             \Pramnos\Logs\Logger::logError('AdminAccess: ' . $e->getMessage(), $e);
 
             return false;
         }
+
+        if ($verdict !== null) {
+            return $verdict === true;
+        }
+
+        // No rule: closed under `permissions`, the floor under `mixed`.
+        return $mode === 'mixed' && $usertype >= $minUserType;
     }
 
     /**
@@ -214,6 +243,113 @@ final class AdminAccess
         }
 
         return ['added' => $add, 'removed' => $remove];
+    }
+
+    /**
+     * The decisions made directly for a user or a role, as `ability => 'allow'|'deny'`.
+     *
+     * Screens with neither are absent — they are decided by default: closed under
+     * `permissions`, by the floor under `mixed`.
+     *
+     * @param 'user'|'role' $subjectType
+     * @return array<string, 'allow'|'deny'>
+     */
+    public static function decisionsFor(string $subjectType, int $subjectId): array
+    {
+        $db = \Pramnos\Framework\Factory::getDatabase();
+        if (!$db->schema()->hasTable('authserver.permissions')) {
+            return [];
+        }
+
+        $result = $db->queryBuilder()
+            ->table('authserver.permissions')
+            ->select(['object_type', 'grant_type'])
+            ->where('subject_type', $subjectType)
+            ->where('subject_id', $subjectId)
+            ->where('action', self::PRIVILEGE)
+            ->whereNull('object_id')
+            ->get();
+
+        $known = array_keys(self::abilities());
+        $decisions = [];
+        while ($result && $result->fetch()) {
+            $ability = (string) $result->fields['object_type'];
+            if (!in_array($ability, $known, true)) {
+                continue;
+            }
+            // A deny recorded beside an allow is what decides, so it is what is shown.
+            $decisions[$ability] = ($result->fields['grant_type'] === 'deny' || ($decisions[$ability] ?? '') === 'deny')
+                ? 'deny' : 'allow';
+        }
+
+        return $decisions;
+    }
+
+    /**
+     * Record, for each named screen, an allow, a deny, or neither (`default`).
+     *
+     * Only screens in `$grantable` change — an editor cannot allow, deny or clear a screen they
+     * cannot open themselves — and only the rows this writes: allow and deny for `view` with no
+     * record id. A deny is stored above an allow in priority, as Permissions stores it.
+     *
+     * @param 'user'|'role'                          $subjectType
+     * @param array<string, 'allow'|'deny'|'default'> $decisions
+     * @param list<string>                            $grantable
+     * @return list<string> The screens whose decision changed
+     */
+    public static function setDecisions(
+        string $subjectType,
+        int $subjectId,
+        array $decisions,
+        array $grantable,
+        ?int $grantedBy = null
+    ): array {
+        if (!in_array($subjectType, ['user', 'role'], true) || $subjectId <= 0) {
+            throw new \InvalidArgumentException('Grants are made to a user or a role.');
+        }
+
+        $allowed = array_values(array_intersect(array_keys(self::abilities()), $grantable));
+        $current = self::decisionsFor($subjectType, $subjectId);
+        $db      = \Pramnos\Framework\Factory::getDatabase();
+        $changed = [];
+
+        foreach ($decisions as $ability => $decision) {
+            $ability  = (string) $ability;
+            $decision = in_array($decision, ['allow', 'deny'], true) ? $decision : 'default';
+            if (!in_array($ability, $allowed, true) || ($current[$ability] ?? 'default') === $decision) {
+                continue;
+            }
+
+            $db->queryBuilder()->table('authserver.permissions')
+                ->where('subject_type', $subjectType)
+                ->where('subject_id', $subjectId)
+                ->where('object_type', $ability)
+                ->where('action', self::PRIVILEGE)
+                ->whereIn('grant_type', ['allow', 'deny'])
+                ->whereNull('object_id')
+                ->delete();
+
+            if ($decision !== 'default') {
+                $db->queryBuilder()->table('authserver.permissions')->insert([
+                    'subject_type' => $subjectType,
+                    'subject_id'   => $subjectId,
+                    'object_type'  => $ability,
+                    'object_id'    => null,
+                    'action'       => self::PRIVILEGE,
+                    'grant_type'   => $decision,
+                    'priority'     => $decision === 'deny' ? 1100 : 100,
+                    'is_active'    => true,
+                    'granted_by'   => $grantedBy,
+                ]);
+            }
+            $changed[] = $ability;
+        }
+
+        if ($changed !== []) {
+            Permissions::getInstance()->clearCache();
+        }
+
+        return $changed;
     }
 
     /**

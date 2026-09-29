@@ -37,7 +37,7 @@ trait AdminScreenGrants
         $editor    = \Pramnos\User\User::getCurrentUser() ?: null;
         $features  = (array) ($this->application->applicationInfo['features'] ?? []);
         $grantable = $this->adminScreensGrantableBy($editor, $features);
-        $granted   = AdminAccess::grantsFor($this->adminScreenSubject(), $subjectId);
+        $decisions = AdminAccess::decisionsFor($this->adminScreenSubject(), $subjectId);
         $floors    = [];
         foreach (\Pramnos\Application\NavRegistry::all() as $item) {
             $floors[$item->id] = $item->minUserType;
@@ -48,7 +48,8 @@ trait AdminScreenGrants
             $rows[] = [
                 'ability'   => $ability,
                 'label'     => $label,
-                'granted'   => in_array($ability, $granted, true),
+                'decision'  => $decisions[$ability] ?? 'default',
+                'granted'   => ($decisions[$ability] ?? '') === 'allow',
                 'effective' => $holder === null
                     ? null
                     : AdminAccess::allows($holder, $ability, $floors[$ability] ?? 0),
@@ -58,6 +59,7 @@ trait AdminScreenGrants
 
         return [
             'permissionsMode' => AdminAccess::usesPermissions(),
+            'mode'            => AdminAccess::mode(),
             'canEdit'         => $grantable !== [],
             'subject'         => $this->adminScreenSubject(),
             'action'          => adminUrl($this->adminScreenSubject() === 'user' ? 'users' : 'roles')
@@ -99,25 +101,27 @@ trait AdminScreenGrants
             return;
         }
 
-        $wanted = array_values(array_filter(
-            array_map('strval', (array) ($_POST['abilities'] ?? [])),
-            static fn (string $a): bool => $a !== ''
-        ));
+        // `abilities[admin.users] = allow|deny|default`, one per screen.
+        $decisions = [];
+        foreach ((array) ($_POST['abilities'] ?? []) as $ability => $decision) {
+            if (is_string($ability) && $ability !== '') {
+                $decisions[$ability] = (string) $decision;
+            }
+        }
 
-        $changed = AdminAccess::setGrants(
+        $changed = AdminAccess::setDecisions(
             $this->adminScreenSubject(),
             $subjectId,
-            $wanted,
+            $decisions,
             $grantable,
             $editor !== null ? (int) $editor->userid : null
         );
 
-        if ($changed['added'] !== [] || $changed['removed'] !== []) {
+        if ($changed !== []) {
             \Pramnos\Auth\ActivityLog::record((int) ($editor->userid ?? 0), 'admin_screens_changed', [
                 'subject_type' => $this->adminScreenSubject(),
                 'subject_id'   => $subjectId,
-                'added'        => $changed['added'],
-                'removed'      => $changed['removed'],
+                'changed'      => array_intersect_key($decisions, array_flip($changed)),
             ]);
         }
 

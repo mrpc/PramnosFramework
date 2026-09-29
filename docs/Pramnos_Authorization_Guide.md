@@ -646,11 +646,16 @@ Which question that is depends on one setting, **`admin_access`**:
 | --- | --- | --- |
 | `usertype` (default) | anybody at or above the screen's `$requiredUserType` | see the same area |
 | `permissions` | whoever holds the screen's ability — granted to them or to a role they hold | see what each was given |
+| `mixed` | the floor, with decisions on top: an **allow** opens a screen below its floor, a **deny** closes it above | see the same area, minus what was denied, plus what was allowed |
 
-Under `permissions`:
+`mixed` with nothing decided is exactly `usertype`, which makes it the way to start using grants on
+a running installation: switch, then allow or deny screen by screen.
 
-- **Nothing granted means closed.** Unlike an ordinary menu permission, silence is a no here:
-  the grant *is* the access.
+Under `permissions` and `mixed`:
+
+- **Under `permissions`, nothing granted means closed.** Unlike an ordinary menu permission,
+  silence is a no there: the grant *is* the access. Under `mixed`, silence is the floor.
+- **A deny wins** — from the user or from any role they hold — over any allow.
 - **The superuser opens everything** — usertype at or above `admin_superuser_usertype`, **98**
   unless set — so switching modes before granting anything cannot lock the last administrator out.
 - **A refused screen sends you to the first one you may open**, with a message, rather than out
@@ -660,9 +665,11 @@ Under `permissions`:
 
 ### Granting screens
 
-The **Administration screens** panel on a **user's** page grants screens to that person; the
-same panel on a **role's** page grants them to everyone holding the role. On a user's page a
-second column shows what they can open in the end — through their roles and usertype as well.
+The **Administration screens** panel on a **user's** page decides for that person; the same
+panel on a **role's** page decides for everyone holding the role. Each screen is **Default**,
+**Allow** or **Deny** — Default meaning closed under `permissions` and the floor under `mixed`. On a
+user's page a second column shows what they can open in the end — through their roles and
+usertype as well.
 
 The panel can be changed by the superuser or by somebody holding `admin.permissions`, and only
 for the screens that editor can open themselves: a grant is the access, so handing out one you do
@@ -673,14 +680,20 @@ In code, the same rows:
 ```php
 use Pramnos\Auth\AdminAccess;
 
-AdminAccess::setGrants('role', $supportRoleId, ['admin.users', 'admin.logs'], $whatTheEditorMayGrant);
-AdminAccess::grantsFor('user', 42);                  // ['admin.users']
+AdminAccess::setDecisions('role', $supportRoleId, [
+    'admin.users' => 'allow',
+    'admin.logs'  => 'allow',
+    'admin.roles' => 'deny',
+    'admin.queue' => 'default',                      // neither: back to the mode's default
+], $whatTheEditorMayGrant);
+AdminAccess::decisionsFor('user', 42);               // ['admin.users' => 'allow']
 AdminAccess::allows($user, 'admin.roles', 90);       // what the screen will answer
+AdminAccess::mode();                                 // usertype | permissions | mixed
 ```
 
-A grant is an `allow` row in `authserver.permissions` — object `admin.users`, action `view`, no
-record id. `setGrants()` touches only those; a deny written on the Permissions screen stays, and
-wins.
+A decision is an `allow` or `deny` row in `authserver.permissions` — object `admin.users`, action
+`view`, no record id; a deny is stored above an allow in priority. `setDecisions()` touches only
+those rows. `setGrants()` / `grantsFor()` are the allow-only form of the same.
 
 ### An application's own screens
 

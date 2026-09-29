@@ -230,6 +230,122 @@ class AdminAccessTest extends BaseTestCase
         $this->assertFalse(AdminAccess::allows($this->user(1, 99), 'admin.users', 0));
     }
 
+    // ── Mixed ───────────────────────────────────────────────────────────────────
+
+    /**
+     * Under `mixed`, with nothing decided, the floors decide — so switching an installation to it
+     * changes nothing until somebody allows or denies a screen.
+     */
+    public function testMixedWithNoDecisionsIsTheUsertypeModel(): void
+    {
+        // Arrange
+        $this->mode('mixed');
+        $alice = $this->user(self::ALICE, 80);
+
+        // Act & Assert
+        $this->assertTrue(AdminAccess::allows($alice, 'admin.users', 80));
+        $this->assertFalse(AdminAccess::allows($alice, 'admin.roles', 90));
+        $this->assertSame(['admin.dashboard', 'admin.users'], $this->adminMenu($this->navUser(self::ALICE, 80)));
+    }
+
+    /** An allow opens a screen below its floor; a deny closes one above it. */
+    public function testMixedAllowOpensBelowTheFloorAndDenyClosesAboveIt(): void
+    {
+        // Arrange
+        $this->mode('mixed');
+        $all = ['admin.users', 'admin.roles'];
+        AdminAccess::setDecisions('user', self::ALICE, ['admin.roles' => 'allow', 'admin.users' => 'deny'], $all);
+
+        // Act & Assert
+        $alice = $this->user(self::ALICE, 80);
+        $this->assertTrue(AdminAccess::allows($alice, 'admin.roles', 90), 'allowed below its floor of 90');
+        $this->assertFalse(AdminAccess::allows($alice, 'admin.users', 80), 'denied above its floor of 80');
+    }
+
+    /** A deny from the user beats an allow from a role they hold, in every mode that reads grants. */
+    public function testADirectDenyBeatsARolesAllow(): void
+    {
+        // Arrange
+        $this->roleHeldBy(self::ROLE, self::BOB);
+        AdminAccess::setDecisions('role', self::ROLE, ['admin.roles' => 'allow'], ['admin.roles']);
+        AdminAccess::setDecisions('user', self::BOB, ['admin.roles' => 'deny'], ['admin.roles']);
+
+        foreach (['mixed', 'permissions'] as $mode) {
+            // Act
+            $this->mode($mode);
+
+            // Assert
+            $this->assertFalse(AdminAccess::allows($this->user(self::BOB, 95), 'admin.roles', 90), $mode);
+        }
+    }
+
+    /** An unknown mode is read as usertype, so a typo cannot open or close the area. */
+    public function testAnUnknownModeIsUsertype(): void
+    {
+        // Arrange
+        Settings::setSetting(AdminAccess::MODE_SETTING, 'Permisions', false);
+
+        // Act & Assert
+        $this->assertSame('usertype', AdminAccess::mode());
+        $this->assertFalse(AdminAccess::usesPermissions());
+    }
+
+    /**
+     * setDecisions() records allow, deny or neither, changes only what the editor may grant, and
+     * decisionsFor() reads it back — a deny recorded next to an allow shows as the deny it is.
+     */
+    public function testDecisionsAreRecordedAndReadBack(): void
+    {
+        // Arrange
+        $all = ['admin.dashboard', 'admin.users', 'admin.roles'];
+        AdminAccess::setDecisions('user', self::ALICE, ['admin.users' => 'allow', 'admin.roles' => 'deny'], $all);
+
+        // Act
+        $changed = AdminAccess::setDecisions('user', self::ALICE, [
+            'admin.users'     => 'default',   // cleared
+            'admin.roles'     => 'deny',      // unchanged
+            'admin.dashboard' => 'allow',     // not this editor's to give
+        ], ['admin.users', 'admin.roles']);
+        // An allow written beside the deny, as a hand-made row could be
+        $this->db->queryBuilder()->table('authserver.permissions')->insert([
+            'subject_type' => 'user', 'subject_id' => self::ALICE, 'object_type' => 'admin.roles',
+            'object_id' => null, 'action' => AdminAccess::PRIVILEGE, 'grant_type' => 'allow',
+            'priority' => 100, 'is_active' => true,
+        ]);
+
+        // Assert
+        $this->assertSame(['admin.users'], $changed);
+        $this->assertSame(['admin.roles' => 'deny'], AdminAccess::decisionsFor('user', self::ALICE));
+        $this->assertSame([], AdminAccess::setDecisions('user', self::ALICE, ['admin.nonsense' => 'allow'], ['admin.nonsense']));
+    }
+
+    /** Decisions go to a user or a role. */
+    public function testDecisionsRefuseAnythingButAUserOrARole(): void
+    {
+        // Assert
+        $this->expectException(\InvalidArgumentException::class);
+
+        // Act
+        AdminAccess::setDecisions('organization', 3, ['admin.users' => 'allow'], ['admin.users']);
+    }
+
+    /** The panel saves a deny as well as an allow. */
+    public function testThePanelSavesADeny(): void
+    {
+        // Arrange
+        $this->mode('mixed');
+        $this->signIn(self::ALICE, 98);
+        $users = new \Pramnos\Application\Controllers\UsersController(\Pramnos\Application\Application::getInstance());
+
+        // Act
+        $this->post($users, self::BOB, ['admin.users' => 'deny', 'admin.roles' => 'allow']);
+
+        // Assert
+        $decisions = AdminAccess::decisionsFor('user', self::BOB);
+        ksort($decisions);
+        $this->assertSame(['admin.roles' => 'allow', 'admin.users' => 'deny'], $decisions);
+    }
+
     // ── Grants ──────────────────────────────────────────────────────────────────
 
     /**
@@ -685,10 +801,12 @@ class AdminAccessTest extends BaseTestCase
     private function post(object $controller, int $subjectId, array $abilities, ?string $token = null, string $method = 'POST'): void
     {
         $_SERVER['REQUEST_METHOD'] = $method;
+        // A list means "allow these"; a map is sent as it is — `ability => allow|deny|default`.
+        $decisions = array_is_list($abilities) ? array_fill_keys($abilities, 'allow') : $abilities;
         $_POST = [
             '_csrf_token' => $token ?? \Pramnos\Http\Session::getInstance()->getCsrfToken(),
             'subject_id'  => (string) $subjectId,
-            'abilities'   => $abilities,
+            'abilities'   => $decisions,
         ];
         \Pramnos\Http\Request::resetInstance();
         ob_start();
