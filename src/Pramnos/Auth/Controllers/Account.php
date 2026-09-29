@@ -325,7 +325,7 @@ class Account extends Controller
         $userId = $this->findUserIdByEmail($email);
         if ($userId !== null) {
             $token = $this->generateResetToken();
-            $this->storeResetToken($userId, hash('sha256', $token), time() + 3600);
+            $this->storeResetToken($userId, \Pramnos\User\Token::lookup($token), time() + 3600);
             $this->sendResetEmail($email, $token, $userId);
             \Pramnos\Auth\ActivityLog::record($userId, 'password_reset_requested');
         }
@@ -1070,7 +1070,7 @@ class Account extends Controller
         $row = $db->queryBuilder()->table('#PREFIX#userdetails')
             ->select(['userid'])
             ->where('fieldname', 'password_reset_hash')
-            ->where('value', hash('sha256', $token))
+            ->where('value', \Pramnos\User\Token::lookup($token))
             ->first();
         if (!$row || $row->numRows < 1) {
             return null;
