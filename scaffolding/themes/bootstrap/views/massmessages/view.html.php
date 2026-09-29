@@ -113,4 +113,17 @@ $when     = static function ($value): string {
             <?php endif; ?>
         </div>
     </div>
+
+    <?php $trk = is_array($this->tracking ?? null) ? $this->tracking : []; if ((int) ($trk['tracked'] ?? 0) > 0): ?>
+    <div class="card p-3 mb-3">
+        <h3 class="h6">Opens and clicks</h3>
+        <p class="text-muted small">
+            <?php echo (int) $trk['tracked']; ?> tracked ·
+            <strong><?php echo (int) $trk['opened']; ?></strong> opened by a person ·
+            <?php echo (int) $trk['proxyOnly']; ?> fetched only by a mailbox provider ·
+            <strong><?php echo (int) $trk['clicked']; ?></strong> clicked (<?php echo (int) $trk['clicks']; ?> clicks)
+        </p>
+        <a href="<?php echo adminUrl('MassMessages/tracking/') . $id; ?>" class="btn btn-sm btn-outline-secondary">Who opened and clicked</a>
+    </div>
+    <?php endif; ?>
 </div>

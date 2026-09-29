@@ -814,6 +814,78 @@ class MassMessagesScreenTest extends BaseTestCase
         );
     }
 
+    /**
+     * The opens-and-clicks screen hands its view the summary, the links and the recipients, and
+     * an unknown filter reads as everyone.
+     *
+     * What the numbers are is pinned by TrackingRecordingTest against real rows; this is the
+     * screen asking for them and rendering them in every theme.
+     */
+    public function testTheTrackingScreenCarriesTheCampaign(): void
+    {
+        // Arrange
+        $id         = $this->seed('Tracked', MassMessage::STATUS_SENT);
+        $controller = $this->controller();
+        $this->route($id);
+        $_GET['show'] = 'everything';
+
+        // Act
+        $controller->tracking($id);
+
+        // Assert
+        $this->assertSame('tracking', $controller->view->layout);
+        $this->assertSame('', $controller->view->show, 'an unknown filter is no filter');
+        $this->assertSame(0, $controller->view->summary['tracked'], 'nothing was tracked for this one');
+        $this->assertSame([], $controller->view->recipients);
+
+        foreach (['bootstrap', 'tailwind', 'plain-css'] as $theme) {
+            // Act — the theme's view, with a campaign to show
+            $data = new \stdClass();
+            foreach ([
+                'message'    => ['messageid' => $id, 'subject' => 'Tracked'],
+                'summary'    => ['tracked' => 3, 'opened' => 1, 'proxyOnly' => 1, 'clicked' => 1, 'clicks' => 2],
+                'links'      => [['url' => 'https://example.com/a', 'clicks' => 2, 'people' => 1]],
+                'recipients' => [['recipient' => 'r@example.com', 'opens' => 1, 'proxy_opens' => 0, 'clicks' => 2, 'first_open_at' => 1_800_000_000, 'first_click_at' => null]],
+                'show'       => 'opened',
+            ] as $property => $value) {
+                $data->$property = $value;
+            }
+            $render = \Closure::bind(function (string $file): void {
+                include $file;
+            }, $data, null);
+            ob_start();
+            $render(ROOT . '/scaffolding/themes/' . $theme . '/views/massmessages/tracking.html.php');
+            $html = (string) ob_get_clean();
+
+            // Assert
+            $this->assertStringContainsString('r@example.com', $html, $theme);
+            $this->assertStringContainsString('https://example.com/a', $html, $theme);
+            $this->assertStringContainsString('fetched only by a mailbox provider', $html, $theme . ': provider fetches are named apart');
+            $this->assertStringContainsString('tracking/' . $id . '?show=clicked', $html, $theme);
+
+            // Act — the message's own page carries the summary and the way in
+            $page = new class extends \stdClass {
+                public function insert(string $partial): void
+                {
+                }
+            };
+            foreach (['message' => ['messageid' => $id, 'subject' => 'Tracked', 'status' => MassMessage::STATUS_SENT],
+                      'types' => [], 'progress' => ['total' => 3], 'audience' => 'three people',
+                      'tracking' => ['tracked' => 3, 'opened' => 1, 'proxyOnly' => 1, 'clicked' => 1, 'clicks' => 2]] as $property => $value) {
+                $page->$property = $value;
+            }
+            $render = \Closure::bind(function (string $file): void {
+                include $file;
+            }, $page, null);
+            ob_start();
+            $render(ROOT . '/scaffolding/themes/' . $theme . '/views/massmessages/view.html.php');
+            $html = (string) ob_get_clean();
+
+            // Assert
+            $this->assertStringContainsString('MassMessages/tracking/' . $id, $html, $theme . ': the page links to who opened');
+        }
+    }
+
     /** The compose screen for an existing draft is filled in from it. */
     public function testTheEditScreenIsFilledInFromTheDraft(): void
     {
@@ -927,6 +999,7 @@ class MassMessagesScreenTest extends BaseTestCase
         // Act
         $controller->display();
         $controller->view($id);
+        $controller->tracking($id);
         $controller->edit($id);
         $controller->save();
         $controller->send($id);

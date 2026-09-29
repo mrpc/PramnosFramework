@@ -23,6 +23,7 @@ use Pramnos\Framework\Testing\BaseTestCase;
  * a fetch by a mailbox proxy land in **different columns**, and nothing adds them together.
  */
 #[CoversClass(Tracking::class)]
+#[CoversClass(\Pramnos\Messaging\Controllers\MassMessagesController::class)]
 #[CoversClass(\Pramnos\Email\Email::class)]
 #[CoversClass(\Pramnos\Application\Controllers\EmailsController::class)]
 class TrackingRecordingTest extends BaseTestCase
@@ -389,6 +390,111 @@ class TrackingRecordingTest extends BaseTestCase
         $this->assertSame('newsletter', $found['list']);
         $this->assertNull($missing);
         $this->assertNull($screen->lookup(0), 'no id, no lookup');
+    }
+
+    // ── One campaign ───────────────────────────────────────────────────────
+
+    /**
+     * Seed a campaign: a `mails` row per recipient under one module and id, and its tracking row.
+     *
+     * @return list<string> The tracking ids, in the order given
+     */
+    private function campaignOf(string $info, array $recipients): array
+    {
+        $this->runMigrations([\Pramnos\Framework\Migrations\Messaging\CreateMailsTable::class], $this->db);
+        $ids = [];
+        foreach ($recipients as $i => $recipient) {
+            $this->db->queryBuilder()->table('#PREFIX#mails')->insert([
+                'status' => 1, 'frommail' => 'from@example.com', 'fromname' => '', 'tomail' => $recipient,
+                'toname' => '', 'subject' => 'Campaign ' . $info, 'content' => '', 'date' => time(),
+                'module' => 'massmessage', 'moduleinfo' => $info, 'extrainfo' => '', 'path' => '', 'hash' => md5($info . $i),
+            ]);
+            $mailId = (int) $this->db->getInsertId();
+            $ids[]  = 'campaign-' . $info . '-' . $i;
+            Tracking::begin($recipient, 'newsletter', 'Campaign ' . $info, $mailId, end($ids));
+        }
+
+        return $ids;
+    }
+
+    /**
+     * A campaign's summary counts people, not events, and keeps provider fetches apart.
+     *
+     * Three recipients: one who opened and clicked twice, one whose only open was Apple's proxy,
+     * one who did nothing. The proxy is not an open, and two clicks by one person are one
+     * person who clicked.
+     */
+    public function testACampaignIsSummarisedByPeople(): void
+    {
+        // Arrange
+        [$reader, $proxied] = $this->campaignOf('901', ['r@example.com', 'p@example.com', 'n@example.com']);
+        Tracking::recordOpen($reader, 'Mozilla/5.0 (Macintosh)', '85.72.1.2');
+        Tracking::recordOpen($proxied, 'GoogleImageProxy', '66.249.1.1');
+        foreach (['https://example.com/a', 'https://example.com/a'] as $url) {
+            Tracking::recordClick(urldecode(explode('c=', Tracking::link($reader, $url))[1]));
+        }
+        $this->campaignOf('902', ['other@example.com']);   // another campaign, not counted
+
+        // Act
+        $summary = Tracking::campaign('massmessage', '901');
+
+        // Assert
+        $this->assertSame(['tracked' => 3, 'opened' => 1, 'proxyOnly' => 1, 'clicked' => 1, 'clicks' => 2], $summary);
+    }
+
+    /**
+     * The recipients, narrowed by what they did, and the links with how many people followed each.
+     */
+    public function testACampaignsRecipientsAndLinks(): void
+    {
+        // Arrange
+        [$reader, $clicker] = $this->campaignOf('903', ['r@example.com', 'c@example.com', 'n@example.com']);
+        Tracking::recordOpen($reader, 'Mozilla/5.0', '85.72.1.2');
+        foreach ([[$reader, 'https://example.com/a'], [$clicker, 'https://example.com/a'], [$clicker, 'https://example.com/b']] as [$id, $url]) {
+            Tracking::recordClick(urldecode(explode('c=', Tracking::link($id, $url))[1]));
+        }
+
+        // Act
+        $opened   = array_column(Tracking::campaignRecipients('massmessage', '903', 'opened'), 'recipient');
+        $clicked  = array_column(Tracking::campaignRecipients('massmessage', '903', 'clicked'), 'recipient');
+        $unopened = array_column(Tracking::campaignRecipients('massmessage', '903', 'unopened'), 'recipient');
+        $everyone = Tracking::campaignRecipients('massmessage', '903');
+        $links    = Tracking::campaignLinks('massmessage', '903');
+
+        // Assert
+        $this->assertSame(['r@example.com'], $opened);
+        $this->assertEqualsCanonicalizing(['r@example.com', 'c@example.com'], $clicked);
+        $this->assertEqualsCanonicalizing(['c@example.com', 'n@example.com'], $unopened, 'a click without an open is still unopened');
+        $this->assertCount(3, $everyone);
+        $this->assertSame(['url' => 'https://example.com/a', 'clicks' => 2, 'people' => 2], $links[0]);
+        $this->assertSame(['url' => 'https://example.com/b', 'clicks' => 1, 'people' => 1], $links[1]);
+        $this->assertSame([], Tracking::campaignLinks('massmessage', 'nothing-sent'));
+    }
+
+    /**
+     * A send records what it was about in `mails.moduleinfo`, which is how the campaign is found.
+     */
+    public function testASendRecordsItsModuleInfo(): void
+    {
+        // Arrange
+        $this->runMigrations([\Pramnos\Framework\Migrations\Messaging\CreateMailsTable::class], $this->db);
+        $mail = new class extends \Pramnos\Email\Email {
+            public function record(int $status): bool
+            {
+                return $this->writeMailRow($status);
+            }
+        };
+        $mail->to         = 'info@example.com';
+        $mail->subject    = 'Moduleinfo ' . bin2hex(random_bytes(3));
+        $mail->module     = 'massmessage';
+        $mail->moduleinfo = '904';
+
+        // Act
+        $mail->record(1);
+
+        // Assert
+        $row = $this->db->queryBuilder()->table('#PREFIX#mails')->where('subject', $mail->subject)->first();
+        $this->assertSame('904', (string) $row->fields['moduleinfo']);
     }
 
     /**

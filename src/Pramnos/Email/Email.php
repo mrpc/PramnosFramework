@@ -171,6 +171,12 @@ class Email extends \Pramnos\Framework\Base
     public $module = '';
 
     /**
+     * What the module's send was about, recorded beside it in `mails.moduleinfo` — the mass
+     * message's id for a campaign, so its opens and clicks can be read back per message.
+     */
+    public $moduleinfo = '';
+
+    /**
      * The registered kind of mail this is — see {@see MailTypes}.
      *
      * Applied at send time rather than when it is set, so `type()` and `setTo()` can be called
@@ -1013,7 +1019,7 @@ class Email extends \Pramnos\Framework\Base
                     'content'    => (string) ($this->renderedBody ?? $this->body),
                     'date'       => $date,
                     'module'     => (string) $this->module,
-                    'moduleinfo' => '',
+                    'moduleinfo' => substr((string) $this->moduleinfo, 0, 255),
                     'extrainfo'  => $status === \Pramnos\Messaging\Mail::STATUS_FAILED
                         ? (string) $this->lastError
                         : '',

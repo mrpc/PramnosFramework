@@ -54,9 +54,12 @@ class MassMessagesController extends Controller
         MassMessage::TYPE_PUSH    => 'Push (no transport)',
     ];
 
+    /** The `mails.module` the dispatcher records a campaign's mail under; its id is `moduleinfo`. */
+    public const TRACKING_MODULE = MassMessageDispatcher::MAIL_MODULE;
+
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
-        $this->addAuthAction(['display', 'view', 'edit', 'preview', 'save', 'send', 'delete']);
+        $this->addAuthAction(['display', 'view', 'tracking', 'edit', 'preview', 'save', 'send', 'delete']);
         // POST with the session's token, or refused before the action runs: see Controller::exec().
         $this->addWriteAction(['save', 'send', 'delete']);
         parent::__construct($application);
@@ -120,8 +123,43 @@ class MassMessagesController extends Controller
         $view->types    = self::TYPES;
         $view->progress = (new MassMessageDispatcher())->progress((int) $message->messageid);
         $view->audience = MassMessageAudience::describe($this->criteriaOf($message));
+        $view->tracking = \Pramnos\Email\Tracking::campaign(self::TRACKING_MODULE, (string) (int) $message->messageid);
 
         return $view->display('view');
+    }
+
+    /**
+     * Who opened and who clicked: the recipients with what each did, and the links followed.
+     *
+     * `?show=` narrows to `opened`, `clicked` or `unopened`. Only what tracking recorded — a
+     * message sent without tracking, or to an installation with it off, has nothing here.
+     */
+    public function tracking(mixed $id = null): mixed
+    {
+        if ($this->requireMinUserType($this->requiredUserType)) {
+            return null;
+        }
+
+        $message = $this->loadOrRedirect();
+        if ($message === null) {
+            return null;
+        }
+
+        $show = (string) ($_GET['show'] ?? '');
+        $show = in_array($show, ['opened', 'clicked', 'unopened'], true) ? $show : '';
+        $info = (string) (int) $message->messageid;
+
+        $doc        = Factory::getDocument();
+        $doc->title = 'Opens and clicks';
+
+        $view             = $this->getView('massmessages');
+        $view->message    = $message->getData();
+        $view->summary    = \Pramnos\Email\Tracking::campaign(self::TRACKING_MODULE, $info);
+        $view->links      = \Pramnos\Email\Tracking::campaignLinks(self::TRACKING_MODULE, $info);
+        $view->recipients = \Pramnos\Email\Tracking::campaignRecipients(self::TRACKING_MODULE, $info, $show);
+        $view->show       = $show;
+
+        return $view->display('tracking');
     }
 
     /**

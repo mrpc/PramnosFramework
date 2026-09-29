@@ -390,6 +390,9 @@ class MassMessageDispatcher
      */
     public const UNSUBSCRIBE_LIST = 'massmessages';
 
+    /** The `mails.module` a campaign's mail is recorded under; `moduleinfo` is the message's id. */
+    public const MAIL_MODULE = 'massmessage';
+
     /**
      * Mail it, in the recipient's own language and the installation's wrapper.
      *
@@ -421,7 +424,8 @@ class MassMessageDispatcher
                 $mailer->subject = (string) ($message['subject'] ?? '');
                 $mailer->body    = (string) ($message['message'] ?? '');
                 $mailer->to      = (string) $user->email;
-                $mailer->module  = 'massmessage';
+                $mailer->module  = static::MAIL_MODULE;
+                $mailer->moduleinfo = (string) (int) ($message['messageid'] ?? 0);
                 $mailer->offerUnsubscribe($list, (string) $user->email);
 
                 $this->applyOptions($mailer, $options);
@@ -482,7 +486,8 @@ class MassMessageDispatcher
                 } else {
                     $mailer->offerUnsubscribe($list, $email);
                 }
-                $mailer->module = 'massmessage';
+                $mailer->module = static::MAIL_MODULE;
+                $mailer->moduleinfo = (string) (int) ($message['messageid'] ?? 0);
 
                 $this->applyOptions($mailer, $options);
 

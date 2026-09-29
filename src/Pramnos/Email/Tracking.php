@@ -345,6 +345,143 @@ class Tracking
         return false;
     }
 
+    // ── Reports for one campaign ───────────────────────────────────────────────
+
+    /**
+     * What a campaign's tracked messages came to: how many were tracked, opened by a person,
+     * fetched only by a mailbox provider, and clicked.
+     *
+     * A campaign is the `mails` rows a module wrote with one `moduleinfo` — a mass message's id,
+     * for `module = massmessage`. `opened` counts recipients with at least one open that was
+     * not a proxy; `proxyOnly` those a provider fetched and nobody else did. They are never
+     * added together — see the class docblock.
+     *
+     * @return array{tracked: int, opened: int, proxyOnly: int, clicked: int, clicks: int}
+     */
+    public static function campaign(string $module, string $moduleInfo): array
+    {
+        $summary = ['tracked' => 0, 'opened' => 0, 'proxyOnly' => 0, 'clicked' => 0, 'clicks' => 0];
+
+        foreach (self::campaignRows($module, $moduleInfo) as $row) {
+            $summary['tracked']++;
+            $summary['opened']    += (int) $row['opens'] > 0 ? 1 : 0;
+            $summary['proxyOnly'] += (int) $row['opens'] === 0 && (int) $row['proxy_opens'] > 0 ? 1 : 0;
+            $summary['clicked']   += (int) $row['clicks'] > 0 ? 1 : 0;
+            $summary['clicks']    += (int) $row['clicks'];
+        }
+
+        return $summary;
+    }
+
+    /**
+     * A campaign's recipients with what each did, newest open or click first.
+     *
+     * @param string $show `opened`, `clicked`, `unopened` (no open by a person), or `''` for all
+     * @return list<array{recipient: string, opens: int, proxy_opens: int, clicks: int,
+     *                    first_open_at: int|null, first_click_at: int|null}>
+     */
+    public static function campaignRecipients(string $module, string $moduleInfo, string $show = ''): array
+    {
+        $rows = array_values(array_filter(
+            self::campaignRows($module, $moduleInfo),
+            static fn (array $r): bool => match ($show) {
+                'opened'   => (int) $r['opens'] > 0,
+                'clicked'  => (int) $r['clicks'] > 0,
+                'unopened' => (int) $r['opens'] === 0,
+                default    => true,
+            }
+        ));
+
+        usort($rows, static fn (array $a, array $b): int =>
+            max((int) $b['first_click_at'], (int) $b['first_open_at'])
+            <=> max((int) $a['first_click_at'], (int) $a['first_open_at']));
+
+        return array_map(static fn (array $r): array => [
+            'recipient'      => (string) $r['recipient'],
+            'opens'          => (int) $r['opens'],
+            'proxy_opens'    => (int) $r['proxy_opens'],
+            'clicks'         => (int) $r['clicks'],
+            'first_open_at'  => $r['first_open_at'] !== null ? (int) $r['first_open_at'] : null,
+            'first_click_at' => $r['first_click_at'] !== null ? (int) $r['first_click_at'] : null,
+        ], $rows);
+    }
+
+    /**
+     * Which links in a campaign were followed, and how often — most followed first.
+     *
+     * @return list<array{url: string, clicks: int, people: int}>
+     */
+    public static function campaignLinks(string $module, string $moduleInfo): array
+    {
+        $ids = array_column(self::campaignRows($module, $moduleInfo), 'tracking_id');
+        if ($ids === []) {
+            return [];
+        }
+
+        $links = [];
+        foreach (array_chunk($ids, 500) as $chunk) {
+            $result = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
+                ->table('pramnos.emailtrackingclicks')
+                ->select(['tracking_id', 'url'])
+                ->whereIn('tracking_id', $chunk)
+                ->get();
+            while ($result && $result->fetch()) {
+                $url = (string) $result->fields['url'];
+                $links[$url] ??= ['url' => $url, 'clicks' => 0, 'people' => []];
+                $links[$url]['clicks']++;
+                $links[$url]['people'][(string) $result->fields['tracking_id']] = true;
+            }
+        }
+
+        $links = array_map(static fn (array $l): array => ['url' => $l['url'], 'clicks' => $l['clicks'], 'people' => count($l['people'])], array_values($links));
+        usort($links, static fn (array $a, array $b): int => $b['clicks'] <=> $a['clicks']);
+
+        return $links;
+    }
+
+    /**
+     * The tracking rows of one campaign, through the `mails` rows that name it.
+     *
+     * Two reads rather than a join: the tracking table is schema-qualified and `mails` is
+     * prefixed, and a join across the two is the one shape the builder's table mapping cannot
+     * express on both backends. The ids are chunked, so a campaign of forty thousand is eighty
+     * queries, not one statement with forty thousand parameters.
+     *
+     * ponytail: every row is read into memory; a campaign in the millions wants the counts in SQL.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private static function campaignRows(string $module, string $moduleInfo): array
+    {
+        $db = \Pramnos\Framework\Factory::getDatabase();
+        if (!$db->schema()->hasTable('pramnos.emailtracking') || !$db->schema()->hasTable('#PREFIX#mails')) {
+            return [];
+        }
+
+        $mails = $db->queryBuilder()->table('#PREFIX#mails')
+            ->select(['id'])
+            ->where('module', $module)
+            ->where('moduleinfo', $moduleInfo)
+            ->get();
+        $mailIds = [];
+        while ($mails && $mails->fetch()) {
+            $mailIds[] = (int) $mails->fields['id'];
+        }
+
+        $rows = [];
+        foreach (array_chunk($mailIds, 500) as $chunk) {
+            $result = $db->queryBuilder()->table('pramnos.emailtracking')
+                ->select(['tracking_id', 'recipient', 'opens', 'proxy_opens', 'clicks', 'first_open_at', 'first_click_at'])
+                ->whereIn('mailid', $chunk)
+                ->get();
+            while ($result && $result->fetch()) {
+                $rows[] = $result->fields;
+            }
+        }
+
+        return $rows;
+    }
+
     private static function base(): string
     {
         $configured = (string) \Pramnos\Application\Settings::getSetting('site_url');

@@ -1514,6 +1514,28 @@ The pixel always answers with the image, whatever happened behind it — an unkn
 that is away, a message that was never tracked. A broken image in the middle of a message is a
 worse outcome than a lost measurement.
 
+### One campaign's opens and clicks
+
+A mass message's page shows its tracked total, how many **people** opened it, how many were
+fetched **only by a mailbox provider**, and how many clicked — counted per recipient, so two
+clicks by one person are one person who clicked. **Who opened and clicked**
+(`/admin/MassMessages/tracking/{id}`) lists the recipients with their opens, provider fetches,
+clicks and first times, narrowed to `?show=opened`, `clicked` or `unopened`, and the links
+followed with how often and by how many.
+
+A campaign is found through the `mails` rows its sends wrote: `module = massmessage`,
+`moduleinfo` = the message's id. Any module can do the same by setting `$email->moduleinfo`
+before sending, and read it back with:
+
+```php
+Tracking::campaign('massmessage', '42');              // tracked, opened, proxyOnly, clicked, clicks
+Tracking::campaignRecipients('massmessage', '42', 'clicked');
+Tracking::campaignLinks('massmessage', '42');         // url, clicks, people — most followed first
+```
+
+A message sent before `moduleinfo` was recorded has no campaign to find: its opens and clicks
+are on each message's own page on the email history screen.
+
 ### Privacy
 
 This is processing personal data. Disclose it in the privacy policy the list's subscribers agreed
