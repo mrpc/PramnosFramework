@@ -34,6 +34,8 @@ use Pramnos\Framework\Testing\BaseTestCase;
 #[CoversClass(\Pramnos\Auth\WebhookService::class)]
 #[CoversClass(\Pramnos\Auth\Controllers\ApplicationsController::class)]
 #[CoversClass(\Pramnos\Framework\Migrations\AuthServer\AddRegisteredByToOauth2WebhookEndpoints::class)]
+#[CoversClass(\Pramnos\Framework\Migrations\AuthServer\OpenWebhookEventTypes::class)]
+#[CoversClass(\Pramnos\Auth\WebhookEvents::class)]
 class WebhookStorageTest extends BaseTestCase
 {
     private $db;
@@ -73,6 +75,8 @@ class WebhookStorageTest extends BaseTestCase
             \Pramnos\Framework\Migrations\AuthServer\CreateOauth2WebhooksTables::class,
             \Pramnos\Framework\Migrations\AuthServer\AllowPermissionsChangedWebhook::class,
             \Pramnos\Framework\Migrations\AuthServer\AddRegisteredByToOauth2WebhookEndpoints::class,
+            // After AllowPermissionsChangedWebhook, whose up() re-adds the CHECK this drops.
+            \Pramnos\Framework\Migrations\AuthServer\OpenWebhookEventTypes::class,
         ], $this->db);
 
         $this->appId      = $this->registerApplication('Webhook test client');
@@ -88,6 +92,7 @@ class WebhookStorageTest extends BaseTestCase
     {
         $this->clear();
         $this->forget();
+        \Pramnos\Auth\WebhookEvents::reset();
 
         $_POST = [];
         $_SERVER['REQUEST_METHOD'] = 'GET';
@@ -195,6 +200,153 @@ class WebhookStorageTest extends BaseTestCase
         }
 
         $this->assertSame(count($advertised), $this->endpointCount());
+    }
+
+    // ── An application's own event types ─────────────────────────────────────
+
+    /**
+     * A type the application registered is advertised, accepted and stored.
+     *
+     * The whole point of the registry: `station.live` goes through the same `/Webhook/register`
+     * an integrator already uses, and the database takes it — the CHECK that listed only the
+     * framework's eight is gone.
+     */
+    public function testARegisteredApplicationTypeIsAdvertisedAndStored(): void
+    {
+        // Arrange
+        \Pramnos\Auth\WebhookEvents::register(['station.live' => ['title' => 'A station went on the air']]);
+
+        // Act
+        $_SERVER['REQUEST_METHOD'] = 'GET';
+        $advertised = (array) ($this->decode($this->controller()->list())['supported_types'] ?? []);
+        $_SERVER['REQUEST_METHOD'] = 'POST';
+        $_POST = ['endpoint_url' => 'https://example.com/live', 'webhook_type' => 'station.live'];
+        $answer = $this->decode($this->controller()->register());
+
+        // Assert
+        $this->assertContains('station.live', $advertised, 'the registered type is not offered');
+        $this->assertArrayHasKey(
+            'secret',
+            $answer,
+            'the registered type was refused: ' . (string) ($answer['error_description'] ?? '')
+        );
+        $this->assertSame('station.live', (string) ($this->endpointRow()['webhook_type'] ?? ''));
+    }
+
+    /**
+     * A type nobody registered is still refused, with the list of what is accepted.
+     *
+     * The property the CHECK constraint was there for — a typo does not become an endpoint that
+     * never fires — kept at both doors: the client API and the service itself.
+     */
+    public function testAnUnregisteredTypeIsStillRefused(): void
+    {
+        // Arrange
+        \Pramnos\Auth\WebhookEvents::register(['station.live' => []]);
+        $_POST = ['endpoint_url' => 'https://example.com/live', 'webhook_type' => 'station.lvie'];
+
+        // Act
+        $answer = $this->decode($this->controller()->register());
+
+        // Assert — refused before the database, naming the registered type among the choices
+        $this->assertSame('invalid_request', $answer['error'] ?? null);
+        $this->assertStringContainsString('station.live', (string) ($answer['error_description'] ?? ''));
+        $this->assertSame(0, $this->endpointCount(), 'a refused type was stored anyway');
+
+        $this->expectException(\InvalidArgumentException::class);
+        (new \Pramnos\Auth\WebhookService($this->db))
+            ->saveEndpoint($this->appId, 'https://example.com/live', 'station.lvie', 'secret');
+    }
+
+    /**
+     * An application event names no user, and is queued for every subscriber of its type.
+     *
+     * «The track changed» is not about a person: `null` is the user, and the column holds it.
+     */
+    public function testAnApplicationEventIsQueuedWithNoUser(): void
+    {
+        // Arrange
+        \Pramnos\Auth\WebhookEvents::register(['station.live' => []]);
+        $service = new \Pramnos\Auth\WebhookService($this->db);
+        $service->saveEndpoint($this->appId, 'https://one.example/hook', 'station.live', 's1');
+        $service->saveEndpoint($this->otherAppId, 'https://two.example/hook', 'station.live', 's2');
+
+        // Act
+        $queued = $service->queueEvent('station.live', null, ['station_id' => 7]);
+
+        // Assert
+        $this->assertSame(2, $queued, 'one row per subscribed endpoint');
+        $row = $this->db->queryBuilder()->table('applications.oauth2_webhook_events')
+            ->select(['user_id', 'event_type'])->where('webhook_id', $this->firstEndpointId())->first();
+        $this->assertArrayHasKey('user_id', (array) $row->fields, 'precondition: an event row was read');
+        $this->assertNull($row->fields['user_id'], 'the event was attributed to a user');
+        $this->assertSame('station.live', (string) $row->fields['event_type']);
+    }
+
+    /**
+     * The fan-out can be narrowed to the applications an event concerns.
+     *
+     * «This station went live» is for the applications authorised for this station. The caller
+     * names them; everybody else subscribed to the type hears nothing. An empty list is nobody,
+     * never everybody.
+     */
+    public function testTheFanOutCanBeNarrowedToApplications(): void
+    {
+        // Arrange
+        \Pramnos\Auth\WebhookEvents::register(['station.live' => []]);
+        $service = new \Pramnos\Auth\WebhookService($this->db);
+        $service->saveEndpoint($this->appId, 'https://one.example/hook', 'station.live', 's1');
+        $service->saveEndpoint($this->otherAppId, 'https://two.example/hook', 'station.live', 's2');
+
+        // Act
+        $narrowed = $service->queueEventForApplications('station.live', null, [], [$this->appId]);
+        $nobody   = $service->queueEventForApplications('station.live', null, [], []);
+
+        // Assert
+        $this->assertSame(1, $narrowed, 'the event reached an application outside the list');
+        $this->assertSame(0, $nobody, 'an empty list fanned out to everybody');
+        $theirs = (int) $this->db->queryBuilder()->table('applications.oauth2_webhook_events')
+            ->where('webhook_id', $this->endpointIdOf($this->otherAppId))->count();
+        $this->assertSame(0, $theirs, 'the other application received the narrowed event');
+    }
+
+    /**
+     * Rolling the migration back restores the constraint over the framework's eight.
+     *
+     * So `down()` is a real inverse: after it the database refuses an application's type again,
+     * and `up()` lifts that once more.
+     */
+    public function testRollingBackRestoresTheConstraint(): void
+    {
+        // Arrange
+        $application = (new \ReflectionClass(Application::class))->newInstanceWithoutConstructor();
+        $application->database = $this->db;
+        $migration = new \Pramnos\Framework\Migrations\AuthServer\OpenWebhookEventTypes($application);
+        $insert = fn (string $type) => $this->db->queryBuilder()
+            ->table('applications.oauth2_webhook_endpoints')
+            ->insert([
+                'appid' => $this->appId, 'endpoint_url' => 'https://example.com/' . $type,
+                'webhook_type' => $type, 'secret_key' => 'x',
+            ]);
+
+        try {
+            // Act
+            $migration->down();
+            $refused = false;
+            try {
+                $insert('station.live');
+            } catch (\Throwable) {
+                $refused = true;
+            }
+            $migration->up();
+            $insert('station.live');
+
+            // Assert — refused while rolled back, accepted again after up()
+            $this->assertTrue($refused, 'down() did not restore the constraint');
+            $this->assertSame(1, $this->endpointCount(), 'up() did not lift the constraint again');
+        } finally {
+            $migration->up();
+        }
     }
 
     // ── Whose endpoint it is ──────────────────────────────────────────────────
@@ -686,6 +838,16 @@ class WebhookStorageTest extends BaseTestCase
             ->table('applications.oauth2_webhook_endpoints')
             ->whereIn('appid', [$this->appId, $this->otherAppId])
             ->count();
+    }
+
+    /** The endpoint one application registered. */
+    private function endpointIdOf(int $appId): int
+    {
+        $row = $this->db->queryBuilder()
+            ->table('applications.oauth2_webhook_endpoints')
+            ->select(['webhook_id'])->where('appid', $appId)->first();
+
+        return (int) ($row->fields['webhook_id'] ?? 0);
     }
 
     private function firstEndpointId(): int

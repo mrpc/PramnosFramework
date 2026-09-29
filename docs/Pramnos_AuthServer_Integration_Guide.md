@@ -1021,7 +1021,9 @@ signature decorative.
 
 Event types: `user_deauthorized`, `token_revoked`, `gdpr_request`,
 `user_profile_changed`, `device_deauthorized`, `account_deleted`, `scope_changed`,
-`permissions_changed`. One endpoint per type per application.
+`permissions_changed` — plus any the server application registered as its own (below).
+`GET /Webhook/list` returns the full set as `supported_types`. One endpoint per type per
+application.
 
 `POST /Webhook/test` queues an event for **the endpoint you named and no other**.
 That matters because a real event does the opposite: `token_revoked` concerns
@@ -1041,6 +1043,48 @@ $service->queueEvent('token_revoked', $userid, [...], null, null, $id);   // one
 The endpoint id is still matched against the event type and `is_active`, so
 naming one that does not subscribe queues nothing rather than queueing the wrong
 event.
+
+### Sending events of your own
+
+The delivery machinery — signing, retries, `auth:webhook-deliver`, the private-network
+refusal — does not care what an event means. An application running the server delivers
+its own events through it by registering their types, from a service provider's `boot()`
+or its `Application.php`:
+
+```php
+use Pramnos\Auth\WebhookEvents;
+
+WebhookEvents::register([
+    'station.live'  => ['title' => 'A station went on the air', 'payload' => ['station_id', 'slug']],
+    'track.changed' => ['title' => 'The track changed'],
+]);
+```
+
+A registered type is offered on the subscription screen and in `supported_types`, and
+accepted by `/Webhook/register`. A type nobody registered is refused, with the list of
+accepted ones, by `/Webhook/register`, the administration form and
+`WebhookService::saveEndpoint()` — so a typo cannot become an endpoint that never fires.
+The framework's own types win a collision: their payloads are the framework's to write.
+A name is 1–50 letters, digits, `.`, `_` or `-`; a dotted namespace keeps yours apart from
+the framework's.
+
+Queue an event with `queueEvent()`. An event about no particular person passes `null` as
+the user:
+
+```php
+$webhooks = new \Pramnos\Auth\WebhookService($db);
+$webhooks->queueEvent('station.live', null, ['station_id' => 42, 'slug' => 'radio-one']);
+```
+
+That fans out to every application subscribed to the type. When an event concerns only
+some of them — the applications authorised for *this* station — name them, and nobody else
+hears it; an empty list queues nothing:
+
+```php
+$webhooks->queueEventForApplications('station.live', null, $payload, $appIdsForThisStation);
+```
+
+Who is in scope is your decision; the framework only narrows the fan-out to the list.
 
 ### Where a delivery may go
 

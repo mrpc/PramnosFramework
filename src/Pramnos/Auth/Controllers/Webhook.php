@@ -54,7 +54,12 @@ class Webhook extends Controller
     /** Delivery queue and audit log. */
     protected const TABLE_EVENTS = 'applications.oauth2_webhook_events';
 
-    /** The event types an endpoint may subscribe to. {@see WebhookService::EVENT_TYPES} */
+    /**
+     * The framework's own event types. {@see WebhookService::EVENT_TYPES}
+     *
+     * Kept for subclasses that read it. What an endpoint may subscribe to is
+     * {@see WebhookEvents::names()}, which adds the application's registered types.
+     */
     protected const EVENT_TYPES = WebhookService::EVENT_TYPES;
 
     public function __construct(?\Pramnos\Application\Application $application = null)
@@ -142,7 +147,7 @@ class Webhook extends Controller
 
         return Response::json([
             'endpoints'        => $endpoints,
-            'supported_types'  => self::EVENT_TYPES,
+            'supported_types'  => \Pramnos\Auth\WebhookEvents::names(),
         ]);
     }
 
@@ -332,10 +337,10 @@ class Webhook extends Controller
             return ['error' => 'invalid_request', 'error_description' => $refusal];
         }
 
-        if (!in_array($type, self::EVENT_TYPES, true)) {
+        if (!\Pramnos\Auth\WebhookEvents::isKnown($type)) {
             return [
                 'error'             => 'invalid_request',
-                'error_description' => 'webhook_type must be one of: ' . implode(', ', self::EVENT_TYPES),
+                'error_description' => 'webhook_type must be one of: ' . implode(', ', \Pramnos\Auth\WebhookEvents::names()),
             ];
         }
 

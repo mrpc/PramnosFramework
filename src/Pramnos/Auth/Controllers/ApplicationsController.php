@@ -136,7 +136,7 @@ class ApplicationsController extends Controller
             // Without the authserver webhook tables there is nothing to list.
             $view->webhooks = [];
         }
-        $view->webhookTypes = \Pramnos\Auth\WebhookService::EVENT_TYPES;
+        $view->webhookTypes = \Pramnos\Auth\WebhookEvents::names();
         $view->webhookRequiresHttps = \Pramnos\Auth\WebhookService::requiresHttps();
 
         return $view->display('view');
@@ -630,7 +630,7 @@ class ApplicationsController extends Controller
             return;
         }
 
-        if (!in_array($type, \Pramnos\Auth\WebhookService::EVENT_TYPES, true)) {
+        if (!\Pramnos\Auth\WebhookEvents::isKnown($type)) {
             $this->addError('Choose one of the listed event types.');
             $this->redirect($back);
             return;

@@ -31,11 +31,11 @@ class WebhookService
     private const TABLE_EVENTS    = 'applications.oauth2_webhook_events';
 
     /**
-     * The event types an endpoint may subscribe to.
+     * The event types the framework itself sends.
      *
-     * Repeated from the table's own CHECK constraint on purpose: a value the database
-     * refuses should be refused before it gets there, with a message naming the
-     * alternatives, rather than coming back as a constraint violation nobody can act on.
+     * An endpoint may also subscribe to an application's own types, registered with
+     * {@see WebhookEvents::register()}; {@see WebhookEvents::names()} is the whole list and what
+     * the service validates against. This constant stays the framework's eight.
      */
     public const EVENT_TYPES = [
         'user_deauthorized',
@@ -88,6 +88,10 @@ class WebhookService
      * another client's URL by subscribing to the same event. The endpoint id is still matched
      * against `$eventType` and `is_active`, so passing one that does not subscribe queues nothing.
      *
+     * An application's own event — {@see WebhookEvents::register()} — is queued the same way.
+     * One that is not about a person passes `null` for `$userId`: «the track changed» names no
+     * user, and the column is built to hold none.
+     *
      * Returns the number of event rows inserted (one per matching endpoint).
      */
     public function queueEvent(
@@ -98,6 +102,50 @@ class WebhookService
         ?int    $tokenId    = null,
         ?int    $onlyEndpoint = null
     ): int {
+        return $this->queueTo($eventType, $userId, $payload, $deviceCode, $tokenId, $onlyEndpoint, null);
+    }
+
+    /**
+     * Queue an event for the subscribed endpoints of these applications only.
+     *
+     * {@see queueEvent()} fans out to every application subscribed to the type, which is right
+     * for `token_revoked`. An application's event is often scoped — «this station went live»
+     * concerns the applications authorised for this station, not every subscriber. The caller
+     * decides who is in scope; the framework only narrows the fan-out to that list. An empty
+     * list queues nothing, never everything.
+     *
+     * @param list<int> $appIds
+     * @return int The number of event rows inserted
+     */
+    public function queueEventForApplications(
+        string $eventType,
+        ?int $userId,
+        array $payload,
+        array $appIds
+    ): int {
+        $appIds = array_values(array_unique(array_map('intval', $appIds)));
+        if ($appIds === []) {
+            return 0;
+        }
+
+        return $this->queueTo($eventType, $userId, $payload, null, null, null, $appIds);
+    }
+
+    /**
+     * One event row per active endpoint subscribed to the type, narrowed as asked.
+     *
+     * @param list<int>|null $appIds Only these applications' endpoints; null for every one
+     * @return int
+     */
+    private function queueTo(
+        string $eventType,
+        ?int $userId,
+        array $payload,
+        ?string $deviceCode,
+        ?int $tokenId,
+        ?int $onlyEndpoint,
+        ?array $appIds
+    ): int {
         $query = $this->database->queryBuilder()
             ->table(self::TABLE_ENDPOINTS)
             ->select(['webhook_id', 'retry_count'])
@@ -106,6 +154,9 @@ class WebhookService
 
         if ($onlyEndpoint !== null) {
             $query->where('webhook_id', $onlyEndpoint);
+        }
+        if ($appIds !== null) {
+            $query->whereIn('appid', $appIds);
         }
 
         $endpoints = $query->get();
@@ -491,8 +542,14 @@ class WebhookService
      * also replaces `registered_by`, so an application re-registering an endpoint an
      * administrator entered makes it its own — and subject to the guard — again.
      *
+     * The type must be one {@see WebhookEvents::isKnown()} recognises — the framework's or one
+     * the application registered. This check replaced the table's CHECK constraint, which could
+     * list only the framework's, and it keeps what that constraint was for: a typo does not become
+     * an endpoint that never fires.
+     *
      * @param string $secret       The plain signing secret; stored encrypted when APP_KEY is set
      * @param string $registeredBy {@see REGISTERED_BY_CLIENT} or {@see REGISTERED_BY_ADMIN}
+     * @throws \InvalidArgumentException When the type is not a known event type
      */
     public function saveEndpoint(
         int $appId,
@@ -501,6 +558,12 @@ class WebhookService
         string $secret,
         string $registeredBy = self::REGISTERED_BY_CLIENT
     ): void {
+        if (!WebhookEvents::isKnown($type)) {
+            throw new \InvalidArgumentException(
+                "Unknown webhook event type '{$type}'. Known: " . implode(', ', WebhookEvents::names())
+            );
+        }
+
         $fields = [
             'endpoint_url'  => $url,
             'secret_key'    => self::sealSecret($secret),
