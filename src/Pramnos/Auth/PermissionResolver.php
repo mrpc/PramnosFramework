@@ -193,7 +193,45 @@ class PermissionResolver implements PermissionResolverInterface
                 $ids[] = (int) $r['roleid'];
             }
         }
-        return $ids;
+
+        return $this->withoutInactiveRoles($ids);
+    }
+
+    /**
+     * Drop the roles that have been deactivated.
+     *
+     * `user_roles.is_active` says whether the **assignment** stands; `roles.is_active` says
+     * whether the **role** does — and a role marked inactive is dropped here. Only the first was read, so a role an administrator turned
+     * off went on granting everything it held to everybody assigned it — while the Roles
+     * screen told them an inactive role grants nothing. Every permission check reaches this
+     * through {@see resolve()}: `Permissions::isAllowed()` and `AdminAccess` included.
+     *
+     * @param list<int> $ids
+     * @return list<int>
+     */
+    private function withoutInactiveRoles(array $ids): array
+    {
+        if ($ids === [] || !$this->database->schema()->hasTable(self::T_ROLE_DEFS)) {
+            return $ids;
+        }
+
+        // Only a role **marked** inactive is dropped. An assignment to a role id with no row
+        // here keeps the answer it always had: changing that is a separate decision about
+        // orphaned assignments, and would change permissions on installations whose role
+        // definitions live elsewhere.
+        $inactive = [];
+        foreach ($this->collect(
+            $this->database->queryBuilder()
+                ->table(self::T_ROLE_DEFS)
+                ->select(['roleid'])
+                ->whereIn('roleid', $ids)
+                ->where('is_active', false)
+                ->get()
+        ) as $row) {
+            $inactive[(int) $row['roleid']] = true;
+        }
+
+        return array_values(array_filter($ids, static fn (int $id): bool => !isset($inactive[$id])));
     }
 
     /**

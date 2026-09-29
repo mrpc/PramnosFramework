@@ -323,7 +323,11 @@ previously revoked assignment rather than leaving it inactive.
 ### What deactivating and revoking do
 
 Neither deletes. Revoking a role sets the assignment's `is_active = 0`; deactivating a
-role sets the role's. Both are readable afterwards, and the resolver ignores both.
+role sets the role's. Both are readable afterwards, and the resolver ignores both: a revoked
+assignment grants nothing, and a deactivated role grants nothing to anybody assigned it — in
+`PermissionResolver::resolve()`, so in `Permissions::isAllowed()` and in administration screens
+granted by permission too. An assignment to a role id that has no row in `authserver.roles` is
+not dropped by this; only a role marked inactive is.
 Deleting the *role* does remove its assignments, because a row naming a role that no
 longer exists is not history anybody can read.
 

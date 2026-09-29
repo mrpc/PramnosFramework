@@ -196,6 +196,48 @@ class PermissionResolverTest extends TestCase
         $this->assertSame('allow', $g['grant']);
     }
 
+    /**
+     * A deactivated role grants nothing, and an active one still does.
+     *
+     * `user_roles.is_active` says whether the assignment stands; `roles.is_active` whether the
+     * role itself does. Only the first was read, so turning a role off in the Roles screen —
+     * which says an inactive role grants nothing — changed nobody's permissions. Every check
+     * goes through the resolver, so `Permissions::isAllowed()` and `AdminAccess` were as
+     * affected as this.
+     */
+    public function testADeactivatedRoleGrantsNothing(): void
+    {
+        // Arrange — the role table itself, from its migration, with the role turned off
+        $roles = 'authserver.roles';
+        $created = false;
+        if (!$this->db->schema()->hasTable($roles)) {
+            $app = $this->getMockBuilder(\Pramnos\Application\Application::class)->disableOriginalConstructor()->getMock();
+            $app->database = $this->db;
+            (new \Pramnos\Framework\Migrations\AuthServer\CreateAuthserverRolesTable($app))->up();
+            $created = true;
+        }
+        $this->db->queryBuilder()->table($roles)->where('roleid', self::ROLE)->delete();
+        $this->db->queryBuilder()->table($roles)->insert(['roleid' => self::ROLE, 'role_name' => 'resolver probe', 'is_active' => false]);
+        $this->assignRole(self::ROLE);
+        $this->perm(['subject_type' => 'role', 'subject_id' => self::ROLE, 'object_type' => 'report', 'action' => 'view']);
+
+        try {
+            // Act
+            $off = $this->grantFor($this->resolver->resolve(self::USER, self::APP), 'report', 'view');
+            $this->db->queryBuilder()->table($roles)->where('roleid', self::ROLE)->update(['is_active' => true]);
+            $on = $this->grantFor($this->resolver->resolve(self::USER, self::APP), 'report', 'view');
+
+            // Assert
+            $this->assertNull($off, 'a deactivated role must grant nothing');
+            $this->assertNotNull($on, 'an active role still grants');
+        } finally {
+            $this->db->queryBuilder()->table($roles)->where('roleid', self::ROLE)->delete();
+            if ($created) {
+                $this->db->schema()->dropTableIfExists($roles);
+            }
+        }
+    }
+
     public function testDenyOverridesAllowByPriority(): void
     {
         // A user allow and a role deny at higher priority on the same target.
