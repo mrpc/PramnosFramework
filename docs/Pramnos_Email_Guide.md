@@ -1100,6 +1100,22 @@ In code, the same reads and writes: `MailingList::lists()`, `counts()`,
 `subscribers($list, $status, $search, $page, $perPage)`, `resendConfirmation($id)`,
 `unsubscribeSubscriber($id)`, `confirmedExport($list)`.
 
+### On an account's administration page
+
+`/admin/users/view/{id}` has an **Email** panel: every kind of mail the person can turn off and
+every opt-in list, in its state for the account's address, and whether the address left
+everything. What an administrator can do there, each `POST` with the token and written to the
+account's activity log:
+
+| For | Off | On |
+| --- | --- | --- |
+| mail sent unless they say stop | the unsubscribe, `source = admin` | clears **that list's** opt-out only — `Unsubscribe::clearOptOut()` — and records the consent |
+| an opt-in list | the unsubscribe | sends the **confirmation mail**; the subscription starts when they confirm |
+| everything | the unsubscribe from `all` | clears the `all` opt-out, leaving each list's own |
+
+"On" is for the person's own request — the buttons say so before they act. An administrator can
+ask for consent to a list, never give it.
+
 ### The consent trail
 
 Each row keeps the sentence the person agreed to, where they agreed (`source`), the address the

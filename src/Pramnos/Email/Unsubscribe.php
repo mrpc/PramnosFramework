@@ -261,6 +261,39 @@ class Unsubscribe
     }
 
     /**
+     * Undo the opt-out of exactly one list, and record the consent.
+     *
+     * {@see optIn()} also clears `all`, which is right for the person pressing "resubscribe" on
+     * a page and wrong for an administrator turning one kind of mail back on at somebody's
+     * request: they asked for that one, not for everything they had stopped. `all` itself is
+     * one list here too — clearing it leaves each list's own opt-out standing.
+     */
+    public static function clearOptOut(string $email, string $list): bool
+    {
+        $email = static::normalise($email);
+        $list  = static::normaliseList($list);
+
+        if ($email === '') {
+            return false;
+        }
+
+        try {
+            \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
+                ->table('pramnos.emailoptouts')
+                ->whereRaw('LOWER(email) = ?', [$email])
+                ->where('list', $list)
+                ->delete();
+            static::recordConsent($email, $list, true);
+
+            return true;
+        } catch (\Throwable $exception) {
+            \Pramnos\Logs\Logger::log('Could not clear an email opt-out: ' . $exception->getMessage(), 'email');
+
+            return false;
+        }
+    }
+
+    /**
      * Undo an opt-out — an address asking to hear from us again.
      */
     public static function optIn(string $email, string $list = self::LIST_ALL): bool

@@ -548,6 +548,140 @@ class MailingListTest extends BaseTestCase
         $this->assertSame(404, $missing->getStatusCode());
     }
 
+    // ── The user's page ────────────────────────────────────────────────────
+
+    /** The users screen with its preference seams reachable and no constructor to run. */
+    private function usersScreen(): object
+    {
+        return new class extends \Pramnos\Application\Controllers\UsersController {
+            public function __construct()
+            {
+            }
+
+            public function preferences(string $email): array
+            {
+                return $this->emailPreferencesFor($email);
+            }
+
+            public function apply(string $email, string $list, bool $on): string
+            {
+                return $this->applyEmailPreference($email, 77, 'el', $list, $on);
+            }
+        };
+    }
+
+    /**
+     * The user's page shows every optional kind of mail and every opt-in list, in its state.
+     *
+     * An opt-in list is off until joined; mail sent unless they say stop is on until they did.
+     */
+    public function testTheUsersPageShowsWhatTheAddressReceives(): void
+    {
+        // Arrange
+        $screen = $this->usersScreen();
+
+        // Act
+        $before = $screen->preferences($this->address);
+        Unsubscribe::optOut($this->address, 'digest', 'test');
+        $after  = $screen->preferences($this->address);
+
+        // Assert
+        $states = fn (array $p): array => array_column($p['types'], 'state', 'list');
+        // The framework's own optional types (the new-sign-in alert) are listed too.
+        $this->assertSame('off', $states($before)['newsletter']);
+        $this->assertSame('on', $states($before)['digest']);
+        $this->assertSame('off', $states($after)['digest']);
+        $this->assertFalse($after['all']);
+        $this->assertSame(['all' => false, 'types' => []], $screen->preferences(''), 'no address, nothing to show');
+    }
+
+    /**
+     * An administrator turns mail off, and back on at the person's request — one list at a time.
+     *
+     * Back on clears that list's opt-out only: somebody who also left everything stays out of
+     * everything until that is cleared on its own.
+     */
+    public function testAnAdministratorTurnsMailOffAndBackOnOneListAtATime(): void
+    {
+        // Arrange
+        $screen = $this->usersScreen();
+        Unsubscribe::optOut($this->address, Unsubscribe::LIST_ALL, 'test');
+
+        // Act
+        $off = $screen->apply($this->address, 'digest', false);
+        $on  = $screen->apply($this->address, 'digest', true);
+
+        // Assert
+        $this->assertSame('Digest turned off.', $off);
+        $this->assertSame('Digest turned on.', $on);
+        $this->assertTrue(Unsubscribe::isOptedOut($this->address, 'digest'), 'leaving everything still stands');
+
+        // Act — clearing everything, then leaving it again
+        $cleared = $screen->apply($this->address, Unsubscribe::LIST_ALL, true);
+
+        // Assert
+        $this->assertSame('This address receives optional mail again.', $cleared);
+        $this->assertFalse(Unsubscribe::isOptedOut($this->address, 'digest'));
+        $screen->apply($this->address, Unsubscribe::LIST_ALL, false);
+        $this->assertTrue($screen->preferences($this->address)['all']);
+    }
+
+    /**
+     * Turning an opt-in list on sends the confirmation — it does not subscribe anybody.
+     *
+     * Consent to marketing is the person's to give; the administrator can only ask for it.
+     */
+    public function testAnOptInListIsOnlyEverAskedFor(): void
+    {
+        // Arrange
+        $screen = $this->usersScreen();
+
+        // Act
+        $said = $screen->apply($this->address, 'newsletter', true);
+
+        // Assert
+        $this->assertStringContainsString('confirmation mail', $said);
+        $this->assertSame(MailingList::PENDING, $this->row()['status']);
+        $this->assertSame('admin', $this->row()['source']);
+        $this->assertSame(77, (int) $this->row()['userid']);
+        $this->assertStringContainsString('turned off', $screen->apply($this->address, 'newsletter', false));
+
+        // Assert — a list nothing uses is refused
+        $this->expectException(\InvalidArgumentException::class);
+        $screen->apply($this->address, 'nosuchlist', true);
+    }
+
+    /**
+     * The partial renders the states and the actions in every theme.
+     */
+    public function testTheEmailPanelRendersInEveryTheme(): void
+    {
+        foreach (['bootstrap', 'tailwind', 'plain-css'] as $theme) {
+            // Arrange
+            $data = new \stdClass();
+            $data->user = ['userid' => 77];
+            $data->emailPreferences = ['all' => true, 'types' => [
+                ['list' => 'newsletter', 'label' => 'Newsletter', 'description' => 'News.', 'optIn' => true, 'state' => 'off'],
+                ['list' => 'digest', 'label' => 'Digest', 'description' => 'Weekly.', 'optIn' => false, 'state' => 'on'],
+            ]];
+            $render = \Closure::bind(function (string $file): void {
+                include $file;
+            }, $data, null);
+
+            // Act
+            ob_start();
+            $render(ROOT . '/scaffolding/themes/' . $theme . '/views/partials/email_preferences.html.php');
+            $html = (string) ob_get_clean();
+
+            // Assert
+            $this->assertStringContainsString('users/emailpreference/77', $html, $theme);
+            $this->assertStringContainsString('Send confirmation', $html, $theme . ': an opt-in list is asked for, not switched on');
+            $this->assertStringContainsString('Turn off', $html, $theme);
+            $this->assertStringContainsString('left <strong>every</strong>', $html, $theme);
+            $this->assertSame(3, substr_count($html, 'name="_token"') ?: substr_count($html, 'type="hidden" name="list"'), $theme . ': three forms');
+        }
+    }
+
     /**
      * An opt-in type needs a list, and a list is found by its type.
      */

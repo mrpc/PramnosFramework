@@ -941,7 +941,7 @@ class UsersControllerTest extends TestCase
      */
     public function testAnImpossibleIdIsRefusedBeforeAnythingIsWritten(): void
     {
-        foreach (['unlocklogin', 'disabletwofactor', 'signinalerts'] as $action) {
+        foreach (['unlocklogin', 'disabletwofactor', 'signinalerts', 'emailpreference'] as $action) {
             // Arrange
             $_GET['_option'] = 1;
             $this->redirectUrl = null;

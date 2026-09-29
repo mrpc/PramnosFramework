@@ -47,13 +47,14 @@ class UsersController extends Controller
             // Per-user settings and per-user permissions, edited where the user is.
             'types',
             'savesetting', 'deletesetting', 'grantpermission', 'revokepermission',
-            'notify', 'sendnotification', 'signinalerts', 'adminscreens',
+            'notify', 'sendnotification', 'signinalerts', 'adminscreens', 'emailpreference',
         ]);
         // POST with the session's token, or refused before the action runs: see exec().
         $this->addWriteAction([
             'save', 'delete', 'lock', 'unlock', 'deactivateToken', 'deleteToken', 'resetpassword',
             'unlocklogin', 'disabletwofactor', 'revokepasskey', 'savesetting', 'deletesetting',
             'grantpermission', 'revokepermission', 'sendnotification', 'signinalerts', 'adminscreens',
+            'emailpreference',
         ]);
         parent::__construct($application);
     }
@@ -136,6 +137,7 @@ class UsersController extends Controller
         // Everything else the framework records about this account — see userRecords().
         $view->records      = $this->userRecords($id, (string) $user->email);
         $view->adminScreens = $this->adminScreensFor($id, $user);
+        $view->emailPreferences = $this->emailPreferencesFor((string) $user->email);
         return $view->display('view');
     }
 
@@ -773,6 +775,115 @@ class UsersController extends Controller
         }
 
         $this->redirect(adminUrl('users/view/') . $id);
+    }
+
+    /**
+     * What this address receives: every kind of mail a person can turn off, and every opt-in list.
+     *
+     * `all` is the address having left everything, which silences every optional type whatever
+     * its own row says.
+     *
+     * @return array{all: bool, types: list<array{list: string, label: string, description: string, optIn: bool, state: string}>}
+     */
+    protected function emailPreferencesFor(string $email): array
+    {
+        $email = trim($email);
+        if ($email === '') {
+            return ['all' => false, 'types' => []];
+        }
+
+        $lists = new \Pramnos\Email\MailingList();
+        $types = [];
+        foreach (\Pramnos\Email\MailTypes::optional() as $type) {
+            if ($type->list === '') {
+                continue;
+            }
+            $types[] = [
+                'list'        => $type->list,
+                'label'       => $type->label,
+                'description' => $type->description,
+                'optIn'       => $type->optIn,
+                'state'       => $type->optIn
+                    ? ($lists->statusOf($type->list, $email) ?? 'off')
+                    : (\Pramnos\Email\Unsubscribe::isOptedOut($email, $type->list) ? 'off' : 'on'),
+            ];
+        }
+
+        return ['all' => \Pramnos\Email\Unsubscribe::isOptedOut($email, \Pramnos\Email\Unsubscribe::LIST_ALL), 'types' => $types];
+    }
+
+    /**
+     * Turn one kind of mail on or off for this account, on the person's own request.
+     *
+     * POST `list` and `state` (`on` / `off`). Off is the unsubscribe link, from here. On clears
+     * that list's opt-out — only that one — for mail a person receives unless they say stop; for
+     * an opt-in list it sends the confirmation mail, because consent to marketing is the
+     * person's to give, and the mail is how they give it. `list=all` with `on` clears having
+     * left everything. Each change is written to the account's activity log.
+     */
+    public function emailpreference(mixed $id = null): void
+    {
+        $id    = (int) \Pramnos\Http\Request::staticGetOption();
+        $list  = trim((string) ($_POST['list'] ?? ''));
+        $on    = ($_POST['state'] ?? '') === 'on';
+        $user  = $id >= 2 ? new User($id) : null;
+        $email = trim((string) ($user->email ?? ''));
+
+        if ($user === null || (int) $user->userid !== $id || $email === '' || $list === '') {
+            $this->redirect(adminUrl('users'));
+
+            return;
+        }
+
+        try {
+            $_SESSION['users_success'] = $this->applyEmailPreference($email, $id, (string) ($user->language ?? ''), $list, $on);
+            \Pramnos\Auth\ActivityLog::record($id, 'email_preference_' . ($on ? 'on' : 'off'), [
+                'list' => $list, 'by' => (int) (User::getCurrentUser()->userid ?? 0),
+            ]);
+        } catch (\Throwable $ex) {
+            $_SESSION['users_error'] = 'Could not change that: ' . $ex->getMessage();
+        }
+
+        $this->redirect(adminUrl('users/view/') . $id);
+    }
+
+    /**
+     * Make the change {@see emailpreference()} was asked for, and say what happened.
+     *
+     * @throws \InvalidArgumentException For a list no kind of mail uses
+     */
+    protected function applyEmailPreference(string $email, int $userId, string $language, string $list, bool $on): string
+    {
+        $all = \Pramnos\Email\Unsubscribe::LIST_ALL;
+
+        if ($list === $all) {
+            $on ? \Pramnos\Email\Unsubscribe::clearOptOut($email, $all) : \Pramnos\Email\Unsubscribe::optOut($email, $all, 'admin');
+
+            return $on ? 'This address receives optional mail again.' : 'This address was taken off every optional mail.';
+        }
+
+        $type = \Pramnos\Email\MailTypes::byList($list);
+        if ($type === null) {
+            throw new \InvalidArgumentException('no kind of mail uses that list.');
+        }
+
+        if (!$on) {
+            \Pramnos\Email\Unsubscribe::optOut($email, $list, 'admin');
+
+            return $type->label . ' turned off.';
+        }
+
+        if ($type->optIn) {
+            (new \Pramnos\Email\MailingList())->subscribe($list, $email, [
+                'source' => 'admin', 'consent' => $type->description, 'userid' => $userId, 'language' => $language,
+            ]);
+
+            return 'A confirmation mail for ' . $type->label . ' was sent; it starts when they confirm.';
+        }
+
+        \Pramnos\Email\Unsubscribe::clearOptOut($email, $list);
+
+        return $type->label . ' turned on.';
     }
 
     /**

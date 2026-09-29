@@ -770,6 +770,7 @@ $fullName = trim(($user['firstname'] ?? '') . ' ' . ($user['lastname'] ?? ''));
 
 
             <?php $this->insert('../partials/admin_screens'); ?>
+            <?php $this->insert('../partials/email_preferences'); ?>
         </div>
     </div>
 </div>
