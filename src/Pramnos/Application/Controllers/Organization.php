@@ -53,7 +53,7 @@ class Organization extends Controller
             )]);
         }
 
-        \Pramnos\Framework\Factory::getDocument()->title = 'Your organisations';
+        \Pramnos\Framework\Factory::getDocument()->title = t('Your organisations');
         $view = $this->getView('organization');
         $view->organizations = $managed;
 
@@ -187,7 +187,8 @@ class Organization extends Controller
         if ($this->wantsJson()) {
             return Response::json(['ok' => true, 'message' => $message]);
         }
-        $this->addMessage($message);
+        // Translated for the page; a script gets the sentence as written, to match on.
+        $this->addMessage(t($message));
         $this->redirect(sURL . 'organization/view/' . $orgId);
 
         return null;
@@ -220,7 +221,7 @@ class Organization extends Controller
         if ($this->wantsJson()) {
             return Response::json(['ok' => false, 'error' => $message], $status);
         }
-        $this->addError($message);
+        $this->addError(t($message));
         $this->redirect(sURL . ($orgId > 0 && $status === 422 ? 'organization/view/' . $orgId : 'organization'));
 
         return '';
