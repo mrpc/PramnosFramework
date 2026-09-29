@@ -57,6 +57,21 @@ class ClientEntity implements ClientEntityInterface
         $this->isConfidential = $isConfidential;
     }
 
+    /** @var list<string> The client's Allowed Scopes; empty for no restriction. */
+    private array $allowedScopes = [];
+
+    /** @param list<string> $scopes */
+    public function setAllowedScopes(array $scopes): void
+    {
+        $this->allowedScopes = array_values($scopes);
+    }
+
+    /** @return list<string> */
+    public function getAllowedScopes(): array
+    {
+        return $this->allowedScopes;
+    }
+
     public function isConfidential(): bool
     {
         return (bool) $this->isConfidential;

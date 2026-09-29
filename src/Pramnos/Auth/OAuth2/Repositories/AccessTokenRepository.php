@@ -44,6 +44,10 @@ class AccessTokenRepository implements AccessTokenRepositoryInterface
         array $scopes,
         $userIdentifier = null
     ): AccessTokenEntityInterface {
+        // Every grant issues through here, a refresh included — so narrowing a client's
+        // Allowed Scopes takes effect at its next token, not when its refresh token runs out.
+        ScopeRepository::assertWithinClient($clientEntity, $scopes);
+
         $token = new AccessTokenEntity();
         $token->setClient($clientEntity);
         $token->setUserIdentifier($userIdentifier);

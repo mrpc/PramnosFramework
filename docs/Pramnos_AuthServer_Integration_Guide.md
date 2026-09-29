@@ -314,6 +314,21 @@ An administrator registers your application on the server and gives you a
 client can instead register itself, where the server allows it — see
 [Dynamic client registration](#dynamic-client-registration-rfc-7591).
 
+### Allowed Scopes
+
+An application's **Allowed Scopes** (`applications.scope`, space-separated, on the OAuth2 tab of
+its edit screen) is the most it may ask for. A scope outside it is refused with `invalid_scope`:
+
+- at `/oauth/authorize`, before the user is asked to consent to anything;
+- at `/oauth/token`, for the authorization-code, client-credentials and JWT-assertion grants —
+  and for a **refresh**, so narrowing the list takes effect at the client's next token rather
+  than when its refresh token runs out.
+
+An empty list is no restriction: the server's own scope registry alone decides, which is what a
+client registered through RFC 7591 gets. The rule is `Application::scopesBeyond($allowed,
+$requested)`; League reaches it through `ScopeRepository::finalizeScopes()` and
+`AccessTokenRepository::getNewToken()`.
+
 Applications marked **trusted** (internal/first-party) skip the user consent
 screen; untrusted (third-party) applications always show consent and receive
 only the scopes the user approves. **Trusted** is a switch on the application's edit screen

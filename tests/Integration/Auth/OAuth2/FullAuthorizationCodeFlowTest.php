@@ -586,6 +586,68 @@ class FullAuthorizationCodeFlowTest extends TestCase
         $this->assertSame(401, $fake->getStatusCode(), 'a broken signature must not reach the jti lookup');
     }
 
+    /**
+     * The token endpoint refuses a scope outside the client's Allowed Scopes, for every grant.
+     *
+     * Through `ScopeRepository::finalizeScopes()`, which every League grant calls — so a
+     * refresh is held to the list as it is now: narrowing a client takes effect at its next
+     * token rather than when its refresh token runs out. An empty list is no restriction.
+     */
+    public function testTheTokenEndpointHoldsEveryGrantToTheClientsScopes(): void
+    {
+        // Arrange — a token for `read user`, while the client may have both
+        $this->db->queryBuilder()->table('#PREFIX#applications')->where('apikey', self::CLIENT_ID)->update(['scope' => 'read user']);
+        $server = $this->factory()->createAuthorizationServer();
+        $verifier  = rtrim(strtr(base64_encode(random_bytes(32)), '+/', '-_'), '=');
+        $challenge = rtrim(strtr(base64_encode(hash('sha256', $verifier, true)), '+/', '-_'), '=');
+        $query = [
+            'response_type' => 'code', 'client_id' => self::CLIENT_ID, 'redirect_uri' => self::REDIRECT_URI,
+            'scope' => 'read user', 'state' => 's', 'code_challenge' => $challenge, 'code_challenge_method' => 'S256',
+        ];
+        $authRequest = $server->validateAuthorizationRequest(
+            (new ServerRequest('GET', 'https://self.test/oauth/authorize?' . http_build_query($query)))->withQueryParams($query)
+        );
+        $authRequest->setUser($this->approvingUser());
+        $authRequest->setAuthorizationApproved(true);
+        parse_str((string) parse_url(
+            $server->completeAuthorizationRequest($authRequest, new Psr7Response())->getHeaderLine('Location'),
+            PHP_URL_QUERY
+        ), $callback);
+        $tokens = json_decode((string) $server->respondToAccessTokenRequest(
+            (new ServerRequest('POST', 'https://self.test/oauth/token'))->withParsedBody([
+                'grant_type' => 'authorization_code', 'client_id' => self::CLIENT_ID,
+                'client_secret' => self::CLIENT_SECRET, 'code' => $callback['code'],
+                'redirect_uri' => self::REDIRECT_URI, 'code_verifier' => $verifier,
+            ]),
+            new Psr7Response()
+        )->getBody(), true);
+        $this->assertArrayHasKey('refresh_token', $tokens, 'the code was redeemed within the list');
+
+        // Act — the list narrows to `read`, and the client refreshes, and asks for `user` outright
+        // (the same server: the client's row is read on every request, and a second factory
+        // would encrypt with a key of its own)
+        $this->db->queryBuilder()->table('#PREFIX#applications')->where('apikey', self::CLIENT_ID)->update(['scope' => 'read']);
+        $refused = [];
+        foreach ([
+            ['grant_type' => 'refresh_token', 'refresh_token' => $tokens['refresh_token']],
+            ['grant_type' => 'client_credentials', 'scope' => 'user'],
+        ] as $body) {
+            try {
+                $server->respondToAccessTokenRequest(
+                    (new ServerRequest('POST', 'https://self.test/oauth/token'))->withParsedBody(
+                        $body + ['client_id' => self::CLIENT_ID, 'client_secret' => self::CLIENT_SECRET]
+                    ),
+                    new Psr7Response()
+                );
+                $refused[] = 'issued';
+            } catch (\League\OAuth2\Server\Exception\OAuthServerException $e) {
+                $refused[] = $e->getErrorType();
+            }
+        }
+        // Assert
+        $this->assertSame(['invalid_scope', 'invalid_scope'], $refused);
+    }
+
     // -------------------------------------------------------------------------
     // The bridge, and the fixtures
     // -------------------------------------------------------------------------

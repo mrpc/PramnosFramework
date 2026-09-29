@@ -630,6 +630,28 @@ class Application extends \Pramnos\Application\Model
         return \Pramnos\User\Token::parseScopes($this->scope);
     }
 
+    /**
+     * The requested scopes a client's **Allowed Scopes** do not include.
+     *
+     * The one rule, used by the authorization endpoint, the token endpoint (through
+     * `ScopeRepository::finalizeScopes()`) and the JWT-assertion grant. An empty column means
+     * no restriction — the registry alone decides — which is what every client registered
+     * before the column was enforced has, and what a client registered by RFC 7591 gets.
+     *
+     * @param string|array<int, string>|null $allowed   The `applications.scope` value
+     * @param string|array<int, string>      $requested The scopes asked for
+     * @return list<string> Empty when every requested scope is allowed
+     */
+    public static function scopesBeyond(string|array|null $allowed, string|array $requested): array
+    {
+        $allowed = \Pramnos\User\Token::parseScopes($allowed ?? '');
+        if ($allowed === []) {
+            return [];
+        }
+
+        return array_values(array_diff(\Pramnos\User\Token::parseScopes($requested), $allowed));
+    }
+
     /** Check whether a given scope is allowed for this client. */
     public function hasScope(string $scope): bool
     {

@@ -955,7 +955,7 @@ class OauthTest extends TestCase
         $_POST['client_assertion'] = $assertion;
         $_POST['client_assertion_type'] = 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer';
         $_POST['client_id'] = 'jwt_client';
-        $_POST['scope'] = 'test_scope';
+        $_POST['scope'] = 'profile';
 
         $response = $this->controller->token();
         $this->assertEquals(200, $response->getStatusCode());
@@ -963,7 +963,7 @@ class OauthTest extends TestCase
 
         $this->assertArrayHasKey('access_token', $data);
         $this->assertEquals('Bearer', $data['token_type']);
-        $this->assertEquals('test_scope', $data['scope']);
+        $this->assertEquals('profile', $data['scope']);
         $this->assertEquals('jwt_bearer', $data['client_auth_method']);
 
         // Check that a system user was created
@@ -977,7 +977,7 @@ class OauthTest extends TestCase
         // Check that token was persisted
         $token = $this->db->queryBuilder()->table('usertokens')->where('applicationid', 2)->first();
         $this->assertNotEmpty($token);
-        $this->assertEquals('test_scope', $token->fields['scope']);
+        $this->assertEquals('profile', $token->fields['scope']);
     }
 
     /**

@@ -115,13 +115,16 @@ class ScopeRepository implements ScopeRepositoryInterface
     }
 
     /**
-     * Finalize the scope list after client/user validation.
+     * Finalize the scope list after client/user validation: the client's Allowed Scopes.
      *
-     * Override in application code to restrict scopes per client or user.
-     * The default implementation returns the requested scopes unchanged.
+     * A scope the client's registration does not include is refused with `invalid_scope`. A
+     * client with no list is not restricted. See {@see \Pramnos\Auth\Application::scopesBeyond()}.
+     *
+     * Override to restrict further, per user or per grant; call the parent first.
      *
      * @param ScopeEntityInterface[] $scopes
      * @return ScopeEntityInterface[]
+     * @throws \League\OAuth2\Server\Exception\OAuthServerException
      */
     public function finalizeScopes(
         array $scopes,
@@ -129,6 +132,32 @@ class ScopeRepository implements ScopeRepositoryInterface
         ClientEntityInterface $clientEntity,
         $userIdentifier = null
     ): array {
+        self::assertWithinClient($clientEntity, $scopes);
+
         return $scopes;
+    }
+
+    /**
+     * Refuse scopes outside a client's Allowed Scopes — the check {@see finalizeScopes()} and
+     * `AccessTokenRepository::getNewToken()` both make. League calls the first for the code and
+     * client-credentials grants and not for a refresh; every grant issues its token through the
+     * second.
+     *
+     * @param ScopeEntityInterface[] $scopes
+     * @throws \League\OAuth2\Server\Exception\OAuthServerException
+     */
+    public static function assertWithinClient(ClientEntityInterface $clientEntity, array $scopes): void
+    {
+        if (!$clientEntity instanceof \Pramnos\Auth\OAuth2\Entities\ClientEntity) {
+            return;
+        }
+
+        $beyond = \Pramnos\Auth\Application::scopesBeyond(
+            $clientEntity->getAllowedScopes(),
+            array_map(static fn (ScopeEntityInterface $s): string => $s->getIdentifier(), $scopes)
+        );
+        if ($beyond !== []) {
+            throw \League\OAuth2\Server\Exception\OAuthServerException::invalidScope(implode(' ', $beyond));
+        }
     }
 }

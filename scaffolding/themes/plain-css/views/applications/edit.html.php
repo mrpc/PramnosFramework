@@ -181,7 +181,7 @@ $inp = 'width:100%;padding:8px;border:1px solid #ccc;border-radius:4px;box-sizin
                     <div>
                         <label style="display:block;font-weight:600;margin-bottom:4px;font-size:13px">Allowed Scopes</label>
                         <input type="text" name="scope" style="<?php echo $inp; ?>" value="<?php echo htmlspecialchars($app['scope'] ?? ''); ?>" placeholder="openid profile email">
-                        <small style="color:#888;font-size:11px">Space-separated OAuth2 scopes.</small>
+                        <small style="color:#888;font-size:11px">Space-separated. The client is refused any scope not listed, at sign-in and at the token endpoint, a refresh included. Empty: no restriction beyond the server's own scopes.</small>
                     </div>
                     <div>
                         <label style="display:block;font-weight:600;margin-bottom:4px;font-size:13px">Public Key (PEM)</label>

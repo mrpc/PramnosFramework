@@ -154,7 +154,7 @@ $card = 'bg-base-100 rounded-xl shadow-xs border border-base-300 p-5 mb-4';
                         <p class="text-xs text-base-content/60 mt-1">Allowed redirect URIs. Exact match. Required when the client is public or has no secret. <a href="<?php echo \Pramnos\Auth\Application::CALLBACK_GUIDE_URL; ?>" target="_blank" rel="noopener">What the difference means &rarr;</a></p></div>
                     <div><label class="<?php echo $lbl; ?>">Allowed Scopes</label>
                         <input type="text" name="scope" class="<?php echo $inp; ?>" value="<?php echo htmlspecialchars($app['scope'] ?? ''); ?>" placeholder="openid profile email">
-                        <p class="text-xs text-base-content/60 mt-1">Space-separated OAuth2 scopes.</p></div>
+                        <p class="text-xs text-base-content/60 mt-1">Space-separated. The client is refused any scope not listed, at sign-in and at the token endpoint, a refresh included. Empty: no restriction beyond the server's own scopes.</p></div>
                     <div><label class="<?php echo $lbl; ?>">Public Key (PEM)</label>
                         <textarea name="public_key" class="<?php echo $inp; ?> font-mono" rows="4" placeholder="-----BEGIN PUBLIC KEY-----"><?php echo htmlspecialchars($app['public_key'] ?? ''); ?></textarea>
                         <p class="text-xs text-base-content/60 mt-1">For <code>private_key_jwt</code> client auth (RFC 7523).</p></div>

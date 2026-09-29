@@ -120,6 +120,13 @@ class Oauth extends Controller
 
             $client      = $this->loadClient($params['client_id']);
 
+            // The client's Allowed Scopes, before anybody is asked to consent to one it may
+            // not have. An empty list is no restriction.
+            $beyond = \Pramnos\Auth\Application::scopesBeyond($client['scope'] ?? null, $params['scope']);
+            if ($beyond !== []) {
+                throw OAuthServerException::invalidScope(implode(' ', $beyond));
+            }
+
             // Before anything else touches `redirect_uri`, and before the user is sent
             // anywhere: this is the only place that can refuse a callback the client's
             // registration disagrees with, while the request is still cheap and nothing
@@ -1916,6 +1923,19 @@ class Oauth extends Controller
                 'error'             => 'invalid_client',
                 'error_description' => 'JWT client assertion validation failed',
             ], 401);
+        }
+
+        // The same two checks every other grant makes: scopes the server knows, and within
+        // the client's Allowed Scopes.
+        if ($scope !== '') {
+            [$hasInvalid, $invalid] = Scopes::hasInvalidScopes($scope);
+            $beyond = $hasInvalid ? $invalid : \Pramnos\Auth\Application::scopesBeyond($app->scope ?? null, $scope);
+            if ($beyond !== []) {
+                return $this->respondJson([
+                    'error'             => 'invalid_scope',
+                    'error_description' => 'The requested scope is invalid, unknown, or not allowed for this client: ' . implode(' ', (array) $beyond),
+                ], 400);
+            }
         }
 
         // `systemuser` is already populated by loadByApiKey(), so an application

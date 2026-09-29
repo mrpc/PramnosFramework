@@ -1306,6 +1306,34 @@ class OauthCoverageTest extends TestCase
             'Error page title must appear when scope is invalid');
     }
 
+    /**
+     * A scope outside the client's Allowed Scopes is refused at the authorization endpoint,
+     * before anybody is asked to consent to it.
+     *
+     * The column was saved and read by nothing: a client registered for `openid profile` could
+     * ask for — and be granted — anything the server knew.
+     */
+    public function testAuthorizeRefusesAScopeOutsideTheClientsList(): void
+    {
+        // Arrange — `email` is registered on the server, and not on this client's list
+        $_SERVER['REQUEST_METHOD'] = 'GET';
+        $_GET['client_id']      = 'scope_list_client';
+        $_GET['redirect_uri']   = 'https://example.com/cb';
+        $_GET['response_type']  = 'code';
+        $_GET['scope']          = 'openid email';
+
+        $this->db->queryBuilder()->table('applications')->insert([
+            'appid' => 17, 'name' => 'Scope List App', 'status' => 1, 'scope' => 'openid profile',
+            'apikey' => 'scope_list_client', 'apisecret' => '', 'callback' => 'https://example.com/cb',
+        ]);
+
+        // Act
+        $output = $this->authorizeFailureOutput();
+
+        // Assert
+        $this->assertStringContainsString('Authorization Error', $output);
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // authorize() — generic exception re-throw path (line 147-149)
     // ─────────────────────────────────────────────────────────────────────────

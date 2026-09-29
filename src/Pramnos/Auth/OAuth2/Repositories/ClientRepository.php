@@ -45,6 +45,7 @@ class ClientRepository implements ClientRepositoryInterface
         $entity->setName($application->getClientName());
         $entity->setRedirectUri($application->getRedirectUris());
         $entity->setConfidential($application->isConfidential());
+        $entity->setAllowedScopes($application->getScopes());
 
         return $entity;
     }

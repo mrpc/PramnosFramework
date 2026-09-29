@@ -194,7 +194,7 @@ $accessTypes = [0 => 'REST (API Key)', 1 => 'OAuth2', 2 => 'Legacy API Only'];
                         <div class="col-12">
                             <label class="form-label fw-semibold">Allowed Scopes</label>
                             <input type="text" name="scope" class="form-control" value="<?php echo htmlspecialchars($app['scope'] ?? ''); ?>" placeholder="openid profile email">
-                            <div class="form-text">Space-separated list of OAuth2 scopes this client may request.</div>
+                            <div class="form-text">Space-separated. The client is refused any scope not listed, at sign-in and at the token endpoint, a refresh included. Empty: no restriction beyond the server's own scopes.</div>
                         </div>
                         <div class="col-12">
                             <label class="form-label fw-semibold">Public Key (PEM — for JWT client assertion)</label>
