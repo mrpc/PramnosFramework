@@ -44,6 +44,16 @@ class RefreshTokenRepository implements RefreshTokenRepositoryInterface
         $db  = \Pramnos\Framework\Factory::getDatabase();
         $now = time();
 
+        // This client's own lifetime, where it has one (see AccessTokenRepository).
+        $client = $refreshTokenEntity->getAccessToken()->getClient();
+        if ($client instanceof \Pramnos\Auth\OAuth2\Entities\ClientEntity && $client->getRefreshTokenTtl() !== null) {
+            $refreshTokenEntity->setExpiryDateTime(
+                (new \DateTimeImmutable())->add(\Pramnos\Auth\OAuth2\TokenLifetimes::interval(
+                    \Pramnos\Auth\OAuth2\TokenLifetimes::refresh($client->getRefreshTokenTtl())
+                ))
+            );
+        }
+
         $parentAccessTokenId = $this->resolveAccessTokenId($refreshTokenEntity->getAccessToken()->getIdentifier());
         $parentRow           = $this->loadAccessTokenRow($parentAccessTokenId);
 

@@ -1932,7 +1932,8 @@ class Oauth extends Controller
             ], 500);
         }
 
-        // Issue a signed JWT access token
+        // Issue a signed JWT access token, for this client's lifetime or the server's
+        $ttl     = \Pramnos\Auth\OAuth2\TokenLifetimes::access($app->access_token_ttl !== null ? (int) $app->access_token_ttl : null);
         $now     = time();
         $jti     = bin2hex(random_bytes(16));
         $issuer  = defined('sURL') ? rtrim((string) sURL, '/') : 'https://localhost';
@@ -1941,7 +1942,7 @@ class Oauth extends Controller
             'sub'        => (string) $systemUserId,
             'aud'        => $clientId,
             'iat'        => $now,
-            'exp'        => $now + 3600,
+            'exp'        => $now + $ttl,
             'jti'        => $jti,
             'scope'      => $scope,
             'token_type' => 'access_token',
@@ -1973,14 +1974,14 @@ class Oauth extends Controller
                 'status'        => 1,
                 'applicationid' => $app->appid,
                 'scope'         => $scope,
-                'expires'       => $now + 3600,
+                'expires'       => $now + $ttl,
                 'deviceinfo'    => 'jwt_bearer',
             ]);
 
         return $this->respondJson([
             'access_token'       => $token,
             'token_type'         => 'Bearer',
-            'expires_in'         => 3600,
+            'expires_in'         => $ttl,
             'scope'              => $scope,
             'client_auth_method' => 'jwt_bearer',
         ]);

@@ -56,6 +56,12 @@ class Application extends \Pramnos\Application\Model
     /** @var string|null Space-separated allowed OAuth2 scopes */
     public ?string $scope = null;
 
+    /** @var int|string|null Access token lifetime in seconds for this client; empty = the server default */
+    public $access_token_ttl = null;
+
+    /** @var int|string|null Refresh token lifetime in seconds for this client; empty = the server default */
+    public $refresh_token_ttl = null;
+
     /** @var int Whether publicly listed: 0=private, 1=public */
     public int $public = 0;
 

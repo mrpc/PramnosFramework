@@ -334,6 +334,33 @@ class ApplicationsControllerIntegrationTest extends BaseTestCase
         }
     }
 
+    /**
+     * The token lifetimes are saved when sent — a number, or NULL for the server's default.
+     */
+    public function testTokenLifetimesAreSavedWhenSent(): void
+    {
+        // Arrange
+        $schema = $this->createMock(\Pramnos\Database\SchemaBuilder::class);
+        $schema->method('hasColumn')->willReturn(true);
+        $this->dbMock->method('schema')->willReturn($schema);
+        $written = null;
+        $this->queryBuilderMock->method('update')->willReturnCallback(function (array $fields) use (&$written) {
+            $written = $fields;
+
+            return true;
+        });
+        $_POST = ['name' => 'Short-lived', 'appid' => '1', 'access_token_ttl' => '120', 'refresh_token_ttl' => ''];
+
+        // Act
+        ob_start();
+        $this->controller->save();
+        ob_end_clean();
+
+        // Assert
+        $this->assertSame(120, $written['access_token_ttl']);
+        $this->assertNull($written['refresh_token_ttl'], 'blank is the server default');
+    }
+
     public function testSaveMissingName()
     {
         $_POST['name'] = '';

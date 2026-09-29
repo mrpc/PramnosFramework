@@ -184,6 +184,15 @@ $inp = 'width:100%;padding:8px;border:1px solid #ccc;border-radius:4px;box-sizin
                         <small style="color:#888;font-size:11px">Space-separated. The client is refused any scope not listed, at sign-in and at the token endpoint, a refresh included. Empty: no restriction beyond the server's own scopes.</small>
                     </div>
                     <div>
+                        <label style="display:block;font-weight:600;margin-bottom:4px;font-size:13px" for="access_token_ttl">Access token lifetime</label>
+                        <input type="number" min="60" max="86400" name="access_token_ttl" id="access_token_ttl" style="<?php echo $inp; ?>" value="<?php echo htmlspecialchars((string) ($app['access_token_ttl'] ?? '')); ?>" placeholder="server default">
+                    </div>
+                    <div>
+                        <label style="display:block;font-weight:600;margin-bottom:4px;font-size:13px" for="refresh_token_ttl">Refresh token lifetime</label>
+                        <input type="number" min="60" max="31536000" name="refresh_token_ttl" id="refresh_token_ttl" style="<?php echo $inp; ?>" value="<?php echo htmlspecialchars((string) ($app['refresh_token_ttl'] ?? '')); ?>" placeholder="server default">
+                        <small style="color:#888;font-size:11px">Seconds. Empty: the server's default (<?php echo \Pramnos\Auth\OAuth2\TokenLifetimes::access(); ?> for an access token, <?php echo \Pramnos\Auth\OAuth2\TokenLifetimes::refresh(); ?> for a refresh token). Clamped to a minute – a day, and a minute – a year.</small>
+                    </div>
+                    <div>
                         <label style="display:block;font-weight:600;margin-bottom:4px;font-size:13px">Public Key (PEM)</label>
                         <textarea name="public_key" style="<?php echo $inp; ?>;font-family:monospace" rows="4" placeholder="-----BEGIN PUBLIC KEY-----"><?php echo htmlspecialchars($app['public_key'] ?? ''); ?></textarea>
                         <small style="color:#888;font-size:11px">For private_key_jwt client auth (RFC 7523).</small>

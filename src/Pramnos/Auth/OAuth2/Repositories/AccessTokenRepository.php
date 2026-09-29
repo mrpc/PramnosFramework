@@ -82,6 +82,18 @@ class AccessTokenRepository implements AccessTokenRepositoryInterface
         $db  = \Pramnos\Framework\Factory::getDatabase();
         $now = time();
 
+        // This client's own lifetime, where it has one: League set the server's a moment ago,
+        // and the response is built from the entity after this — so the JWT's `exp`, the
+        // response's `expires_in` and this row all say the same thing.
+        $client = $accessTokenEntity->getClient();
+        if ($client instanceof \Pramnos\Auth\OAuth2\Entities\ClientEntity && $client->getAccessTokenTtl() !== null) {
+            $accessTokenEntity->setExpiryDateTime(
+                (new \DateTimeImmutable())->add(\Pramnos\Auth\OAuth2\TokenLifetimes::interval(
+                    \Pramnos\Auth\OAuth2\TokenLifetimes::access($client->getAccessTokenTtl())
+                ))
+            );
+        }
+
         $clientId = $accessTokenEntity->getClient()->getIdentifier();
         $appId    = $this->resolveAppId($clientId);
         $scopes   = $this->scopeString($accessTokenEntity->getScopes());

@@ -46,6 +46,10 @@ class ClientRepository implements ClientRepositoryInterface
         $entity->setRedirectUri($application->getRedirectUris());
         $entity->setConfidential($application->isConfidential());
         $entity->setAllowedScopes($application->getScopes());
+        $entity->setTokenLifetimes(
+            $application->access_token_ttl !== null ? (int) $application->access_token_ttl : null,
+            $application->refresh_token_ttl !== null ? (int) $application->refresh_token_ttl : null
+        );
 
         return $entity;
     }

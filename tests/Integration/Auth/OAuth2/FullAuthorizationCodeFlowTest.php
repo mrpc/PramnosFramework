@@ -669,6 +669,54 @@ class FullAuthorizationCodeFlowTest extends TestCase
     }
 
     /**
+     * A client with its own lifetimes gets tokens that last that long — in the JWT, in the
+     * response and in the stored rows alike.
+     *
+     * League sets the server's lifetime on each token before persisting it, and builds the
+     * response from the entity after; the client's value is applied in between, so the three
+     * places a lifetime shows cannot disagree.
+     */
+    public function testAClientsOwnLifetimesAreWhatItsTokensLast(): void
+    {
+        // Arrange — two minutes for access, ten for refresh
+        $this->db->queryBuilder()->table('#PREFIX#applications')->where('apikey', self::CLIENT_ID)
+            ->update(['access_token_ttl' => 120, 'refresh_token_ttl' => 600]);
+        $factory = $this->factory();
+        $oauth   = (new \ReflectionClass(\Pramnos\Auth\Controllers\Oauth::class))->newInstanceWithoutConstructor();
+        $oauth->application = $this->app;
+        (new \ReflectionProperty($oauth, 'oauth2Factory'))->setValue($oauth, $factory);
+        $verifier  = rtrim(strtr(base64_encode(random_bytes(32)), '+/', '-_'), '=');
+        $challenge = rtrim(strtr(base64_encode(hash('sha256', $verifier, true)), '+/', '-_'), '=');
+        $code = (new \ReflectionMethod($oauth, 'generateAuthCode'))->invoke(
+            $oauth, self::CLIENT_ID, self::USER_ID, 'read', self::REDIRECT_URI, $challenge, 'S256'
+        );
+        $before = time();
+
+        // Act
+        $tokens = json_decode((string) $factory->redeemingCode($code)->createAuthorizationServer()->respondToAccessTokenRequest(
+            (new ServerRequest('POST', 'https://self.test/oauth/token'))->withParsedBody([
+                'grant_type' => 'authorization_code', 'client_id' => self::CLIENT_ID,
+                'client_secret' => self::CLIENT_SECRET, 'code' => $code,
+                'redirect_uri' => self::REDIRECT_URI, 'code_verifier' => $verifier,
+            ]),
+            new Psr7Response()
+        )->getBody(), true);
+
+        // Assert
+        $this->assertEqualsWithDelta(120, $tokens['expires_in'], 2, 'the response');
+        $claims = json_decode((string) base64_decode(strtr(explode('.', $tokens['access_token'])[1], '-_', '+/')), true);
+        $this->assertEqualsWithDelta($before + 120, (int) $claims['exp'], 2, 'the JWT');
+        $rows = [];
+        $result = $this->db->queryBuilder()->table('#PREFIX#usertokens')->select(['tokentype', 'expires'])
+            ->where('userid', self::USER_ID)->whereIn('tokentype', ['access_token', 'refresh_token'])->get();
+        while ($result && $result->fetch()) {
+            $rows[$result->fields['tokentype']] = (int) $result->fields['expires'];
+        }
+        $this->assertEqualsWithDelta($before + 120, $rows['access_token'], 2, 'the stored access token');
+        $this->assertEqualsWithDelta($before + 600, $rows['refresh_token'], 2, 'the stored refresh token');
+    }
+
+    /**
      * The token endpoint refuses a scope outside the client's Allowed Scopes, for every grant.
      *
      * Through `ScopeRepository::finalizeScopes()`, which every League grant calls — so a
@@ -930,6 +978,8 @@ class FullAuthorizationCodeFlowTest extends TestCase
             \Pramnos\Framework\Migrations\Applications\WidenApplicationsCallback::class,
             // A public client is one with `is_confidential = 0` — what dynamic registration writes.
             \Pramnos\Framework\Migrations\AuthServer\AddIsConfidentialToApplications::class,
+            // A client's own token lifetimes.
+            \Pramnos\Framework\Migrations\AuthServer\AddTokenLifetimesToApplications::class,
             \Pramnos\Framework\Migrations\Oauth\CreateOauthconnectionsTable::class,
         ], $this->db);
 

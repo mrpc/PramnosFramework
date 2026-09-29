@@ -155,6 +155,11 @@ $card = 'bg-base-100 rounded-xl shadow-xs border border-base-300 p-5 mb-4';
                     <div><label class="<?php echo $lbl; ?>">Allowed Scopes</label>
                         <input type="text" name="scope" class="<?php echo $inp; ?>" value="<?php echo htmlspecialchars($app['scope'] ?? ''); ?>" placeholder="openid profile email">
                         <p class="text-xs text-base-content/60 mt-1">Space-separated. The client is refused any scope not listed, at sign-in and at the token endpoint, a refresh included. Empty: no restriction beyond the server's own scopes.</p></div>
+                    <div><label class="<?php echo $lbl; ?>" for="access_token_ttl">Access token lifetime</label>
+                        <input type="number" min="60" max="86400" name="access_token_ttl" id="access_token_ttl" class="<?php echo $inp; ?>" value="<?php echo htmlspecialchars((string) ($app['access_token_ttl'] ?? '')); ?>" placeholder="server default"></div>
+                    <div><label class="<?php echo $lbl; ?>" for="refresh_token_ttl">Refresh token lifetime</label>
+                        <input type="number" min="60" max="31536000" name="refresh_token_ttl" id="refresh_token_ttl" class="<?php echo $inp; ?>" value="<?php echo htmlspecialchars((string) ($app['refresh_token_ttl'] ?? '')); ?>" placeholder="server default">
+                        <p class="text-xs text-base-content/60 mt-1">Seconds. Empty: the server's default (<?php echo \Pramnos\Auth\OAuth2\TokenLifetimes::access(); ?> for an access token, <?php echo \Pramnos\Auth\OAuth2\TokenLifetimes::refresh(); ?> for a refresh token). Clamped to a minute – a day, and a minute – a year.</p></div>
                     <div><label class="<?php echo $lbl; ?>">Public Key (PEM)</label>
                         <textarea name="public_key" class="<?php echo $inp; ?> font-mono" rows="4" placeholder="-----BEGIN PUBLIC KEY-----"><?php echo htmlspecialchars($app['public_key'] ?? ''); ?></textarea>
                         <p class="text-xs text-base-content/60 mt-1">For <code>private_key_jwt</code> client auth (RFC 7523).</p></div>

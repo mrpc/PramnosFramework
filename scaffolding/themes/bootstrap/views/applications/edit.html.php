@@ -196,6 +196,15 @@ $accessTypes = [0 => 'REST (API Key)', 1 => 'OAuth2', 2 => 'Legacy API Only'];
                             <input type="text" name="scope" class="form-control" value="<?php echo htmlspecialchars($app['scope'] ?? ''); ?>" placeholder="openid profile email">
                             <div class="form-text">Space-separated. The client is refused any scope not listed, at sign-in and at the token endpoint, a refresh included. Empty: no restriction beyond the server's own scopes.</div>
                         </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-semibold" for="access_token_ttl">Access token lifetime</label>
+                            <input type="number" min="60" max="86400" name="access_token_ttl" id="access_token_ttl" class="form-control" value="<?php echo htmlspecialchars((string) ($app['access_token_ttl'] ?? '')); ?>" placeholder="server default">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-semibold" for="refresh_token_ttl">Refresh token lifetime</label>
+                            <input type="number" min="60" max="31536000" name="refresh_token_ttl" id="refresh_token_ttl" class="form-control" value="<?php echo htmlspecialchars((string) ($app['refresh_token_ttl'] ?? '')); ?>" placeholder="server default">
+                        </div>
+                        <div class="col-12"><div class="form-text">Seconds. Empty: the server's default (<?php echo \Pramnos\Auth\OAuth2\TokenLifetimes::access(); ?> for an access token, <?php echo \Pramnos\Auth\OAuth2\TokenLifetimes::refresh(); ?> for a refresh token). Clamped to a minute – a day, and a minute – a year.</div></div>
                         <div class="col-12">
                             <label class="form-label fw-semibold">Public Key (PEM — for JWT client assertion)</label>
                             <textarea name="public_key" class="form-control font-monospace" rows="4" placeholder="-----BEGIN PUBLIC KEY-----"><?php echo htmlspecialchars($app['public_key'] ?? ''); ?></textarea>

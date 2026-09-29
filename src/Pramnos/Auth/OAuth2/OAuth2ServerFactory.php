@@ -105,26 +105,28 @@ class OAuth2ServerFactory
             $this->makeResponseType()
         );
 
-        $server->enableGrantType(
-            new ClientCredentialsGrant(),
-            new \DateInterval('PT1H')
-        );
+        // The server's lifetimes (`oauth.*_ttl` in app.php); a client with its own has them
+        // applied when its tokens are persisted — see TokenLifetimes.
+        $access  = TokenLifetimes::interval(TokenLifetimes::access());
+        $refresh = TokenLifetimes::interval(TokenLifetimes::refresh());
+
+        $server->enableGrantType(new ClientCredentialsGrant(), $access);
 
         $passwordGrant = new PasswordGrant($userRepo, $refreshTokenRepo);
-        $passwordGrant->setRefreshTokenTTL(new \DateInterval('P1M'));
-        $server->enableGrantType($passwordGrant, new \DateInterval('PT1H'));
+        $passwordGrant->setRefreshTokenTTL($refresh);
+        $server->enableGrantType($passwordGrant, $access);
 
         $authCodeGrant = new AuthCodeGrant(
             $authCodeRepo,
             $refreshTokenRepo,
-            new \DateInterval('PT10M')
+            TokenLifetimes::interval(TokenLifetimes::authCode())
         );
-        $authCodeGrant->setRefreshTokenTTL(new \DateInterval('P1M'));
-        $server->enableGrantType($authCodeGrant, new \DateInterval('PT1H'));
+        $authCodeGrant->setRefreshTokenTTL($refresh);
+        $server->enableGrantType($authCodeGrant, $access);
 
         $refreshTokenGrant = new RefreshTokenGrant($refreshTokenRepo);
-        $refreshTokenGrant->setRefreshTokenTTL(new \DateInterval('P1M'));
-        $server->enableGrantType($refreshTokenGrant, new \DateInterval('PT1H'));
+        $refreshTokenGrant->setRefreshTokenTTL($refresh);
+        $server->enableGrantType($refreshTokenGrant, $access);
 
         return $server;
     }

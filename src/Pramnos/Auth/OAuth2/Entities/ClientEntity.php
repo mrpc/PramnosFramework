@@ -72,6 +72,27 @@ class ClientEntity implements ClientEntityInterface
         return $this->allowedScopes;
     }
 
+    private ?int $accessTokenTtl = null;
+
+    private ?int $refreshTokenTtl = null;
+
+    /** This client's own lifetimes in seconds, or null for the server's. */
+    public function setTokenLifetimes(?int $accessTokenTtl, ?int $refreshTokenTtl): void
+    {
+        $this->accessTokenTtl  = $accessTokenTtl !== null && $accessTokenTtl > 0 ? $accessTokenTtl : null;
+        $this->refreshTokenTtl = $refreshTokenTtl !== null && $refreshTokenTtl > 0 ? $refreshTokenTtl : null;
+    }
+
+    public function getAccessTokenTtl(): ?int
+    {
+        return $this->accessTokenTtl;
+    }
+
+    public function getRefreshTokenTtl(): ?int
+    {
+        return $this->refreshTokenTtl;
+    }
+
     public function isConfidential(): bool
     {
         return (bool) $this->isConfidential;

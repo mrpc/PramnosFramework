@@ -309,6 +309,25 @@ An administrator registers your application on the server and gives you a
 client can instead register itself, where the server allows it — see
 [Dynamic client registration](#dynamic-client-registration-rfc-7591).
 
+### Token lifetimes
+
+How long a token lasts is the server's default unless the application sets its own:
+
+```php
+// app/app.php — the server's defaults, in seconds
+'oauth' => [
+    'access_token_ttl'  => 3600,      // one hour unless set
+    'refresh_token_ttl' => 2592000,   // thirty days
+    'auth_code_ttl'     => 600,       // ten minutes
+],
+```
+
+An application's **Access token lifetime** and **Refresh token lifetime** (OAuth2 tab of its edit
+screen, seconds) replace the first two for that client; empty is the default. Values are clamped:
+an access token lasts a minute to a day, a refresh token a minute to a year, a code at most ten
+minutes. The lifetime is the same in the JWT's `exp`, the response's `expires_in` and the stored
+token — `Pramnos\Auth\OAuth2\TokenLifetimes` is the rule, applied as each token is persisted.
+
 ### Allowed Scopes
 
 An application's **Allowed Scopes** (`applications.scope`, space-separated, on the OAuth2 tab of

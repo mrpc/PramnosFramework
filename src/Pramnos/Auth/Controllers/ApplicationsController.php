@@ -425,6 +425,13 @@ class ApplicationsController extends Controller
             $fields['trusted'] = (int) $_POST['trusted'] === 1 ? 1 : 0;   // the checkbox, after the hidden 0
         }
 
+        // The lifetimes, likewise only when sent: blank is the server default, stored as NULL.
+        foreach (['access_token_ttl', 'refresh_token_ttl'] as $ttl) {
+            if (array_key_exists($ttl, $_POST) && $db->schema()->hasColumn('applications', $ttl)) {
+                $fields[$ttl] = (int) $_POST[$ttl] > 0 ? (int) $_POST[$ttl] : null;
+            }
+        }
+
         if ($id > 0) {
             $db->queryBuilder()
                 ->table('#PREFIX#applications')
