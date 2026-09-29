@@ -84,9 +84,10 @@ $labels = [
 
             <div class="mb-4">
                 <label class="block text-sm font-medium mb-1" for="pf-message-body">Message</label>
-                <textarea id="pf-message-body" name="message" class="textarea w-full" rows="8" required></textarea>
+                <textarea id="pf-message-body" data-pf-editor="builtin" name="message" class="textarea w-full" rows="8" required></textarea>
                 <p class="text-xs text-base-content/60 mt-1">
-                    Sent as text — line breaks are kept, markup is not. What was sent, on which
+                    Formatting, links and images are kept; anything else in the markup is removed. A push
+                    notification gets the text of it. What was sent, on which
                     channels, and by whom, is recorded on the account's activity log.
                 </p>
             </div>
@@ -189,5 +190,6 @@ $labels = [
                 <a href="<?php echo adminUrl('users/view/' . $uid); ?>" class="btn btn-outline btn-sm">Cancel</a>
             </div>
         </form>
+<?php echo \Pramnos\Html\MessageEditor::scripts(\Pramnos\Html\MessageEditor::BUILTIN); ?>
     </div>
 </div>

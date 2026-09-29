@@ -91,7 +91,7 @@ $checked  = static fn ($value): string => ($value ?? true) !== false ? ' checked
 
             <div>
                 <label class="block text-sm font-medium mb-1" for="message">Body</label>
-                <textarea name="message" id="message" rows="12" style="width:100%;padding:8px;font-family:monospace;font-size:12px"><?php echo $e($message['message'] ?? ''); ?></textarea>
+                <textarea name="message" id="message" data-pf-editor="<?php echo $e(\Pramnos\Html\MessageEditor::mode()); ?>" rows="12" style="width:100%;padding:8px;font-family:monospace;font-size:12px"><?php echo $e($message['message'] ?? ''); ?></textarea>
                 <p class="text-xs pf-muted mt-1">
                     Markup, kept as written — it is the body of a message. It is escaped
                     wherever this screen displays it.
@@ -450,6 +450,7 @@ if ($optInLists !== []): ?>
             </span>
         </div>
     </form>
+<?php echo \Pramnos\Html\MessageEditor::scripts(\Pramnos\Html\MessageEditor::mode()); ?>
 
 <script>
 /*

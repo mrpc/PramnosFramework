@@ -1081,7 +1081,9 @@ class UsersController extends Controller
         }
         $id      = (int) \Pramnos\Http\Request::staticGetOption();
         $subject = trim(strip_tags((string) \Pramnos\Http\Request::staticGet('subject', '', 'post')));
-        $message = trim(strip_tags((string) \Pramnos\Http\Request::staticGet('message', '', 'post')));
+        // Markup from the editor is kept and cleaned in composeMessage(); the emptiness check
+        // reads the text, so a body of nothing but tags is still empty.
+        $message = trim((string) \Pramnos\Http\Request::staticGet('message', '', 'post'));
 
         $user = new User();
         if ($id > 1) {
@@ -1093,7 +1095,7 @@ class UsersController extends Controller
             return;
         }
 
-        if ($subject === '' || $message === '') {
+        if ($subject === '' || trim(html_entity_decode(strip_tags($message))) === '') {
             $_SESSION['users_error'] = 'A message needs a subject and a body.';
             $this->redirect(adminUrl('users/notify/') . $id);
 
@@ -1186,7 +1188,11 @@ class UsersController extends Controller
      */
     protected function composeMessage(string $subject, string $message, array $channels): \Pramnos\Notification\Message
     {
-        $body = nl2br(htmlspecialchars($message, ENT_QUOTES, 'UTF-8'));
+        // The editor sends markup, reduced here to what a message may carry; text typed
+        // without it keeps its line breaks.
+        $body = $message !== strip_tags($message)
+            ? \Pramnos\Html\SafeHtml::clean($message)
+            : nl2br(htmlspecialchars($message, ENT_QUOTES, 'UTF-8'));
 
         $notification = (new \Pramnos\Notification\Message($subject, $body))->to(...$channels);
 

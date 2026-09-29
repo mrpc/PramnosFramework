@@ -449,6 +449,11 @@ VAPID pair, no browser subscribed — each says which. An operator who presses S
 the outside: nothing errors, the message simply never arrives. "No browser has subscribed" and
 "this installation has no key pair" also need different people to fix them.
 
+The body is written in the framework's own editor (below) and sent as HTML reduced by
+`Pramnos\Html\SafeHtml` to paragraphs, emphasis, headings, lists, quotes, links (`http`, `https`,
+`mailto`) and `https` images — every other element and attribute is removed. Text posted without
+markup is escaped and keeps its line breaks. A push notification gets the text of it.
+
 Every mail option this guide describes is on that screen, because this is where they get *tried*:
 a wrapper nobody has rendered and a Gmail action nobody has seen arrive are both things you find
 out about from a real message, not from a test.
@@ -503,6 +508,39 @@ class WeeklyDigest implements NotificationInterface
     public function toMail(mixed $notifiable): array { … }
 }
 ```
+
+## The editor a message is written in
+
+The body of a mass message is written in whichever editor the application chose; the message to
+one account always uses the framework's own.
+
+```php
+// app/app.php
+'messaging' => [
+    'editor'  => 'builtin',   // builtin (default) | tinymce | none
+    'tinymce' => [            // only for 'tinymce'
+        'src'         => sURL . 'assets/vendor/tinymce/7.2.0/tinymce.min.js',  // default: the jsDelivr CDN
+        'license_key' => 'gpl',                                              // TinyMCE's requirement
+    ],
+],
+```
+
+| Mode | What it is |
+| --- | --- |
+| `builtin` | `www/assets/js/pf-editor.js`: bold, italic, two heading levels, lists, a link, an image by its `https` address, clear formatting, and the HTML itself. Pasting inserts text, not the pasted page's styles — the commonest reason a message looks broken in Outlook. No dependency, nothing a Content-Security-Policy has to allow. |
+| `tinymce` | TinyMCE, loaded from `src` and initialised with `license_key`. Where it comes from and under which licence are the application's decisions; a CDN source must be allowed by the CSP's `script-src`. |
+| `none` | The textarea, as markup. |
+
+A form marks its field and prints the scripts:
+
+```php
+<textarea name="body" data-pf-editor="<?php echo \Pramnos\Html\MessageEditor::mode(); ?>"></textarea>
+<?php echo \Pramnos\Html\MessageEditor::scripts(\Pramnos\Html\MessageEditor::mode()); ?>
+```
+
+Without JavaScript the textarea is simply there. `pf-editor.js` ships with the other `pf-*.js`
+files: `init` writes it and `project:resync --js` brings it to a project made before it existed.
+`window.PfEditor.enhance(textarea)` enhances a field added after the page loaded.
 
 ## A message to many accounts
 

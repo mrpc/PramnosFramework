@@ -1450,6 +1450,29 @@ class UsersControllerTest extends TestCase
     }
 
     /**
+     * The editor's markup is kept, cleaned; nothing that could run reaches the message.
+     *
+     * The form's body is written in the message editor now, so it arrives as HTML. Escaping it,
+     * as for typed text, would mail the reader the tags; keeping it as written would mail them a
+     * script. SafeHtml keeps the formatting and removes the rest.
+     */
+    public function testTheEditorsMarkupIsKeptAndCleaned(): void
+    {
+        // Arrange
+        $this->arrangePost([]);
+
+        // Act
+        $message = (new UsersProbe())->exposeCompose('Hello', '<p>Your <strong>export</strong> is ready.</p><script>x()</script><p onclick="y()">Bye</p>', ['mail']);
+
+        // Assert
+        $body = $message->toMail(null)['body'];
+        $this->assertStringContainsString('<strong>export</strong>', $body);
+        $this->assertStringNotContainsString('<script', $body);
+        $this->assertStringNotContainsString('onclick', $body);
+        $this->assertSame('Your export is ready. Bye', $message->toPush(null)['body'], 'a push gets the text');
+    }
+
+    /**
      * The composed message carries the channels, the body and nothing that was not asked for.
      *
      * The transactional default is the important half: a form submitted with the options
@@ -1477,24 +1500,26 @@ class UsersControllerTest extends TestCase
     }
 
     /**
-     * The body is escaped before the line breaks are added.
+     * Text with no markup is escaped before its line breaks are added; markup that could run
+     * does not survive either way.
      *
-     * The other order turns `<b>` typed by an operator into working markup in somebody's mail
-     * client — which is the whole reason this field is text rather than HTML.
+     * The other order turns a `<` typed by an operator into markup in somebody's mail client.
+     * A script sent as markup is removed by SafeHtml, and a body of nothing but a script is empty.
      */
     public function testTheBodyIsEscapedNotRendered(): void
     {
         // Arrange
         $this->arrangePost([]);
+        $probe = new UsersProbe();
 
         // Act
-        $body = (new UsersProbe())
-            ->exposeCompose('S', '<script>alert(1)</script>', ['mail'])
-            ->toMail(null)['body'];
+        $text   = $probe->exposeCompose('S', "1 < 2 & 3
+next", ['mail'])->toMail(null)['body'] ?? '';
+        $script = $probe->exposeCompose('S', '<p>a</p><script>alert(1)</script>', ['mail'])->toMail(null)['body'] ?? '';
 
         // Assert
-        $this->assertStringNotContainsString('<script>', $body);
-        $this->assertStringContainsString('&lt;script&gt;', $body);
+        $this->assertSame("1 &lt; 2 &amp; 3<br />\nnext", $text);
+        $this->assertSame('<p>a</p>', $script);
     }
 
     /**
