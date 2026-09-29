@@ -35,6 +35,7 @@ $this->activeNav = 'privacy';
                     </p>
 
                     <form method="post" action="<?php echo sURL . $routeBase; ?>/privacy">
+                        <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
                         <div class="mb-3">
                             <div class="form-check form-switch">
                                 <input class="form-check-input" type="checkbox"

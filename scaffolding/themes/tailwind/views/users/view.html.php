@@ -126,20 +126,33 @@ $fullName = trim(($user['firstname'] ?? '') . ' ' . ($user['lastname'] ?? ''));
                  * `Html\Icon` — one visual language for "edit", whether it is a 28px
                  * cell in a table or a full-width button here.
                  */
+                // `$post` for an action that changes something: a one-button POST form with the
+                // session's token, because the controller refuses it any other way.
                 $action = static function (
                     string $url,
                     string $icon,
                     string $label,
                     string $classes = 'btn-outline',
-                    string $confirm = ''
+                    string $confirm = '',
+                    bool $post = false
                 ): void {
+                    $content = \Pramnos\Html\Icon::svg($icon)
+                        . '<span>' . htmlspecialchars($label, ENT_QUOTES, 'UTF-8') . '</span>';
+                    $class   = 'btn btn-sm btn-block justify-start gap-2 ' . $classes;
+
+                    if ($post) {
+                        echo \Pramnos\Html\Icon::postControl($url, $content, ['class' => $class]
+                            + ($confirm !== '' ? ['data-confirm' => $confirm] : []));
+
+                        return;
+                    }
+
                     echo '<a href="' . htmlspecialchars($url, ENT_QUOTES, 'UTF-8') . '"'
-                        . ' class="btn btn-sm btn-block justify-start gap-2 ' . $classes . '"'
+                        . ' class="' . $class . '"'
                         . ($confirm !== ''
                             ? ' data-confirm="' . htmlspecialchars($confirm, ENT_QUOTES, 'UTF-8') . '"'
                             : '')
-                        . '>' . \Pramnos\Html\Icon::svg($icon)
-                        . '<span>' . htmlspecialchars($label, ENT_QUOTES, 'UTF-8') . '</span></a>';
+                        . '>' . $content . '</a>';
                 };
                 ?>
                 <div class="p-4 grid gap-2">
@@ -154,12 +167,12 @@ $fullName = trim(($user['firstname'] ?? '') . ' ' . ($user['lastname'] ?? ''));
                      */
                     $action(adminUrl('users/notify/' . $uid), 'send', 'Send a message');
                     $action(adminUrl('users/resetpassword/' . $uid), 'password', 'Send password reset', 'btn-outline',
-                        'Send a password reset link to this user?');
+                        'Send a password reset link to this user?', true);
                     if ($isActive) {
                         $action(adminUrl('users/lock/' . $uid), 'lock', 'Lock account', 'btn-outline btn-warning',
-                            'Lock this account?');
+                            'Lock this account?', true);
                     } else {
-                        $action(adminUrl('users/unlock/' . $uid), 'unlock', 'Unlock account', 'btn-outline btn-success');
+                        $action(adminUrl('users/unlock/' . $uid), 'unlock', 'Unlock account', 'btn-outline btn-success', '', true);
                     }
                     $action(adminUrl('Tokens/userid/' . $uid), 'tokens', 'All tokens');
                     $action(adminUrl('users/sessions/' . $uid), 'sessions', 'Sessions');
@@ -329,9 +342,9 @@ $fullName = trim(($user['firstname'] ?? '') . ' ' . ($user['lastname'] ?? ''));
                         <?php endforeach; ?>
                         </tbody>
                     </table>
-                    <a href="<?php echo adminUrl('users/unlocklogin/' . $uid); ?>"
-                       class="btn btn-sm btn-outline btn-error mt-3"
-                       data-confirm="Clear the login lockout for this user?">Clear lockout</a>
+                    <?php echo \Pramnos\Html\Icon::postControl(adminUrl('users/unlocklogin/' . $uid), 'Clear lockout', [
+                        'class' => 'btn btn-sm btn-outline btn-error mt-3', 'data-confirm' => 'Clear the login lockout for this user?',
+                    ]); ?>
                     <?php else: ?>
                     <p class="text-base-content/60 text-sm mb-0">No failed sign-in attempts recorded.</p>
                     <?php endif; ?>
@@ -349,9 +362,9 @@ $fullName = trim(($user['firstname'] ?? '') . ' ' . ($user['lastname'] ?? ''));
                         <span class="text-xs text-base-content/60">
                             since <?php echo $esc($when($twofactor['enabled_at'] ?? $twofactor['created_at'] ?? null)); ?>
                         </span>
-                        <a href="<?php echo adminUrl('users/disabletwofactor/' . $uid); ?>"
-                           class="btn btn-xs btn-outline btn-warning ms-auto"
-                           data-confirm="Disable two-factor authentication for this user?">Disable</a>
+                        <span class="ms-auto"><?php echo \Pramnos\Html\Icon::postControl(adminUrl('users/disabletwofactor/' . $uid), 'Disable', [
+                            'class' => 'btn btn-xs btn-outline btn-warning', 'data-confirm' => 'Disable two-factor authentication for this user?',
+                        ]); ?></span>
                         <?php else: ?>
                         <span class="badge badge-ghost badge-sm">2FA off</span>
                         <?php endif; ?>
@@ -396,12 +409,10 @@ $fullName = trim(($user['firstname'] ?? '') . ' ' . ($user['lastname'] ?? ''));
                         <?php if (($alerts['policy'] ?? 'optin') === 'optin'): ?>
                             <?php if (!empty($alerts['enabled'])): ?>
                             <span class="badge badge-success badge-sm">Sign-in alerts on</span>
-                            <a href="<?php echo adminUrl('users/signinalerts/' . $uid); ?>?enabled=0"
-                               class="btn btn-xs btn-outline ms-auto">Turn off</a>
+                            <span class="ms-auto"><?php echo \Pramnos\Html\Icon::postControl(adminUrl('users/signinalerts/' . $uid) . '?enabled=0', 'Turn off', ['class' => 'btn btn-xs btn-outline']); ?></span>
                             <?php else: ?>
                             <span class="badge badge-ghost badge-sm">Sign-in alerts off</span>
-                            <a href="<?php echo adminUrl('users/signinalerts/' . $uid); ?>?enabled=1"
-                               class="btn btn-xs btn-outline ms-auto">Turn on</a>
+                            <span class="ms-auto"><?php echo \Pramnos\Html\Icon::postControl(adminUrl('users/signinalerts/' . $uid) . '?enabled=1', 'Turn on', ['class' => 'btn btn-xs btn-outline']); ?></span>
                             <?php endif; ?>
                         <?php elseif (($alerts['policy'] ?? '') === 'always'): ?>
                         <span class="badge badge-success badge-sm">Sign-in alerts on</span>
@@ -423,7 +434,7 @@ $fullName = trim(($user['firstname'] ?? '') . ' ' . ($user['lastname'] ?? ''));
                                 <td class="text-xs"><?php echo $esc($when($key['created_at'] ?? null)); ?></td>
                                 <td class="text-xs"><?php echo $esc($when($key['last_used_at'] ?? null)); ?></td>
                                 <td class="text-end">
-                                    <?php echo \Pramnos\Html\Icon::link(
+                                    <?php echo \Pramnos\Html\Icon::postButton(
                                         adminUrl('users/revokepasskey/' . $uid) . '?credential=' . (int) ($key['id'] ?? 0),
                                         'delete',
                                         'Revoke this passkey',

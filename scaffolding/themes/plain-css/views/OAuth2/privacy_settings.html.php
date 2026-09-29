@@ -34,6 +34,7 @@ $this->activeNav = 'privacy';
                     </p>
 
                     <form method="post" action="<?php echo sURL . $routeBase; ?>/privacy">
+                        <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
                         <div class="form-group" style="margin-bottom:20px">
                             <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer">
                                 <input type="checkbox" name="analytics" id="analytics"

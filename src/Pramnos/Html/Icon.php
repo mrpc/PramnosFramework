@@ -118,6 +118,59 @@ final class Icon
     }
 
     /** The names this class knows, for a caller that wants to check one. */
+    /**
+     * An icon that performs an action: a one-button `POST` form carrying the form token.
+     *
+     * For anything that changes state — delete, revoke, remove a member, reset. {@see link()}
+     * is a `GET`, and a `GET` that deletes is a request any page can make on a signed-in
+     * administrator's behalf with an `<img src>`: the confirm dialog guards against a slip of
+     * the hand, not against a request that never clicks anything. The controller behind it
+     * refuses anything but a `POST` with the token ({@see \Pramnos\Application\Controller::refuseUnverifiedWrite()}).
+     *
+     * Styled as the link it replaces — same classes, no button chrome — and it works without
+     * JavaScript; `data-confirm` in `$extra` still asks first where `pf-utils.js` is loaded.
+     *
+     * @param array<string, string> $extra Extra attributes for the button — `data-confirm`, `class`
+     */
+    public static function postButton(string $url, string $name, string $label, array $extra = []): string
+    {
+        $classes = trim(ComponentClasses::get('action') . ' ' . ($extra['class'] ?? ''));
+        unset($extra['class']);
+
+        return self::postControl($url, self::svg($name), [
+            'class'      => $classes,
+            'title'      => $label,
+            'aria-label' => $label,
+            'style'      => 'background:none;border:0;padding:0;margin:0;font:inherit;color:inherit;cursor:pointer',
+        ] + $extra);
+    }
+
+    /**
+     * Any control that performs an action — a one-button `POST` form carrying the form token.
+     *
+     * {@see postButton()} for an icon; this for a labelled button that replaces an `<a>`:
+     *
+     * ```php
+     * echo Icon::postControl(adminUrl('users/lock/' . $id), 'Lock account', [
+     *     'class' => 'btn btn-sm btn-warning', 'data-confirm' => 'Lock this account?',
+     * ]);
+     * ```
+     *
+     * @param string                $content Inner HTML of the button, already escaped
+     * @param array<string, string> $attributes Attributes of the button
+     */
+    public static function postControl(string $url, string $content, array $attributes = []): string
+    {
+        $html = '';
+        foreach ($attributes as $attribute => $value) {
+            $html .= ' ' . self::attr((string) $attribute) . '="' . self::attr((string) $value) . '"';
+        }
+
+        return '<form method="post" action="' . self::attr($url) . '" style="display:inline;margin:0">'
+            . \Pramnos\Http\Session::getInstance()->getTokenField()
+            . '<button type="submit"' . $html . '>' . $content . '</button></form>';
+    }
+
     public static function names(): array
     {
         return array_keys(self::PATHS);

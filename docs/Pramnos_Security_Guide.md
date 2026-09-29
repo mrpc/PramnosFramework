@@ -41,6 +41,45 @@ New methods on `Session`:
 | `verifyCsrfToken(string $submitted): bool` | Timing-safe comparison via `hash_equals()` |
 | `regenerateCsrfToken(): void` | Regenerate the CSRF token (call after login/logout) |
 
+### Controller actions that change something: `addWriteAction()`
+
+An action that deletes, revokes, removes, resets, sends or saves must not be reachable by a
+`GET` link or by a `POST` without a token: any page a signed-in user opens can make either — an
+`<img src="…/users/delete/5">` needs no click, and a form on another site needs no token. A
+`data-confirm` dialog guards against a slip of the hand, not against a request nobody made.
+
+Declare those actions once, in the constructor:
+
+```php
+public function __construct(?\Pramnos\Application\Application $application = null)
+{
+    $this->addAuthAction(['display', 'edit', 'save', 'delete', 'lock']);
+    $this->addWriteAction(['save', 'delete', 'lock']);
+    parent::__construct($application);
+}
+```
+
+`Controller::exec()` then refuses a declared action **before it runs** unless it arrives as a
+`POST` carrying a token this session issued — the form token (`Session::getTokenField()`), the
+synchronizer token as `_csrf_token` (`CsrfMiddleware::tokenField()`), or the synchronizer token as
+the `X-CSRF-Token` header a page's own `fetch()` sends from `<meta name="csrf">`. The action needs
+no check of its own. A refused page request gets an error message and is sent back to where it
+came from on this site; a script (`Accept: application/json` or `X-Requested-With`) gets `403` and
+a JSON reason.
+
+In the view, a link to such an action becomes a one-button form:
+
+```php
+echo \Pramnos\Html\Icon::postButton(adminUrl('users/delete/') . $id, 'delete', 'Delete',
+    ['data-confirm' => 'Delete this user?']);                // an icon, as Icon::link() drew it
+
+echo \Pramnos\Html\Icon::postControl(adminUrl('users/lock/') . $id, 'Lock account',
+    ['class' => 'btn btn-sm', 'data-confirm' => 'Lock this account?']);   // a labelled button
+```
+
+Both carry the session's token and work without JavaScript; `data-confirm` still asks first where
+`pf-utils.js` is loaded.
+
 ### CsrfMiddleware
 
 Validates the token on `POST`, `PUT`, `PATCH`, `DELETE`. Passes `GET`, `HEAD`, `OPTIONS`, `TRACE` through unchecked.

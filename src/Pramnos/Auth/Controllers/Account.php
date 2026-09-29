@@ -1660,6 +1660,15 @@ class Account extends Controller
         $currentUser = \Pramnos\User\User::getCurrentUser();
 
         if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
+            // The form token, as every other form on this controller checks it. Without it any
+            // page the account opened could post here — and since the screen also joins and
+            // leaves mailing lists, subscribe somebody to marketing they never saw.
+            if (!$this->checkCsrf()) {
+                $this->addError('Your privacy settings could not be saved: the form expired. Try again.');
+                $this->redirect(sURL . $this->routeBase . '/privacy');
+                return;
+            }
+
             $db = \Pramnos\Framework\Factory::getDatabase();
             $qb = $db->queryBuilder();
             $qb->table('authserver.user_privacy_settings')

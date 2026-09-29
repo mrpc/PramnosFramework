@@ -181,7 +181,7 @@ $e = static fn ($v): string => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8'
                         <button type="button" class="btn btn-ghost btn-xs"
                                 data-pf-fill-setting="<?php echo $e($setting['setting']); ?>"
                                 data-pf-fill-value="<?php echo $e($shown); ?>">Edit</button>
-                        <?php echo \Pramnos\Html\Icon::link(
+                        <?php echo \Pramnos\Html\Icon::postButton(
                             adminUrl('users/deletesetting/' . $uid) . '?setting=' . urlencode((string) $setting['setting']),
                             'delete',
                             'Remove this setting',
@@ -250,7 +250,7 @@ $e = static fn ($v): string => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8'
                     </td>
                     <td class="text-xs"><?php echo (int) ($grant['priority'] ?? 0); ?></td>
                     <td class="text-end">
-                        <?php echo \Pramnos\Html\Icon::link(
+                        <?php echo \Pramnos\Html\Icon::postButton(
                             adminUrl('users/revokepermission/' . $uid) . '?permission=' . (int) ($grant['permissionid'] ?? 0),
                             'delete',
                             'Revoke this permission',

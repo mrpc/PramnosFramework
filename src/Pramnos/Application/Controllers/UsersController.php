@@ -49,6 +49,12 @@ class UsersController extends Controller
             'savesetting', 'deletesetting', 'grantpermission', 'revokepermission',
             'notify', 'sendnotification', 'signinalerts', 'adminscreens',
         ]);
+        // POST with the session's token, or refused before the action runs: see exec().
+        $this->addWriteAction([
+            'save', 'delete', 'lock', 'unlock', 'deactivateToken', 'deleteToken', 'resetpassword',
+            'unlocklogin', 'disabletwofactor', 'revokepasskey', 'savesetting', 'deletesetting',
+            'grantpermission', 'revokepermission', 'sendnotification', 'signinalerts', 'adminscreens',
+        ]);
         parent::__construct($application);
     }
 
@@ -516,7 +522,7 @@ class UsersController extends Controller
                     . Icon::link(adminUrl('users/edit/') . $id, 'edit', 'Edit this user')
                     . Icon::link(adminUrl('users/tokens/') . $id, 'tokens', 'Tokens')
                     . Icon::link(adminUrl('users/sessions/') . $id, 'sessions', 'Sessions')
-                    . Icon::link(
+                    . Icon::postButton(
                         adminUrl('users/delete/') . $id,
                         'deactivate',
                         'Deactivate this user',
@@ -680,7 +686,9 @@ class UsersController extends Controller
      */
     public function delete(mixed $id = null): void
     {
-        $this->requireMinUserType($this->requiredUserType);
+        if ($this->requireMinUserType($this->requiredUserType)) {
+            return;
+        }
 
         $id = (int) \Pramnos\Http\Request::staticGetOption();
         if ($id < 2) {
@@ -700,7 +708,9 @@ class UsersController extends Controller
      */
     public function lock(mixed $id = null): void
     {
-        $this->requireMinUserType($this->requiredUserType);
+        if ($this->requireMinUserType($this->requiredUserType)) {
+            return;
+        }
         $id = (int) \Pramnos\Http\Request::staticGetOption();
         if ($id > 1) {
             $this->setActiveFlag($id, 0);
@@ -715,7 +725,9 @@ class UsersController extends Controller
      */
     public function unlock(mixed $id = null): void
     {
-        $this->requireMinUserType($this->requiredUserType);
+        if ($this->requireMinUserType($this->requiredUserType)) {
+            return;
+        }
         $id = (int) \Pramnos\Http\Request::staticGetOption();
         if ($id > 1) {
             $this->setActiveFlag($id, 1);
@@ -953,7 +965,9 @@ class UsersController extends Controller
      */
     public function sendnotification(mixed $id = null): void
     {
-        $this->requireMinUserType($this->requiredUserType);
+        if ($this->requireMinUserType($this->requiredUserType)) {
+            return;
+        }
         $id      = (int) \Pramnos\Http\Request::staticGetOption();
         $subject = trim(strip_tags((string) \Pramnos\Http\Request::staticGet('subject', '', 'post')));
         $message = trim(strip_tags((string) \Pramnos\Http\Request::staticGet('message', '', 'post')));
@@ -1127,7 +1141,9 @@ class UsersController extends Controller
      */
     public function savesetting(mixed $id = null): void
     {
-        $this->requireMinUserType($this->requiredUserType);
+        if ($this->requireMinUserType($this->requiredUserType)) {
+            return;
+        }
         $id      = (int) \Pramnos\Http\Request::staticGetOption();
         $setting = trim((string) \Pramnos\Http\Request::staticGet('setting', '', 'post'));
         $raw     = (string) \Pramnos\Http\Request::staticGet('value', '', 'post');
@@ -1167,7 +1183,9 @@ class UsersController extends Controller
      */
     public function deletesetting(mixed $id = null): void
     {
-        $this->requireMinUserType($this->requiredUserType);
+        if ($this->requireMinUserType($this->requiredUserType)) {
+            return;
+        }
         $id      = (int) \Pramnos\Http\Request::staticGetOption();
         $setting = (string) \Pramnos\Http\Request::staticGet('setting', '', 'get');
 
@@ -1198,7 +1216,9 @@ class UsersController extends Controller
      */
     public function grantpermission(mixed $id = null): void
     {
-        $this->requireMinUserType($this->requiredUserType);
+        if ($this->requireMinUserType($this->requiredUserType)) {
+            return;
+        }
         $id         = (int) \Pramnos\Http\Request::staticGetOption();
         $objectType = trim((string) \Pramnos\Http\Request::staticGet('object_type', '', 'post'));
         $action     = trim((string) \Pramnos\Http\Request::staticGet('action', '', 'post'));
@@ -1256,7 +1276,9 @@ class UsersController extends Controller
      */
     public function revokepermission(mixed $id = null): void
     {
-        $this->requireMinUserType($this->requiredUserType);
+        if ($this->requireMinUserType($this->requiredUserType)) {
+            return;
+        }
         $id           = (int) \Pramnos\Http\Request::staticGetOption();
         $permissionId = (int) \Pramnos\Http\Request::staticGet('permission', 0, 'get', 'int');
 
@@ -1305,7 +1327,9 @@ class UsersController extends Controller
      */
     public function unlocklogin(mixed $id = null): void
     {
-        $this->requireMinUserType($this->requiredUserType);
+        if ($this->requireMinUserType($this->requiredUserType)) {
+            return;
+        }
         $id = (int) \Pramnos\Http\Request::staticGetOption();
         if ($id < 2) {
             $this->redirect(adminUrl('users'));
@@ -1347,7 +1371,9 @@ class UsersController extends Controller
      */
     public function disabletwofactor(mixed $id = null): void
     {
-        $this->requireMinUserType($this->requiredUserType);
+        if ($this->requireMinUserType($this->requiredUserType)) {
+            return;
+        }
         $id = (int) \Pramnos\Http\Request::staticGetOption();
         if ($id < 2) {
             $this->redirect(adminUrl('users'));
@@ -1384,7 +1410,9 @@ class UsersController extends Controller
      */
     public function revokepasskey(mixed $id = null): void
     {
-        $this->requireMinUserType($this->requiredUserType);
+        if ($this->requireMinUserType($this->requiredUserType)) {
+            return;
+        }
         $id           = (int) \Pramnos\Http\Request::staticGetOption();
         $credentialId = (int) \Pramnos\Http\Request::staticGet('credential', 0, 'get', 'int');
 
@@ -1519,7 +1547,9 @@ class UsersController extends Controller
      */
     public function resetpassword(mixed $id = null): void
     {
-        $this->requireMinUserType($this->requiredUserType);
+        if ($this->requireMinUserType($this->requiredUserType)) {
+            return;
+        }
 
         $id = (int) \Pramnos\Http\Request::staticGetOption();
         if ($id < 2) {
@@ -1677,7 +1707,9 @@ class UsersController extends Controller
      */
     public function deactivateToken(): void
     {
-        $this->requireMinUserType($this->requiredUserType);
+        if ($this->requireMinUserType($this->requiredUserType)) {
+            return;
+        }
 
         $userId  = (int) ($_POST['userid']  ?? 0);
         $tokenId = (int) ($_POST['tokenid'] ?? 0);
@@ -1700,7 +1732,9 @@ class UsersController extends Controller
      */
     public function deleteToken(): void
     {
-        $this->requireMinUserType($this->requiredUserType);
+        if ($this->requireMinUserType($this->requiredUserType)) {
+            return;
+        }
 
         $userId  = (int) ($_POST['userid']  ?? 0);
         $tokenId = (int) ($_POST['tokenid'] ?? 0);

@@ -372,6 +372,30 @@ class AccountControllerIntegrationTest extends TestCase
         $this->assertContains('#PREFIX#userdetails', $tablesWritten);
     }
 
+    /**
+     * A privacy POST without the form token changes nothing.
+     *
+     * The screen had no token at all — neither in the form nor in the check — so any page the
+     * account opened could post to it; and since it also joins and leaves mailing lists, it could
+     * subscribe somebody to marketing they never saw.
+     */
+    public function testPrivacyPostWithoutTheTokenChangesNothing()
+    {
+        // Arrange
+        $_SERVER['REQUEST_METHOD'] = 'POST';
+        $_POST['marketing'] = '1';
+        $this->queryBuilderMock->expects($this->never())->method('upsert');
+
+        // Act
+        ob_start();
+        $this->controller->privacy();
+        $echoed = ob_get_clean();
+
+        // Assert — sent back, with the reason
+        $this->assertStringContainsString('REDIRECTED_TO:', $echoed);
+        $this->assertStringContainsString('form expired', implode(' ', $_SESSION['_errors'] ?? []));
+    }
+
     public function testSecurity()
     {
         ob_start();

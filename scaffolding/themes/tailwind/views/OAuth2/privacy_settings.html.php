@@ -33,6 +33,7 @@ $this->activeNav = 'privacy';
                 </p>
 
                 <form method="post" action="<?php echo sURL . $routeBase; ?>/privacy">
+                    <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
                     <div class="space-y-5 mb-6">
                         <label class="flex items-start gap-3 cursor-pointer">
                             <div class="mt-0.5">

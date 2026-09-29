@@ -193,6 +193,10 @@ if ($currentUser) {
 }
 ```
 
+An action that changes state is also declared with `addWriteAction()`, and `exec()` then accepts
+it only as a `POST` carrying the session's token — see
+[Controller actions that change something](Pramnos_Security_Guide.md#controller-actions-that-change-something-addwriteaction).
+
 ### URL Handling and Redirects
 
 ```php

@@ -222,6 +222,40 @@ class Controller extends \Pramnos\Framework\Base
     }
 
     /**
+     * Actions that change state, and so accept only a `POST` carrying this session's token.
+     *
+     * @var list<string> Lowercased action names
+     */
+    protected array $writeActions = [];
+
+    /**
+     * Declare actions that delete, revoke, remove, reset, send or save.
+     *
+     * {@see exec()} refuses such an action unless it arrives as a `POST` with a token this
+     * session issued — before the action runs, so the action needs no check of its own. One
+     * line in the constructor covers a controller:
+     *
+     * ```php
+     * $this->addWriteAction(['delete', 'lock', 'unlock', 'grantpermission']);
+     * ```
+     *
+     * Why: a state change reachable by a `GET` link can be made by **any page** a signed-in
+     * user opens (`<img src="…/users/delete/5">` needs no click), and a `POST` without the token
+     * by a form on any site. Links to these actions are rendered as
+     * {@see \Pramnos\Html\Icon::postButton()} or a form with the session's token field.
+     *
+     * @param string|list<string> $action
+     */
+    public function addWriteAction($action): static
+    {
+        foreach ((array) $action as $act) {
+            $this->writeActions[] = strtolower((string) $act);
+        }
+
+        return $this;
+    }
+
+    /**
      * Adds a required permission to an action
      * @param string|array $action
      * @param string|array $permissions
@@ -367,6 +401,11 @@ class Controller extends \Pramnos\Framework\Base
             && $inArea
             && !in_array(strtolower((string) $action), array_map('strtolower', $this->adminPublicActions), true)
             && $this->requireMinUserType($this->adminFloor())) {
+            return null;
+        }
+        if (in_array(strtolower((string) $action), $this->writeActions, true) && !$this->isVerifiedWrite()) {
+            $this->refuseUnverifiedWrite();
+
             return null;
         }
         if ($action == 'display') {
@@ -947,5 +986,59 @@ class Controller extends \Pramnos\Framework\Base
         }
 
         return false;
+    }
+
+    /**
+     * Answer a state change that arrived without a verified token — nothing is changed.
+     *
+     * A script (it asked for JSON, or says it is an XHR) gets `403` and a JSON reason; a page
+     * gets an error message and is sent back where it came from on this site, or to the site
+     * root.
+     */
+    protected function refuseUnverifiedWrite(): void
+    {
+        $message = 'That request could not be verified, so nothing was changed. Try again from the page.';
+
+        if (str_contains((string) ($_SERVER['HTTP_ACCEPT'] ?? ''), 'application/json')
+            || strtolower((string) ($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '')) === 'xmlhttprequest') {
+            \Pramnos\Framework\Factory::getDocument('raw')->setContent((string) json_encode(['error' => $message]));
+            if (!headers_sent()) {
+                http_response_code(403);
+                header('Content-Type: application/json; charset=utf-8');
+            }
+
+            return;
+        }
+
+        $this->addError($message);
+
+        $referer = (string) ($_SERVER['HTTP_REFERER'] ?? '');
+        $site    = defined('sURL') ? (string) \sURL : '/';
+        $this->redirect($referer !== '' && str_starts_with($referer, $site) ? $referer : $site);
+    }
+
+    /**
+     * Is this a `POST` carrying a token this session issued?
+     *
+     * Either of the framework's two: the form token `Session::getTokenField()` renders, or the
+     * synchronizer token `CsrfMiddleware::tokenField()` renders — as a field, or as the
+     * `X-CSRF-Token` header a page's own `fetch()` sends from `<meta name="csrf">`. Views of both
+     * kinds exist, and a guard that accepted only one would refuse the other's forms.
+     */
+    protected function isVerifiedWrite(): bool
+    {
+        if (strtoupper((string) ($_SERVER['REQUEST_METHOD'] ?? 'GET')) !== 'POST') {
+            return false;
+        }
+
+        $session = \Pramnos\Http\Session::getInstance();
+
+        foreach ([$_POST['_csrf_token'] ?? '', $_SERVER['HTTP_X_CSRF_TOKEN'] ?? ''] as $candidate) {
+            if (is_string($candidate) && $candidate !== '' && $session->verifyCsrfToken($candidate)) {
+                return true;
+            }
+        }
+
+        return $session->checkToken('post');
     }
 }
