@@ -253,6 +253,10 @@ class RouteDiscovery
                 $route->middleware(...$attr->middleware);
             }
 
+            if (!empty($attr->apiKeyScopes)) {
+                $route->middleware(new \Pramnos\Http\Middleware\ApiKeyScopeMiddleware($attr->apiKeyScopes));
+            }
+
             $firstRoute ??= $route;
         }
 

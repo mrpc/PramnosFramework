@@ -741,6 +741,37 @@ Without the header the request is anonymous and answers 403 `APIKeyMissing`, whi
 what `Html\SearchBox` did before this existed: the box rendered, the endpoint
 answered, and typing did nothing.
 
+#### What a key may do: `ApiKeyScopeMiddleware`
+
+`ApiAuthMiddleware` decides whether a key is valid. What the key's application may do is
+the `scope` field on its administration screen — a space-separated list — and a route
+declares what it needs:
+
+```php
+$router->post('/api/v1/stations', [Stations::class, 'store'])
+       ->middleware(new \Pramnos\Http\Middleware\ApiKeyScopeMiddleware(['stations:write']));
+
+// on a discovered route
+#[Route('/api/v1/stations', methods: 'POST', apiKeyScopes: ['stations:write'])]
+```
+
+Put it after `ApiAuthMiddleware`. Every declared scope must be granted. A granted `*` covers
+everything, and `stations:*` covers `stations:read` and `stations:write`. A refusal is `403`
+with `"error": "insufficient_scope"`, naming the missing scopes.
+
+- **A key whose application lists no scopes is refused** on a route that declares any, so
+  protecting a route does not leave it open to keys issued before it was protected. Grant
+  scopes to existing applications before adding the declaration — `*` keeps a key
+  unrestricted.
+- **A route that declares nothing is unaffected**, and so is a request with no key — the
+  application's own signed-in page, admitted on its session — and one with the site's own key.
+- `apiKeyScopes` is not `permissions`. The route's `permissions` are the scopes of the signed-in
+  user's **token**; `apiKeyScopes` are the scopes of the **client** calling. A route can
+  declare both.
+- A key stored somewhere other than `applications` passes a resolver:
+  `new ApiKeyScopeMiddleware(['stations:write'], fn (string $key): ?array => $scopesOf($key))`,
+  where `null` means the key is the application itself.
+
 ### UnifiedAuthMiddleware (SPA / same-origin auth)
 
 Accepts either a Bearer JWT **or** a session cookie + `X-CSRF-Token` header. Use this for first-party route groups where you don't require API keys.

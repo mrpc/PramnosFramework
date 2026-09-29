@@ -32,6 +32,10 @@ class Route
      * @param string|null       $name         Logical route name used by Router::route().
      * @param string[]          $permissions  Required permission scopes (same format as requirePermissions()).
      * @param string[]          $middleware   FQCN strings of middleware classes to attach to the route.
+     * @param string[]          $apiKeyScopes Scopes the calling API key's application must have been
+     *                                        granted — {@see \Pramnos\Http\Middleware\ApiKeyScopeMiddleware}.
+     *                                        Separate from `$permissions`, which are the signed-in
+     *                                        user's token scopes.
      */
     public function __construct(
         public readonly string            $uri,
@@ -39,5 +43,6 @@ class Route
         public readonly ?string           $name        = null,
         public readonly array             $permissions = [],
         public readonly array             $middleware  = [],
+        public readonly array             $apiKeyScopes = [],
     ) {}
 }
