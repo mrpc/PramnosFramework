@@ -118,6 +118,27 @@ class SettingsTest extends TestCase
         $this->assertEquals('db_value', Settings::getSetting('db_key'));
     }
 
+    /**
+     * An array or object setting is kept in memory and never sent to the table, which holds text.
+     *
+     * Sent, it was "Array to string conversion" and a refused query — from any code that set the
+     * `cache` block while the settings had a database, which a suite reaches depending only on
+     * the order its tests ran in.
+     */
+    public function testAnArraySettingIsKeptInMemoryOnly()
+    {
+        // Arrange
+        $mockDb = $this->createMock(Database::class);
+        $mockDb->expects($this->never())->method('queryBuilder');
+        Settings::setDatabase($mockDb);
+
+        // Act
+        Settings::setSetting('cache_block', ['method' => 'array'], true);
+
+        // Assert
+        $this->assertEquals((object) ['method' => 'array'], Settings::getSetting('cache_block'));
+    }
+
     public function testSetSettingUpdatesExistingDatabaseRecord()
     {
         // Arrange — the row is there, so the write must update rather than add

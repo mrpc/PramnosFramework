@@ -476,7 +476,9 @@ class Settings extends \Pramnos\Framework\Base
             $value = \Pramnos\Security\Encrypter::encrypt($value);
         }
 
-        if ($writeToDatabase == true && is_object(self::$database)) {
+        // The table holds text. An array or object setting is configuration (`settings.php`), kept
+        // in memory; sent to the row it was "Array to string conversion" and a refused query.
+        if ($writeToDatabase == true && is_object(self::$database) && ($value === null || is_scalar($value))) {
             // The builder is the only layer that knows the dialect: it resolves
             // the table's prefix, quotes identifiers per driver and binds the
             // values instead of interpolating them. The hand-written version of
