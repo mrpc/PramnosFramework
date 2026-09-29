@@ -98,8 +98,9 @@ class OAuth2GrantFlowMySQLTest extends TestCase
      *
      * oauth2_device_codes and oauth2_user_consents are fully owned by this test.
      * applications is also dropped and recreated so its schema is always the
-     * full-compatible version — nothing in this test creates a FK to applications,
-     * so the drop is safe.  users and usertokens are NOT dropped because
+     * full-compatible version. Nothing in this test creates a FK to applications,
+     * but a migrated table elsewhere in the database may, so the drop runs with the
+     * checks off.  users and usertokens are NOT dropped because
      * userstogroups has a FK to users that MySQL 9.x enforces even with
      * FOREIGN_KEY_CHECKS = 0 during CREATE.
      */
@@ -107,7 +108,10 @@ class OAuth2GrantFlowMySQLTest extends TestCase
     {
         $this->db->query('DROP TABLE IF EXISTS `authserver_oauth2_user_consents`');
         $this->db->query('DROP TABLE IF EXISTS `authserver_oauth2_device_codes`');
+        // Checks off: a migrated table elsewhere in the database may hold a foreign key to it.
+        $this->db->query('SET FOREIGN_KEY_CHECKS = 0');
         $this->db->query('DROP TABLE IF EXISTS `applications`');
+        $this->db->query('SET FOREIGN_KEY_CHECKS = 1');
     }
 
     /**

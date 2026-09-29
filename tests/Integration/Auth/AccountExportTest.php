@@ -107,7 +107,10 @@ class AccountExportTest extends BaseTestCase
 
         // Hand-rolled tables (no standalone migration or authserver naming) with
         // exactly the columns the collectors read.
+        // Checks off: a migrated table elsewhere in the database may hold a foreign key to it.
+        $this->db->query('SET FOREIGN_KEY_CHECKS = 0');
         $this->db->query("DROP TABLE IF EXISTS `{$p}applications`");
+        $this->db->query('SET FOREIGN_KEY_CHECKS = 1');
         $this->db->query("CREATE TABLE `{$p}applications` (
             `appid` INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
             `name` VARCHAR(255) NOT NULL DEFAULT '',
@@ -138,16 +141,10 @@ class AccountExportTest extends BaseTestCase
             `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 
-        $this->db->query("CREATE TABLE IF NOT EXISTS `{$p}sessions` (
-            `sid` varchar(255) NOT NULL,
-            `userid` bigint NOT NULL DEFAULT 0,
-            `guest` tinyint NOT NULL DEFAULT 1,
-            `logout` tinyint NOT NULL DEFAULT 0,
-            `host_addr` varchar(45) DEFAULT NULL,
-            `agent` varchar(255) DEFAULT NULL,
-            `time` int NOT NULL DEFAULT 0,
-            `url` varchar(255) DEFAULT NULL
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        // `sessions` from its migration, not hand-rolled: the hand-rolled copy had no
+        // `visitorid` or `history`, which the seed below names because the shipped table
+        // requires them — so it passed only when another test had built the table first.
+        $this->runMigrations([\Pramnos\Framework\Migrations\Core\CreateSessionsTable::class], $this->db);
     }
 
     /** Insert one user plus a secret-bearing row in every source table. */

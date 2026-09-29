@@ -107,7 +107,11 @@ class AccountCharacterizationTest extends BaseTestCase
         $p = $this->db->prefix;
 
         // applications — referenced by makeApp(), getAuthorizedApplications(), eraseUserData()
+        // With the checks off: a table another test migrated — `applications_application_settings`
+        // is one — holds a foreign key to this one, and MySQL refuses to drop a referenced table.
+        $this->db->query('SET FOREIGN_KEY_CHECKS = 0');
         $this->db->query("DROP TABLE IF EXISTS `{$p}applications`");
+        $this->db->query('SET FOREIGN_KEY_CHECKS = 1');
         // The canonical `applications`, from the migrations that build it in
         // production. The hand-rolled copy here declared columns no migration
         // creates and omitted ones it does — see Testing\Schema.

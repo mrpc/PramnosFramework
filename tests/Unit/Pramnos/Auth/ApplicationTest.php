@@ -37,7 +37,10 @@ class ApplicationTest extends TestCase
             $this->db->connect();
         }
         
+        // Checks off: a migrated table elsewhere in the database may hold a foreign key to it.
+        $this->db->query('SET FOREIGN_KEY_CHECKS = 0');
         $this->db->query('DROP TABLE IF EXISTS `applications`');
+        $this->db->query('SET FOREIGN_KEY_CHECKS = 1');
         // The canonical `applications`, from the migrations that build it in production.
         // A hand-rolled copy here declared columns no migration creates and omitted ones
         // it does — see Testing\Schema.
@@ -46,7 +49,10 @@ class ApplicationTest extends TestCase
 
     protected function tearDown(): void
     {
+        // Checks off: a migrated table elsewhere in the database may hold a foreign key to it.
+        $this->db->query('SET FOREIGN_KEY_CHECKS = 0');
         $this->db->query('DROP TABLE IF EXISTS `applications`');
+        $this->db->query('SET FOREIGN_KEY_CHECKS = 1');
         $singleton = &Factory::getDatabase();
         $singleton = null;
         Settings::clearSettings();
