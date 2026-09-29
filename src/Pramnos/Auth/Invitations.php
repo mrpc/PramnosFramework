@@ -347,21 +347,9 @@ class Invitations
     protected function send(string $email, string $link, array $row): bool
     {
         try {
-            $inviter = '';
-            if (!empty($row['invited_by'])) {
-                $user = new \Pramnos\User\User();
-                $user->load((int) $row['invited_by']);
-                $inviter = (string) ($user->username ?? '');
-            }
-
             (new \Pramnos\Notification\Notifier())->sendNow(
                 (object) ['email' => $email, 'userid' => 0],
-                new Notifications\InvitationNotification(
-                    $link,
-                    self::ttlSeconds(),
-                    $inviter,
-                    (string) ($row['note'] ?? '')
-                )
+                $this->notification($link, $row)
             );
 
             return true;
@@ -370,6 +358,77 @@ class Invitations
 
             return false;
         }
+    }
+
+    /**
+     * Remove what an erased account leaves in the invitations table.
+     *
+     * Two kinds of row outlive an account unless this runs:
+     *
+     * - **The invitations it sent** (`invited_by`). Those nobody accepted — waiting, expired
+     *   or withdrawn — hold the address of somebody who never joined, attributed to a user
+     *   who no longer exists: they are deleted. Those that were accepted belong to the
+     *   account they created, so they stay, with `invited_by` cleared.
+     * - **The invitation it was created from** (`accepted_userid`), which carries its own
+     *   address in `email`: deleted.
+     *
+     * Called by `Account::eraseUserData()`. A no-op where the table does not exist.
+     */
+    public function forgetUser(int $userId): void
+    {
+        $db = $this->db();
+
+        if (!$db->schema()->hasTable(self::TABLE)) {
+            return;
+        }
+
+        $db->queryBuilder()->table(self::TABLE)
+            ->where('invited_by', $userId)
+            ->whereNull('accepted_userid')
+            ->delete();
+
+        $db->queryBuilder()->table(self::TABLE)
+            ->where('invited_by', $userId)
+            ->update(['invited_by' => null]);
+
+        $db->queryBuilder()->table(self::TABLE)
+            ->where('accepted_userid', $userId)
+            ->delete();
+    }
+
+    /**
+     * The mail an invitation is sent as.
+     *
+     * The seam for what an application wants its invitation to say beyond the template: a
+     * preheader of its own, a different wrapper, a notification class of its own. Override it
+     * and return anything the mail channel takes; the row is the invitation as stored, so
+     * `metadata` is there to read.
+     *
+     * ```php
+     * protected function notification(string $link, array $row): NotificationInterface
+     * {
+     *     return parent::notification($link, $row)
+     *         ->withPreheader('Publishing and analytics for your channels. Your link is inside.');
+     * }
+     * ```
+     *
+     * @param array<string, mixed> $row
+     */
+    protected function notification(string $link, array $row): Notifications\InvitationNotification
+    {
+        $inviter = '';
+        if (!empty($row['invited_by'])) {
+            $user = new \Pramnos\User\User();
+            $user->load((int) $row['invited_by']);
+            $inviter = (string) ($user->username ?? '');
+        }
+
+        return new Notifications\InvitationNotification(
+            $link,
+            self::ttlSeconds(),
+            $inviter,
+            (string) ($row['note'] ?? '')
+        );
     }
 
     /** @return array<string, mixed>|null */

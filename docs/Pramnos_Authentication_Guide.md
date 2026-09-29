@@ -2699,6 +2699,55 @@ The **Invitations** administration screen (`admin.invitations`; usertype 98 unde
 may open Roles can attach a role. The mail's text is the `auth.invitation` template; the
 confirmation mail's is `auth.verify_email`.
 
+#### Attaching your own data from the screen
+
+The screen passes `invitedBy`, `organizationId`, `roleId` and `note`. To attach `metadata` (or
+any other option `invite()` takes), override `inviteOptions()` in your wrapper controller and add
+the form fields by overriding the `invitations` view in your theme:
+
+```php
+class Invitations extends \Pramnos\Auth\Controllers\InvitationsController
+{
+    protected function inviteOptions(): array
+    {
+        return ['metadata' => ['capabilities' => array_keys((array) ($_POST['off'] ?? []))]];
+    }
+}
+```
+
+What it returns is merged **under** the screen's own options, so it cannot change who invited,
+the organisation, the role or the note — those the screen decided and checked.
+
+#### The mail
+
+The `auth.invitation` template gets `{link}`, `{hours}`, `{days}`, `{inviter}`, `{note}` and
+`{sitename}`. `{days}` is the whole number of days when the lifetime is one (a 21-day link is
+`21`, where `{hours}` says `504`), otherwise the hours as a fraction of a day; the built-in text
+says days whenever it can.
+
+A stored template has no preheader, so without one the mail client shows the body's first
+sentence. To choose it, override `notification()` in a subclass of `Invitations` — it builds the
+mail from the link and the stored row, `metadata` included — and return it through your
+controller's `service()`:
+
+```php
+class Invitations extends \Pramnos\Auth\Invitations
+{
+    protected function notification(string $link, array $row): InvitationNotification
+    {
+        return parent::notification($link, $row)
+            ->withPreheader('Publishing and analytics for your channels. Your link is inside.');
+    }
+}
+```
+
+#### When an account is erased
+
+`Account::eraseUserData()` calls `Invitations::forgetUser()`. The invitations the account sent
+that nobody accepted hold other people's addresses and are deleted; the ones that were accepted
+stay, with `invited_by` cleared, because they belong to the account they created; the invitation
+the erased account itself came from is deleted.
+
 ## Configuration
 
 ### Authentication Settings

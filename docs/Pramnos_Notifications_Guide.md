@@ -345,6 +345,8 @@ An operator's row is never overwritten: a category that already has one is left 
 | `auth.new_device_link` | a sign-in link goes to a new device | `url`, `minutes`, `device`, `sitename` |
 | `auth.new_signin` | an account is told about a new sign-in | `when`, `timestamp`, `sitename` |
 | `auth.security_change` | a password, address or factor changed | `what`, `detail`, `when`, `timestamp`, `sitename` |
+| `auth.invitation` | an address is invited to register | `link`, `hours`, `days`, `inviter`, `note`, `sitename` |
+| `auth.verify_email` | a new account is asked to confirm its address | `link`, `hours`, `username`, `sitename` |
 
 `{url}` in the second one is the whole message: a template that omits it mails somebody no
 way to do the thing it is about.
@@ -381,8 +383,13 @@ framework's, and a registry entry that disagreed would put `{like_this}` in some
 with the screen's blessing.
 
 Registering is about **what the editor shows**. Whether a row exists is a separate question,
-answered by a seeding migration — the framework seeds its own four and an application seeds
-its own, in its own migration, for the same reasons and blank for the same reasons.
+answered by a seeding migration — the framework seeds its own and an application seeds its
+own, in its own migration, for the same reasons and blank for the same reasons.
+
+**A seed migration runs once**, so a category added later gets no row on an installation that
+already migrated. The framework's seeding is one method, `SystemMailTemplates::seedMissingRows()`,
+which writes only what is missing; each batch of new built-in categories comes with a dated
+migration that calls it, and a test that pins the list fails until that migration exists.
 
 A category nobody registered still works: the editor falls back to the placeholders it finds
 in the text, as it always did. What it cannot do is describe a blank one, which is why

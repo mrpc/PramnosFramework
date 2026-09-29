@@ -53,31 +53,7 @@ class SeedSystemMailTemplates extends Migration
             $language = 'en';
         }
 
-        foreach (SystemMailTemplates::builtIn() as $category => $declared) {
-            $existing = $db->queryBuilder()->table('#PREFIX#mailtemplates')
-                ->where('category', $category)
-                ->where('type', \Pramnos\Messaging\MailTemplate::TYPE_EMAIL)
-                ->first();
-
-            // Somebody's row, or this migration's from a previous run. Either way it is not
-            // this migration's business to change it.
-            if ($existing && (int) ($existing->numRows ?? 0) > 0) {
-                continue;
-            }
-
-            $db->queryBuilder()->table('#PREFIX#mailtemplates')->insert([
-                'title'          => $declared['title'],
-                'category'       => $category,
-                'language'       => $language,
-                'type'           => \Pramnos\Messaging\MailTemplate::TYPE_EMAIL,
-                // Blank on purpose. {@see the class doc-block}
-                'defaultsubject' => '',
-                'defaulttext'    => '',
-                'emailtemplate'  => '',
-                'sendmethod'     => 0,
-                'sound'          => '',
-            ]);
-        }
+        SystemMailTemplates::seedMissingRows($db, $language);
     }
 
     public function down(): void

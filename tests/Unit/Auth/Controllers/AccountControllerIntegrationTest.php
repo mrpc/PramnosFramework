@@ -126,6 +126,7 @@ class AccountControllerIntegrationTest extends TestCase
         $this->queryBuilderMock->method('table')->willReturnSelf();
         $this->queryBuilderMock->method('select')->willReturnSelf();
         $this->queryBuilderMock->method('where')->willReturnSelf();
+        $this->queryBuilderMock->method('whereNull')->willReturnSelf();
         $this->queryBuilderMock->method('orWhere')->willReturnSelf();
         $this->queryBuilderMock->method('join')->willReturnSelf();
         $this->queryBuilderMock->method('orderBy')->willReturnSelf();
@@ -499,8 +500,9 @@ class AccountControllerIntegrationTest extends TestCase
 
     /**
      * Fully confirmed POST must erase the user's data (one delete per GDPR
-     * table + the users row = 7 deletes), log the user out, and redirect to
-     * the site root with message=account_deleted.
+     * table, two for the invitations the account sent and came from, and the
+     * users row = 9 deletes), log the user out, and redirect to the site root
+     * with message=account_deleted.
      */
     public function testDeleteAccountPostSuccessErasesDataAndRedirects(): void
     {
@@ -511,8 +513,8 @@ class AccountControllerIntegrationTest extends TestCase
         $this->bypassCsrf();
         $this->controller->verifyPasswordResult = true;
 
-        // 6 GDPR-related tables + users = 7 delete() calls expected
-        $this->queryBuilderMock->expects($this->exactly(7))
+        // 6 GDPR-related tables + 2 for invitations + users = 9 delete() calls expected
+        $this->queryBuilderMock->expects($this->exactly(9))
             ->method('delete')
             ->willReturn(1);
 

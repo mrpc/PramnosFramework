@@ -73,12 +73,14 @@ class InvitationsController extends Controller
 
         $current = \Pramnos\User\User::getCurrentUser() ?: null;
         try {
+            // The screen's own options on the left: `+` keeps the left operand's keys, so the
+            // application's additions cannot replace what the screen decided and checked.
             $made = $this->service()->invite((string) ($_POST['email'] ?? ''), [
                 'invitedBy'      => $current !== null ? (int) $current->userid : null,
                 'organizationId' => (int) ($_POST['organization_id'] ?? 0),
                 'roleId'         => $roleId,
                 'note'           => (string) ($_POST['note'] ?? ''),
-            ]);
+            ] + $this->inviteOptions());
         } catch (InvitationException $e) {
             $this->addError($e->getMessage());
             $this->redirect(adminUrl('Invitations'));
@@ -129,6 +131,28 @@ class InvitationsController extends Controller
     }
 
     // ── Internal ────────────────────────────────────────────────────────────────
+
+    /**
+     * What an application adds to an invitation made on this screen — `metadata`, usually.
+     *
+     * Read from the POST by the application's own fields, which it adds by overriding the
+     * `invitations` view in its theme. Merged under the screen's own options, so it cannot
+     * replace who invited, the organisation, the role or the note — those the screen decided
+     * and checked.
+     *
+     * ```php
+     * protected function inviteOptions(): array
+     * {
+     *     return ['metadata' => ['capabilities' => array_keys((array) ($_POST['off'] ?? []))]];
+     * }
+     * ```
+     *
+     * @return array<string, mixed>
+     */
+    protected function inviteOptions(): array
+    {
+        return [];
+    }
 
     protected function service(): Invitations
     {

@@ -597,6 +597,119 @@ class InvitationsTest extends BaseTestCase
 
     // ── Fixture ─────────────────────────────────────────────────────────────────
 
+    // ── What glideday found moving onto invitations ─────────────────────────────
+
+    /**
+     * Erasing an account removes what it left in the invitations table.
+     *
+     * The invitations it sent that nobody accepted hold other people's addresses, attributed to
+     * a user who no longer exists: deleted. One that was accepted belongs to the account it
+     * created: kept, with `invited_by` cleared. The invitation the erased account itself came
+     * from carries its own address: deleted. Invitations nobody here sent are untouched.
+     */
+    public function testErasingAnAccountForgetsItsInvitations(): void
+    {
+        // Arrange — ADMIN sent one still waiting and one NEWBIE accepted; ADMIN came from a third
+        $service = $this->service();
+        $waiting = $service->invite('someone.else@example.com', ['invitedBy' => self::ADMIN, 'send' => false]);
+        $insert  = fn (array $row) => $this->db->queryBuilder()->table('authserver.invitations')->insert($row + [
+            'token_lookup' => bin2hex(random_bytes(16)), 'created_at' => time(), 'expires_at' => time() + 3600,
+        ]);
+        $insert(['email' => self::EMAIL, 'invited_by' => self::ADMIN, 'accepted_userid' => self::NEWBIE, 'accepted_at' => time()]);
+        $insert(['email' => 'inv_admin@example.com', 'accepted_userid' => self::ADMIN, 'accepted_at' => time()]);
+        $insert(['email' => 'unrelated@example.com']);
+
+        // Act
+        $service->forgetUser(self::ADMIN);
+
+        // Assert
+        $rows   = $this->db->queryBuilder()->table('authserver.invitations')->get()->fetchAll();
+        $emails = array_column($rows, 'email');
+        sort($emails);
+        $this->assertSame([self::EMAIL, 'unrelated@example.com'], $emails, 'waiting and own-origin rows are gone');
+        foreach ($rows as $row) {
+            $this->assertNull($row['invited_by'], 'nothing is attributed to the erased account');
+        }
+        $this->assertNotEmpty($waiting['link']);
+    }
+
+    /**
+     * An application attaches `metadata` from its own form fields, through one seam.
+     *
+     * The screen built its options inline, so nothing could reach `metadata` from the
+     * framework's own screen. What the seam returns is merged **under** the screen's options:
+     * it cannot replace who invited, which the screen decided and checked.
+     */
+    public function testTheScreenTakesWhatAnApplicationAttaches(): void
+    {
+        // Arrange
+        $this->signIn(self::ADMIN, 98);
+        $screen = new class (\Pramnos\Application\Application::getInstance()) extends \Pramnos\Auth\Controllers\InvitationsController {
+            protected function inviteOptions(): array
+            {
+                return ['metadata' => ['capabilities' => ['publish']], 'invitedBy' => 1];
+            }
+        };
+
+        // Act
+        $this->postTo($screen, 'invite', ['email' => self::EMAIL]);
+
+        // Assert
+        $rows = array_values(array_filter($this->service()->all(), fn ($r) => $r['email'] === self::EMAIL));
+        $this->assertCount(1, $rows);
+        $stored = $this->db->queryBuilder()->table('authserver.invitations')->where('email', self::EMAIL)->first()->fields;
+        $this->assertSame(['capabilities' => ['publish']], json_decode((string) $stored['metadata'], true));
+        $this->assertSame((string) self::ADMIN, (string) $stored['invited_by'], 'the seam cannot change who invited');
+    }
+
+    /**
+     * The mail says days when the link lasts whole days, and takes a preheader of its own.
+     *
+     * A 21-day link read "504 hours". `{days}` is offered to a stored template beside
+     * `{hours}`, and the built-in text uses it. The preheader is what glideday had chosen and
+     * lost: without one the line is derived from the body's first sentence.
+     */
+    public function testTheMailSaysDaysAndCarriesAPreheader(): void
+    {
+        // Arrange
+        $three  = new \Pramnos\Auth\Notifications\InvitationNotification('https://x.test/l', 21 * 86400);
+        $partly = new \Pramnos\Auth\Notifications\InvitationNotification('https://x.test/l', 36 * 3600);
+
+        // Act
+        $withLine = $three->withPreheader('  Your link is inside.  ');
+
+        // Assert
+        $this->assertSame('21', (string) $three->storedMailTemplate()['vars']['days']);
+        $this->assertSame(504, $three->storedMailTemplate()['vars']['hours']);
+        $this->assertStringContainsString('21 days', $three->toMail((object) ['email' => 'a@b.c'])['body']);
+        $this->assertSame('1.5', (string) $partly->storedMailTemplate()['vars']['days']);
+        $this->assertStringContainsString('36 hours', $partly->toMail((object) ['email' => 'a@b.c'])['body']);
+        $this->assertSame('', $three->mailPreheader(), 'withPreheader() returns a copy');
+        $this->assertSame('Your link is inside.', $withLine->mailPreheader());
+    }
+
+    /**
+     * The service builds its mail through a seam an application can override.
+     */
+    public function testTheMailIsBuiltThroughAnOverridableSeam(): void
+    {
+        // Arrange
+        $service = new class ($this->db) extends Invitations {
+            public function built(string $link, array $row): \Pramnos\Auth\Notifications\InvitationNotification
+            {
+                return $this->notification($link, $row);
+            }
+        };
+
+        // Act
+        $mail = $service->built('https://x.test/l', ['invited_by' => self::ADMIN, 'note' => 'Finance']);
+
+        // Assert — the inviter's name and the note reach the mail
+        $vars = $mail->storedMailTemplate()['vars'];
+        $this->assertSame('inv_admin', $vars['inviter']);
+        $this->assertSame('Finance', $vars['note']);
+    }
+
     private function signIn(int $userId, int $usertype): void
     {
         \Pramnos\Http\RequestIdentity::seal((object) ['userid' => $userId, 'usertype' => $usertype], 'test');

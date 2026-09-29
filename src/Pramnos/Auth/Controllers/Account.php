@@ -2522,6 +2522,10 @@ class Account extends Controller
             );
         }
 
+        // Invitations it sent hold other people's addresses; the one it came from, its own.
+        // Kept in the service that owns the table, so the rule lives with the rows.
+        (new \Pramnos\Auth\Invitations($db))->forgetUser($userId);
+
         $db->queryBuilder()
             ->table('#PREFIX#users')
             ->where('userid', $userId)

@@ -171,7 +171,7 @@ final class SystemMailTemplates
                 'title'        => 'Invitation to register',
                 'description'  => 'Sent when somebody is invited to create an account. The '
                     . 'link opens registration for this address only; without {link} it cannot be used.',
-                'placeholders' => ['link', 'hours', 'inviter', 'note', 'sitename'],
+                'placeholders' => ['link', 'hours', 'days', 'inviter', 'note', 'sitename'],
             ],
             'auth.verify_email' => [
                 'title'        => 'Confirm your email address',
@@ -199,5 +199,51 @@ final class SystemMailTemplates
     public static function describe(string $category): string
     {
         return (string) (self::all()[$category]['description'] ?? '');
+    }
+
+    /**
+     * Give every built-in category an empty row, where it has none of its own type yet.
+     *
+     * The template editor lists rows, so a category with no row is a capability reachable only
+     * by reading the source. The rows are blank on purpose — blank means "use the built-in
+     * text" — and a row that exists, somebody's or an earlier seed's, is never touched.
+     *
+     * **Called by a migration, once per batch of new categories.** A migration runs once, so
+     * the categories added after an installation last seeded never got a row there:
+     * `auth.invitation` and `auth.verify_email` on anything that migrated on 26 September.
+     * Adding a category to {@see builtIn()} therefore needs a dated migration that calls this;
+     * `SystemMailTemplatesSeedTest` fails until the list it pins is updated, as a reminder.
+     *
+     * @return int How many rows were written.
+     */
+    public static function seedMissingRows(\Pramnos\Database\Database $db, string $language): int
+    {
+        $written = 0;
+
+        foreach (self::builtIn() as $category => $declared) {
+            $existing = $db->queryBuilder()->table('#PREFIX#mailtemplates')
+                ->where('category', $category)
+                ->where('type', MailTemplate::TYPE_EMAIL)
+                ->first();
+
+            if ($existing && (int) ($existing->numRows ?? 0) > 0) {
+                continue;
+            }
+
+            $db->queryBuilder()->table('#PREFIX#mailtemplates')->insert([
+                'title'          => $declared['title'],
+                'category'       => $category,
+                'language'       => $language !== '' ? $language : 'en',
+                'type'           => MailTemplate::TYPE_EMAIL,
+                'defaultsubject' => '',
+                'defaulttext'    => '',
+                'emailtemplate'  => '',
+                'sendmethod'     => 0,
+                'sound'          => '',
+            ]);
+            $written++;
+        }
+
+        return $written;
     }
 }

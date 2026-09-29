@@ -32,6 +32,7 @@ use Pramnos\Messaging\SystemMailTemplates;
  */
 #[CoversClass(SeedSystemMailTemplates::class)]
 #[CoversClass(SystemMailTemplates::class)]
+#[CoversClass(\Pramnos\Framework\Migrations\Messaging\SeedSystemMailTemplatesAddedLater::class)]
 class SystemMailTemplatesSeedTest extends BaseTestCase
 {
     protected \Pramnos\Database\Database $db;
@@ -65,6 +66,15 @@ class SystemMailTemplatesSeedTest extends BaseTestCase
     protected function tearDown(): void
     {
         $this->db->queryBuilder()->table('#PREFIX#mailtemplates')->truncate();
+
+        // Put the process back on the default database. The PostgreSQL sibling points the
+        // settings and the singleton at the other lane, and the next class in the run that
+        // asks Factory::getDatabase() would otherwise be handed PostgreSQL.
+        Settings::loadSettings(ROOT . DS . 'tests' . DS . 'fixtures' . DS . 'app' . DS . 'settings.php');
+        $reference = &\Pramnos\Database\Database::getInstance();
+        $reference = null;
+
+        parent::tearDown();
     }
 
     /** Which connection this class runs against. */
@@ -202,5 +212,85 @@ class SystemMailTemplatesSeedTest extends BaseTestCase
         $rows = $this->rows();
         $this->assertSame('Your code is {code}', (string) $rows['auth.twofactor_code']['defaultsubject']);
         $this->assertSame('Body we wrote', (string) $rows['auth.twofactor_code']['defaulttext']);
+    }
+
+    /**
+     * A category added after the first seeding gets its row from the later migration.
+     *
+     * The glideday finding: `seed_system_mail_templates` ran on 26 September, before
+     * `auth.invitation` and `auth.verify_email` existed, so those installations never listed
+     * them in the editor. Arranged as exactly that state — every other category seeded, those
+     * two missing — and the later migration fills in the two and nothing else.
+     */
+    public function testTheLaterMigrationSeedsOnlyTheCategoriesStillMissing(): void
+    {
+        // Arrange — the state of an installation that migrated on 26 September
+        $this->seed();
+        $this->db->queryBuilder()->table('#PREFIX#mailtemplates')
+            ->whereIn('category', ['auth.invitation', 'auth.verify_email'])->delete();
+        $before = count($this->db->queryBuilder()->table('#PREFIX#mailtemplates')->get()->fetchAll());
+
+        // Act
+        $this->runMigrations([\Pramnos\Framework\Migrations\Messaging\SeedSystemMailTemplatesAddedLater::class], $this->db);
+
+        // Assert — two more rows, the two that were missing
+        $rows = $this->db->queryBuilder()->table('#PREFIX#mailtemplates')
+            ->whereIn('category', ['auth.invitation', 'auth.verify_email'])->get()->fetchAll();
+        $this->assertCount(2, $rows);
+        $this->assertCount($before + 2, $this->db->queryBuilder()->table('#PREFIX#mailtemplates')->get()->fetchAll());
+    }
+
+    /**
+     * Its rollback removes only the rows it would have written, and only while untouched.
+     */
+    public function testTheLaterMigrationRollsBackOnlyUntouchedRows(): void
+    {
+        // Arrange — one of its categories has been written by an operator
+        $migration = new \Pramnos\Framework\Migrations\Messaging\SeedSystemMailTemplatesAddedLater($this->migrationApplication());
+        $migration->up();
+        $this->db->queryBuilder()->table('#PREFIX#mailtemplates')
+            ->where('category', 'auth.invitation')->update(['defaultsubject' => 'Come in']);
+
+        // Act
+        $migration->down();
+
+        // Assert — the operator's row stays, the blank one goes, the rest are not its business
+        $left = array_column($this->db->queryBuilder()->table('#PREFIX#mailtemplates')->get()->fetchAll(), 'category');
+        $this->assertContains('auth.invitation', $left);
+        $this->assertNotContains('auth.verify_email', $left);
+        $this->assertContains('auth.twofactor_code', $left);
+    }
+
+    /**
+     * The built-in categories, pinned — so adding one is a decision about seeding.
+     *
+     * A seed migration runs once. A category added to `builtIn()` after an installation
+     * migrated gets no row there, and the editor does not list it, unless a dated migration
+     * calls `SystemMailTemplates::seedMissingRows()`. When this fails, write that migration,
+     * then add the category here.
+     */
+    public function testTheBuiltInCategoriesAreTheOnesTheSeedMigrationsCover(): void
+    {
+        // Act
+        $categories = array_keys(SystemMailTemplates::builtIn());
+
+        // Assert
+        $this->assertSame([
+            'auth.twofactor_code',
+            'auth.new_device_link',
+            'auth.new_signin',
+            'auth.security_change',
+            'auth.invitation',
+            'auth.verify_email',
+        ], $categories, 'A built-in mail category changed: add a dated migration that calls '
+            . 'SystemMailTemplates::seedMissingRows(), then update this list.');
+    }
+
+    private function migrationApplication(): Application
+    {
+        $app = $this->getMockBuilder(Application::class)->disableOriginalConstructor()->getMock();
+        $app->database = $this->db;
+
+        return $app;
     }
 }
