@@ -322,8 +322,13 @@ rather than editing every operator's grants.
 | `roles/edit/{id}` | name, description, owning organisation, active |
 | `roles/members/{id}` | add and remove holders |
 
-Requires usertype ≥ 90, the same as Permissions: deciding what a role *is* is the
-same order of privilege as deciding what it may do.
+A **user's** page lists the roles they hold — each with its organisation or *system-wide*,
+when it was granted and until when — and marks one that **does not count** (the role was
+deactivated, or the assignment expired), since that is the usual answer to a missing
+permission. In code, `Role::heldBy($userId)`.
+
+Deciding what a role *is* is the same order of privilege as deciding what it may do, so these
+screens open at the same floor as Permissions.
 
 ### System-wide or an organisation's
 

@@ -138,6 +138,7 @@ class UsersController extends Controller
         $view->records      = $this->userRecords($id, (string) $user->email);
         $view->adminScreens = $this->adminScreensFor($id, $user);
         $view->emailPreferences = $this->emailPreferencesFor((string) $user->email);
+        $view->heldRoles        = \Pramnos\Auth\Role::heldBy($id);
         return $view->display('view');
     }
 

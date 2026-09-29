@@ -387,6 +387,70 @@ class RoleAssignmentTest extends BaseTestCase
         $this->assertArrayNotHasKey(self::UID + 1, $holders);
     }
 
+    /**
+     * The roles a user holds, for their page: named, with the organisation or none, and whether
+     * each counts now.
+     *
+     * The user page listed organisations and never roles, so "what does this person hold" had no
+     * answer on the screen about them. A revoked assignment is history and is left out; a role
+     * that was deactivated is kept and marked, because it is the answer to a missing permission.
+     */
+    public function testHeldByListsTheRolesAUserHolds(): void
+    {
+        // Arrange — a system-wide role, an organisation's role, a deactivated role, a revoked one
+        $this->join(5);
+        $this->role(21, null)->assignTo(self::UID);
+        $this->role(22, 5)->assignTo(self::UID);
+        $this->role(23, null)->assignTo(self::UID);
+        $this->role(24, null)->assignTo(self::UID);
+        $this->db->query("UPDATE `{$this->tRoles}` SET is_active = 0 WHERE roleid = 23");
+        $revoked = new Role($this->controller());
+        $revoked->roleid = 24;
+        $revoked->revokeFrom(self::UID);
+
+        // Act
+        $held = Role::heldBy(self::UID);
+
+        // Assert
+        $byId = array_column($held, null, 'roleid');
+        $this->assertSame([21, 22, 23], array_keys($byId), 'the revoked one is left out');
+        $this->assertSame('', $byId[21]['organization'], 'system-wide');
+        $this->assertSame(5, $byId[22]['organization_id']);
+        $this->assertSame('Org 5', $byId[22]['organization']);
+        $this->assertTrue($byId[21]['counts']);
+        $this->assertFalse($byId[23]['counts'], 'a deactivated role is held and counts for nothing');
+        $this->assertSame([], Role::heldBy(0));
+    }
+
+    /**
+     * The Roles panel renders in every theme, linking each role and marking one that does not count.
+     */
+    public function testTheRolesPanelRendersInEveryTheme(): void
+    {
+        foreach (['bootstrap', 'tailwind', 'plain-css'] as $theme) {
+            // Arrange
+            $data = new \stdClass();
+            $data->heldRoles = [
+                ['roleid' => 21, 'role_name' => 'Support', 'organization_id' => null, 'organization' => '', 'granted_at' => '2026-09-01 10:00:00', 'expires_at' => '', 'counts' => true],
+                ['roleid' => 23, 'role_name' => 'Old', 'organization_id' => 5, 'organization' => 'Org 5', 'granted_at' => '2026-09-01 10:00:00', 'expires_at' => '', 'counts' => false],
+            ];
+            $render = \Closure::bind(function (string $file): void {
+                include $file;
+            }, $data, null);
+
+            // Act
+            ob_start();
+            $render(ROOT . '/scaffolding/themes/' . $theme . '/views/partials/user_roles.html.php');
+            $html = (string) ob_get_clean();
+
+            // Assert
+            $this->assertStringContainsString('roles/view/21', $html, $theme);
+            $this->assertStringContainsString('system-wide', $html, $theme);
+            $this->assertStringContainsString('Org 5', $html, $theme);
+            $this->assertSame(1, substr_count($html, 'does not count'), $theme);
+        }
+    }
+
     /** A role that has not been saved has no holders and cannot be assigned. */
     public function testAnUnsavedRoleIsRefused(): void
     {

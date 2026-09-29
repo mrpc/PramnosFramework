@@ -326,6 +326,78 @@ class Role extends Model
         return $holders;
     }
 
+    /**
+     * The roles a user holds now, for their page: name, organisation (or none, system-wide),
+     * when granted, until when, and whether the role itself is active.
+     *
+     * Revoked assignments are left out, like {@see holders()}; an expired one and a role that
+     * was deactivated are kept and say so, because "they have it, and it counts for nothing" is
+     * exactly what somebody asking why a permission is missing needs to see.
+     *
+     * @return list<array{roleid: int, role_name: string, organization_id: int|null,
+     *                    organization: string, granted_at: string, expires_at: string,
+     *                    counts: bool}>
+     */
+    public static function heldBy(int $userId): array
+    {
+        $db = \Pramnos\Framework\Factory::getDatabase();
+        if ($userId <= 0 || !$db->schema()->hasTable(self::assignmentTable()) || !$db->schema()->hasTable('authserver.roles')) {
+            return [];
+        }
+
+        $assigned = $db->queryBuilder()->table(self::assignmentTable())
+            ->select(['roleid', 'granted_at', 'expires_at'])
+            ->where('userid', $userId)
+            ->where('is_active', true)
+            ->get();
+        $rows = [];
+        while ($assigned && $assigned->fetch()) {
+            $rows[(int) $assigned->fields['roleid']] = $assigned->fields;
+        }
+        if ($rows === []) {
+            return [];
+        }
+
+        $orgColumn = self::organizationColumn();
+        $hasOrg    = $db->schema()->hasColumn('authserver.roles', $orgColumn);
+        $roles     = $db->queryBuilder()->table('authserver.roles')
+            ->select(array_merge(['roleid', 'role_name', 'is_active'], $hasOrg ? [$orgColumn] : []))
+            ->whereIn('roleid', array_keys($rows))
+            ->get();
+
+        $held = [];
+        while ($roles && $roles->fetch()) {
+            $id      = (int) $roles->fields['roleid'];
+            $expires = (string) ($rows[$id]['expires_at'] ?? '');
+            $org     = $hasOrg && $roles->fields[$orgColumn] !== null ? (int) $roles->fields[$orgColumn] : null;
+            $held[]  = [
+                'roleid'          => $id,
+                'role_name'       => (string) $roles->fields['role_name'],
+                'organization_id' => $org,
+                'organization'    => $org !== null ? self::organizationName($org) : '',
+                'granted_at'      => (string) ($rows[$id]['granted_at'] ?? ''),
+                'expires_at'      => $expires,
+                'counts'          => (bool) $roles->fields['is_active'] && ($expires === '' || strtotime($expires) > time()),
+            ];
+        }
+        usort($held, static fn (array $a, array $b): int => strcasecmp($a['role_name'], $b['role_name']));
+
+        return $held;
+    }
+
+    /** An organisation's name, or `#id` when it cannot be read. */
+    private static function organizationName(int $organizationId): string
+    {
+        try {
+            $row = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('#PREFIX#organizations')
+                ->select(['name'])->where('organization_id', $organizationId)->first();
+        } catch (\Throwable) {
+            $row = null;
+        }
+
+        return $row && $row->numRows > 0 ? (string) $row->fields['name'] : '#' . $organizationId;
+    }
+
     // ── Table names ───────────────────────────────────────────────────────────
 
     /** The role-assignment table. */

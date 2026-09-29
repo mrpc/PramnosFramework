@@ -769,6 +769,7 @@ $fullName = trim(($user['firstname'] ?? '') . ' ' . ($user['lastname'] ?? ''));
             </div>
 
 
+            <?php $this->insert('../partials/user_roles'); ?>
             <?php $this->insert('../partials/admin_screens'); ?>
             <?php $this->insert('../partials/email_preferences'); ?>
         </div>
