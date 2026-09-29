@@ -68,6 +68,12 @@ class RbacFunctionsCharacterizationTest extends TestCase
     protected function tearDown(): void
     {
         $this->dropAuthserverSchema();
+        // Put the schema back, empty. This class runs last, so without it every run ended with a
+        // database that had no `authserver` schema at all, and the next `--filter` run failed in
+        // whichever test first wrote there — "schema authserver does not exist" — unless an
+        // earlier test in the subset happened to create it. The tables are each suite's own to
+        // build; the schema is the installation's.
+        $this->db->query('CREATE SCHEMA IF NOT EXISTS authserver');
     }
 
     // =========================================================================
