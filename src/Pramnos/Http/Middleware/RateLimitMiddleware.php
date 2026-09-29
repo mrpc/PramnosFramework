@@ -28,6 +28,13 @@ use Pramnos\Http\TooManyRequestsException;
  * itself — and the keyPrefix. Pass a custom $keyPrefix to create independent
  * rate-limit buckets per route group.
  *
+ * **Or from whatever `$identify` names.** An address is the wrong unit for an
+ * API: two keys behind one NAT share a budget, and one key used from many
+ * addresses has none. `$identify` receives the request and answers the identity
+ * to count — an API key, a user id — or `[$identity, $maxRequests, $perSeconds]`
+ * when the limit is a property of that identity, a key's tier. An empty answer
+ * falls back to the address, so an anonymous request is still limited.
+ *
  * When the limit is exceeded the middleware throws a
  * {@see TooManyRequestsException} (an \Exception with code 429, so existing
  * handlers are unaffected). Application::exec() renders it as a 429 response,
@@ -53,12 +60,16 @@ class RateLimitMiddleware implements MiddlewareInterface
      * @param int         $perSeconds  Length of the sliding window in seconds.
      * @param string      $keyPrefix   Prefix for cache keys — isolates buckets.
      * @param Cache|null  $cache       Cache instance. Defaults to Factory::getCache().
+     * @param \Closure|null $identify  `fn (Request $r): string|array|null` — what to
+     *                                 count instead of the address, optionally with
+     *                                 its own limit: `[$identity, $max, $perSeconds]`.
      */
     public function __construct(
         private int    $maxRequests = 60,
         private int    $perSeconds  = 60,
         private string $keyPrefix   = 'ratelimit:',
-        ?Cache         $cache       = null
+        ?Cache         $cache       = null,
+        private ?\Closure $identify = null
     ) {
         $this->cache = $cache ?? Factory::getCache();
     }
@@ -68,14 +79,60 @@ class RateLimitMiddleware implements MiddlewareInterface
      */
     public function handle(Request $request, callable $next): mixed
     {
-        $ip   = Request::clientIp('0.0.0.0');
-        $base = $this->keyPrefix . md5($ip);
+        [$identity, $limiter] = $this->resolveIdentity($request);
+        $base = $this->keyPrefix . md5($identity);
 
-        if ($this->cache->supportsAtomicCounter()) {
-            return $this->handleAtomically($request, $next, $base);
+        if ($limiter->cache->supportsAtomicCounter()) {
+            return $limiter->handleAtomically($request, $next, $base);
         }
 
-        return $this->handleWithSlidingWindow($request, $next, $base);
+        return $limiter->handleWithSlidingWindow($request, $next, $base);
+    }
+
+    /**
+     * Who this request is counted as, and the limiter that counts it.
+     *
+     * The limiter is this one, or a copy carrying the identity's own limit — a
+     * copy rather than arguments, so the protected `loadTimestamps()` /
+     * `saveTimestamps()` a subclass may override keep reading `perSeconds` as
+     * they always have.
+     *
+     * A malformed answer is refused loudly: a limiter that silently fell back to
+     * the address on a typo would look configured and count the wrong thing.
+     *
+     * @return array{0: string, 1: self}
+     */
+    private function resolveIdentity(Request $request): array
+    {
+        $address = Request::clientIp('0.0.0.0');
+        if ($this->identify === null) {
+            return [$address, $this];
+        }
+
+        $answer = ($this->identify)($request);
+
+        if ($answer === null || $answer === '') {
+            return [$address, $this];
+        }
+        if (is_string($answer)) {
+            return ['id:' . $answer, $this];
+        }
+        if (is_array($answer) && count($answer) === 3
+            && is_string($answer[0] ?? null) && $answer[0] !== ''
+            && is_int($answer[1] ?? null) && $answer[1] > 0
+            && is_int($answer[2] ?? null) && $answer[2] > 0
+        ) {
+            $limiter = clone $this;
+            $limiter->maxRequests = $answer[1];
+            $limiter->perSeconds  = $answer[2];
+
+            return ['id:' . $answer[0], $limiter];
+        }
+
+        throw new \UnexpectedValueException(
+            'RateLimitMiddleware $identify must return a non-empty string, null, or '
+            . '[string $identity, int $maxRequests > 0, int $perSeconds > 0].'
+        );
     }
 
     /**

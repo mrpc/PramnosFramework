@@ -883,6 +883,59 @@ chain to walk.
     `ClientIpResolver::CLOUDFLARE_RANGES` is a snapshot of the published list
     and does change — pin your own copy if this matters to you.
 
+## Rate limiting a route: `RateLimitMiddleware`
+
+```php
+use Pramnos\Http\Middleware\RateLimitMiddleware;
+
+$router->addGlobalMiddleware(new RateLimitMiddleware(120, 60));          // 120 a minute
+$router->post('/api/export', $handler)
+       ->middleware(new RateLimitMiddleware(5, 60, 'export:'));          // its own bucket
+```
+
+It works on any cache adapter. With an atomic counter (Redis, Memcached) the limit is a fixed
+window counted on the server, which stays exact under concurrency. Without one (Array, File) it
+is a sliding window built from load-modify-save, which undercounts a concurrent burst. A limit
+doing security work wants Redis. Over the limit, the middleware throws
+`TooManyRequestsException`, rendered as `429` with `Retry-After`.
+
+`$keyPrefix` separates one limiter's buckets from another's. It does not change what is counted.
+
+### Counting a key or a user instead of an address
+
+By default the bucket is the client address from `Request::clientIp()` — so configure trusted
+proxies first (above), or every visitor behind the proxy shares one bucket. An address is the
+wrong unit for an API: two keys behind one NAT share a budget, and one key used from many
+addresses has none. `identify` names what to count:
+
+```php
+new RateLimitMiddleware(
+    maxRequests: 600,
+    perSeconds: 3600,
+    keyPrefix: 'ratelimit:api:',
+    identify: static fn (Request $r): ?string => $r->header('X-Api-Key') ?: null,
+);
+```
+
+- **A string** is the identity. It is hashed into the bucket name and kept apart from address
+  buckets, so a key spelled like an address cannot spend that address's allowance.
+- **`null` or `''`** falls back to the address, so a request without a key is still limited.
+- **`[$identity, $maxRequests, $perSeconds]`** counts the identity against its own limit. That
+  is how a key's tier becomes part of what it buys, without one middleware per tier:
+
+```php
+identify: static function (Request $r): ?array {
+    $key = ApiKeys::find($r->header('X-Api-Key'));      // your lookup
+    return $key ? ["key:{$key->id}", $key->tierLimit, 3600] : null;
+},
+```
+
+Any other answer throws `UnexpectedValueException`. A limiter that fell back to the address on
+a typo would look configured while counting the wrong thing.
+
+Look the key up — do not count the header verbatim. An unverified header is client-supplied,
+so a fresh random value on every request gets a fresh bucket every time.
+
 ## Human checks on public writes
 
 `\Pramnos\Security\HumanCheck` is proof-of-work, not a CAPTCHA:
