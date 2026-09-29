@@ -369,6 +369,38 @@ class RequestTest extends \PHPUnit\Framework\TestCase
     }
 
     /**
+     * A port with no host builds a URL without a warning.
+     *
+     * The branch without a port already treated a missing `SERVER_NAME` as empty; the one with a
+     * port read it bare, so a request with `SERVER_PORT` and no `SERVER_NAME` warned on every
+     * absolute URL it built — which the session tracker does on every request.
+     */
+    public function testGetURLWithAPortAndNoHostDoesNotWarn()
+    {
+        // Arrange
+        $_SERVER['REQUEST_URI'] = '/test';
+        $_SERVER['SERVER_PORT'] = '8080';
+        unset($_SERVER['SERVER_NAME'], $_SERVER['HTTPS']);
+
+        $warnings = [];
+        set_error_handler(static function (int $level, string $message) use (&$warnings): bool {
+            $warnings[] = $message;
+            return true;
+        });
+
+        // Act
+        try {
+            $url = $this->_object->getURL(false);
+        } finally {
+            restore_error_handler();
+        }
+
+        // Assert
+        $this->assertSame([], $warnings);
+        $this->assertSame('http://:8080/test', $url);
+    }
+
+    /**
      * Test the validate() helper method
      */
     public function testValidateHelper()
