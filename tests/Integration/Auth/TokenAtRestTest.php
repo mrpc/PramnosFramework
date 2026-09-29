@@ -334,7 +334,10 @@ class TokenAtRestTest extends BaseTestCase
     public function testNoLookupMatchesOnTheTokenColumn(): void
     {
         // Arrange
-        $root  = dirname(__DIR__, 3) . '/src';
+        // The framework's own code. `src/` also holds whatever other suites generate into it —
+        // `src/Views` is created and removed by the scaffolding tests — and a directory that
+        // vanished between listing and opening failed this test for a reason unrelated to tokens.
+        $root  = dirname(__DIR__, 3) . '/src/Pramnos';
         $found = [];
 
         $files = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($root));

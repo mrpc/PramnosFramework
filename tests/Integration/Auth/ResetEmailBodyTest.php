@@ -64,6 +64,10 @@ class ResetEmailBodyTest extends BaseTestCase
             $this->markTestSkipped('The database for this backend is not reachable.');
         }
 
+        // Shared tables this class reads and writes but does not own. Another suite may have
+        // dropped them earlier in the run; ensure their production shape rather than assume it.
+        \Pramnos\Framework\Testing\Schema::table('settings', $this->db);
+
         $this->runMigrations([
             \Pramnos\Framework\Migrations\Messaging\CreateMailsTable::class,
         ], $this->db);
@@ -284,7 +288,7 @@ class ResetEmailBodyTest extends BaseTestCase
     {
         // Arrange
         $original = Settings::getSetting('smtp');
-        Settings::setSetting('smtp', ['host' => 'unroutable.invalid', 'port' => 1]);
+        Settings::setSetting('smtp', ['host' => 'unroutable.invalid', 'port' => 1], false);
 
         try {
             // Act & Assert — the assertion is that nothing is thrown
@@ -294,7 +298,7 @@ class ResetEmailBodyTest extends BaseTestCase
             $this->assertNotNull($row, 'a failed send left no trace for an operator to find');
             $this->assertContains((int) $row['status'], [0, 1]);
         } finally {
-            Settings::setSetting('smtp', $original);
+            Settings::setSetting('smtp', $original, false);
         }
     }
 }

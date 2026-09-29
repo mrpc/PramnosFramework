@@ -183,6 +183,13 @@ class UsersControllerTest extends TestCase
         $db->query('SET FOREIGN_KEY_CHECKS = 1');
 
         self::dropAuthServerTables($db);
+
+        // Put the shared tables back in their production shape. This class builds its own
+        // copies and dropped them on the way out, so every suite after it that assumed a
+        // `users` table — the roles screens, the system-account row — found none, but only in
+        // a run that did not happen to rebuild it in between.
+        \Pramnos\User\User::setupDb();
+        Schema::table('usertokens', $db);
     }
 
     /**

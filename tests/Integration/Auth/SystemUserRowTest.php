@@ -67,6 +67,9 @@ class SystemUserRowTest extends BaseTestCase
         }
 
         CoreApplication::getInstance()->database = $this->db;
+        // `users` is shared, and a suite earlier in a run may have dropped it; ensure its
+        // production shape rather than assume it — idempotent when it is already there.
+        \Pramnos\User\User::setupDb();
     }
 
     protected function tearDown(): void

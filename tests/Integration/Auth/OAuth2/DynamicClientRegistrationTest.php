@@ -69,6 +69,16 @@ class DynamicClientRegistrationTest extends BaseTestCase
             \Pramnos\Framework\Migrations\AuthServer\AddIsConfidentialToApplications::class,
         ], $this->db);
 
+        // On PostgreSQL, other suites insert applications with explicit ids, which leaves the
+        // serial behind the rows; the endpoint inserts without one and collided with appid 1.
+        // Brought level with the table, as a real installation's sequence always is.
+        if ($this->db->type === 'postgresql') {
+            $this->db->query(
+                "SELECT setval(pg_get_serial_sequence('applications', 'appid'), "
+                . "GREATEST(COALESCE((SELECT MAX(appid) FROM applications), 0), 1))"
+            );
+        }
+
         $_SERVER['REQUEST_METHOD'] = 'POST';
         $_SERVER['REMOTE_ADDR']    = '203.0.113.7';
     }

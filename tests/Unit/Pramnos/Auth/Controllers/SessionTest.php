@@ -43,15 +43,17 @@ class SessionTest extends TestCase
         // production. The hand-rolled copy here declared columns no migration
         // creates and omitted ones it does — see Testing\Schema.
         Schema::table('applications', $this->db);
-        $this->db->query('
-            CREATE TABLE IF NOT EXISTS `users` (
-                `userid` bigint NOT NULL AUTO_INCREMENT,
-                `username` varchar(255) NOT NULL,
-                `email` varchar(255) NOT NULL,
-                `active` tinyint(1) NOT NULL DEFAULT 1,
-                PRIMARY KEY (`userid`)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-        ');
+        // The canonical `users`. This built a four-column copy with `CREATE TABLE IF NOT
+        // EXISTS` and left it in place, so on a database where it ran first every later suite
+        // got a `users` with no `password` — and `User::save()` failed there silently, which
+        // surfaced far away as a system account that "was not created". A copy left by a run
+        // from before this changed is rebuilt.
+        if ($this->db->schema()->hasTable('users') && !$this->db->schema()->hasColumn('users', 'password')) {
+            $this->db->query('SET FOREIGN_KEY_CHECKS = 0');
+            $this->db->schema()->dropTableIfExists('users');
+            $this->db->query('SET FOREIGN_KEY_CHECKS = 1');
+        }
+        \Pramnos\User\User::setupDb();
         // The canonical `usertokens`, from the migrations that build it in
         // production — see Testing\Schema for why a hand-rolled copy is a trap.
         Schema::table('usertokens', $this->db);

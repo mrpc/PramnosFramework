@@ -166,7 +166,7 @@ class LoginlockoutCharacterizationTest extends TestCase
     public function testAConfiguredLadderIsWhatIsApplied(): void
     {
         // Arrange — one failure locks, for two minutes
-        \Pramnos\Application\Settings::setSetting('loginlockoutsteps', '{"1":120}');
+        \Pramnos\Application\Settings::setSetting('loginlockoutsteps', '{"1":120}', false);
 
         try {
             $lockout = new Loginlockout();
@@ -178,7 +178,7 @@ class LoginlockoutCharacterizationTest extends TestCase
             // …and the shipped thresholds no longer apply on their own
             $this->assertSame(120, $method->invoke($lockout, 3));
         } finally {
-            \Pramnos\Application\Settings::setSetting('loginlockoutsteps', '');
+            \Pramnos\Application\Settings::setSetting('loginlockoutsteps', '', false);
         }
     }
 
@@ -192,7 +192,7 @@ class LoginlockoutCharacterizationTest extends TestCase
     {
         foreach (['not json at all', '{}', '{"0":0}', '[]'] as $stored) {
             // Arrange
-            \Pramnos\Application\Settings::setSetting('loginlockoutsteps', $stored);
+            \Pramnos\Application\Settings::setSetting('loginlockoutsteps', $stored, false);
 
             try {
                 $lockout = new Loginlockout();
@@ -202,7 +202,7 @@ class LoginlockoutCharacterizationTest extends TestCase
                 $this->assertSame(60, $method->invoke($lockout, 3),
                     "stored as [$stored], the defaults must still apply");
             } finally {
-                \Pramnos\Application\Settings::setSetting('loginlockoutsteps', '');
+                \Pramnos\Application\Settings::setSetting('loginlockoutsteps', '', false);
             }
         }
     }
@@ -222,14 +222,14 @@ class LoginlockoutCharacterizationTest extends TestCase
 
         foreach (['3600' => 3600, '0' => 900, '30' => 900, '999999' => 900, '' => 900] as $stored => $expected) {
             // Arrange
-            \Pramnos\Application\Settings::setSetting('loginlockoutwindowseconds', (string) $stored);
+            \Pramnos\Application\Settings::setSetting('loginlockoutwindowseconds', (string) $stored, false);
 
             try {
                 // Act & Assert
                 $this->assertSame($expected, $method->invoke($lockout),
                     "stored as [$stored]");
             } finally {
-                \Pramnos\Application\Settings::setSetting('loginlockoutwindowseconds', '');
+                \Pramnos\Application\Settings::setSetting('loginlockoutwindowseconds', '', false);
             }
         }
     }

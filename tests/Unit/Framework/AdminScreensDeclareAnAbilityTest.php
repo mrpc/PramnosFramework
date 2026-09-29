@@ -21,7 +21,7 @@ class AdminScreensDeclareAnAbilityTest extends TestCase
     {
         $root = dirname(__DIR__, 3) . '/src/';
         $found = [];
-        foreach (new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($root)) as $file) {
+        foreach (new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($root, \FilesystemIterator::SKIP_DOTS), \RecursiveIteratorIterator::LEAVES_ONLY, \RecursiveIteratorIterator::CATCH_GET_CHILD) as $file) {
             if ($file->getExtension() !== 'php') {
                 continue;
             }
@@ -75,7 +75,7 @@ class AdminScreensDeclareAnAbilityTest extends TestCase
         $scanned = 0;
 
         // Act
-        foreach (new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($root)) as $file) {
+        foreach (new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($root, \FilesystemIterator::SKIP_DOTS), \RecursiveIteratorIterator::LEAVES_ONLY, \RecursiveIteratorIterator::CATCH_GET_CHILD) as $file) {
             if ($file->getExtension() !== 'php' || str_ends_with($file->getPathname(), 'Application/Controller.php')
                 || str_contains($file->getPathname(), '/Console/')) {
                 continue;

@@ -69,6 +69,10 @@ class MessagingModelsMySQLTest extends TestCase
         Settings::loadSettings($settingsFile);
         Application::getInstance();
 
+        // Rebuilt from the settings just loaded, as the other database suites do: an instance
+        // left by an earlier class — built before any settings existed — points at nothing.
+        $reference = &Database::getInstance();
+        $reference = null;
         $this->db = Database::getInstance();
         if (!$this->db->connected) {
             $this->db->connect();
@@ -145,6 +149,10 @@ class MessagingModelsMySQLTest extends TestCase
         Settings::loadSettings(ROOT . \DS . 'tests' . \DS . 'fixtures' . \DS . 'app' . \DS . 'settings.php');
         Application::getInstance();
 
+        // Rebuilt from the settings just loaded, as the other database suites do: an instance
+        // left by an earlier class — built before any settings existed — points at nothing.
+        $reference = &Database::getInstance();
+        $reference = null;
         $this->db = Database::getInstance();
         if (!$this->db->connected) {
             $this->db->connect();

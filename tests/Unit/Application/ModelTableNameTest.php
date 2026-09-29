@@ -223,24 +223,32 @@ class ModelTableNameTest extends TestCase
             $this->markTestSkipped('The constructor refuses PostgreSQL without the extension.');
         }
 
-        $previous = \Pramnos\Application\Settings::getSetting('database');
-        \Pramnos\Application\Settings::setSetting('database', (object) [
-            'type'     => 'timescaledb',
-            'hostname' => 'db',
-            'database' => 'irrelevant',
-            'user'     => 'irrelevant',
-            'password' => '',
-        ], false);
+        // Its own settings object, answering only for this connection — the process-wide store
+        // is not touched. Setting `database` there leaked a TimescaleDB connection at host `db`
+        // into every suite after this one whenever an assertion failed before the cleanup ran.
+        $settings = new class extends \Pramnos\Application\Settings {
+            public function __construct()
+            {
+            }
+
+            public function __get($setting)
+            {
+                return $setting === 'database' ? (object) [
+                    'type'     => 'timescaledb',
+                    'hostname' => 'db',
+                    'database' => 'irrelevant',
+                    'user'     => 'irrelevant',
+                    'password' => '',
+                ] : null;
+            }
+        };
 
         // Act — the constructor is where the normalisation happens.
-        $connection = new \Pramnos\Database\Database(new \Pramnos\Application\Settings());
+        $connection = new \Pramnos\Database\Database($settings);
 
         // Assert
         $this->assertSame('postgresql', $connection->type);
         $this->assertTrue($connection->timescale);
-
-        // Cleanup
-        \Pramnos\Application\Settings::setSetting('database', $previous, false);
     }
 
     /**

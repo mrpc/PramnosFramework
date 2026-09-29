@@ -63,6 +63,9 @@ class RolesControllerTest extends BaseTestCase
             $this->markTestSkipped('Runs on MySQL; the QueryBuilder abstracts the dialect.');
         }
 
+        // `users` is shared, and a suite earlier in a run may have dropped it; ensure its
+        // production shape rather than assume it — idempotent when it is already there.
+        \Pramnos\User\User::setupDb();
         $p = $this->db->prefix;
         $this->tRoles       = $p . 'authserver_roles';
         $this->tUserRoles   = $p . 'authserver_user_roles';
@@ -534,8 +537,11 @@ class RolesControllerTest extends BaseTestCase
         // Arrange
         $this->seedRole(31, null);
         $permissions = $this->db->schema()->resolveTableName('authserver.permissions');
-        if (!$this->db->schema()->hasTable('authserver.permissions')) {
-            $this->markTestSkipped('The permissions table belongs to another migration set.');
+        // Built here when absent, from its own migration, and dropped again afterwards: this
+        // was skipped whenever no earlier suite in the run had happened to create it.
+        $built = !$this->db->schema()->hasTable('authserver.permissions');
+        if ($built) {
+            $this->runMigrations([\Pramnos\Framework\Migrations\AuthServer\CreateAuthserverPermissionsTable::class], $this->db);
         }
         $this->db->query(
             "INSERT INTO `{$permissions}` (subject_type, subject_id, object_type, object_id, "
@@ -558,6 +564,11 @@ class RolesControllerTest extends BaseTestCase
         $this->db->query(
             "DELETE FROM `{$permissions}` WHERE subject_type = 'role' AND subject_id = 31"
         );
+        if ($built) {
+            $this->db->schema()->dropTableIfExists('authserver.permissions');
+            (new \ReflectionProperty(\Pramnos\Auth\Permissions::class, '_store'))
+                ->setValue(\Pramnos\Auth\Permissions::getInstance(), null);
+        }
     }
 
     /** The create form opens with no role and the organisations to choose from. */

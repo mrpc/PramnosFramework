@@ -316,9 +316,20 @@ class AuthCollectorTest extends TestCase
         $_SESSION['loginflow_pending_userid']     = 4242;
         $_SESSION['loginflow_pending_identifier'] = 'alice';
         $_SESSION['loginflow_pending_time']       = time() - 12;
+        // A database that cannot be reached, made here rather than assumed: whether the
+        // shared one could connect depended on which suites had run before this one. A
+        // subclass, so Database::getInstance() treats it as the caller's and keeps it.
+        $reference = &\Pramnos\Database\Database::getInstance();
+        $saved     = $reference;
+        $reference = new class extends \Pramnos\Database\Database {
+        };
 
         // Act
-        $data = (new AuthCollector())->collect();
+        try {
+            $data = (new AuthCollector())->collect();
+        } finally {
+            $reference = $saved;
+        }
 
         // Assert
         $this->assertIsArray($data['twofactor']);

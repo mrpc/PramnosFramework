@@ -328,13 +328,13 @@ class NewSignInAlertTest extends DatabaseTestCase
     {
         // Arrange — the account has not opted in
         NewSignInAlert::setEnabledFor(self::USER, false, $this->db);
-        \Pramnos\Application\Settings::setSetting(NewSignInAlert::POLICY_SETTING, 'always');
+        \Pramnos\Application\Settings::setSetting(NewSignInAlert::POLICY_SETTING, 'always', false);
 
         try {
             // Act & Assert
             $this->assertTrue(NewSignInAlert::isEnabledFor(self::USER, $this->db));
         } finally {
-            \Pramnos\Application\Settings::setSetting(NewSignInAlert::POLICY_SETTING, 'optin');
+            \Pramnos\Application\Settings::setSetting(NewSignInAlert::POLICY_SETTING, 'optin', false);
         }
     }
 
@@ -348,13 +348,13 @@ class NewSignInAlertTest extends DatabaseTestCase
     {
         // Arrange — the account *has* opted in
         NewSignInAlert::setEnabledFor(self::USER, true, $this->db);
-        \Pramnos\Application\Settings::setSetting(NewSignInAlert::POLICY_SETTING, 'off');
+        \Pramnos\Application\Settings::setSetting(NewSignInAlert::POLICY_SETTING, 'off', false);
 
         try {
             // Act & Assert
             $this->assertFalse(NewSignInAlert::isEnabledFor(self::USER, $this->db));
         } finally {
-            \Pramnos\Application\Settings::setSetting(NewSignInAlert::POLICY_SETTING, 'optin');
+            \Pramnos\Application\Settings::setSetting(NewSignInAlert::POLICY_SETTING, 'optin', false);
         }
     }
 
@@ -373,13 +373,13 @@ class NewSignInAlertTest extends DatabaseTestCase
             ->where('userid', self::USER)
             ->where('fieldname', NewSignInAlert::PREFERENCE)
             ->delete();
-        \Pramnos\Application\Settings::setSetting(NewSignInAlert::POLICY_SETTING, 'optout');
+        \Pramnos\Application\Settings::setSetting(NewSignInAlert::POLICY_SETTING, 'optout', false);
 
         try {
             // Act & Assert
             $this->assertTrue(NewSignInAlert::isEnabledFor(self::USER, $this->db));
         } finally {
-            \Pramnos\Application\Settings::setSetting(NewSignInAlert::POLICY_SETTING, 'optin');
+            \Pramnos\Application\Settings::setSetting(NewSignInAlert::POLICY_SETTING, 'optin', false);
         }
     }
 
@@ -394,7 +394,7 @@ class NewSignInAlertTest extends DatabaseTestCase
     {
         // Arrange
         NewSignInAlert::setEnabledFor(self::USER, false, $this->db);
-        \Pramnos\Application\Settings::setSetting(NewSignInAlert::POLICY_SETTING, 'optout');
+        \Pramnos\Application\Settings::setSetting(NewSignInAlert::POLICY_SETTING, 'optout', false);
 
         try {
             // Act & Assert
@@ -404,7 +404,7 @@ class NewSignInAlertTest extends DatabaseTestCase
             NewSignInAlert::setEnabledFor(self::USER, true, $this->db);
             $this->assertTrue(NewSignInAlert::isEnabledFor(self::USER, $this->db));
         } finally {
-            \Pramnos\Application\Settings::setSetting(NewSignInAlert::POLICY_SETTING, 'optin');
+            \Pramnos\Application\Settings::setSetting(NewSignInAlert::POLICY_SETTING, 'optin', false);
         }
     }
 
@@ -427,7 +427,7 @@ class NewSignInAlertTest extends DatabaseTestCase
             NewSignInAlert::setEnabledFor(self::USER, false, $this->db);
             $this->assertFalse(NewSignInAlert::isEnabledFor(self::USER, $this->db));
         } finally {
-            \Pramnos\Application\Settings::setSetting(NewSignInAlert::POLICY_SETTING, 'optin');
+            \Pramnos\Application\Settings::setSetting(NewSignInAlert::POLICY_SETTING, 'optin', false);
         }
     }
 }

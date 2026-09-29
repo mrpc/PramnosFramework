@@ -84,6 +84,15 @@ final class Schema
             \Pramnos\Framework\Migrations\Auth\CreateUsertokensTable::class,
             \Pramnos\Framework\Migrations\Auth\AddTokenLookupToUsertokens::class,
         ],
+        /*
+         * `Settings::setSetting()` writes here, so any test that changes a setting persistently
+         * needs it — and a suite that dropped it earlier in the run left those tests answering
+         * "the database refused the query" with nothing to say which table.
+         */
+        'settings' => [
+            \Pramnos\Framework\Migrations\Core\CreateSettingsTable::class,
+            \Pramnos\Framework\Migrations\Core\AddUniqueConstraintToSettingsTable::class,
+        ],
     ];
 
     /**

@@ -174,7 +174,7 @@ class SessionRevocationTest extends BaseTestCase
 
         $_SESSION = $this->originalSession;
         unset($_SERVER['HTTP_USER_AGENT'], $_SERVER['REMOTE_ADDR']);
-        Settings::setSetting('web_session_lifetime', '');
+        Settings::setSetting('web_session_lifetime', '', false);
         User::clearUserCache();
 
         parent::tearDown();
@@ -269,7 +269,7 @@ class SessionRevocationTest extends BaseTestCase
     public function testTheTokenExpiresUnlessTheLifetimeIsZero(): void
     {
         // Arrange
-        Settings::setSetting('web_session_lifetime', '3600');
+        Settings::setSetting('web_session_lifetime', '3600', false);
 
         // Act
         $before = time();
@@ -282,7 +282,7 @@ class SessionRevocationTest extends BaseTestCase
         $this->assertLessThan($before + 3700, $expiry, 'the configured lifetime was ignored');
 
         // And zero means never, on purpose.
-        Settings::setSetting('web_session_lifetime', '0');
+        Settings::setSetting('web_session_lifetime', '0', false);
         $_SESSION = [];
         (new User($this->uid))->createWebSessionToken();
 
@@ -303,7 +303,7 @@ class SessionRevocationTest extends BaseTestCase
     public function testTheDefaultLifetimeIsThirtyDays(): void
     {
         // Arrange
-        Settings::setSetting('web_session_lifetime', '');
+        Settings::setSetting('web_session_lifetime', '', false);
 
         // Act & Assert
         $this->assertSame(2592000, User::webSessionLifetime());

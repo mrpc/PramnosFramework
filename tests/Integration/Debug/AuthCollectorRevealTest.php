@@ -79,6 +79,11 @@ class AuthCollectorRevealTest extends BaseTestCase
             $this->markTestSkipped('The database for this backend is not reachable.');
         }
 
+        // Shared tables this class reads and writes but does not own. Another suite may have
+        // dropped them earlier in the run; ensure their production shape rather than assume it.
+        \Pramnos\Framework\Testing\Schema::table('settings', $this->db);
+        \Pramnos\User\User::setupDb();
+
         $this->runMigrations([
             \Pramnos\Framework\Migrations\Auth\CreateUsersTable::class,
             \Pramnos\Framework\Migrations\Auth\CreateUserTwofactorTable::class,
