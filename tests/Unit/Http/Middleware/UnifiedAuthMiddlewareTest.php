@@ -795,4 +795,34 @@ class UnifiedAuthMiddlewareTest extends TestCase
         // Session::getCsrfToken() reads $_SESSION['csrf_token']
         $_SESSION['csrf_token'] = $token;
     }
+
+    // -------------------------------------------------------------------------
+    // A token stored by its jti
+    // -------------------------------------------------------------------------
+
+    /**
+     * A verified bearer that matches no row by its text is looked up by its `jti`.
+     *
+     * The same gap as in ApiAuthMiddleware: `/oauth/token` stores an access token by its
+     * identifier, so a route behind this middleware refused every token from the code flow.
+     */
+    public function testAVerifiedBearerIsFoundByItsJti(): void
+    {
+        // Arrange
+        $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer ' . \Pramnos\Auth\JWT::encode(
+            ['sub' => 42, 'jti' => 'the-token-id', 'exp' => time() + 3600],
+            'unified-test-key-0123456789abcdef-long'
+        );
+        \Pramnos\Tests\Fixtures\ApiAuthApp\User::reset();
+        \Pramnos\Tests\Fixtures\ApiAuthApp\User::$usersByToken = ['the-token-id' => 42];
+
+        // Act
+        $result = $this->make('unified-test-key-0123456789abcdef-long', 'Pramnos\\Tests\\Fixtures\\ApiAuthApp')
+            ->handle(Request::create('/api/secure', 'GET'), $this->nextOk());
+
+        // Assert
+        $this->assertSame('OK', $result);
+        $this->assertSame(['the-token-id'], array_slice(\Pramnos\Tests\Fixtures\ApiAuthApp\User::$loadedTokens, 1));
+        \Pramnos\Http\RequestIdentity::reset();
+    }
 }

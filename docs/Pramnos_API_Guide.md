@@ -759,7 +759,7 @@ $router->group([
 ```
 
 **Auth resolution order:**
-1. `Authorization: Bearer <jwt>` — validates JWT, loads user from `usertokens` with explicit scopes
+1. `Authorization: Bearer <jwt>` — validates JWT, loads user from `usertokens` with explicit scopes (by the token's text, then by its verified `jti` — an `/oauth/token` access token is stored by its identifier)
 2. Session cookie + `X-CSRF-Token` header — if session has an active `web_session` token and CSRF matches
 3. No credentials → 401 JSON envelope
 

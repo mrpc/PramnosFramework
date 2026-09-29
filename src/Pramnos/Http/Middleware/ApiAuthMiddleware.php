@@ -273,7 +273,7 @@ class ApiAuthMiddleware implements MiddlewareInterface
 
         try {
             \Pramnos\Auth\JWT::$leeway = 60;
-            \Pramnos\Auth\JWT::decode($tkn, $decodeKey, $rs256 ? ['HS256', 'RS256'] : ['HS256']);
+            $claims = \Pramnos\Auth\JWT::decode($tkn, $decodeKey, $rs256 ? ['HS256', 'RS256'] : ['HS256']);
         } catch (\Exception $ex) {
             $why = $ex->getMessage();
             return null;
@@ -281,6 +281,21 @@ class ApiAuthMiddleware implements MiddlewareInterface
 
         $user = $this->resolveUser();
         $user->loadByToken($tkn);
+
+        /*
+         * A token from `/oauth/token` is stored by its identifier, not its whole text:
+         * `AccessTokenRepository` writes the `jti`. So the literal lookup finds nothing for
+         * it, and every such token authenticated nothing — introspection and revocation
+         * already tried the `jti` second, authentication did not.
+         *
+         * Read from the claims `decode()` just verified, and only here. `loadByToken()`
+         * itself is left literal, because a caller that has not checked the signature —
+         * `Gdpr::resolveActor()` is one — would otherwise accept any forged JWT carrying a
+         * real `jti`.
+         */
+        if ($user->userid <= 1 && is_object($claims) && is_string($claims->jti ?? null) && $claims->jti !== '') {
+            $user->loadByToken($claims->jti);
+        }
 
         return $user->userid > 1 ? $user : null;
     }

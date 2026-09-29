@@ -138,7 +138,7 @@ class UnifiedAuthMiddleware implements MiddlewareInterface
 
         try {
             \Pramnos\Auth\JWT::$leeway = 60;
-            \Pramnos\Auth\JWT::decode(
+            $claims = \Pramnos\Auth\JWT::decode(
                 $token,
                 $decodeKey,
                 isset($tokenInfo->alg) && $tokenInfo->alg === 'RS256'
@@ -152,6 +152,13 @@ class UnifiedAuthMiddleware implements MiddlewareInterface
 
         $user = $this->resolveUser();
         $user->loadByToken($token);
+
+        // An `/oauth/token` token is stored by its `jti`; read from the claims just verified,
+        // for the reason ApiAuthMiddleware::verifiedTokenUser() gives.
+        if ($user->userid <= 1 && is_object($claims) && is_string($claims->jti ?? null) && $claims->jti !== '') {
+            $user->loadByToken($claims->jti);
+        }
+
         if ($user->userid > 1) {
             // The identity of this request, and not of the browser's session.
             // A bearer token authenticates the call it came on; writing the

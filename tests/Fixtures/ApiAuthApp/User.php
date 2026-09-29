@@ -21,6 +21,9 @@ class User extends \Pramnos\User\User
     /** @var array<int,string> Tokens passed to loadByToken(), for assertions. */
     public static array $loadedTokens = [];
 
+    /** @var array<string, int> A user for one exact token; anything else gets $loadByTokenUserid. */
+    public static array $usersByToken = [];
+
     /**
      * The parent constructor loads the user from the database when a userid
      * is given — this override just records it instead.
@@ -45,7 +48,7 @@ class User extends \Pramnos\User\User
     public function loadByToken($token, $tokentype = 'auth', $setSessionApi = true)
     {
         self::$loadedTokens[] = $token;
-        $this->userid = self::$loadByTokenUserid;
+        $this->userid = self::$usersByToken[$token] ?? self::$loadByTokenUserid;
         return $this;
     }
 
@@ -54,5 +57,6 @@ class User extends \Pramnos\User\User
     {
         self::$loadByTokenUserid = 1;
         self::$loadedTokens      = [];
+        self::$usersByToken      = [];
     }
 }

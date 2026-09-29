@@ -972,4 +972,64 @@ class ApiAuthMiddlewareTest extends TestCase
         // Assert
         $this->assertFalse(\Pramnos\Http\RequestIdentity::isSealed());
     }
+
+    // ── A token stored by its jti ────────────────────────────────────────────
+
+    /**
+     * A verified token that matches no row by its text is looked up by its `jti`.
+     *
+     * `/oauth/token` stores an access token by its identifier, so the literal lookup finds
+     * nothing — every such token used to leave the call anonymous. The fallback reads the
+     * `jti` from the claims `decode()` just verified.
+     */
+    public function testAVerifiedTokenIsFoundByItsJti(): void
+    {
+        // Arrange — only the jti is on file
+        $_SERVER['HTTP_APIKEY']      = 'valid-key';
+        $_SERVER['HTTP_ACCESSTOKEN'] = \Pramnos\Auth\JWT::encode(
+            ['sub' => 42, 'jti' => 'the-token-id', 'exp' => time() + 3600],
+            self::HMAC_KEY
+        );
+        \Pramnos\Tests\Fixtures\ApiAuthApp\User::reset();
+        \Pramnos\Tests\Fixtures\ApiAuthApp\User::$usersByToken = ['the-token-id' => 42];
+
+        $mw = new ApiAuthMiddleware(fn () => true, self::HMAC_KEY, 'Pramnos\\Tests\\Fixtures\\ApiAuthApp');
+
+        // Act
+        $result = $mw->handle(Request::create('/api/secure', 'GET'), fn () => 'reached');
+
+        // Assert — the literal lookup first, then the jti, and the caller is the jti's owner
+        $this->assertSame('reached', $result);
+        $this->assertSame(
+            [$_SERVER['HTTP_ACCESSTOKEN'], 'the-token-id'],
+            \Pramnos\Tests\Fixtures\ApiAuthApp\User::$loadedTokens
+        );
+        $this->assertSame(42, \Pramnos\Http\RequestIdentity::user()?->userid);
+    }
+
+    /**
+     * A token found by its text is not looked up a second time.
+     *
+     * The tokens this framework mints itself are stored whole; they must resolve exactly as
+     * before, with one query.
+     */
+    public function testATokenFoundByItsTextIsNotLookedUpAgain(): void
+    {
+        // Arrange
+        $_SERVER['HTTP_APIKEY']      = 'valid-key';
+        $_SERVER['HTTP_ACCESSTOKEN'] = \Pramnos\Auth\JWT::encode(
+            ['sub' => 42, 'jti' => 'the-token-id', 'exp' => time() + 3600],
+            self::HMAC_KEY
+        );
+        \Pramnos\Tests\Fixtures\ApiAuthApp\User::reset();
+        \Pramnos\Tests\Fixtures\ApiAuthApp\User::$loadByTokenUserid = 42;
+
+        $mw = new ApiAuthMiddleware(fn () => true, self::HMAC_KEY, 'Pramnos\\Tests\\Fixtures\\ApiAuthApp');
+
+        // Act
+        $mw->handle(Request::create('/api/secure', 'GET'), fn () => 'reached');
+
+        // Assert
+        $this->assertCount(1, \Pramnos\Tests\Fixtures\ApiAuthApp\User::$loadedTokens);
+    }
 }

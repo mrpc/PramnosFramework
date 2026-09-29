@@ -438,6 +438,91 @@ class FullAuthorizationCodeFlowTest extends TestCase
         $this->assertSame([self::CLIENT_ID, $resource], $claims['aud']);
     }
 
+    /**
+     * A token from the code flow authenticates an API call — through the middleware the API
+     * actually runs, not through League's resource server.
+     *
+     * `AccessTokenRepository` stores a token by its `jti`, and `User::loadByToken()` looked it
+     * up by its whole text, so every such token was verified, matched no row and left the call
+     * anonymous: a remote MCP client signed in, consented, received a token and was refused
+     * on its first call. The other tests here ask League's resource server whether it accepts
+     * the token, which never touches `usertokens` — that is how this passed.
+     *
+     * Both middlewares are asked, because both read bearer tokens: `ApiAuthMiddleware` for the
+     * API routes, `UnifiedAuthMiddleware` where a route opts into it.
+     */
+    public function testATokenFromTheCodeFlowAuthenticatesAnApiCall(): void
+    {
+        // Arrange — the middlewares read the installation's public key, so the server signs
+        // with the installation's key pair; PreservesAppKeys removes what this creates.
+        $keys = new class { use \Pramnos\Tests\Support\PreservesAppKeys { snapshotAppKeys as public; restoreAppKeys as public; } };
+        $keys->snapshotAppKeys();
+
+        // Loading the user reads `userdetails` too, and other tests drop it.
+        $this->runMigrations([\Pramnos\Framework\Migrations\Auth\CreateUserdetailsTable::class], $this->db);
+
+        try {
+            $factory = new OAuth2ServerFactory(
+                $this->controller,
+                OAuth2ServerFactory::defaultPrivateKeyPath(),
+                OAuth2ServerFactory::defaultPublicKeyPath(),
+                base64_encode(random_bytes(32))
+            );
+            $factory->generateKeyPair();
+            $server = $factory->createAuthorizationServer();
+
+            $verifier  = rtrim(strtr(base64_encode(random_bytes(32)), '+/', '-_'), '=');
+            $challenge = rtrim(strtr(base64_encode(hash('sha256', $verifier, true)), '+/', '-_'), '=');
+            $query = [
+                'response_type' => 'code', 'client_id' => self::CLIENT_ID, 'redirect_uri' => self::REDIRECT_URI,
+                'scope' => 'read', 'state' => 's', 'code_challenge' => $challenge, 'code_challenge_method' => 'S256',
+            ];
+            $authRequest = $server->validateAuthorizationRequest(
+                (new ServerRequest('GET', 'https://self.test/oauth/authorize?' . http_build_query($query)))
+                    ->withQueryParams($query)
+            );
+            $authRequest->setUser($this->approvingUser());
+            $authRequest->setAuthorizationApproved(true);
+            $redirect = $server->completeAuthorizationRequest($authRequest, new Psr7Response());
+            parse_str((string) parse_url($redirect->getHeaderLine('Location'), PHP_URL_QUERY), $callback);
+
+            $response = $server->respondToAccessTokenRequest(
+                (new ServerRequest('POST', 'https://self.test/oauth/token'))->withParsedBody([
+                    'grant_type' => 'authorization_code', 'client_id' => self::CLIENT_ID,
+                    'client_secret' => self::CLIENT_SECRET, 'code' => $callback['code'],
+                    'redirect_uri' => self::REDIRECT_URI, 'code_verifier' => $verifier,
+                ]),
+                new Psr7Response()
+            );
+            $token = (string) json_decode((string) $response->getBody(), true)['access_token'];
+            \Pramnos\User\User::clearUserCache();
+
+            // Act — the call a client makes next, through each middleware
+            $_SERVER['HTTP_APIKEY']        = 'k';
+            $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer ' . $token;
+
+            \Pramnos\Http\RequestIdentity::reset();
+            $api = (string) (new \Pramnos\Http\Middleware\ApiAuthMiddleware(fn (): bool => true))
+                ->handle(\Pramnos\Http\Request::create('/1.0/me', 'GET'), fn (): string => 'reached');
+            $apiUser = \Pramnos\Http\RequestIdentity::user();
+
+            \Pramnos\Http\RequestIdentity::reset();
+            $unified = (string) (new \Pramnos\Http\Middleware\UnifiedAuthMiddleware())
+                ->handle(\Pramnos\Http\Request::create('/1.0/me', 'GET'), fn (): string => 'reached');
+            $unifiedUser = \Pramnos\Http\RequestIdentity::user();
+
+            // Assert — both reached the endpoint as the user who approved
+            $this->assertSame('reached', $api, $api);
+            $this->assertSame(self::USER_ID, (int) $apiUser?->userid);
+            $this->assertSame('reached', $unified, $unified);
+            $this->assertSame(self::USER_ID, (int) $unifiedUser?->userid);
+        } finally {
+            unset($_SERVER['HTTP_APIKEY'], $_SERVER['HTTP_AUTHORIZATION'], $_SESSION['usertoken']);
+            \Pramnos\Http\RequestIdentity::reset();
+            $keys->restoreAppKeys();
+        }
+    }
+
     // -------------------------------------------------------------------------
     // The bridge, and the fixtures
     // -------------------------------------------------------------------------
