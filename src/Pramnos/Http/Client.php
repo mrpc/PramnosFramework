@@ -75,6 +75,12 @@ class Client
      */
     private int     $maxRedirects   = 5;
 
+    /** A file a successful body is written to instead of memory; '' = keep it in memory. */
+    private string  $sinkPath       = '';
+
+    /** Inflate a gzip body as it is written to the sink. */
+    private bool    $decodeGzip     = false;
+
     /** Whether the user-supplied-URL guard is on. {@see forUserSuppliedUrl()} */
     private bool    $guardUrl       = false;
 
@@ -399,6 +405,40 @@ class Client
     public function maxResponseBytes(int $bytes): static
     {
         $this->maxBytes = max(0, $bytes);
+        return $this;
+    }
+
+    /**
+     * Write a successful body straight to a file, rather than holding it in memory.
+     *
+     * For a download — a 60 MB database dump — that would otherwise sit in memory whole
+     * (twice, if it also has to be inflated) only to be written to disk. The body goes to
+     * `$path` as it arrives, and `body()` of the response is empty.
+     *
+     * **Only a 2xx body goes to the file.** A 404 page or a 500's HTML is kept as `body()`
+     * instead, so the file is never an error page that looks like the download. The file is
+     * written from the start on every attempt, so a retry does not append. Writing to a
+     * temporary name and renaming it once the content is checked stays the caller's job — it
+     * is the one that knows what "checked" means.
+     *
+     * {@see maxResponseBytes()} still applies, to what is written. A faked response is written
+     * to the file too, so a download can be tested without the network.
+     *
+     * @param string $path Where the body goes; created or truncated.
+     */
+    public function sink(string $path): static
+    {
+        $this->sinkPath = $path;
+        return $this;
+    }
+
+    /**
+     * Inflate a gzip body on its way into the {@see sink()} — a `.gz` file, not a response
+     * sent with `Content-Encoding: gzip`, which is decoded anyway.
+     */
+    public function decodeGzip(bool $decode = true): static
+    {
+        $this->decodeGzip = $decode;
         return $this;
     }
 
@@ -759,11 +799,38 @@ class Client
     {
         foreach (static::$fakes as $pattern => $fake) {
             if ($this->matchesPattern($url, $pattern)) {
-                return is_callable($fake) ? $fake($this) : $fake;
+                $response = is_callable($fake) ? $fake($this) : $fake;
+
+                return $this->sinkPath !== '' ? $this->sinkFake($response) : $response;
             }
         }
 
         return null;
+    }
+
+    /**
+     * A faked response, delivered to the sink the way a real one would be.
+     */
+    private function sinkFake(ClientResponse $response): ClientResponse
+    {
+        if ($response->status() < 200 || $response->status() >= 300) {
+            return $response;
+        }
+
+        $body = $response->body();
+        if ($this->decodeGzip) {
+            $inflated = @gzdecode($body);
+            if ($inflated === false) {
+                throw new ClientException('The body is not gzip data, so it could not be inflated.');
+            }
+            $body = $inflated;
+        }
+
+        if (@file_put_contents($this->sinkPath, $body) === false) {
+            throw new ClientException('Could not write the response to ' . $this->sinkPath);
+        }
+
+        return new ClientResponse($response->status(), '', $response->headers(), false, strlen($body));
     }
 
     /**
@@ -943,6 +1010,11 @@ class Client
             };
         }
 
+        // A probe that wants no body at all keeps its own writer; a sink has nothing to write.
+        if ($this->sinkPath !== '' && !$this->headersOnly) {
+            $writer = $this->sinkWriter($state);
+        }
+
         $curlHeaders = ['User-Agent: ' . $this->userAgent];
         if ($this->contentType !== '') {
             $curlHeaders[] = 'Content-Type: ' . $this->contentType;
@@ -1025,6 +1097,74 @@ class Client
     }
 
     /**
+     * The write callback that sends a 2xx body to the sink file.
+     *
+     * The file is opened on the first 2xx chunk, not before — a redirect's or an error's body
+     * never creates or truncates it — and is written from the start on each attempt. Anything
+     * else goes to the state bag as the in-memory body. The ceiling counts what is written,
+     * after inflating, which is the size that matters on disk.
+     *
+     * @param array<string, mixed> $state By reference; gains 'sink', 'sinkError' and 'written'.
+     */
+    private function sinkWriter(array &$state): \Closure
+    {
+        $path    = $this->sinkPath;
+        $limit   = $this->maxBytes;
+        $inflate = $this->decodeGzip ? inflate_init(ZLIB_ENCODING_GZIP) : null;
+        $state['written']  = 0;
+        $state['sinkPath'] = $path;
+
+        return function ($ch, string $chunk) use (&$state, $path, $limit, $inflate): int {
+            $length = strlen($chunk);
+            $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+
+            if ($status < 200 || $status >= 300) {
+                // @codeCoverageIgnoreStart
+                if ($status >= 300 && $status < 400) {
+                    return $length;
+                }
+                // @codeCoverageIgnoreEnd
+                $state['received'] .= $chunk;
+                return $length;
+            }
+
+            if (!isset($state['sink'])) {
+                $handle = @fopen($path, 'wb');
+                if ($handle === false) {
+                    $state['sinkError'] = 'Could not open ' . $path . ' to write the response to';
+                    return 0;
+                }
+                $state['sink'] = $handle;
+            }
+
+            $data = $chunk;
+            if ($inflate !== null) {
+                $data = @inflate_add($inflate, $chunk, ZLIB_SYNC_FLUSH);
+                if ($data === false) {
+                    $state['sinkError'] = 'The body is not gzip data, so it could not be inflated';
+                    return 0;
+                }
+            }
+
+            if ($limit !== null && $state['written'] + strlen($data) > $limit) {
+                $data = substr($data, 0, max(0, $limit - $state['written']));
+                fwrite($state['sink'], $data);
+                $state['written'] += strlen($data);
+                $state['truncated'] = true;
+                return 0;
+            }
+
+            if ($data !== '' && fwrite($state['sink'], $data) !== strlen($data)) {
+                $state['sinkError'] = 'Could not write the response to ' . $path;
+                return 0;
+            }
+            $state['written'] += strlen($data);
+
+            return $length;
+        };
+    }
+
+    /**
      * Turn a finished curl transfer into a ClientResponse, or raise.
      *
      * Shared by {@see execute()} and {@see pool()}, so that what counts as a
@@ -1065,6 +1205,23 @@ class Client
         $elapsedMs = round(
             ((float) curl_getinfo($ch, CURLINFO_TOTAL_TIME)) * 1000, 3
         );
+
+        if (isset($state['sinkPath'])) {
+            // Closed before anything can raise, so a failed transfer does not leave the
+            // handle open for the rest of the process.
+            if (isset($state['sink']) && is_resource($state['sink'])) {
+                fclose($state['sink']);
+            }
+            if (($state['sinkError'] ?? '') !== '') {
+                throw new ClientException($state['sinkError']);
+            }
+            // A successful answer with no body still leaves the file it promised — empty.
+            if (!isset($state['sink']) && $errno === 0 && $status >= 200 && $status < 300) {
+                if (@file_put_contents($state['sinkPath'], '') === false) {
+                    throw new ClientException('Could not write the response to ' . $state['sinkPath']);
+                }
+            }
+        }
 
         // We stopped on purpose. curl reports our own short write as
         // CURLE_WRITE_ERROR, and 'truncated' is set only where this code

@@ -8,6 +8,7 @@ use_cases:
   - Writing tests for code that makes outbound HTTP calls
   - Fetching a URL that a user supplied, without opening an SSRF hole
   - Diagnosing a request that times out or exhausts memory
+  - Downloading a large file, or a .gz one, straight to disk
   - Measuring outbound bandwidth or per-request timing
 ---
 
@@ -300,6 +301,38 @@ caching plugins make it common enough to meet in any crawler.
 before the ceiling sees anything. That is the size that matters for memory, and it is what
 keeps a few compressed kilobytes that expand into gigabytes from being held whole.
 
+## Downloading to a file: `sink()`
+
+A download that is only going to be written to disk does not need to be held in memory
+first — and a 60 MB `.gz` file that has to be inflated would be held twice. `sink()` writes
+the body to a file as it arrives:
+
+```php
+$response = Client::get('https://download.example/city-lite.mmdb.gz')
+    ->timeout(600)
+    ->sink($target . '.part')
+    ->decodeGzip()          // a .gz file, inflated on the way in
+    ->send();
+
+if ($response->successful() && self::looksLikeADatabase($target . '.part')) {
+    rename($target . '.part', $target);
+}
+```
+
+- **Only a 2xx body goes to the file.** A 404 page or a 500's HTML is kept as `body()`, so the
+  file is never an error page that looks like the download; for a 2xx `body()` is empty.
+- The file is written from the start on every attempt, so a retry does not append, and a
+  successful answer with no body leaves it empty rather than stale.
+- `decodeGzip()` is for a *file* that is gzip — `application/gzip`, a `.gz` name. A response
+  sent with `Content-Encoding: gzip` is decoded anyway (see above). A body that turns out not to
+  be gzip raises `ClientException`, and so does a file that cannot be opened or written.
+- `maxResponseBytes()` still applies, to what is written after inflating; the response is
+  `truncated()` when it cut the file short.
+- Writing to a temporary name and renaming once the content is checked is yours to do, as
+  above: only the caller knows what "checked" means.
+- A faked response (`Client::fake()`) is written to the file the same way, inflated if asked,
+  so a download command can be tested without the network.
+
 ## Redirects
 
 Up to five are followed by default. `maxRedirects()` changes that and
@@ -528,6 +561,8 @@ for development only — it makes the connection trivially interceptable.
 | `->retry(int $times, int $delayMs = 100): static` | Retry on transport error / 5xx |
 | `->headersOnly(): static` | Stop reading once the final headers arrive |
 | `->maxResponseBytes(int $bytes): static` | Keep at most this much body |
+| `->sink(string $path): static` | Write a 2xx body to this file instead of memory |
+| `->decodeGzip(bool $decode = true): static` | Inflate a gzip file on its way into the sink |
 | `->withoutSslVerification(): static` | Disable certificate checks (dev only) |
 | `->userAgent(string $agent): static` | Override the User-Agent |
 | `->throwOnError(): static` | Throw on 4xx/5xx instead of returning |
