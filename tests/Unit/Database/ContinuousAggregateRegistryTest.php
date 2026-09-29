@@ -87,6 +87,57 @@ class FakeAggregateSchema extends SchemaBuilder
  * frozen at the moment they were created: present, queryable, and answering with
  * the data of the day the migration ran.
  */
+/**
+ * The same fake on TimescaleDB, with compression state it keeps as it is asked to change it.
+ */
+class FakeTimescaleAggregateSchema extends FakeAggregateSchema
+{
+    public bool $compressed = false;
+
+    public bool $compressionPolicy = false;
+
+    /** When false, enabling "succeeds" but the catalogue never shows it. */
+    public bool $enableTakes = true;
+
+    public function getCapabilities(): \Pramnos\Database\DatabaseCapabilities
+    {
+        return new class extends \Pramnos\Database\DatabaseCapabilities {
+            public function __construct()
+            {
+            }
+
+            public function hasTimescaleDB(): bool
+            {
+                return true;
+            }
+        };
+    }
+
+    public function isContinuousAggregateCompressionEnabled(string $view): bool
+    {
+        return $this->compressed;
+    }
+
+    public function enableContinuousAggregateCompression(string $view): bool
+    {
+        $this->compressed = $this->enableTakes;
+
+        return true;
+    }
+
+    public function hasContinuousAggregateCompressionPolicy(string $view): bool
+    {
+        return $this->compressionPolicy;
+    }
+
+    public function addCompressionPolicy(string $table, string $compressAfter): bool
+    {
+        $this->compressionPolicy = true;
+
+        return true;
+    }
+}
+
 class ContinuousAggregateRegistryTest extends TestCase
 {
     protected function tearDown(): void
@@ -299,5 +350,86 @@ class ContinuousAggregateRegistryTest extends TestCase
         // Assert
         $this->assertSame([], $done);
         $this->assertSame([], $schema->added);
+    }
+
+    // ── compress_after, on TimescaleDB ───────────────────────────────────────
+
+    /**
+     * Integer offsets — an integer time column — compare as numbers, and compress when further.
+     */
+    public function testIntegerOffsetsCompressWhenFurtherBackThanTheRefresh(): void
+    {
+        // Arrange
+        ContinuousAggregateRegistry::register('app.rollup', [
+            'start_offset' => '10800', 'end_offset' => '3600', 'schedule_interval' => '1 hour',
+            'compress_after' => '2592000',
+        ]);
+        $schema = new FakeTimescaleAggregateSchema();
+
+        // Act
+        $done = ContinuousAggregateRegistry::apply($schema, 'app.rollup');
+
+        // Assert
+        $this->assertContains('compression enabled', $done);
+        $this->assertContains('compression policy added (2592000)', $done);
+    }
+
+    /**
+     * A compression window inside the refresh window, or of the other kind, is refused.
+     *
+     * Inside: a refresh would rewrite compressed chunks. Of the other kind (an interval against
+     * a number): one of the two is wrong for the column, whichever it is.
+     *
+     * @param array{0:string,1:string} $offsets [compress_after, start_offset]
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('refusedWindows')]
+    public function testACompressionWindowThatCannotWorkIsRefused(string $compressAfter, string $startOffset): void
+    {
+        // Arrange
+        ContinuousAggregateRegistry::register('app.rollup', [
+            'start_offset' => $startOffset, 'end_offset' => '1', 'schedule_interval' => '1 hour',
+            'compress_after' => $compressAfter,
+        ]);
+        $schema = new FakeTimescaleAggregateSchema();
+
+        // Assert
+        $this->expectException(\InvalidArgumentException::class);
+
+        // Act
+        ContinuousAggregateRegistry::apply($schema, 'app.rollup');
+    }
+
+    /** @return array<string, array{0:string,1:string}> */
+    public static function refusedWindows(): array
+    {
+        return [
+            'integer, inside'        => ['3600', '10800'],
+            'interval against number' => ['30 days', '10800'],
+            'number against interval' => ['2592000', '3 hours'],
+        ];
+    }
+
+    /**
+     * A step the catalogue does not show afterwards raises instead of reporting success.
+     *
+     * The rule `HypertableRegistry` already follows: three failed calls once produced three
+     * ticks and exit code 0.
+     */
+    public function testAStepTheCatalogueDoesNotShowRaises(): void
+    {
+        // Arrange
+        ContinuousAggregateRegistry::register('app.rollup', [
+            'start_offset' => '10800', 'end_offset' => '3600', 'schedule_interval' => '1 hour',
+            'compress_after' => '2592000',
+        ]);
+        $schema = new FakeTimescaleAggregateSchema();
+        $schema->enableTakes = false;
+
+        // Assert
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('enable compression');
+
+        // Act
+        ContinuousAggregateRegistry::apply($schema, 'app.rollup');
     }
 }

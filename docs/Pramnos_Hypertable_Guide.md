@@ -600,6 +600,35 @@ surrounding migration with it. It returns what it did, so a migration can log it
 `php pramnos timescale:ensure` reads the same registry and adds what is missing,
 which is the repair path for a database migrated before its rollup had a policy.
 
+### Compressing a rollup
+
+A rollup meant to outlive its raw rows — a row per post per hour, kept for ever — should be
+compressed like the hypertable it came from. Declare `compress_after`:
+
+```php
+ContinuousAggregateRegistry::register('stats.site_traffic_hourly', [
+    'start_offset'      => '3 days',
+    'end_offset'        => '1 hour',
+    'schedule_interval' => '1 hour',
+    'compress_after'    => '30 days',
+]);
+```
+
+`apply()` then turns compression on (`ALTER MATERIALIZED VIEW … SET (timescaledb.compress =
+true)`) and adds a compression policy, each read back from the catalogue and raised on if it
+does not show. Both steps are guarded, so a second `apply()` or `timescale:ensure` changes
+nothing.
+
+`compress_after` **must reach further back than `start_offset`**. A refresh rewrites every
+bucket inside `start_offset`, and compressed buckets there would have to be decompressed and
+rewritten on every run; a declaration that gets this wrong is refused with an
+`InvalidArgumentException` before anything changes. Intervals are compared by PostgreSQL, so
+`'1 month'` against `'30 days'` means what it means to the policies; an integer time column
+takes plain numbers for both, and an interval against a number is refused.
+
+Off TimescaleDB `compress_after` is ignored — compression has no software equivalent — and the
+refresh policy is applied as usual.
+
 ## Repairing a database
 
 ```bash

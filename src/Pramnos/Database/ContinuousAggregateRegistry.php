@@ -30,6 +30,7 @@ namespace Pramnos\Database;
  *     'start_offset'      => '3 days',
  *     'end_offset'        => '1 day',
  *     'schedule_interval' => '1 day',
+ *     'compress_after'    => '30 days',   // optional; TimescaleDB only
  * ]);
  * ```
  *
@@ -56,6 +57,10 @@ class ContinuousAggregateRegistry
      *     @type string $start_offset      How far back a refresh reaches
      *     @type string $end_offset        How close to now it stops
      *     @type string $schedule_interval How often it runs
+     *     @type string|null $compress_after When to compress the materialised chunks; null =
+     *                                        never. Must reach further back than
+     *                                        `start_offset`, or a refresh would have to rewrite
+     *                                        compressed chunks. TimescaleDB only.
      * }
      */
     public static function register(string $view, array $spec): void
@@ -66,6 +71,7 @@ class ContinuousAggregateRegistry
             'start_offset'      => '1 month',
             'end_offset'        => '1 hour',
             'schedule_interval' => '1 hour',
+            'compress_after'    => null,
         ];
     }
 
@@ -125,26 +131,85 @@ class ContinuousAggregateRegistry
             return [];
         }
 
-        if ($schema->hasContinuousAggregatePolicy($view)) {
-            return [];
-        }
+        $done = [];
 
         // Nowhere to record it. On a backend without TimescaleDB the refresh is
         // a row in `pramnos.framework_policies`, and an installation whose core
         // migrations have not created that table yet cannot be given one — the
         // insert would fail and take the surrounding migration with it.
-        if (!static::canRecordPolicy($schema)) {
-            return [];
+        if (!$schema->hasContinuousAggregatePolicy($view) && static::canRecordPolicy($schema)) {
+            $schema->addContinuousAggregatePolicy(
+                $view,
+                $spec['start_offset'],
+                $spec['end_offset'],
+                $spec['schedule_interval']
+            );
+            $done[] = 'refresh policy added (every ' . $spec['schedule_interval'] . ')';
         }
 
-        $schema->addContinuousAggregatePolicy(
-            $view,
-            $spec['start_offset'],
-            $spec['end_offset'],
-            $spec['schedule_interval']
-        );
+        $compressAfter = $spec['compress_after'] ?? null;
+        if ($compressAfter === null || !$schema->getCapabilities()->hasTimescaleDB()) {
+            // Compression has no software equivalent off TimescaleDB.
+            return $done;
+        }
 
-        return ['refresh policy added (every ' . $spec['schedule_interval'] . ')'];
+        static::assertCompressesAfterRefresh($schema, $view, (string) $compressAfter, (string) $spec['start_offset']);
+
+        if (!$schema->isContinuousAggregateCompressionEnabled($view)) {
+            $schema->enableContinuousAggregateCompression($view);
+            static::confirm($schema->isContinuousAggregateCompressionEnabled($view), $view, 'enable compression');
+            $done[] = 'compression enabled';
+        }
+
+        if (!$schema->hasContinuousAggregateCompressionPolicy($view)) {
+            $schema->addCompressionPolicy($view, (string) $compressAfter);
+            static::confirm($schema->hasContinuousAggregateCompressionPolicy($view), $view, 'add a compression policy');
+            $done[] = 'compression policy added (' . $compressAfter . ')';
+        }
+
+        return $done;
+    }
+
+    /**
+     * Refuse a compression window inside the refresh window.
+     *
+     * A refresh rewrites the buckets between `start_offset` and `end_offset`; if some of them
+     * were already compressed, TimescaleDB would have to decompress and rewrite them on every
+     * run. Both offsets are compared by PostgreSQL itself when they are intervals, so
+     * `'1 month'` and `'30 days'` mean what they mean there; integer offsets, for an integer
+     * time column, compare as numbers. Offsets of different kinds are refused, because one
+     * of them is wrong for the column whichever it is.
+     */
+    protected static function assertCompressesAfterRefresh(SchemaBuilder $schema, string $view, string $compressAfter, string $startOffset): void
+    {
+        $numeric = ctype_digit($compressAfter) && ctype_digit($startOffset);
+
+        if ($numeric) {
+            $further = (int) $compressAfter > (int) $startOffset;
+        } elseif (!ctype_digit($compressAfter) && !ctype_digit($startOffset)) {
+            $further = $schema->isLongerInterval($compressAfter, $startOffset);
+        } else {
+            $further = false;
+        }
+
+        if (!$further) {
+            throw new \InvalidArgumentException(
+                'compress_after (' . $compressAfter . ') for ' . $view . ' must reach further back than '
+                . 'its start_offset (' . $startOffset . '): a refresh rewrites everything inside '
+                . 'start_offset, and it would have to rewrite compressed chunks.'
+            );
+        }
+    }
+
+    /** Raise when the catalogue does not show what was just asked for. */
+    protected static function confirm(bool $applied, string $view, string $operation): void
+    {
+        if (!$applied) {
+            throw new \RuntimeException(
+                'could not ' . $operation . ' for ' . $view . ' — the call was made and the '
+                . 'catalogue does not show it. The driver error is in the migrations log.'
+            );
+        }
     }
 
     /**

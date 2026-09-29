@@ -319,4 +319,113 @@ class ContinuousAggregateRefreshTest extends TestCase
             $this->db->query('DROP DATABASE IF EXISTS pramnos_aggplain WITH (FORCE)');
         }
     }
+
+    // ── compress_after ───────────────────────────────────────────────────────
+
+    /**
+     * A rollup declared with `compress_after` is compressed, and says so in the catalogue.
+     *
+     * glideday's finding: `HypertableRegistry` could compress a hypertable, but a rollup meant
+     * to outlive its raw rows — a row per post per hour, never dropped — was left
+     * uncompressed for ever, because this registry had no such option. Both steps are read
+     * back from the catalogue: the setting on the aggregate and the background job.
+     */
+    public function testACompressAfterDeclarationCompressesTheRollup(): void
+    {
+        if (!$this->hasTimescale) {
+            $this->markTestSkipped('Compression is TimescaleDB-only');
+        }
+
+        // Arrange
+        ContinuousAggregateRegistry::register(self::VIEW, [
+            'start_offset' => '3 hours', 'end_offset' => '1 hour', 'schedule_interval' => '1 hour',
+            'compress_after' => '30 days',
+        ]);
+        $this->createRollup();
+
+        // Act
+        $done   = ContinuousAggregateRegistry::apply($this->schema, self::VIEW);
+        $second = ContinuousAggregateRegistry::apply($this->schema, self::VIEW);
+
+        // Assert
+        $this->assertContains('compression enabled', $done);
+        $this->assertContains('compression policy added (30 days)', $done);
+        $this->assertTrue($this->schema->isContinuousAggregateCompressionEnabled(self::VIEW));
+        $this->assertTrue($this->schema->hasContinuousAggregateCompressionPolicy(self::VIEW));
+        $this->assertSame([], $second, 'a second apply finds everything in place');
+    }
+
+    /**
+     * A compression window inside the refresh window is refused before anything is changed.
+     *
+     * A refresh rewrites every bucket inside `start_offset`; compressed ones would have to be
+     * decompressed and rewritten on each run. `'2 hours'` is inside `'3 hours'`.
+     */
+    public function testACompressionWindowInsideTheRefreshWindowIsRefused(): void
+    {
+        if (!$this->hasTimescale) {
+            $this->markTestSkipped('Compression is TimescaleDB-only');
+        }
+
+        // Arrange
+        ContinuousAggregateRegistry::register(self::VIEW, [
+            'start_offset' => '3 hours', 'end_offset' => '1 hour', 'schedule_interval' => '1 hour',
+            'compress_after' => '2 hours',
+        ]);
+        $this->createRollup();
+
+        // Act
+        try {
+            ContinuousAggregateRegistry::apply($this->schema, self::VIEW);
+            $this->fail('the declaration should have been refused');
+        } catch (\InvalidArgumentException $e) {
+            // Assert — named, and nothing compressed
+            $this->assertStringContainsString('start_offset', $e->getMessage());
+            $this->assertFalse($this->schema->isContinuousAggregateCompressionEnabled(self::VIEW));
+        }
+    }
+
+    /**
+     * Without the extension a `compress_after` is ignored, and the refresh still applies.
+     *
+     * Compression has no software equivalent, so declaring it must not break the plain
+     * PostgreSQL path the same declaration also serves.
+     */
+    public function testWithoutTimescaleACompressAfterIsIgnored(): void
+    {
+        // Arrange — a genuinely extension-less database, built the way the software-policy
+        // test above builds one
+        $this->db->query('DROP DATABASE IF EXISTS pramnos_aggplain WITH (FORCE)');
+        $this->db->query('CREATE DATABASE pramnos_aggplain');
+        $this->connect('pramnos_aggplain');
+        $this->db->query('DROP EXTENSION IF EXISTS timescaledb CASCADE');
+        $this->hasTimescale = false;
+        $this->db->query('CREATE SCHEMA IF NOT EXISTS pramnos');
+        $this->db->query(
+            'CREATE TABLE IF NOT EXISTS pramnos.framework_policies ('
+            . 'policyid SERIAL PRIMARY KEY, policy_type VARCHAR(50), target VARCHAR(255), '
+            . 'config TEXT, enabled SMALLINT DEFAULT 1, created_at TIMESTAMPTZ DEFAULT NOW())'
+        );
+        ContinuousAggregateRegistry::register(self::VIEW, [
+            'start_offset' => '3 hours', 'end_offset' => '1 hour', 'schedule_interval' => '1 hour',
+            'compress_after' => '30 days',
+        ]);
+
+        try {
+            $this->createRollup();
+
+            // Act
+            $done = ContinuousAggregateRegistry::apply($this->schema, self::VIEW);
+
+            // Assert — the refresh applied, compression was not attempted
+            $this->assertSame(['refresh policy added (every 1 hour)'], $done);
+            $this->assertFalse($this->schema->hasContinuousAggregateCompressionPolicy(self::VIEW));
+            $this->assertFalse($this->schema->isContinuousAggregateCompressionEnabled(self::VIEW));
+            $this->assertFalse($this->schema->enableContinuousAggregateCompression(self::VIEW));
+        } finally {
+            $this->connect('pramnos_test');
+            $this->hasTimescale = $this->db->capabilities()->hasTimescaleDB();
+            $this->db->query('DROP DATABASE IF EXISTS pramnos_aggplain WITH (FORCE)');
+        }
+    }
 }

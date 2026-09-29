@@ -1907,23 +1907,7 @@ class SchemaBuilder
             // including this project's own dev stack. Reported with the 2.26
             // measurement and the instinct to check the older behaviour first, which
             // is what made this the right shape.
-            $result = $this->db->query(
-                $this->db->prepareQuery(
-                    "SELECT COUNT(*) AS cnt
-                       FROM timescaledb_information.jobs j
-                       JOIN timescaledb_information.continuous_aggregates c
-                         ON (j.hypertable_schema = c.materialization_hypertable_schema
-                             AND j.hypertable_name = c.materialization_hypertable_name)
-                         OR (j.hypertable_schema = c.view_schema
-                             AND j.hypertable_name = c.view_name)
-                      WHERE j.proc_name = 'policy_refresh_continuous_aggregate'
-                        AND c.view_schema = %s AND c.view_name = %s",
-                    $schema,
-                    $name
-                )
-            );
-
-            return $result && (int) ($result->fields['cnt'] ?? 0) > 0;
+            return $this->hasAggregateJob($schema, $name, 'policy_refresh_continuous_aggregate');
         }
 
         // Software policy. A missing policies table means the core migrations
@@ -1943,6 +1927,118 @@ class SchemaBuilder
         } catch (\Throwable) {
             return false;
         }
+    }
+
+    /**
+     * Is a TimescaleDB job of this kind registered for a continuous aggregate?
+     *
+     * Joined on **either** pairing — the materialization hypertable or the view itself —
+     * because TimescaleDB changed which one `timescaledb_information.jobs` reports (2.19 the
+     * first, 2.26 the second); see {@see hasContinuousAggregatePolicy()}.
+     */
+    private function hasAggregateJob(string $schema, string $name, string $procName): bool
+    {
+        $result = $this->db->query(
+            $this->db->prepareQuery(
+                "SELECT COUNT(*) AS cnt
+                   FROM timescaledb_information.jobs j
+                   JOIN timescaledb_information.continuous_aggregates c
+                     ON (j.hypertable_schema = c.materialization_hypertable_schema
+                         AND j.hypertable_name = c.materialization_hypertable_name)
+                     OR (j.hypertable_schema = c.view_schema
+                         AND j.hypertable_name = c.view_name)
+                  WHERE j.proc_name = %s
+                    AND c.view_schema = %s AND c.view_name = %s",
+                $procName,
+                $schema,
+                $name
+            )
+        );
+
+        return $result && (int) ($result->fields['cnt'] ?? 0) > 0;
+    }
+
+    /**
+     * Is the first interval longer than the second, as PostgreSQL reads them?
+     *
+     * Compared by the database rather than parsed here, so `'1 month'` against `'30 days'`
+     * means what it means to the policies that will use them. PostgreSQL only.
+     */
+    public function isLongerInterval(string $longer, string $than): bool
+    {
+        $result = $this->db->query(
+            $this->db->prepareQuery('SELECT (%s::interval > %s::interval) AS longer', $longer, $than)
+        );
+        $value = $result ? ($result->fields['longer'] ?? false) : false;
+
+        return $value === true || $value === 't' || $value === 1 || $value === '1';
+    }
+
+    /**
+     * Turn on compression for a continuous aggregate's materialised chunks.
+     *
+     * The aggregate counterpart of {@see enableCompression()}: `ALTER MATERIALIZED VIEW … SET
+     * (timescaledb.compress = true)`. A rollup meant to outlive its raw rows is otherwise left
+     * uncompressed for ever. TimescaleDB only; false elsewhere.
+     */
+    public function enableContinuousAggregateCompression(string $view): bool
+    {
+        if (!$this->capabilities->hasTimescaleDB()) {
+            return false;
+        }
+
+        $quoted = $this->getGrammar()->quoteTable($this->resolveTable($view));
+
+        return $this->runTimescaleStatement(
+            "ALTER MATERIALIZED VIEW {$quoted} SET (timescaledb.compress = true)",
+            'compression settings',
+            $view
+        );
+    }
+
+    /**
+     * Does the catalogue say this continuous aggregate is compressed?
+     */
+    public function isContinuousAggregateCompressionEnabled(string $view): bool
+    {
+        if (!$this->capabilities->hasTimescaleDB()) {
+            return false;
+        }
+
+        [$schema, $name] = $this->splitTable($view);
+
+        $result = $this->db->query(
+            $this->db->prepareQuery(
+                'SELECT compression_enabled FROM timescaledb_information.continuous_aggregates
+                 WHERE view_schema = %s AND view_name = %s',
+                $schema,
+                $name
+            )
+        );
+
+        if (!$result || $result->numRows == 0) {
+            return false;
+        }
+
+        $enabled = $result->fields['compression_enabled'] ?? false;
+
+        return $enabled === true || $enabled === 't' || $enabled === 1 || $enabled === '1';
+    }
+
+    /**
+     * Does a background job already compress this continuous aggregate?
+     *
+     * `add_compression_policy()` raises on a duplicate, so a repair asks first.
+     */
+    public function hasContinuousAggregateCompressionPolicy(string $view): bool
+    {
+        if (!$this->capabilities->hasTimescaleDB()) {
+            return false;
+        }
+
+        [$schema, $name] = $this->splitTable($view);
+
+        return $this->hasAggregateJob($schema, $name, 'policy_compression');
     }
 
     /**
