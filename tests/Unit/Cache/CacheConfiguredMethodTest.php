@@ -78,7 +78,7 @@ class CacheConfiguredMethodTest extends TestCase
     public function testGetInstanceUsesTheConfiguredMethod(): void
     {
         // Arrange — configure the store, exactly as an application's settings do
-        Settings::setSetting('cache', ['method' => 'array']);
+        Settings::setSetting('cache', ['method' => 'array'], false);
 
         // Act — the call every opinion-less caller makes
         $cache = Cache::getInstance('configured_method_test');
@@ -109,7 +109,7 @@ class CacheConfiguredMethodTest extends TestCase
     public function testDirectConstructionAndTheFactoryAgree(): void
     {
         // Arrange
-        Settings::setSetting('cache', ['method' => 'array']);
+        Settings::setSetting('cache', ['method' => 'array'], false);
 
         // Act
         $direct  = new Cache('agreement_direct');
@@ -130,7 +130,7 @@ class CacheConfiguredMethodTest extends TestCase
     public function testAnExplicitMethodStillOverridesTheConfiguration(): void
     {
         // Arrange — configuration says array...
-        Settings::setSetting('cache', ['method' => 'array']);
+        Settings::setSetting('cache', ['method' => 'array'], false);
 
         // Act — ...but this caller asks for a file cache on purpose
         $cache = Cache::getInstance('explicit_method_test', null, 'file');
@@ -155,7 +155,7 @@ class CacheConfiguredMethodTest extends TestCase
     public function testAnEmptyMethodMeansTheConfiguredOne(): void
     {
         // Arrange
-        Settings::setSetting('cache', ['method' => 'array']);
+        Settings::setSetting('cache', ['method' => 'array'], false);
 
         // Act
         $explicitEmpty = Cache::getInstance('empty_method_test', null, '');

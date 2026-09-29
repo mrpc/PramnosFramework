@@ -230,15 +230,15 @@ class SessionTest extends TestCase
             'userid' => 55,
             'expires' => time() + 3600
         ];
-        $privatePath = ROOT . '/app/keys/private.key';
-        $publicPath  = ROOT . '/app/keys/public.key';
-
-        if (file_exists($privatePath) && file_exists($publicPath)) {
-            $privateKey = file_get_contents($privatePath);
-            $tokenStr = JWT::encode($payload, $privateKey, 'RS256');
-        } else {
-            $tokenStr = JWT::encode($payload, $secretKey, 'HS256');
-        }
+        // Signed with a key pair of this test's own, which the controller is pointed at: the
+        // pair under app/keys is shared with every other test, and there is no symmetric
+        // fallback to sign with instead — a token keyed with the client id is one anybody
+        // can make.
+        $pair = openssl_pkey_new(['private_key_bits' => 2048, 'private_key_type' => OPENSSL_KEYTYPE_RSA]);
+        openssl_pkey_export($pair, $privateKey);
+        $publicFile = (string) tempnam(sys_get_temp_dir(), 'pk');
+        file_put_contents($publicFile, openssl_pkey_get_details($pair)['key']);
+        $tokenStr = JWT::encode($payload, $privateKey, 'RS256');
         
         $expires = time() + 3600;
         $lookup = \Pramnos\User\Token::lookup($tokenStr);
@@ -247,7 +247,15 @@ class SessionTest extends TestCase
         // Mock Bearer Header
         $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer ' . $tokenStr;
 
-        $controller = $this->getController();
+        $controller = new class (new Application()) extends Session {
+            public string $keyFile = '';
+
+            protected function publicKeyPath(): string
+            {
+                return $this->keyFile;
+            }
+        };
+        $controller->keyFile = $publicFile;
         
         // 1. check()
         $resCheck = $controller->check();
@@ -277,6 +285,7 @@ class SessionTest extends TestCase
         $this->assertEquals(400, $resRefresh->getStatusCode());
         $dataRefresh = json_decode($resRefresh->getBody(), true);
         $this->assertEquals('error', $dataRefresh['status']);
+        @unlink($publicFile);
     }
 
     public function testInfoWithoutSessionFails(): void

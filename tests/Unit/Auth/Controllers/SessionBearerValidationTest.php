@@ -32,6 +32,9 @@ class SessionBearerValidationTest extends TestCase
     {
         \Pramnos\Application\Settings::clearSettings();
         \Pramnos\Application\Settings::loadSettings(ROOT . DS . 'tests' . DS . 'fixtures' . DS . 'app' . DS . 'settings.php');
+        // A fresh connection: other tests park a mock or a closed one in the singleton.
+        $reference = &\Pramnos\Database\Database::getInstance();
+        $reference = null;
         $this->db = \Pramnos\Framework\Factory::getDatabase();
         if (!$this->db->connected) {
             $this->db->connect();
