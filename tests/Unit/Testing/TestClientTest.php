@@ -316,6 +316,26 @@ class TestClientTest extends TestCase
             'TestClient::put() must set $_SERVER[REQUEST_METHOD] to "PUT"');
     }
 
+    /**
+     * A PUT's fields are in the body and not in `$_POST`, as in a real request.
+     *
+     * PHP fills `$_POST` for POST only. Seeding it for PUT made a handler that read `$_POST`
+     * pass here and receive nothing in production. POST still fills it.
+     */
+    public function testOnlyAPostFillsPost(): void
+    {
+        // Act
+        $this->client->put('/nonexistent-route', ['field' => 'v']);
+        $putPost = $_POST;
+        $putBody = \Pramnos\Http\Request::rawBody();
+        $this->client->post('/nonexistent-route', ['field' => 'v']);
+
+        // Assert
+        $this->assertSame([], $putPost, 'a PUT seeded $_POST, which PHP never does');
+        $this->assertSame('field=v', $putBody, 'the PUT body did not carry its fields');
+        $this->assertSame(['field' => 'v'], $_POST, 'a POST no longer fills $_POST');
+    }
+
     // ── delete() ─────────────────────────────────────────────────────────────
 
     /**

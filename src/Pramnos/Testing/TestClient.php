@@ -283,10 +283,20 @@ class TestClient
             $_GET['r'] = $path;
         }
 
+        /*
+         * A body, for every method that carries one — but `$_POST` only for POST, as PHP does.
+         *
+         * PHP fills `$_POST` from a form-encoded POST and from nothing else: a PUT, PATCH or
+         * DELETE body is only ever in `php://input`, which `Request::decodeBody()` reads. This
+         * set `$_POST` for all four, so a handler reading `$_POST` on a PUT passed here and
+         * received nothing in production — two tests in a consuming application were green
+         * for exactly that reason.
+         */
         if (in_array(strtoupper($method), ['POST', 'PUT', 'DELETE', 'PATCH'])) {
-            $_POST = $parameters;
-            $_REQUEST = array_merge($_GET, $_POST);
-            // Also update raw input for Request
+            if (strtoupper($method) === 'POST') {
+                $_POST = $parameters;
+                $_REQUEST = array_merge($_GET, $_POST);
+            }
             Request::setRawInput(http_build_query($parameters));
         } else {
             Request::setRawInput('');

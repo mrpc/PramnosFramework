@@ -140,6 +140,12 @@ $client->call('POST', '/path', $parameters, $headers);
 $client->submitForm('Save', $data);          // finds the form, fills it, posts it
 ```
 
+The data travels as a real request's would. For POST it is in `$_POST` and in the body. For
+PUT, PATCH and DELETE it is **only in the body**, because PHP never fills `$_POST` for those
+methods. A handler reads it with `$request->body()`, or
+`Request::rawBody()`. A handler that reads `$_POST` on a PUT fails here as it would in
+production.
+
 Headers are an array, which is also how authentication is passed:
 
 ```php
