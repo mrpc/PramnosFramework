@@ -772,6 +772,32 @@ with `"error": "insufficient_scope"`, naming the missing scopes.
   `new ApiKeyScopeMiddleware(['stations:write'], fn (string $key): ?array => $scopesOf($key))`,
   where `null` means the key is the application itself.
 
+#### Usage per application: `ApplicationStatsMiddleware`
+
+`applications.application_stats` is the per-application usage table. On TimescaleDB it is a
+hypertable, with hourly and daily aggregates the framework maintains. Add the recorder to
+the API group, first, so it also sees what the middleware after it refuses:
+
+```php
+$router->group(['prefix' => '/api/v1', 'middleware' => [
+    new \Pramnos\Http\Middleware\ApplicationStatsMiddleware(),
+    new \Pramnos\Http\Middleware\RateLimitMiddleware(600, 3600),
+    new \Pramnos\Http\Middleware\ApiAuthMiddleware(...),
+]], $routes);
+```
+
+- **One row per application per minute.** A request adds itself to its minute's row:
+  totals, successes and failures, the status bucket, bytes in and out, and the average,
+  minimum and maximum response time. `application_stats_hourly` and `_daily` sum those rows.
+- A rate-limit refusal counts under `rate_limited_requests`; any other exception counts by
+  its code, or as a 500. Both still reach the client unchanged.
+- Only a key with an `applications` row is recorded. A request with no key, or with the
+  site's own key, is the application calling itself.
+- **Opt-in and best-effort.** It is one upsert per API request, so an installation chooses
+  it. A failed write is swallowed, because the request has already been served.
+- A key stored elsewhere passes `fn (string $apiKey): int` as the first argument — the
+  application id, 0 for none.
+
 ### UnifiedAuthMiddleware (SPA / same-origin auth)
 
 Accepts either a Bearer JWT **or** a session cookie + `X-CSRF-Token` header. Use this for first-party route groups where you don't require API keys.
