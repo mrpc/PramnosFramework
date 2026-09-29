@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          backupGlobals="false"
+         failOnWarning="true"
+         failOnDeprecation="true"
          bootstrap="tests/bootstrap.php"
          colors="true"
          processIsolation="false"
@@ -59,7 +61,12 @@
             <directory suffix="Test.php">./tests/Characterization</directory>
         </testsuite>
     </testsuites>
-    <source>
+    <!--
+        ignoreIndirectDeprecations: a deprecation one dependency triggers in another —
+        league/oauth2-server calling a method league/uri 7 deprecated — is not ours to fix,
+        and would otherwise fail the run under failOnDeprecation. One our code triggers still does.
+    -->
+    <source ignoreIndirectDeprecations="true">
         <include>
             <directory suffix=".php">./src</directory>
         </include>
