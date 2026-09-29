@@ -1062,6 +1062,39 @@ link. The form posts `lists[<list>]`.
 Turning one back on from there subscribes the address outright, with `source = preferences`: the
 link is signed for that address, which proves the mailbox as well as a confirmation mail would.
 
+### The administration screen: `/admin/MailingLists`
+
+Every opt-in list, with how many addresses are **waiting to confirm**, **confirmed** and **left**;
+choose one to see its subscribers, newest first, fifty to a page, searchable by part of an address
+and narrowed by state. Each row says where the person joined (`source`), in which language, and
+when they asked, confirmed and left, and links to the account where there is one.
+
+| Action | What it does |
+| --- | --- |
+| **Send confirmation again** | on a pending row: the confirmation mail once more, whatever the hourly limit a public form is held to |
+| **Unsubscribe** | the address leaves the list exactly as by the footer link — the row ends, the opt-out and the consent event are written |
+| **Export confirmed (CSV)** | `email, language, confirmed_at, userid` for the list's confirmed addresses |
+
+Both row actions are `POST` with the session's token. Nobody is **added** on this screen: an
+opt-in list holds the people who asked, with the proof that they did, and an address typed in by
+an administrator has no consent behind it.
+
+The screen is `MailingListsController` (ability `admin.mailinglists`, under **System** in the
+menu). `init` writes its wrapper, `src/Admin/Controllers/MailingLists.php`; a project scaffolded
+before it existed adds the same three-line class:
+
+```php
+namespace App\Admin\Controllers;
+
+class MailingLists extends \Pramnos\Application\Controllers\MailingListsController
+{
+}
+```
+
+In code, the same reads and writes: `MailingList::lists()`, `counts()`,
+`subscribers($list, $status, $search, $page, $perPage)`, `resendConfirmation($id)`,
+`unsubscribeSubscriber($id)`, `confirmedExport($list)`.
+
 ### The consent trail
 
 Each row keeps the sentence the person agreed to, where they agreed (`source`), the address the

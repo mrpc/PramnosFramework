@@ -1494,6 +1494,12 @@ class Application extends Base
             NavSection::Admin, 16, requireAuth: true, minUserType: $floor,
             icon: 'mail', group: 'System',
         ));
+        // Who is on each opt-in list — the people the history beside it was sent to.
+        NavRegistry::register(new NavItem(
+            'admin.mailinglists', 'Mailing lists', $admin('MailingLists'),
+            NavSection::Admin, 18, requireAuth: true, minUserType: $floor,
+            icon: 'users', group: 'System',
+        ));
         /*
          * Beside the email history, because it answers the same question about the other
          * channel — and because a screen nothing links to is a screen nobody finds. The email

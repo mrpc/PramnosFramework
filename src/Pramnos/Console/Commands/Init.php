@@ -8915,6 +8915,28 @@ class PushLog extends FrameworkPushLogController
 PHP;
 
         $this->writeFile('src/Admin/Controllers/PushLog.php', $pushLogController);
+
+        // The opt-in lists' subscribers, beside the history of what was sent to them.
+        $mailingListsController = <<<PHP
+<?php
+
+declare(strict_types=1);
+
+namespace {$namespace}\\Admin\\Controllers;
+
+use Pramnos\\Application\\Controllers\\MailingListsController as FrameworkMailingListsController;
+
+/**
+ * Mailing list subscribers.
+ *
+ * Delegates all actions to the framework MailingListsController.
+ */
+class MailingLists extends FrameworkMailingListsController
+{
+}
+PHP;
+
+        $this->writeFile('src/Admin/Controllers/MailingLists.php', $mailingListsController);
     }
 
     private function scaffoldTokenActionsWiring(string $namespace): void

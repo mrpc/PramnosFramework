@@ -26,6 +26,7 @@ use Pramnos\Framework\Testing\BaseTestCase;
  * Both backends: {@see MailingListPostgreSQLTest} re-runs it.
  */
 #[CoversClass(MailingList::class)]
+#[CoversClass(\Pramnos\Application\Controllers\MailingListsController::class)]
 #[CoversClass(MailTypes::class)]
 #[CoversClass(MailType::class)]
 class MailingListTest extends BaseTestCase
@@ -332,6 +333,219 @@ class MailingListTest extends BaseTestCase
 
         // Assert
         $this->assertSame([['email' => $this->address, 'userid' => null, 'language' => 'el']], $mine);
+    }
+
+    // ── The administration screen ──────────────────────────────────────────
+
+    /**
+     * The counts per list and state move with the rows, and every opt-in list is listed.
+     *
+     * The screen's first view: how many are waiting, confirmed and gone on each list. Read as a
+     * difference, because other tests' rows may share the table.
+     */
+    public function testCountsFollowTheRowsAndEveryOptInListIsListed(): void
+    {
+        // Arrange
+        $lists  = $this->lists();
+        $before = $lists->counts()['newsletter'] ?? ['pending' => 0, 'confirmed' => 0, 'unsubscribed' => 0];
+
+        // Act
+        $lists->subscribe('newsletter', $this->address);
+
+        // Assert
+        $after = $lists->counts()['newsletter'];
+        $this->assertSame($before['pending'] + 1, $after['pending']);
+        $this->assertSame($before['confirmed'], $after['confirmed']);
+        $this->assertContains('newsletter', $lists->lists());
+        $this->assertNotContains('digest', $lists->lists(), 'a list that is not opt-in has no subscribers to show');
+    }
+
+    /**
+     * A list's subscribers are found by part of an address and by state, one page at a time.
+     */
+    public function testSubscribersAreSearchedFilteredAndPaged(): void
+    {
+        // Arrange
+        $lists = $this->lists();
+        $lists->subscribe('newsletter', $this->address, ['confirmed' => true]);
+        $part  = substr($this->address, 0, 12);
+
+        // Act
+        $found     = $lists->subscribers('newsletter', '', strtoupper($part));
+        $confirmed = $lists->subscribers('newsletter', MailingList::CONFIRMED, $part);
+        $pending   = $lists->subscribers('newsletter', MailingList::PENDING, $part);
+        $second    = $lists->subscribers('newsletter', '', $part, 2, 1);
+
+        // Assert
+        $this->assertSame(1, $found['total']);
+        $this->assertSame($this->address, $found['rows'][0]['email']);
+        $this->assertSame(1, $confirmed['total']);
+        $this->assertSame(0, $pending['total'], 'the state narrows the search');
+        $this->assertSame([], $second['rows'], 'one match, so a second page of one is empty');
+    }
+
+    /**
+     * An administrator can send a pending address its confirmation again, without the hourly limit.
+     *
+     * The limit guards a public form against being used to mail somebody repeatedly; one press
+     * of the button is not that. A confirmed row is not sent anything.
+     */
+    public function testAPendingAddressCanBeSentItsConfirmationAgain(): void
+    {
+        // Arrange — pending, and its confirmation just went
+        $lists = $this->lists();
+        $lists->subscribe('newsletter', $this->address, ['language' => 'el']);
+        $id    = (int) $this->row()['subscriberid'];
+
+        // Act
+        $resent = $lists->resendConfirmation($id);
+
+        // Assert
+        $this->assertTrue($resent);
+        $this->assertCount(2, $this->sent, 'the first mail and the one asked for');
+        $this->assertSame(['newsletter', $this->address, 'el'], $this->sent[1]);
+
+        // Assert — a confirmed row, and a row that does not exist, are refused
+        $lists->subscribe('newsletter', $this->address, ['confirmed' => true]);
+        $this->assertFalse($lists->resendConfirmation($id));
+        $this->assertFalse($lists->resendConfirmation(0));
+    }
+
+    /**
+     * Taking an address off by its row is leaving: the row ends and the opt-out is recorded.
+     */
+    public function testUnsubscribingByRowIsLeaving(): void
+    {
+        // Arrange
+        $lists = $this->lists();
+        $lists->subscribe('newsletter', $this->address, ['confirmed' => true]);
+        $id    = (int) $this->row()['subscriberid'];
+
+        // Act
+        $done = $lists->unsubscribeSubscriber($id);
+
+        // Assert
+        $this->assertTrue($done);
+        $this->assertSame(MailingList::UNSUBSCRIBED, $this->row()['status']);
+        $this->assertTrue(Unsubscribe::isOptedOut($this->address, 'newsletter'));
+        $this->assertFalse($lists->unsubscribeSubscriber($id), 'a row that has left cannot leave again');
+    }
+
+    /**
+     * The export carries the confirmed only, with when they confirmed.
+     */
+    public function testTheExportCarriesTheConfirmedOnly(): void
+    {
+        // Arrange
+        $lists = $this->lists();
+        $lists->subscribe('newsletter', $this->address, ['confirmed' => true, 'language' => 'el']);
+
+        // Act
+        $mine = array_values(array_filter(
+            $lists->confirmedExport('newsletter'),
+            fn (array $r): bool => $r['email'] === $this->address
+        ));
+
+        // Assert
+        $this->assertCount(1, $mine);
+        $this->assertSame('el', $mine[0]['language']);
+        $this->assertGreaterThan(0, (int) $mine[0]['confirmed_at']);
+    }
+
+    /**
+     * The screen: the list, a row action, and the CSV — through the controller.
+     *
+     * The controller's own guards are exercised by Controller's tests; here the actions are
+     * reached with the floor and the redirect replaced, so what is under test is what each one
+     * does to the rows and what it answers.
+     */
+    public function testTheScreenShowsResendsUnsubscribesAndExports(): void
+    {
+        // Arrange
+        $lists = $this->lists();
+        $lists->subscribe('newsletter', $this->address, ['language' => 'el']);
+        $id     = (int) $this->row()['subscriberid'];
+        $screen = new class ($lists) extends \Pramnos\Application\Controllers\MailingListsController {
+            public array $redirectedTo = [];
+            public mixed $shown = null;
+
+            public function __construct(private MailingList $lists)
+            {
+            }
+
+            protected function mailingList(): MailingList
+            {
+                return $this->lists;
+            }
+
+            protected function requireMinUserType(int $minType): bool
+            {
+                return false;
+            }
+
+            public function redirect($url = null, $quit = true, $code = '302')
+            {
+                $this->redirectedTo[] = $url;
+            }
+
+            public function &getView($name = '', $type = '', $args = [])
+            {
+                $owner = $this;
+                $view  = new class ($owner) extends \stdClass {
+                    public function __construct(private $owner)
+                    {
+                    }
+
+                    public function display($name = '')
+                    {
+                        $this->owner->shown = get_object_vars($this);
+
+                        return 'shown';
+                    }
+                };
+
+                return $view;
+            }
+        };
+        $_GET  = ['list' => 'newsletter', 'q' => $this->address];
+        $_POST = ['list' => 'newsletter', 'q' => $this->address];
+
+        // Act — the list
+        $screen->display();
+
+        // Assert
+        $this->assertSame('newsletter', $screen->shown['list']);
+        $this->assertSame(1, $screen->shown['result']['total']);
+
+        // Act — resend, then unsubscribe, by the row's id
+        $_GET['_option'] = (string) $id;   // what the router sets for …/resend/{id}
+        $screen->resend();
+        $screen->unsubscribe();
+
+        // Assert
+        $this->assertCount(2, $this->sent, 'the confirmation went again');
+        $this->assertSame(MailingList::UNSUBSCRIBED, $this->row()['status']);
+        $this->assertStringContainsString('list=newsletter', (string) $screen->redirectedTo[0], 'back to the list the row was on');
+
+        // Act — both again, on a row that has left: each refuses, with a reason
+        $_SESSION['_errors'] = [];
+        $screen->resend();
+        $screen->unsubscribe();
+
+        // Assert
+        $this->assertCount(2, $_SESSION['_errors'] ?? [], 'neither can be done to a row that has left');
+        $this->assertCount(2, $this->sent, 'and nothing more was sent');
+
+        // Act — the export of a list, and of one that does not exist
+        $lists->subscribe('newsletter', $this->address, ['confirmed' => true, 'language' => 'el']);
+        $csv     = $screen->export();
+        $_GET    = ['list' => 'nosuchlist'];
+        $missing = $screen->export();
+
+        // Assert
+        $this->assertStringContainsString($this->address . ',el,', $csv->getBody());
+        $this->assertStringStartsWith('text/csv', (string) $csv->getHeaderLine('Content-Type'));
+        $this->assertSame(404, $missing->getStatusCode());
     }
 
     /**

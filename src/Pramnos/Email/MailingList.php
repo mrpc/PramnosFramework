@@ -240,6 +240,176 @@ class MailingList
         return $rows;
     }
 
+    // ── Administration ─────────────────────────────────────────────────────────
+
+    /**
+     * The lists there are: every list an opt-in {@see MailType} names, then any the table holds.
+     *
+     * A list whose type was unregistered still has subscribers, and they are still people who
+     * asked; the screen shows them rather than losing them with the code.
+     *
+     * @return list<string>
+     */
+    public function lists(): array
+    {
+        $lists = [];
+        foreach (MailTypes::all() as $type) {
+            if ($type->optIn && $type->list !== '') {
+                $lists[] = $type->list;
+            }
+        }
+
+        foreach (array_keys($this->counts()) as $list) {
+            $lists[] = (string) $list;
+        }
+
+        return array_values(array_unique($lists));
+    }
+
+    /**
+     * How many addresses each list has in each state.
+     *
+     * @return array<string, array{pending: int, confirmed: int, unsubscribed: int}>
+     */
+    public function counts(): array
+    {
+        if (!$this->db()->schema()->hasTable(self::TABLE)) {
+            return [];
+        }
+
+        $query  = $this->db()->queryBuilder()->table(self::TABLE);
+        $result = $query->select(['list', 'status', $query->raw('COUNT(*) AS n')])
+            ->groupBy(['list', 'status'])
+            ->get();
+
+        $counts = [];
+        while ($result && $result->fetch()) {
+            $list = (string) $result->fields['list'];
+            $counts[$list] ??= [self::PENDING => 0, self::CONFIRMED => 0, self::UNSUBSCRIBED => 0];
+            $status = (string) $result->fields['status'];
+            if (isset($counts[$list][$status])) {
+                $counts[$list][$status] = (int) $result->fields['n'];
+            }
+        }
+
+        return $counts;
+    }
+
+    /**
+     * One page of a list's subscribers, newest first.
+     *
+     * @param string $status One of the three states, or `''` for all
+     * @param string $search Part of an address
+     * @return array{rows: list<array<string, mixed>>, total: int}
+     */
+    public function subscribers(string $list, string $status = '', string $search = '', int $page = 1, int $perPage = 50): array
+    {
+        if (!$this->db()->schema()->hasTable(self::TABLE)) {
+            return ['rows' => [], 'total' => 0];
+        }
+
+        $query = $this->db()->queryBuilder()->table(self::TABLE)->where('list', $list);
+        if (in_array($status, [self::PENDING, self::CONFIRMED, self::UNSUBSCRIBED], true)) {
+            $query->where('status', $status);
+        }
+        $search = self::normalizeEmail($search);
+        if ($search !== '') {
+            $query->where('email', 'LIKE', '%' . addcslashes($search, '%_\\') . '%');
+        }
+
+        $total  = (clone $query)->count();
+        $result = $query->select(['subscriberid', 'email', 'userid', 'status', 'source', 'language',
+                'created_at', 'confirmed_at', 'unsubscribed_at', 'confirmation_sent_at'])
+            ->orderBy('subscriberid', 'desc')
+            ->forPage(max(1, $page), max(1, $perPage))
+            ->get();
+
+        $rows = [];
+        while ($result && $result->fetch()) {
+            $rows[] = $result->fields;
+        }
+
+        return ['rows' => $rows, 'total' => $total];
+    }
+
+    /**
+     * A list's confirmed subscribers, for an export: address, language, when they confirmed, and
+     * the account where there is one.
+     *
+     * @return list<array{email: string, language: string, confirmed_at: int|null, userid: int|null}>
+     */
+    public function confirmedExport(string $list): array
+    {
+        $result = $this->db()->queryBuilder()->table(self::TABLE)
+            ->select(['email', 'language', 'confirmed_at', 'userid'])
+            ->where('list', $list)
+            ->where('status', self::CONFIRMED)
+            ->orderBy('subscriberid')
+            ->get();
+
+        $rows = [];
+        while ($result && $result->fetch()) {
+            $rows[] = [
+                'email'        => (string) $result->fields['email'],
+                'language'     => (string) $result->fields['language'],
+                'confirmed_at' => $result->fields['confirmed_at'] !== null ? (int) $result->fields['confirmed_at'] : null,
+                'userid'       => $result->fields['userid'] !== null ? (int) $result->fields['userid'] : null,
+            ];
+        }
+
+        return $rows;
+    }
+
+    /** @return array<string, mixed>|null One row, by its id. */
+    public function subscriber(int $subscriberId): ?array
+    {
+        $row = $this->db()->queryBuilder()->table(self::TABLE)
+            ->where('subscriberid', $subscriberId)
+            ->first();
+
+        return $row && $row->numRows > 0 ? $row->fields : null;
+    }
+
+    /**
+     * Send a pending address its confirmation again, on an administrator's word.
+     *
+     * Not bound by {@see RESEND_AFTER}: that limit stops a public form being used to mail
+     * somebody repeatedly, and an administrator pressing the button once is not that.
+     *
+     * @return bool False for a row that does not exist or is not pending
+     */
+    public function resendConfirmation(int $subscriberId): bool
+    {
+        $row = $this->subscriber($subscriberId);
+        if ($row === null || $row['status'] !== self::PENDING) {
+            return false;
+        }
+
+        $this->db()->queryBuilder()->table(self::TABLE)
+            ->where('subscriberid', $subscriberId)
+            ->update(['confirmation_sent_at' => time()]);
+        $this->sendConfirmation((string) $row['list'], (string) $row['email'], (string) $row['language']);
+
+        return true;
+    }
+
+    /**
+     * Take an address off its list, by the row's id — the same way leaving by the footer does.
+     *
+     * @return bool False for a row that does not exist or has already left
+     */
+    public function unsubscribeSubscriber(int $subscriberId, string $source = 'admin'): bool
+    {
+        $row = $this->subscriber($subscriberId);
+        if ($row === null || $row['status'] === self::UNSUBSCRIBED) {
+            return false;
+        }
+
+        $this->unsubscribe((string) $row['list'], (string) $row['email'], $source);
+
+        return true;
+    }
+
     /**
      * Every row for an account or its address — its own export.
      *
