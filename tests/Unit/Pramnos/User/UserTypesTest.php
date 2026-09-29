@@ -115,21 +115,33 @@ class UserTypesTest extends TestCase
     }
 
     /**
-     * What each type may do is written down, and capabilities accumulate.
+     * Capabilities accumulate, and an administration screen's is the floor the screen applies.
      *
-     * "What can an Administrator do" was answered by reading twelve controllers: nine
-     * declared `requiredUserType = 80`, three declared `90`, the administration area had
-     * its own floor in `app.php`, and nothing named what those numbers were for.
+     * The map used to be a list of its own — it gave 90 no `admin.permissions` while that
+     * screen opened at 90 — so it described nothing the screens did. It is read from the
+     * registered screens now, at their floor, 98 by default.
      */
     public function testCapabilitiesAccumulateDownwards(): void
     {
-        // Act & Assert — an administrator has what a simple user has
-        $this->assertTrue(UserTypes::can(90, 'admin.area'));
-        $this->assertTrue(UserTypes::can(90, 'account.self'));
+        // Arrange — one screen, registered the way the framework registers its own
+        \Pramnos\Application\NavRegistry::reset();
+        \Pramnos\Application\NavRegistry::register(new \Pramnos\Application\NavItem(
+            'admin.settings', 'Settings', '/admin/settings',
+            \Pramnos\Application\NavSection::Admin, 8, requireAuth: true, minUserType: 98,
+        ));
 
-        // …and not what only a super administrator has
-        $this->assertFalse(UserTypes::can(90, 'admin.settings'));
-        $this->assertTrue(UserTypes::can(98, 'admin.settings'));
+        try {
+            // Act & Assert — a superuser has the screen and what a simple user has
+            $this->assertTrue(UserTypes::can(98, 'admin.settings'));
+            $this->assertTrue(UserTypes::can(98, 'admin.area'));
+            $this->assertTrue(UserTypes::can(98, 'account.self'));
+
+            // …and an administrator at 90 has neither, which is what the screen does
+            $this->assertFalse(UserTypes::can(90, 'admin.settings'));
+            $this->assertFalse(UserTypes::can(90, 'admin.area'));
+        } finally {
+            \Pramnos\Application\NavRegistry::reset();
+        }
     }
 
     /**
@@ -341,10 +353,12 @@ class UserTypesTest extends TestCase
         // Act & Assert
         $this->assertTrue(UserTypes::can(90, 'reports.read'));
         $this->assertFalse(
-            UserTypes::can(90, 'admin.users'),
-            'a framework default the application did not declare must not survive'
+            UserTypes::can(99, 'something.invented.tomorrow'),
+            'the framework\'s root `*` the application did not declare must not survive'
         );
-        $this->assertSame([90, 0], array_keys(UserTypes::capabilityMap()));
+        // The declared floors, plus the area's and the developer panel's, which are facts
+        // about screens rather than grants.
+        $this->assertSame([98, 90, 0], array_keys(UserTypes::capabilityMap()));
     }
 
     /**
@@ -362,7 +376,8 @@ class UserTypesTest extends TestCase
             90       => 'not a list',
         ]]);
 
-        // Act & Assert
-        $this->assertTrue(UserTypes::can(98, 'admin.settings'));
+        // Act & Assert — the framework's own declarations are what answers
+        $this->assertTrue(UserTypes::can(99, 'something.invented.tomorrow'), 'root keeps `*`');
+        $this->assertTrue(UserTypes::can(0, 'account.self'));
     }
 }

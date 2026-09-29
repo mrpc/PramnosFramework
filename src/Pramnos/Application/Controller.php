@@ -373,7 +373,32 @@ class Controller extends \Pramnos\Framework\Base
         $this->user_permissions = $this->_auth_normalizePermissions($userPermissions);
         $this->controllerName = (new \ReflectionClass($this))->getShortName();
         $this->actions[] = 'display';
+        $this->applyDefaultAdminFloor();
         parent::__construct();
+    }
+
+    /**
+     * A framework screen's floor is {@see \Pramnos\Auth\AdminAccess::defaultUsertype()}.
+     *
+     * The framework's controllers declare `$requiredUserType` with a literal, and every action
+     * reads the property. Replaced here only while it is still the framework's own declaration
+     * at its declared value: an application that redeclares the property, or sets it, keeps
+     * what it said.
+     */
+    private function applyDefaultAdminFloor(): void
+    {
+        if ($this->adminAbility === '' || !property_exists($this, 'requiredUserType')) {
+            return;
+        }
+
+        $property = new \ReflectionProperty($this, 'requiredUserType');
+        // Declared in the framework's own source — not the namespace, which a test or an
+        // application may share.
+        if (str_starts_with((string) $property->getDeclaringClass()->getFileName(), dirname(__DIR__) . DIRECTORY_SEPARATOR)
+            && $property->hasDefaultValue()
+            && $this->requiredUserType === $property->getDefaultValue()) {
+            $this->requiredUserType = \Pramnos\Auth\AdminAccess::defaultUsertype();
+        }
     }
 
     /**
@@ -947,10 +972,17 @@ class Controller extends \Pramnos\Framework\Base
      * @param  int  $minType The usertype floor for this screen
      * @return bool Whether the request was refused
      */
-    /** The usertype floor {@see exec()} checks an administration screen against. */
+    /**
+     * The usertype floor {@see exec()} checks an administration screen against.
+     *
+     * A screen with no `$requiredUserType` of its own gets the framework's default rather
+     * than 0, which under `admin_access = usertype` would open it to every account.
+     */
     protected function adminFloor(): int
     {
-        return property_exists($this, 'requiredUserType') ? (int) $this->requiredUserType : 0;
+        return property_exists($this, 'requiredUserType')
+            ? (int) $this->requiredUserType
+            : \Pramnos\Auth\AdminAccess::defaultUsertype();
     }
 
     protected function requireMinUserType(int $minType): bool

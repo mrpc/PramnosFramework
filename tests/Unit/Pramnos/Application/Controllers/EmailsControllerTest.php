@@ -203,7 +203,7 @@ class EmailsControllerTest extends BaseTestCase
 
     public function testRequireMinUserTypeRedirectsWhenBelowRequired(): void
     {
-        $this->setMockUser(79); // Required is 80
+        $this->setMockUser(97); // Required is the default floor, 98
 
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('redirect_quit');
@@ -227,7 +227,7 @@ class EmailsControllerTest extends BaseTestCase
 
     public function testDisplayShowsEmails(): void
     {
-        $this->setMockUser(80);
+        $this->setMockUser(98);
         
         $doc = \Pramnos\Framework\Factory::getDocument();
         $doc->themeObject = new class {
@@ -261,7 +261,7 @@ class EmailsControllerTest extends BaseTestCase
     public function testTheListCanBeScopedToOneAddress(): void
     {
         // Arrange
-        $this->setMockUser(80);
+        $this->setMockUser(98);
         $_GET['tomail'] = 'Someone@Example.COM';
 
         $doc = \Pramnos\Framework\Factory::getDocument();
@@ -300,7 +300,7 @@ class EmailsControllerTest extends BaseTestCase
 
     public function testShowDisplaysEmailPreview(): void
     {
-        $this->setMockUser(80);
+        $this->setMockUser(98);
         
         $doc = \Pramnos\Framework\Factory::getDocument();
         $doc->themeObject = new class {
@@ -326,7 +326,7 @@ class EmailsControllerTest extends BaseTestCase
 
     public function testShowRedirectsWhenInvalidId(): void
     {
-        $this->setMockUser(80);
+        $this->setMockUser(98);
 
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('redirect_quit');
@@ -345,7 +345,7 @@ class EmailsControllerTest extends BaseTestCase
 
     public function testShowRedirectsWhenNotFound(): void
     {
-        $this->setMockUser(80);
+        $this->setMockUser(98);
 
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('redirect_quit');
@@ -365,7 +365,7 @@ class EmailsControllerTest extends BaseTestCase
 
     public function testResendUpdatesStatus(): void
     {
-        $this->setMockUser(80);
+        $this->setMockUser(98);
 
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('redirect_quit');
@@ -389,7 +389,7 @@ class EmailsControllerTest extends BaseTestCase
 
     public function testResendRedirectsWhenInvalidId(): void
     {
-        $this->setMockUser(80);
+        $this->setMockUser(98);
 
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('redirect_quit');
@@ -419,7 +419,7 @@ class EmailsControllerTest extends BaseTestCase
     public function testDisplayWithStatusFilterRendersPage(): void
     {
         // Arrange — admin user, status filter set in GET
-        $this->setMockUser(80);
+        $this->setMockUser(98);
         $_GET['status'] = '1'; // filter for sent emails
 
         $doc = \Pramnos\Framework\Factory::getDocument();

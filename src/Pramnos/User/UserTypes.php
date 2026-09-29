@@ -102,7 +102,7 @@ final class UserTypes
     /**
      * The band a usertype falls in.
      *
-     * `label(85)` is `Manager` with the defaults: the number is a threshold, so a value
+     * `label(95)` is `Administrator` with the defaults: the number is a threshold, so a value
      * between two bands belongs to the lower one. A value below every band returns the
      * lowest band's label, because a user always has *some* standing.
      */
@@ -218,41 +218,27 @@ final class UserTypes
     }
 
     /**
-     * What each type may do by default — the framework's own answer, in one place.
+     * What each type may do — read from the screens that decide it, plus the application's own.
      *
-     * Until this existed, "what can an Administrator do" was answered by reading twelve
-     * controllers: nine declared `requiredUserType = 80` and three declared `90`, the
-     * administration area declared its own floor in `app.php`, and nothing anywhere said
-     * what those numbers were *for*. An operator deciding which type to give somebody had
-     * no document to read and no screen to look at.
+     * An `admin.*` capability is an administration screen, and its floor is the one the screen
+     * applies: the menu item's `minUserType`, which is the screen controller's own floor —
+     * {@see \Pramnos\Auth\AdminAccess::defaultUsertype()}, 98, for every framework screen. So
+     * {@see can()} and `/admin/Users/types` answer what the screens will do, and cannot drift
+     * from them. `admin.area` is the area's floor, `devpanel` the developer panel's.
      *
-     * Each capability is a name the framework's own screens check through
-     * {@see can()}. `*` means every capability, including ones added later — which is what
-     * root means and the only honest way to write it.
+     * The rest is this constant, or the application's `'usertype_capabilities'` in `app.php`
+     * in the same shape, which replaces it: capabilities the application checks with
+     * {@see can()} for its own screens. `*` means every capability, which is what root means.
      *
-     * These are **defaults**, and they are floors: a capability listed for 90 belongs to 98
-     * and 99 as well, because the resolution below walks down from the value it is given.
-     * An application replaces the whole map with `'usertype_capabilities'` in `app.php`, in
-     * the same shape.
-     *
-     * They are not a permission system. A capability answers "may this *type* of account
-     * reach this kind of screen"; a permission answers "may this *account* touch this
-     * record" and lives in `authserver.permissions` — see the Authorization guide.
+     * These floors are what `admin_access = usertype` decides by. Under `mixed` or
+     * `permissions` a role opens a screen to an account below its floor — see the
+     * Authorization guide — and that is how an account short of a superuser is meant to be
+     * given part of the administration area.
      *
      * @var array<int, list<string>>
      */
     public const DEFAULT_CAPABILITIES = [
         99 => ['*'],
-        98 => [
-            'admin.area', 'admin.users', 'admin.users.write', 'admin.settings',
-            'admin.logs', 'admin.applications', 'admin.permissions', 'admin.organizations',
-            'admin.queue', 'admin.messages', 'admin.tokens', 'devpanel',
-        ],
-        90 => [
-            'admin.area', 'admin.users', 'admin.users.write', 'admin.logs',
-            'admin.applications', 'admin.organizations', 'admin.queue', 'admin.messages',
-            'admin.tokens',
-        ],
         // The machine account: it authenticates to the API and reaches nothing a person
         // reaches. Listed explicitly because "no capabilities" and "not written down" look
         // the same on a screen.
@@ -296,8 +282,8 @@ final class UserTypes
     /**
      * May this usertype do this?
      *
-     * The question the framework's own screens ask. `*` answers yes to everything, which is
-     * why a caller must come through here rather than reading {@see capabilities()}.
+     * `*` answers yes to everything, which is why a caller must come through here rather than
+     * reading {@see capabilities()}.
      */
     public static function can(int $usertype, string $capability): bool
     {
@@ -307,17 +293,20 @@ final class UserTypes
     }
 
     /**
-     * The capability map: the application's if it declared one, else the framework's.
+     * The capability map: the application's declared one (or this class's), with the
+     * administration screens at the floors they apply.
      *
-     * Replaced rather than merged. A capability list is a security decision, and an
-     * application that writes one has said what it means — quietly adding the framework's
-     * defaults underneath would grant things it did not ask for.
+     * The declared part is replaced rather than merged — a capability list is the
+     * application's statement of what its own checks mean. The screens are added whatever it
+     * says, because they are not a grant but a description: the screen opens at that floor
+     * whether or not the map mentions it.
      *
      * @return array<int, list<string>>
      */
     public static function capabilityMap(): array
     {
-        $info = \Pramnos\Application\Application::currentInstance()?->applicationInfo;
+        $app  = \Pramnos\Application\Application::currentInstance();
+        $info = $app?->applicationInfo;
 
         $declared = match (true) {
             is_array($info)  => $info['usertype_capabilities'] ?? null,
@@ -339,9 +328,39 @@ final class UserTypes
             }
         }
 
+        foreach (self::screenFloors($info) as $capability => $floor) {
+            $map[$floor]   = $map[$floor] ?? [];
+            $map[$floor][] = $capability;
+        }
+
         krsort($map, SORT_NUMERIC);
 
         return $map;
+    }
+
+    /**
+     * Each administration screen's ability and the floor it opens at, and the area's and the
+     * developer panel's.
+     *
+     * @return array<string, int>
+     */
+    private static function screenFloors(mixed $info): array
+    {
+        $floors = [];
+        foreach (\Pramnos\Application\NavRegistry::all() as $item) {
+            if ($item->section === \Pramnos\Application\NavSection::Admin) {
+                $floors[$item->id] = $item->minUserType;
+            }
+        }
+
+        $admin = is_array($info) ? ($info['admin'] ?? null) : null;
+        $area  = is_array($admin) ? (int) ($admin['min_usertype'] ?? 0) : 0;
+        $floors['admin.area'] = $area > 0 ? $area : \Pramnos\Auth\AdminAccess::defaultUsertype();
+
+        $devpanel = is_array($info) ? (int) ($info['devpanel']['min_usertype'] ?? 0) : 0;
+        $floors['devpanel'] = $devpanel > 0 ? $devpanel : 90;
+
+        return $floors;
     }
 
     /**

@@ -433,9 +433,10 @@ when they are already in memory.
 
 ### It is opt-in, and that is the part to get right
 
-Nothing calls `resolveForOrganization()` for you. `ApiCrudController`, `Gate` and
-`Permissions` all use `resolve()`, because they are not given an organisation and
-have no way to guess one. Isolating tenants means your code deciding which
+`ApiCrudController`, `Gate` and `Permissions` use `resolve()`, because they are not given an
+organisation and have no way to guess one. `/api/internal/permissions` calls
+`resolveForOrganization()` when the resource server passes `organization_id` — see the
+[AuthServer Integration guide](Pramnos_AuthServer_Integration_Guide.md). Isolating tenants means your code deciding which
 organisation a request is about and asking that question.
 
 For **reads**, that is usually not an authorization question at all but a query one,
@@ -468,7 +469,7 @@ threshold grants: `admin.area`, `admin.users`, `devpanel`. It is the layer that 
 before there is any record to reason about.
 
 ```php
-\Pramnos\User\UserTypes::can(90, 'admin.settings');   // false — that is 98 and above
+\Pramnos\User\UserTypes::can(90, 'admin.settings');   // false — the screen opens at 98
 \Pramnos\User\UserTypes::capabilities(98);            // the resolved list
 \Pramnos\User\UserTypes::label(95);                   // 'Administrator' — 95 is above the floor
 ```
@@ -678,9 +679,12 @@ Every screen in the administration area has an **ability named after its menu it
 class Reports extends \Pramnos\Application\Controller
 {
     protected string $adminAbility = 'admin.reports';   // the NavItem's id
-    protected int $requiredUserType = 80;               // the floor, for usertype mode
+    protected int $requiredUserType = 98;               // the floor, for usertype mode
 }
 ```
+
+The framework's own screens are at `AdminAccess::defaultUsertype()` — 98, or the
+`admin_default_usertype` setting. An application's screen states its own floor, as above.
 
 `Controller::exec()` checks it before **any** action runs, so an action that forgets its own
 check is still behind it — inside the administration area, where the application has one. A
@@ -693,7 +697,7 @@ Which question that is depends on one setting, **`admin_access`**:
 
 | `admin_access` | A screen opens for | Two administrators at 90 |
 | --- | --- | --- |
-| `usertype` (default) | anybody at or above the screen's `$requiredUserType` | see the same area |
+| `usertype` (default) | anybody at or above the screen's floor — 98 for every framework screen, `admin_default_usertype` to move it | see the same area |
 | `permissions` | whoever holds the screen's ability — granted to them or to a role they hold | see what each was given |
 | `mixed` | the floor, with decisions on top: an **allow** opens a screen below its floor, a **deny** closes it above | see the same area, minus what was denied, plus what was allowed |
 
@@ -709,8 +713,20 @@ Under `permissions` and `mixed`:
   unless set — so switching modes before granting anything cannot lock the last administrator out.
 - **A refused screen sends you to the first one you may open**, with a message, rather than out
   of the area.
-- The area's own floor, `admin.min_usertype`, still applies on top — somebody below it does not
-  reach any screen, whatever they hold.
+- **Somebody below the area's floor**, `admin.min_usertype`, reaches the area when a grant opens
+  at least one screen to them; otherwise the floor refuses them as it does under `usertype`.
+
+This is the intended way to give an account part of the area: framework screens open at 98, a
+superuser's, and everybody else holds a role that allows what they need —
+
+```php
+// app settings: admin_access = mixed
+AdminAccess::setDecisions('role', $supportRoleId, [
+    'admin.users' => 'allow', 'admin.logs' => 'allow',
+], $whatTheEditorMayGrant);
+```
+
+— rather than a usertype in between, which opens every screen at once.
 
 ### Granting screens
 

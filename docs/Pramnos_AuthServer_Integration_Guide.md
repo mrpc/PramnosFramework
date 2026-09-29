@@ -783,31 +783,34 @@ open, and off again afterwards.
 ## 4. Reading a user's permissions
 
 Your application server (never the browser) calls the internal permissions
-endpoint using **client-credentials** (RFC 7523 JWT assertion):
+endpoint with its own **client credentials**, as HTTP Basic (RFC 6749 §2.3.1):
 
 ```
-GET /api/internal/permissions?user_id={id}&client_id={your_client_id}
-Authorization: Bearer {client_credentials_access_token}
+GET /api/internal/permissions?user_id={id}[&organization_id={id}]
+Authorization: Basic base64({client_id}:{client_secret})
 ```
 
-Response — the effective permission tree scoped to your application
-(`app_id = your app OR global`):
+Response — the user's effective grants for your application (rows with
+`app_id` = your application, or none):
 
 ```json
 {
-  "resources": {
-    "invoices": {
-      "read":  { "grant": "allow", "conditions": null },
-      "write": { "grant": "allow", "conditions": { "location_id": [1, 2] } }
-    }
-  }
+  "user_id": 42,
+  "app_id": 7,
+  "permissions": [
+    { "object_type": "invoice", "object_id": "*", "action": "read",  "grant": "allow", "conditions": null },
+    { "object_type": "invoice", "object_id": "*", "action": "write", "grant": "allow", "conditions": [{ "location_id": [1, 2] }] }
+  ]
 }
 ```
 
-- `grant` is the resolved **allow/deny** after the server applies deny-over-allow.
-- `conditions` is **ABAC** context your app evaluates against the current request
-  (e.g. only allow `write` when the request's `location_id` ∈ [1,2]). A `null`
-  means unconditional.
+- `grant` is the resolved **allow/deny**: the higher priority decides, and a deny wins a tie.
+- `conditions` is **ABAC** context your app evaluates against the current request — a list of
+  predicates, any one of which is enough. `null` means unconditional.
+- `organization_id` asks the tenant's question: a role that belongs to an organisation counts
+  only within it, and only while the user is an active member. Without it every role the user
+  holds counts. The response then carries `organization_id` too.
+- A `client_id` parameter, when sent, must be your own; asking for another client's is `403`.
 
 **Cache** this response per user. Do not call the endpoint on every request.
 

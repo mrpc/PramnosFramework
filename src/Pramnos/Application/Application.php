@@ -1307,12 +1307,28 @@ class Application extends Base
             return false;
         }
 
-        if ((int) ($user->usertype ?? 0) < $minimum) {
+        if ((int) ($user->usertype ?? 0) < $minimum && !$this->adminAreaGrantsAScreen($user)) {
             $this->setRedirect(sURL);
             return false;
         }
 
         return true;
+    }
+
+    /**
+     * Whether grants open at least one screen to somebody below the area's floor.
+     *
+     * Under `admin_access = mixed` or `permissions` a role is how an account below the floor is
+     * given a screen, and the area's floor would otherwise refuse them before the screen's own
+     * check could say yes. Under `usertype` grants decide nothing, and neither does this.
+     */
+    protected function adminAreaGrantsAScreen(mixed $user): bool
+    {
+        if (!is_object($user) || !\Pramnos\Auth\AdminAccess::usesPermissions()) {
+            return false;
+        }
+
+        return \Pramnos\Auth\AdminAccess::landingFor($user, (array) ($this->applicationInfo['features'] ?? [])) !== null;
     }
 
     /**
@@ -1431,48 +1447,51 @@ class Application extends Base
          * Emails used to be folded under Dashboard, which is not what any of them
          * is — they are their own screens under a `System` heading.
          */
+        // One floor for every framework screen, the one its controller applies too — see
+        // AdminAccess::defaultUsertype(). Below it, a role opens a screen.
+        $floor = \Pramnos\Auth\AdminAccess::defaultUsertype();
         NavRegistry::register(new NavItem(
             'admin.dashboard', 'Dashboard', $admin('Dashboard'),
-            NavSection::Admin, 1, requireAuth: true, minUserType: 80,
+            NavSection::Admin, 1, requireAuth: true, minUserType: $floor,
             icon: 'gauge',
         ));
 
         // ── People ───────────────────────────────────────────────────────────
         NavRegistry::register(new NavItem(
             'admin.users', 'Users', $admin('users'),
-            NavSection::Admin, 5, requireAuth: true, minUserType: 80,
+            NavSection::Admin, 5, requireAuth: true, minUserType: $floor,
             icon: 'users', group: 'People',
         ));
         NavRegistry::register(new NavItem(
             'admin.organizations', 'Organizations', $admin('Organizations'),
-            NavSection::Admin, 14, requireAuth: true, minUserType: 80,
+            NavSection::Admin, 14, requireAuth: true, minUserType: $floor,
             icon: 'building', group: 'People',
         ));
 
         // ── System ───────────────────────────────────────────────────────────
         NavRegistry::register(new NavItem(
             'admin.settings', 'Settings', $admin('settings'),
-            NavSection::Admin, 8, requireAuth: true, minUserType: 80,
+            NavSection::Admin, 8, requireAuth: true, minUserType: $floor,
             icon: 'settings', group: 'System',
         ));
         NavRegistry::register(new NavItem(
             'admin.logs', 'Logs', $admin('logs'),
-            NavSection::Admin, 10, requireAuth: true, minUserType: 80,
+            NavSection::Admin, 10, requireAuth: true, minUserType: $floor,
             icon: 'document', group: 'System',
         ));
         NavRegistry::register(new NavItem(
             'admin.health', 'Health', $admin('health'),
-            NavSection::Admin, 11, requireAuth: true, minUserType: 80,
+            NavSection::Admin, 11, requireAuth: true, minUserType: $floor,
             icon: 'heartbeat', group: 'System',
         ));
         NavRegistry::register(new NavItem(
             'admin.services', 'Services', $admin('Services'),
-            NavSection::Admin, 12, requireAuth: true, minUserType: 80,
+            NavSection::Admin, 12, requireAuth: true, minUserType: $floor,
             icon: 'server', group: 'System',
         ));
         NavRegistry::register(new NavItem(
             'admin.emails', 'Emails', $admin('Emails'),
-            NavSection::Admin, 16, requireAuth: true, minUserType: 80,
+            NavSection::Admin, 16, requireAuth: true, minUserType: $floor,
             icon: 'mail', group: 'System',
         ));
         /*
@@ -1483,7 +1502,7 @@ class Application extends Base
          */
         NavRegistry::register(new NavItem(
             'admin.pushlog', 'Push', $admin('PushLog'),
-            NavSection::Admin, 17, requireAuth: true, minUserType: 80,
+            NavSection::Admin, 17, requireAuth: true, minUserType: $floor,
             icon: 'bell', group: 'System',
         ));
 
@@ -1491,17 +1510,17 @@ class Application extends Base
         if (in_array('authserver', $features, true)) {
             NavRegistry::register(new NavItem(
                 'admin.applications', 'Applications', $admin('Applications'),
-                NavSection::Admin, 20, requireAuth: true, minUserType: 90,
+                NavSection::Admin, 20, requireAuth: true, minUserType: $floor,
                 feature: 'authserver', icon: 'apps', group: 'Access',
             ));
             NavRegistry::register(new NavItem(
                 'admin.tokens', 'Tokens', $admin('Tokens'),
-                NavSection::Admin, 22, requireAuth: true, minUserType: 90,
+                NavSection::Admin, 22, requireAuth: true, minUserType: $floor,
                 feature: 'authserver', icon: 'key', group: 'Access',
             ));
             NavRegistry::register(new NavItem(
                 'admin.permissions', 'Permissions', $admin('Permissions'),
-                NavSection::Admin, 24, requireAuth: true, minUserType: 90,
+                NavSection::Admin, 24, requireAuth: true, minUserType: $floor,
                 feature: 'authserver', icon: 'shield', group: 'Access',
             ));
             // Roles sit next to permissions because that is the order the work is
@@ -1510,7 +1529,7 @@ class Application extends Base
             // nothing could write to them.
             NavRegistry::register(new NavItem(
                 'admin.roles', 'Roles', $admin('Roles'),
-                NavSection::Admin, 23, requireAuth: true, minUserType: 90,
+                NavSection::Admin, 23, requireAuth: true, minUserType: $floor,
                 feature: 'authserver', icon: 'users', group: 'Access',
             ));
         }
@@ -1518,16 +1537,16 @@ class Application extends Base
         // Token Actions audit log — auth feature, nested under Users because
         // that is what it is: a view of one account's activity.
         if (in_array('auth', $features, true)) {
-            // Invitations — 98 under usertype: inviting ends in an account, which is a
-            // superuser's call unless `admin.invitations` has been granted.
+            // Invitations: inviting ends in an account, which is a superuser's call unless
+            // `admin.invitations` has been granted.
             NavRegistry::register(new NavItem(
                 'admin.invitations', 'Invitations', $admin('Invitations'),
-                NavSection::Admin, 6, requireAuth: true, minUserType: 98,
+                NavSection::Admin, 6, requireAuth: true, minUserType: $floor,
                 feature: 'auth', icon: 'mail', group: 'People',
             ));
             NavRegistry::register(new NavItem(
                 'admin.tokenactions', 'Token Actions', $admin('TokenActions'),
-                NavSection::Admin, 26, requireAuth: true, minUserType: 80,
+                NavSection::Admin, 26, requireAuth: true, minUserType: $floor,
                 feature: 'auth', icon: 'history',
                 parent: 'admin.users', group: 'People',
             ));
@@ -1540,7 +1559,7 @@ class Application extends Base
         if (in_array('messaging', $features, true)) {
             NavRegistry::register(new NavItem(
                 'admin.mailtemplates', 'Message templates', $admin('MailTemplates'),
-                NavSection::Admin, 28, requireAuth: true, minUserType: 80,
+                NavSection::Admin, 28, requireAuth: true, minUserType: $floor,
                 feature: 'messaging', icon: 'mail', group: 'System',
             ));
         }
@@ -1550,11 +1569,10 @@ class Application extends Base
         // models and nothing that composed, sent or displayed one, so telling an
         // application's users something meant writing a loop inside a request.
         //
-        // `minUserType: 90` rather than 80: this screen mails everybody.
         if (in_array('messaging', $features, true)) {
             NavRegistry::register(new NavItem(
                 'admin.massmessages', 'Mass messages', $admin('MassMessages'),
-                NavSection::Admin, 29, requireAuth: true, minUserType: 90,
+                NavSection::Admin, 29, requireAuth: true, minUserType: $floor,
                 feature: 'messaging', icon: 'mail', group: 'System',
             ));
         }
@@ -1563,7 +1581,7 @@ class Application extends Base
         if (in_array('queue', $features, true)) {
             NavRegistry::register(new NavItem(
                 'admin.queue', 'Queue', $admin('Queue'),
-                NavSection::Admin, 30, requireAuth: true, minUserType: 80,
+                NavSection::Admin, 30, requireAuth: true, minUserType: $floor,
                 feature: 'queue', icon: 'queue', group: 'System',
             ));
         }

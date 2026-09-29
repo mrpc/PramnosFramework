@@ -159,7 +159,7 @@ class TokensControllerTest extends BaseTestCase
 
     public function testRequireMinUserTypeRedirectsWhenBelowRequired(): void
     {
-        $this->setMockUser(89); // Required is 90
+        $this->setMockUser(97); // Required is the default floor, 98
 
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('redirect_quit');
@@ -183,7 +183,7 @@ class TokensControllerTest extends BaseTestCase
 
     public function testDisplayShowsTokens(): void
     {
-        $this->setMockUser(90);
+        $this->setMockUser(98);
         
         $doc = \Pramnos\Framework\Factory::getDocument();
         $doc->themeObject = new class {
@@ -208,7 +208,7 @@ class TokensControllerTest extends BaseTestCase
 
     public function testRevokeUpdatesStatus(): void
     {
-        $this->setMockUser(90);
+        $this->setMockUser(98);
 
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('redirect_quit');
@@ -232,7 +232,7 @@ class TokensControllerTest extends BaseTestCase
 
     public function testRevokeRedirectsWhenInvalidId(): void
     {
-        $this->setMockUser(90);
+        $this->setMockUser(98);
 
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('redirect_quit');
@@ -251,7 +251,7 @@ class TokensControllerTest extends BaseTestCase
 
     public function testRevokeallUpdatesStatus(): void
     {
-        $this->setMockUser(90);
+        $this->setMockUser(98);
 
         $_POST = [
             'userid' => 1
@@ -278,7 +278,7 @@ class TokensControllerTest extends BaseTestCase
 
     public function testRevokeallRedirectsWhenMissingFilters(): void
     {
-        $this->setMockUser(90);
+        $this->setMockUser(98);
 
         $_POST = [];
 
@@ -307,7 +307,7 @@ class TokensControllerTest extends BaseTestCase
     public function testDisplayWithUserIdFilterRendersPage(): void
     {
         // Arrange — admin user, user_id filter set in GET
-        $this->setMockUser(90);
+        $this->setMockUser(98);
         $_GET['user_id'] = '1'; // positive → exercises the filterUserId > 0 branch
 
         $doc = \Pramnos\Framework\Factory::getDocument();
@@ -344,7 +344,7 @@ class TokensControllerTest extends BaseTestCase
     public function testDisplayWithAppIdFilterRendersPage(): void
     {
         // Arrange — admin user, app_id filter set in GET
-        $this->setMockUser(90);
+        $this->setMockUser(98);
         $_GET['app_id'] = '5'; // positive → exercises the filterAppId > 0 branch
 
         $doc = \Pramnos\Framework\Factory::getDocument();
@@ -382,7 +382,7 @@ class TokensControllerTest extends BaseTestCase
     public function testRevokeallWithBothFiltersAppliesBothConditions(): void
     {
         // Arrange — admin user, both userid and applicationid set
-        $this->setMockUser(90);
+        $this->setMockUser(98);
         $_POST = [
             'userid'        => 1,
             'applicationid' => 1,
@@ -417,7 +417,7 @@ class TokensControllerTest extends BaseTestCase
     public function testUseridListsUserTokens(): void
     {
         // Arrange — manager-level user (80) requesting user 1's tokens
-        $this->setMockUser(80);
+        $this->setMockUser(98);
         $_GET['_option'] = 1;
 
         // Act
@@ -454,7 +454,7 @@ class TokensControllerTest extends BaseTestCase
     public function testUseridRedirectsWhenInvalidId(): void
     {
         // Arrange — no/zero option
-        $this->setMockUser(80);
+        $this->setMockUser(98);
         $_GET['_option'] = 0;
 
         try {
@@ -480,7 +480,7 @@ class TokensControllerTest extends BaseTestCase
     public function testDeactivateSetsStatusInactive(): void
     {
         // Arrange — active token 10 belongs to user 1
-        $this->setMockUser(80);
+        $this->setMockUser(98);
         $_POST = ['userid' => 1, 'tokenid' => 10];
 
         try {
@@ -509,7 +509,7 @@ class TokensControllerTest extends BaseTestCase
     public function testDeleteSetsStatusDeleted(): void
     {
         // Arrange — active token 10 belongs to user 1
-        $this->setMockUser(80);
+        $this->setMockUser(98);
         $_POST = ['userid' => 1, 'tokenid' => 10];
 
         try {

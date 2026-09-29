@@ -203,7 +203,7 @@ class DashboardControllerTest extends TestCase
 
     public function testRequireMinUserTypeRedirectsWhenBelowRequired(): void
     {
-        $this->setMockUser(79); // Required is 80
+        $this->setMockUser(97); // Required is the default floor, 98
 
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('redirect_quit');
@@ -227,7 +227,7 @@ class DashboardControllerTest extends TestCase
 
     public function testDisplayShowsDashboardForAdmin(): void
     {
-        $this->setMockUser(80);
+        $this->setMockUser(98);
         
         $doc = \Pramnos\Framework\Factory::getDocument();
         // Setup a dummy theme object that has the needed method
@@ -270,7 +270,7 @@ class DashboardControllerTest extends TestCase
 
     public function testApiStatsReturnsJson(): void
     {
-        $this->setMockUser(80);
+        $this->setMockUser(98);
 
         $_GET['window'] = \Pramnos\Application\Statistics\ApiPerformanceService::WINDOW_1H;
 
@@ -286,7 +286,7 @@ class DashboardControllerTest extends TestCase
 
     public function testDbStatsReturnsJson(): void
     {
-        $this->setMockUser(80);
+        $this->setMockUser(98);
 
         ob_start();
         $this->controller->dbstats();
@@ -335,7 +335,7 @@ class DashboardControllerTest extends TestCase
 
     public function testDatabaseDisplaysDatabaseDetails(): void
     {
-        $this->setMockUser(80);
+        $this->setMockUser(98);
         $doc = \Pramnos\Framework\Factory::getDocument();
         $doc->themeObject = new class {
             public function allowsViewOverrides() { return false; }
@@ -355,7 +355,7 @@ class DashboardControllerTest extends TestCase
 
     public function testCacheDisplaysCacheDetails(): void
     {
-        $this->setMockUser(80);
+        $this->setMockUser(98);
         $doc = \Pramnos\Framework\Factory::getDocument();
         $doc->themeObject = new class {
             public function allowsViewOverrides() { return false; }
@@ -375,7 +375,7 @@ class DashboardControllerTest extends TestCase
 
     public function testCacheItemReturnsJson(): void
     {
-        $this->setMockUser(80);
+        $this->setMockUser(98);
 
         $cache = \Pramnos\Cache\Cache::getInstance();
         $cache->save('test_key', 'test_data', 'test_namespace');
@@ -393,7 +393,7 @@ class DashboardControllerTest extends TestCase
 
     public function testCacheItemFailsWhenNoKey(): void
     {
-        $this->setMockUser(80);
+        $this->setMockUser(98);
 
         ob_start();
         $this->controller->cacheitem();
@@ -406,7 +406,7 @@ class DashboardControllerTest extends TestCase
 
     public function testCacheItemFailsWhenNotFound(): void
     {
-        $this->setMockUser(80);
+        $this->setMockUser(98);
 
         $_GET['key'] = 'non_existent_key';
 
@@ -421,7 +421,7 @@ class DashboardControllerTest extends TestCase
 
     public function testClearCacheReturnsJsonOnPost(): void
     {
-        $this->setMockUser(80);
+        $this->setMockUser(98);
 
         $_SERVER['REQUEST_METHOD'] = 'POST';
 
@@ -461,7 +461,7 @@ class DashboardControllerTest extends TestCase
     public function testCacheItemReturnsContentWithByteSize(): void
     {
         // Arrange — store a real value under the singleton's current category
-        $this->setMockUser(80);
+        $this->setMockUser(98);
         $cache = \Pramnos\Cache\Cache::getInstance();
         $cache->save('small-value', 'dash_byte_key');
         $_GET['key'] = $this->storageKeyOf('dash_byte_key');
@@ -487,7 +487,7 @@ class DashboardControllerTest extends TestCase
     public function testCacheItemFormatsKilobyteSize(): void
     {
         // Arrange — ~4 KB payload
-        $this->setMockUser(80);
+        $this->setMockUser(98);
         $cache = \Pramnos\Cache\Cache::getInstance();
         $cache->save(str_repeat('k', 4096), 'dash_kb_key');
         $_GET['key'] = $this->storageKeyOf('dash_kb_key');
@@ -510,7 +510,7 @@ class DashboardControllerTest extends TestCase
     public function testCacheItemFormatsMegabyteSize(): void
     {
         // Arrange — payload just above 1 MiB (1048576 bytes)
-        $this->setMockUser(80);
+        $this->setMockUser(98);
         $cache = \Pramnos\Cache\Cache::getInstance();
         $cache->save(str_repeat('m', 1100000), 'dash_mb_key');
         $_GET['key'] = $this->storageKeyOf('dash_mb_key');
@@ -566,7 +566,7 @@ class DashboardControllerTest extends TestCase
     {
         // Arrange — seed two real cache entries so getCategories()/getAllItems()
         // return non-empty data and the aggregation loop runs in full
-        $this->setMockUser(80);
+        $this->setMockUser(98);
         $cache = \Pramnos\Cache\Cache::getInstance();
         $this->seedCache('dashagg', 'key1', 'value-one');
         $this->seedCache('dashagg', 'key2', 'value-two');
@@ -595,7 +595,7 @@ class DashboardControllerTest extends TestCase
 
     public function testClearCacheFailsOnGet(): void
     {
-        $this->setMockUser(80);
+        $this->setMockUser(98);
 
         $_SERVER['REQUEST_METHOD'] = 'GET';
 

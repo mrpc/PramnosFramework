@@ -75,7 +75,7 @@ case rather than an exotic one:
 'admin' => [
     'prefix'       => 'admin',
     'theme'        => 'admin',
-    'min_usertype' => 80,
+    'min_usertype' => 98,
     'language'     => 'en',   // the site itself is 'el'
 ],
 ```

@@ -155,7 +155,7 @@ class ServicesControllerTest extends TestCase
 
     public function testRequireMinUserTypeRedirectsWhenBelowRequired(): void
     {
-        $this->setMockUser(79); // Required is 80
+        $this->setMockUser(97); // Required is the default floor, 98
 
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('redirect_quit');
@@ -179,7 +179,7 @@ class ServicesControllerTest extends TestCase
 
     public function testDisplayShowsServices(): void
     {
-        $this->setMockUser(80);
+        $this->setMockUser(98);
         
         $doc = \Pramnos\Framework\Factory::getDocument();
         $doc->themeObject = new class {
@@ -204,7 +204,7 @@ class ServicesControllerTest extends TestCase
 
     public function testStopServiceCreatesStopFile(): void
     {
-        $this->setMockUser(80);
+        $this->setMockUser(98);
 
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('redirect_quit');
@@ -230,7 +230,7 @@ class ServicesControllerTest extends TestCase
 
     public function testStopServiceRedirectsWhenNotFound(): void
     {
-        $this->setMockUser(80);
+        $this->setMockUser(98);
 
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('redirect_quit');
@@ -250,7 +250,7 @@ class ServicesControllerTest extends TestCase
 
     public function testStartServiceRemovesStopFile(): void
     {
-        $this->setMockUser(80);
+        $this->setMockUser(98);
         file_put_contents($this->lockFile . '.stop', '1');
 
         $this->expectException(\RuntimeException::class);
@@ -272,7 +272,7 @@ class ServicesControllerTest extends TestCase
 
     public function testRestartServiceRemovesStopFile(): void
     {
-        $this->setMockUser(80);
+        $this->setMockUser(98);
         file_put_contents($this->lockFile . '.stop', '1');
 
         $this->expectException(\RuntimeException::class);
@@ -294,7 +294,7 @@ class ServicesControllerTest extends TestCase
 
     public function testLogsShowsTail(): void
     {
-        $this->setMockUser(80);
+        $this->setMockUser(98);
         
         $doc = \Pramnos\Framework\Factory::getDocument();
         $doc->themeObject = new class {
@@ -319,7 +319,7 @@ class ServicesControllerTest extends TestCase
 
     public function testLogsRedirectsWhenNotFound(): void
     {
-        $this->setMockUser(80);
+        $this->setMockUser(98);
 
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('redirect_quit');
@@ -339,7 +339,7 @@ class ServicesControllerTest extends TestCase
 
     public function testStatusReturnsJson(): void
     {
-        $this->setMockUser(80);
+        $this->setMockUser(98);
 
         ob_start();
         $this->controller->status();
@@ -369,7 +369,7 @@ class ServicesControllerTest extends TestCase
         ];
         file_put_contents($this->stateFile, json_encode($state));
 
-        $this->setMockUser(80);
+        $this->setMockUser(98);
 
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('redirect_quit');
@@ -399,7 +399,7 @@ class ServicesControllerTest extends TestCase
     public function testStartWithNonExistentServiceStillRedirects(): void
     {
         // Arrange
-        $this->setMockUser(80);
+        $this->setMockUser(98);
 
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('redirect_quit');
@@ -427,7 +427,7 @@ class ServicesControllerTest extends TestCase
     public function testFindServiceReturnsNullForEmptyId(): void
     {
         // Arrange
-        $this->setMockUser(80);
+        $this->setMockUser(98);
         $method = new \ReflectionMethod(\Pramnos\Application\Controllers\ServicesController::class, 'findService');
 
         // Act — invoke private findService() with an empty string
@@ -463,7 +463,7 @@ class ServicesControllerTest extends TestCase
         ];
         file_put_contents($this->stateFile, json_encode($state));
 
-        $this->setMockUser(80);
+        $this->setMockUser(98);
 
         // Act — status() triggers loadServiceList() → enrichServiceEntry()
         ob_start();
@@ -498,7 +498,7 @@ class ServicesControllerTest extends TestCase
         ];
         file_put_contents($this->stateFile, json_encode($state));
 
-        $this->setMockUser(80);
+        $this->setMockUser(98);
 
         // Act
         ob_start();
@@ -521,7 +521,7 @@ class ServicesControllerTest extends TestCase
     {
         // Arrange — delete the log file so readLogTail() cannot find it
         @unlink($this->logFile);
-        $this->setMockUser(80);
+        $this->setMockUser(98);
 
         $doc = \Pramnos\Framework\Factory::getDocument();
         $doc->themeObject = new class {
@@ -571,7 +571,7 @@ class ServicesControllerTest extends TestCase
         // Arrange — write syntactically invalid JSON to the state file
         file_put_contents($this->stateFile, '{ INVALID_JSON_DATA :::');
 
-        $this->setMockUser(80);
+        $this->setMockUser(98);
 
         // Act
         ob_start();
@@ -594,7 +594,7 @@ class ServicesControllerTest extends TestCase
     {
         // Arrange — remove the state file created in setUp
         @unlink($this->stateFile);
-        $this->setMockUser(80);
+        $this->setMockUser(98);
 
         // Act
         ob_start();

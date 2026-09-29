@@ -167,26 +167,46 @@ class DefaultNavItemsTest extends TestCase
     // ── The judgement calls ───────────────────────────────────────────────────
 
     /**
-     * Mass messages need a higher usertype than the rest of the administration area.
+     * Every framework screen opens at one floor, the superuser's, unless the application moves it.
      *
-     * Because that screen mails everybody. The privilege to edit a record and the privilege to send
-     * a message to every account on the installation are not the same privilege — and the whole
-     * difference is one integer in one constructor call, which is exactly the kind of thing a later
-     * tidy-up normalises away.
+     * The screens reach every account, setting and token, so by default a superuser opens them
+     * and anybody else is given the ones they need through a role. One number rather than one
+     * per screen, because the menu item and the screen's controller must agree, and a per-screen
+     * literal is how they drifted apart before.
      */
-    public function testMassMessagesNeedAHigherUsertypeThanTheRest(): void
+    public function testEveryScreenOpensAtTheDefaultFloor(): void
     {
         // Act
-        $this->application->registerDefaultNavItems(['messaging', 'queue']);
+        $this->application->registerDefaultNavItems(['messaging', 'queue', 'auth', 'authserver']);
 
         // Assert
-        $this->assertSame(
-            90,
-            $this->item('admin.massmessages')->minUserType,
-            'the screen that mails every account is behind the same gate as the rest'
-        );
-        $this->assertSame(80, $this->item('admin.mailtemplates')->minUserType);
-        $this->assertSame(80, $this->item('admin.queue')->minUserType);
+        $items = \Pramnos\Application\NavRegistry::all();
+        $this->assertNotEmpty($items, 'the sweep found nothing to check');
+        foreach ($items as $item) {
+            if ($item->section === \Pramnos\Application\NavSection::Admin) {
+                $this->assertSame(98, $item->minUserType, $item->id . ' must open at the default floor');
+            }
+        }
+    }
+
+    /**
+     * `admin_default_usertype` moves every screen's menu item at once.
+     */
+    public function testTheSettingMovesEveryScreen(): void
+    {
+        // Arrange
+        \Pramnos\Application\Settings::setSetting('admin_default_usertype', 80, false);
+
+        try {
+            // Act
+            $this->application->registerDefaultNavItems(['messaging', 'queue']);
+
+            // Assert
+            $this->assertSame(80, $this->item('admin.massmessages')->minUserType);
+            $this->assertSame(80, $this->item('admin.settings')->minUserType);
+        } finally {
+            \Pramnos\Application\Settings::setSetting('admin_default_usertype', null, false);
+        }
     }
 
     /**

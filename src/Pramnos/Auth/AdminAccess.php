@@ -13,9 +13,8 @@ use Pramnos\Application\Settings;
  *
  * Three models, chosen by the `admin_access` setting:
  *
- * - **`usertype`** (the default) — each screen has a usertype floor, 80 or 90, and everybody
- *   above it sees the same area. This is how the framework has always worked, and an
- *   installation that sets nothing keeps it.
+ * - **`usertype`** (the default) — each screen has a usertype floor, {@see defaultUsertype()}
+ *   (98) for the framework's own, and everybody above it sees the same area.
  * - **`permissions`** — each screen is an ability named after its menu item, `admin.users`,
  *   `admin.roles`, and is open to whoever holds it, granted directly or through a role. Two
  *   administrators can then see different areas. Nothing granted means nothing open: deny by
@@ -25,7 +24,8 @@ use Pramnos\Application\Settings;
  *   with neither is decided by the floor. With nothing granted it behaves exactly like
  *   `usertype`, which makes it the safe way to start using grants on a running installation.
  *
- * A deny always wins over an allow, from the user or from any of their roles. The superuser —
+ * The higher priority decides between an allow and a deny, and a deny wins a tie — from the user
+ * or from any of their roles. The superuser —
  * usertype ≥ `admin_superuser_usertype`, 98 unless set — sees every screen in every model, so an
  * installation cannot lock out the last administrator.
  *
@@ -39,6 +39,11 @@ final class AdminAccess
     public const SUPERUSER_SETTING = 'admin_superuser_usertype';
 
     public const DEFAULT_SUPERUSER = 98;
+
+    public const DEFAULT_FLOOR_SETTING = 'admin_default_usertype';
+
+    /** Every framework screen's floor unless the application sets one: the superuser's. */
+    public const DEFAULT_FLOOR = 98;
 
     /** The privilege an administration ability is granted as. */
     public const PRIVILEGE = 'view';
@@ -55,6 +60,22 @@ final class AdminAccess
     public static function usesPermissions(): bool
     {
         return self::mode() !== 'usertype';
+    }
+
+    /**
+     * The usertype floor of every framework administration screen, and of its menu item.
+     *
+     * 98 unless `admin_default_usertype` says otherwise. The framework's screens reach every
+     * account, every setting and every token, so by default only a superuser opens them; an
+     * account below that is given the screens it needs through a role, under
+     * `admin_access = mixed` or `permissions`. A screen an application declares with its own
+     * `$requiredUserType` keeps it.
+     */
+    public static function defaultUsertype(): int
+    {
+        $value = (int) Settings::getSetting(self::DEFAULT_FLOOR_SETTING, self::DEFAULT_FLOOR);
+
+        return $value > 0 ? $value : self::DEFAULT_FLOOR;
     }
 
     /** The usertype that opens every screen. */

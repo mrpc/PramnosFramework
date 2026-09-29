@@ -663,7 +663,7 @@ class SettingsControllerIntegrationTest extends TestCase
     {
         // Arrange
         $controller = new GuardedSettingsController(null);
-        $this->signInWithUsertype(90);
+        $this->signInWithUsertype(98);   // the framework screens' default floor
 
         // Act
         ob_start();

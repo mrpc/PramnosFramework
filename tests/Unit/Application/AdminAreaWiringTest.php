@@ -258,6 +258,47 @@ class AdminAreaWiringTest extends TestCase
     }
 
     /**
+     * Below the area's floor, somebody a grant opens a screen to gets in — under grants only.
+     *
+     * A role is how an account short of a superuser is given part of the area, and the area's
+     * floor would otherwise refuse them before the screen could say yes. Under
+     * `admin_access = usertype` grants decide nothing, so the floor stands.
+     *
+     * The grant here is the superuser threshold lowered to 50, which `AdminAccess::allows()`
+     * answers without a permission store: the path is the same one a role takes.
+     */
+    public function testAGrantOpensTheAreaBelowItsFloorOnlyUnderGrants(): void
+    {
+        // Arrange — a floor of 98, one screen, somebody at 60
+        $_GET['r'] = 'admin/Users';
+        $app = new InspectableAdminApplication(['admin' => ['prefix' => 'admin', 'min_usertype' => 98]]);
+        $app->enterArea();
+        \Pramnos\Application\NavRegistry::reset();
+        \Pramnos\Application\NavRegistry::register(new \Pramnos\Application\NavItem(
+            'admin.users', 'Users', '/admin/Users',
+            \Pramnos\Application\NavSection::Admin, 5, requireAuth: true, minUserType: 98,
+        ));
+        \Pramnos\Application\Settings::setSetting('admin_superuser_usertype', 50, false);
+        $app->user = (object) ['userid' => 7, 'usertype' => 60];
+
+        try {
+            // Act / Assert — usertype mode: the floor refuses
+            \Pramnos\Application\Settings::setSetting('admin_access', 'usertype', false);
+            $this->assertFalse($app->allow(), 'grants decide nothing under usertype');
+
+            // Act / Assert — mixed: a screen is open to them, so the area is
+            $app->redirects = [];
+            \Pramnos\Application\Settings::setSetting('admin_access', 'mixed', false);
+            $this->assertTrue($app->allow(), 'somebody a screen is open to must reach the area');
+            $this->assertSame([], $app->redirects);
+        } finally {
+            \Pramnos\Application\Settings::setSetting('admin_access', null, false);
+            \Pramnos\Application\Settings::setSetting('admin_superuser_usertype', null, false);
+            \Pramnos\Application\NavRegistry::reset();
+        }
+    }
+
+    /**
      * The reserved low user ids do not count as signed in.
      *
      * `userid` 0 and 1 are the framework's guest and system rows; treating either

@@ -97,11 +97,10 @@ class InitAdminAreaTest extends TestCase
         $this->assertSame('Dashboard', $config['admin']['default_controller']);
 
         /*
-         * 80, because that is the lowest any bundled admin controller requires — nine
-         * declare 80 and four declare 90. A gate above the lowest would lock out the
-         * screens that only need 80, and each controller still enforces its own.
+         * 98, the floor of every bundled screen. Somebody below it who holds a role for a
+         * screen still gets in under `admin_access = mixed` or `permissions`.
          */
-        $this->assertSame(80, $config['admin']['min_usertype']);
+        $this->assertSame(98, $config['admin']['min_usertype']);
     }
 
     /**

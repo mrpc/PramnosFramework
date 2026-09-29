@@ -162,10 +162,17 @@ page.
 
 ### What a usertype is, what each one may do, and how to change them
 
-`users.usertype` is an **integer read as a threshold**, not an enum. `>= 90` is an
-administrator, `>= 80` reaches most of the administration area, and the administration
-area's own floor is whatever `admin.min_usertype` says — so a comparison, not an
-equality, is what the framework's own guards are written in.
+`users.usertype` is an **integer read as a threshold**, not an enum. Every framework
+administration screen opens at **98** — `AdminAccess::defaultUsertype()`, moved with the
+`admin_default_usertype` setting — and the administration area's own floor is whatever
+`admin.min_usertype` says. A comparison, not an equality, is what the framework's own guards
+are written in.
+
+Below 98, an account is given the screens it needs **through a role**: set
+`admin_access` to `mixed` and allow the role `admin.users`, `admin.logs`… on its page. That is
+the intended way to give somebody part of the area — see
+[Authorization](Pramnos_Authorization_Guide.md#granting-screens) — rather than a usertype in
+between, which grants every screen at once.
 
 The account `init` and `user:create --admin` create is **99, Root**
 (`UserCreate::ADMIN_USERTYPE`): on a fresh installation that account is the owner of
@@ -177,18 +184,21 @@ revisited when a capability is added above it.
 | Value | Type | Tone | Gains, on top of everything below it |
 | --- | --- | --- | --- |
 | `99` | Root | danger | `*` — every capability, including ones added later |
-| `98` | Super Administrator | danger | `admin.settings`, `admin.permissions`, `devpanel` |
-| `90` | Administrator | warning | `admin.area`, `admin.users`, `admin.users.write`, `admin.logs`, `admin.applications`, `admin.organizations`, `admin.queue`, `admin.messages`, `admin.tokens` |
+| `98` | Super Administrator | danger | `admin.area` and every administration screen, `admin.users`, `admin.settings`, `admin.permissions`… |
+| `90` | Administrator | warning | `devpanel`; no administration screen unless a role grants it |
 | `1` | System User (Client Credentials Grant) | neutral | `api.client_credentials` — **and nothing else**, see below |
 | `0` | Simple User | primary | `account.self` |
 
 **`/admin/Users/types` renders this table from the registry**, so it is always the running
-answer rather than a copy of it, and an application that declared its own sees its own.
+answer rather than a copy of it, and an application that declared its own sees its own. The
+`admin.*` capabilities are **read from the screens themselves** — each menu item's floor, which
+is the floor its controller applies — so `UserTypes::can()` cannot say a screen opens when it
+does not. `admin.area` is the area's `min_usertype`, `devpanel` the developer panel's.
 
 Three rules make the numbers behave:
 
 - **A value is a threshold.** `95` is an Administrator and has an administrator's
-  capabilities; `label(95)` says so. Everything between `2` and `89` is a Simple User,
+  label; `label(95)` says so. Everything between `2` and `89` is a Simple User,
   because a framework has no basis for inventing roles — those are an application's, and it
   declares them.
 - **Capabilities accumulate downwards.** An Administrator has `account.self` too.
@@ -198,7 +208,7 @@ Three rules make the numbers behave:
 
 ```php
 \Pramnos\User\UserTypes::label(95);            // 'Administrator'
-\Pramnos\User\UserTypes::can(90, 'admin.settings');   // false — that is 98 and above
+\Pramnos\User\UserTypes::can(90, 'admin.settings');   // false — the screen opens at 98
 \Pramnos\User\UserTypes::capabilities(98);     // the resolved list
 \Pramnos\User\UserTypes::tone(99);             // 'danger' — a meaning, for a theme to colour
 \Pramnos\User\UserTypes::options();            // value => label, for Html\Select::addOptions()
@@ -230,9 +240,10 @@ Keyed by the type's **floor** and read highest-first; declare them in any order,
 they are sorted before use — a config listing them lowest-first would otherwise label an
 administrator "Simple User".
 
-`usertype_capabilities` **replaces** the framework's map rather than merging with it. A
-capability list is a security decision: quietly adding defaults underneath would grant
-things the application did not ask for.
+`usertype_capabilities` **replaces** the framework's own list rather than merging with it —
+a capability list is what the application's own `can()` checks mean, and quietly adding
+defaults underneath would grant things it did not ask for. The administration screens are
+added whatever it says: they are not grants but a description of what each screen does.
 
 Every bundled screen — the badge on a user, the label and filter in the list, the select on
 the edit form, the reference screen — reads this registry. **No view carries its own copy**,
@@ -247,9 +258,10 @@ which is what it did before: three screens, three sets of thresholds, three answ
   [Authorization](Pramnos_Authorization_Guide.md#which-layer-a-question-belongs-to), which
   puts the three side by side and gives the test for telling them apart.
 - The **administration area's `min_usertype`** is a third thing: what stops the area being
-  browsable at all, applied before any screen's own check. The scaffolded default is `80`,
-  which is below the lowest *named* administrative type — an application that wants only
-  administrators sets it to `90`.
+  browsable at all, applied before any screen's own check. The scaffolded value is `98`, the
+  screens' floor. Under `admin_access = mixed` or `permissions`, somebody below it whom a role
+  opens a screen to is let into the area — otherwise the floor would refuse the role before
+  the screen could honour it.
 
 ### What the administration screen shows about a user
 

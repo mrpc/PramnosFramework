@@ -176,7 +176,7 @@ class TokenActionsControllerTest extends BaseTestCase
 
     public function testRequireMinUserTypeRedirectsWhenBelowRequired(): void
     {
-        $this->setMockUser(79); // Required is 80
+        $this->setMockUser(97); // Required is the default floor, 98
 
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('redirect_quit');
@@ -200,7 +200,7 @@ class TokenActionsControllerTest extends BaseTestCase
 
     public function testDisplayShowsTokenActions(): void
     {
-        $this->setMockUser(80);
+        $this->setMockUser(98);
         
         $doc = \Pramnos\Framework\Factory::getDocument();
         $doc->themeObject = new class {
@@ -225,7 +225,7 @@ class TokenActionsControllerTest extends BaseTestCase
 
     public function testShowDisplaysActionDetails(): void
     {
-        $this->setMockUser(80);
+        $this->setMockUser(98);
         
         $doc = \Pramnos\Framework\Factory::getDocument();
         $doc->themeObject = new class {
@@ -251,7 +251,7 @@ class TokenActionsControllerTest extends BaseTestCase
 
     public function testShowRedirectsWhenInvalidId(): void
     {
-        $this->setMockUser(80);
+        $this->setMockUser(98);
 
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('redirect_quit');
@@ -270,7 +270,7 @@ class TokenActionsControllerTest extends BaseTestCase
 
     public function testShowRedirectsWhenNotFound(): void
     {
-        $this->setMockUser(80);
+        $this->setMockUser(98);
 
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('redirect_quit');
@@ -290,7 +290,7 @@ class TokenActionsControllerTest extends BaseTestCase
 
     public function testStatsReturnsJson(): void
     {
-        $this->setMockUser(80);
+        $this->setMockUser(98);
 
         // stats() now returns a JSON Response (rendered by the framework) instead
         // of echoing, so the layout chrome is never appended to the payload.
@@ -304,7 +304,7 @@ class TokenActionsControllerTest extends BaseTestCase
 
     public function testExportReturnsCsv(): void
     {
-        $this->setMockUser(80);
+        $this->setMockUser(98);
 
         ob_start();
         $this->controller->export();
@@ -325,7 +325,7 @@ class TokenActionsControllerTest extends BaseTestCase
     public function testDisplayWithStatusCodeAndDateFiltersAppliesAllConditions(): void
     {
         // Arrange — set all three filter params that are not covered elsewhere
-        $this->setMockUser(80);
+        $this->setMockUser(98);
         $_GET['status_code'] = '200';
         $_GET['date_from']   = '2024-01-01';
         $_GET['date_to']     = '2024-12-31';

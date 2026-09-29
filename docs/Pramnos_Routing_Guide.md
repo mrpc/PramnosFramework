@@ -883,7 +883,7 @@ command writes the sixteen controllers that live inside the area:
 'admin' => [
     'prefix'             => 'admin',     // omit, or leave empty, to switch the area off
     'theme'              => 'admin',     // theme used inside the area (optional)
-    'min_usertype'       => 80,          // floor for reaching any of it (optional)
+    'min_usertype'       => 98,          // floor for reaching any of it (optional)
     'default_controller' => 'Dashboard', // what the bare /admin opens (optional)
 ],
 ```

@@ -41,6 +41,25 @@ class TestableInternalPermissions extends InternalPermissions
                 $this->owner->resolveArgs = ['user' => $userId, 'app' => $appId];
                 return $this->r;
             }
+            public function resolveForOrganization(int $userId, ?int $appId, int $organizationId): array
+            {
+                $this->owner->resolveArgs = ['user' => $userId, 'app' => $appId, 'organization' => $organizationId];
+                return $this->r;
+            }
+        };
+    }
+}
+
+/** A resolver an application wrote to the interface alone, with no organisation scoping. */
+class TestableInternalPermissionsWithPlainResolver extends TestableInternalPermissions
+{
+    protected function resolver(): PermissionResolverInterface
+    {
+        return new class implements PermissionResolverInterface {
+            public function resolve(int $userId, ?int $appId): array
+            {
+                return ['user_id' => $userId, 'app_id' => $appId, 'permissions' => []];
+            }
         };
     }
 }
@@ -144,5 +163,47 @@ class InternalPermissionsControllerTest extends TestCase
         $this->assertStringContainsString('"grant":"allow"', $r->getBody());
         $this->assertSame(['user' => 10, 'app' => 5], $this->controller->resolveArgs,
             'Resolver must be called with the query user_id and the authenticated appId');
+    }
+
+    /**
+     * `organization_id` scopes the answer to one tenant.
+     *
+     * Without it an organisation's role answers for every organisation, which in a
+     * multi-tenant application is a role defined for tenant 5 granting inside tenant 3. The
+     * endpoint is how a resource server asks, so it has to pass the organisation on.
+     */
+    public function testAnOrganisationScopesTheResolution(): void
+    {
+        // Arrange
+        $this->controller->creds     = ['client_id' => 'a', 'client_secret' => 's'];
+        $this->controller->authAppId = 5;
+        $_GET = ['user_id' => '10', 'organization_id' => '3'];
+
+        // Act
+        $r = $this->controller->index();
+
+        // Assert
+        $this->assertSame(200, $r->getStatusCode());
+        $this->assertSame(['user' => 10, 'app' => 5, 'organization' => 3], $this->controller->resolveArgs);
+    }
+
+    /**
+     * A resolver without organisation scoping refuses the scoped question rather than
+     * answering the unscoped one — which would hand back every tenant's roles as if scoped.
+     */
+    public function testAResolverWithoutScopingRefusesAnOrganisation(): void
+    {
+        // Arrange
+        $controller = new TestableInternalPermissionsWithPlainResolver(null);
+        $controller->creds     = ['client_id' => 'a', 'client_secret' => 's'];
+        $controller->authAppId = 5;
+        $_GET = ['user_id' => '10', 'organization_id' => '3'];
+
+        // Act
+        $r = $controller->index();
+
+        // Assert
+        $this->assertSame(400, $r->getStatusCode());
+        $this->assertStringContainsString('does not scope permissions by organisation', $r->getBody());
     }
 }

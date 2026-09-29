@@ -1218,17 +1218,16 @@ class Init extends Command
          * menu still listed them, because the navigation is built from the registry rather
          * than from routes. The area looked present and nothing in it opened.
          *
-         * `min_usertype` is 80 because that is the *lowest* any bundled admin controller
-         * requires — nine declare 80 and four declare 90. The area gate has to be the
-         * lowest of them or it would lock out the ones that only need 80; each controller
-         * then enforces its own, stricter where it says so.
+         * `min_usertype` is 98, the floor of every bundled screen (AdminAccess::defaultUsertype()).
+         * Somebody below it reaches the area when a role opens a screen to them, under
+         * `admin_access = mixed` or `permissions`.
          */
         $adminSection = "    // The administration area: mounts src/Admin/ under this prefix.\n"
             . "    // Remove this block and every screen under it becomes unreachable —\n"
             . "    // the controllers are only in scope while the area is.\n"
             . "    'admin' => [\n"
             . "        'prefix'             => 'admin',\n"
-            . "        'min_usertype'       => 80,\n"
+            . "        'min_usertype'       => 98,\n"
             . "        'default_controller' => 'Dashboard',\n"
             . "    ],\n";
 

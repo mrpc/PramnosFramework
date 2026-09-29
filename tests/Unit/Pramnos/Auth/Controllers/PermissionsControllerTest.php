@@ -155,7 +155,7 @@ class PermissionsControllerTest extends BaseTestCase
 
     public function testRequireMinUserTypeRedirectsWhenBelowRequired(): void
     {
-        $this->setMockUser(89); // Required is 90
+        $this->setMockUser(97); // Required is the default floor, 98
 
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('redirect_quit');
@@ -179,7 +179,7 @@ class PermissionsControllerTest extends BaseTestCase
 
     public function testDisplayShowsPermissions(): void
     {
-        $this->setMockUser(90);
+        $this->setMockUser(98);
         
         $doc = \Pramnos\Framework\Factory::getDocument();
         $doc->themeObject = new class {
@@ -204,7 +204,7 @@ class PermissionsControllerTest extends BaseTestCase
 
     public function testEditDisplaysFormForNewPermission(): void
     {
-        $this->setMockUser(90);
+        $this->setMockUser(98);
         
         $doc = \Pramnos\Framework\Factory::getDocument();
         $doc->themeObject = new class {
@@ -229,7 +229,7 @@ class PermissionsControllerTest extends BaseTestCase
 
     public function testEditDisplaysFormForExistingPermission(): void
     {
-        $this->setMockUser(90);
+        $this->setMockUser(98);
         
         $doc = \Pramnos\Framework\Factory::getDocument();
         $doc->themeObject = new class {
@@ -255,7 +255,7 @@ class PermissionsControllerTest extends BaseTestCase
 
     public function testEditRedirectsWhenNotFound(): void
     {
-        $this->setMockUser(90);
+        $this->setMockUser(98);
 
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('redirect_quit');
@@ -275,7 +275,7 @@ class PermissionsControllerTest extends BaseTestCase
 
     public function testSaveCreatesNewPermission(): void
     {
-        $this->setMockUser(90);
+        $this->setMockUser(98);
 
         $_POST = [
             'permissionid' => 0,
@@ -307,7 +307,7 @@ class PermissionsControllerTest extends BaseTestCase
 
     public function testSaveUpdatesExistingPermission(): void
     {
-        $this->setMockUser(90);
+        $this->setMockUser(98);
 
         $_POST = [
             'permissionid' => 1,
@@ -360,7 +360,7 @@ class PermissionsControllerTest extends BaseTestCase
     public function testSaveStoresPriorityAudienceExpiryAndConditions(): void
     {
         // Arrange
-        $this->setMockUser(90);
+        $this->setMockUser(98);
         $_POST = [
             'permissionid' => 1, 'subject_type' => 'user', 'subject_id' => 2,
             'object_type' => 'reports', 'action' => 'view', 'grant_type' => 'deny',
@@ -386,7 +386,7 @@ class PermissionsControllerTest extends BaseTestCase
     public function testSaveStoresBlanksAsNull(): void
     {
         // Arrange
-        $this->setMockUser(90);
+        $this->setMockUser(98);
         $_POST = [
             'permissionid' => 1, 'subject_type' => 'user', 'subject_id' => 2,
             'object_type' => 'reports', 'action' => 'view',
@@ -416,7 +416,7 @@ class PermissionsControllerTest extends BaseTestCase
         $db = \Pramnos\Framework\Factory::getDatabase();
         $db->queryBuilder()->table('authserver.permissions')->where('permissionid', 1)
             ->update(['app_id' => 7, 'expires_at' => '2031-05-04 10:30:00', 'conditions' => '{"a":1}']);
-        $this->setMockUser(90);
+        $this->setMockUser(98);
         $_POST = ['permissionid' => 1, 'subject_type' => 'user', 'subject_id' => 2,
             'object_type' => 'reports', 'action' => 'view'];
 
@@ -457,7 +457,7 @@ class PermissionsControllerTest extends BaseTestCase
     public function testSaveRefusesInputThatCouldNotApply(array $post, string $message): void
     {
         // Arrange
-        $this->setMockUser(90);
+        $this->setMockUser(98);
         $_POST = ['permissionid' => 0] + $post;
 
         // Act
@@ -471,7 +471,7 @@ class PermissionsControllerTest extends BaseTestCase
 
     public function testSaveRedirectsWhenMissingFields(): void
     {
-        $this->setMockUser(90);
+        $this->setMockUser(98);
 
         $_POST = [
             'subject_type' => ''
@@ -494,7 +494,7 @@ class PermissionsControllerTest extends BaseTestCase
 
     public function testDeleteRemovesPermission(): void
     {
-        $this->setMockUser(90);
+        $this->setMockUser(98);
 
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('redirect_quit');
@@ -518,7 +518,7 @@ class PermissionsControllerTest extends BaseTestCase
 
     public function testDeleteRedirectsWhenInvalidId(): void
     {
-        $this->setMockUser(90);
+        $this->setMockUser(98);
 
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('redirect_quit');
@@ -537,7 +537,7 @@ class PermissionsControllerTest extends BaseTestCase
 
     public function testAssignCreatesPermissionForUser(): void
     {
-        $this->setMockUser(90);
+        $this->setMockUser(98);
 
         $_POST = [
             'userid' => 3,
@@ -568,7 +568,7 @@ class PermissionsControllerTest extends BaseTestCase
 
     public function testAssignRedirectsWhenMissingFields(): void
     {
-        $this->setMockUser(90);
+        $this->setMockUser(98);
 
         $_POST = [
             'userid' => 0
@@ -598,7 +598,7 @@ class PermissionsControllerTest extends BaseTestCase
     public function testDisplayWithFiltersAppliesAllGetParameters(): void
     {
         // Arrange
-        $this->setMockUser(90);
+        $this->setMockUser(98);
 
         $doc = \Pramnos\Framework\Factory::getDocument();
         $doc->themeObject = new class {
@@ -638,7 +638,7 @@ class PermissionsControllerTest extends BaseTestCase
      */
     public function testAssignWithUserIdParameterCreatesPermission(): void
     {
-        $this->setMockUser(90);
+        $this->setMockUser(98);
 
         $_POST = [
             'object_type' => 'invoices',
