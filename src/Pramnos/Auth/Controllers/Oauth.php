@@ -735,12 +735,31 @@ class Oauth extends Controller
         }
 
         $db     = \Pramnos\Framework\Factory::getDatabase();
-        $result = $db->queryBuilder()
+        $find   = static fn (string $stored) => $db->queryBuilder()
             ->table('#PREFIX#usertokens')
             ->select('userid, scope, expires, status')
-            ->where('token_lookup', \Pramnos\User\Token::lookup((string) $token))
+            ->where('token_lookup', \Pramnos\User\Token::lookup($stored))
             ->where('tokentype', 'access_token')
             ->first();
+
+        $result = $find((string) $token);
+
+        /*
+         * A token from `/oauth/token` is stored by its `jti`, so the lookup above finds nothing
+         * for it and every such token answered "Token expired or invalid" — neither OIDC way of
+         * reading a user's identity worked with the token this server had just issued.
+         *
+         * The `jti` is taken from League's resource server rather than read off the token:
+         * that validates the signature, the expiry and the revocation first. This endpoint
+         * checks nothing else about the token, so reading the claim unverified would accept any
+         * forged JWT carrying a real `jti`.
+         */
+        if (!$result || $result->numRows == 0) {
+            $jti = $this->verifiedAccessTokenId((string) $token);
+            if ($jti !== null) {
+                $result = $find($jti);
+            }
+        }
 
         if (!$result || $result->numRows == 0
             || (int) $result->fields['status'] !== 1
@@ -767,6 +786,29 @@ class Oauth extends Controller
 
         $payload = $this->buildUserInfoPayload($userId, $scopes);
         return $this->respondJson($payload);
+    }
+
+    /**
+     * The `jti` of an access token this server issued, once its signature, expiry and
+     * revocation have been checked — or null.
+     *
+     * A seam, so the lookup around it can be exercised without a key pair.
+     */
+    protected function verifiedAccessTokenId(string $token): ?string
+    {
+        try {
+            $this->oauth2Factory ??= new OAuth2ServerFactory($this);
+            $request = $this->oauth2Factory->createResourceServer()->validateAuthenticatedRequest(
+                (new Psr17Factory())->createServerRequest('GET', '/oauth/userinfo')
+                    ->withHeader('Authorization', 'Bearer ' . $token)
+            );
+        } catch (\Throwable) {
+            return null;
+        }
+
+        $id = $request->getAttribute('oauth_access_token_id');
+
+        return is_string($id) && $id !== '' ? $id : null;
     }
 
     // ── Logout ────────────────────────────────────────────────────────────────

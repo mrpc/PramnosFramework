@@ -617,10 +617,12 @@ You receive an `access_token` (and an `id_token` when `openid` was requested).
 Fetch profile claims from `GET /oauth/userinfo` with the access token.
 
 The same token authenticates calls to this installation's API — send it as
-`Authorization: Bearer <access_token>`. The server stores an access token from `/oauth/token`
-by its identifier (the `jti` claim) rather than its full text, so the API middlewares look it
-up by the text first and then by the `jti` read from the claims they have just verified. A
-token whose signature does not verify is never looked up by its `jti`.
+`Authorization: Bearer <access_token>` — and `GET /oauth/userinfo`. The server stores an access
+token from `/oauth/token` by its identifier (the `jti` claim) rather than its full text, so both
+look it up by the text first and then by the `jti`, which they read only after the token has been
+verified: the API middlewares from the claims `JWT::decode()` checked, `/oauth/userinfo` from
+League's resource server, which also checks expiry and revocation. A token whose signature does
+not verify is never looked up by its `jti`.
 
 ### Binding the token to one resource
 

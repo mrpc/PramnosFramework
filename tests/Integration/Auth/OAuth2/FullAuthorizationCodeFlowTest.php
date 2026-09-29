@@ -523,6 +523,69 @@ class FullAuthorizationCodeFlowTest extends TestCase
         }
     }
 
+    /**
+     * `/oauth/userinfo` answers for a token from the code flow, and not for a forged one.
+     *
+     * It looked the token up by its whole text, and `/oauth/token` stores it by its `jti`, so
+     * it answered "Token expired or invalid" for the token this server had just issued —
+     * neither OIDC way of reading the user's identity worked. Reported by msdauthserver.
+     *
+     * The `jti` fallback goes through League's resource server, which checks the signature
+     * first: this endpoint checks nothing else, and a token with a real `jti` and a broken
+     * signature must not be enough.
+     */
+    public function testUserinfoAnswersForACodeFlowTokenAndNotForAForgedOne(): void
+    {
+        // Arrange — a token with the openid scope, through the full flow
+        $this->runMigrations([\Pramnos\Framework\Migrations\Auth\CreateUserdetailsTable::class], $this->db);
+        $factory = $this->factory();
+        $server  = $factory->createAuthorizationServer();
+
+        $verifier  = rtrim(strtr(base64_encode(random_bytes(32)), '+/', '-_'), '=');
+        $challenge = rtrim(strtr(base64_encode(hash('sha256', $verifier, true)), '+/', '-_'), '=');
+        $query = [
+            'response_type' => 'code', 'client_id' => self::CLIENT_ID, 'redirect_uri' => self::REDIRECT_URI,
+            'scope' => 'openid', 'state' => 's', 'code_challenge' => $challenge, 'code_challenge_method' => 'S256',
+        ];
+        $authRequest = $server->validateAuthorizationRequest(
+            (new ServerRequest('GET', 'https://self.test/oauth/authorize?' . http_build_query($query)))->withQueryParams($query)
+        );
+        $authRequest->setUser($this->approvingUser());
+        $authRequest->setAuthorizationApproved(true);
+        parse_str((string) parse_url(
+            $server->completeAuthorizationRequest($authRequest, new Psr7Response())->getHeaderLine('Location'),
+            PHP_URL_QUERY
+        ), $callback);
+        $token = (string) json_decode((string) $server->respondToAccessTokenRequest(
+            (new ServerRequest('POST', 'https://self.test/oauth/token'))->withParsedBody([
+                'grant_type' => 'authorization_code', 'client_id' => self::CLIENT_ID,
+                'client_secret' => self::CLIENT_SECRET, 'code' => $callback['code'],
+                'redirect_uri' => self::REDIRECT_URI, 'code_verifier' => $verifier,
+            ]),
+            new Psr7Response()
+        )->getBody(), true)['access_token'];
+
+        $oauth = (new \ReflectionClass(\Pramnos\Auth\Controllers\Oauth::class))->newInstanceWithoutConstructor();
+        $oauth->application = $this->app;
+        (new \ReflectionProperty($oauth, 'oauth2Factory'))->setValue($oauth, $factory);
+        $forged = substr($token, 0, -4) . (substr($token, -4) === 'AAAA' ? 'BBBB' : 'AAAA');
+
+        try {
+            // Act
+            $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer ' . $token;
+            $real = $oauth->userinfo();
+            $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer ' . $forged;
+            $fake = $oauth->userinfo();
+        } finally {
+            unset($_SERVER['HTTP_AUTHORIZATION']);
+        }
+
+        // Assert
+        $this->assertSame(200, $real->getStatusCode(), $real->getBody());
+        $this->assertSame((string) self::USER_ID, (string) json_decode($real->getBody(), true)['sub']);
+        $this->assertSame(401, $fake->getStatusCode(), 'a broken signature must not reach the jti lookup');
+    }
+
     // -------------------------------------------------------------------------
     // The bridge, and the fixtures
     // -------------------------------------------------------------------------
