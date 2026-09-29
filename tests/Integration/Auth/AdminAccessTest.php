@@ -450,6 +450,49 @@ class AdminAccessTest extends BaseTestCase
         $this->assertTrue($monitor->ran, 'a public action must answer without the ability');
     }
 
+    /**
+     * Outside a configured administration area, exec() does not treat the controller as a screen.
+     *
+     * An application built its public status page by extending the Health screen; once exec()
+     * checked the ability, every visitor to it was redirected. Inside the area it is still checked.
+     */
+    public function testExecChecksTheAbilityOnlyInsideAConfiguredArea(): void
+    {
+        // Arrange
+        $this->mode('permissions');
+        $this->signIn(self::ALICE, 50);
+        \Pramnos\Http\AdminArea::reset();
+        $savedRoute = $_GET['r'] ?? null;
+        $_GET['r'] = 'status';
+        \Pramnos\Http\AdminArea::detect('admin', 80);
+
+        try {
+            // Act — outside the area
+            $public = $this->probeScreen('admin.health');
+            $outside = $this->runAction($public, 'display');
+
+            // …and inside it
+            \Pramnos\Http\AdminArea::reset();
+            $_GET['r'] = 'admin/health';
+            \Pramnos\Http\AdminArea::detect('admin', 80);
+            $screen = $this->probeScreen('admin.health');
+            $inside = $this->runAction($screen, 'display');
+        } finally {
+            \Pramnos\Http\AdminArea::reset();
+            if ($savedRoute === null) {
+                unset($_GET['r']);
+            } else {
+                $_GET['r'] = $savedRoute;
+            }
+        }
+
+        // Assert
+        $this->assertNull($outside);
+        $this->assertTrue($public->ran, 'a page outside the area must answer');
+        $this->assertNotNull($inside, 'inside the area the ability decides');
+        $this->assertFalse($screen->ran);
+    }
+
     /** Under `usertype`, exec() keeps the screen's own floor: 80 opens a screen declared at 80. */
     public function testExecInUsertypeModeUsesTheScreensFloor(): void
     {

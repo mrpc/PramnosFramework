@@ -357,7 +357,14 @@ class Controller extends \Pramnos\Framework\Base
         // action that forgets its own check is still behind the screen's ability. The floor
         // is the screen's own `$requiredUserType` where it declares one, which is what
         // decides under `admin_access = usertype`.
+        //
+        // Inside the administration area only, where there is one: an application that
+        // extends a screen to serve a public page outside it — a status page built on the
+        // Health screen — is not an administration screen there. An action that calls
+        // requireMinUserType() itself is still checked wherever it is reached.
+        $inArea = \Pramnos\Http\AdminArea::prefix() === '' || \Pramnos\Http\AdminArea::isActive();
         if ($this->adminAbility !== ''
+            && $inArea
             && !in_array(strtolower((string) $action), array_map('strtolower', $this->adminPublicActions), true)
             && $this->requireMinUserType($this->adminFloor())) {
             return null;

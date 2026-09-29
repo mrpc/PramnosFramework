@@ -634,7 +634,10 @@ class Reports extends \Pramnos\Application\Controller
 ```
 
 `Controller::exec()` checks it before **any** action runs, so an action that forgets its own
-check is still behind it. The menu item and the screen ask the same question by the same name,
+check is still behind it — inside the administration area, where the application has one. A
+controller that extends a screen to serve a public page outside the area (a status page built on
+Health) is not an administration screen there; an action that calls `requireMinUserType()`
+itself is checked wherever it is reached. The menu item and the screen ask the same question by the same name,
 so a link cannot show a screen that refuses, or hide one that opens.
 
 Which question that is depends on one setting, **`admin_access`**:
