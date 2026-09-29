@@ -217,17 +217,16 @@ abstract class FormRequest
     /**
      * Store errors + old input in session and redirect.  Never returns.
      *
-     * This method is protected so test subclasses can override it to capture
-     * the redirect instead of actually calling header()/exit.
+     * The redirect goes through `Application::redirect()`, which records the destination
+     * (`getRedirect()`) and, under a test runner, ends the request with an
+     * `ApplicationClosedException` instead of `exit` — so a test sees a 302 to the form rather
+     * than the whole PHPUnit process stopping.
      *
      * @param array<string, array<int, string>> $errors
      * @param array<string, mixed>              $oldInput
      */
     protected function failWith(array $errors, array $oldInput = []): never
     {
-        // @codeCoverageIgnoreStart
-        // This method calls exit() — unreachable in unit tests without process
-        // isolation. Override in a test subclass if the redirect path needs testing.
         // Through the framework's Session rather than a bare session_start(): that one
         // ignored the cookie parameters start() sets — secure, httponly, samesite — so a
         // validation failure was the one request that got a laxer session cookie than
@@ -236,8 +235,9 @@ abstract class FormRequest
         $_SESSION[$this->errorsSessionKey]   = $errors;
         $_SESSION[$this->oldInputSessionKey] = $oldInput;
 
-        header('Location: ' . $this->getRedirectUrl(), true, 302);
-        exit;
+        \Pramnos\Application\Application::getInstance()->redirect($this->getRedirectUrl(), true, '302');
+        // @codeCoverageIgnoreStart
+        exit; // redirect() with $quit has already closed the request; this satisfies `never`
         // @codeCoverageIgnoreEnd
     }
 }

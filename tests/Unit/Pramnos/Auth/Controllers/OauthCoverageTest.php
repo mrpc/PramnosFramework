@@ -579,14 +579,20 @@ class OauthCoverageTest extends TestCase
         // POST body: user denies
         $_POST['authorize'] = 'no';
 
-        // Act — handleConsentPost calls terminate() which is a no-op in our subclass
+        // Act — the redirect ends the request, and records where it went
         ob_start();
-        $this->callPrivate('handleConsentPost', $user, $client, $params);
+        try {
+            $this->callPrivate('handleConsentPost', $user, $client, $params);
+        } catch (\Pramnos\Application\ApplicationClosedException) {
+            // The redirect ends the request; where it went is asserted below.
+        }
         ob_end_clean();
 
-        // Assert — the Location header sent via header() is not directly testable,
-        // but by not throwing and not inserting consent rows we confirm the deny path.
-        // Coverage is what matters here; we validate that no consent was recorded.
+        // Assert — refused, with the state, and no consent stored
+        $this->assertSame(
+            'https://example.com/cb?error=access_denied&state=csrf_state_xyz',
+            $this->controller->application->getRedirect()
+        );
         $consent = $this->db->queryBuilder()
             ->table('authserver_oauth2_user_consents')
             ->where('userid', 88)
@@ -628,9 +634,13 @@ class OauthCoverageTest extends TestCase
             'code_challenge_method' => 'plain',
         ];
 
-        // Act — issueCodeAndRedirect calls terminate() (no-op here) after header()
+        // Act — the redirect ends the request, and records where it went
         ob_start();
-        $this->callPrivate('issueCodeAndRedirect', 99, $params);
+        try {
+            $this->callPrivate('issueCodeAndRedirect', 99, $params);
+        } catch (\Pramnos\Application\ApplicationClosedException) {
+            // The redirect ends the request; where it went is asserted below.
+        }
         ob_end_clean();
 
         // Assert — auth_code token must have been written to DB
@@ -640,8 +650,12 @@ class OauthCoverageTest extends TestCase
             ->where('tokentype', 'auth_code')
             ->first();
         $this->assertNotEmpty($token, 'Auth code must be persisted in usertokens');
-        // The state itself is in the redirect header; the code row is our DB proof
         $this->assertEquals('openid', $token->fields['scope']);
+        // …and the redirect carries the code, then the state
+        $this->assertMatchesRegularExpression(
+            '#^https://example\.com/cb\?code=[^&]+&state=my_state_val$#',
+            (string) $this->controller->application->getRedirect()
+        );
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -1297,9 +1311,10 @@ class OauthCoverageTest extends TestCase
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * authorize() must re-throw exceptions whose message is exactly
-     * "…Oauth::terminate() called" so that test infrastructure can detect
-     * the terminate() call.
+     * authorize() must let the exception that ends the request through, rather than
+     * catching it as an error and rendering one: a redirect that ends the request is
+     * `Application::redirect()` closing it, and test infrastructure detects that by the
+     * `ApplicationClosedException` it throws.
      *
      * This covers lines 147-149 of the outer catch block.
      */
@@ -1347,9 +1362,8 @@ class OauthCoverageTest extends TestCase
             $app->currentUser = clone $user;
         }
 
-        // Act — issueCodeAndRedirect → terminate() → throws ApplicationClosedException
-        $this->expectException(\Exception::class);
-        $this->expectExceptionMessage('Oauth::terminate() called');
+        // Act — issueCodeAndRedirect → Application::redirect() → throws ApplicationClosedException
+        $this->expectException(\Pramnos\Application\ApplicationClosedException::class);
 
         try {
             $realController->authorize();

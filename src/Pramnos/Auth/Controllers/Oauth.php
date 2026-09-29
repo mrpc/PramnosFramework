@@ -1275,8 +1275,8 @@ class Oauth extends Controller
                 $redirectParams['state'] = $params['state'];
             }
             $this->clearFormActionAllowance();
-            header('Location: ' . $params['redirect_uri'] . '?' . http_build_query($redirectParams));
-            $this->terminate(); return;
+            $this->application->setRedirect($params['redirect_uri'] . '?' . http_build_query($redirectParams));
+            $this->application->redirect();
         }
     }
 
@@ -1326,8 +1326,12 @@ class Oauth extends Controller
             $redirectParams['state'] = $params['state'];
         }
         $this->clearFormActionAllowance();
-        header('Location: ' . $params['redirect_uri'] . '?' . http_build_query($redirectParams));
-        $this->terminate(); return;
+        // Through the application, so the destination is recorded where a test can read it:
+        // a bare header() leaves nothing on the CLI, and this redirect *is* the code. Set,
+        // then performed with no argument, because `redirect($url)` writes its URL to the
+        // development `redirects` log — and this URL carries the code.
+        $this->application->setRedirect($params['redirect_uri'] . '?' . http_build_query($redirectParams));
+        $this->application->redirect();
     }
 
     /**

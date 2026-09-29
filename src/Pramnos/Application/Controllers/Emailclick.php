@@ -46,22 +46,20 @@ class Emailclick extends \Pramnos\Application\Controller
     /**
      * Send them on.
      *
-     * Its own method so a test can assert the destination: headers are invisible to a test
-     * runner, and "did it redirect to the right place" is the only question this controller has
-     * to answer correctly.
+     * Through `Application::redirect()`, which records the destination: a bare `header()` is
+     * invisible to a test runner, and "did it redirect to the right place" is the only question
+     * this controller has to answer correctly.
      */
     protected function sendTo(string $destination): void
     {
-        if (headers_sent()) {
-            return;
+        if (!headers_sent()) {
+            header('X-Robots-Tag: noindex, nofollow');
+            header('Referrer-Policy: no-referrer');
         }
 
         // 302, not 301: a permanent redirect would be cached by the browser, and the second
         // click on the same link would never reach us to be counted.
-        http_response_code(302);
-        header('Location: ' . $destination);
-        header('X-Robots-Tag: noindex, nofollow');
-        header('Referrer-Policy: no-referrer');
+        $this->redirect($destination, true, '302');
     }
 
     /**

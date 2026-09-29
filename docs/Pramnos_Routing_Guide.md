@@ -1086,6 +1086,22 @@ $controller->download('report.pdf');
 The message names the class (`App\Controllers\Reports::terminate() called`), which is what tells
 you *which* controller stopped a run that stopped somewhere unexpected.
 
+### A redirect is `$this->redirect()`, not `header()` and `terminate()`
+
+```php
+$this->redirect($url);                        // records it, sends it, ends the request
+
+// Where the URL must not reach the development `redirects` log — it carries a code or a token:
+$this->application->setRedirect($url);
+$this->application->redirect();
+```
+
+`Application::redirect()` records the destination, which `getRedirect()` returns and a
+`TestClient` answers as the response's `Location`. A bare `header('Location: …')` leaves nothing:
+PHP keeps no headers on the CLI, so the test sees a 302 with an empty `Location` — which is how
+the authorization endpoint's own redirect with the code went untested. `RedirectsAreRecordedTest`
+fails on a new one in `src/`.
+
 ### Why it is not a seam to override
 
 It is `protected`, so a subclass still can. It used to be *only* that: eight framework controllers

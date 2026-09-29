@@ -286,9 +286,11 @@ class OauthTest extends TestCase
         
         try {
             $this->controller->authorize();
-        } catch (\Exception $e) {
-            $this->assertStringContainsString('Oauth::terminate() called', $e->getMessage());
+            $this->fail('approving must end the request with a redirect');
+        } catch (\Pramnos\Application\ApplicationClosedException $e) {
+            $this->assertSame(302, $e->getStatusCode());
         }
+        $this->assertStringStartsWith('https://example.com/cb?code=', (string) $app->getRedirect());
         
         // Verify consent and auth code
         $consent = $this->db->queryBuilder()->table('authserver_oauth2_user_consents')->where('userid', 55)->first();

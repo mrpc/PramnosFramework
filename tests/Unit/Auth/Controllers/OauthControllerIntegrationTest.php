@@ -199,6 +199,31 @@ class OauthControllerIntegrationTest extends TestCase
         $this->assertStringContainsString('login?return=', $echoed);
     }
 
+    /**
+     * Run authorize() and return what it printed and where it redirected.
+     *
+     * A redirect ends the request through `Application::redirect()`, which under the test
+     * runner throws `ApplicationClosedException` with the destination recorded on the
+     * application — so the redirect is an assertion, not an unobservable header.
+     *
+     * @return array{echoed: string, redirect: ?string}
+     */
+    private function runAuthorize(): array
+    {
+        ob_start();
+        try {
+            $this->controller->authorize();
+        } catch (\Pramnos\Application\ApplicationClosedException) {
+            // The redirect ends the request; where it went is asserted below.
+        }
+
+        return ['echoed' => (string) ob_get_clean(), 'redirect' => $this->controller->application->getRedirect()];
+    }
+
+    /**
+     * A signed-in user on a valid request either sees the consent form or, having consented
+     * before, is sent straight back to the client with a code and the state.
+     */
     public function testAuthorizeWithLogin()
     {
         $_GET['client_id'] = '123';
@@ -218,12 +243,12 @@ class OauthControllerIntegrationTest extends TestCase
         $user->username = 'testuser';
         $this->controller->loggedInUser = $user;
 
-        ob_start();
-        $this->controller->authorize();
-        $echoed = ob_get_clean();
+        // Act
+        $result = $this->runAuthorize();
 
-        // should display the consent form or auto-approve if already authorized
-        $this->assertIsString($echoed);
+        // Assert — the mocked consent lookup finds a row, so this is the auto-approve branch
+        $this->assertStringStartsWith('http://localhost/callback?code=', (string) $result['redirect']);
+        $this->assertStringContainsString('state=abc', (string) $result['redirect']);
     }
 
     public function testAuthorizeTrustedClientSkipsConsent()
@@ -254,20 +279,20 @@ class OauthControllerIntegrationTest extends TestCase
         $this->controller->loggedInUser = $user;
 
         // Act
-        ob_start();
-        $this->controller->authorize();
-        $echoed = ob_get_clean();
+        $result = $this->runAuthorize();
 
-        // Assert — silent flow: the consent view is NOT rendered and no error
-        // page is emitted (issueCodeAndRedirect uses header()+terminate(), which
-        // produce no body output under the test double). An empty body proves the
-        // trusted branch was taken instead of showConsentForm() ('oauth-view').
-        $this->assertStringNotContainsString('oauth-view', $echoed,
+        // Assert — silent flow: the consent view is NOT rendered, and the visitor is sent
+        // back to the client with a code instead
+        $this->assertStringNotContainsString('oauth-view', $result['echoed'],
             'Trusted client must skip the consent screen');
-        $this->assertSame('', $echoed,
-            'Trusted silent flow must emit no body (code issued via redirect header)');
+        $this->assertStringStartsWith('http://localhost/callback?code=', (string) $result['redirect'],
+            'Trusted silent flow must redirect to the callback with a code');
     }
 
+    /**
+     * A consent POST that does not say `authorize=yes` is a refusal, and the client is told
+     * so with `access_denied` and its own state — not handed a code.
+     */
     public function testAuthorizePostConsent()
     {
         $_GET['client_id'] = '123';
@@ -290,11 +315,11 @@ class OauthControllerIntegrationTest extends TestCase
         $user->username = 'testuser';
         $this->controller->loggedInUser = $user;
 
-        ob_start();
-        $this->controller->authorize();
-        $echoed = ob_get_clean();
+        // Act
+        $result = $this->runAuthorize();
 
-        $this->assertIsString($echoed);
+        // Assert — `decision=approve` is not the form's field, so this is a denial
+        $this->assertSame('http://localhost/callback?error=access_denied&state=abc', $result['redirect']);
     }
 
     public function testRevokeMethodNotAllowed()

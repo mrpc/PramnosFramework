@@ -139,30 +139,23 @@ class TrackingControllersTest extends TestCase
     }
 
     /**
-     * Sending them on is a no-op once the response has started.
+     * Sending them on goes through `Application::redirect()`, so the destination is recorded.
      *
-     * The pixel and the click share a request lifecycle with whatever the framework has already
-     * printed; a `header()` after output is a warning in the log and nothing else, so the
-     * condition is checked rather than the warning being tolerated.
+     * A bare `header()` left nothing a test runner could read, which is why the controller used
+     * to need a seam for "did it redirect to the right place" — the only question it has to
+     * answer correctly.
      */
-    public function testTheRedirectIsSkippedOnceOutputHasStarted(): void
+    public function testTheDestinationIsRecorded(): void
     {
         // Arrange
-        $probe = new class extends Emailclick {
-            public function send(string $destination): void
-            {
-                $this->sendTo($destination);
-            }
-        };
+        $probe = $this->sendingProbe();
 
-        // Act — with a buffer open, `headers_sent()` is still false, so this exercises the
-        // real path; the assertion is that it neither throws nor prints.
-        ob_start();
-        $probe->send('https://example.com/x');
-        $printed = (string) ob_get_clean();
+        // Act
+        $status = $this->sendAndCatch($probe, 'https://example.com/x');
 
         // Assert
-        $this->assertSame('', $printed, 'a redirect writes headers, not a body');
+        $this->assertSame('https://example.com/x', $probe->application->getRedirect());
+        $this->assertNotNull($status, 'a redirect ends the request');
     }
 
     /**
@@ -174,14 +167,43 @@ class TrackingControllersTest extends TestCase
     public function testTheRedirectIsNotPermanent(): void
     {
         // Arrange
+        $probe = $this->sendingProbe();
+
+        // Act
+        $status = $this->sendAndCatch($probe, 'https://example.com/x');
+
+        // Assert
+        $this->assertSame(302, $status);
         $source = (string) file_get_contents(
             dirname(__DIR__, 4) . '/src/Pramnos/Application/Controllers/Emailclick.php'
         );
-
-        // Assert
-        $this->assertStringContainsString('http_response_code(302)', $source);
-        $this->assertStringNotContainsString('http_response_code(301)', $source);
         $this->assertStringContainsString('Referrer-Policy: no-referrer', $source);
+    }
+
+    /** An Emailclick whose real `sendTo()` a test can call. */
+    private function sendingProbe(): Emailclick
+    {
+        return new class (new \Pramnos\Application\Application()) extends Emailclick {
+            public function send(string $destination): void
+            {
+                $this->sendTo($destination);
+            }
+        };
+    }
+
+    /** Send, and return the status the request was closed with (null if it was not). */
+    private function sendAndCatch(Emailclick $probe, string $destination): ?int
+    {
+        ob_start();
+        try {
+            $probe->send($destination);
+        } catch (\Pramnos\Application\ApplicationClosedException $closed) {
+            return $closed->getStatusCode();
+        } finally {
+            ob_end_clean();
+        }
+
+        return null;
     }
 
     // ── the administration column ────────────────────────────────────────────

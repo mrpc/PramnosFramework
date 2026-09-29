@@ -16,8 +16,8 @@ use Pramnos\Validation\ValidationException;
  * HTTP request cycle: it validates input, stores errors in session on
  * failure, and returns whitelisted data on success.
  *
- * Because failWith() calls header()/exit (not testable in isolation), these
- * tests use a Testable subclass that overrides failWith() to throw instead.
+ * Most tests use a Testable subclass whose failWith() throws with the errors, so they can
+ * assert on them directly; testTheRealFailureRedirectsToTheForm() runs the real one.
  */
 #[CoversClass(FormRequest::class)]
 class FormRequestTest extends TestCase
@@ -471,6 +471,48 @@ class FormRequestTest extends TestCase
         // Cleanup
         $_GET  = [];
         $_POST = [];
+    }
+
+    /**
+     * The real failWith() stores the errors and sends the visitor back to the form.
+     *
+     * It used to send `Location` with header() and then `exit`, which on the CLI records nothing
+     * and stops the whole PHPUnit process — so no test could run it. Through
+     * `Application::redirect()` the request ends with an exception that carries the status and
+     * leaves the destination on the application.
+     */
+    public function testTheRealFailureRedirectsToTheForm(): void
+    {
+        // Arrange
+        $app = new \Pramnos\Application\Application();
+        $_GET  = [];
+        $_POST = ['name' => ''];
+        $req = new class extends FormRequest {
+            public string $redirectTo = '/contact';
+
+            public function rules(): array
+            {
+                return ['name' => 'required'];
+            }
+        };
+
+        // Act
+        try {
+            ob_start();
+            $req->validated();
+            $this->fail('a failed validation must end the request');
+        } catch (\Pramnos\Application\ApplicationClosedException $closed) {
+            $status = $closed->getStatusCode();
+        } finally {
+            ob_end_clean();
+            $_POST = [];
+        }
+
+        // Assert
+        $this->assertSame(302, $status);
+        $this->assertSame('/contact', $app->getRedirect());
+        $this->assertArrayHasKey('name', $_SESSION['_form_errors'] ?? [],
+            'the errors must be waiting for the form in the session');
     }
 
     /**
