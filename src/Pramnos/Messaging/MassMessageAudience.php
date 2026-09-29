@@ -390,12 +390,12 @@ class MassMessageAudience
         try {
             $result = $this->database->queryBuilder()
                 ->table(static::organizationMembershipTable())
-                ->select(['user_id'])
+                ->select(['userid'])
                 ->whereIn(static::organizationColumn(), $organizations)
                 ->get();
 
             while (($row = $result->fetch()) !== null) {
-                $id = (int) ($row['user_id'] ?? 0);
+                $id = (int) ($row['userid'] ?? 0);
 
                 if ($id > 0) {
                     $ids[$id] = true;

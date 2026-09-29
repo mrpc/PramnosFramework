@@ -608,7 +608,7 @@ would stop matching what was approved.
 | `twofactor` | `with` or `without`. Fails closed: on an installation with no `authserver`, "holding a second factor" is nobody, not everybody |
 | `last_login_after` / `last_login_before` | the active and the dormant audience. An account that never signed in has `lastlogin = 0`, so it is in the dormant one — which is the correct answer to that question |
 | `groups` | in **any** of the chosen groups. Any, not all: "members and volunteers" is a message to both, and the intersection is a smaller audience somebody can name directly |
-| `organizations` | in **any** of them. The membership table is the authserver feature's, so an installation without it matches nobody rather than raising |
+| `organizations` | in **any** of them. Read from `authserver.user_organizations` by `userid` — or the table and organization column named by `authserver_organization_table` / `authserver_organization_column`, the same settings the organizations screen reads. The membership table is the authserver feature's, so an installation without it matches nobody rather than raising |
 | `only_ids` | these accounts and no others — «send this to these three people», the commonest thing anybody wants from this screen |
 | `exclude_ids` | everything the rest matched, minus these |
 | `exclude_optouts` | a list name. They are skipped at delivery either way; naming it here is what makes the **count** honest |

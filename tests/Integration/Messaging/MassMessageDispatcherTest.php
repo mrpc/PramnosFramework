@@ -643,41 +643,49 @@ class MassMessageDispatcherTest extends BaseTestCase
     /**
      * An organizations filter reaches the accounts in that organization.
      *
-     * The membership table belongs to the authserver feature, so it is built here rather than
-     * assumed — an installation without it answers "nobody", which is asserted above, and the
-     * reader that walks the rows had never been run at all.
+     * The table is built in the shape `create_authserver_user_organizations_table` gives it —
+     * `userid`, not `user_id` — and under a name of its own, through the same
+     * `authserver_organization_table` setting an installation would use. The test used to create
+     * `user_id` with `CREATE TABLE IF NOT EXISTS`: on a database without the table it passed
+     * against its own invented shape while every real installation's filter reached nobody, and on
+     * one where the migration had run it failed on its own insert.
      */
     public function testAnOrganizationFilterReachesItsMembers(): void
     {
-        // Arrange
+        // Arrange — a membership table of the migration's shape, under a probe name
+        $name = 'mm_probe_orgs_' . bin2hex(random_bytes(3));
+        $previous = Settings::getSetting('authserver_organization_table', '');
+        Settings::setSetting('authserver_organization_table', $name);
         $table = $this->db->schema()->resolveTableName(
             \Pramnos\Messaging\MassMessageAudience::organizationMembershipTable()
         );
         $column = \Pramnos\Messaging\MassMessageAudience::organizationColumn();
 
+        // Raw DDL: a throwaway table in the migration's exact shape.
         $this->db->query(
-            'CREATE TABLE IF NOT EXISTS `' . $table . '` ('
-            . '`user_id` bigint NOT NULL, `' . $column . '` bigint NOT NULL, '
-            . '`is_active` tinyint NOT NULL DEFAULT 1, '
-            . 'PRIMARY KEY (`user_id`, `' . $column . '`))'
+            'CREATE TABLE `' . $table . '` ('
+            . '`userid` bigint NOT NULL, `' . $column . '` int NOT NULL, '
+            . '`is_active` tinyint(1) NOT NULL DEFAULT 1, '
+            . 'PRIMARY KEY (`userid`, `' . $column . '`))'
         );
         $organizationId = random_int(700000, 799999);
-        $this->db->queryBuilder()->table($table)->insert([
-            'user_id'  => $this->users[1],
-            $column    => $organizationId,
-            'is_active' => 1,
-        ]);
 
         try {
+            $this->db->queryBuilder()->table($table)->insert([
+                'userid'    => $this->users[1],
+                $column     => $organizationId,
+                'is_active' => 1,
+            ]);
+
             // Act
             $ids = (new MassMessageAudience($this->db))
                 ->resolve(['organizations' => [$organizationId]]);
 
-            // Assert
+            // Assert — the member, read through the column the migration actually creates
             $this->assertSame([$this->users[1]], $ids);
         } finally {
-            $this->db->queryBuilder()->table($table)
-                ->where($column, $organizationId)->delete();
+            $this->db->query('DROP TABLE IF EXISTS `' . $table . '`');
+            Settings::setSetting('authserver_organization_table', $previous);
         }
     }
 
