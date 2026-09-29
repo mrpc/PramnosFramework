@@ -304,6 +304,12 @@ class Session extends Controller
         return (array) $result->fields;
     }
 
+    /** The public half of the key the server signs its tokens with. */
+    protected function publicKeyPath(): string
+    {
+        return \Pramnos\Auth\OAuth2\OAuth2ServerFactory::defaultPublicKeyPath();
+    }
+
     /**
      * Validate an access token against the database and JWT signature.
      * Returns the token row on success, false on failure.
@@ -313,37 +319,29 @@ class Session extends Controller
     private function validateAccessToken(string $token): array|false
     {
         try {
-            $db  = \Pramnos\Framework\Factory::getDatabase();
-            $sql = $db->prepareQuery(
-                "SELECT ut.*, a.apikey
-                   FROM usertokens ut
-                   JOIN applications a ON ut.applicationid = a.appid
-                  WHERE ut.token_lookup = %s
-                    AND ut.tokentype = 'access_token'
-                    AND ut.status = 1
-                    AND ut.expires > %d",
-                \Pramnos\User\Token::lookup((string) $token),
-                time()
-            );
-
-            $result = $db->query($sql);
+            $result = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
+                ->table('#PREFIX#usertokens ut')
+                // A token of an application that no longer exists is not a session.
+                ->join('applications a', 'ut.applicationid', '=', 'a.appid')
+                ->select(['ut.*'])
+                ->where('ut.token_lookup', \Pramnos\User\Token::lookup($token))
+                ->where('ut.tokentype', 'access_token')
+                ->where('ut.status', 1)
+                ->where('ut.expires', '>', time())
+                ->first();
             if (!$result || $result->numRows == 0) {
                 return false;
             }
 
             $tokenData = (array) $result->fields;
 
-            // Verify JWT signature
-            $privatePath = ROOT . '/app/keys/private.key';
-            $publicPath  = ROOT . '/app/keys/public.key';
-
-            if (file_exists($privatePath) && file_exists($publicPath)) {
-                $publicKey = file_get_contents($publicPath);
-                \Pramnos\Auth\JWT::decode($token, $publicKey, ['RS256']);
-            } else {
-                // Fallback to symmetric HMAC verification
-                \Pramnos\Auth\JWT::decode($token, $tokenData['apikey'], ['HS256']);
+            // The server's own key, or nothing: a symmetric check keyed with the client id would
+            // accept a token anybody can sign, since the client id is public.
+            $publicPath = $this->publicKeyPath();
+            if (!is_readable($publicPath)) {
+                return false;
             }
+            \Pramnos\Auth\JWT::decode($token, (string) file_get_contents($publicPath), ['RS256']);
 
             return $tokenData;
         } catch (\Exception $ex) {
