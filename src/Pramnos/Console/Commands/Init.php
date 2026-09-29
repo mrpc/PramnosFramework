@@ -2107,6 +2107,8 @@ class Init extends Command
         $prefixes = [
             'api', 'health', 'logs', 'users', 'settings', 'dashboard',
             'services', 'organizations', 'emails',
+            // Reached from a mail or a landing-page form, never from the SPA itself.
+            'mailinglist',
         ];
 
         if (in_array('auth', $features, true)) {

@@ -998,6 +998,43 @@ The rules it keeps:
 `confirmed`) for the caller's log. **A public form must answer the same whatever it returns**, or
 it becomes a way to find out who is subscribed.
 
+### The form: `/mailinglist/subscribe`
+
+A framework controller, so it answers in every application with no wrapper:
+
+```html
+<form method="post" action="/mailinglist/subscribe">
+  <?php echo \Pramnos\Http\Middleware\CsrfMiddleware::tokenField(); ?>
+  <input type="hidden" name="list" value="newsletter">
+  <input type="hidden" name="source" value="landing">
+  <input type="email" name="email" required>
+  <p>News about the product, once a month.</p>
+  <button>Subscribe</button>
+</form>
+```
+
+- **The consent stored is the type's description**, not anything the form sends — a trail whose
+  sentence the visitor's browser supplied proves nothing. Show that sentence beside the button.
+- `source` is kept when it is a short identifier (`[a-z0-9_-]`, up to 32), `form` otherwise; the
+  language is the page's current one, and the address the request came from is recorded.
+- Refused before anything is written: a GET (`405`), a missing or stale form token (`403`), a list
+  no opt-in type declares (`404`), a malformed address (`400`).
+- **Every valid request gets the same answer** — new, pending, already subscribed, or a failure
+  that was logged — so the form cannot reveal who is on a list.
+- Ten requests an hour per address; past that, `429`.
+- A request with `Accept: application/json` gets `{"ok": …, "message": …}`; a browser gets a page.
+
+A single-page application needs `mailinglist` among the paths its web server sends to PHP; `init`
+includes it for new projects.
+
+### The confirmation page: `/mailinglist/confirm`
+
+The link in the confirmation mail opens a page with a **Confirm** button; the button confirms.
+Two steps, because mail scanners open every link in a message, and confirming on the first request
+would subscribe everybody whose provider checks links. The token is the credential, so the button
+needs no session. An expired or foreign token, and a row no longer pending, each get a page that
+says so.
+
 ### The consent trail
 
 Each row keeps the sentence the person agreed to, where they agreed (`source`), the address the
