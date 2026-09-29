@@ -220,6 +220,9 @@ class Passkey extends Controller
         if ($user === null) {
             return $this->unauthorized();
         }
+        if (!$this->isPageWrite()) {
+            return Response::json(['error' => 'forbidden', 'error_description' => 'That request could not be verified.'], 403);
+        }
         $id   = (int) $this->input('id');
         $name = $this->input('name');
         if ($id <= 0 || $name === '') {
@@ -239,6 +242,9 @@ class Passkey extends Controller
         if ($user === null) {
             return $this->unauthorized();
         }
+        if (!$this->isPageWrite()) {
+            return Response::json(['error' => 'forbidden', 'error_description' => 'That request could not be verified.'], 403);
+        }
         $id = (int) $this->input('id');
         if ($id <= 0) {
             return Response::json(['error' => 'invalid_request'], 400);
@@ -248,6 +254,24 @@ class Passkey extends Controller
             \Pramnos\Auth\ActivityLog::record($user, 'passkey_removed');
         }
         return Response::json(['status' => $ok ? 'ok' : 'not_found'], $ok ? 200 : 404);
+    }
+
+    /**
+     * Did this change come from this site's own page?
+     *
+     * A `POST` carrying the session's token, or the `X-Requested-With` header the passkey page's
+     * script sends — which a page on another site cannot add without a CORS preflight this
+     * controller never answers. Either proves it; a plain form or a `GET` proves neither, and
+     * `input()` would otherwise read the id from both.
+     */
+    protected function isPageWrite(): bool
+    {
+        if ($this->isVerifiedWrite()) {
+            return true;
+        }
+
+        return strtoupper((string) ($_SERVER['REQUEST_METHOD'] ?? 'GET')) === 'POST'
+            && strtolower((string) ($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '')) === 'xmlhttprequest';
     }
 
     // ── Testable seams ─────────────────────────────────────────────────────────

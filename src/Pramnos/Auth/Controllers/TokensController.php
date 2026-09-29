@@ -51,6 +51,8 @@ class TokensController extends Controller
             // The one-token screen: everything about it, and what was done with it.
             'view',
         ]);
+        // POST with the session's token, or refused before the action runs: see Controller::exec().
+        $this->addWriteAction(['revoke', 'revokeall', 'deactivate', 'delete']);
         parent::__construct($application);
     }
 

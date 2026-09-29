@@ -68,7 +68,7 @@
                                 'Actions on this token'
                             );
                             if ((int) ($tok['status'] ?? 1) === 1) {
-                                echo \Pramnos\Html\Icon::link(
+                                echo \Pramnos\Html\Icon::postButton(
                                     adminUrl('Tokens/revoke/') . (int) $tok['tokenid'],
                                     'deactivate',
                                     'Revoke this token',

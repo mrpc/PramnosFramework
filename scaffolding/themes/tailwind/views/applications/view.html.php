@@ -83,9 +83,9 @@ $accessTypeLabel = function (int $t): string {
                         <div class="text-xs text-base-content/60 italic mb-1">
                             Stored hashed and not recoverable.
                         </div>
-                        <a href="<?php echo adminUrl('applications/rotate/') . $appId; ?>"
+                        <form method="post" action="<?php echo adminUrl('applications/rotate/') . $appId; ?>" style="display:inline;margin:0"><?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?><button type="submit"
                            class="btn btn-outline btn-xs"
-                           data-confirm="Generate a new client secret? The current one stops working immediately.">Rotate</a>
+                           data-confirm="Generate a new client secret? The current one stops working immediately.">Rotate</button></form>
                     </div>
                 </div>
             </div>
@@ -120,20 +120,33 @@ $accessTypeLabel = function (int $t): string {
                  * list scannable, and a daisyUI `btn` centres its content unless the
                  * content is told where to go.
                  */
+                // `$post` for an action that changes something: a one-button POST form with the
+                // session's token, because the controller refuses it any other way.
                 $action = static function (
                     string $url,
                     string $icon,
                     string $label,
                     string $classes = 'btn-outline',
-                    string $confirm = ''
+                    string $confirm = '',
+                    bool $post = false
                 ): void {
+                    $content = \Pramnos\Html\Icon::svg($icon)
+                        . '<span>' . htmlspecialchars($label, ENT_QUOTES, 'UTF-8') . '</span>';
+                    $class   = 'btn btn-sm btn-block justify-start gap-2 ' . $classes;
+
+                    if ($post) {
+                        echo \Pramnos\Html\Icon::postControl($url, $content, ['class' => $class]
+                            + ($confirm !== '' ? ['data-confirm' => $confirm] : []));
+
+                        return;
+                    }
+
                     echo '<a href="' . htmlspecialchars($url, ENT_QUOTES, 'UTF-8') . '"'
-                        . ' class="btn btn-sm btn-block justify-start gap-2 ' . $classes . '"'
+                        . ' class="' . $class . '"'
                         . ($confirm !== ''
                             ? ' data-confirm="' . htmlspecialchars($confirm, ENT_QUOTES, 'UTF-8') . '"'
                             : '')
-                        . '>' . \Pramnos\Html\Icon::svg($icon)
-                        . '<span>' . htmlspecialchars($label, ENT_QUOTES, 'UTF-8') . '</span></a>';
+                        . '>' . $content . '</a>';
                 };
                 ?>
                 <div class="p-4 grid gap-2">
@@ -141,9 +154,9 @@ $accessTypeLabel = function (int $t): string {
                     $action(adminUrl('applications/edit/' . $appId), 'edit', 'Edit application', 'btn-primary');
                     $action(adminUrl('applications/tokens/' . $appId), 'tokens', 'View tokens');
                     $action(adminUrl('applications/rotate/' . $appId), 'retry', 'Rotate secret', 'btn-outline btn-warning',
-                        'Rotate the client secret? Existing tokens remain valid.');
+                        'Rotate the client secret? Existing tokens remain valid.', true);
                     $action(adminUrl('applications/delete/' . $appId), 'deactivate', 'Disable application', 'btn-outline btn-error',
-                        'Disable this application and revoke all active tokens?');
+                        'Disable this application and revoke all active tokens?', true);
                     ?>
                 </div>
             </div>

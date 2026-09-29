@@ -57,6 +57,8 @@ class MassMessagesController extends Controller
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
         $this->addAuthAction(['display', 'view', 'edit', 'preview', 'save', 'send', 'delete']);
+        // POST with the session's token, or refused before the action runs: see Controller::exec().
+        $this->addWriteAction(['save', 'send', 'delete']);
         parent::__construct($application);
     }
 

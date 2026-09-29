@@ -20,6 +20,11 @@ $variantClasses = [
 <div class="card bg-base-100 border border-base-300 shadow-sm p-4 mb-6">
     <div class="flex flex-wrap gap-2">
         <?php foreach (($this->toolbar ?? []) as $link): ?>
+            <?php if (!empty($link['post'])): // a write: a POST form carrying the token
+                echo \Pramnos\Html\Icon::postControl($link['url'], htmlspecialchars($link['label']), ['class' => 'inline-flex items-center px-4 py-2 rounded-md text-sm font-medium transition-colors ' . ($variantClasses[$link['variant']] ?? $variantClasses['secondary'])]
+                    + (!empty($link['confirm']) ? ['data-confirm' => $link['confirm']] : []));
+                continue;
+            endif; ?>
             <a href="<?php echo htmlspecialchars($link['url']); ?>"
                class="inline-flex items-center px-4 py-2 rounded-md text-sm font-medium transition-colors <?php echo $variantClasses[$link['variant']] ?? $variantClasses['secondary']; ?>"
                <?php if (!empty($link['confirm'])): ?>data-confirm="<?php echo htmlspecialchars($link['confirm']); ?>"<?php endif; ?>>

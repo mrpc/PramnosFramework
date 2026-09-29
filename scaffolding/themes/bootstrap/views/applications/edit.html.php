@@ -48,16 +48,17 @@ $accessTypes = [0 => 'REST (API Key)', 1 => 'OAuth2', 2 => 'Legacy API Only'];
                 <code class="ms-1"><?php echo htmlspecialchars($app['apikey'] ?? ''); ?></code>
             </div>
             <div class="ms-auto">
-                <a href="<?php echo adminUrl('applications' . '/rotate/' . ((int)$app['appid'])); ?>"
+                <form method="post" action="<?php echo adminUrl('applications' . '/rotate/' . ((int)$app['appid'])); ?>" style="display:inline;margin:0"><?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?><button type="submit"
                    class="btn btn-sm btn-outline-warning"
                    data-confirm="Rotate the client secret? All new token requests will use the new secret.">
                    Rotate Secret
-                </a>
+                </button></form>
             </div>
         </div>
     <?php endif; ?>
 
     <form method="post" action="<?php echo adminUrl('applications/save'); ?>">
+        <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
         <?php if (!$isNew): ?>
             <input type="hidden" name="appid" value="<?php echo (int)$app['appid']; ?>">
         <?php endif; ?>

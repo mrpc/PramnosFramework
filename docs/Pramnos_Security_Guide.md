@@ -80,6 +80,21 @@ echo \Pramnos\Html\Icon::postControl(adminUrl('users/lock/') . $id, 'Lock accoun
 Both carry the session's token and work without JavaScript; `data-confirm` still asks first where
 `pf-utils.js` is loaded.
 
+An action that shows a page on `GET` and changes something on `POST` — a confirmation screen that
+posts to itself — is not declared, because the declaration would refuse the page too. Guard its
+`POST` branch instead:
+
+```php
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$this->isVerifiedWrite()) {
+    $this->refuseUnverifiedWrite();
+    return null;
+}
+```
+
+The bundled views are held to the declarations by `tests/Unit/Application/WriteActionViewsContractTest.php`:
+a link to a declared write action, an `Icon::link()` to one, or a form posting to one without a
+token fails it. A controller's new write action is covered as soon as it is declared.
+
 ### CsrfMiddleware
 
 Validates the token on `POST`, `PUT`, `PATCH`, `DELETE`. Passes `GET`, `HEAD`, `OPTIONS`, `TRACE` through unchecked.

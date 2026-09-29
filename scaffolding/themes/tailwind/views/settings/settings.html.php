@@ -62,6 +62,7 @@ $btnSec = 'px-4 py-2 border border-base-300 text-base-content text-sm font-mediu
     <?php endif; ?>
 
     <form method="post" action="<?php echo adminUrl('settings/saveSystem'); ?>" id="settingsForm">
+        <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
         <input type="hidden" name="settings_active_tab" id="settings_active_tab" value="">
 
         <!-- Tab nav -->

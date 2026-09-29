@@ -81,9 +81,9 @@ $accessTypeLabel = function (int $t): string {
                         <div style="font-size:11px;color:#888;font-style:italic;margin-bottom:4px">
                             Stored hashed and not recoverable.
                         </div>
-                        <a href="<?php echo adminUrl('applications/rotate/') . $appId; ?>"
+                        <form method="post" action="<?php echo adminUrl('applications/rotate/') . $appId; ?>" style="display:inline;margin:0"><?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?><button type="submit"
                            class="btn btn-outline-secondary"
-                           data-confirm="Generate a new client secret? The current one stops working immediately.">Rotate</a>
+                           data-confirm="Generate a new client secret? The current one stops working immediately.">Rotate</button></form>
                     </div>
                 </div>
             </div>
@@ -106,10 +106,10 @@ $accessTypeLabel = function (int $t): string {
                 <div style="padding:12px;display:flex;flex-direction:column;gap:8px">
                     <a href="<?php echo adminUrl('applications' . '/edit/' . ($appId)); ?>" class="btn btn-primary" style="text-align:center">Edit Application</a>
                     <a href="<?php echo adminUrl('applications' . '/tokens/' . ($appId)); ?>" class="btn btn-outline-secondary" style="text-align:center">View Tokens</a>
-                    <a href="<?php echo adminUrl('applications' . '/rotate/' . ($appId)); ?>" class="btn btn-outline-warning" style="text-align:center"
-                       data-confirm="Rotate the client secret? Existing tokens remain valid.">Rotate Secret</a>
-                    <a href="<?php echo adminUrl('applications' . '/delete/' . ($appId)); ?>" class="btn btn-outline-danger" style="text-align:center"
-                       data-confirm="Disable this application and revoke all active tokens?">Disable App</a>
+                    <form method="post" action="<?php echo adminUrl('applications' . '/rotate/' . ($appId)); ?>" style="display:inline;margin:0"><?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?><button type="submit" class="btn btn-outline-warning" style="text-align:center"
+                       data-confirm="Rotate the client secret? Existing tokens remain valid.">Rotate Secret</button></form>
+                    <form method="post" action="<?php echo adminUrl('applications' . '/delete/' . ($appId)); ?>" style="display:inline;margin:0"><?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?><button type="submit" class="btn btn-outline-danger" style="text-align:center"
+                       data-confirm="Disable this application and revoke all active tokens?">Disable App</button></form>
                 </div>
             </div>
 

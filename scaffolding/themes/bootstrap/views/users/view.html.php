@@ -105,10 +105,10 @@ $fullName = trim(($user['firstname'] ?? '') . ' ' . ($user['lastname'] ?? ''));
                              by typing the URL, which is the same as not existing. */ ?>
                     <a href="<?php echo adminUrl('users' . '/notify/' . ($uid)); ?>" class="btn btn-outline-primary btn-sm">Send a Message</a>
                     <?php if ($isActive): ?>
-                        <a href="<?php echo adminUrl('users' . '/lock/' . ($uid)); ?>" class="btn btn-outline-warning btn-sm"
-                           data-confirm="Lock this account?">Lock Account</a>
+                        <form method="post" action="<?php echo adminUrl('users' . '/lock/' . ($uid)); ?>" style="display:inline;margin:0"><?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?><button type="submit" class="btn btn-outline-warning btn-sm"
+                           data-confirm="Lock this account?">Lock Account</button></form>
                     <?php else: ?>
-                        <a href="<?php echo adminUrl('users' . '/unlock/' . ($uid)); ?>" class="btn btn-outline-success btn-sm">Unlock Account</a>
+                        <form method="post" action="<?php echo adminUrl('users' . '/unlock/' . ($uid)); ?>" style="display:inline;margin:0"><?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?><button type="submit" class="btn btn-outline-success btn-sm">Unlock Account</button></form>
                     <?php endif; ?>
                     <a href="<?php echo adminUrl('Tokens' . '/userid/' . ($uid)); ?>" class="btn btn-outline-secondary btn-sm">All Tokens</a>
                     <a href="<?php echo adminUrl('users' . '/sessions/' . ($uid)); ?>" class="btn btn-outline-secondary btn-sm">Sessions</a>

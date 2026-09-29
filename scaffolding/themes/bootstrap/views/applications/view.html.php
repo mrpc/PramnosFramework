@@ -79,9 +79,9 @@ $accessTypeLabel = function (int $t): string {
                     <div class="text-muted small fst-italic mb-1">
                         Stored hashed and not recoverable.
                     </div>
-                    <a href="<?php echo adminUrl('applications/rotate/') . $appId; ?>"
+                    <form method="post" action="<?php echo adminUrl('applications/rotate/') . $appId; ?>" style="display:inline;margin:0"><?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?><button type="submit"
                        class="btn btn-outline-secondary btn-sm"
-                       data-confirm="Generate a new client secret? The current one stops working immediately.">Rotate</a>
+                       data-confirm="Generate a new client secret? The current one stops working immediately.">Rotate</button></form>
                 </div>
             </div>
 
@@ -110,12 +110,12 @@ $accessTypeLabel = function (int $t): string {
                 <div class="card-body d-grid gap-2">
                     <a href="<?php echo adminUrl('applications' . '/edit/' . ($appId)); ?>" class="btn btn-primary btn-sm">Edit Application</a>
                     <a href="<?php echo adminUrl('applications' . '/tokens/' . ($appId)); ?>" class="btn btn-outline-secondary btn-sm">View Tokens</a>
-                    <a href="<?php echo adminUrl('applications' . '/rotate/' . ($appId)); ?>"
+                    <form method="post" action="<?php echo adminUrl('applications' . '/rotate/' . ($appId)); ?>" style="display:inline;margin:0"><?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?><button type="submit"
                        class="btn btn-outline-warning btn-sm"
-                       data-confirm="Rotate the client secret? Existing tokens remain valid.">Rotate Secret</a>
-                    <a href="<?php echo adminUrl('applications' . '/delete/' . ($appId)); ?>"
+                       data-confirm="Rotate the client secret? Existing tokens remain valid.">Rotate Secret</button></form>
+                    <form method="post" action="<?php echo adminUrl('applications' . '/delete/' . ($appId)); ?>" style="display:inline;margin:0"><?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?><button type="submit"
                        class="btn btn-outline-danger btn-sm"
-                       data-confirm="Disable this application and revoke all active tokens?">Disable App</a>
+                       data-confirm="Disable this application and revoke all active tokens?">Disable App</button></form>
                 </div>
             </div>
 

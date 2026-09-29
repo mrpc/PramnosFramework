@@ -84,7 +84,7 @@ function clearAllCache() {
     if (!confirm('Clear all cache entries? This cannot be undone.')) return;
     var btn = document.getElementById('clearCacheBtn');
     btn.disabled = true; btn.textContent = 'Clearing…';
-    fetch('<?php echo adminUrl('dashboard/clearcache'); ?>', {method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})
+    fetch('<?php echo adminUrl('dashboard/clearcache'); ?>', {method:'POST',headers:{'Content-Type':'application/json', 'Accept':'application/json', 'X-CSRF-Token':'<?php echo htmlspecialchars(\Pramnos\Http\Session::getInstance()->getCsrfToken(), ENT_QUOTES); ?>'},body:'{}'})
         .then(function(r){ return r.json(); })
         .then(function(d) {
             if (d.success) location.reload();

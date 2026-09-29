@@ -60,12 +60,14 @@ $statusBadge = function (int $s): string {
                     <td class="px-4 py-2 text-right flex gap-1 justify-end">
                         <?php if ($status === 1): ?>
                             <form method="post" action="<?php echo adminUrl('Tokens/deactivate'); ?>">
+                                <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
                                 <input type="hidden" name="userid" value="<?php echo $uid; ?>">
                                 <input type="hidden" name="tokenid" value="<?php echo $tokenId; ?>">
                                 <button type="submit" class="btn btn-outline btn-warning btn-xs">Deactivate</button>
                             </form>
                         <?php endif; ?>
                         <form method="post" action="<?php echo adminUrl('Tokens/delete'); ?>">
+                            <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
                             <input type="hidden" name="userid" value="<?php echo $uid; ?>">
                             <input type="hidden" name="tokenid" value="<?php echo $tokenId; ?>">
                             <button type="submit" class="btn btn-outline btn-error btn-xs"

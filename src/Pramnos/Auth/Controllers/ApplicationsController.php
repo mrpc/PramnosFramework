@@ -43,6 +43,8 @@ class ApplicationsController extends Controller
             'display', 'data', 'view', 'edit', 'save', 'delete', 'tokens', 'rotate',
             'webhook', 'webhookrotate', 'webhookdelete',
         ]);
+        // POST with the session's token, or refused before the action runs: see Controller::exec().
+        $this->addWriteAction(['save', 'delete', 'rotate', 'webhook', 'webhookrotate', 'webhookdelete']);
         parent::__construct($application);
     }
 
@@ -222,8 +224,8 @@ class ApplicationsController extends Controller
                 : '<span class="pf-state pf-state-off">Inactive</span>';
             $row[4] = $added > 0 ? date('Y-m-d', $added) : '';
             $row[]  = Icon::link($viewUrl, 'view', 'View this application')
-                    . Icon::link(adminUrl('applications/edit/') . $id, 'edit', 'Edit this application')
-                    . Icon::link(
+                    . Icon::postButton(adminUrl('applications/edit/') . $id, 'edit', 'Edit this application')
+                    . Icon::postButton(
                         adminUrl('applications/delete/') . $id,
                         'delete',
                         'Delete this application',

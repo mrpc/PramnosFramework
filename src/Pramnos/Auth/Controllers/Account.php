@@ -81,6 +81,8 @@ class Account extends Controller
             'sessions', 'revokesession',
             'profile',
         ]);
+        // POST with the session's token, or refused before the action runs: see Controller::exec().
+        $this->addWriteAction(['revokeapplication']);
         parent::__construct($application);
     }
 

@@ -36,7 +36,7 @@
                         </td>
                         <td class="text-end">
                             <a href="<?php echo adminUrl('Permissions' . '/edit/' . ((int)$p['permissionid'])); ?>" class="btn btn-sm btn-outline-secondary">Edit</a>
-                            <a href="<?php echo adminUrl('Permissions' . '/delete/' . ((int)$p['permissionid'])); ?>" class="btn btn-sm btn-outline-danger" data-confirm="Delete permission?">Delete</a>
+                            <form method="post" action="<?php echo adminUrl('Permissions' . '/delete/' . ((int)$p['permissionid'])); ?>" style="display:inline;margin:0"><?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?><button type="submit" class="btn btn-sm btn-outline-danger" data-confirm="Delete permission?">Delete</button></form>
                         </td>
                     </tr>
                 <?php endforeach; ?>

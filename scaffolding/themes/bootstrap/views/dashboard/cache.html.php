@@ -107,7 +107,7 @@ function clearAllCache() {
     btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Clearing…';
     fetch('<?php echo adminUrl('dashboard/clearcache'); ?>', {
         method: 'POST',
-        headers: {'Content-Type': 'application/json'},
+        headers: {'Content-Type': 'application/json', 'Accept':'application/json', 'X-CSRF-Token':'<?php echo htmlspecialchars(\Pramnos\Http\Session::getInstance()->getCsrfToken(), ENT_QUOTES); ?>'},
         body: '{}'
     })
     .then(function(r) { return r.json(); })

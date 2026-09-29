@@ -39,6 +39,8 @@ class QueueController extends Controller
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
         $this->addAuthAction(['display', 'retry', 'retryall', 'delete', 'clear', 'stats']);
+        // POST with the session's token, or refused before the action runs: see Controller::exec().
+        $this->addWriteAction(['retry', 'retryall', 'delete', 'clear']);
         parent::__construct($application);
     }
 

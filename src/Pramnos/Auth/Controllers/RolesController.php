@@ -60,6 +60,8 @@ class RolesController extends Controller
             'display', 'data', 'view', 'edit', 'save', 'delete',
             'members', 'addmember', 'removemember', 'adminscreens',
         ]);
+        // POST with the session's token, or refused before the action runs: see Controller::exec().
+        $this->addWriteAction(['save', 'delete', 'addmember', 'removemember']);
         parent::__construct($application);
     }
 
@@ -160,8 +162,8 @@ class RolesController extends Controller
                 : '<span class="pf-state pf-state-off">No</span>';
             $row[]  = Icon::link($viewUrl, 'view', 'View this role')
                     . Icon::link(adminUrl('roles/edit/') . $id, 'edit', 'Edit this role')
-                    . Icon::link(adminUrl('roles/members/') . $id, 'members', 'Holders')
-                    . Icon::link(
+                    . Icon::postButton(adminUrl('roles/members/') . $id, 'members', 'Holders')
+                    . Icon::postButton(
                         adminUrl('roles/delete/') . $id,
                         'delete',
                         'Deactivate this role',

@@ -39,6 +39,15 @@ class PasskeyControllerTest extends TestCase
     protected function tearDown(): void
     {
         $_SESSION = [];
+        $_SERVER['REQUEST_METHOD'] = 'GET';
+        unset($_SERVER['HTTP_X_REQUESTED_WITH']);
+    }
+
+    /** What the passkey page's own script sends: a POST with X-Requested-With. */
+    private function fromThePage(): void
+    {
+        $_SERVER['REQUEST_METHOD']        = 'POST';
+        $_SERVER['HTTP_X_REQUESTED_WITH'] = 'XMLHttpRequest';
     }
 
     // ── registration ─────────────────────────────────────────────────────────
@@ -257,6 +266,7 @@ class PasskeyControllerTest extends TestCase
 
     public function testRenameInvalidRequest(): void
     {
+        $this->fromThePage();
         $this->controller->userId = 42;
         // Missing id/name.
         $this->assertSame(400, $this->controller->rename()->getStatusCode());
@@ -264,6 +274,7 @@ class PasskeyControllerTest extends TestCase
 
     public function testRenameOkAndNotFound(): void
     {
+        $this->fromThePage();
         $this->controller->userId = 42;
         $this->controller->inputs = ['id' => '5', 'name' => 'New'];
         $this->controller->service->renameOk = true;
@@ -275,6 +286,7 @@ class PasskeyControllerTest extends TestCase
 
     public function testRevokeInvalidAndOk(): void
     {
+        $this->fromThePage();
         $this->controller->userId = 42;
         $this->assertSame(400, $this->controller->revoke()->getStatusCode(), 'No id');
 
@@ -284,6 +296,28 @@ class PasskeyControllerTest extends TestCase
 
         $this->controller->service->revokeOk = false;
         $this->assertSame(404, $this->controller->revoke()->getStatusCode());
+    }
+
+    /**
+     * Renaming or revoking from anywhere but the page is refused, and nothing is changed.
+     *
+     * `input()` reads the id from a form field or the query string, so a plain form on another
+     * site — or an `<img src="…/passkey/revoke?id=5">` — could remove a signed-in person's
+     * passkey. The page's script sends `X-Requested-With`, which another site cannot add without
+     * a preflight; a request with neither that nor the session's token is refused.
+     */
+    public function testAChangeFromAnotherSiteIsRefused(): void
+    {
+        // Arrange — a plain cross-site form post
+        $this->controller->userId = 42;
+        $this->controller->inputs = ['id' => '5', 'name' => 'Hijacked'];
+        $this->controller->service->revokeOk = true;
+        $this->controller->service->renameOk = true;
+        $_SERVER['REQUEST_METHOD'] = 'POST';
+
+        // Act + Assert
+        $this->assertSame(403, $this->controller->revoke()->getStatusCode());
+        $this->assertSame(403, $this->controller->rename()->getStatusCode());
     }
 }
 

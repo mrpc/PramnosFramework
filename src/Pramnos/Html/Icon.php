@@ -22,10 +22,10 @@ namespace Pramnos\Html;
  * ```php
  * $row[] = Icon::link(adminUrl('users/view/') . $id, 'view', 'View this user')
  *        . Icon::link(adminUrl('users/edit/') . $id, 'edit', 'Edit this user')
- *        . Icon::link(adminUrl('users/delete/') . $id, 'deactivate', 'Deactivate', [
+ *        . Icon::postButton(adminUrl('users/delete/') . $id, 'deactivate', 'Deactivate', [
  *              'data-confirm' => 'Deactivate this user?',
  *              'class'        => 'pf-action pf-action-danger',
- *          ]);
+ *          ]);                        // a write: a POST form, see postButton()
  * ```
  *
  * @copyright   (c) 2005 - 2026 Yannis - Pastis Glaros

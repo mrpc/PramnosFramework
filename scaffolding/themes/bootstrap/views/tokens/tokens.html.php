@@ -47,7 +47,7 @@
                                 : '<span class="badge bg-secondary">Revoked</span>'; ?>
                         </td>
                         <td class="text-end">
-                            <a href="<?php echo adminUrl('Tokens' . '/revoke/' . ((int)$tok['tokenid'])); ?>" class="btn btn-sm btn-outline-danger" data-confirm="Revoke token?">Revoke</a>
+                            <form method="post" action="<?php echo adminUrl('Tokens' . '/revoke/' . ((int)$tok['tokenid'])); ?>" style="display:inline;margin:0"><?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?><button type="submit" class="btn btn-sm btn-outline-danger" data-confirm="Revoke token?">Revoke</button></form>
                         </td>
                     </tr>
                 <?php endforeach; ?>

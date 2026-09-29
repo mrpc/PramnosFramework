@@ -41,6 +41,8 @@ class ServicesController extends Controller
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
         $this->addAuthAction(['display', 'stop', 'start', 'restart', 'logs', 'status']);
+        // POST with the session's token, or refused before the action runs: see Controller::exec().
+        $this->addWriteAction(['stop', 'start', 'restart']);
         parent::__construct($application);
     }
 

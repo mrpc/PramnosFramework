@@ -63,12 +63,14 @@ $this->activeNav = 'users_tokens';
                         <td style="padding:6px 12px;text-align:right">
                             <?php if ($status === 1): ?>
                                 <form method="post" action="<?php echo adminUrl('Tokens/deactivate'); ?>" style="display:inline">
+                                    <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
                                     <input type="hidden" name="userid" value="<?php echo $uid; ?>">
                                     <input type="hidden" name="tokenid" value="<?php echo $tokenId; ?>">
                                     <button type="submit" class="btn btn-sm btn-outline-warning">Deactivate</button>
                                 </form>
                             <?php endif; ?>
                             <form method="post" action="<?php echo adminUrl('Tokens/delete'); ?>" style="display:inline">
+                                <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
                                 <input type="hidden" name="userid" value="<?php echo $uid; ?>">
                                 <input type="hidden" name="tokenid" value="<?php echo $tokenId; ?>">
                                 <button type="submit" class="btn btn-sm btn-outline-danger"

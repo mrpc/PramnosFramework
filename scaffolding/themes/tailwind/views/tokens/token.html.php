@@ -59,10 +59,10 @@ $status = (int) ($t['status'] ?? 0);
                 <?php echo \Pramnos\Html\Icon::svg('log'); ?> All actions
             </a>
             <?php if ($status === 1): ?>
-            <a href="<?php echo adminUrl('Tokens/revoke/' . $id); ?>" class="btn btn-outline btn-error btn-sm gap-2"
+            <form method="post" action="<?php echo adminUrl('Tokens/revoke/' . $id); ?>" style="display:inline;margin:0"><?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?><button type="submit" class="btn btn-outline btn-error btn-sm gap-2"
                data-confirm="Revoke this token? Anything using it stops working immediately.">
                 <?php echo \Pramnos\Html\Icon::svg('deactivate'); ?> Revoke
-            </a>
+            </button></form>
             <?php endif; ?>
         </div>
     </div>

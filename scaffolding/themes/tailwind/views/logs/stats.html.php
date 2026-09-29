@@ -63,9 +63,9 @@ $sURL = adminUrl();
                                     <div class="flex gap-1">
                                         <a href="<?php echo adminUrl('Logs' . '/viewer/' . (htmlspecialchars($stat['name']))); ?>"
                                            class="btn btn-info btn-xs" title="View">View</a>
-                                        <a href="<?php echo adminUrl('Logs' . '/clearFile/' . (htmlspecialchars($stat['name']))); ?>"
+                                        <form method="post" action="<?php echo adminUrl('Logs' . '/clearFile/' . (htmlspecialchars($stat['name']))); ?>" style="display:inline;margin:0"><?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?><button type="submit"
                                            class="btn btn-error btn-xs" title="Clear"
-                                           data-confirm="Are you sure you want to clear this log?">Clear</a>
+                                           data-confirm="Are you sure you want to clear this log?">Clear</button></form>
                                         <a href="<?php echo adminUrl('Logs/raw'); ?>?file=<?php echo htmlspecialchars($stat['name']); ?>"
                                            class="btn btn-neutral btn-xs" title="Raw View" target="_blank">Raw</a>
                                     </div>

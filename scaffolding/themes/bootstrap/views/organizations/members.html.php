@@ -16,6 +16,7 @@
         <div class="card-header fw-semibold">Add Member</div>
         <div class="card-body">
             <form method="post" action="<?php echo adminUrl('Organizations/addmember/'); ?><?php echo (int)($this->org['organization_id'] ?? 0); ?>" class="d-flex gap-2">
+                <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
                 <input type="number" name="userid" class="form-control" placeholder="User ID" required style="max-width:180px">
                 <button type="submit" class="btn btn-success">Add</button>
             </form>
@@ -34,7 +35,7 @@
                         <td><?php echo htmlspecialchars($m['username'] ?? ''); ?></td>
                         <td><?php echo htmlspecialchars($m['email'] ?? ''); ?></td>
                         <td class="text-end">
-                            <a href="<?php echo adminUrl('Organizations/removemember/'); ?><?php echo (int)($this->org['organization_id'] ?? 0); ?>?userid=<?php echo (int)$m['userid']; ?>" class="btn btn-sm btn-outline-danger" data-confirm="Remove member?">Remove</a>
+                            <form method="post" action="<?php echo adminUrl('Organizations/removemember/'); ?><?php echo (int)($this->org['organization_id'] ?? 0); ?>?userid=<?php echo (int)$m['userid']; ?>" style="display:inline;margin:0"><?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?><button type="submit" class="btn btn-sm btn-outline-danger" data-confirm="Remove member?">Remove</button></form>
                         </td>
                     </tr>
                 <?php endforeach; ?>

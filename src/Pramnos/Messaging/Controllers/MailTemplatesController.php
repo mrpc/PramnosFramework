@@ -55,6 +55,8 @@ class MailTemplatesController extends Controller
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
         $this->addAuthAction(['display', 'data', 'view', 'edit', 'save', 'delete', 'test']);
+        // POST with the session's token, or refused before the action runs: see Controller::exec().
+        $this->addWriteAction(['save', 'delete', 'test']);
         parent::__construct($application);
     }
 

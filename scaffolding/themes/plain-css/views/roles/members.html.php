@@ -55,8 +55,8 @@ $orgId = (int) ($role->organization_id ?? 0);
                         <td><?php echo htmlspecialchars((string) $h['email'], ENT_QUOTES, 'UTF-8'); ?></td>
                         <td><?php echo htmlspecialchars((string) $h['granted_at'], ENT_QUOTES, 'UTF-8'); ?></td>
                         <td style="text-align:right">
-                            <a href="<?php echo adminUrl('Roles/removemember/') . $rid; ?>?userid=<?php echo (int) $h['userid']; ?>"
-                               class="btn btn-outline-danger" data-confirm="Remove this role from the user?">Remove</a>
+                            <form method="post" action="<?php echo adminUrl('Roles/removemember/') . $rid; ?>?userid=<?php echo (int) $h['userid']; ?>" style="display:inline;margin:0"><?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?><button type="submit"
+                               class="btn btn-outline-danger" data-confirm="Remove this role from the user?">Remove</button></form>
                         </td>
                     </tr>
                 <?php endforeach; ?>

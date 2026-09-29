@@ -127,4 +127,14 @@ class ApiPasskey extends Passkey
     {
         return strtoupper((string) ($_SERVER['REQUEST_METHOD'] ?? 'GET'));
     }
+
+    /**
+     * The API authenticates the caller before this runs — an API key or bearer token, or the
+     * page's session together with the `X-CSRF-Token` header `ApiAuthMiddleware` checks — so the
+     * web controller's same-page check has nothing to add here.
+     */
+    protected function isPageWrite(): bool
+    {
+        return true;
+    }
 }

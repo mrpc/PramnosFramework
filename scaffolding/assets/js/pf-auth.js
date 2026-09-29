@@ -38,10 +38,14 @@
 
     /** POST a JSON body same-origin (session cookie included). */
     function postJson(url, body) {
+        var headers = { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' };
+        // The page's own token, where the page prints one: the controller accepts either.
+        var meta = document.querySelector('meta[name="csrf"]');
+        if (meta && meta.content) { headers['X-CSRF-Token'] = meta.content; }
         return fetch(url, {
             method: 'POST',
             credentials: 'same-origin',
-            headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+            headers: headers,
             body: JSON.stringify(body || {})
         });
     }

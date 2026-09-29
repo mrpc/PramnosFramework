@@ -108,7 +108,7 @@ $when     = static function ($value): string {
             <?php if ($status !== \Pramnos\Messaging\MassMessage::STATUS_SENT && $total === 0): ?>
             <div class="flex gap-2">
                 <a href="<?php echo adminUrl('MassMessages/edit/') . $id; ?>" style="padding:6px 12px">Edit</a>
-                <a href="<?php echo adminUrl('MassMessages/delete/') . $id; ?>" style="padding:6px 12px;color:#b00">Delete</a>
+                <form method="post" action="<?php echo adminUrl('MassMessages/delete/') . $id; ?>" style="display:inline;margin:0"><?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?><button type="submit" style="padding:6px 12px;color:#b00">Delete</button></form>
             </div>
             <?php endif; ?>
         </div>

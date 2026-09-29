@@ -167,6 +167,9 @@ class LogControllerTest extends TestCase
 
     public function testRotate()
     {
+        // The rotation is a write: the form posts it with the session's token.
+        $_SERVER['REQUEST_METHOD'] = 'POST';
+        $_POST['_csrf_token']      = \Pramnos\Http\Session::getInstance()->getCsrfToken();
         $_POST['action'] = 'rotate';
         $_POST['max_size'] = '0'; // force rotate
         $_POST['max_backups'] = '1';

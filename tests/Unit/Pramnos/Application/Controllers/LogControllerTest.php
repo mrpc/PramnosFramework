@@ -1029,11 +1029,35 @@ class LogControllerTest extends TestCase
     }
 
     /**
+     * Rotating without the form's token rotates nothing.
+     *
+     * The page is a GET and the rotation a POST from its form; only the rotation is a write, so
+     * `rotate` checks the token itself rather than being a declared write action — declared, the
+     * form would not open.
+     */
+    public function testRotatingWithoutTheTokenRotatesNothing(): void
+    {
+        // Arrange — the form's fields, no token
+        $_SERVER['REQUEST_METHOD'] = 'POST';
+        $_POST['action']      = 'rotate';
+        $_POST['files']       = ['php_error.log'];
+
+        // Act
+        $this->controller->rotate();
+
+        // Assert — refused before any view was built
+        $this->assertNull($this->controller->lastView());
+    }
+
+    /**
      * rotate() with action=rotate must attempt rotation on the selected files
      * and expose a per-file results map to the view (file => bool).
      */
     public function testRotateWithAction(): void
     {
+        // The rotation is a write: the form posts it with the session's token.
+        $_SERVER['REQUEST_METHOD'] = 'POST';
+        $_POST['_csrf_token']      = \Pramnos\Http\Session::getInstance()->getCsrfToken();
         // Arrange
         $_POST['action']      = 'rotate';
         $_POST['max_size']    = 10;
@@ -1056,6 +1080,9 @@ class LogControllerTest extends TestCase
      */
     public function testRotateIgnoresNonWhitelistedFiles(): void
     {
+        // The rotation is a write: the form posts it with the session's token.
+        $_SERVER['REQUEST_METHOD'] = 'POST';
+        $_POST['_csrf_token']      = \Pramnos\Http\Session::getInstance()->getCsrfToken();
         // Arrange
         $_POST['action']      = 'rotate';
         $_POST['max_size']    = 10;
@@ -1078,6 +1105,9 @@ class LogControllerTest extends TestCase
      */
     public function testRotateHandlesGitSpecialFiles(): void
     {
+        // The rotation is a write: the form posts it with the session's token.
+        $_SERVER['REQUEST_METHOD'] = 'POST';
+        $_POST['_csrf_token']      = \Pramnos\Http\Session::getInstance()->getCsrfToken();
         // Arrange — inject special filenames via the helper method
         $this->controller->addToWhitelist('GitDeploy');
 

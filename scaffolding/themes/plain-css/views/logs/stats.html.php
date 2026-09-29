@@ -64,9 +64,9 @@ $sURL = adminUrl();
                                     <div style="display:flex;gap:4px">
                                         <a href="<?php echo adminUrl('Logs' . '/viewer/' . (htmlspecialchars($stat['name']))); ?>"
                                            class="btn btn-sm" style="background:#0ea5e9;color:#fff" title="View">View</a>
-                                        <a href="<?php echo adminUrl('Logs' . '/clearFile/' . (htmlspecialchars($stat['name']))); ?>"
+                                        <form method="post" action="<?php echo adminUrl('Logs' . '/clearFile/' . (htmlspecialchars($stat['name']))); ?>" style="display:inline;margin:0"><?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?><button type="submit"
                                            class="btn btn-sm" style="background:#dc2626;color:#fff" title="Clear"
-                                           data-confirm="Are you sure you want to clear this log?">Clear</a>
+                                           data-confirm="Are you sure you want to clear this log?">Clear</button></form>
                                         <a href="<?php echo adminUrl('Logs/raw'); ?>?file=<?php echo htmlspecialchars($stat['name']); ?>"
                                            class="btn btn-sm" style="background:#4b5563;color:#fff" title="Raw View" target="_blank">Raw</a>
                                     </div>

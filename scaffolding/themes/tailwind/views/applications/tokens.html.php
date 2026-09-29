@@ -27,7 +27,7 @@
                         <td class="text-base-content/60 text-xs"><?php echo htmlspecialchars($tok['lastused'] ?? ''); ?></td>
                         <td class="text-base-content/60 text-xs"><?php echo !empty($tok['expires']) ? htmlspecialchars($tok['expires']) : '—'; ?></td>
                         <td class="text-right">
-                            <a href="<?php echo adminUrl('Tokens' . '/revoke/' . ((int)$tok['tokenid'])); ?>" class="btn btn-outline btn-error btn-xs" data-confirm="Revoke token?">Revoke</a>
+                            <form method="post" action="<?php echo adminUrl('Tokens' . '/revoke/' . ((int)$tok['tokenid'])); ?>" style="display:inline;margin:0"><?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?><button type="submit" class="btn btn-outline btn-error btn-xs" data-confirm="Revoke token?">Revoke</button></form>
                         </td>
                     </tr>
                 <?php endforeach; ?>

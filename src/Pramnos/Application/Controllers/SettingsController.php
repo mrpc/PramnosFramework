@@ -74,6 +74,8 @@ class SettingsController extends Controller
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
         $this->addAuthAction(['display', 'saveSystem', 'list', 'edit', 'save', 'delete']);
+        // POST with the session's token, or refused before the action runs: see Controller::exec().
+        $this->addWriteAction(['saveSystem', 'save', 'delete']);
         parent::__construct($application);
     }
 

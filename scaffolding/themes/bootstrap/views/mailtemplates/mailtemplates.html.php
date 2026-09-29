@@ -66,7 +66,7 @@ $e      = static fn ($v): string => htmlspecialchars((string) $v, ENT_QUOTES, 'U
                                 <?php
                                 echo \Pramnos\Html\Icon::link(adminUrl('MailTemplates/view/') . $id, 'view', 'Open this template');
                                 echo \Pramnos\Html\Icon::link(adminUrl('MailTemplates/edit/') . $id, 'edit', 'Edit this template');
-                                echo \Pramnos\Html\Icon::link(
+                                echo \Pramnos\Html\Icon::postButton(
                                     adminUrl('MailTemplates/delete/') . $id,
                                     'delete',
                                     'Delete this template',

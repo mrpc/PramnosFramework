@@ -52,6 +52,7 @@ ksort($initialSteps, SORT_NUMERIC);
     <?php endif; ?>
 
     <form method="post" action="<?php echo adminUrl('settings/saveSystem'); ?>" id="settingsForm">
+        <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
         <input type="hidden" name="settings_active_tab" id="settings_active_tab" value="">
 
         <!-- Tab nav -->

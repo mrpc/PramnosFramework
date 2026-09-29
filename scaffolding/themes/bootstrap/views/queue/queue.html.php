@@ -22,7 +22,7 @@ $filterStatus = htmlspecialchars($_GET['status'] ?? '');
         <h2 class="mb-0">Queue</h2>
         <div class="d-flex gap-2">
             <a href="<?php echo adminUrl('Queue/stats'); ?>" class="btn btn-sm btn-outline-info">Stats</a>
-            <a href="<?php echo adminUrl('Queue/retryall'); ?>" class="btn btn-sm btn-outline-warning" data-confirm="Retry all failed jobs?">Retry All Failed</a>
+            <form method="post" action="<?php echo adminUrl('Queue/retryall'); ?>" style="display:inline;margin:0"><?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?><button type="submit" class="btn btn-sm btn-outline-warning" data-confirm="Retry all failed jobs?">Retry All Failed</button></form>
         </div>
     </div>
     <div class="card mb-3">
@@ -35,10 +35,10 @@ $filterStatus = htmlspecialchars($_GET['status'] ?? '');
                     <?php endforeach; ?>
                 </select>
                 <button class="btn btn-sm btn-outline-secondary">Filter</button>
-                <?php if ($filterStatus === 'failed' || $filterStatus === 'completed' || $filterStatus === 'deleted'): ?>
-                    <a href="<?php echo adminUrl('Queue/clear'); ?>?status=<?php echo $filterStatus; ?>" class="btn btn-sm btn-outline-danger" data-confirm="Clear all <?php echo $filterStatus; ?> jobs?">Clear</a>
-                <?php endif; ?>
             </form>
+            <?php if ($filterStatus === 'failed' || $filterStatus === 'completed' || $filterStatus === 'deleted'): ?>
+                    <form method="post" action="<?php echo adminUrl('Queue/clear'); ?>" style="display:inline;margin:0"><?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?><input type="hidden" name="status" value="<?php echo htmlspecialchars((string) $filterStatus, ENT_QUOTES); ?>"><button type="submit" class="btn btn-sm btn-outline-danger" data-confirm="Clear all <?php echo $filterStatus; ?> jobs?">Clear</button></form>
+                <?php endif; ?>
         </div>
     </div>
     <div class="card">
@@ -64,9 +64,9 @@ $filterStatus = htmlspecialchars($_GET['status'] ?? '');
                         <td class="text-muted small"><?php echo htmlspecialchars($job['nextrun'] ?? ''); ?></td>
                         <td class="text-end">
                             <?php if (($job['status'] ?? '') === 'failed'): ?>
-                                <a href="<?php echo adminUrl('Queue' . '/retry/' . ((int)$job['taskid'])); ?>" class="btn btn-sm btn-outline-warning">Retry</a>
+                                <form method="post" action="<?php echo adminUrl('Queue' . '/retry/' . ((int)$job['taskid'])); ?>" style="display:inline;margin:0"><?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?><button type="submit" class="btn btn-sm btn-outline-warning">Retry</button></form>
                             <?php endif; ?>
-                            <a href="<?php echo adminUrl('Queue' . '/delete/' . ((int)$job['taskid'])); ?>" class="btn btn-sm btn-outline-danger" data-confirm="Delete job?">Delete</a>
+                            <form method="post" action="<?php echo adminUrl('Queue' . '/delete/' . ((int)$job['taskid'])); ?>" style="display:inline;margin:0"><?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?><button type="submit" class="btn btn-sm btn-outline-danger" data-confirm="Delete job?">Delete</button></form>
                         </td>
                     </tr>
                 <?php endforeach; ?>

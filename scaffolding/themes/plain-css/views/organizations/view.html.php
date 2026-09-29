@@ -45,8 +45,8 @@ $skip = ['organization_id', 'name', 'org_type', 'description', 'parent_id',
             <a href="<?php echo adminUrl('Organizations/members/') . $orgId; ?>" class="btn btn-sm btn-outline-secondary">
                 Members<?php echo $this->memberCount > 0 ? ' (' . (int) $this->memberCount . ')' : ''; ?>
             </a>
-            <a href="<?php echo adminUrl('Organizations/delete/') . $orgId; ?>" class="btn btn-sm"
-               data-confirm="Delete this organization?">Delete</a>
+            <form method="post" action="<?php echo adminUrl('Organizations/delete/') . $orgId; ?>" style="display:inline;margin:0"><?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?><button type="submit" class="btn btn-sm"
+               data-confirm="Delete this organization?">Delete</button></form>
         </span>
     </div>
 

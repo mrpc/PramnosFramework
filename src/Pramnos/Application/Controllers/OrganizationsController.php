@@ -44,6 +44,8 @@ class OrganizationsController extends Controller
             'display', 'data', 'view', 'edit', 'save', 'delete',
             'members', 'addmember', 'removemember',
         ]);
+        // POST with the session's token, or refused before the action runs: see Controller::exec().
+        $this->addWriteAction(['save', 'delete', 'addmember', 'removemember']);
         parent::__construct($application);
     }
 
@@ -127,8 +129,8 @@ class OrganizationsController extends Controller
                 : '<span class="pf-state pf-state-off">No</span>';
             $row[]  = Icon::link($viewUrl, 'view', 'View this organization')
                     . Icon::link(adminUrl('organizations/edit/') . $id, 'edit', 'Edit this organization')
-                    . Icon::link(adminUrl('organizations/members/') . $id, 'members', 'Members')
-                    . Icon::link(
+                    . Icon::postButton(adminUrl('organizations/members/') . $id, 'members', 'Members')
+                    . Icon::postButton(
                         adminUrl('organizations/delete/') . $id,
                         'delete',
                         'Delete this organization',

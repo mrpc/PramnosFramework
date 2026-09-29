@@ -47,13 +47,14 @@ $inp = 'width:100%;padding:8px;border:1px solid #ccc;border-radius:4px;box-sizin
     <?php if (!$isNew && !empty($app['apikey'])): ?>
         <div style="background:#d1ecf1;border:1px solid #bee5eb;padding:10px 16px;border-radius:4px;margin-bottom:12px;display:flex;align-items:center;gap:16px">
             <div style="font-size:13px"><strong>Client ID:</strong> <code style="background:#fff;padding:2px 4px;border-radius:3px"><?php echo htmlspecialchars($app['apikey'] ?? ''); ?></code></div>
-            <a href="<?php echo adminUrl('applications' . '/rotate/' . ((int)$app['appid'])); ?>"
+            <form method="post" action="<?php echo adminUrl('applications' . '/rotate/' . ((int)$app['appid'])); ?>" style="display:inline;margin:0"><?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?><button type="submit"
                style="margin-left:auto" class="btn btn-sm btn-outline-warning"
-               data-confirm="Rotate the client secret?">Rotate Secret</a>
+               data-confirm="Rotate the client secret?">Rotate Secret</button></form>
         </div>
     <?php endif; ?>
 
     <form method="post" action="<?php echo adminUrl('applications/save'); ?>">
+        <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
         <?php if (!$isNew): ?>
             <input type="hidden" name="appid" value="<?php echo (int)$app['appid']; ?>">
         <?php endif; ?>

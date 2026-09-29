@@ -13,6 +13,7 @@ $isNew = empty($p['permissionid']);
     <div class="card bg-base-100 border border-base-300 shadow-xs">
         <div class="p-5">
             <form method="post" action="<?php echo adminUrl('Permissions/save'); ?>">
+                <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
                 <?php if (!$isNew): ?>
                     <input type="hidden" name="permissionid" value="<?php echo (int)$p['permissionid']; ?>">
                 <?php endif; ?>

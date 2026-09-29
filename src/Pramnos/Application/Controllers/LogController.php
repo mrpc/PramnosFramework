@@ -98,6 +98,8 @@ class LogController extends Controller
             'viewer'
         ]);
 
+        // POST with the session's token, or refused before the action runs: see Controller::exec().
+        $this->addWriteAction(['clear', 'clearFile']);
         parent::__construct($application);
         
         // Auto-populate the whitelist with any missing log files
@@ -215,7 +217,7 @@ class LogController extends Controller
      * longer emits any HTML for the toolbar — that keeps the log viewer
      * consistent with the active UI theme (tailwind/bootstrap/plain-css).
      *
-     * @return array<int, array{url:string,label:string,variant:string,icon:string,confirm?:string}>
+     * @return array<int, array{url:string,label:string,variant:string,icon:string,confirm?:string,post?:bool}>
      */
     protected function getToolbarLinks(): array
     {
@@ -237,6 +239,8 @@ class LogController extends Controller
                 'variant' => 'danger',
                 'icon'    => 'trash',
                 'confirm' => 'Are you sure you want to clear all logs in the clearList?',
+                // A write: the views render it as a POST form with the session's token.
+                'post'    => true,
             ],
         ];
     }
@@ -482,6 +486,14 @@ class LogController extends Controller
         $selectedFiles = Request::staticGet('files', [], 'post', 'array');
         $results = [];
         
+        // The page is a GET; only the rotation itself is a write, so only it needs the token —
+        // `rotate` cannot be a declared write action, or the form would not open.
+        if (Request::staticGet('action', '', 'post') === 'rotate' && !empty($selectedFiles) && !$this->isVerifiedWrite()) {
+            $this->refuseUnverifiedWrite();
+
+            return;
+        }
+
         if (Request::staticGet('action', '', 'post') === 'rotate' && !empty($selectedFiles)) {
             foreach ($selectedFiles as $file) {
                 if (in_array($file, $this->whitelist)) {

@@ -17,6 +17,7 @@
     <div class="card">
         <div class="card-body">
             <form method="post" action="<?php echo adminUrl('settings/save'); ?>">
+                <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
                 <?php if (!$this->isNew): ?>
                     <input type="hidden" name="original_key" value="<?php echo htmlspecialchars($this->key ?? ''); ?>">
                 <?php endif; ?>

@@ -35,8 +35,8 @@
                         <td class="text-end">
                             <?php if (!($row['readonly'] ?? false)): ?>
                                 <a href="<?php echo adminUrl('settings/edit/'); ?><?php echo urlencode($row['key'] ?? ''); ?>" class="btn btn-sm btn-outline-secondary">Edit</a>
-                                <a href="<?php echo adminUrl('settings/delete/'); ?><?php echo urlencode($row['key'] ?? ''); ?>" class="btn btn-sm btn-outline-danger"
-                                   data-confirm="Delete setting <?php echo htmlspecialchars($row['key'] ?? '', ENT_QUOTES, 'UTF-8'); ?>?">Delete</a>
+                                <form method="post" action="<?php echo adminUrl('settings/delete/'); ?><?php echo urlencode($row['key'] ?? ''); ?>" style="display:inline;margin:0"><?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?><button type="submit" class="btn btn-sm btn-outline-danger"
+                                   data-confirm="Delete setting <?php echo htmlspecialchars($row['key'] ?? '', ENT_QUOTES, 'UTF-8'); ?>?">Delete</button></form>
                             <?php else: ?>
                                 <span class="badge bg-secondary">Read-only</span>
                             <?php endif; ?>

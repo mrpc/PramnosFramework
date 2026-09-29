@@ -55,13 +55,14 @@ $card = 'bg-base-100 rounded-xl shadow-xs border border-base-300 p-5 mb-4';
     <?php if (!$isNew && !empty($app['apikey'])): ?>
         <div class="bg-primary/10 border border-primary rounded-sm px-4 py-3 mb-4 flex items-center gap-4 text-sm">
             <div><strong>Client ID:</strong> <code class="card bg-base-100 border border-base-300 px-1 py-0.5 font-mono"><?php echo htmlspecialchars($app['apikey'] ?? ''); ?></code></div>
-            <a href="<?php echo adminUrl('applications' . '/rotate/' . ((int)$app['appid'])); ?>"
+            <form method="post" action="<?php echo adminUrl('applications' . '/rotate/' . ((int)$app['appid'])); ?>" style="display:inline;margin:0"><?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?><button type="submit"
                class="btn btn-outline btn-warning btn-xs ml-auto"
-               data-confirm="Rotate the client secret?">Rotate Secret</a>
+               data-confirm="Rotate the client secret?">Rotate Secret</button></form>
         </div>
     <?php endif; ?>
 
     <form method="post" action="<?php echo adminUrl('applications/save'); ?>" id="appEditForm">
+        <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
         <?php if (!$isNew): ?>
             <input type="hidden" name="appid" value="<?php echo (int)$app['appid']; ?>">
         <?php endif; ?>

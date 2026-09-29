@@ -49,9 +49,9 @@ $field = static function (string $label, string $value): void {
             <a href="<?php echo adminUrl('Organizations/members/') . $orgId; ?>" class="btn btn-outline btn-sm">
                 Members<?php echo $this->memberCount > 0 ? ' (' . (int) $this->memberCount . ')' : ''; ?>
             </a>
-            <a href="<?php echo adminUrl('Organizations/delete/') . $orgId; ?>"
+            <form method="post" action="<?php echo adminUrl('Organizations/delete/') . $orgId; ?>" style="display:inline;margin:0"><?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?><button type="submit"
                class="btn btn-error btn-outline btn-sm"
-               data-confirm="Delete this organization?">Delete</a>
+               data-confirm="Delete this organization?">Delete</button></form>
         </div>
     </div>
 
