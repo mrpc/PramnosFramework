@@ -52,6 +52,46 @@ class ChangelogWriter implements ListenerInterface
     }
 
     /**
+     * Encode the JSON columns of all three tables on their way through the spool.
+     *
+     * The spool round-trips each row through JSON, so a nested array has to be re-encoded
+     * before it reaches `queryBuilder()->insert()` — without it the drain writes the string
+     * "Array" into a jsonb column, once per row, with no error anywhere. And when the spool
+     * cannot take a row it writes it synchronously, straight away, with the array still in
+     * it. These lived in the service provider's boot(), so a writer used without that
+     * provider — or after `WriteSpool::reset()` — wrote the raw array. Registered here, before
+     * every append, they are always in place. Idempotent.
+     */
+    public static function registerEncoders(): void
+    {
+        WriteSpool::transform(self::TABLE, static fn (array $row): array => self::encodeJson($row, ['changes']));
+        WriteSpool::transform(self::EVENTS_TABLE, static fn (array $row): array => self::encodeJson($row, ['details']));
+        WriteSpool::transform(self::TRACE_TABLE, static fn (array $row): array => self::encodeJson($row, ['context']));
+    }
+
+    /**
+     * JSON-encode the named columns, leaving a null null.
+     *
+     * `null` matters: these columns are nullable, and `json_encode(null)` is the string
+     * `"null"` — which a database stores as a JSON null rather than as SQL NULL, so
+     * `WHERE details IS NULL` stops matching rows that have no details.
+     *
+     * @param  array<string, mixed> $row
+     * @param  list<string>         $columns
+     * @return array<string, mixed>
+     */
+    protected static function encodeJson(array $row, array $columns): array
+    {
+        foreach ($columns as $column) {
+            if (isset($row[$column]) && is_array($row[$column])) {
+                $row[$column] = json_encode($row[$column], JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            }
+        }
+
+        return $row;
+    }
+
+    /**
      * Append one change to the spool.
      *
      * Failure is swallowed and logged. The write it describes has already committed, and
@@ -64,6 +104,8 @@ class ChangelogWriter implements ListenerInterface
         if (!$change instanceof ModelChange) {
             return null;
         }
+
+        static::registerEncoders();
 
         try {
             WriteSpool::append(self::TABLE, [

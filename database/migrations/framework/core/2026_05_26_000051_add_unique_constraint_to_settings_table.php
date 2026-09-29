@@ -31,6 +31,13 @@ class AddUniqueConstraintToSettingsTable extends Migration
     {
         $caps = $this->DB()->schema()->getCapabilities();
 
+        // Already there: nothing to do. MySQL has no ADD INDEX IF NOT EXISTS, so without this a
+        // second run failed on "Duplicate key name" — which a migration re-applied to bring a
+        // table to its production shape (Testing\Schema) does every time.
+        if ($this->DB()->schema()->hasIndex('#PREFIX#settings', 'uq_settings_name')) {
+            return;
+        }
+
         /*
          * Check the data before dropping the index that is protecting it.
          *

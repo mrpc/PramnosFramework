@@ -1964,6 +1964,8 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
     public function logEvent($event, array $details = array(), $logtype = 0, $description = null)
     {
         try {
+            // `details` is an array; the writer's encoders turn it into JSON on the way.
+            \Pramnos\Changelog\ChangelogWriter::registerEncoders();
             \Pramnos\Database\WriteSpool::append(
                 \Pramnos\Changelog\ChangelogWriter::EVENTS_TABLE,
                 array(
