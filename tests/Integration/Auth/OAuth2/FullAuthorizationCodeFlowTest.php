@@ -587,6 +587,88 @@ class FullAuthorizationCodeFlowTest extends TestCase
     }
 
     /**
+     * With `openid`, the token response carries an ID token: signed with the server's key,
+     * headed with the JWKS `kid`, and carrying the nonce the client sent to /oauth/authorize.
+     *
+     * The discovery document advertised ID tokens and none was ever issued, so an OpenID
+     * Connect client got an access token and nothing that said who had signed in. The nonce is
+     * what lets the client tie the answer to the request it made; it travels with the code,
+     * since League's encrypted code has no room for it.
+     */
+    public function testOpenidGetsAnIdTokenCarryingTheNonce(): void
+    {
+        // Arrange — a code from the controller, for `openid email`, with a nonce
+        $this->runMigrations([\Pramnos\Framework\Migrations\Auth\CreateUserdetailsTable::class], $this->db);
+        $factory = $this->factory();
+        $oauth   = (new \ReflectionClass(\Pramnos\Auth\Controllers\Oauth::class))->newInstanceWithoutConstructor();
+        $oauth->application = $this->app;
+        (new \ReflectionProperty($oauth, 'oauth2Factory'))->setValue($oauth, $factory);
+        $verifier  = rtrim(strtr(base64_encode(random_bytes(32)), '+/', '-_'), '=');
+        $challenge = rtrim(strtr(base64_encode(hash('sha256', $verifier, true)), '+/', '-_'), '=');
+        $code = (new \ReflectionMethod($oauth, 'generateAuthCode'))->invoke(
+            $oauth, self::CLIENT_ID, self::USER_ID, 'openid email', self::REDIRECT_URI, $challenge, 'S256', 'n-0S6_WzA2Mj'
+        );
+
+        // Act — redeemed as the token endpoint redeems it
+        $response = $factory->redeemingCode($code)->createAuthorizationServer()->respondToAccessTokenRequest(
+            (new ServerRequest('POST', 'https://self.test/oauth/token'))->withParsedBody([
+                'grant_type' => 'authorization_code', 'client_id' => self::CLIENT_ID,
+                'client_secret' => self::CLIENT_SECRET, 'code' => $code,
+                'redirect_uri' => self::REDIRECT_URI, 'code_verifier' => $verifier,
+            ]),
+            new Psr7Response()
+        );
+        $tokens = json_decode((string) $response->getBody(), true);
+
+        // Assert — present, verifiable with the server's public key, and saying the right things
+        $this->assertSame(200, $response->getStatusCode(), (string) $response->getBody());
+        $this->assertArrayHasKey('id_token', $tokens);
+        [$header] = explode('.', $tokens['id_token']);
+        $this->assertSame('auth-key-1', json_decode((string) base64_decode(strtr($header, '-_', '+/')), true)['kid'], 'the kid the JWKS publishes');
+        $claims = \Pramnos\Auth\JWT::decode($tokens['id_token'], (string) file_get_contents(self::$keyDir . '/public.key'), ['RS256']);
+        $claims = (array) $claims;
+        $this->assertSame((string) self::USER_ID, (string) $claims['sub']);
+        $this->assertSame(self::CLIENT_ID, is_array($claims['aud']) ? $claims['aud'][0] : $claims['aud']);
+        $this->assertSame('n-0S6_WzA2Mj', $claims['nonce']);
+        $this->assertSame('e2e-oauth@example.test', $claims['email'], 'the scope claims, as userinfo gives them');
+        $this->assertArrayHasKey('auth_time', $claims);
+        $this->assertSame(defined('sURL') ? sURL : '', $claims['iss'], 'the issuer the discovery document names');
+    }
+
+    /**
+     * Without `openid` there is no ID token: nobody asked for one.
+     */
+    public function testWithoutOpenidThereIsNoIdToken(): void
+    {
+        // Arrange
+        $factory = $this->factory();
+        $oauth   = (new \ReflectionClass(\Pramnos\Auth\Controllers\Oauth::class))->newInstanceWithoutConstructor();
+        $oauth->application = $this->app;
+        (new \ReflectionProperty($oauth, 'oauth2Factory'))->setValue($oauth, $factory);
+        $verifier  = rtrim(strtr(base64_encode(random_bytes(32)), '+/', '-_'), '=');
+        $challenge = rtrim(strtr(base64_encode(hash('sha256', $verifier, true)), '+/', '-_'), '=');
+        $code = (new \ReflectionMethod($oauth, 'generateAuthCode'))->invoke(
+            $oauth, self::CLIENT_ID, self::USER_ID, 'read', self::REDIRECT_URI, $challenge, 'S256'
+        );
+
+        // Act
+        $tokens = json_decode((string) $factory->redeemingCode($code)->createAuthorizationServer()->respondToAccessTokenRequest(
+            (new ServerRequest('POST', 'https://self.test/oauth/token'))->withParsedBody([
+                'grant_type' => 'authorization_code', 'client_id' => self::CLIENT_ID,
+                'client_secret' => self::CLIENT_SECRET, 'code' => $code,
+                'redirect_uri' => self::REDIRECT_URI, 'code_verifier' => $verifier,
+            ]),
+            new Psr7Response()
+        )->getBody(), true);
+
+        // Assert
+        $this->assertArrayHasKey('access_token', $tokens);
+        $this->assertArrayNotHasKey('id_token', $tokens);
+        $this->assertSame([], \Pramnos\Auth\OAuth2\Repositories\AuthCodeRepository::contextOf('no-such-code'));
+        $this->assertSame($factory, $factory->redeemingCode('not-a-code'), 'a code that does not decrypt carries nothing');
+    }
+
+    /**
      * The token endpoint refuses a scope outside the client's Allowed Scopes, for every grant.
      *
      * Through `ScopeRepository::finalizeScopes()`, which every League grant calls — so a
@@ -840,6 +922,8 @@ class FullAuthorizationCodeFlowTest extends TestCase
             // hashes; `User\Token::storageFor()` writes it on every insert, so the
             // server cannot persist an authorization code without the column.
             \Pramnos\Framework\Migrations\Auth\AddTokenLookupToUsertokens::class,
+            // The nonce and auth_time an authorization request leaves for its ID token.
+            \Pramnos\Framework\Migrations\Auth\AddOidcContextToUsertokens::class,
             \Pramnos\Framework\Migrations\AuthServer\CreateApplicationsTable::class,
             // The client's redirect URI is longer than the original column, and the
             // server compares it character for character.

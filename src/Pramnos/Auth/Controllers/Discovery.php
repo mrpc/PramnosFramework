@@ -46,15 +46,13 @@ class Discovery extends Controller
             'jwks_uri'                             => sURL . '.well-known/jwks.json',
             'end_session_endpoint'                 => sURL . 'logout',
 
-            'response_types_supported' => [
-                'code', 'token', 'id_token',
-                'code id_token', 'code token',
-                'id_token token', 'code id_token token',
-            ],
-            'response_modes_supported' => ['query', 'fragment', 'form_post'],
+            // What the endpoints actually do: the authorization-code flow, answered in the query,
+            // with the ID token from the token endpoint. The implicit and hybrid response types
+            // were listed and every one of them was refused.
+            'response_types_supported' => ['code'],
+            'response_modes_supported' => ['query'],
             'grant_types_supported'    => [
-                'authorization_code', 'client_credentials',
-                'password', 'refresh_token', 'implicit',
+                'authorization_code', 'client_credentials', 'password', 'refresh_token',
             ],
             'scopes_supported'                          => array_keys(Scopes::getScopeDescriptions()),
             'token_endpoint_auth_methods_supported'     => [
@@ -63,20 +61,20 @@ class Discovery extends Controller
             ],
             'subject_types_supported'                   => ['public'],
             'id_token_signing_alg_values_supported'     => ['RS256'],
-            'userinfo_signing_alg_values_supported'     => ['RS256', 'none'],
+            'userinfo_signing_alg_values_supported'     => ['none'],
             'request_parameter_supported'               => false,
             'request_uri_parameter_supported'           => false,
             'claims_supported'                          => [
-                'sub', 'iss', 'aud', 'exp', 'iat',
-                'name', 'email', 'email_verified',
-                'preferred_username', 'given_name', 'family_name', 'locale',
+                'sub', 'iss', 'aud', 'exp', 'iat', 'auth_time', 'nonce',
+                'name', 'given_name', 'family_name', 'preferred_username', 'updated_at', 'picture', 'website',
+                'email', 'email_verified', 'phone_number',
             ],
             'revocation_endpoint'                       => sURL . 'oauth/revoke',
             'introspection_endpoint'                    => sURL . 'oauth/introspect',
             'frontchannel_logout_supported'             => false,
             'frontchannel_logout_session_supported'     => false,
-            'backchannel_logout_supported'              => true,
-            'backchannel_logout_session_supported'      => true,
+            'backchannel_logout_supported'              => false,
+            'backchannel_logout_session_supported'      => false,
             'code_challenge_methods_supported'          => ['S256', 'plain'],
             'service_documentation'                     => sURL . 'docs',
             'ui_locales_supported'                      => ['en', 'el'],

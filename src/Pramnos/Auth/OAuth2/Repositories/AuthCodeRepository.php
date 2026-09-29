@@ -20,9 +20,56 @@ class AuthCodeRepository implements AuthCodeRepositoryInterface
 {
     private \Pramnos\Application\Controller $controller;
 
+    /** @var array{nonce?: string, auth_time?: int} */
+    private array $context = [];
+
     public function __construct(\Pramnos\Application\Controller $controller)
     {
         $this->controller = $controller;
+    }
+
+    /**
+     * What the authorization request said, stored with the next code for its ID token.
+     *
+     * @param array{nonce?: string, auth_time?: int} $context
+     */
+    public function setContext(array $context): void
+    {
+        $this->context = $context;
+    }
+
+    /**
+     * The context a code was issued with, by the code's id; empty when it has none.
+     *
+     * @return array{nonce?: string, auth_time?: int}
+     */
+    public static function contextOf(string $codeId): array
+    {
+        $db = \Pramnos\Framework\Factory::getDatabase();
+        if (!self::storesContext()) {
+            return [];
+        }
+
+        $row = $db->queryBuilder()->table('#PREFIX#usertokens')
+            ->select(['oidc_context'])
+            ->where('token_lookup', \Pramnos\User\Token::lookup($codeId))
+            ->where('tokentype', 'auth_code')
+            ->first();
+        $context = $row && $row->numRows > 0 ? json_decode((string) $row->fields['oidc_context'], true) : null;
+
+        return is_array($context) ? $context : [];
+    }
+
+    /** Whether `usertokens` has the column — an installation that has not migrated issues codes without it. */
+    private static function storesContext(): bool
+    {
+        try {
+            $schema = \Pramnos\Framework\Factory::getDatabase()->schema();
+
+            return $schema !== null && $schema->hasColumn('#PREFIX#usertokens', 'oidc_context');
+        } catch (\Throwable) {
+            return false;
+        }
     }
 
     /**
@@ -64,7 +111,9 @@ class AuthCodeRepository implements AuthCodeRepositoryInterface
                 'expires'       => $expires,
                 'notes'         => (string) $authCodeEntity->getRedirectUri(),
                 'deviceinfo'    => '',
-            ]);
+            ] + ($this->context !== [] && self::storesContext()
+                ? ['oidc_context' => json_encode($this->context)]
+                : []));
     }
 
     /**

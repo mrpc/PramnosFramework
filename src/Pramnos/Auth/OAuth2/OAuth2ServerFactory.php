@@ -42,6 +42,12 @@ class OAuth2ServerFactory
     private \Pramnos\Application\Controller $controller;
     private ?string $resource = null;
 
+    /** @var array{nonce?: string, auth_time?: int} What an authorization request said, for its code. */
+    private array $authorizationContext = [];
+
+    /** @var array{nonce?: string, auth_time?: int} What the code being redeemed carried. */
+    private array $redeemedContext = [];
+
     /**
      * Where the signing key pair lives when nothing says otherwise.
      *
@@ -86,6 +92,7 @@ class OAuth2ServerFactory
         $scopeRepo        = new ScopeRepository();
         $accessTokenRepo  = new AccessTokenRepository($this->controller, $this->resource);
         $authCodeRepo     = new AuthCodeRepository($this->controller);
+        $authCodeRepo->setContext($this->authorizationContext);
         $refreshTokenRepo = new RefreshTokenRepository($this->controller);
         $userRepo         = new UserRepository();
 
@@ -94,7 +101,8 @@ class OAuth2ServerFactory
             $accessTokenRepo,
             $scopeRepo,
             new CryptKey($this->privateKeyPath, null, false),
-            $this->encryptionKey
+            $this->encryptionKey,
+            $this->makeResponseType()
         );
 
         $server->enableGrantType(
@@ -135,6 +143,58 @@ class OAuth2ServerFactory
         $this->resource = $resource;
 
         return $this;
+    }
+
+    /**
+     * Remember what an authorization request said — its `nonce`, when the user authenticated —
+     * so the code issued next carries it to the ID token.
+     *
+     * @param array{nonce?: string, auth_time?: int} $context
+     */
+    public function withAuthorizationContext(array $context): static
+    {
+        $this->authorizationContext = array_filter($context, static fn ($v): bool => $v !== '' && $v !== null && $v !== 0);
+
+        return $this;
+    }
+
+    /**
+     * The code about to be redeemed: read what its authorization request said, for the ID token.
+     *
+     * The code is League's encrypted payload; decrypted here with the same key only to find the
+     * code's id, and its row's `oidc_context`. A code that does not decrypt carries nothing, and
+     * League refuses it a moment later.
+     */
+    public function redeemingCode(string $code): static
+    {
+        $this->redeemedContext = [];
+        try {
+            $payload = json_decode(\Defuse\Crypto\Crypto::decryptWithPassword($code, $this->encryptionKey), true);
+            $codeId  = is_array($payload) ? (string) ($payload['auth_code_id'] ?? '') : '';
+            if ($codeId !== '') {
+                $this->redeemedContext = AuthCodeRepository::contextOf($codeId);
+            }
+        } catch (\Throwable) {
+            // Not ours to refuse: the grant does that, with the right error.
+        }
+
+        return $this;
+    }
+
+    /**
+     * The token response: the bearer response with an ID token for `openid`.
+     *
+     * Protected, so an application that shapes its responses differently can override it.
+     */
+    protected function makeResponseType(): \League\OAuth2\Server\ResponseTypes\ResponseTypeInterface
+    {
+        $response = new \Pramnos\Auth\OAuth2\ResponseTypes\IdTokenResponse(
+            $this->privateKeyPath,
+            defined('sURL') ? (string) \sURL : ''
+        );
+        $response->setAuthorizationContext($this->redeemedContext);
+
+        return $response;
     }
 
     /**

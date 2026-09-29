@@ -299,13 +299,8 @@ token endpoint answers `invalid_scope`:
 }
 ```
 
-> **Before 2026-08-26 that happened for scopes that *were* in it.** The token
-> endpoint validated against four identifiers of its own — `read`, `write`,
-> `admin`, `user` — while discovery published the framework's scope registry. Of
-> twelve advertised scopes, eleven were refused, `openid` among them: OpenID
-> Connect could not be used at all against a server whose own discovery document
-> said it could. Both sides read from the registry now, and the four older
-> identifiers are still accepted.
+> The token endpoint and the discovery document read the same scope registry, and the four
+> older identifiers — `read`, `write`, `admin`, `user` — are still accepted.
 
 ## 2. Registering your application
 
@@ -637,8 +632,28 @@ grant_type=authorization_code
 &code_verifier=THE_ORIGINAL_VERIFIER
 ```
 
-You receive an `access_token` (and an `id_token` when `openid` was requested).
-Fetch profile claims from `GET /oauth/userinfo` with the access token.
+You receive an `access_token`, and an `id_token` when `openid` was granted. Fetch the
+same profile claims later from `GET /oauth/userinfo` with the access token.
+
+### The ID token
+
+A JWT signed RS256 with the server's key, its header naming the `kid` that `jwks_uri` publishes,
+so it verifies the way the access token does. Check the signature, then:
+
+| Claim | Is |
+| --- | --- |
+| `iss` | exactly the discovery document's `issuer` |
+| `aud` | your client id |
+| `sub` | the user's id — the same `sub` as `/oauth/userinfo` |
+| `exp`, `iat` | its expiry (the access token's) and when it was issued |
+| `nonce` | the `nonce` you sent to `/oauth/authorize`, unchanged — compare it with yours |
+| `auth_time` | when the user signed in; on a code, not on a refresh |
+| scope claims | `email` → `email`, `email_verified`; `profile` → `name`, `given_name`, `family_name`, `preferred_username`, `updated_at`, `picture`, `website`; `phone` → `phone_number` |
+
+Send a `nonce` (up to 255 characters) on the authorization request: it is carried with the code
+and returned in the ID token, which is how you know the answer belongs to the request you made. A
+refresh with `openid` returns a new ID token without one. Only the authorization-code flow issues
+ID tokens — `response_types_supported` is `code`, answered in the query.
 
 The same token authenticates calls to this installation's API — send it as
 `Authorization: Bearer <access_token>` — and `GET /oauth/userinfo`. The server stores an access

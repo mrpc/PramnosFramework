@@ -312,6 +312,9 @@ class Oauth extends Controller
             $psrRequest  = $this->buildPsrServerRequest($psrFactory);
             $psrResponse = $psrFactory->createResponse();
 
+            if (($_POST['grant_type'] ?? '') === 'authorization_code' && is_string($_POST['code'] ?? null)) {
+                $this->oauth2Factory->redeemingCode($_POST['code']);
+            }
             $authServer  = $this->oauth2Factory->createAuthorizationServer();
             $psrResponse = $authServer->respondToAccessTokenRequest($psrRequest, $psrResponse);
 
@@ -1232,6 +1235,8 @@ class Oauth extends Controller
             'state'                 => (string) ($get['state']                 ?? ''),
             'code_challenge'        => (string) ($get['code_challenge']        ?? ''),
             'code_challenge_method' => (string) ($get['code_challenge_method'] ?? 'plain'),
+            // OpenID Connect: echoed in the ID token, so the client can tie it to its request.
+            'nonce'                 => substr((string) ($get['nonce'] ?? ''), 0, 255),
         ];
     }
 
@@ -1356,7 +1361,8 @@ class Oauth extends Controller
             $params['scope'],
             $params['redirect_uri'],
             $params['code_challenge']     !== '' ? $params['code_challenge']     : null,
-            $params['code_challenge_method'] !== '' ? $params['code_challenge_method'] : null
+            $params['code_challenge_method'] !== '' ? $params['code_challenge_method'] : null,
+            (string) ($params['nonce'] ?? '')
         );
 
         // Verbose-only, and never the code itself: `usertokens` already holds the row with
@@ -1606,9 +1612,17 @@ class Oauth extends Controller
         string $scope,
         string $redirectUri,
         ?string $codeChallenge       = null,
-        ?string $codeChallengeMethod = null
+        ?string $codeChallengeMethod = null,
+        string  $nonce               = ''
     ): string {
         $this->oauth2Factory ??= new OAuth2ServerFactory($this);
+
+        // For the ID token: the nonce the client sent, and when this person signed in.
+        $signedIn = (int) (\Pramnos\User\User::getCurrentUser()->lastlogin ?? 0);
+        $this->oauth2Factory->withAuthorizationContext([
+            'nonce'     => $nonce,
+            'auth_time' => $signedIn > 0 ? $signedIn : time(),
+        ]);
 
         $client = (new \Pramnos\Auth\OAuth2\Repositories\ClientRepository($this))->getClientEntity($clientId);
         if ($client === null) {
@@ -1672,45 +1686,7 @@ class Oauth extends Controller
      */
     private function buildUserInfoPayload(int $userId, array $scopes): array
     {
-        $db     = \Pramnos\Framework\Factory::getDatabase();
-        $result = $db->queryBuilder()
-            ->table('#PREFIX#users')
-            ->where('userid', $userId)
-            ->where('active', 1)
-            ->first();
-
-        if (!$result || $result->numRows == 0) {
-            return ['sub' => (string) $userId];
-        }
-
-        $u       = (array) $result->fields;
-        $payload = ['sub' => (string) $userId];
-
-        if (in_array('email', $scopes, true)) {
-            $payload['email']          = $u['email'] ?? '';
-            $payload['email_verified'] = isset($u['validated']) && in_array((int) $u['validated'], [1, 3], true);
-        }
-
-        if (in_array('profile', $scopes, true)) {
-            $payload['name']               = trim(($u['firstname'] ?? '') . ' ' . ($u['lastname'] ?? ''));
-            $payload['given_name']         = $u['firstname']  ?? '';
-            $payload['family_name']        = $u['lastname']   ?? '';
-            $payload['preferred_username'] = $u['username']   ?? '';
-            $payload['updated_at']         = $u['modified']   ?? null;
-            $payload['picture']            = $u['avatarurl']  ?? null;
-            $payload['website']            = $u['website']    ?? null;
-        }
-
-        if (in_array('phone', $scopes, true)) {
-            $payload['phone_number'] = $u['mobile'] ?? $u['phone'] ?? null;
-        }
-
-        if (in_array('user', $scopes, true)) {
-            $payload['maingroup'] = $u['maingroup'] ?? null;
-            $payload['regdate']   = $u['regdate']   ?? null;
-        }
-
-        return $payload;
+        return \Pramnos\Auth\OAuth2\UserClaims::for($userId, $scopes);
     }
 
     // ── Consent store ─────────────────────────────────────────────────────────

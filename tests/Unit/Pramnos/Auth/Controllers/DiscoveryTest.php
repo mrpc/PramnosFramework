@@ -74,6 +74,29 @@ class DiscoveryTest extends TestCase
         $this->assertArrayHasKey('token_endpoint', $json);
     }
 
+    /**
+     * The discovery document advertises what the server does, and nothing it does not.
+     *
+     * It listed the implicit and hybrid response types, fragment and form_post modes, the implicit
+     * grant and back-channel logout; the authorization endpoint refuses every response type but
+     * `code`, and no back-channel logout is sent. A client that picks from the document must get
+     * something that works. The ID token's own claims are listed now that it is issued.
+     */
+    public function testTheDocumentAdvertisesOnlyWhatWorks(): void
+    {
+        // Act
+        $json = json_decode($this->responseBody(fn () => $this->controller->configuration()), true);
+
+        // Assert
+        $this->assertSame(['code'], $json['response_types_supported']);
+        $this->assertSame(['query'], $json['response_modes_supported']);
+        $this->assertNotContains('implicit', $json['grant_types_supported']);
+        $this->assertFalse($json['backchannel_logout_supported']);
+        $this->assertContains('nonce', $json['claims_supported']);
+        $this->assertContains('auth_time', $json['claims_supported']);
+        $this->assertSame(['RS256'], $json['id_token_signing_alg_values_supported']);
+    }
+
     public function testJwksReturnsEmptyWhenNoKeyFile(): void
     {
         if (file_exists($this->publicKeyPath)) {
