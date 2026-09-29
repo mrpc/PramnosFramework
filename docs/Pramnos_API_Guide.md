@@ -666,8 +666,17 @@ Patterns are globs matched against the request path, query string ignored. Overr
 `Api::publicApiPaths()` instead when the list is computed rather than written.
 
 **These addresses are open to the internet.** The framework stops asking for a key and
-asks nothing else, so whatever the endpoint needs — a signature, a one-time code, a rate
+requires nothing else, so whatever the endpoint needs — a signature, a one-time code, a rate
 limit — is the endpoint's own job. List exact routes rather than a prefix that will grow.
+
+**A bearer token still counts on them.** One that verifies makes its user the caller, exactly
+as on a keyed route; one that does not leaves the call anonymous rather than refused, since
+the endpoint is open and what an anonymous caller gets is its decision. With no token nothing
+changes — the endpoint reads whatever it always read.
+
+`/<version>/mcp` is on the list without being declared. A remote MCP connector has no key to
+send, and the endpoint answers an unauthenticated call with the `401` that tells the client
+where to get a token — see the [MCP guide](Pramnos_MCP_Guide.md#authentication-is-the-one-this-server-already-does).
 
 A request that cannot say what path it is on is **not** public: the decision reads the
 request's own URI, not the process-wide static, because a static answers with whatever was

@@ -158,6 +158,44 @@ class InitRewriteRulesTest extends TestCase
     }
 
     /**
+     * The path-suffixed protected-resource address reaches Discovery with its suffix.
+     *
+     * RFC 9728 §3.1 names one endpoint's metadata by appending its path, and the MCP
+     * endpoint's `401` points there. Without the rule the address falls through to the
+     * catch-all and an MCP client stops at a 404 — one of the gaps glideday measured.
+     */
+    public function testTheSuffixedProtectedResourcePathPassesItsSuffix(): void
+    {
+        // Act
+        $htaccess = $this->scaffoldHtaccess(['--features' => 'auth,authserver']);
+
+        // Assert — the suffix is captured and handed over as resource_path
+        $this->assertStringContainsString(
+            'RewriteRule ^\\.well-known/oauth-protected-resource/(.+)$ '
+            . 'index.php?r=Discovery/oauthProtectedResource&resource_path=$1 [L]',
+            $htaccess
+        );
+    }
+
+    /**
+     * An authserver project opens dynamic client registration in `app.php`.
+     *
+     * `authserver` scaffolds the MCP endpoint, and a remote MCP client registers itself before
+     * it signs in — so a project generated without this line has an endpoint nobody outside
+     * the machine can connect to. A project without `authserver` has nothing to register for.
+     */
+    public function testAnAuthserverProjectOpensDynamicRegistration(): void
+    {
+        // Act
+        $this->scaffoldHtaccess(['--features' => 'auth,authserver']);
+        $config = (string) file_get_contents($this->tmpDir . '/app/app.php');
+
+        // Assert
+        $this->assertStringContainsString("'oauth_dynamic_registration' => true", $config);
+        $this->assertTrue((include $this->tmpDir . '/app/app.php')['oauth_dynamic_registration']);
+    }
+
+    /**
      * The specific rules come before the catch-all.
      *
      * `mod_rewrite` runs rules in order and the catch-all matches everything, so

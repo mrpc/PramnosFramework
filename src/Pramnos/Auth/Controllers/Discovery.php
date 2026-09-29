@@ -73,7 +73,6 @@ class Discovery extends Controller
             ],
             'revocation_endpoint'                       => sURL . 'oauth/revoke',
             'introspection_endpoint'                    => sURL . 'oauth/introspect',
-            'registration_endpoint'                     => sURL . 'register',
             'frontchannel_logout_supported'             => false,
             'frontchannel_logout_session_supported'     => false,
             'backchannel_logout_supported'              => true,
@@ -82,6 +81,8 @@ class Discovery extends Controller
             'service_documentation'                     => sURL . 'docs',
             'ui_locales_supported'                      => ['en', 'el'],
         ];
+
+        $config += $this->registrationEndpoint();
 
         /**
          * The response is the document, not an echo.
@@ -181,9 +182,17 @@ class Discovery extends Controller
      * already knows. Without this document that chain stops at the first step, and the endpoint
      * is reachable only by a client somebody configured by hand.
      *
-     * `resource` is the identifier a token is *audience-bound* to. It is the site root here
-     * rather than one path, because every protected endpoint this installation serves belongs to
-     * the same resource — the tokens are the same tokens.
+     * `resource` is the identifier a token is *audience-bound* to. At the bare address it is the
+     * site root, because every protected endpoint this installation serves takes the same tokens.
+     *
+     * ### The path-suffixed form names one endpoint
+     *
+     * RFC 9728 §3.1 puts a resource's metadata at the well-known path with the resource's own
+     * path appended — `/.well-known/oauth-protected-resource/api/1.0/mcp` describes
+     * `https://host/api/1.0/mcp` — and §3.3 has the client check that `resource` is the URL it
+     * started from. MCP clients do check, so the endpoint's `401` points at this form and the
+     * document answers with that endpoint as its `resource`. The rewrite rule passes the suffix
+     * as `resource_path`.
      */
     public function oauthProtectedResource(): void
     {
@@ -193,8 +202,22 @@ class Discovery extends Controller
         header('Content-Type: application/json');
         header('Cache-Control: public, max-age=3600');
 
+        $suffix = trim((string) ($_GET['resource_path'] ?? ''), '/');
+
+        // Only characters a path can carry unencoded, and no `..`. Anything else is not an
+        // endpoint of this site, and echoing it into a document served to anybody is not a
+        // favour to whoever asked.
+        if ($suffix !== '' && (!preg_match('#^[A-Za-z0-9._~\-/]+$#', $suffix) || str_contains($suffix, '..'))) {
+            http_response_code(404);
+            \Pramnos\Framework\Factory::getDocument('raw')->setContent(
+                (string) json_encode(['error' => 'not_found'])
+            );
+
+            return;
+        }
+
         $metadata = [
-            'resource'                 => rtrim(sURL, '/'),
+            'resource'                 => $suffix === '' ? rtrim(sURL, '/') : self::origin() . '/' . $suffix,
             'authorization_servers'    => [rtrim(sURL, '/')],
             'scopes_supported'         => array_keys(Scopes::getScopeDescriptions()),
             // The only method this framework accepts. Saying so keeps a client from trying the
@@ -225,23 +248,81 @@ class Discovery extends Controller
             'issuer'                                => sURL,
             'authorization_endpoint'                => sURL . 'oauth/authorize',
             'token_endpoint'                        => sURL . 'oauth/token',
-            'registration_endpoint'                 => sURL . 'register',
             'scopes_supported'                      => array_keys(Scopes::getScopeDescriptions()),
             'response_types_supported'              => ['code', 'token'],
             'grant_types_supported'                 => [
                 'authorization_code', 'client_credentials',
                 'password', 'refresh_token',
             ],
+            // `none` is a public client — a desktop or browser assistant that cannot keep a
+            // secret and proves itself with PKCE instead. An MCP client reads this list and
+            // the next one before it will start, and gives up if either says no.
             'token_endpoint_auth_methods_supported' => [
-                'client_secret_basic', 'client_secret_post',
+                'client_secret_basic', 'client_secret_post', 'none',
             ],
+            'code_challenge_methods_supported'      => ['S256', 'plain'],
             'revocation_endpoint'                   => sURL . 'oauth/revoke',
             'introspection_endpoint'                => sURL . 'oauth/introspect',
         ];
 
+        $metadata += $this->registrationEndpoint();
+
         \Pramnos\Framework\Factory::getDocument('raw')->setContent(
             (string) json_encode($metadata, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
         );
+    }
+
+    /**
+     * Where a client registers itself (RFC 7591), when this installation lets it.
+     *
+     * Absent otherwise — not pointed at the sign-up page for people, which answers a JSON
+     * registration with `200` and HTML, and a client reading that has no way to tell it failed.
+     *
+     * @return array<string, string>
+     */
+    private function registrationEndpoint(): array
+    {
+        return Oauth::registrationIsOpen($this->application)
+            ? ['registration_endpoint' => sURL . 'oauth/register']
+            : [];
+    }
+
+    /**
+     * The absolute URL of the protected-resource metadata for one endpoint of this site.
+     *
+     * `/api/1.0/mcp` becomes `https://host/.well-known/oauth-protected-resource/api/1.0/mcp` —
+     * the RFC 9728 §3.1 form, which {@see oauthProtectedResource()} answers with that endpoint
+     * as its `resource`. One builder for both halves, so the address a `401` points at and the
+     * identifier the document states cannot drift apart.
+     *
+     * @param string $path The endpoint's path from the host root; empty for the site as a whole.
+     */
+    public static function protectedResourceMetadataUrl(string $path): string
+    {
+        $path = trim($path, '/');
+
+        return self::origin() . '/.well-known/oauth-protected-resource' . ($path === '' ? '' : '/' . $path);
+    }
+
+    /**
+     * `scheme://host[:port]` of the site, with no path.
+     *
+     * The well-known location is defined against the host, not the directory a site is served
+     * from.
+     *
+     * ponytail: a site served from a subdirectory needs its host root to route
+     * `/.well-known/oauth-protected-resource/*` to it — the scaffolded `.htaccess` sits in the
+     * subdirectory and will not see it.
+     */
+    private static function origin(): string
+    {
+        $parts = parse_url(\Pramnos\Http\SiteUrl::get());
+
+        if (!is_array($parts) || !isset($parts['scheme'], $parts['host'])) {
+            return '';
+        }
+
+        return $parts['scheme'] . '://' . $parts['host'] . (isset($parts['port']) ? ':' . $parts['port'] : '');
     }
 
     /**

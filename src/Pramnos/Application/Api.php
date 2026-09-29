@@ -349,7 +349,10 @@ class Api extends Application
             apiKeyChecker: [$this, 'checkApiKey'],
             authKey:       $this->authenticationKey,
             appNamespace:  $this->applicationInfo['namespace'] ?? null,
-            publicPaths:   $this->publicApiPaths(),
+            // The MCP endpoint is always open to a caller without a key: a remote connector
+            // has none to send, and the controller refuses an unauthenticated call itself,
+            // with the 401 that tells the client where to get a token.
+            publicPaths:   [...$this->publicApiPaths(), '/' . static::version() . '/mcp'],
         ));
 
         $request   = \Pramnos\Framework\Factory::getRequest();

@@ -65,7 +65,7 @@ class McpController extends Controller
             return $this->json([
                 'error'    => 'method_not_allowed',
                 'detail'   => 'This endpoint speaks JSON-RPC over POST.',
-                'resource' => rtrim(sURL, '/') . '/.well-known/oauth-protected-resource',
+                'resource' => $this->resourceMetadataUrl(),
             ], 405);
         }
 
@@ -195,6 +195,23 @@ class McpController extends Controller
     }
 
     /**
+     * Where this endpoint's protected-resource metadata is, per RFC 9728 §3.1.
+     *
+     * The path-suffixed form — `/.well-known/oauth-protected-resource/api/1.0/mcp` — because
+     * an MCP client checks that the document's `resource` is the URL it was given, and only
+     * that form names this endpoint rather than the site.
+     *
+     * Built from the site root rather than `sURL`: inside the API `sURL` is the API's own
+     * base, and a well-known path under it is an address nothing answers.
+     */
+    protected function resourceMetadataUrl(): string
+    {
+        $path = (string) parse_url((string) ($_SERVER['REQUEST_URI'] ?? ''), PHP_URL_PATH);
+
+        return \Pramnos\Auth\Controllers\Discovery::protectedResourceMetadataUrl($path);
+    }
+
+    /**
      * `401`, and the address of the document that says how to authenticate.
      *
      * RFC 9728 §5.1 defines the `resource_metadata` parameter, and the MCP authorization spec
@@ -202,7 +219,7 @@ class McpController extends Controller
      */
     protected function unauthenticated(): mixed
     {
-        $metadata = rtrim(sURL, '/') . '/.well-known/oauth-protected-resource';
+        $metadata = $this->resourceMetadataUrl();
 
         header('WWW-Authenticate: Bearer resource_metadata="' . $metadata . '"');
 

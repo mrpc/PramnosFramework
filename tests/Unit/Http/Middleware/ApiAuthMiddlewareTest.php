@@ -888,4 +888,88 @@ class ApiAuthMiddlewareTest extends TestCase
         // Assert
         $this->assertStringContainsString('APIKeyMissing', $result);
     }
+
+    // ── A bearer token on a declared-public path ─────────────────────────────
+
+    /**
+     * A token that verifies still identifies the caller on an open path.
+     *
+     * The glideday finding: a remote MCP connector has no API key, so the endpoint has to be
+     * declared public — and declaring it public used to skip bearer validation too, leaving
+     * `McpController` with nobody and answering `401` to a caller holding a good token.
+     */
+    public function testAValidTokenOnAPublicPathPublishesTheCallersIdentity(): void
+    {
+        // Arrange — no API key; a real token for user 42
+        $_SERVER['HTTP_ACCESSTOKEN'] = \Pramnos\Auth\JWT::encode(
+            ['sub' => 42, 'exp' => time() + 3600],
+            self::HMAC_KEY
+        );
+        \Pramnos\Tests\Fixtures\ApiAuthApp\User::reset();
+        \Pramnos\Tests\Fixtures\ApiAuthApp\User::$loadByTokenUserid = 42;
+
+        $mw = new ApiAuthMiddleware(
+            apiKeyChecker: fn (): bool => false,
+            authKey:       self::HMAC_KEY,
+            appNamespace:  'Pramnos\\Tests\\Fixtures\\ApiAuthApp',
+            publicPaths:   ['/1.0/mcp'],
+        );
+
+        // Act
+        $result = $mw->handle(Request::create('/1.0/mcp', 'POST'), fn (): string => 'the endpoint ran');
+
+        // Assert
+        $this->assertSame('the endpoint ran', $result);
+        $this->assertSame(42, \Pramnos\Http\RequestIdentity::user()?->userid);
+        $this->assertSame('accessToken', \Pramnos\Http\RequestIdentity::via());
+    }
+
+    /**
+     * A token that does not verify leaves the open path anonymous, not refused.
+     *
+     * The endpoint is open, so what an anonymous caller gets is its own decision — for MCP,
+     * the `401` with `WWW-Authenticate` that sends the client to get a new token. A `403`
+     * from the middleware would have ended that conversation before it started.
+     */
+    public function testAnInvalidTokenOnAPublicPathIsAnonymousAndStillReachesTheEndpoint(): void
+    {
+        // Arrange — signed with a different key
+        $_SERVER['HTTP_ACCESSTOKEN'] = \Pramnos\Auth\JWT::encode(
+            ['sub' => 42, 'exp' => time() + 3600],
+            'another-key-entirely-0123456789abcdef'
+        );
+
+        $mw = new ApiAuthMiddleware(
+            apiKeyChecker: fn (): bool => false,
+            authKey:       self::HMAC_KEY,
+            publicPaths:   ['/1.0/mcp'],
+        );
+
+        // Act
+        $result = $mw->handle(Request::create('/1.0/mcp', 'POST'), fn (): string => 'the endpoint ran');
+
+        // Assert
+        $this->assertSame('the endpoint ran', $result);
+        // Sealed anonymous: a website cookie on the same origin must not answer instead.
+        $this->assertTrue(\Pramnos\Http\RequestIdentity::isSealed());
+        $this->assertNull(\Pramnos\Http\RequestIdentity::user());
+    }
+
+    /**
+     * With no token, an open path publishes nothing — exactly as before.
+     *
+     * Sealing it anonymous would stop an existing open endpoint from reading the session it
+     * has always been able to read.
+     */
+    public function testNoTokenOnAPublicPathLeavesTheIdentityUntouched(): void
+    {
+        // Arrange
+        $mw = new ApiAuthMiddleware(apiKeyChecker: fn (): bool => false, publicPaths: ['/1.0/hooks/*']);
+
+        // Act
+        $mw->handle(Request::create('/1.0/hooks/stripe', 'POST'), fn (): string => 'ran');
+
+        // Assert
+        $this->assertFalse(\Pramnos\Http\RequestIdentity::isSealed());
+    }
 }

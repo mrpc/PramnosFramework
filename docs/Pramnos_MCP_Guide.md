@@ -9,6 +9,7 @@ use_cases:
   - Letting an assistant read this installation's error logs instead of being handed a paste
   - Working out what an MCP tool actually returns, or why a client says it is broken
   - Offering a capability to an assistant outside this machine, authenticated with OAuth
+  - Connecting Claude.ai or ChatGPT to this application's MCP endpoint
   - Finding out who calls a method, or where a class is defined, without grepping
   - Finding out whether a generator already exists for the class you are about to write
   - Reading the design tokens, or checking whether the compiled stylesheet is stale
@@ -257,7 +258,7 @@ Three things about the scopes are worth knowing:
   "mcpServers": {
     "production": {
       "type": "http",
-      "url": "https://example.com/mcp",
+      "url": "https://example.com/api/1.0/mcp",
       "headers": { "Authorization": "Bearer <the token>" }
     }
   }
@@ -265,7 +266,7 @@ Three things about the scopes are worth knowing:
 ```
 
 A client that calls without a token gets `401` and a `WWW-Authenticate` header naming the
-authorization server, which is the discovery mechanism — see
+endpoint's resource metadata, which is the discovery mechanism — see
 [Authentication is the one this server already does](#authentication-is-the-one-this-server-already-does).
 
 **Start by calling `whoami`.** If `mcp:db_read` is not in the scopes it reports back, that
@@ -1160,7 +1161,8 @@ use Pramnos\Mcp\Tools\SearchTool;
 PublicRegistry::add(new SearchTool());
 ```
 
-That is the whole of it. `init` scaffolds `POST /mcp` when the `authserver` feature is on.
+That is the whole of it. `init` scaffolds `POST /mcp` in the API routes when the `authserver`
+feature is on — see [Connecting Claude.ai, ChatGPT or any remote MCP client](#connecting-claudeai-chatgpt-or-any-remote-mcp-client).
 
 ### `whoami`, the one tool the framework offers publicly
 
@@ -1398,19 +1400,57 @@ a diff. An empty scope is still refused through the wrapper, because the refusal
 
 ### Authentication is the one this server already does
 
-The endpoint sits behind `UnifiedAuthMiddleware`, which validates the bearer token, loads its
-scopes from `usertokens` and resolves the user. Nothing about OAuth is reimplemented here.
-
-An unauthenticated call gets `401` and a header:
+Nothing about OAuth is reimplemented here. The endpoint lives in the API routes, at
+`/api/<version>/mcp`, and `ApiAuthMiddleware` lets it through **without an API key** — a remote
+connector has none to send — while still validating a bearer token if one arrives. A token that
+verifies becomes the caller; one that does not leaves the call anonymous, and the controller
+answers an anonymous call itself:
 
 ```
-WWW-Authenticate: Bearer resource_metadata="https://example.com/.well-known/oauth-protected-resource"
+HTTP/1.1 401 Unauthorized
+WWW-Authenticate: Bearer resource_metadata="https://example.com/.well-known/oauth-protected-resource/api/1.0/mcp"
 ```
 
 That header **is** the discovery mechanism. An MCP client is expected to call blind, be refused,
 read the document it is pointed at, find the authorization server and come back with a token. A
 bare `401` ends the conversation — the client has nowhere to go and a person has to configure it
 by hand.
+
+The address is the RFC 9728 §3.1 path-suffixed form, built from the **site's** origin rather
+than from the API's `sURL`, and the document there answers with the endpoint itself as its
+`resource` — clients check that it matches the URL they were given.
+
+### Connecting Claude.ai, ChatGPT or any remote MCP client
+
+The person pastes `https://example.com/api/1.0/mcp` into the assistant's connector settings.
+The assistant then does the rest, and every step has to answer:
+
+| Step | Address | What makes it work |
+|---|---|---|
+| Call blind, get `401` | `POST /api/1.0/mcp` | No API key asked for on this path |
+| Read the resource metadata | `/.well-known/oauth-protected-resource/api/1.0/mcp` | The scaffolded `.htaccess` rule that passes the suffix to `Discovery` |
+| Read the server metadata | `/.well-known/oauth-authorization-server` | Lists `code_challenge_methods_supported` and `none` among the auth methods |
+| Register itself | `POST /oauth/register` | `'oauth_dynamic_registration' => true` in `app.php` |
+| Sign in, consent, exchange | `/oauth/authorize`, `/oauth/token` | The ordinary code flow with PKCE |
+
+A project scaffolded with `authserver` has all of it. An older one needs two lines — the
+registration switch in `app/app.php`, and this rule beside the other well-known rules in
+`www/.htaccess`:
+
+```apache
+RewriteRule ^\.well-known/oauth-protected-resource/(.+)$ index.php?r=Discovery/oauthProtectedResource&resource_path=$1 [L]
+```
+
+**What registration admits.** Only public clients — `token_endpoint_auth_method: none`, the
+code grant and refresh, `https` callbacks or `http` on loopback — rate-limited to twenty an
+hour per address. A confidential client is refused because it could use `client_credentials`,
+which needs no person; a public one gets nothing without a person approving the consent screen.
+The details are in the
+[AuthServer guide](Pramnos_AuthServer_Integration_Guide.md#dynamic-client-registration-rfc-7591).
+
+A site served from a subdirectory needs its host root to route
+`/.well-known/oauth-protected-resource/…` to the application: the well-known location is defined
+against the host, and the subdirectory's `.htaccess` never sees it.
 
 ### Only what the token reaches, and the guarantee is structural
 

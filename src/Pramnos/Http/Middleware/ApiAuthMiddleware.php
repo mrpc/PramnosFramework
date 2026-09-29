@@ -129,6 +129,23 @@ class ApiAuthMiddleware implements MiddlewareInterface
         // An address the application declared open. Checked before everything, because
         // the point of it is a caller that has no credential to present yet.
         if ($this->isPublicPath($request)) {
+            /*
+             * No key is asked for, but a bearer token that verifies still says who the
+             * caller is. An MCP endpoint is the case that needs both: a remote connector
+             * has no API key to send, and the endpoint serves only what the token's scopes
+             * reach. A token that does not verify leaves the request anonymous rather than
+             * refused — the endpoint is open, so what an anonymous caller gets is its own
+             * decision, and for MCP that is the `401` that starts OAuth discovery.
+             *
+             * With no token nothing is published at all, exactly as before — sealing the
+             * request anonymous would stop an open endpoint reading the session it has
+             * always been able to read.
+             */
+            $tkn = Request::accessToken();
+            if ($tkn !== null) {
+                $this->setRequestUser($this->verifiedTokenUser($tkn));
+            }
+
             return $next($request);
         }
 
@@ -182,56 +199,16 @@ class ApiAuthMiddleware implements MiddlewareInterface
         // being treated as anonymous.
         $tkn = Request::accessToken();
         if ($tkn !== null) {
+            $why  = null;
+            $user = $this->verifiedTokenUser($tkn, $why);
 
-            $user = $this->resolveUser();
+            // The identity of *this request*, and nowhere else: User::getCurrentUser()
+            // reads it first, so a token identifies its own request without touching the
+            // session a website on the same origin relies on.
+            $this->setRequestUser($user);
 
-            // Read RSA public key if the token header indicates RS256
-            $decodeKey  = $this->authKey;
-            $tokenInfo  = \Pramnos\Auth\JWT::getTokenInformation($tkn);
-
-            if (!$tokenInfo) {
-                return $this->error(403, 'InvalidAccessToken', 'Invalid Access Token.',
-                    'Token information could not be retrieved.');
-            }
-
-            if (isset($tokenInfo->alg) && $tokenInfo->alg === 'RS256') {
-                foreach ([ROOT . '/app/keys/public.key', ROOT . '/keys/public.key'] as $path) {
-                    if (file_exists($path)) {
-                        $decodeKey = file_get_contents($path);
-                        break;
-                    }
-                }
-            }
-
-            try {
-                \Pramnos\Auth\JWT::$leeway = 60;
-                \Pramnos\Auth\JWT::decode(
-                    $tkn,
-                    $decodeKey,
-                    isset($tokenInfo->alg) && $tokenInfo->alg === 'RS256'
-                        ? ['HS256', 'RS256']
-                        : ['HS256']
-                );
-            } catch (\Exception $ex) {
-                return $this->error(403, 'InvalidAccessToken', 'Invalid Access Token.',
-                    $ex->getMessage());
-            }
-
-            $user->loadByToken($tkn);
-            if ($user->userid > 1) {
-                // The identity of *this request*, and nowhere else.
-                //
-                // This used to write $_SESSION['logged'] and ['user'], which in
-                // an application serving both a website and an API from one
-                // origin is a cross-wire: the two share a session cookie, so an
-                // API call authenticated as one user changed who the browser's
-                // next page belonged to. User::getCurrentUser() now reads this
-                // first, so a token identifies its own request without touching
-                // anything the website relies on.
-                $this->setRequestUser($user);
-            } else {
-                $this->setRequestUser(null);
-                return $this->error(403, 'InvalidAccessToken', 'Invalid Access Token.');
+            if ($user === null) {
+                return $this->error(403, 'InvalidAccessToken', 'Invalid Access Token.', $why);
             }
 
         } elseif (!empty($_SERVER['HTTP_USERAUTH'])) {
@@ -260,6 +237,52 @@ class ApiAuthMiddleware implements MiddlewareInterface
         }
 
         return $next($request);
+    }
+
+    /**
+     * The user an access token belongs to, or null when it does not verify.
+     *
+     * One verification for both callers — the keyed path, which refuses on null, and a
+     * declared-public path, which stays anonymous on null — so the two cannot come to
+     * different opinions about the same token.
+     *
+     * @param string      $tkn The raw token.
+     * @param string|null $why Set to what went wrong, for the debug detail of a refusal.
+     */
+    private function verifiedTokenUser(string $tkn, ?string &$why = null): ?\Pramnos\User\User
+    {
+        $tokenInfo = \Pramnos\Auth\JWT::getTokenInformation($tkn);
+
+        if (!$tokenInfo) {
+            $why = 'Token information could not be retrieved.';
+            return null;
+        }
+
+        // Read RSA public key if the token header indicates RS256
+        $rs256     = isset($tokenInfo->alg) && $tokenInfo->alg === 'RS256';
+        $decodeKey = $this->authKey;
+
+        if ($rs256) {
+            foreach ([ROOT . '/app/keys/public.key', ROOT . '/keys/public.key'] as $path) {
+                if (file_exists($path)) {
+                    $decodeKey = file_get_contents($path);
+                    break;
+                }
+            }
+        }
+
+        try {
+            \Pramnos\Auth\JWT::$leeway = 60;
+            \Pramnos\Auth\JWT::decode($tkn, $decodeKey, $rs256 ? ['HS256', 'RS256'] : ['HS256']);
+        } catch (\Exception $ex) {
+            $why = $ex->getMessage();
+            return null;
+        }
+
+        $user = $this->resolveUser();
+        $user->loadByToken($tkn);
+
+        return $user->userid > 1 ? $user : null;
     }
 
     /**

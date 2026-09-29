@@ -387,7 +387,6 @@ class DiscoveryControllerTest extends TestCase
             ],
             'revocation_endpoint'                       => sURL . 'oauth/revoke',
             'introspection_endpoint'                    => sURL . 'oauth/introspect',
-            'registration_endpoint'                     => sURL . 'register',
             'frontchannel_logout_supported'             => false,
             'frontchannel_logout_session_supported'     => false,
             'backchannel_logout_supported'              => true,
@@ -413,7 +412,6 @@ class DiscoveryControllerTest extends TestCase
             'issuer'                                => sURL,
             'authorization_endpoint'                => sURL . 'oauth/authorize',
             'token_endpoint'                        => sURL . 'oauth/token',
-            'registration_endpoint'                 => sURL . 'register',
             'scopes_supported'                      => array_keys(Scopes::getScopeDescriptions()),
             'response_types_supported'              => ['code', 'token'],
             'grant_types_supported'                 => [

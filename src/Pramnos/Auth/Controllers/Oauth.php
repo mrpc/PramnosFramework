@@ -24,6 +24,7 @@ use Nyholm\Psr7\Factory\Psr17Factory;
  *   userinfo            — OIDC UserInfo
  *   logout              — Bearer-token logout
  *   deviceauthorization — RFC 8628 device authorization
+ *   register            — RFC 7591 dynamic client registration (opt-in)
  *
  */
 class Oauth extends Controller
@@ -45,7 +46,7 @@ class Oauth extends Controller
 
         $this->addaction([
             'authorize', 'token', 'revoke', 'introspect',
-            'userinfo', 'logout', 'deviceauthorization',
+            'userinfo', 'logout', 'deviceauthorization', 'register',
         ]);
 
         $this->addAuthAction(['display']);
@@ -299,6 +300,190 @@ class Oauth extends Controller
                 'error_description' => $ex->getMessage(),
             ], 500);
         }
+    }
+
+    // ── Dynamic client registration ───────────────────────────────────────────
+
+    /**
+     * Is `POST /oauth/register` open on this installation?
+     *
+     * Opt-in through `'oauth_dynamic_registration' => true` in `app.php`, because it lets
+     * anybody on the internet create a client row. What they can do with one is limited — see
+     * {@see register()} — but the decision to allow it belongs to the operator, not to an
+     * upgrade.
+     */
+    public static function registrationIsOpen(?\Pramnos\Application\Application $application): bool
+    {
+        return (bool) ($application?->applicationInfo['oauth_dynamic_registration'] ?? false);
+    }
+
+    /**
+     * Dynamic client registration — RFC 7591 §3.
+     *
+     * `POST /oauth/register` with a JSON body. It is how Claude.ai, ChatGPT and other remote
+     * MCP clients connect without anybody typing a client id: they register, then run the
+     * ordinary code-with-PKCE flow, and the person sees the consent screen.
+     *
+     * ### Only public clients
+     *
+     * `token_endpoint_auth_method` must be `none`. A registered **confidential** client could
+     * use `client_credentials`, which needs no person at all — so open registration would be
+     * open issuance of machine tokens. A public client cannot: league/oauth2-server refuses
+     * that grant to it, and every token it gets passes through a person's consent. That is
+     * also exactly what the assistants send.
+     *
+     * Registered clients are untrusted (consent is always shown) and hold no secret. The
+     * endpoint is rate-limited per address, because each call writes a row.
+     */
+    public function register(): mixed
+    {
+        if (!self::registrationIsOpen($this->application)) {
+            return $this->respondJson([
+                'error'             => 'not_found',
+                'error_description' => 'Dynamic client registration is not enabled here.',
+            ], 404, ['endpoint' => 'register']);
+        }
+
+        if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
+            return $this->respondJson([
+                'error'             => 'invalid_request',
+                'error_description' => 'Registration is a POST with a JSON body.',
+            ], 405, ['endpoint' => 'register']);
+        }
+
+        // Throws TooManyRequestsException past the limit, which the application renders as
+        // 429 with Retry-After.
+        return $this->registrationLimiter()->handle(
+            \Pramnos\Http\Request::getInstance(),
+            fn (): \Pramnos\Http\Response => $this->registerClient()
+        );
+    }
+
+    /** How often one address may register. A seam, so a test can supply its own cache. */
+    protected function registrationLimiter(): \Pramnos\Http\Middleware\RateLimitMiddleware
+    {
+        return new \Pramnos\Http\Middleware\RateLimitMiddleware(20, 3600, 'oauth-register:');
+    }
+
+    /**
+     * Validate the metadata, write the client, answer `201` with what was registered.
+     */
+    private function registerClient(): \Pramnos\Http\Response
+    {
+        $metadata = json_decode(\Pramnos\Http\Request::rawBody(), true);
+
+        if (!is_array($metadata)) {
+            return $this->registrationRefused('invalid_client_metadata', 'The body must be a JSON object.');
+        }
+
+        $method = $metadata['token_endpoint_auth_method'] ?? 'client_secret_basic';
+        if ($method !== 'none') {
+            return $this->registrationRefused(
+                'invalid_client_metadata',
+                'Only public clients may register themselves: token_endpoint_auth_method must be "none".'
+            );
+        }
+
+        $grants = $metadata['grant_types'] ?? ['authorization_code'];
+        if (!is_array($grants) || array_diff($grants, ['authorization_code', 'refresh_token']) !== []) {
+            return $this->registrationRefused(
+                'invalid_client_metadata',
+                'grant_types may contain only authorization_code and refresh_token.'
+            );
+        }
+
+        $responseTypes = $metadata['response_types'] ?? ['code'];
+        if (!is_array($responseTypes) || array_diff($responseTypes, ['code']) !== []) {
+            return $this->registrationRefused('invalid_client_metadata', 'response_types may contain only code.');
+        }
+
+        $uris = $metadata['redirect_uris'] ?? null;
+        if (!is_array($uris) || $uris === [] || count($uris) > 5) {
+            return $this->registrationRefused('invalid_redirect_uri', 'redirect_uris must list one to five URIs.');
+        }
+        foreach ($uris as $uri) {
+            if (!is_string($uri) || !self::isRegistrableRedirectUri($uri)) {
+                return $this->registrationRefused(
+                    'invalid_redirect_uri',
+                    'Each redirect URI must be https, or http on localhost, with no spaces or commas.'
+                );
+            }
+        }
+        $uris = array_values(array_unique($uris));
+
+        $name = trim((string) ($metadata['client_name'] ?? ''));
+        $name = $name === '' ? 'Unnamed client' : mb_substr($name, 0, 100);
+
+        $clientId = bin2hex(random_bytes(16));
+        $issuedAt = time();
+
+        \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
+            ->table('#PREFIX#applications')
+            ->insert([
+                'name'            => $name,
+                'description'     => 'Registered itself through dynamic client registration (RFC 7591).',
+                'apikey'          => $clientId,
+                // No secret: the client is public and proves itself with PKCE.
+                'apisecret'       => null,
+                'callback'        => implode(' ', $uris),
+                'status'          => 1,
+                'is_confidential' => 0,
+                'added'           => $issuedAt,
+            ]);
+
+        $this->logDecision('client registered', [
+            'endpoint'  => 'register',
+            'client_id' => $clientId,
+            'name'      => $name,
+            'ip'        => (string) ($_SERVER['REMOTE_ADDR'] ?? ''),
+        ]);
+
+        return \Pramnos\Http\Response::json([
+            'client_id'                  => $clientId,
+            'client_id_issued_at'        => $issuedAt,
+            'client_name'                => $name,
+            'redirect_uris'              => $uris,
+            'grant_types'                => array_values($grants),
+            'response_types'             => ['code'],
+            'token_endpoint_auth_method' => 'none',
+        ], 201)->withHeader('Cache-Control', 'no-store');
+    }
+
+    /**
+     * May a self-registering client name this as its callback?
+     *
+     * `https` anywhere, `http` only on the loopback address a desktop client listens on
+     * (RFC 8252 §7.3). A custom app scheme is refused here although an operator may register
+     * one: anybody can claim a scheme on a phone, so a callback like that proves nothing about
+     * who registered it. Whitespace and commas are refused because the column stores the list
+     * separated by them.
+     */
+    private static function isRegistrableRedirectUri(string $uri): bool
+    {
+        if ($uri === '' || strlen($uri) > 500 || preg_match('/[\s,]/', $uri) || str_contains($uri, '#')) {
+            return false;
+        }
+
+        $parts  = parse_url($uri);
+        $scheme = strtolower((string) ($parts['scheme'] ?? ''));
+        $host   = strtolower((string) ($parts['host'] ?? ''));
+
+        if ($host === '') {
+            return false;
+        }
+
+        return $scheme === 'https'
+            || ($scheme === 'http' && in_array($host, ['localhost', '127.0.0.1', '[::1]'], true));
+    }
+
+    /** An RFC 7591 §3.2.2 error response. */
+    private function registrationRefused(string $error, string $description): \Pramnos\Http\Response
+    {
+        return $this->respondJson(
+            ['error' => $error, 'error_description' => $description],
+            400,
+            ['endpoint' => 'register']
+        );
     }
 
     // ── Revocation ────────────────────────────────────────────────────────────

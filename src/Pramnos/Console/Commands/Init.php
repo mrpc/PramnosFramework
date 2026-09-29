@@ -1295,6 +1295,14 @@ class Init extends Command
               . "    ],\n"
             : '';
 
+        // A remote MCP client (Claude.ai, ChatGPT) registers itself before it signs in, so the
+        // endpoint `authserver` scaffolds is unreachable without this. It admits public clients
+        // only — every token still passes through a person's consent.
+        if (in_array('authserver', $features, true)) {
+            $authSection .= "    // RFC 7591: lets an MCP client register itself — see the MCP guide\n"
+                . "    'oauth_dynamic_registration' => true,\n";
+        }
+
         // Tailwind's browser build generates CSS at runtime by injecting a
         // <style> element, which a nonce-based style-src blocks. Allowing
         // 'unsafe-inline' makes the framework drop the style nonce (see
@@ -5938,6 +5946,7 @@ PHP;
             . "RewriteRule ^\\.well-known/jwks\\.json$ index.php?r=Discovery/jwks [L]\n"
             . "RewriteRule ^\\.well-known/oauth-authorization-server$ index.php?r=Discovery/oauth2Metadata [L]\n"
             . "RewriteRule ^\\.well-known/oauth-protected-resource$ index.php?r=Discovery/oauthProtectedResource [L]\n"
+            . "RewriteRule ^\\.well-known/oauth-protected-resource/(.+)$ index.php?r=Discovery/oauthProtectedResource&resource_path=$1 [L]\n"
             . "RewriteRule ^\\.well-known/health$ index.php?r=Discovery/health [L]\n";
     }
 
@@ -8445,7 +8454,7 @@ namespace {$namespace}\\Controllers;
  *
  * Delegates all endpoint logic to the framework Oauth controller.
  * Routes: /oauth/authorize, /oauth/token, /oauth/revoke, /oauth/introspect,
- *         /oauth/userinfo, /oauth/logout, /oauth/deviceauthorization
+ *         /oauth/userinfo, /oauth/logout, /oauth/deviceauthorization, /oauth/register
  */
 class Oauth extends \\Pramnos\\Auth\\Controllers\\Oauth
 {

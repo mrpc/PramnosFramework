@@ -276,6 +276,63 @@ class ApiPipelineSeamsTest extends TestCase
     }
 
     /**
+     * The MCP endpoint is open to a caller without an API key, with nothing declared.
+     *
+     * A remote connector (Claude.ai, ChatGPT) cannot send an `apiKey` header, so behind the key
+     * check it never reaches the `401` and `WWW-Authenticate` that start OAuth discovery — the
+     * first of the five gaps glideday measured. The controller refuses an unauthenticated call
+     * itself, so the key adds nothing there but a dead end.
+     */
+    public function testTheMcpEndpointNeedsNoApiKeyWithoutBeingDeclared(): void
+    {
+        // Arrange — the address, then the reset, which is the order a test writes
+        $savedUri = $_SERVER['REQUEST_URI'] ?? null;
+        $_SERVER['REQUEST_URI'] = '/' . Api::version() . '/mcp';
+        \Pramnos\Http\Request::resetInstance();
+
+        $api = new class extends Api {
+            public $database;
+            public $applicationInfo = [
+                'name'             => 'test',
+            ];
+            public $controller = 'test';
+            public $action = 'test';
+
+            public function __construct()
+            {
+            }
+        };
+
+        $api->database = $this->createMock(\Pramnos\Database\Database::class);
+        $_SESSION['usertoken'] = new class {
+            public $tokentype = 'api';
+            public $lastActionId = 1;
+            public function addAction() {}
+            public function updateAction($id, $status, $time, $record) {}
+        };
+
+        // Act — no API key anywhere
+        unset($_SERVER['HTTP_APIKEY']);
+        $api->exec('test');
+        $written = $this->documentContent();
+
+        // Assert
+        $this->assertStringNotContainsString(
+            'APIKeyMissing',
+            $written,
+            'a remote MCP connector has no API key, so the endpoint must be reachable without one'
+        );
+
+        // Put the process back.
+        if ($savedUri === null) {
+            unset($_SERVER['REQUEST_URI']);
+        } else {
+            $_SERVER['REQUEST_URI'] = $savedUri;
+        }
+        \Pramnos\Http\Request::resetInstance();
+    }
+
+    /**
      * The factory hands back the request the reset produced, not the one before it.
      *
      * The invariant underneath the test above, asserted directly: **one cache, one

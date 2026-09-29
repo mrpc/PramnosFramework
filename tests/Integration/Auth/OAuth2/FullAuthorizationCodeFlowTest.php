@@ -317,6 +317,75 @@ class FullAuthorizationCodeFlowTest extends TestCase
         $client->exchange($callback['code'], $wrong);
     }
 
+    /**
+     * A public client — no secret, PKCE instead — completes the flow.
+     *
+     * This is what the discovery document promises when it lists `none` among the token
+     * endpoint's auth methods, and what a client registered through `/oauth/register` is. An
+     * MCP client (Claude.ai, ChatGPT) reads that promise and then does exactly this: the
+     * exchange carries a `client_id` and a `code_verifier` and nothing else. Were the server
+     * to demand a secret here, every remote connector would fail after the person had already
+     * approved the consent screen.
+     */
+    public function testAPublicClientExchangesItsCodeWithPkceAndNoSecret(): void
+    {
+        // Arrange — a client registered the way dynamic registration registers one
+        $clientId = 'e2e-public-' . bin2hex(random_bytes(6));
+        $this->db->queryBuilder()->table('#PREFIX#applications')->insert([
+            'name'            => 'Public e2e client',
+            'apikey'          => $clientId,
+            'apisecret'       => null,
+            'callback'        => self::REDIRECT_URI,
+            'status'          => 1,
+            'is_confidential' => 0,
+        ]);
+        $server = $this->factory()->createAuthorizationServer();
+
+        $verifier  = rtrim(strtr(base64_encode(random_bytes(32)), '+/', '-_'), '=');
+        $challenge = rtrim(strtr(base64_encode(hash('sha256', $verifier, true)), '+/', '-_'), '=');
+        $query = [
+            'response_type'         => 'code',
+            'client_id'             => $clientId,
+            'redirect_uri'          => self::REDIRECT_URI,
+            'scope'                 => 'read',
+            'state'                 => 'st',
+            'code_challenge'        => $challenge,
+            'code_challenge_method' => 'S256',
+        ];
+
+        try {
+            $authRequest = $server->validateAuthorizationRequest(
+                (new ServerRequest('GET', 'https://self.test/oauth/authorize?' . http_build_query($query)))
+                    ->withQueryParams($query)
+            );
+            $authRequest->setUser($this->approvingUser());
+            $authRequest->setAuthorizationApproved(true);
+            $redirect = $server->completeAuthorizationRequest($authRequest, new Psr7Response());
+            parse_str((string) parse_url($redirect->getHeaderLine('Location'), PHP_URL_QUERY), $callback);
+
+            // Act — the exchange a public client sends: no client_secret at all
+            $form = [
+                'grant_type'    => 'authorization_code',
+                'client_id'     => $clientId,
+                'code'          => $callback['code'],
+                'redirect_uri'  => self::REDIRECT_URI,
+                'code_verifier' => $verifier,
+            ];
+            $response = $server->respondToAccessTokenRequest(
+                (new ServerRequest('POST', 'https://self.test/oauth/token'))->withParsedBody($form),
+                new Psr7Response()
+            );
+            $tokens = json_decode((string) $response->getBody(), true);
+
+            // Assert — a real signed token, which the resource server accepts
+            $this->assertSame(200, $response->getStatusCode());
+            $this->assertCount(3, explode('.', (string) $tokens['access_token']));
+            $this->assertTrue($this->tokenIsAccepted((string) $tokens['access_token']));
+        } finally {
+            $this->db->queryBuilder()->table('#PREFIX#applications')->where('apikey', $clientId)->delete();
+        }
+    }
+
     // -------------------------------------------------------------------------
     // The bridge, and the fixtures
     // -------------------------------------------------------------------------
@@ -513,6 +582,8 @@ class FullAuthorizationCodeFlowTest extends TestCase
             // The client's redirect URI is longer than the original column, and the
             // server compares it character for character.
             \Pramnos\Framework\Migrations\Applications\WidenApplicationsCallback::class,
+            // A public client is one with `is_confidential = 0` — what dynamic registration writes.
+            \Pramnos\Framework\Migrations\AuthServer\AddIsConfidentialToApplications::class,
             \Pramnos\Framework\Migrations\Oauth\CreateOauthconnectionsTable::class,
         ], $this->db);
 

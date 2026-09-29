@@ -8,6 +8,7 @@ use_cases:
   - Reacting to instant invalidation webhooks
   - Letting webhooks reach a relying party on a VPN or private network
   - Seeing, adding or removing an application's webhook endpoints as an administrator
+  - Letting a client (an MCP assistant) register itself with dynamic client registration
 ---
 
 # Third-Party Integration Guide (Auth Server)
@@ -66,7 +67,13 @@ and has no way to verify.
 **It is also where an MCP client starts.** The Model Context Protocol's authorization flow is: call
 a protected endpoint, be refused with `401` and a `WWW-Authenticate` header naming this document,
 read it, find the authorization server, then run the ordinary authorization-code-with-PKCE exchange
-in §3. See the [MCP guide](Pramnos_MCP_Guide.md).
+in §3. See the [MCP guide](Pramnos_MCP_Guide.md#connecting-claudeai-chatgpt-or-any-remote-mcp-client).
+
+**One endpoint has a document of its own.** RFC 9728 §3.1 appends a resource's path to the
+well-known one: `/.well-known/oauth-protected-resource/api/1.0/mcp` answers with
+`"resource": "https://example.com/api/1.0/mcp"`. That is the form the MCP endpoint's `401` points
+at, because a client checks that `resource` is the URL it started from. A suffix that is not a
+plain path answers `404`.
 
 Three things about that document are deliberate. `scopes_supported` is read from the server's own
 scope table rather than written out, so it cannot drift from what the server will actually grant.
@@ -85,7 +92,11 @@ The document lists the real endpoints, e.g.:
 | `token_endpoint` | `/oauth/token` |
 | `userinfo_endpoint` | `/oauth/userinfo` |
 | `device_authorization_endpoint` | `/oauth/deviceauthorization` |
+| `registration_endpoint` | `/oauth/register` — only when dynamic registration is on |
 | `jwks_uri` | `/.well-known/jwks.json` |
+
+`code_challenge_methods_supported` and `token_endpoint_auth_methods_supported` (which includes
+`none`, a public client) are in both documents; a public client reads them before it starts.
 
 Validate ID tokens against the keys in `jwks_uri`.
 
@@ -100,6 +111,8 @@ RewriteRule ^\.well-known/openid-configuration$ index.php?r=Discovery/configurat
 RewriteRule ^\.well-known/openid_configuration$ index.php?r=Discovery/configuration [L]
 RewriteRule ^\.well-known/jwks\.json$          index.php?r=Discovery/jwks [L]
 RewriteRule ^\.well-known/oauth-authorization-server$ index.php?r=Discovery/oauth2Metadata [L]
+RewriteRule ^\.well-known/oauth-protected-resource$ index.php?r=Discovery/oauthProtectedResource [L]
+RewriteRule ^\.well-known/oauth-protected-resource/(.+)$ index.php?r=Discovery/oauthProtectedResource&resource_path=$1 [L]
 RewriteRule ^\.well-known/health$               index.php?r=Discovery/health [L]
 ```
 
@@ -290,7 +303,9 @@ token endpoint answers `invalid_scope`:
 ## 2. Registering your application
 
 An administrator registers your application on the server and gives you a
-**client_id** and **client_secret**, plus your registered **redirect URI(s)**.
+**client_id** and **client_secret**, plus your registered **redirect URI(s)**. A public
+client can instead register itself, where the server allows it — see
+[Dynamic client registration](#dynamic-client-registration-rfc-7591).
 
 Applications marked **trusted** (internal/first-party) skip the user consent
 screen; untrusted (third-party) applications always show consent and receive
@@ -544,6 +559,51 @@ but a secret to do it with — the token endpoint refuses that combination.
 
 If your client runs on a server you control, leave it confidential. The secret is
 worth having.
+
+### Dynamic client registration (RFC 7591)
+
+A client can register itself, with nobody on the server's side involved. It is how Claude.ai,
+ChatGPT and other remote MCP clients connect: they register, then run §3 with PKCE, and the person
+approves the consent screen. It is off unless the operator turns it on in `app/app.php`:
+
+```php
+'oauth_dynamic_registration' => true,
+```
+
+`init` writes that line for an `authserver` project. With it off, `/oauth/register` answers `404`
+and the discovery documents publish no `registration_endpoint`.
+
+```
+POST /oauth/register
+Content-Type: application/json
+
+{
+  "client_name": "Claude",
+  "redirect_uris": ["https://claude.ai/api/mcp/auth_callback"],
+  "grant_types": ["authorization_code", "refresh_token"],
+  "response_types": ["code"],
+  "token_endpoint_auth_method": "none"
+}
+```
+
+The answer is `201` with the `client_id`, the metadata as registered, and no secret. What the
+endpoint admits, and why:
+
+| Field | Accepted | Why the limit |
+|---|---|---|
+| `token_endpoint_auth_method` | `none` only — the RFC's default, `client_secret_basic`, is refused | A confidential client could use `client_credentials`, which needs no person. Open registration would be open issuance of machine tokens |
+| `grant_types` | `authorization_code`, `refresh_token` | The same reason; a public client cannot hold what the others need |
+| `response_types` | `code` | The implicit flow puts the token in a URL |
+| `redirect_uris` | One to five; `https`, or `http` on `localhost` / `127.0.0.1` / `[::1]`; no fragment, space or comma | A custom scheme proves nothing — any app on a phone can claim it. An operator can still register one by hand |
+| `client_name` | Up to 100 characters; `Unnamed client` if absent | It is what the consent screen shows |
+
+Refusals follow RFC 7591 §3.2.2: `400` with `invalid_client_metadata` or `invalid_redirect_uri`.
+Each address may register twenty clients an hour; past that the answer is `429` with
+`Retry-After`. Every registration is a line in `oauth.log`.
+
+A registered client is an ordinary row in `applications` — untrusted, so consent is always shown,
+public, and with no secret. An administrator sees it in the applications screen and deletes it the
+same way as any other, which revokes its tokens.
 
 ### Lightweight tokens
 
