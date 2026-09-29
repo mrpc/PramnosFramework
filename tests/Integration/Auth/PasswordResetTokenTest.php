@@ -211,10 +211,20 @@ class PasswordResetTokenTest extends BaseTestCase
         // Arrange
         $probe = $this->probe();
         $token = bin2hex(random_bytes(32));
+        // Storing at `time()` and consuming a moment later are two readings of the clock; when a
+        // second ended between them the token had expired and this failed about one run in
+        // several hundred. Starting in the first 80% of a second leaves 200 ms for both calls.
+        $fraction = fmod(microtime(true), 1.0);
+        if ($fraction > 0.8) {
+            usleep((int) ((1.0 - $fraction) * 1_000_000) + 1_000);
+        }
         $probe->probeStore($this->uid, hash('sha256', $token), time());
 
+        // Act
+        $result = $probe->probeConsume($token);
+
         // Assert
-        $this->assertSame($this->uid, $probe->probeConsume($token));
+        $this->assertSame($this->uid, $result);
     }
 
     /**

@@ -48,6 +48,15 @@ class UserCoverageTest extends TestCase
         \Pramnos\Application\Settings::clearSettings();
         $settingsFile = ROOT . DS . 'tests' . DS . 'fixtures' . DS . 'app' . DS . 'settings.php';
         \Pramnos\Application\Settings::loadSettings($settingsFile);
+
+        // A Database keeps the settings it was built with. One left by an earlier class that
+        // built it before any settings were loaded points at `localhost`, and mysqli answers
+        // "No such file or directory" looking for a socket — so this class errored or passed
+        // depending on what ran first. Rebuilt once here, from the settings just loaded; setUp()
+        // deliberately does not, for the reason its doc-block gives.
+        $singleton = &Factory::getDatabase();
+        $singleton = null;
+
         new \Pramnos\Application\Application();
 
         $db = Factory::getDatabase();
