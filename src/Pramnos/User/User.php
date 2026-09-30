@@ -1493,6 +1493,34 @@ class User extends \Pramnos\Framework\Base implements
     }
 
     /**
+     * The signed-in user, or `null` for nobody.
+     *
+     * {@see getCurrentUser()} answers `false` for nobody, and `false` is not what the
+     * nullsafe operator short-circuits: `getCurrentUser()?->userid` reads as safe and
+     * throws `Attempt to read property "userid" on false` from any cron job or CLI
+     * command. This is the same lookup with the answer `?->` expects:
+     *
+     * ```php
+     * $id = User::current()?->userid;
+     * ```
+     *
+     * `getCurrentUser()` keeps its `false`, because callers compare with `=== false`
+     * and would read `null` as somebody being signed in.
+     *
+     * `?object` rather than `?User`: a request identity is sealed by middleware as
+     * whatever object authenticated it, and a narrower type would turn a real caller
+     * into nobody.
+     *
+     * @return User|null
+     */
+    public static function current(): ?object
+    {
+        $user = static::getCurrentUser();
+
+        return is_object($user) ? $user : null;
+    }
+
+    /**
      * Add a token to the database
      * @param string $tokentype
      * @param string $token

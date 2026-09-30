@@ -1031,6 +1031,19 @@ often as a request needs to — the theme header and the controller both asking 
 the normal case, and the first call caches the answer on the application so the
 rest are free.
 
+**For `?->`, use `User::current()`.** `getCurrentUser()` answers `false` for
+nobody, and the nullsafe operator short-circuits only `null`, so
+`getCurrentUser()?->userid` throws `Attempt to read property "userid" on false`
+from every cron job and CLI command. `User::current()` is the same lookup and
+answers `null`:
+
+```php
+$userId = \Pramnos\User\User::current()?->userid;   // null when nobody is signed in
+```
+
+`getCurrentUser()` keeps `false`, because code compares it with `=== false` and
+would read `null` as somebody being signed in.
+
 > **Changed 2026-08-23.** It did write. On every call after the first in a
 > request it compared `users.language` with the interface language and, when
 > they differed, overwrote the column and saved the user. Two things followed: a
