@@ -178,22 +178,24 @@ final class CookieConsent
     }
 
     /**
-     * The `<script>` element a page includes, or '' when the feature is off.
+     * The `<script>` element a page includes.
      *
      * An external file carrying its configuration as an attribute: no inline
      * script, so no CSP nonce in the body and nothing standing between the page
      * and the page cache.
      *
+     * With the feature off the script is still emitted, configured `{"enabled":false}`:
+     * it draws nothing and treats every category as granted, so a page that gates its
+     * analytics with `type="text/plain"` still runs it — "off" means "allowed" in the
+     * browser exactly as it does in {@see allows()}.
+     *
      * @param string $baseUrl The site's root URL (`sURL` in a theme)
      */
     public static function tag(string $baseUrl = ''): string
     {
-        if (!self::enabled()) {
-            return '';
-        }
-
-        $base = $baseUrl === '' ? '' : rtrim($baseUrl, '/') . '/';
-        $json = (string) json_encode(self::config($base), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        $base   = $baseUrl === '' ? '' : rtrim($baseUrl, '/') . '/';
+        $config = self::enabled() ? self::config($base) : ['enabled' => false];
+        $json   = (string) json_encode($config, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
 
         // Stamped with the file's time: a CDN keeps an unversioned script for as long as
         // max-age allows, so a fixed banner would reach nobody until it expired.

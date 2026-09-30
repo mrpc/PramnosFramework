@@ -61,9 +61,15 @@ answer it without the prompt.
 'cookie_consent' => false,
 ```
 
-With this key, the feature is off whatever the settings say. `tag()` emits nothing, the footer
-link is hidden, `allows()` answers `true`, and the settings screen shows a note instead of
-the fields. The key belongs to the deployment and is versioned with the code, so a switch on
+With this key, the feature is off whatever the settings say. The footer link is hidden,
+`allows()` answers `true`, and the settings screen shows a note instead of the fields.
+
+**Off means everything is allowed, in the browser too.** `tag()` still emits the script,
+configured `{"enabled":false}`, and `/cookieconsent` answers the same to a SPA shell. The
+script then draws nothing and treats every optional category as granted: `has()` answers
+`true`, `type="text/plain"` scripts are released, `onGrant()` callbacks run, and Consent Mode
+gets an all-granted `update` after its default. No cookie is written, so turning the banner
+on later still asks every visitor. The key belongs to the deployment and is versioned with the code, so a switch on
 a live server cannot add a banner to a site whose theme was never checked for one.
 
 To turn it on, delete the line. An MVC project then works immediately, because its footer
@@ -118,7 +124,7 @@ already calls `tag()`. A SPA or hybrid project also needs the shell line from st
 
 | Setting | Screen label | Default | Meaning |
 |---|---|---|---|
-| `cookie_consent_enabled` | Show the cookie banner | `1` | Set it to `0` only if the site sets nothing beyond strictly necessary cookies. When it is off, `tag()` emits nothing and `allows()` answers `true`. |
+| `cookie_consent_enabled` | Show the cookie banner | `1` | Set it to `0` only if the site sets nothing beyond strictly necessary cookies. When it is off, nothing is drawn and every category counts as granted — `allows()` in PHP, `has()` and gated scripts in the browser. |
 | `cookie_consent_categories` | Categories to ask about | `preferences,analytics,marketing` | Any subset of the three. Unknown names are dropped, so a typo cannot become a switch that controls nothing. |
 | `cookie_consent_policy_url` | Cookie policy page | *(empty)* | The page the banner links to. When empty, there is no link. |
 | `cookie_consent_version` | Policy version | `1` | Change it whenever the policy changes. A choice made under an older version no longer counts, so everybody is asked again. |

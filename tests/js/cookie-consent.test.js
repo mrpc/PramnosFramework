@@ -429,6 +429,50 @@ describe('configuration', () => {
     });
 
     /**
+     * Off means nobody is asked, so everything is allowed — as `CookieConsent::allows()`
+     * answers in PHP. A SPA shell loads the script whatever the setting, so if "off"
+     * released nothing, switching the banner off would silently kill every gated
+     * script and every onGrant() callback.
+     */
+    test('a disabled configuration grants everything and releases gated scripts', async () => {
+        // Arrange
+        const ran = [];
+        const dom = load({
+            configUrl: '/cookieconsent',
+            fetchImpl: () => Promise.resolve({ json: () => ({ enabled: false }) }),
+            gated: [['analytics', '/ga.js'], ['marketing', '/ads.js']],
+        });
+        dom.api.onGrant('analytics', () => ran.push('analytics'));
+
+        // Act
+        await new Promise((resolve) => setImmediate(resolve));
+
+        // Assert
+        assert.deepEqual(ran, ['analytics'], 'a callback registered before the configuration arrived runs');
+        assert.equal(dom.api.has('marketing'), true);
+        assert.equal(dom.html.querySelectorAll('script[type="text/plain"]').length, 0, 'both placeholders released');
+        // Consent Mode moves off the all-denied default, or Google tags would stay denied.
+        const update = dom.window.dataLayer.find((entry) => entry[0] === 'consent' && entry[1] === 'update');
+        assert.equal(update[2].analytics_storage, 'granted');
+        assert.equal(bannerOf(dom), null, 'still nothing drawn');
+    });
+
+    /**
+     * The inline shape `tag()` emits for a site with the feature off behaves the same:
+     * an MVC page gating its analytics with `type="text/plain"` still runs it.
+     */
+    test('an inline disabled configuration releases gated scripts', () => {
+        // Arrange / Act
+        const dom = load({ config: { enabled: false }, gated: [['analytics', '/ga.js']] });
+
+        // Assert
+        assert.equal(dom.html.querySelectorAll('script[type="text/plain"]').length, 0);
+        assert.equal(dom.api.has('analytics'), true);
+        // Not a choice: no cookie is written, so turning the banner on later still asks.
+        assert.equal(dom.cookies.pf_consent, undefined);
+    });
+
+    /**
      * An enabled remote configuration draws the banner once it arrives.
      */
     test('a remote configuration that is enabled draws the banner', async () => {

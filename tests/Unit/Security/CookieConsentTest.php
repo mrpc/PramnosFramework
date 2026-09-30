@@ -142,7 +142,8 @@ class CookieConsentTest extends TestCase
 
     /**
      * With the banner off, `allows()` is always true: nobody is ever asked, so gating
-     * on the answer would switch every optional feature off for good.
+     * on the answer would switch every optional feature off for good. The tag says the
+     * same to the browser, so a script gated with `type="text/plain"` is released.
      */
     public function testWithTheBannerOffEverythingIsAllowed(): void
     {
@@ -152,7 +153,10 @@ class CookieConsentTest extends TestCase
         // Act / Assert
         $this->assertFalse(CookieConsent::enabled());
         $this->assertTrue(CookieConsent::allows('marketing', []));
-        $this->assertSame('', CookieConsent::tag('https://example.com/'), 'no tag, no banner');
+        // The script is still emitted, told it is off, so gated scripts are released.
+        $tag = CookieConsent::tag('https://example.com/');
+        $this->assertStringContainsString('pf-consent.js', $tag);
+        $this->assertStringContainsString('data-config="{&quot;enabled&quot;:false}"', $tag);
     }
 
     /**
@@ -177,7 +181,7 @@ class CookieConsentTest extends TestCase
             // Act / Assert
             $this->assertTrue(CookieConsent::offInApp());
             $this->assertFalse(CookieConsent::enabled());
-            $this->assertSame('', CookieConsent::tag('https://example.com/'));
+            $this->assertStringContainsString('{&quot;enabled&quot;:false}', CookieConsent::tag('https://example.com/'));
         } finally {
             $reflection->setValue(null, $saved);
         }

@@ -6,6 +6,10 @@
  * configuration in `data-config`; a SPA shell, which cannot read settings, points
  * `data-config-url` at `/cookieconsent` instead.
  *
+ * With the feature off (`{enabled: false}`) nothing is drawn and every optional
+ * category counts as granted: `has()` is true, gated scripts are released and
+ * `onGrant()` callbacks run.
+ *
  * What it does:
  *   - shows a banner until the visitor chooses, with "Accept all" and "Reject all"
  *     equally prominent and a "Customise" dialog listing each category;
@@ -24,7 +28,8 @@
  *
  * Google Consent Mode v2: the moment it runs it pushes `consent default` (everything denied
  * but security) to `window.dataLayer`, before any configuration arrives; then `consent
- * update` with the visitor's choice, and a
+ * update` with the visitor's choice (everything granted when the site switched the
+ * banner off), and a
  * `{event: 'pramnos_consent'}` entry a Tag Manager trigger can fire on. A GTM or gtag.js
  * loaded *after* this script therefore starts from the right state.
  *
@@ -421,7 +426,16 @@
     // ── Start ────────────────────────────────────────────────────────────────
 
     function start(loaded) {
-        if (!loaded || loaded.enabled === false) {
+        if (!loaded) {
+            return;
+        }
+        // Off means nobody is asked, so everything is allowed — as `CookieConsent::allows()`
+        // answers in PHP. Nothing is drawn, but gated scripts and onGrant() still run.
+        if (loaded.enabled === false) {
+            granted = DEFAULTS.categories.map(function (c) { return c.name; })
+                .filter(function (name) { return name !== 'necessary'; });
+            googleConsent('update');
+            release();
             return;
         }
         config = Object.assign({}, DEFAULTS, loaded, { text: Object.assign({}, DEFAULTS.text, loaded.text || {}) });
