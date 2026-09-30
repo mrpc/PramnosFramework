@@ -2734,6 +2734,11 @@ class OAuth2Controller extends \Pramnos\Application\Controller
 
 Self-service registration at `/register` is **off** unless something opens it. Three things can:
 
+Both settings below are fields in **System Settings → Security → Registration**, unless `app.php`
+keeps them: `'auth' => ['registration_admin_editable' => false]` shows them read-only
+(`RegistrationPolicy::editableInAdmin()`). A value in `app/config/settings.php` still wins over
+the screen, as for every setting.
+
 | Setting | Effect |
 | --- | --- |
 | `auth_allow_registration` | open to anybody |

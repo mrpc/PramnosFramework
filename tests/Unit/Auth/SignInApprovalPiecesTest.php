@@ -11,6 +11,7 @@ use Pramnos\Auth\ApprovalPushChannel;
 use Pramnos\Auth\Notifications\SecurityChangeNotification;
 use Pramnos\Auth\Notifications\SignInApprovalNotification;
 use Pramnos\Auth\PushApprovals;
+use Pramnos\Auth\RegistrationPolicy;
 use Pramnos\Auth\SecondFactorRegistry;
 use Pramnos\Auth\SecurityChangeNotifier;
 
@@ -20,6 +21,7 @@ use Pramnos\Auth\SecurityChangeNotifier;
 #[CoversClass(ApprovalPushChannel::class)]
 #[CoversClass(SecurityChangeNotification::class)]
 #[CoversClass(SignInApprovalNotification::class)]
+#[CoversClass(RegistrationPolicy::class)]
 #[CoversClass(SecondFactorRegistry::class)]
 class SignInApprovalPiecesTest extends TestCase
 {
@@ -120,6 +122,19 @@ class SignInApprovalPiecesTest extends TestCase
         $this->assertArrayNotHasKey('actions', $withNumber['data']);
         $this->assertStringStartsWith('Chrome on Windows · ', $withNumber['body'], 'no country, no empty separator');
         $this->assertSame('https://x/ack', $withNumber['data']['ack']);
+    }
+
+    /**
+     * Registration is editable in the administration unless app.php says otherwise; an
+     * application that says nothing leaves it editable.
+     */
+    public function testRegistrationIsEditableUnlessTheApplicationKeepsIt(): void
+    {
+        // Act & Assert
+        $this->application(['auth' => []]);
+        $this->assertTrue(RegistrationPolicy::editableInAdmin());
+        $this->application(['auth' => ['registration_admin_editable' => false]]);
+        $this->assertFalse(RegistrationPolicy::editableInAdmin());
     }
 
     /**

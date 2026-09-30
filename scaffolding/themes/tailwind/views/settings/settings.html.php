@@ -321,6 +321,78 @@ $btnSec = 'px-4 py-2 border border-base-300 text-base-content text-sm font-mediu
                 </div>
 
                 <?php
+                /*
+                 * Registration, and the two sign-in conveniences Google taught everybody to
+                 * expect. Each a yes/no that falls back to "no": none of them may switch
+                 * itself on because a theme forgot to render a field.
+                 */
+                $yesNo = static function (string $name, string $value, bool $disabled = false) use ($input): string {
+                    $out = '<select class="select select-sm w-full md:w-48" id="' . $name . '" name="' . $name . '"'
+                        . ($disabled ? ' disabled' : '') . '>';
+                    foreach (['0' => 'No', '1' => 'Yes'] as $option => $text) {
+                        $out .= '<option value="' . $option . '"' . ($value === (string) $option ? ' selected' : '') . '>' . $text . '</option>';
+                    }
+
+                    return $out . '</select>';
+                };
+                $regAllow   = (string) ($s[\Pramnos\Auth\RegistrationPolicy::ALLOW_SETTING] ?? '');
+                $regAllow   = in_array(strtolower($regAllow), ['1', 'true', 'yes', 'on'], true) ? '1' : '0';
+                $regLocked  = empty($this->registrationEditable);
+                $trustOn    = (string) ($s[\Pramnos\Auth\TrustedDevices::ENABLED_SETTING] ?? '') === '1' ? '1' : '0';
+                $trustDays  = (int) ($s[\Pramnos\Auth\TrustedDevices::DAYS_SETTING] ?? 0) ?: \Pramnos\Auth\TrustedDevices::DEFAULT_DAYS;
+                $trustAdmin = (string) ($s[\Pramnos\Auth\TrustedDevices::EXCLUDE_ADMINS_SETTING] ?? '') === '1' ? '1' : '0';
+                $pushOn     = (string) ($s[\Pramnos\Auth\PushApprovals::ENABLED_SETTING] ?? '') === '1' ? '1' : '0';
+                ?>
+                <h3 class="font-semibold mt-6 mb-2">Registration</h3>
+                <div class="grid grid-cols-1 gap-4">
+                    <div>
+                        <label class="<?php echo $label; ?>" for="<?php echo \Pramnos\Auth\RegistrationPolicy::ALLOW_SETTING; ?>">Anybody may register</label>
+                        <?php echo $yesNo(\Pramnos\Auth\RegistrationPolicy::ALLOW_SETTING, $regAllow, $regLocked); ?>
+                        <p class="text-xs text-base-content/60 mt-1">Off: accounts are made by invitation or by an administrator.</p>
+                    </div>
+                    <div>
+                        <label class="<?php echo $label; ?>" for="<?php echo \Pramnos\Auth\RegistrationPolicy::DOMAINS_SETTING; ?>">Only from these email domains</label>
+                        <input type="text" class="<?php echo $input; ?>" id="<?php echo \Pramnos\Auth\RegistrationPolicy::DOMAINS_SETTING; ?>"
+                               name="<?php echo \Pramnos\Auth\RegistrationPolicy::DOMAINS_SETTING; ?>" placeholder="example.com, example.org"
+                               value="<?php echo htmlspecialchars((string) ($s[\Pramnos\Auth\RegistrationPolicy::DOMAINS_SETTING] ?? '')); ?>"<?php echo $regLocked ? ' disabled' : ''; ?>>
+                        <p class="text-xs text-base-content/60 mt-1">Empty for any. With a list, every new address must be confirmed by email.</p>
+                    </div>
+                    <?php if ($regLocked): ?>
+                    <p class="text-xs text-base-content/60">Set in <code>app/app.php</code> (<code>auth.registration_admin_editable</code> is off), so not editable here.</p>
+                    <?php endif; ?>
+                </div>
+
+                <h3 class="font-semibold mt-6 mb-2">Trusted devices and sign-in approval</h3>
+                <div class="grid grid-cols-1 gap-4">
+                    <div>
+                        <label class="<?php echo $label; ?>" for="<?php echo \Pramnos\Auth\TrustedDevices::ENABLED_SETTING; ?>">Offer "Don't ask again on this device"</label>
+                        <?php echo $yesNo(\Pramnos\Auth\TrustedDevices::ENABLED_SETTING, $trustOn); ?>
+                        <p class="text-xs text-base-content/60 mt-1">On the two-step page, ticked by default. A trusted browser skips the second step.</p>
+                    </div>
+                    <div class="md:w-48">
+                        <label class="<?php echo $label; ?>" for="<?php echo \Pramnos\Auth\TrustedDevices::DAYS_SETTING; ?>">For how many days</label>
+                        <input type="number" min="1" max="365" class="<?php echo $input; ?>"
+                               id="<?php echo \Pramnos\Auth\TrustedDevices::DAYS_SETTING; ?>"
+                               name="<?php echo \Pramnos\Auth\TrustedDevices::DAYS_SETTING; ?>" value="<?php echo $trustDays; ?>">
+                    </div>
+                    <div>
+                        <label class="<?php echo $label; ?>" for="<?php echo \Pramnos\Auth\TrustedDevices::EXCLUDE_ADMINS_SETTING; ?>">Administrators always take the second step</label>
+                        <?php echo $yesNo(\Pramnos\Auth\TrustedDevices::EXCLUDE_ADMINS_SETTING, $trustAdmin); ?>
+                    </div>
+                    <div>
+                        <label class="<?php echo $label; ?>" for="<?php echo \Pramnos\Auth\PushApprovals::ENABLED_SETTING; ?>">Approve sign-ins from a trusted phone</label>
+                        <?php echo $yesNo(\Pramnos\Auth\PushApprovals::ENABLED_SETTING, $pushOn); ?>
+                        <p class="text-xs text-base-content/60 mt-1">
+                            "Is it you trying to sign in?" on the account's trusted devices that receive notifications,
+                            with a number to pick when the attempt looks new. Another way is always offered beside it.
+                            <?php if (empty($this->pushReady)): ?>
+                            <strong>Push is not set up here yet</strong> — run <code>push:setup</code> — so nobody will be asked until it is.
+                            <?php endif; ?>
+                        </p>
+                    </div>
+                </div>
+
+                <?php
                 /**
                  * What this application has enabled — read-only, and next to the settings
                  * that refer to it.

@@ -100,6 +100,13 @@ class SettingsController extends Controller
             // and what such a sign-in has to satisfy before it is allowed to continue.
             \Pramnos\Auth\NewSignInAlert::POLICY_SETTING,
             \Pramnos\Auth\NewSignInAlert::ACTION_SETTING,
+            // Who may register, and "don't ask again" / the phone prompt.
+            \Pramnos\Auth\RegistrationPolicy::ALLOW_SETTING,
+            \Pramnos\Auth\RegistrationPolicy::DOMAINS_SETTING,
+            \Pramnos\Auth\TrustedDevices::ENABLED_SETTING,
+            \Pramnos\Auth\TrustedDevices::DAYS_SETTING,
+            \Pramnos\Auth\TrustedDevices::EXCLUDE_ADMINS_SETTING,
+            \Pramnos\Auth\PushApprovals::ENABLED_SETTING,
         ];
         $settings = [];
         foreach ($keys as $key) {
@@ -146,6 +153,10 @@ class SettingsController extends Controller
             static fn (string $feature): bool => \Pramnos\Application\FeatureRegistry::isEnabled($feature)
         ));
         $view->timezones        = \DateTimeZone::listIdentifiers();
+        // Registration may be locked to app.php; the phone prompt needs push to work at all.
+        $view->registrationEditable = \Pramnos\Auth\RegistrationPolicy::editableInAdmin();
+        $view->pushReady            = \Pramnos\Push\Vapid::configured()
+            && class_exists(ltrim(\Pramnos\Notification\Channels\PushChannel::LIBRARY, '\\'));
 
         /*
          * The languages this installation actually has, for the picker.
@@ -311,6 +322,30 @@ class SettingsController extends Controller
             \Pramnos\Auth\NewSignInAlert::ACTIONS,
             'notify'
         );
+
+        /*
+         * Registration, unless app.php keeps it. Absent fields keep what is stored, as
+         * everywhere on this screen — a theme that does not render them must not reset them.
+         */
+        if (\Pramnos\Auth\RegistrationPolicy::editableInAdmin()) {
+            $this->saveChoice($request, \Pramnos\Auth\RegistrationPolicy::ALLOW_SETTING, ['0', '1'], '0');
+
+            $domains = (string) $request->get(\Pramnos\Auth\RegistrationPolicy::DOMAINS_SETTING, '__KEEP__', 'post');
+            if ($domains !== '__KEEP__') {
+                Settings::setSetting(\Pramnos\Auth\RegistrationPolicy::DOMAINS_SETTING, trim($domains));
+            }
+        }
+
+        // "Don't ask again on this device", and the phone prompt.
+        $this->saveChoice($request, \Pramnos\Auth\TrustedDevices::ENABLED_SETTING, ['0', '1'], '0');
+        $this->saveChoice($request, \Pramnos\Auth\TrustedDevices::EXCLUDE_ADMINS_SETTING, ['0', '1'], '0');
+        $days = (string) $request->get(\Pramnos\Auth\TrustedDevices::DAYS_SETTING, '__KEEP__', 'post');
+        if ($days !== '__KEEP__') {
+            Settings::setSetting(\Pramnos\Auth\TrustedDevices::DAYS_SETTING, (string) $this->normalizeIntRange(
+                $days, 1, 365, \Pramnos\Auth\TrustedDevices::DEFAULT_DAYS
+            ));
+        }
+        $this->saveChoice($request, \Pramnos\Auth\PushApprovals::ENABLED_SETTING, ['0', '1'], '0');
 
         // Security
         Settings::setSetting('loginlockoutwindowseconds', (string) $this->normalizeIntRange(

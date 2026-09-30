@@ -26,6 +26,25 @@ final class RegistrationPolicy
 
     public const VERIFY_SETTING = 'auth_registration_verify_email';
 
+    public const ALLOW_SETTING = 'auth_allow_registration';
+
+    /**
+     * May the administration's System Settings change who can register?
+     *
+     * Yes unless `app.php` says `'auth' => ['registration_admin_editable' => false]` — for a
+     * deployment where registration is a decision made with the code, not on a live server.
+     * The screen then shows the values without letting them be changed.
+     */
+    public static function editableInAdmin(): bool
+    {
+        $application = \Pramnos\Application\Application::currentInstance();
+        $configured  = is_object($application)
+            ? ($application->applicationInfo['auth']['registration_admin_editable'] ?? true)
+            : true;
+
+        return $configured !== false;
+    }
+
     /** Is self-service registration open to anybody (within the domain list, if there is one)? */
     public static function isOpen(): bool
     {

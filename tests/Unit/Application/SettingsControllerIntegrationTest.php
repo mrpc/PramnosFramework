@@ -486,6 +486,101 @@ class SettingsControllerIntegrationTest extends TestCase
         $this->assertSame([3 => 60, 5 => 300, 10 => 900], json_decode($json, true));
     }
 
+    // ── Registration, trusted devices, the phone prompt ───────────────────────
+
+    /**
+     * Who may register, "don't ask again" and the phone prompt are saved from the screen —
+     * yes/no fields fall back to "no" on nonsense, and the days are kept between 1 and 365.
+     *
+     * "No" on nonsense is the point: none of these may switch itself on because a field
+     * carried a value nobody chose.
+     */
+    public function testRegistrationAndTheSignInConveniencesAreSaved(): void
+    {
+        // Arrange
+        $_POST = [
+            'auth_allow_registration'             => '1',
+            'auth_registration_domains'           => ' example.com, example.org ',
+            'auth_trusted_devices'                => '1',
+            'auth_trusted_device_days'            => '9999',
+            'auth_trusted_devices_exclude_admins' => 'maybe',
+            'auth_push_approval'                  => '1',
+        ];
+
+        // Act
+        ob_start();
+        $this->controller->saveSystem();
+        ob_end_clean();
+
+        // Assert
+        $this->assertSame('1', (string) Settings::getSetting('auth_allow_registration'));
+        $this->assertSame('example.com, example.org', (string) Settings::getSetting('auth_registration_domains'));
+        $this->assertSame('1', (string) Settings::getSetting('auth_trusted_devices'));
+        $this->assertSame('365', (string) Settings::getSetting('auth_trusted_device_days'));
+        $this->assertSame('0', (string) Settings::getSetting('auth_trusted_devices_exclude_admins'));
+        $this->assertSame('1', (string) Settings::getSetting('auth_push_approval'));
+    }
+
+    /**
+     * A form that does not carry these fields leaves them as they were — the rule every
+     * setting on this screen follows, because a theme that forgot a field would otherwise
+     * reset it on every save.
+     */
+    public function testAbsentFieldsLeaveTheSignInSettingsAlone(): void
+    {
+        // Arrange
+        Settings::setSetting('auth_push_approval', '1', false);
+        Settings::setSetting('auth_trusted_device_days', '14', false);
+        Settings::setSetting('auth_registration_domains', 'example.com', false);
+        $_POST = ['sitename' => 'Unrelated save'];
+
+        // Act
+        ob_start();
+        $this->controller->saveSystem();
+        ob_end_clean();
+
+        // Assert
+        $this->assertSame('1', (string) Settings::getSetting('auth_push_approval'));
+        $this->assertSame('14', (string) Settings::getSetting('auth_trusted_device_days'));
+        $this->assertSame('example.com', (string) Settings::getSetting('auth_registration_domains'));
+    }
+
+    /**
+     * When app.php keeps registration (`auth.registration_admin_editable` false), the screen
+     * cannot change it even by posting the fields — and it says so to the view.
+     */
+    public function testRegistrationKeptByTheApplicationIsNotSaved(): void
+    {
+        // Arrange
+        $reflection = new \ReflectionProperty(\Pramnos\Application\Application::class, 'appInstances');
+        $saved = $reflection->getValue() ?? [];
+        $stub = new class extends \Pramnos\Application\Application {
+            public function __construct()
+            {
+            }
+        };
+        $stub->applicationInfo = ['auth' => ['registration_admin_editable' => false]];
+        $reflection->setValue(null, ['default' => $stub] + $saved);
+        Settings::setSetting('auth_allow_registration', '0', false);
+        $_POST = ['auth_allow_registration' => '1', 'auth_registration_domains' => 'evil.example'];
+
+        try {
+            // Act
+            ob_start();
+            $this->controller->saveSystem();
+            $this->controller->display();
+            ob_end_clean();
+
+            // Assert
+            $this->assertSame('0', (string) Settings::getSetting('auth_allow_registration'));
+            $this->assertNotSame('evil.example', (string) Settings::getSetting('auth_registration_domains'));
+            $this->assertFalse($this->controller->lastView->registrationEditable);
+            $this->assertIsBool($this->controller->lastView->pushReady);
+        } finally {
+            $reflection->setValue(null, $saved);
+        }
+    }
+
     // ── saveSystem() branches ─────────────────────────────────────────────────
 
     /**

@@ -148,4 +148,35 @@ class ScaffoldSignInApprovalViewsTest extends TestCase
         $this->assertStringContainsString('name="device"', $source);
         $this->assertStringContainsString('name="all" value="1"', $source);
     }
+
+    /**
+     * Every setting the controller saves has a field. A field a theme forgot is not "left
+     * alone" on save — the controller writes what it receives — so each of the six is
+     * looked for, through the constant the view names it by and the value that constant has.
+     */
+    #[DataProvider('themes')]
+    public function testSettingsPageHasEverySignInSetting(string $theme): void
+    {
+        // Arrange
+        $source   = self::view($theme, 'settings/settings.html.php');
+        $settings = [
+            '\Pramnos\Auth\RegistrationPolicy::ALLOW_SETTING'       => 'auth_allow_registration',
+            '\Pramnos\Auth\RegistrationPolicy::DOMAINS_SETTING'     => 'auth_registration_domains',
+            '\Pramnos\Auth\TrustedDevices::ENABLED_SETTING'         => 'auth_trusted_devices',
+            '\Pramnos\Auth\TrustedDevices::DAYS_SETTING'            => 'auth_trusted_device_days',
+            '\Pramnos\Auth\TrustedDevices::EXCLUDE_ADMINS_SETTING'  => 'auth_trusted_devices_exclude_admins',
+            '\Pramnos\Auth\PushApprovals::ENABLED_SETTING'          => 'auth_push_approval',
+        ];
+
+        foreach ($settings as $constant => $name) {
+            // Act
+            $referenced = str_contains($source, $constant);
+
+            // Assert
+            $this->assertSame($name, constant(ltrim($constant, '\\')));
+            $this->assertTrue($referenced, $theme . ' settings has no field for ' . $name);
+        }
+        $this->assertStringContainsString('$this->registrationEditable', $source);
+        $this->assertStringContainsString('$this->pushReady', $source);
+    }
 }

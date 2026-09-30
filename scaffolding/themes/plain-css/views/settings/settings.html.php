@@ -256,6 +256,75 @@ ksort($initialSteps, SORT_NUMERIC);
                         factor it does have, and a mailed code as a last resort.
                     </small>
                 </div>
+
+                <?php
+                /*
+                 * Registration, and the two sign-in conveniences Google taught everybody to
+                 * expect. Each a yes/no that falls back to "no": none of them may switch
+                 * itself on because a theme forgot to render a field.
+                 */
+                $yesNo = static function (string $name, string $value, bool $disabled = false): string {
+                    $out = '<select id="' . $name . '" name="' . $name . '" style="width:100%;max-width:220px;padding:6px 8px"'
+                        . ($disabled ? ' disabled' : '') . '>';
+                    foreach (['0' => 'No', '1' => 'Yes'] as $option => $text) {
+                        $out .= '<option value="' . $option . '"' . ($value === (string) $option ? ' selected' : '') . '>' . $text . '</option>';
+                    }
+
+                    return $out . '</select>';
+                };
+                $regAllow   = (string) ($s[\Pramnos\Auth\RegistrationPolicy::ALLOW_SETTING] ?? '');
+                $regAllow   = in_array(strtolower($regAllow), ['1', 'true', 'yes', 'on'], true) ? '1' : '0';
+                $regLocked  = empty($this->registrationEditable);
+                $trustOn    = (string) ($s[\Pramnos\Auth\TrustedDevices::ENABLED_SETTING] ?? '') === '1' ? '1' : '0';
+                $trustDays  = (int) ($s[\Pramnos\Auth\TrustedDevices::DAYS_SETTING] ?? 0) ?: \Pramnos\Auth\TrustedDevices::DEFAULT_DAYS;
+                $trustAdmin = (string) ($s[\Pramnos\Auth\TrustedDevices::EXCLUDE_ADMINS_SETTING] ?? '') === '1' ? '1' : '0';
+                $pushOn     = (string) ($s[\Pramnos\Auth\PushApprovals::ENABLED_SETTING] ?? '') === '1' ? '1' : '0';
+                ?>
+                <h3 style="font-size:15px;margin:20px 0 8px">Registration</h3>
+                <div style="margin-bottom:12px">
+                    <label style="display:block;font-weight:600;margin-bottom:4px" for="<?php echo \Pramnos\Auth\RegistrationPolicy::ALLOW_SETTING; ?>">Anybody may register</label>
+                    <?php echo $yesNo(\Pramnos\Auth\RegistrationPolicy::ALLOW_SETTING, $regAllow, $regLocked); ?>
+                    <small style="color:#888;font-size:11px;display:block">Off: accounts are made by invitation or by an administrator.</small>
+                </div>
+                <div style="margin-bottom:12px">
+                    <label style="display:block;font-weight:600;margin-bottom:4px" for="<?php echo \Pramnos\Auth\RegistrationPolicy::DOMAINS_SETTING; ?>">Only from these email domains</label>
+                    <input type="text" id="<?php echo \Pramnos\Auth\RegistrationPolicy::DOMAINS_SETTING; ?>"
+                           name="<?php echo \Pramnos\Auth\RegistrationPolicy::DOMAINS_SETTING; ?>" placeholder="example.com, example.org"
+                           style="width:100%;padding:8px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box"
+                           value="<?php echo htmlspecialchars((string) ($s[\Pramnos\Auth\RegistrationPolicy::DOMAINS_SETTING] ?? '')); ?>"<?php echo $regLocked ? ' disabled' : ''; ?>>
+                    <small style="color:#888;font-size:11px;display:block">Empty for any. With a list, every new address must be confirmed by email.</small>
+                </div>
+                <?php if ($regLocked): ?>
+                <p style="color:#888;font-size:11px">Set in <code>app/app.php</code> (<code>auth.registration_admin_editable</code> is off), so not editable here.</p>
+                <?php endif; ?>
+
+                <h3 style="font-size:15px;margin:20px 0 8px">Trusted devices and sign-in approval</h3>
+                <div style="margin-bottom:12px">
+                    <label style="display:block;font-weight:600;margin-bottom:4px" for="<?php echo \Pramnos\Auth\TrustedDevices::ENABLED_SETTING; ?>">Offer "Don't ask again on this device"</label>
+                    <?php echo $yesNo(\Pramnos\Auth\TrustedDevices::ENABLED_SETTING, $trustOn); ?>
+                    <small style="color:#888;font-size:11px;display:block">On the two-step page, ticked by default. A trusted browser skips the second step.</small>
+                </div>
+                <div style="margin-bottom:12px;max-width:220px">
+                    <label style="display:block;font-weight:600;margin-bottom:4px" for="<?php echo \Pramnos\Auth\TrustedDevices::DAYS_SETTING; ?>">For how many days</label>
+                    <input type="number" min="1" max="365" style="width:100%;padding:8px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box"
+                           id="<?php echo \Pramnos\Auth\TrustedDevices::DAYS_SETTING; ?>"
+                           name="<?php echo \Pramnos\Auth\TrustedDevices::DAYS_SETTING; ?>" value="<?php echo $trustDays; ?>">
+                </div>
+                <div style="margin-bottom:12px">
+                    <label style="display:block;font-weight:600;margin-bottom:4px" for="<?php echo \Pramnos\Auth\TrustedDevices::EXCLUDE_ADMINS_SETTING; ?>">Administrators always take the second step</label>
+                    <?php echo $yesNo(\Pramnos\Auth\TrustedDevices::EXCLUDE_ADMINS_SETTING, $trustAdmin); ?>
+                </div>
+                <div>
+                    <label style="display:block;font-weight:600;margin-bottom:4px" for="<?php echo \Pramnos\Auth\PushApprovals::ENABLED_SETTING; ?>">Approve sign-ins from a trusted phone</label>
+                    <?php echo $yesNo(\Pramnos\Auth\PushApprovals::ENABLED_SETTING, $pushOn); ?>
+                    <small style="color:#888;font-size:11px;display:block">
+                        "Is it you trying to sign in?" on the account's trusted devices that receive notifications,
+                        with a number to pick when the attempt looks new. Another way is always offered beside it.
+                        <?php if (empty($this->pushReady)): ?>
+                        <strong>Push is not set up here yet</strong> — run <code>push:setup</code> — so nobody will be asked until it is.
+                        <?php endif; ?>
+                    </small>
+                </div>
             </div>
         </div>
 
