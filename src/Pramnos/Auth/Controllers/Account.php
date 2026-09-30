@@ -2711,6 +2711,9 @@ class Account extends Controller
             'authserver.user_privacy_settings' => 'userid',
             'authserver.user_twofactor'        => 'userid',
             'authserver.twofactor_setup'       => 'userid',
+            // The usergroups feature. Deleted, not left to a foreign key an installation that
+            // built the table itself may not have.
+            'userstogroups'                    => 'userid',
         ];
 
         /*

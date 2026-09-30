@@ -1583,6 +1583,15 @@ class Application extends Base
             ));
         }
 
+        // User groups — usergroups feature
+        if (in_array('usergroups', $features, true)) {
+            NavRegistry::register(new NavItem(
+                'admin.groups', 'Groups', $admin('Groups'),
+                NavSection::Admin, 15, requireAuth: true, minUserType: $floor,
+                feature: 'usergroups', icon: 'users', group: 'People',
+            ));
+        }
+
         // Queue — queue feature
         if (in_array('queue', $features, true)) {
             NavRegistry::register(new NavItem(

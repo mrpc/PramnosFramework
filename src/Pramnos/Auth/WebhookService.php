@@ -278,7 +278,23 @@ class WebhookService
             $holders[] = (int) $result->fields['userid'];
         }
 
-        return $holders;
+        // And everyone in a group that holds it: their permissions change just the same.
+        $schema = $this->database->schema();
+        if ($schema->hasTable('authserver.group_roles') && $schema->hasTable('#PREFIX#userstogroups')) {
+            $groups = [];
+            foreach ($this->database->queryBuilder()->table('authserver.group_roles')
+                ->select(['groupid'])->where('roleid', $roleId)->where('is_active', true)->get() as $row) {
+                $groups[] = (int) $row['groupid'];
+            }
+            if ($groups !== []) {
+                foreach ($this->database->queryBuilder()->table('#PREFIX#userstogroups')
+                    ->select(['userid'])->whereIn('groupid', $groups)->get() as $row) {
+                    $holders[] = (int) $row['userid'];
+                }
+            }
+        }
+
+        return array_values(array_unique($holders));
     }
 
     // ── Queue processing ──────────────────────────────────────────────────────

@@ -136,15 +136,25 @@ class Role extends Model
             return false;
         }
 
-        \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
+        // Told first: the applications to tell are found from the role's holders, and the
+        // deletes below remove them. Told after, a deleted role reached nobody.
+        WebhookService::permissionsChanged('role', $roleid, ['operation' => 'delete']);
+
+        $database = \Pramnos\Framework\Factory::getDatabase();
+        $database->queryBuilder()
             ->table(self::assignmentTable())
             ->where('roleid', $roleid)
             ->delete();
 
-        $deleted = (bool) parent::_delete($roleid);
-        WebhookService::permissionsChanged('role', $roleid, ['operation' => 'delete']);
+        // Held by user groups too, where the feature is on. No foreign key does this.
+        if ($database->schema()->hasTable('authserver.group_roles')) {
+            $database->queryBuilder()
+                ->table('authserver.group_roles')
+                ->where('roleid', $roleid)
+                ->delete();
+        }
 
-        return $deleted;
+        return (bool) parent::_delete($roleid);
     }
 
     /**

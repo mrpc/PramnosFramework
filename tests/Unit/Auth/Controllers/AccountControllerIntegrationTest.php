@@ -537,8 +537,9 @@ class AccountControllerIntegrationTest extends TestCase
         $this->bypassCsrf();
         $this->controller->verifyPasswordResult = true;
 
-        // 6 GDPR-related tables + 2 for invitations + 1 mailing lists + users = 10 delete() calls
-        $this->queryBuilderMock->expects($this->exactly(10))
+        // 6 GDPR-related tables + group memberships + 2 for invitations + 1 mailing lists + users
+        // = 11 delete() calls
+        $this->queryBuilderMock->expects($this->exactly(11))
             ->method('delete')
             ->willReturn(1);
 

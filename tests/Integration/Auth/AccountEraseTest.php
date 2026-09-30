@@ -300,4 +300,41 @@ class AccountEraseTest extends BaseTestCase
         $this->assertFalse($this->rowExists('users'));
         $this->assertFalse($this->rowExists('usertokens'));
     }
+
+    /**
+     * A group membership goes with the account, even where no foreign key would take it.
+     *
+     * The usergroups feature's migration cascades, but an installation that built
+     * `userstogroups` itself may have no key at all, and a membership left behind would
+     * grant whatever that group is given to a user id that no longer exists — or to the
+     * next account the id is reused for.
+     */
+    public function testAGroupMembershipIsErasedWithoutAForeignKey(): void
+    {
+        // Arrange — the membership table as such an installation has it: no key to users.
+        foreach (['fk_userstogroups_userid', 'fk_userstogroups_groupid'] as $key) {
+            try {
+                $this->db->query('ALTER TABLE `userstogroups` DROP FOREIGN KEY `' . $key . '`');
+            } catch (\Throwable) {
+                // Not there: the table was built without it.
+            }
+        }
+        $this->db->queryBuilder()->table('usergroups')->insert(['name' => 'erase_group', 'description' => '']);
+        $groupId = (int) $this->db->queryBuilder()->table('usergroups')->where('name', 'erase_group')->first()->fields['groupid'];
+        $this->db->queryBuilder()->table('userstogroups')->insert(['userid' => $this->uid, 'groupid' => $groupId]);
+
+        try {
+            // Act
+            $this->erase();
+
+            // Assert
+            $this->assertFalse($this->rowExists('userstogroups'), 'the membership outlived the account');
+        } finally {
+            $this->db->queryBuilder()->table('userstogroups')->where('groupid', $groupId)->delete();
+            $this->db->queryBuilder()->table('usergroups')->where('groupid', $groupId)->delete();
+            // Put the table back in its migrated shape for the tests after this one.
+            $this->db->query('DROP TABLE IF EXISTS `userstogroups`, `usergroups`');
+            \Pramnos\Framework\Testing\Schema::table('usergroups', $this->db);
+        }
+    }
 }

@@ -159,7 +159,7 @@ class Init extends Command
         $this->setDescription('Initialize a new Pramnos project structure');
         $this->addOption('app-name',      null, InputOption::VALUE_OPTIONAL, 'Application name');
         $this->addOption('namespace',     null, InputOption::VALUE_OPTIONAL, 'PHP namespace');
-        $this->addOption('features',      null, InputOption::VALUE_OPTIONAL, 'Comma-separated feature list (auth,authserver,queue,messaging,devpanel)');
+        $this->addOption('features',      null, InputOption::VALUE_OPTIONAL, 'Comma-separated feature list (auth,authserver,queue,messaging,devpanel,usergroups)');
         $this->addOption('ui-system',     null, InputOption::VALUE_OPTIONAL, 'UI system (plain-css, bootstrap, tailwind)');
         $this->addOption('docker',        null, InputOption::VALUE_OPTIONAL, 'Setup Docker environment (y/n)');
         $this->addOption('docker-port',   null, InputOption::VALUE_OPTIONAL, 'Local port for Docker mapping');
@@ -1011,6 +1011,21 @@ class Init extends Command
                 $enabled[] = $key;
             }
         }
+
+        /*
+         * User groups, off unless asked for, and only with `auth` — membership rows reference
+         * users. Most applications never need them; one that does gets the tables, the admin
+         * screen and group audiences for mail.
+         */
+        if (in_array('auth', $enabled, true)) {
+            $answer = $helper->ask($input, $output, new ConfirmationQuestion(
+                '  Enable User groups         [usergroups]? [y/N] ', false
+            ));
+            if ($answer) {
+                $enabled[] = 'usergroups';
+            }
+        }
+
         return $enabled;
     }
 

@@ -132,18 +132,20 @@ class DefaultNavItemsTest extends TestCase
 
         NavRegistry::reset();
 
-        // Act — messaging and queue enabled
-        $this->application->registerDefaultNavItems(['messaging', 'queue']);
+        // Act — messaging, queue and user groups enabled
+        $this->application->registerDefaultNavItems(['messaging', 'queue', 'usergroups']);
         $with = array_keys($this->registered());
 
         // Assert
         $this->assertNotContains('admin.mailtemplates', $without, 'a messaging screen without messaging');
         $this->assertNotContains('admin.massmessages', $without);
         $this->assertNotContains('admin.queue', $without, 'a queue screen without the queue feature');
+        $this->assertNotContains('admin.groups', $without, 'a groups screen without the usergroups feature');
 
         $this->assertContains('admin.mailtemplates', $with, 'messaging brought no template screen');
         $this->assertContains('admin.massmessages', $with);
         $this->assertContains('admin.queue', $with);
+        $this->assertContains('admin.groups', $with);
     }
 
     /**
@@ -156,9 +158,10 @@ class DefaultNavItemsTest extends TestCase
     public function testEveryFeatureGatedItemAlsoCarriesItsTag(): void
     {
         // Act
-        $this->application->registerDefaultNavItems(['messaging', 'queue']);
+        $this->application->registerDefaultNavItems(['messaging', 'queue', 'usergroups']);
 
         // Assert
+        $this->assertSame('usergroups', $this->item('admin.groups')->feature);
         $this->assertSame('messaging', $this->item('admin.mailtemplates')->feature);
         $this->assertSame('messaging', $this->item('admin.massmessages')->feature);
         $this->assertSame('queue', $this->item('admin.queue')->feature);

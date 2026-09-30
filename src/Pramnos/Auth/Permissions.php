@@ -451,14 +451,18 @@ class Permissions extends \Pramnos\Framework\Base
             $resolver = new \Pramnos\Auth\PermissionResolver(
                 $this->db()
             );
-            $result = $resolver->resolve((int) $subject, null);
+            // A group is resolved as a group. `resolve()` takes a user id, so a group check
+            // used to answer with the grants of the user whose id the group happened to have.
+            $result = $subjectType === 'group'
+                ? $resolver->resolveForGroup((int) $subject, null)
+                : $resolver->resolve((int) $subject, null);
         } catch (\Throwable $ex) {
             \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
             return null;
         }
 
-        // The legacy API addresses users and groups; the new one calls the
-        // latter roles, and the resolver already folds a user's roles in.
+        // Users and groups. A user's answer includes the roles of the groups they are in;
+        // a group's is the roles it holds.
         if ($subjectType !== 'user' && $subjectType !== 'group') {
             return null;
         }

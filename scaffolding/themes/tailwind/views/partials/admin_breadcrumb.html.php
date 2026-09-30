@@ -54,6 +54,12 @@ $roleLabel   = $roleName !== '' ? htmlspecialchars($roleName, ENT_QUOTES, 'UTF-8
 $rolesUrl    = $base . 'Roles';
 $roleViewUrl = $roleId > 0 ? $base . 'Roles/view/' . $roleId : $rolesUrl;
 $orgViewUrl  = $orgId > 0 ? $base . 'Organizations/view/' . $orgId : $orgsUrl;
+// The usergroups feature's screens.
+$group      = is_array($this->group ?? null) ? $this->group : [];
+$groupId    = (int) ($group['groupid'] ?? 0);
+$groupLabel = htmlspecialchars((string) ($group['name'] ?? ''), ENT_QUOTES, 'UTF-8');
+$groupLabel = $groupLabel !== '' ? $groupLabel : ($groupId > 0 ? '#' . $groupId : 'Group');
+$groupsUrl  = $base . 'Groups';
 
 /**
  * A username for an id, for the "you came from this account" crumb.
@@ -197,6 +203,9 @@ $trails = [
     'organizations_view'     => [['Organizations', $orgsUrl], [$orgLabel, '']],
     'organizations_edit'     => [['Organizations', $orgsUrl], [$orgId > 0 ? $orgLabel : 'New Organization', '']],
     'organizations_members'  => [['Organizations', $orgsUrl], [$orgLabel, $orgViewUrl], ['Members', '']],
+    'groups'                 => [['Groups', '']],
+    'groups_view'            => [['Groups', $groupsUrl], [$groupLabel, '']],
+    'groups_edit'            => [['Groups', $groupsUrl], [$groupId > 0 ? $groupLabel : 'New group', '']],
     'mailtemplates'      => [['Message templates', '']],
     'mailtemplates_view' => [['Message templates', $base . 'MailTemplates'], [htmlspecialchars((string) ($this->template['title'] ?? ''), ENT_QUOTES, 'UTF-8'), '']],
     'mailtemplates_edit' => [['Message templates', $base . 'MailTemplates'], [((int) ($this->template['templateid'] ?? 0)) > 0 ? 'Edit' : 'New template', '']],

@@ -44,7 +44,7 @@ class ScaffoldViews extends Command
     private const ADMIN_GROUPS = [
         'users', 'tokens', 'tokenactions', 'logs', 'settings', 'permissions',
         'roles', 'organizations', 'applications', 'emails', 'services', 'queue',
-        'dashboard',
+        'dashboard', 'groups',
     ];
 
     /** Target project root. Overridable for testing. */

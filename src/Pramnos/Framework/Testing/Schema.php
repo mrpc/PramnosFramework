@@ -95,6 +95,11 @@ final class Schema
         'users' => [
             \Pramnos\Framework\Migrations\Auth\CreateUsersTable::class,
         ],
+        // The usergroups feature: both tables come from one migration.
+        'usergroups' => [
+            \Pramnos\Framework\Migrations\UserGroups\CreateUsergroupsTables::class,
+            \Pramnos\Framework\Migrations\UserGroups\CreateAuthserverGroupRolesTable::class,
+        ],
         // Read by every `User::load()`, so a sign-in cannot happen without it.
         'userdetails' => [
             \Pramnos\Framework\Migrations\Auth\CreateUserdetailsTable::class,

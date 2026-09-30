@@ -260,6 +260,13 @@ class FeatureRegistry
                 dirname(__DIR__, 3) . '/database/migrations/framework/auth',
             ],
         ]);
+        // Needs `auth`: membership rows reference users.
+        static::register('usergroups', [
+            'description' => 'User groups — named sets of accounts that permissions and mail can address',
+            'migrations'  => [
+                dirname(__DIR__, 3) . '/database/migrations/framework/usergroups',
+            ],
+        ]);
         static::register('authserver', [
             'description' => 'OAuth 2.0 Authorization Server',
             'provider'    => \Pramnos\Auth\AuthServerServiceProvider::class,

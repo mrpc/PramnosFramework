@@ -500,7 +500,9 @@ class User extends \Pramnos\Framework\Base implements
             $result = $database->queryBuilder()
                 ->from(DB_USERGROUPSUBSCRIPTIONS)
                 ->where('userid', $this->userid)
-                ->get(true, 60);
+                // Categorised, so a membership change flushes it: uncategorised, a group
+                // grant took up to a minute to apply — and to be withdrawn.
+                ->get(true, 60, \Pramnos\Application\Controllers\Groups::CACHE_CATEGORY);
         }
         catch (\Exception $exc) {
             \Pramnos\Logs\Logger::log($exc->getMessage());
@@ -2878,7 +2880,7 @@ class User extends \Pramnos\Framework\Base implements
     /**
      * Build the user tables in their production shape, and seed the Guest row.
      *
-     * `users`, `userdetails` and `usertokens` come from their migrations, through
+     * `users`, `userdetails`, `usertokens` and the two group tables come from their migrations, through
      * {@see \Pramnos\Framework\Testing\Schema::table()}. This method predates the
      * migration system and used to carry its own `CREATE TABLE` statements, one set per
      * driver. They had drifted: `usertype`, `sex`, `birthdate`, `modified` and
@@ -2899,45 +2901,9 @@ class User extends \Pramnos\Framework\Base implements
             \Pramnos\Framework\Testing\Schema::table($table, $database);
         }
 
-        // No migration creates these two, so they stay DDL: the group pickers that read
-        // them are feature gates on an installation that built them itself.
-        if ($database->type == 'postgresql') {
-            $statements = [
-                "CREATE TABLE IF NOT EXISTS #PREFIX#usergroups (
-                    groupid serial PRIMARY KEY,
-                    name varchar(80) NOT NULL,
-                    description text NOT NULL,
-                    \"order\" smallint DEFAULT NULL
-                );",
-                "CREATE TABLE IF NOT EXISTS #PREFIX#userstogroups (
-                    userid bigint NOT NULL REFERENCES #PREFIX#users(userid) ON DELETE CASCADE ON UPDATE CASCADE,
-                    groupid integer NOT NULL REFERENCES #PREFIX#usergroups(groupid) ON DELETE CASCADE ON UPDATE CASCADE,
-                    PRIMARY KEY (userid, groupid)
-                );",
-            ];
-        } else {
-            $statements = [
-                "CREATE TABLE IF NOT EXISTS `#PREFIX#usergroups` (
-                  `groupid` mediumint(8) UNSIGNED NOT NULL AUTO_INCREMENT,
-                  `name` varchar(80) NOT NULL COMMENT 'Group Name',
-                  `description` text NOT NULL COMMENT 'Group Description',
-                  `order` tinyint(4) DEFAULT NULL,
-                  PRIMARY KEY (`groupid`)
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8 COMMENT='User Groups';",
-                "CREATE TABLE IF NOT EXISTS `#PREFIX#userstogroups` (
-                  `userid` bigint(20) NOT NULL,
-                  `groupid` mediumint(8) UNSIGNED NOT NULL,
-                  PRIMARY KEY (`userid`,`groupid`),
-                  KEY `groupid` (`groupid`),
-                  FOREIGN KEY (`userid`) REFERENCES `#PREFIX#users` (`userid`) ON DELETE CASCADE ON UPDATE CASCADE,
-                  FOREIGN KEY (`groupid`) REFERENCES `#PREFIX#usergroups` (`groupid`) ON DELETE CASCADE ON UPDATE CASCADE
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8 COMMENT='Users to groups';",
-            ];
-        }
-
-        foreach ($statements as $sql) {
-            $database->query($database->prepareQuery($sql));
-        }
+        // The group tables too: tests of permissions and mail audiences read them. They are the
+        // usergroups feature's, built from its migration like the rest.
+        \Pramnos\Framework\Testing\Schema::table('usergroups', $database);
 
         // The Guest row at userid 1, which the users migration reserves but does not write.
         // Every column is given because the migration gives these no default.
@@ -2960,15 +2926,11 @@ class User extends \Pramnos\Framework\Base implements
     /**
      * Add what a pre-existing `usertokens` table is missing.
      *
-     * The statements above are `CREATE TABLE IF NOT EXISTS`, which does nothing at
-     * all to a table that already exists — so a column added to those definitions
-     * reaches a fresh install and no other. Every installation whose table predates
-     * the column, and every test database carried between runs, keeps the old shape
-     * and fails on the first query that names the new column.
-     *
-     * The migration handles a real installation. This is for everything that calls
-     * `setupDb()` instead of migrating: it exists to make the schema current, and it
-     * was only doing so for tables that did not exist yet.
+     * A create migration does nothing to a table that already exists, so a test
+     * database carried between runs keeps whatever shape it was first given and
+     * fails on the first query that names a later column. `Schema::table('usertokens')`
+     * runs the add-column migration too; this stays for a table that predates even
+     * that, and for a subclass that calls it.
      *
      * @param \Pramnos\Database\Database $database
      */

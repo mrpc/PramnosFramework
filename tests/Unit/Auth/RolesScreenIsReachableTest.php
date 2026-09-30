@@ -94,7 +94,16 @@ class RolesScreenIsReachableTest extends TestCase
             $inAdmin  = 'src/Admin/Controllers/' . $screen . '.php';
             $inPublic = 'src/Controllers/' . $screen . '.php';
 
-            if (stripos($init, $inAdmin) === false && stripos($init, $inPublic) === false) {
+            /*
+             * Or a framework controller named exactly as the screen. The application falls back
+             * to `Pramnos\Application\Controllers\<Screen>` when the project has none, so such a
+             * screen needs no wrapper — the ones above exist because their framework class is
+             * `<Screen>Controller`, which that fallback does not find.
+             */
+            $framework = dirname(__DIR__, 3) . '/src/Pramnos/Application/Controllers/' . ucfirst($screen) . '.php';
+
+            if (stripos($init, $inAdmin) === false && stripos($init, $inPublic) === false
+                && !is_file($framework)) {
                 $missing[] = $screen;
             }
         }

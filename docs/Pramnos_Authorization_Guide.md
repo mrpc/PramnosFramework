@@ -7,6 +7,8 @@ use_cases:
   - Choosing between a usertype capability, a gate and a permission row
   - Isolating one organisation's or tenant's data from another's
   - Creating a role and giving it to somebody
+  - Turning on user groups and putting accounts in them
+  - Giving the same permissions to every member of a group
 ---
 
 # Authorization
@@ -388,6 +390,84 @@ Removing somebody from an **organisation** touches none of this: their assignmen
 stay, stop counting while they are out, and count again if they return. Their organisation's role can
 still be taken from them after they have left: on PostgreSQL the membership trigger guards a
 grant, and deactivating an assignment grants nothing.
+
+## User groups: an optional feature
+
+A group is a named set of accounts. It is the `usergroups` feature, and it is off unless a
+project turns it on.
+
+### Turning it on
+
+- **A new project:** `init` asks *Enable User groups [usergroups]? [y/N]*, only when `auth` is
+  enabled, because a membership row references a user. You can also pass it on the command
+  line: `--features=auth,…,usergroups`.
+- **An existing project:**
+
+    ```bash
+    php bin/pramnos project:reconfigure --enable-feature=usergroups
+    php bin/pramnos migrate
+    ```
+
+The migration creates `usergroups` (`groupid`, `name`, `description`, `order`) and
+`userstogroups` (`userid`, `groupid`). A membership is deleted with its user and with its
+group. An installation that already has either table keeps it as it is. In that case
+`userstogroups` gets no foreign key to a `groupid` whose type the migration cannot know, and
+the screen deletes a group's memberships itself.
+
+### The screen
+
+*Administration → People → Groups* (`/admin/Groups`) appears only while the feature is on.
+There you:
+
+- create, edit and delete groups;
+- open a group to see its members;
+- add a member by username, email or user id;
+- remove a member.
+
+Nothing is scaffolded into the project. The controller is found through the framework's
+fallback, so a project that enables the feature later has the screen at once. An
+application class named `Groups` replaces it, and `project:publish-views` copies its views
+(`groups/`).
+
+### Roles held by a group
+
+A group can hold roles. Every member then holds them, **by the same rules as a role given
+directly**:
+
+- the assignment must be active and not expired, and the role itself active;
+- in a check scoped to an organisation (`resolveForOrganization()`), a system-wide role always
+  counts, and an organisation's own role counts only while the member belongs to that
+  organisation.
+
+Give and withdraw them on the group's page, in the *Roles* section. A withdrawn role is
+switched off, not deleted, so the record stays, exactly as `Role::revokeFrom()` does for a
+user. Every change that alters somebody's permissions tells the applications they use, the
+same `permissions_changed` event a direct role assignment sends:
+
+- a role given to or withdrawn from a group;
+- a member joining or leaving a group that holds roles;
+- deleting such a group.
+
+The assignments are in `authserver.group_roles` (`groupid`, `roleid`, `granted_by`,
+`granted_at`, `expires_at`, `is_active`), created by the same feature. Deleting a role
+removes them. A role given to a group is found by `WebhookService` among the role's holders.
+
+A permission check about a group is answered about the group:
+`$permissions->isAllowed($groupId, 'articles', 'edit', '', 'module', 'group')` is true when a
+role the group holds allows it.
+
+### What else reads membership
+
+- **Mail audiences.** The mass-message screen offers each group as an audience.
+- **The legacy permission store.** On an installation still using `<prefix>permissions`,
+  `isAllowed($userId, …)` falls back to the user's groups when the user has no rule of their
+  own, and a group's deny wins over another group's allow.
+- **Your own code.** `$user->getGroups()` returns the groups an account is in, keyed by
+  group id. A membership change is seen by the next call: the screen flushes the
+  `usergroups` SQL-cache category that `getGroups()` reads under.
+
+Erasing an account under GDPR removes its memberships. `userstogroups` is also listed as
+personal data, so the MCP database-inspection tool will not read it.
 
 ## An organisation's own administrator
 

@@ -37,6 +37,12 @@ class PermissionResolver implements PermissionResolverInterface
     /** The role definitions, which is where an organisation is recorded. */
     private const T_ROLE_DEFS = 'authserver.roles';
 
+    /** Roles held by a user group — the usergroups feature. */
+    private const T_GROUP_ROLES = 'authserver.group_roles';
+
+    /** Who is in which group. */
+    private const T_GROUP_MEMBERS = '#PREFIX#userstogroups';
+
     private Database $database;
 
     public function __construct(Database $database)
@@ -180,22 +186,178 @@ class PermissionResolver implements PermissionResolverInterface
         // took down the whole resolution — and callers that turn "cannot
         // answer" into "denied" then refused every direct user grant as well,
         // which is the opposite of what the rows said.
-        if (!$this->database->schema()->hasTable(self::T_ROLES)) {
-            return [];
-        }
-
-        $rows = $organizationId === null
-            ? $this->allAssignedRoleRows($userId)
-            : $this->assignedRoleRowsForOrganization($userId, $organizationId);
-
         $ids = [];
-        foreach ($rows as $r) {
-            if (!$this->isExpired($r)) {
-                $ids[] = (int) $r['roleid'];
+        if ($this->database->schema()->hasTable(self::T_ROLES)) {
+            $rows = $organizationId === null
+                ? $this->allAssignedRoleRows($userId)
+                : $this->assignedRoleRowsForOrganization($userId, $organizationId);
+
+            foreach ($rows as $r) {
+                if (!$this->isExpired($r)) {
+                    $ids[] = (int) $r['roleid'];
+                }
             }
         }
 
-        return $this->withoutInactiveRoles($ids);
+        // And the roles of every group the user is in, by the same rules.
+        $ids = array_merge($ids, $this->groupRoleIds($userId, $organizationId));
+
+        return $this->withoutInactiveRoles(array_values(array_unique($ids)));
+    }
+
+    /**
+     * Resolve what a user group may do: the permissions of the roles it holds.
+     *
+     * The answer for `Permissions::isAllowed($groupId, …, 'group')`. That call used to go
+     * through {@see resolve()}, which takes a **user** id, so a check about group 5 returned
+     * the grants of user 5.
+     *
+     * @return array{group_id:int,app_id:int|null,permissions:list<array<string,mixed>>}
+     */
+    public function resolveForGroup(int $groupId, ?int $appId): array
+    {
+        $roleIds = $this->withoutInactiveRoles($this->roleIdsOfGroups([$groupId]));
+
+        $rows = [];
+        if ($roleIds !== [] && $this->database->schema()->hasTable(self::T_PERMS)) {
+            $rows = $this->collect(
+                $this->database->queryBuilder()
+                    ->table(self::T_PERMS)
+                    ->where('subject_type', 'role')
+                    ->whereIn('subject_id', $roleIds)
+                    ->where('is_active', true)
+                    ->get()
+            );
+        }
+
+        $rows = array_values(array_filter(
+            $rows,
+            fn(array $r): bool => $this->inAudience($r, $appId) && !$this->isExpired($r)
+        ));
+
+        return [
+            'group_id'    => $groupId,
+            'app_id'      => $appId,
+            'permissions' => $this->resolveGrants($rows),
+        ];
+    }
+
+    /**
+     * Roles the user holds through the groups they are in.
+     *
+     * Nothing, rather than an error, on an installation without the usergroups feature:
+     * no table, no group roles, the same answer as a user in no group.
+     *
+     * @return list<int>
+     */
+    private function groupRoleIds(int $userId, ?int $organizationId): array
+    {
+        $schema = $this->database->schema();
+        if (!$schema->hasTable(self::T_GROUP_ROLES) || !$schema->hasTable(self::T_GROUP_MEMBERS)) {
+            return [];
+        }
+
+        $groupIds = [];
+        foreach ($this->collect(
+            $this->database->queryBuilder()
+                ->table(self::T_GROUP_MEMBERS)
+                ->select(['groupid'])
+                ->where('userid', $userId)
+                ->get()
+        ) as $row) {
+            $groupIds[] = (int) $row['groupid'];
+        }
+
+        $roleIds = $this->roleIdsOfGroups($groupIds);
+
+        return $organizationId === null
+            ? $roleIds
+            : $this->countingInOrganization($roleIds, $userId, $organizationId);
+    }
+
+    /**
+     * Active, unexpired role assignments of these groups.
+     *
+     * @param list<int> $groupIds
+     * @return list<int>
+     */
+    private function roleIdsOfGroups(array $groupIds): array
+    {
+        if ($groupIds === [] || !$this->database->schema()->hasTable(self::T_GROUP_ROLES)) {
+            return [];
+        }
+
+        $ids = [];
+        foreach ($this->collect(
+            $this->database->queryBuilder()
+                ->table(self::T_GROUP_ROLES)
+                ->select(['roleid', 'expires_at'])
+                ->whereIn('groupid', $groupIds)
+                ->where('is_active', true)
+                ->get()
+        ) as $row) {
+            if (!$this->isExpired($row)) {
+                $ids[] = (int) $row['roleid'];
+            }
+        }
+
+        return array_values(array_unique($ids));
+    }
+
+    /**
+     * The roles among these that count within one organisation.
+     *
+     * The rule {@see assignedRoleRowsForOrganization()} applies to a role held directly:
+     * system-wide always, an organisation's own only while the user is an active member of
+     * it. A role with no definition row does not count here, as it does not there, because
+     * that query joins the definitions. The same fallback too: an installation without
+     * organisations counts every role.
+     *
+     * @param list<int> $roleIds
+     * @return list<int>
+     */
+    private function countingInOrganization(array $roleIds, int $userId, int $organizationId): array
+    {
+        if ($roleIds === []) {
+            return [];
+        }
+
+        $orgColumn   = Role::organizationColumn();
+        $memberTable = Role::membershipTable();
+        $schema      = $this->database->schema();
+        if (!$schema->hasTable(self::T_ROLE_DEFS)
+            || !$schema->hasColumn(self::T_ROLE_DEFS, $orgColumn)
+            || !$schema->hasTable($memberTable)
+        ) {
+            return $roleIds;
+        }
+
+        $membership = $this->database->queryBuilder()
+            ->table($memberTable)
+            ->where('userid', $userId)
+            ->where($orgColumn, $organizationId)
+            ->where('is_active', true)
+            ->where(function ($window) {
+                $window->whereNull('expires_at')->orWhere('expires_at', '>', date('Y-m-d H:i:s'));
+            })
+            ->first();
+        $isMember = $membership && $membership->numRows > 0;
+
+        $counting = [];
+        foreach ($this->collect(
+            $this->database->queryBuilder()
+                ->table(self::T_ROLE_DEFS)
+                ->select(['roleid', $orgColumn])
+                ->whereIn('roleid', $roleIds)
+                ->get()
+        ) as $row) {
+            $org = $row[$orgColumn] ?? null;
+            if ($org === null || ((int) $org === $organizationId && $isMember)) {
+                $counting[] = (int) $row['roleid'];
+            }
+        }
+
+        return $counting;
     }
 
     /**
