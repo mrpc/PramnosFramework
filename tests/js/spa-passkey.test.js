@@ -83,7 +83,9 @@ function installBrowser() {
         PublicKeyCredential: publicKeyCredential,
         AbortController,
     };
-    globalThis.navigator = {
+    // defineProperty, not assignment: since Node 21 `globalThis.navigator` is a
+    // getter-only accessor, and assigning to it throws before a single test runs.
+    const navigator = {
         credentials: {
             get(request) {
                 calls.get.push(request);
@@ -95,6 +97,7 @@ function installBrowser() {
             },
         },
     };
+    Object.defineProperty(globalThis, 'navigator', { value: navigator, configurable: true, writable: true });
     globalThis.btoa = (s) => Buffer.from(s, 'binary').toString('base64');
     globalThis.atob = (s) => Buffer.from(s, 'base64').toString('binary');
 
