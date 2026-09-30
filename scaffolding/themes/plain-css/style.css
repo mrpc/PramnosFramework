@@ -421,7 +421,7 @@ p.error {
 .table-warning td { background: #fffbeb; }
 
 /* Badges */
-.badge { display: inline-block; padding: 0.2em 0.5em; font-size: 0.75rem; font-weight: 600; border-radius: 0.25rem; }
+.badge { display: inline-block; padding: 0.2em 0.5em; font-size: 0.75rem; font-weight: 600; border-radius: 0.25rem; white-space: nowrap; }
 .badge-danger { background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; }
 .badge-info   { background: #f0f9ff; color: #0891b2; border: 1px solid #bae6fd; }
 
@@ -433,12 +433,35 @@ p.error {
 /* ── Account area: sidebar + content grid ───────────────────────────────── */
 .account-grid {
     display: grid;
-    grid-template-columns: 220px 1fr;
+    grid-template-columns: 220px minmax(0, 1fr);
     gap: 24px;
     align-items: start;
 }
+.account-nav { list-style: none; margin: 0; padding: 0; }
+.account-nav li { border-bottom: 1px solid #eee; }
+.account-nav a { display: block; padding: 10px 16px; text-decoration: none; color: #333; }
+.account-nav a[aria-current="page"] { background: #f0f9ff; color: #0e7490; font-weight: 600; }
+
+/* A label and its action side by side, stacked on a phone (see the phone block). */
+.pf-row-split {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+}
+
+/* One column on a phone, and the menu above it becomes a single row that scrolls
+   sideways, so the page starts at its content instead of a screen below it. */
 @media (max-width: 720px) {
-    .account-grid { grid-template-columns: 1fr; }
+    .account-grid { grid-template-columns: minmax(0, 1fr); }
+    .account-sidebar .card-header { display: none; }
+    .account-nav { display: flex; flex-wrap: nowrap; overflow-x: auto; }
+    .account-nav li { flex-shrink: 0; border-bottom: 0; }
+    .account-nav a { white-space: nowrap; border-bottom: 2px solid transparent; }
+    .account-nav a[aria-current="page"] { border-bottom-color: #0e7490; }
+}
+@media (max-width: 639px) {
+    .pf-row-split { flex-direction: column; align-items: flex-start; gap: 8px; }
 }
 
 /* ── Breadcrumbs (Pramnos\Html\Breadcrumb markup) ───────────────────────── */
@@ -796,4 +819,50 @@ p.error {
     font-weight: 600;
     /* Not colour alone: WCAG 1.4.1. The weight carries it where colour cannot. */
     text-decoration: underline;
+}
+
+/* ── Phone width (below 640px) ───────────────────────────────────────────────
+   The account menu scrolls sideways without drawing a scrollbar under it — the
+   row itself says there is more. */
+.pf-account-nav {
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+}
+.pf-account-nav::-webkit-scrollbar { display: none; }
+
+@media (max-width: 639px) {
+    /* A 12rem search box and a 20rem panel anchored to its right edge are wider
+       than what is left of a 390px header: the input shrinks, and the results
+       span the screen instead of hanging off its left side. */
+    .pf-omnibox-input { min-width: 7rem; }
+    .pf-omnibox-results {
+        position: fixed;
+        top: 4rem;
+        left: 0.5rem;
+        right: 0.5rem;
+        min-width: 0;
+    }
+
+    /* A long trail stays one line and scrolls, and a long crumb (an email
+       address, a person's name) is cut with an ellipsis rather than pushing
+       the page wider than the screen. */
+    .pf-breadcrumb,
+    .breadcrumb {
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        white-space: nowrap;
+        scrollbar-width: none;
+    }
+    .pf-breadcrumb::-webkit-scrollbar,
+    .breadcrumb::-webkit-scrollbar { display: none; }
+    .pf-breadcrumb li,
+    .breadcrumb li { flex-shrink: 0; }
+    .pf-breadcrumb li > *,
+    .breadcrumb li > * {
+        display: inline-block;
+        max-width: 12rem;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        vertical-align: bottom;
+    }
 }

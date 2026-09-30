@@ -16,7 +16,7 @@ $this->accountBase = 'Account';
 $this->activeNav   = 'passkey';
 ?>
 <style>
-.pf-pk-item{list-style:none;padding:1rem;display:flex;justify-content:space-between;align-items:center;border-top:1px solid #f3f4f6}
+.pf-pk-item{list-style:none;padding:1rem;display:flex;flex-wrap:wrap;gap:.5rem;justify-content:space-between;align-items:center;border-top:1px solid #f3f4f6}
 /* Theme tokens, not literals — see the note in tokens.html.php. */
 .pf-pk-meta small{display:block;color:var(--color-base-content);opacity:.65}
 .pf-pk-empty,.pf-pk-error{list-style:none;padding:1rem;color:var(--color-base-content);opacity:.65}
@@ -38,7 +38,7 @@ $this->activeNav   = 'passkey';
         <?php $this->insert('../partials/account_sidebar'); ?>
 
         <div class="md:col-span-3" data-pf-passkey-manage data-base="<?php echo $base; ?>">
-            <div class="flex justify-between items-center mb-3">
+            <div class="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between mb-3">
                 <p class="text-sm text-base-content/70">Passkeys let you sign in without a password, using your device's fingerprint, face or screen lock.</p>
                 <button type="button" data-pf-passkey-add class="btn btn-primary whitespace-nowrap">Add a passkey</button>
             </div>

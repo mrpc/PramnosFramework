@@ -16,7 +16,7 @@ $this->activeNav = 'dashboard';
 
     <?php $this->insert('../partials/account_breadcrumb'); ?>
 
-    <div class="d-flex justify-content-between align-items-center mb-4">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-4">
         <div>
             <h2 class="mb-0">Account Dashboard</h2>
             <small class="text-muted">Welcome back, <?php echo htmlspecialchars($this->user->firstname ?? $this->user->username ?? ''); ?></small>

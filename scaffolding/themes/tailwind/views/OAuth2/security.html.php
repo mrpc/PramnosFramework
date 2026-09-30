@@ -40,7 +40,7 @@ $this->activeNav = 'security';
                 <div class="px-4 py-3 border-b border-base-300 font-semibold text-base-content">
                     Two-Factor Authentication
                 </div>
-                <div class="flex items-center justify-between px-4 py-4">
+                <div class="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between px-4 py-4">
                     <div>
                         <?php if ($this->twoFactorEnabled): ?>
                             <span class="badge badge-success badge-sm mr-2">
@@ -195,7 +195,7 @@ $this->activeNav = 'security';
 
             <!-- Passkeys -->
             <div class="card bg-base-100 shadow-sm">
-                <div class="flex items-center justify-between px-4 py-4">
+                <div class="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between px-4 py-4">
                     <span class="text-sm text-base-content/80">Sign in without a password using your device's fingerprint, face or screen lock.</span>
                     <a href="<?php echo sURL; ?>Passkey"
                        class="text-sm text-primary hover:underline whitespace-nowrap">
@@ -206,7 +206,7 @@ $this->activeNav = 'security';
 
             <!-- Change password -->
             <div class="card bg-base-100 shadow-sm">
-                <div class="flex items-center justify-between px-4 py-4">
+                <div class="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between px-4 py-4">
                     <?php /* Not "change it regularly": routine rotation is advice that has been
                      withdrawn by the people who used to give it (NIST SP 800-63B), because
                      forced changes produce predictable variations of one password and get
@@ -235,7 +235,7 @@ $this->activeNav = 'security';
                 </p>
                 <ul class="divide-y divide-base-200">
                     <?php foreach ($this->trustedDevices as $d): ?>
-                        <li class="flex items-center justify-between px-4 py-3">
+                        <li class="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between px-4 py-3">
                             <div>
                                 <div class="text-sm text-base-content"><?php echo htmlspecialchars((string) ($d['name'] ?? 'A browser')); ?></div>
                                 <div class="text-xs text-base-content/60">
@@ -268,7 +268,7 @@ $this->activeNav = 'security';
                     <ul class="divide-y divide-base-200">
                         <?php foreach ($this->activeSessions as $s): ?>
                             <?php $isCurrent = (string) ($s['sid'] ?? '') === (string) ($this->currentSid ?? ''); ?>
-                            <li class="flex items-center justify-between px-4 py-3">
+                            <li class="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between px-4 py-3">
                                 <div>
                                     <div class="text-sm text-base-content"><?php echo htmlspecialchars(substr((string) ($s['agent'] ?? 'Unknown device'), 0, 80)); ?></div>
                                     <div class="text-xs text-base-content/60">

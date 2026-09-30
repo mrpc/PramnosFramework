@@ -33,7 +33,7 @@ $this->activeNav = 'applications';
             <?php else: ?>
                 <div class="card bg-base-100 shadow-sm">
                     <?php foreach ($this->authorizedApps as $app): ?>
-                        <div class="flex items-center justify-between px-4 py-4">
+                        <div class="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between px-4 py-4">
                             <div>
                                 <p class="font-semibold text-base-content"><?php echo htmlspecialchars($app['name']); ?></p>
                                 <?php if (!empty($app['description'])): ?>

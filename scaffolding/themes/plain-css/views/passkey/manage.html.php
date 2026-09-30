@@ -16,7 +16,7 @@ $this->accountBase = 'Account';
 $this->activeNav   = 'passkey';
 ?>
 <style>
-.pf-pk-item{border-bottom:1px solid #f0f0f0;padding:12px 16px;display:flex;justify-content:space-between;align-items:center}
+.pf-pk-item{border-bottom:1px solid #f0f0f0;padding:12px 16px;display:flex;flex-wrap:wrap;gap:8px;justify-content:space-between;align-items:center}
 .pf-pk-meta small{display:block;color:#888}
 .pf-pk-empty,.pf-pk-error{padding:12px 16px;color:#666}
 .pf-pk-error{color:#721c24}
@@ -34,7 +34,7 @@ $this->activeNav   = 'passkey';
         <?php $this->insert('../partials/account_sidebar'); ?>
 
         <div data-pf-passkey-manage data-base="<?php echo $base; ?>">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+            <div class="pf-row-split" style="margin-bottom:12px">
                 <p style="color:#666;font-size:.9em;margin:0">
                     Passkeys let you sign in without a password, using your device's fingerprint,
                     face or screen lock.

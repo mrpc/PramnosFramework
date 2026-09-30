@@ -17,7 +17,7 @@ $inputCls = 'input w-full';
 ?>
 <div class="container mx-auto py-8 px-4">
 
-    <div class="flex items-center justify-between mb-6">
+    <div class="flex flex-wrap items-center justify-between gap-2 mb-6">
         <h2 class="text-2xl font-semibold">My Profile</h2>
         <a href="<?php echo sURL . $routeBase; ?>" class="text-sm text-primary hover:underline">&larr; Back to Dashboard</a>
     </div>

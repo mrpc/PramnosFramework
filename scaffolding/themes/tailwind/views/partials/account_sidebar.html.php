@@ -45,13 +45,15 @@ if (is_object($_signedIn) && (int) ($_signedIn->userid ?? 0) >= 2) {
     }
 }
 ?>
-<div class="md:col-span-1">
+<?php /* On a phone the menu is one row that scrolls sideways, so the page starts at its
+   content instead of a screen below it; from `md` up it is the vertical card again. */ ?>
+<div class="md:col-span-1 min-w-0">
     <div class="card bg-base-100 shadow-sm overflow-hidden">
-        <div class="px-4 py-3 font-semibold text-base-content bg-base-200">Account Settings</div>
-        <nav class="divide-y divide-base-300">
+        <div class="hidden md:block px-4 py-3 font-semibold text-base-content bg-base-200">Account Settings</div>
+        <nav aria-label="Account settings" class="pf-account-nav flex flex-row flex-nowrap overflow-x-auto md:flex-col md:overflow-visible md:divide-y md:divide-base-300">
             <?php foreach ($navItems as $item): ?>
-                <a href="<?php echo sURL . $item['href']; ?>"
-                   class="block px-4 py-2 text-sm <?php echo $item['key'] === $active ? 'bg-primary/10 text-primary font-semibold' : 'text-base-content hover:bg-base-200'; ?>">
+                <a href="<?php echo sURL . $item['href']; ?>"<?php echo $item['key'] === $active ? ' aria-current="page"' : ''; ?>
+                   class="block shrink-0 whitespace-nowrap md:whitespace-normal px-4 py-2 text-sm border-b-2 md:border-b-0 <?php echo $item['key'] === $active ? 'border-primary bg-primary/10 text-primary font-semibold' : 'border-transparent text-base-content hover:bg-base-200'; ?>">
                     <?php echo htmlspecialchars($item['label']); ?>
                 </a>
             <?php endforeach; ?>

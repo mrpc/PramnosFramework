@@ -34,7 +34,7 @@ $this->activeNav = 'security';
             <!-- 2FA status -->
             <div class="card" style="margin-bottom:16px">
                 <div class="card-header"><strong>Two-Factor Authentication</strong></div>
-                <div class="card-body" style="display:flex;justify-content:space-between;align-items:center">
+                <div class="card-body pf-row-split">
                     <p style="margin:0">
                         <?php if ($this->twoFactorEnabled): ?>
                             <span style="color:#28a745;font-weight:bold">&#10003; Enabled</span>
@@ -96,7 +96,7 @@ $this->activeNav = 'security';
             <!-- Passkeys -->
             <div class="card" style="margin-bottom:16px">
                 <div class="card-header"><strong>Passkeys</strong></div>
-                <div class="card-body" style="display:flex;justify-content:space-between;align-items:center">
+                <div class="card-body pf-row-split">
                     <p style="margin:0;font-size:.9em;color:#666">
                         Sign in without a password using your device's fingerprint, face or screen lock.
                     </p>
@@ -106,7 +106,7 @@ $this->activeNav = 'security';
 
             <!-- Change password -->
             <div class="card" style="margin-bottom:16px">
-                <div class="card-body" style="display:flex;justify-content:space-between;align-items:center">
+                <div class="card-body pf-row-split">
                     <p style="margin:0;font-size:.9em;color:#666">
                         <?php /* Not "change it regularly": routine rotation is advice that has been
                      withdrawn by the people who used to give it (NIST SP 800-63B), because

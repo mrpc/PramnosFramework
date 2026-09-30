@@ -34,7 +34,7 @@ $this->activeNav = 'security';
             <!-- 2FA status -->
             <div class="card mb-4">
                 <div class="card-header fw-semibold">Two-Factor Authentication</div>
-                <div class="card-body d-flex justify-content-between align-items-center">
+                <div class="card-body d-flex flex-column flex-sm-row align-items-start align-items-sm-center justify-content-between gap-2">
                     <div>
                         <?php if ($this->twoFactorEnabled): ?>
                             <span class="badge bg-success me-2">Enabled</span>
@@ -98,7 +98,7 @@ $this->activeNav = 'security';
             <!-- Passkeys -->
             <div class="card mb-4">
                 <div class="card-header fw-semibold">Passkeys</div>
-                <div class="card-body d-flex justify-content-between align-items-center">
+                <div class="card-body d-flex flex-column flex-sm-row align-items-start align-items-sm-center justify-content-between gap-2">
                     <span>Sign in without a password using your device's fingerprint, face or screen lock.</span>
                     <a href="<?php echo sURL; ?>Passkey" class="btn btn-sm btn-outline-primary">Manage Passkeys</a>
                 </div>
@@ -107,7 +107,7 @@ $this->activeNav = 'security';
             <!-- Change password -->
             <div class="card mb-4">
                 <div class="card-header fw-semibold">Password</div>
-                <div class="card-body d-flex justify-content-between align-items-center">
+                <div class="card-body d-flex flex-column flex-sm-row align-items-start align-items-sm-center justify-content-between gap-2">
                     <?php /* Not "change it regularly": routine rotation is advice that has been
                      withdrawn by the people who used to give it (NIST SP 800-63B), because
                      forced changes produce predictable variations of one password and get
@@ -135,7 +135,7 @@ $this->activeNav = 'security';
                 </div>
                 <ul class="list-group list-group-flush">
                     <?php foreach ($this->trustedDevices as $d): ?>
-                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                        <li class="list-group-item d-flex flex-column flex-sm-row align-items-start align-items-sm-center justify-content-between gap-2">
                             <div>
                                 <div><?php echo htmlspecialchars((string) ($d['name'] ?? 'A browser')); ?></div>
                                 <small class="text-muted">
@@ -166,7 +166,7 @@ $this->activeNav = 'security';
                     <ul class="list-group list-group-flush">
                         <?php foreach ($this->activeSessions as $s): ?>
                             <?php $isCurrent = (string) ($s['sid'] ?? '') === (string) ($this->currentSid ?? ''); ?>
-                            <li class="list-group-item d-flex justify-content-between align-items-center">
+                            <li class="list-group-item d-flex flex-column flex-sm-row align-items-start align-items-sm-center justify-content-between gap-2">
                                 <div>
                                     <div><?php echo htmlspecialchars(substr((string) ($s['agent'] ?? 'Unknown device'), 0, 80)); ?></div>
                                     <small class="text-muted">

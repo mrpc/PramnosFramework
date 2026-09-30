@@ -16,7 +16,7 @@ $this->activeNav = 'dashboard';
 
     <?php $this->insert('../partials/account_breadcrumb'); ?>
 
-    <div class="flex items-center justify-between mb-6">
+    <div class="flex flex-wrap items-center justify-between gap-3 mb-6">
         <div>
             <h2 class="text-2xl font-bold text-base-content">Account Dashboard</h2>
             <p class="text-sm text-base-content/70 mt-1">
@@ -24,11 +24,11 @@ $this->activeNav = 'dashboard';
             </p>
         </div>
         <?php if ($this->twoFactorEnabled): ?>
-            <span class="badge badge-success inline-flex items-center">
+            <span class="badge badge-success inline-flex items-center whitespace-nowrap h-auto py-1">
                 &#10003; 2FA Active
             </span>
         <?php else: ?>
-            <span class="badge badge-warning inline-flex items-center">
+            <span class="badge badge-warning inline-flex items-center whitespace-nowrap h-auto py-1">
                 &#9888; 2FA Inactive
             </span>
         <?php endif; ?>

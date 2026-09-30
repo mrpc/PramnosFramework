@@ -44,16 +44,17 @@ if (is_object($_signedIn) && (int) ($_signedIn->userid ?? 0) >= 2) {
     }
 }
 ?>
-<div class="card account-sidebar" style="align-self:start">
+<?php /* Styled by .account-nav in style.css: a vertical list beside the page, and on a
+   phone a single row that scrolls sideways above it. */ ?>
+<nav aria-label="Account settings" class="card account-sidebar" style="align-self:start">
     <div class="card-header"><strong>Account Settings</strong></div>
-    <ul style="list-style:none;margin:0;padding:0">
+    <ul class="account-nav pf-account-nav">
         <?php foreach ($navItems as $item): ?>
-            <li style="border-bottom:1px solid #eee">
-                <a href="<?php echo sURL . $item['href']; ?>"
-                   style="display:block;padding:10px 16px;text-decoration:none;<?php echo $item['key'] === $active ? 'background:#f0f9ff;color:#0e7490;font-weight:600' : 'color:#333'; ?>">
+            <li>
+                <a href="<?php echo sURL . $item['href']; ?>"<?php echo $item['key'] === $active ? ' aria-current="page"' : ''; ?>>
                     <?php echo htmlspecialchars($item['label']); ?>
                 </a>
             </li>
         <?php endforeach; ?>
     </ul>
-</div>
+</nav>

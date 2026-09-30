@@ -16,7 +16,7 @@ $this->activeNav = 'dashboard';
 
     <?php $this->insert('../partials/account_breadcrumb'); ?>
 
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+    <div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:space-between;align-items:center;margin-bottom:16px">
         <div>
             <h2 style="margin:0">Account Dashboard</h2>
             <small style="color:#666">

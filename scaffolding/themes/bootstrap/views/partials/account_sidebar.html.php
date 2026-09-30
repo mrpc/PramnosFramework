@@ -45,16 +45,18 @@ if (is_object($_signedIn) && (int) ($_signedIn->userid ?? 0) >= 2) {
     }
 }
 ?>
+<?php /* On a phone the menu is one row that scrolls sideways, so the page starts at its
+   content instead of a screen below it; from `md` up it is the vertical list again. */ ?>
 <div class="col-lg-3 col-md-4">
     <div class="card">
-        <div class="card-header fw-semibold">Account Settings</div>
-        <div class="list-group list-group-flush">
+        <div class="card-header fw-semibold d-none d-md-block">Account Settings</div>
+        <nav aria-label="Account settings" class="list-group list-group-flush pf-account-nav flex-row flex-md-column flex-nowrap overflow-auto">
             <?php foreach ($navItems as $item): ?>
-                <a href="<?php echo sURL . $item['href']; ?>"
-                   class="list-group-item list-group-item-action<?php echo $item['key'] === $active ? ' active' : ''; ?>">
+                <a href="<?php echo sURL . $item['href']; ?>"<?php echo $item['key'] === $active ? ' aria-current="page"' : ''; ?>
+                   class="list-group-item list-group-item-action flex-shrink-0 text-nowrap w-auto<?php echo $item['key'] === $active ? ' active' : ''; ?>">
                     <?php echo htmlspecialchars($item['label']); ?>
                 </a>
             <?php endforeach; ?>
-        </div>
+        </nav>
     </div>
 </div>

@@ -34,8 +34,8 @@ $this->activeNav = 'applications';
                         <ul class="list-group list-group-flush">
                             <?php foreach ($this->authorizedApps as $app): ?>
                                 <li class="list-group-item">
-                                    <div class="row align-items-center">
-                                        <div class="col">
+                                    <div class="row g-2 align-items-center">
+                                        <div class="col-12 col-sm">
                                             <strong><?php echo htmlspecialchars($app['name']); ?></strong>
                                             <?php if (!empty($app['description'])): ?>
                                                 <p class="mb-0 text-muted small"><?php echo htmlspecialchars($app['description']); ?></p>

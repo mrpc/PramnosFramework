@@ -33,7 +33,7 @@ $this->activeNav = 'applications';
                     <div class="card-body" style="padding:0">
                         <ul style="list-style:none;margin:0;padding:0">
                             <?php foreach ($this->authorizedApps as $app): ?>
-                                <li style="border-bottom:1px solid #f0f0f0;padding:14px 16px;display:flex;justify-content:space-between;align-items:center">
+                                <li class="pf-row-split" style="border-bottom:1px solid #f0f0f0;padding:14px 16px">
                                     <div>
                                         <strong><?php echo htmlspecialchars($app['name']); ?></strong>
                                         <?php if (!empty($app['description'])): ?>

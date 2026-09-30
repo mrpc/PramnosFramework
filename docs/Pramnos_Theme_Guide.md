@@ -456,6 +456,29 @@ Both need `'unsafe-inline'` in the CSP's `style-src` while the browser build is 
 `init` and `project:switch-ui` set that for the tailwind system and leave the other two
 strict.
 
+#### The account screens at phone width
+
+All three scaffold themes lay the account area out for a 390px screen as well as a desktop,
+each in its own idiom — Tailwind and Bootstrap with their responsive utilities, plain-css
+with classes in its `style.css` (an inline style cannot be overridden by a media query):
+
+- **The account menu** (`partials/account_sidebar`) is a single row that scrolls sideways
+  on a phone and the vertical sidebar from `md` up. `.pf-account-nav` hides the scrollbar;
+  the current entry carries `aria-current="page"`.
+- **A description beside its action** — "Enable 2FA", "Manage Passkeys", a session's
+  "Sign out", an application's "Revoke" — stacks below `sm` instead of squeezing both.
+  Tailwind: `flex flex-col items-start gap-2 sm:flex-row sm:items-center`; Bootstrap:
+  `d-flex flex-column flex-sm-row align-items-start align-items-sm-center`; plain-css:
+  `.pf-row-split`.
+- **The dashboard heading** wraps beside its 2FA badge, and the badge never breaks its
+  text.
+- **Below 640px** each `style.css` lets the omnibox input shrink to 7rem, pins its results
+  panel across the screen (`position: fixed`, `0.5rem` from each side), and keeps a
+  breadcrumb trail on one sideways-scrolling line with each crumb truncated at 12rem.
+
+A copied view in `app/views` keeps whatever layout it was copied with; to get these, diff
+it against the bundled one. `tests/Unit/Html/ScaffoldAccountMobileTest.php` pins the rules.
+
 ### `head.php`, and why `<head>` has to be in the layout
 
 `theme.html.php` writes `<head>` and `<body>` out explicitly, and includes a separate

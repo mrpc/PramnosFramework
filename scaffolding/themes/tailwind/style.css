@@ -407,3 +407,49 @@ body {
         content: url("../img/logo-inverse.png");
     }
 }
+
+/* ── Phone width (below 640px) ───────────────────────────────────────────────
+   The account menu scrolls sideways without drawing a scrollbar under it — the
+   row itself says there is more. */
+.pf-account-nav {
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+}
+.pf-account-nav::-webkit-scrollbar { display: none; }
+
+@media (max-width: 639px) {
+    /* A 12rem search box and a 20rem panel anchored to its right edge are wider
+       than what is left of a 390px header: the input shrinks, and the results
+       span the screen instead of hanging off its left side. */
+    .pf-omnibox-input { min-width: 7rem; }
+    .pf-omnibox-results {
+        position: fixed;
+        top: 4rem;
+        left: 0.5rem;
+        right: 0.5rem;
+        min-width: 0;
+    }
+
+    /* A long trail stays one line and scrolls, and a long crumb (an email
+       address, a person's name) is cut with an ellipsis rather than pushing
+       the page wider than the screen. */
+    .pf-breadcrumb,
+    .breadcrumb {
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        white-space: nowrap;
+        scrollbar-width: none;
+    }
+    .pf-breadcrumb::-webkit-scrollbar,
+    .breadcrumb::-webkit-scrollbar { display: none; }
+    .pf-breadcrumb li,
+    .breadcrumb li { flex-shrink: 0; }
+    .pf-breadcrumb li > *,
+    .breadcrumb li > * {
+        display: inline-block;
+        max-width: 12rem;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        vertical-align: bottom;
+    }
+}
