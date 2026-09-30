@@ -74,8 +74,11 @@ already calls `tag()`. A SPA or hybrid project also needs the shell line from st
 1. Copy the script into the web root:
 
     ```bash
-    php <cli> project:resync --js
+    php <cli> project:resync --js --all
     ```
+
+    `--all` is required. Without it, resync only refreshes files the project already has,
+    and it reports `pf-consent.js` as `skip … (not present; use --all to add)`.
 
 2. In your theme's `footer.php`, add the tag **before** your own scripts and
    `renderJs()`:
@@ -376,7 +379,7 @@ The available properties are `--pf-c-bg`, `--pf-c-fg`, `--pf-c-muted`, `--pf-c-b
 
 | Symptom | Cause |
 |---|---|
-| No banner at all | Check, in order: the setting is `0`; the footer does not call `CookieConsent::tag()`; `assets/js/pf-consent.js` is missing (run `project:resync --js`); in a SPA, `/cookieconsent` is answered by the shell (see the `.htaccess` step above). |
+| No banner at all | Check, in order: the setting is `0`, or `app.php` says `'cookie_consent' => false`; the footer does not call `CookieConsent::tag()`; `assets/js/pf-consent.js` is missing (run `project:resync --js --all`); in a SPA, `/cookieconsent` is answered by the shell (see the `.htaccess` step above). |
 | The banner comes back on every page | The cookie is not being stored. Check that the site is not on a different host or path than the one the banner loaded on. A `Secure` cookie on plain `http` is dropped, and the script adds `Secure` only on https. |
 | A gated script never runs | Its category is not among the ones the site asks about, it is inline instead of a file, or the CSP refuses its host. |
 | GTM tags fire before consent | The container loads before the consent tag. Move it below the tag, with `defer`. |
