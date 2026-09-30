@@ -20,30 +20,51 @@ use Pramnos\Security\CookieConsent;
 #[CoversClass(CookieConsent::class)]
 class CookieConsentTest extends TestCase
 {
-    private const KEYS = [
-        CookieConsent::ENABLED_SETTING,
-        CookieConsent::CATEGORIES_SETTING,
-        CookieConsent::POLICY_URL_SETTING,
-        CookieConsent::VERSION_SETTING,
-    ];
-
     /** @var array<string, mixed> */
     private array $cookies = [];
 
+    /** @var array<string, mixed> */
+    private array $savedSettings = [];
+
+    private mixed $savedDatabase = null;
+
+    /**
+     * Settings in memory only, with no database behind them.
+     *
+     * A key this test has not set reads its default rather than asking whatever
+     * database an earlier test left connected, and nothing is deleted from one:
+     * `deleteSetting()` did that here, and failed whenever the leftover database
+     * had no settings table.
+     */
     protected function setUp(): void
     {
-        $this->cookies = $_COOKIE;
-        foreach (self::KEYS as $key) {
-            Settings::deleteSetting($key);
+        $this->cookies       = $_COOKIE;
+        $this->savedSettings = (array) self::settingsProperty('settings')->getValue();
+        $this->savedDatabase = self::settingsProperty('database')->getValue();
+
+        $settings = $this->savedSettings;
+        foreach ([
+            CookieConsent::ENABLED_SETTING,
+            CookieConsent::CATEGORIES_SETTING,
+            CookieConsent::POLICY_URL_SETTING,
+            CookieConsent::VERSION_SETTING,
+        ] as $key) {
+            unset($settings[$key]);
         }
+        self::settingsProperty('settings')->setValue(null, $settings);
+        self::settingsProperty('database')->setValue(null, null);
     }
 
     protected function tearDown(): void
     {
         $_COOKIE = $this->cookies;
-        foreach (self::KEYS as $key) {
-            Settings::deleteSetting($key);
-        }
+        self::settingsProperty('settings')->setValue(null, $this->savedSettings);
+        self::settingsProperty('database')->setValue(null, $this->savedDatabase);
+    }
+
+    private static function settingsProperty(string $name): \ReflectionProperty
+    {
+        return new \ReflectionProperty(Settings::class, $name);
     }
 
     /**

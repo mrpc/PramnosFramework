@@ -92,8 +92,15 @@ class CookieConsentRecordTest extends TestCase
             $singleton = &Factory::getDatabase();
             $singleton = $this->previousSingleton;
         }
-        Settings::deleteSetting(CookieConsent::CATEGORIES_SETTING);
-        Settings::deleteSetting(CookieConsent::VERSION_SETTING);
+        // In memory only: deleteSetting() would also write to whatever database
+        // Settings is holding, which is not necessarily the one this test connected.
+        $settings = (new \ReflectionProperty(Settings::class, 'settings'))->getValue();
+        unset(
+            $settings[CookieConsent::CATEGORIES_SETTING],
+            $settings[CookieConsent::VERSION_SETTING],
+            $settings[CookieConsent::ENABLED_SETTING]
+        );
+        (new \ReflectionProperty(Settings::class, 'settings'))->setValue(null, $settings);
     }
 
     /** @return array<string, array<string, mixed>> Rows keyed by consent_type */
@@ -226,7 +233,6 @@ class CookieConsentRecordTest extends TestCase
         $on = json_decode((string) $controller->display()->getBody(), true);
         Settings::setSetting(CookieConsent::ENABLED_SETTING, '0', false);
         $off = json_decode((string) $controller->display()->getBody(), true);
-        Settings::deleteSetting(CookieConsent::ENABLED_SETTING);
 
         // Assert
         $this->assertSame('3', $on['version']);

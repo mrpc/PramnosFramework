@@ -32,6 +32,9 @@ class NavRegistryTest extends TestCase
     {
         // Ensure each test starts with an empty registry
         NavRegistry::reset();
+        // makeUser() signs somebody in to the process-wide session; left there, every
+        // later test in the run is signed in as user 42 without knowing it.
+        unset($_SESSION['logged'], $_SESSION['uid']);
     }
 
     // ─────────────────────────────────────────────────────────────────────────

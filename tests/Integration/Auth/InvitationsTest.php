@@ -85,7 +85,7 @@ class InvitationsTest extends BaseTestCase
 
         $this->clearRows();
         $qb = fn () => $this->db->queryBuilder();
-        $qb()->table('#PREFIX#users')->insert(['userid' => self::ADMIN, 'username' => 'inv_admin', 'email' => 'inv_admin@example.com']);
+        $qb()->table('#PREFIX#users')->insert(['usertype' => 0, 'sex' => 0, 'birthdate' => 0, 'modified' => time(), 'userid' => self::ADMIN, 'username' => 'inv_admin', 'email' => 'inv_admin@example.com']);
         $qb()->table('organizations')->insert(['organization_id' => self::ORG, 'name' => 'Invitation org']);
     }
 
@@ -752,6 +752,10 @@ class InvitationsTest extends BaseTestCase
     private function newAccount(): void
     {
         $this->db->queryBuilder()->table('#PREFIX#users')->insert([
+            'usertype' => 0,
+            'sex' => 0,
+            'birthdate' => 0,
+            'modified' => time(),
             'userid' => self::NEWBIE, 'username' => 'inv_newbie', 'email' => self::EMAIL, 'validated' => 1,
         ]);
     }

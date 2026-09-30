@@ -91,6 +91,8 @@ class AccountEraseTest extends BaseTestCase
 
         $now = time();
         $this->db->queryBuilder()->table('usertokens')->insert([
+            'deviceinfo' => '',
+            'scope'      => '',
             'userid'  => $this->uid, 'tokentype' => 'oauth', 'token' => 'erase-me',
             'applicationid' => 1, 'status' => 1,
             'created' => $now, 'lastused' => $now, 'expires' => 0,

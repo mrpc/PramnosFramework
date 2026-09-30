@@ -328,7 +328,8 @@ class ApiLoginSecurityTest extends TestCase
      */
     public function testTheApiFlowIssuesNoBrowserSession(): void
     {
-        // Arrange
+        // Arrange — signed out, so a session afterwards can only be this flow's doing.
+        unset($_SESSION['logged'], $_SESSION['uid']);
         $flow = new ProbeApiLoginFlow();
         $flow->credentials = ['status' => true, 'uid' => 4];
 

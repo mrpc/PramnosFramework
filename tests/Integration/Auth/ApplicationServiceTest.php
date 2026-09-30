@@ -218,6 +218,8 @@ class ApplicationServiceTest extends BaseTestCase
         $created = $this->create();
         $userId  = (int) $this->db->queryBuilder()->table('users')->select(['userid'])->orderBy('userid', 'asc')->first()->fields['userid'];
         $this->db->queryBuilder()->table('usertokens')->insert([
+            'deviceinfo' => '',
+            'scope'      => '',
             'userid' => $userId, 'tokentype' => 'oauth', 'token' => bin2hex(random_bytes(8)),
             'applicationid' => $created['appid'], 'status' => 1, 'created' => time(), 'lastused' => time(),
         ]);

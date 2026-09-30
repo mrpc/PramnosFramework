@@ -45,6 +45,12 @@ class SecurityAlertsReachPushTest extends BaseTestCase
         Settings::loadSettings(ROOT . DS . 'tests' . DS . 'fixtures' . DS . 'app' . DS . 'settings.php');
         Application::getInstance();
 
+        // A fresh connection from the settings just loaded. The singleton otherwise is
+        // whatever an earlier test built — three unit tests leave one with no host, so
+        // mysqli fell back to a socket and every test here failed with "No such file or
+        // directory" whenever they happened to run first.
+        $reference = &\Pramnos\Database\Database::getInstance();
+        $reference = null;
         $this->db = \Pramnos\Framework\Factory::getDatabase();
 
         if (!$this->db->connected) {

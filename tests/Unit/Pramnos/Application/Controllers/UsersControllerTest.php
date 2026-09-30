@@ -1764,17 +1764,20 @@ next", ['mail'])->toMail(null)['body'] ?? '';
      */
     public function testAnAccountOfHigherPrivilegeCannotBeEdited(): void
     {
-        // Arrange — a senior account, and a junior administrator editing it
+        // Arrange — a senior account, and a junior administrator editing it. The id is
+        // whatever the table hands out: a fixed one collided with a row a sibling test had
+        // just added, the insert failed, and the controller loaded that row instead.
         $this->db->query(
-            'INSERT INTO `users` (`userid`, `username`, `email`, `usertype`, `active`) '
-            . 'VALUES (4, "senior", "senior@example.com", 120, 1)'
+            'INSERT INTO `users` (`username`, `email`, `usertype`, `active`) '
+            . 'VALUES ("senior", "senior@example.com", 120, 1)'
         );
+        $id = (int) $this->db->getInsertId();
         $this->currentAdminUsertype(80);
         $token = \Pramnos\Http\Session::getInstance()->getCsrfToken();
 
         $_POST = [
             '_csrf_token' => $token,
-            'userid'      => 4,
+            'userid'      => $id,
             'username'    => 'taken_over',
             'email'       => 'attacker@example.com',
             'usertype'    => 80,
@@ -1790,7 +1793,7 @@ next", ['mail'])->toMail(null)['body'] ?? '';
         );
         $this->assertStringEndsWith('users', rtrim((string) $this->redirectUrl, '/'));
 
-        $row = $this->db->query('SELECT username, email FROM `users` WHERE `userid` = 4')->fetch();
+        $row = $this->db->query('SELECT username, email FROM `users` WHERE `userid` = ' . $id)->fetch();
         $this->assertEquals('senior', $row['username'], 'the senior account was renamed');
         $this->assertEquals(
             'senior@example.com',
@@ -1808,17 +1811,18 @@ next", ['mail'])->toMail(null)['body'] ?? '';
      */
     public function testAnAccountAtTheSamePrivilegeCanBeEdited(): void
     {
-        // Arrange
+        // Arrange — an id the table hands out, for the reason given in the test above
         $this->db->query(
-            'INSERT INTO `users` (`userid`, `username`, `email`, `usertype`, `active`) '
-            . 'VALUES (5, "peer", "peer@example.com", 80, 1)'
+            'INSERT INTO `users` (`username`, `email`, `usertype`, `active`) '
+            . 'VALUES ("peer", "peer@example.com", 80, 1)'
         );
+        $id = (int) $this->db->getInsertId();
         $this->currentAdminUsertype(80);
         $token = \Pramnos\Http\Session::getInstance()->getCsrfToken();
 
         $_POST = [
             '_csrf_token' => $token,
-            'userid'      => 5,
+            'userid'      => $id,
             'username'    => 'peer_renamed',
             'email'       => 'peer@example.com',
             'usertype'    => 80,
@@ -1828,7 +1832,7 @@ next", ['mail'])->toMail(null)['body'] ?? '';
         $this->controller->save();
 
         // Assert
-        $row = $this->db->query('SELECT username FROM `users` WHERE `userid` = 5')->fetch();
+        $row = $this->db->query('SELECT username FROM `users` WHERE `userid` = ' . $id)->fetch();
         $this->assertEquals('peer_renamed', $row['username'], 'peers should be editable');
     }
 

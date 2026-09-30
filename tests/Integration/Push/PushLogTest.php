@@ -45,8 +45,13 @@ class PushLogTest extends BaseTestCase
         }
 
         // Built rather than skipped: a skip that never un-skips is a test that does not exist,
-        // and the migration is the thing this store is asserted against.
-        $this->runMigrations([CreatePushLogTable::class], $this->db);
+        // and the migration is the thing this store is asserted against. With the policy
+        // store first: off TimescaleDB the migration registers its retention there, and
+        // the migration tests drop it along with every other table they know.
+        $this->runMigrations([
+            \Pramnos\Framework\Migrations\Core\CreateFrameworkPoliciesTable::class,
+            CreatePushLogTable::class,
+        ], $this->db);
 
         // A user id nothing else in the suite uses, so the filters can be asserted exactly.
         $this->userId = 900000 + random_int(1, 89999);

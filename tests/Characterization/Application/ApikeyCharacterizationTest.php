@@ -40,6 +40,9 @@ class ApikeyCharacterizationTest extends TestCase
         }
 
         $this->namePrefix = 'char_apikey_' . bin2hex(random_bytes(3));
+        // getData() resolves a non-zero owner through User, which reads `users` — a table
+        // the migration tests drop with every other one they know.
+        Schema::ensure([\Pramnos\Framework\Migrations\Auth\CreateUsersTable::class], $this->db);
         $this->ensureApplicationsTableExists();
         $this->cleanupTestRows();
     }

@@ -154,6 +154,8 @@ class AccountExportTest extends BaseTestCase
         ]);
         // usertokens: token value is a SECRET that must never be exported.
         $this->db->queryBuilder()->table('usertokens')->insert([
+            'deviceinfo' => '',
+            'scope'      => '',
             'userid' => $this->uid, 'tokentype' => 'oauth', 'token' => 'SECRET_TOKEN_VALUE',
             'applicationid' => 1, 'status' => 1, 'created' => $now, 'lastused' => $now, 'expires' => 0,
         ]);

@@ -530,6 +530,10 @@ class AuthCollectorRevealTest extends BaseTestCase
         }
 
         $this->db->queryBuilder()->table('users')->insert([
+            'usertype' => 0,
+            'sex' => 0,
+            'birthdate' => 0,
+            'modified' => time(),
             'username' => self::USERNAME,
             'email'    => self::EMAIL,
             'password' => 'x',

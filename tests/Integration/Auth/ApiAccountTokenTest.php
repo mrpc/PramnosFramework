@@ -132,6 +132,10 @@ class ApiAccountTokenTest extends TestCase
         }
 
         $this->db->queryBuilder()->table('users')->insert([
+            'usertype' => 0,
+            'sex' => 0,
+            'birthdate' => 0,
+            'modified' => time(),
             'username' => 'revoke_probe',
             'email'    => 'revoke_probe@example.test',
             'password' => 'x',
@@ -177,6 +181,8 @@ class ApiAccountTokenTest extends TestCase
     {
         // Arrange
         $this->db->queryBuilder()->table('usertokens')->insert([
+            'deviceinfo' => '',
+            'scope'      => '',
             'userid'    => $this->userId,
             ...\Pramnos\User\Token::storageFor(self::TOKEN),
             'tokentype' => 'auth',
@@ -204,6 +210,8 @@ class ApiAccountTokenTest extends TestCase
     {
         // Arrange
         $this->db->queryBuilder()->table('usertokens')->insert([
+            'deviceinfo' => '',
+            'scope'      => '',
             'userid'    => $this->userId,
             ...\Pramnos\User\Token::storageFor(self::TOKEN),
             'tokentype' => 'auth',

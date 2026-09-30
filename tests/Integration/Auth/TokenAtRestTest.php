@@ -101,6 +101,10 @@ class TokenAtRestTest extends BaseTestCase
         }
 
         $this->db->queryBuilder()->table('users')->insert([
+            'usertype' => 0,
+            'sex' => 0,
+            'birthdate' => 0,
+            'modified' => time(),
             'username' => 'token_at_rest_probe',
             'email'    => 'token_at_rest@example.com',
             'active'   => 1,

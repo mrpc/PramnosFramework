@@ -242,6 +242,9 @@ class AccountCharacterizationTest extends BaseTestCase
 
         // Insert two active tokens for the same app (proves COUNT and GROUP BY work)
         $this->db->queryBuilder()->table('usertokens')->insert([
+            'deviceinfo' => '',
+            'scope'      => '',
+            'created'       => time(),
             'userid'        => $userId,
             'tokentype'     => 'oauth2',
             'token'         => 'tok_' . bin2hex(random_bytes(6)),
@@ -252,6 +255,9 @@ class AccountCharacterizationTest extends BaseTestCase
             'notes'         => '',
         ]);
         $this->db->queryBuilder()->table('usertokens')->insert([
+            'deviceinfo' => '',
+            'scope'      => '',
+            'created'       => time(),
             'userid'        => $userId,
             'tokentype'     => 'oauth2',
             'token'         => 'tok_' . bin2hex(random_bytes(6)),
@@ -291,6 +297,9 @@ class AccountCharacterizationTest extends BaseTestCase
 
         // Token expired in the past
         $this->db->queryBuilder()->table('usertokens')->insert([
+            'deviceinfo' => '',
+            'scope'      => '',
+            'created'       => time(),
             'userid'        => $userId, 'tokentype' => 'oauth2',
             'token'         => 'tok_exp_' . bin2hex(random_bytes(4)),
             'applicationid' => $expiredApp, 'status' => 1,
@@ -298,6 +307,9 @@ class AccountCharacterizationTest extends BaseTestCase
         ]);
         // Token status 3 = revoked
         $this->db->queryBuilder()->table('usertokens')->insert([
+            'deviceinfo' => '',
+            'scope'      => '',
+            'created'       => time(),
             'userid'        => $userId, 'tokentype' => 'oauth2',
             'token'         => 'tok_rev_' . bin2hex(random_bytes(4)),
             'applicationid' => $revokedApp, 'status' => 3,
@@ -574,6 +586,9 @@ class AccountCharacterizationTest extends BaseTestCase
         $appId = $this->makeApp('EraseTestApp', 'erase_key_' . bin2hex(random_bytes(4)));
 
         $this->db->queryBuilder()->table('usertokens')->insert([
+            'deviceinfo' => '',
+            'scope'      => '',
+            'created'       => time(),
             'userid' => $targetId, 'tokentype' => 'oauth2', 'status' => 1,
             'token' => 'tok_' . bin2hex(random_bytes(4)), 'applicationid' => $appId,
             'lastused' => time(), 'expires' => 0, 'notes' => '',
@@ -600,6 +615,9 @@ class AccountCharacterizationTest extends BaseTestCase
 
         // Also add a token for the survivor so we can verify it's untouched
         $this->db->queryBuilder()->table('usertokens')->insert([
+            'deviceinfo' => '',
+            'scope'      => '',
+            'created'       => time(),
             'userid' => $survivorId, 'tokentype' => 'oauth2', 'status' => 1,
             'token' => 'tok_surv_' . bin2hex(random_bytes(4)), 'applicationid' => $appId,
             'lastused' => time(), 'expires' => 0, 'notes' => '',

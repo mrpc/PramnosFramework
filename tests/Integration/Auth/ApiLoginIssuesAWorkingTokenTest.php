@@ -72,6 +72,8 @@ class ApiLoginIssuesAWorkingTokenTest extends BaseTestCase
 
         $this->runMigrations([
             \Pramnos\Framework\Migrations\Auth\CreateUsersTable::class,
+            // Read by every User::load(), so a sign-in cannot happen without it.
+            \Pramnos\Framework\Migrations\Auth\CreateUserdetailsTable::class,
             \Pramnos\Framework\Migrations\Auth\CreateLoginlockoutTable::class,
             \Pramnos\Framework\Migrations\Auth\CreateUsertokensTable::class,
             \Pramnos\Framework\Migrations\Auth\AddTokenLookupToUsertokens::class,
@@ -422,6 +424,10 @@ class ApiLoginIssuesAWorkingTokenTest extends BaseTestCase
         }
 
         $this->db->queryBuilder()->table('users')->insert([
+            'usertype' => 0,
+            'sex' => 0,
+            'birthdate' => 0,
+            'modified' => time(),
             'username' => self::USERNAME,
             'email'    => self::EMAIL,
             'password' => PasswordHash::make(self::PASSWORD),
