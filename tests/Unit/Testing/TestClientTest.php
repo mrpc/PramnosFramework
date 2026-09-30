@@ -261,6 +261,27 @@ class TestClientTest extends TestCase
         $this->assertStringNotContainsString('LEFTOVER-FROM-BEFORE', $body);
     }
 
+    /**
+     * A request does not inherit the previous request's caller.
+     *
+     * A middleware seals who is calling — a bearer token, `via=session-exchange` — and on
+     * a server the process then ends. Here it did not: a second `get('/spa')` in one test
+     * found the first exchange's identity still sealed and was refused as "authenticated
+     * by session-exchange, not by a session".
+     */
+    public function testARequestDoesNotInheritThePreviousCaller(): void
+    {
+        // Arrange — what the first request's middleware left behind.
+        \Pramnos\Http\RequestIdentity::seal((object) ['userid' => 42], 'session-exchange');
+
+        // Act
+        $this->client->get('/');
+
+        // Assert
+        $this->assertNotSame('session-exchange', \Pramnos\Http\RequestIdentity::via());
+        $this->assertNull(\Pramnos\Http\RequestIdentity::user(), 'nobody signed in to this request');
+    }
+
     // ── get() ─────────────────────────────────────────────────────────────────
 
     /**

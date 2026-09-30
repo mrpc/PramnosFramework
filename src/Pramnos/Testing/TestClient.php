@@ -232,6 +232,13 @@ class TestClient
          */
         \Pramnos\Document\Document::reset();
 
+        /**
+         * And a fresh caller. The first request's middleware seals who is calling
+         * (`via=session-exchange`, a bearer token); on a server the process then ends,
+         * here the next `get()` inherited it and was refused or served as somebody else.
+         */
+        \Pramnos\Http\RequestIdentity::reset();
+
         // 1. Setup Superglobals
         $_SERVER['REQUEST_METHOD'] = strtoupper($method);
         $_SERVER['REQUEST_URI'] = $uri;

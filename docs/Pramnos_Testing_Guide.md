@@ -34,6 +34,12 @@ class UserApiTest extends BaseTestCase
 }
 ```
 
+**Every request starts fresh.** Before each call the client resets the routing state, the
+document and the request identity. So a second `get()` does not inherit the caller that the
+first request's middleware sealed (a bearer token, a session exchange), just as on a server,
+where each request is a new process. If a test needs a signed-in request, establish the
+identity through the request itself: a session via `loginUser()`, or a header.
+
 > Until 2026-08-14 this section showed a `Pramnos\Testing\HttpTest` base class with the
 > request methods on `$this`. **It has never existed.** The capability is real; the class was
 > not. If you have code extending it, it is `BaseTestCase` plus a `TestClient` — the methods
