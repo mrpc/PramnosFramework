@@ -655,7 +655,9 @@ class MassMessageDispatcherTest extends BaseTestCase
         // Arrange — a membership table of the migration's shape, under a probe name
         $name = 'mm_probe_orgs_' . bin2hex(random_bytes(3));
         $previous = Settings::getSetting('authserver_organization_table', '');
-        Settings::setSetting('authserver_organization_table', $name);
+        // In memory only: written to the settings table, the restore below left the row behind
+        // with "" in it for every later run to load.
+        Settings::setSetting('authserver_organization_table', $name, false);
         $table = $this->db->schema()->resolveTableName(
             \Pramnos\Messaging\MassMessageAudience::organizationMembershipTable()
         );
@@ -685,7 +687,7 @@ class MassMessageDispatcherTest extends BaseTestCase
             $this->assertSame([$this->users[1]], $ids);
         } finally {
             $this->db->query('DROP TABLE IF EXISTS `' . $table . '`');
-            Settings::setSetting('authserver_organization_table', $previous);
+            Settings::setSetting('authserver_organization_table', $previous, false);
         }
     }
 

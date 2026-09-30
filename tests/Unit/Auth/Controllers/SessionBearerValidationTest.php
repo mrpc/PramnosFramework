@@ -44,6 +44,10 @@ class SessionBearerValidationTest extends TestCase
         openssl_pkey_export($pair, $this->privateKey);
         $this->publicKeyFile = (string) tempnam(sys_get_temp_dir(), 'pk');
         file_put_contents($this->publicKeyFile, openssl_pkey_get_details($pair)['key']);
+        // Built if absent: the migration tests drop every table they know as they finish, and
+        // this assumed the two were there — "the database refused the query" in clean().
+        \Pramnos\Framework\Testing\Schema::table('applications', $this->db);
+        \Pramnos\Framework\Testing\Schema::table('usertokens', $this->db);
         $this->clean();
         $this->db->queryBuilder()->table('applications')->insert([
             'appid' => self::APP, 'name' => 'Session probe', 'status' => 1, 'apikey' => str_repeat('session_probe_client', 3),
