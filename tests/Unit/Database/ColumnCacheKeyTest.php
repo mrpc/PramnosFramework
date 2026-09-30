@@ -53,6 +53,37 @@ class ColumnCacheKeyTest extends TestCase
         // Act & Assert
         $this->assertSame($mysql->columnCacheKey('pr_users'), $mysql->columnCacheKey('#PREFIX#users'));
         $this->assertSame($mysql->columnCacheKey('pr_users'), $mysql->columnCacheKey('`pr_users`'));
-        $this->assertStringStartsWith('schema_columns_app_', $mysql->columnCacheKey('pr_users'), 'scoped to the database');
+        $this->assertStringContainsString('_app_', $mysql->columnCacheKey('pr_users'), 'scoped to the database');
+    }
+
+    /**
+     * Two databases with the same name on another server or another driver are two keys.
+     *
+     * The name alone was the scope, so staging and production behind one Redis — or a MySQL
+     * and a PostgreSQL database both called `app` — shared entries, and each answered the
+     * other's queries. The SQL result cache is scoped by the same key.
+     */
+    public function testTheSameDatabaseNameElsewhereIsAnotherKey(): void
+    {
+        // Arrange
+        $here = $this->connection('', 'app', null);
+        $here->type = 'mysql';
+        $here->server = 'db-a';
+        $here->port = 3306;
+        $otherServer = clone $here;
+        $otherServer->server = 'db-b';
+        $otherPort = clone $here;
+        $otherPort->port = 3307;
+        $otherDriver = clone $here;
+        $otherDriver->type = 'postgresql';
+
+        // Act
+        $keys = array_map(
+            static fn (Database $db): string => $db->columnCacheKey('users'),
+            [$here, $otherServer, $otherPort, $otherDriver]
+        );
+
+        // Assert
+        $this->assertCount(4, array_unique($keys), 'two connections shared a cache key');
     }
 }

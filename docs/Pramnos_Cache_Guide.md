@@ -314,13 +314,16 @@ nothing will close until the process ends.
 
 A cached query — `->get(true, $seconds, $category)`, `User::load()`'s `userlist`, the settings
 read — is stored under a prefix built from three things: the installation prefix from the
-`cache` settings, the table prefix, and the connection's database (plus the schema on
-PostgreSQL). The key itself is `md5` of the statement and its bindings.
+`cache` settings, the table prefix, and the connection. The connection is its driver, its
+`server:port`, its database and, on PostgreSQL, its schema. The key itself is `md5` of the
+statement and its bindings.
 
-All three, because a Redis is routinely shared: two sites on one server, or one site's test
-and development databases. With the statement alone in the key, two databases running
-`SELECT … FROM settings` share one entry, and a user 42 on one answers for user 42 on the
-other for the TTL. The column cache is scoped the same way, by
+All of them, because a Redis is routinely shared: two sites on one server, one site's test
+and development databases, or staging and production. With the statement alone in the key,
+two databases running `SELECT … FROM settings` share one entry, and a user 42 on one
+answers for user 42 on the other for the TTL. The database name alone is not enough either:
+two databases with the same name on different servers, or on MySQL and PostgreSQL, would
+still share entries. The column cache is scoped the same way, by
 `Database::columnCacheCategory()`.
 
 `Database::cacheflush($category)` builds the same prefix, so a write on one database empties

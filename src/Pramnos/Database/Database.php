@@ -4076,9 +4076,24 @@ class Database extends \Pramnos\Framework\Base
         return self::columnCacheCategory($table, '', $this->connectionCacheKey());
     }
 
+    /**
+     * Which database this connection is, for every cache key that holds its rows or its schema.
+     *
+     * Driver and server as well as the database name. Two databases with the same name on
+     * different servers — staging and production behind one Redis, or a MySQL and a
+     * PostgreSQL database both called `app` — otherwise wrote to one key, and each answered
+     * the other's queries. Found running the same test against both drivers on one cache.
+     */
     private function connectionCacheKey(): string
     {
+        $server = (string) ($this->server ?? '');
+        if ($server !== '' && (int) ($this->port ?? 0) > 0) {
+            $server .= ':' . (int) $this->port;
+        }
+
         $parts = array_filter([
+            (string) ($this->type ?? ''),
+            $server,
             (string) ($this->database ?? ''),
             (string) ($this->schema ?? ''),
         ], static fn (string $part): bool => $part !== '');
