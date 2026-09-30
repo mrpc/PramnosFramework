@@ -135,6 +135,37 @@ class CookieConsentTest extends TestCase
     }
 
     /**
+     * `'cookie_consent' => false` in app.php switches the feature off whatever the
+     * setting says — the answer `init` writes for a project that declined it.
+     */
+    public function testAppConfigSwitchesItOffOverTheSetting(): void
+    {
+        // Arrange
+        $reflection = new \ReflectionProperty(\Pramnos\Application\Application::class, 'appInstances');
+        $saved = $reflection->getValue() ?? [];
+        $stub = new class extends \Pramnos\Application\Application {
+            public function __construct()
+            {
+            }
+        };
+        $stub->applicationInfo = ['cookie_consent' => false];
+        $reflection->setValue(null, ['default' => $stub] + $saved);
+        Settings::setSetting(CookieConsent::ENABLED_SETTING, '1', false);
+
+        try {
+            // Act / Assert
+            $this->assertTrue(CookieConsent::offInApp());
+            $this->assertFalse(CookieConsent::enabled());
+            $this->assertSame('', CookieConsent::tag('https://example.com/'));
+        } finally {
+            $reflection->setValue(null, $saved);
+        }
+
+        // With the key gone the setting decides again.
+        $this->assertFalse(CookieConsent::offInApp());
+    }
+
+    /**
      * The tag is an external script with its configuration as an escaped attribute —
      * no inline script, so no CSP nonce in a cacheable body — and the configuration
      * lists strictly necessary first, then the site's categories.

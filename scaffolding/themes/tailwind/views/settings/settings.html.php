@@ -419,6 +419,9 @@ $btnSec = 'px-4 py-2 border border-base-300 text-base-content text-sm font-mediu
                 $ccVersion = (string) ($s[\Pramnos\Security\CookieConsent::VERSION_SETTING] ?? '') ?: '1';
                 ?>
                 <h3 class="font-semibold mt-6 mb-2">Cookie consent</h3>
+                <?php if (\Pramnos\Security\CookieConsent::offInApp()): ?>
+                <p class="text-xs text-base-content/60">Turned off in <code>app/app.php</code> (<code>'cookie_consent' => false</code>). Delete that line to offer the banner.</p>
+                <?php else: ?>
                 <div class="grid grid-cols-1 gap-4">
                     <div>
                         <label class="<?php echo $label; ?>" for="<?php echo \Pramnos\Security\CookieConsent::ENABLED_SETTING; ?>">Show the cookie banner</label>
@@ -441,6 +444,7 @@ $btnSec = 'px-4 py-2 border border-base-300 text-base-content text-sm font-mediu
                         <p class="text-xs text-base-content/60 mt-1">Change it when the policy changes: everybody is asked again.</p>
                     </div>
                 </div>
+                <?php endif; ?>
 
                 <?php
                 /**

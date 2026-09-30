@@ -370,6 +370,9 @@ ksort($initialSteps, SORT_NUMERIC);
                 $ccVersion = (string) ($s[\Pramnos\Security\CookieConsent::VERSION_SETTING] ?? '') ?: '1';
                 ?>
                         <div class="col-12"><h3 class="h6 fw-semibold mt-3 mb-0">Cookie consent</h3></div>
+                <?php if (\Pramnos\Security\CookieConsent::offInApp()): ?>
+                        <div class="col-12"><div class="form-text">Turned off in <code>app/app.php</code> (<code>'cookie_consent' => false</code>). Delete that line to offer the banner.</div></div>
+                <?php else: ?>
                         <div class="col-md-6">
                             <label class="form-label fw-semibold" for="<?php echo \Pramnos\Security\CookieConsent::ENABLED_SETTING; ?>">Show the cookie banner</label>
                             <?php echo $yesNo(\Pramnos\Security\CookieConsent::ENABLED_SETTING, $ccOn); ?>
@@ -390,6 +393,7 @@ ksort($initialSteps, SORT_NUMERIC);
                             <input type="text" class="form-control form-control-sm" id="<?php echo \Pramnos\Security\CookieConsent::VERSION_SETTING; ?>" name="<?php echo \Pramnos\Security\CookieConsent::VERSION_SETTING; ?>" placeholder="1" value="<?php echo htmlspecialchars($ccVersion); ?>">
                             <div class="form-text">Change it when the policy changes: everybody is asked again.</div>
                         </div>
+                <?php endif; ?>
                     </div>
                 </div></div>
             </div>

@@ -77,6 +77,7 @@ class InitCommandTest extends TestCase
             'n',               // Step 2c: webhook?
             'n',               // Step 2e: service worker? (default N)
             'n',                  // Step 2f: web push? (default N)
+            'y',                  // Step 2g: cookie consent banner? (default Y)
             '',                // Step 3: UI system (Enter = plain-css default)
             'n',               // Step 4: Configure libraries?
             'n',               // Setup Docker? (n)
@@ -132,6 +133,7 @@ class InitCommandTest extends TestCase
             'n',                 // Step 2c: webhook?
             'n',                 // Step 2e: service worker? (default N)
             'n',                  // Step 2f: web push? (default N)
+            'y',                  // Step 2g: cookie consent banner? (default Y)
             '',                  // Step 3: UI (plain-css)
             'n',                 // Step 4: libraries
             'y',                 // Setup Docker (y)
@@ -186,6 +188,7 @@ class InitCommandTest extends TestCase
             'n',            // Step 2c: webhook?
             'n',            // Step 2e: service worker? (default N)
             'n',                  // Step 2f: web push? (default N)
+            'y',                  // Step 2g: cookie consent banner? (default Y)
             '',             // Step 3: UI (plain-css)
             'n',            // Step 4: libraries
             'n',            // No Docker
@@ -235,6 +238,7 @@ class InitCommandTest extends TestCase
             'n',            // Step 2c: webhook?
             'n',            // Step 2e: service worker? (default N)
             'n',                  // Step 2f: web push? (default N)
+            'y',                  // Step 2g: cookie consent banner? (default Y)
             '',             // Step 3: UI (plain-css)
             'n',            // Step 4: libraries
             'y',            // Setup Docker
@@ -337,6 +341,7 @@ class InitCommandTest extends TestCase
             'n',            // Step 2c: webhook?
             'n',            // Step 2e: service worker? (default N)
             'n',                  // Step 2f: web push? (default N)
+            'y',                  // Step 2g: cookie consent banner? (default Y)
             '',             // Step 3: UI (plain-css)
             'n',            // Step 4: libraries
             'y',            // Setup Docker
@@ -392,6 +397,7 @@ class InitCommandTest extends TestCase
             'n',            // Step 2c: webhook?
             'n',            // Step 2e: service worker? (default N)
             'n',                  // Step 2f: web push? (default N)
+            'y',                  // Step 2g: cookie consent banner? (default Y)
             '',             // Step 3: UI (plain-css)
             'n',            // Step 4: libraries
             'n',            // Setup Docker (n)
@@ -457,6 +463,7 @@ class InitCommandTest extends TestCase
             'n',            // Step 2c: webhook?
             'n',            // Step 2e: service worker? (default N)
             'n',                  // Step 2f: web push? (default N)
+            'y',                  // Step 2g: cookie consent banner? (default Y)
             '',             // Step 3: UI (plain-css)
             'n',            // Step 4: libraries
             'y',            // Setup Docker (y)
@@ -529,6 +536,7 @@ class InitCommandTest extends TestCase
             'n',            // Step 2c: webhook?
             'n',            // Step 2e: service worker? (default N)
             'n',                  // Step 2f: web push? (default N)
+            'y',                  // Step 2g: cookie consent banner? (default Y)
             '',             // Step 3: UI (plain-css)
             'n',            // Step 4: libraries
             'n',            // No Docker
@@ -598,6 +606,7 @@ class InitCommandTest extends TestCase
             'n',                   // webhook?
             'n',                   // Step 2e: service worker? (default N)
             'n',                  // Step 2f: web push? (default N)
+            'y',                  // Step 2g: cookie consent banner? (default Y)
             '',                    // UI plain-css
             'n',                   // no libraries
             'y', '8090', '0',      // Docker, port, no cache
@@ -771,6 +780,7 @@ class InitCommandTest extends TestCase
             'n',            // webhook?
             'n',            // Step 2e: service worker? (default N)
             'n',                  // Step 2f: web push? (default N)
+            'y',                  // Step 2g: cookie consent banner? (default Y)
             '', 'n',
             'y', '8091', '0', '0',
             'localhost', 'migratedb', 'root', '', '',
@@ -814,6 +824,7 @@ class InitCommandTest extends TestCase
             'n',            // webhook?
             'n',            // Step 2e: service worker? (default N)
             'n',                  // Step 2f: web push? (default N)
+            'y',                  // Step 2g: cookie consent banner? (default Y)
             '', 'n',
             'n', '0',
             'localhost', 'cdndb', 'root', '', '',

@@ -72,12 +72,15 @@ class ScaffoldCookieConsentTest extends TestCase
         foreach (['ENABLED_SETTING', 'CATEGORIES_SETTING', 'POLICY_URL_SETTING', 'VERSION_SETTING'] as $constant) {
             $this->assertStringContainsString('\Pramnos\Security\CookieConsent::' . $constant, $view, $theme . ' lacks ' . $constant);
         }
+        // A project that switched it off in app.php is told so instead of shown fields.
+        $this->assertStringContainsString('\Pramnos\Security\CookieConsent::offInApp()', $view);
     }
 
     /**
      * The SPA shell does not boot the application and so cannot read settings: it
-     * loads the same script pointed at `/cookieconsent` for its configuration, and
-     * that path is kept with the front controller rather than swallowed by the shell.
+     * loads the same script pointed at `/cookieconsent` for its configuration (see
+     * {@see \Pramnos\Tests\Unit\Console\InitCookieConsentTest}), and that path is kept
+     * with the front controller rather than swallowed by the shell.
      */
     public function testTheSpaShellLoadsTheBannerAndItsEndpointIsRouted(): void
     {
@@ -88,8 +91,8 @@ class ScaffoldCookieConsentTest extends TestCase
         $prefixes = Init::mvcRoutePrefixes([]);
 
         // Assert
-        $this->assertStringContainsString("assets/js/pf-consent.js", $shell);
-        $this->assertStringContainsString("data-config-url=\"<?php echo htmlspecialchars(\$siteUrl . 'cookieconsent'", $shell);
+        // The tag is a token, so `init` can leave it out of a project that declined it.
+        $this->assertStringContainsString('{{ cookieConsentScript }}', $shell);
         $this->assertContains('cookieconsent', $prefixes);
     }
 

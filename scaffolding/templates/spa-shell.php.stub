@@ -102,7 +102,5 @@ header('Cache-Control: no-cache, must-revalidate');
 <?php foreach ($scripts as $script): ?>
     <script type="module" src="<?php echo $script; ?>"></script>
 <?php endforeach; ?>
-    <?php // Cookie consent. The shell does not boot the application, so the banner fetches its settings. ?>
-    <script src="<?php echo htmlspecialchars($siteUrl . 'assets/js/pf-consent.js', ENT_QUOTES); ?>" data-config-url="<?php echo htmlspecialchars($siteUrl . 'cookieconsent', ENT_QUOTES); ?>" defer></script>
-{{ serviceWorkerRegistration }}</body>
+{{ cookieConsentScript }}{{ serviceWorkerRegistration }}</body>
 </html>

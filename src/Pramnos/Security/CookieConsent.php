@@ -57,10 +57,34 @@ final class CookieConsent
 
     /**
      * Whether the banner is on for this site.
+     *
+     * Off when `app/app.php` says `'cookie_consent' => false`, whatever the setting says;
+     * otherwise the setting decides, and it defaults to on.
      */
     public static function enabled(): bool
     {
+        if (self::offInApp()) {
+            return false;
+        }
+
         return (string) Settings::getSetting(self::ENABLED_SETTING, '1') !== '0';
+    }
+
+    /**
+     * Whether the application turned the feature off in `app/app.php`.
+     *
+     * A project that answered "no" to the question in `init` has
+     * `'cookie_consent' => false`. That is a property of the deployment, versioned with
+     * the code, so the settings screen shows it and cannot override it — a switch on a
+     * live server should not be able to add a banner to a site whose theme was never
+     * reviewed for one.
+     */
+    public static function offInApp(): bool
+    {
+        $application = \Pramnos\Application\Application::currentInstance();
+
+        return is_object($application)
+            && ($application->applicationInfo['cookie_consent'] ?? true) === false;
     }
 
     /**

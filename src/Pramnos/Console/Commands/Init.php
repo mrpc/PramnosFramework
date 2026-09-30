@@ -178,6 +178,7 @@ class Init extends Command
         $this->addOption('rest-api',      null, InputOption::VALUE_OPTIONAL, 'Scaffold REST API layer (y/n)');
         $this->addOption('api-docs',      null, InputOption::VALUE_OPTIONAL, 'Generate API documentation tooling (OpenAPI + RapiDoc) (y/n)');
         $this->addOption('service-worker', null, InputOption::VALUE_OPTIONAL, 'Cache static assets in the browser with a service worker (y/n)');
+        $this->addOption('cookie-consent', null, InputOption::VALUE_OPTIONAL, 'Show the EU cookie consent banner (y/n, default y)');
         $this->addOption('push', null, InputOption::VALUE_OPTIONAL, 'Web push notifications (y/n) — implies the service worker');
         $this->addOption('api-url',       null, InputOption::VALUE_OPTIONAL, 'Production API base URL for documentation');
         $this->addOption('api-color',     null, InputOption::VALUE_OPTIONAL, 'Primary color for API docs UI (hex, e.g. #4CAF50)');
@@ -261,6 +262,9 @@ class Init extends Command
      * @var bool
      */
     private bool $withServiceWorker = false;
+
+    /** Whether the EU cookie banner is wired in; "no" writes `'cookie_consent' => false`. */
+    private bool $withCookieConsent = true;
 
     /**
      * Web push, which is a superset of the service worker rather than a neighbour of it.
@@ -502,6 +506,9 @@ class Init extends Command
         if ($this->withPush) {
             $this->withServiceWorker = true;
         }
+
+        // Asked before app.php and the SPA shell are written: both depend on it.
+        $this->withCookieConsent = $this->askCookieConsent($input, $output, $helper);
 
         // A ready-to-use, stable API key for the seed "Development" application,
         // created after migrations. Fixed value (not random) so it is predictable
@@ -1313,7 +1320,13 @@ class Init extends Command
             ? "        'style-src'  => [\"'unsafe-inline'\"]\n"
             : "        'style-src'  => []\n";
 
-        $content = "<?php\nreturn [\n    'name' => '$appName',\n    'namespace' => '$namespace',\n    'theme' => 'default',\n{$scaffoldLine}{$classLines}{$styleLines}{$adminSection}{$featuresPhp}{$addonsSection}{$authSection}{$middlewareSection}{$apiSection}    'csp' => [\n        'script-src' => [],\n{$styleSrc}    ]\n];\n";
+        // Only when declined: an absent key means "on, and the settings screen decides".
+        $consentLine = $this->withCookieConsent
+            ? ''
+            : "    // No cookie banner. Delete this line to turn it on — see the Cookie Consent guide.\n"
+              . "    'cookie_consent' => false,\n";
+
+        $content = "<?php\nreturn [\n    'name' => '$appName',\n    'namespace' => '$namespace',\n    'theme' => 'default',\n{$scaffoldLine}{$classLines}{$styleLines}{$adminSection}{$featuresPhp}{$consentLine}{$addonsSection}{$authSection}{$middlewareSection}{$apiSection}    'csp' => [\n        'script-src' => [],\n{$styleSrc}    ]\n];\n";
         $this->writeFile($path, $content);
     }
 
@@ -1576,6 +1589,11 @@ class Init extends Command
             // lines above for the API key — the same value, and still correct for an
             // application served from a subdirectory.
             'serviceWorkerRegistration' => $this->serviceWorkerRegistration('$siteUrl'),
+            // The shell does not boot the application, so the banner fetches its settings.
+            'cookieConsentScript' => $this->withCookieConsent
+                ? "    <script src=\"<?php echo htmlspecialchars(\$siteUrl . 'assets/js/pf-consent.js', ENT_QUOTES); ?>\""
+                  . " data-config-url=\"<?php echo htmlspecialchars(\$siteUrl . 'cookieconsent', ENT_QUOTES); ?>\" defer></script>\n"
+                : '',
             'devPort'       => (string) $devPort,
             'appPort'       => (string) $appPort,
             // Where the pages actually live — printed by the dev server, since
@@ -2365,6 +2383,31 @@ CSS;
 
         return (bool) $helper->ask($input, $output, new ConfirmationQuestion(
             'Install a service worker for asset caching? [y/N] ', false
+        ));
+    }
+
+    /**
+     * The EU cookie banner.
+     *
+     * Yes by default: a site that sets any analytics or marketing cookie needs it in the EU,
+     * and finding out after launch is the expensive way. "No" is for a site that sets only
+     * strictly necessary cookies — an internal tool, an API with an admin screen — and
+     * writes `'cookie_consent' => false` into `app/app.php`, which turning it back on is a
+     * matter of deleting.
+     */
+    private function askCookieConsent(InputInterface $input, OutputInterface $output, mixed $helper): bool
+    {
+        $option = $input->getOption('cookie-consent');
+        if ($option !== null) {
+            return !in_array(strtolower((string) $option), ['n', 'no', '0', 'false'], true);
+        }
+
+        $output->writeln("\n<comment>Step 2g — Cookie consent</comment>");
+        $output->writeln('  An EU cookie banner: Accept / Reject / Customise, scripts held until allowed,');
+        $output->writeln('  Google Consent Mode v2. Say no only if the site sets no analytics or marketing cookies.');
+
+        return (bool) $helper->ask($input, $output, new ConfirmationQuestion(
+            'Show an EU cookie consent banner? [Y/n] ', true
         ));
     }
 

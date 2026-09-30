@@ -45,10 +45,29 @@ page and does not stop the page being cached.
 
 ### A new project
 
-`init` already wires everything: the script under `www/assets/js/`, the tag and the
-"Cookie settings" link in the theme footer and the login layout, the tag in the SPA shell, and
-the `/cookieconsent` route. The banner is **on by default**. Configure it under
-**System Settings → Security → Cookie consent**.
+`init` asks **"Show an EU cookie consent banner? [Y/n]"**. Pass `--cookie-consent=y|n` to
+answer it without the prompt.
+
+- **Yes (the default)** wires everything: the script under `www/assets/js/`, the tag and the
+  "Cookie settings" link in the theme footer and the login layout, the tag in the SPA shell,
+  and the `/cookieconsent` route. Configure it under
+  **System Settings → Security → Cookie consent**.
+- **No** is for a site that sets only strictly necessary cookies. It writes
+  `'cookie_consent' => false` into `app/app.php` and leaves the script out of the SPA shell.
+
+### Switching it off, or back on, in `app/app.php`
+
+```php
+'cookie_consent' => false,
+```
+
+With this key, the feature is off whatever the settings say. `tag()` emits nothing, the footer
+link is hidden, `allows()` answers `true`, and the settings screen shows a note instead of
+the fields. The key belongs to the deployment and is versioned with the code, so a switch on
+a live server cannot add a banner to a site whose theme was never checked for one.
+
+To turn it on, delete the line. An MVC project then works immediately, because its footer
+already calls `tag()`. A SPA or hybrid project also needs the shell line from step 3 below.
 
 ### An existing project
 
