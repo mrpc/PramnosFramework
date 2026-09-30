@@ -2876,45 +2876,33 @@ class User extends \Pramnos\Framework\Base implements
     }
 
     /**
-     * Setup the database tables for the users
+     * Build the user tables in their production shape, and seed the Guest row.
+     *
+     * `users`, `userdetails` and `usertokens` come from their migrations, through
+     * {@see \Pramnos\Framework\Testing\Schema::table()}. This method predates the
+     * migration system and used to carry its own `CREATE TABLE` statements, one set per
+     * driver. They had drifted: `usertype`, `sex`, `birthdate`, `modified` and
+     * `usertokens.created` had defaults the migrations do not give, so a test built on
+     * this passed seeds that a real installation refuses — and failed or passed by which
+     * of the two shapes an earlier test had left behind.
+     *
+     * Nothing in the framework calls it outside the test suite. New tests should call
+     * `Schema::table('users')` and the rest directly.
+     *
+     * @deprecated Use `\Pramnos\Framework\Testing\Schema::table()` for each table.
      */
     public static function setupDb()
     {
         $database = \Pramnos\Framework\Factory::getDatabase();
+
+        foreach (['users', 'userdetails', 'usertokens'] as $table) {
+            \Pramnos\Framework\Testing\Schema::table($table, $database);
+        }
+
+        // No migration creates these two, so they stay DDL: the group pickers that read
+        // them are feature gates on an installation that built them itself.
         if ($database->type == 'postgresql') {
             $statements = [
-                "CREATE TABLE IF NOT EXISTS #PREFIX#users (
-                    userid bigserial PRIMARY KEY,
-                    username varchar(50) NOT NULL DEFAULT '',
-                    password varchar(100) NOT NULL DEFAULT '',
-                    email varchar(150) NOT NULL DEFAULT '',
-                    lastname varchar(128) NOT NULL DEFAULT '',
-                    firstname varchar(128) NOT NULL DEFAULT '',
-                    regdate integer NOT NULL DEFAULT 0,
-                    regcompletion integer DEFAULT NULL,
-                    lasttermsagreed integer DEFAULT NULL,
-                    lastlogin integer NOT NULL DEFAULT 0,
-                    active smallint NOT NULL DEFAULT 1,
-                    validated smallint NOT NULL DEFAULT 1,
-                    language varchar(50) NOT NULL DEFAULT '',
-                    timezone char(3) NOT NULL DEFAULT '',
-                    dateformat varchar(15) NOT NULL DEFAULT 'd/m/Y H:i',
-                    usertype smallint NOT NULL DEFAULT 0,
-                    sex smallint NOT NULL DEFAULT 0,
-                    birthdate bigint NOT NULL DEFAULT 0,
-                    photo integer DEFAULT NULL,
-                    phone varchar(50) NOT NULL DEFAULT '',
-                    mobile varchar(50) NOT NULL DEFAULT '',
-                    fax varchar(50) NOT NULL DEFAULT '',
-                    website varchar(255) NOT NULL DEFAULT '',
-                    modified integer NOT NULL DEFAULT 0
-                );",
-                "CREATE TABLE IF NOT EXISTS #PREFIX#userdetails (
-                    userid bigint NOT NULL,
-                    fieldname varchar(35) NOT NULL,
-                    value varchar(255) NOT NULL,
-                    PRIMARY KEY (userid, fieldname)
-                );",
                 "CREATE TABLE IF NOT EXISTS #PREFIX#usergroups (
                     groupid serial PRIMARY KEY,
                     name varchar(80) NOT NULL,
@@ -2926,71 +2914,9 @@ class User extends \Pramnos\Framework\Base implements
                     groupid integer NOT NULL REFERENCES #PREFIX#usergroups(groupid) ON DELETE CASCADE ON UPDATE CASCADE,
                     PRIMARY KEY (userid, groupid)
                 );",
-                "CREATE TABLE IF NOT EXISTS #PREFIX#usertokens (
-                    tokenid serial PRIMARY KEY,
-                    userid bigint NOT NULL REFERENCES #PREFIX#users(userid) ON DELETE CASCADE,
-                    tokentype varchar(20) NOT NULL,
-                    token text NOT NULL,
-                    created integer NOT NULL DEFAULT 0,
-                    notes varchar(255) NOT NULL DEFAULT '',
-                    lastused integer NOT NULL DEFAULT 0,
-                    status smallint NOT NULL DEFAULT 0,
-                    \"parentToken\" integer DEFAULT NULL,
-                    applicationid integer DEFAULT NULL,
-                    actions integer NOT NULL DEFAULT 0,
-                    removedate integer NOT NULL DEFAULT 0,
-                    deviceinfo text,
-                    scope text,
-                    expires integer DEFAULT NULL,
-                    ipaddress varchar(45) DEFAULT NULL,
-                    code_challenge varchar(128) DEFAULT NULL,
-                    code_challenge_method varchar(10) DEFAULT NULL,
-                    token_lookup varchar(64) DEFAULT NULL
-                );",
-                "CREATE INDEX IF NOT EXISTS idx_usertokens_userid_status ON #PREFIX#usertokens (userid, status);",
-                "CREATE INDEX IF NOT EXISTS idx_usertokens_type_status ON #PREFIX#usertokens (tokentype, status);",
-                "CREATE INDEX IF NOT EXISTS idx_usertokens_applicationid ON #PREFIX#usertokens (applicationid);",
-                "CREATE UNIQUE INDEX IF NOT EXISTS idx_usertokens_token_lookup ON #PREFIX#usertokens (token_lookup);",
-                "INSERT INTO #PREFIX#users (userid, username, active) VALUES (1, 'Guest', 1) ON CONFLICT (userid) DO NOTHING;",
-                // Advance the bigserial sequence past the explicitly-inserted Guest row (id=1).
-                // Without this, the next auto-generated userid would collide with the Guest user.
-                "SELECT setval(pg_get_serial_sequence('#PREFIX#users', 'userid'), (SELECT COALESCE(MAX(userid), 1) FROM #PREFIX#users));"
             ];
         } else {
             $statements = [
-                "CREATE TABLE IF NOT EXISTS `#PREFIX#users` (
-                    `userid` bigint(20) NOT NULL AUTO_INCREMENT,
-                    `username` varchar(50) NOT NULL DEFAULT '',
-                    `password` varchar(100) NOT NULL DEFAULT '',
-                    `email` varchar(150) NOT NULL DEFAULT '',
-                    `lastname` varchar(128) NOT NULL DEFAULT '',
-                    `firstname` varchar(128) NOT NULL DEFAULT '',
-                    `regdate` int(11) NOT NULL DEFAULT '0',
-                    `regcompletion` int(10) UNSIGNED DEFAULT NULL,
-                    `lasttermsagreed` int(10) UNSIGNED DEFAULT NULL,
-                    `lastlogin` int(11) NOT NULL DEFAULT '0',
-                    `active` tinyint(1) NOT NULL DEFAULT '1',
-                    `validated` tinyint(4) NOT NULL DEFAULT '1',
-                    `language` varchar(50) NOT NULL DEFAULT '',
-                    `timezone` char(3) NOT NULL DEFAULT '',
-                    `dateformat` varchar(15) NOT NULL DEFAULT 'd/m/Y H:i',
-                    `usertype` tinyint(4) NOT NULL DEFAULT '0',
-                    `sex` tinyint(3) UNSIGNED NOT NULL DEFAULT '0',
-                    `birthdate` bigint(20) NOT NULL DEFAULT '0',
-                    `photo` int(11) DEFAULT NULL,
-                    `phone` varchar(50) NOT NULL DEFAULT '',
-                    `mobile` varchar(50) NOT NULL DEFAULT '',
-                    `fax` varchar(50) NOT NULL DEFAULT '',
-                    `website` varchar(255) NOT NULL DEFAULT '',
-                    `modified` int(11) NOT NULL DEFAULT '0',
-                    PRIMARY KEY (`userid`)
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8;",
-                "CREATE TABLE IF NOT EXISTS `#PREFIX#userdetails` (
-                  `userid` bigint(20) NOT NULL,
-                  `fieldname` varchar(35) NOT NULL,
-                  `value` varchar(255) NOT NULL,
-                  PRIMARY KEY (`userid`,`fieldname`)
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8;",
                 "CREATE TABLE IF NOT EXISTS `#PREFIX#usergroups` (
                   `groupid` mediumint(8) UNSIGNED NOT NULL AUTO_INCREMENT,
                   `name` varchar(80) NOT NULL COMMENT 'Group Name',
@@ -3006,39 +2932,26 @@ class User extends \Pramnos\Framework\Base implements
                   FOREIGN KEY (`userid`) REFERENCES `#PREFIX#users` (`userid`) ON DELETE CASCADE ON UPDATE CASCADE,
                   FOREIGN KEY (`groupid`) REFERENCES `#PREFIX#usergroups` (`groupid`) ON DELETE CASCADE ON UPDATE CASCADE
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8 COMMENT='Users to groups';",
-                "CREATE TABLE IF NOT EXISTS `#PREFIX#usertokens` (
-                  `tokenid` int(11) NOT NULL AUTO_INCREMENT,
-                  `userid` bigint(20) NOT NULL,
-                  `tokentype` varchar(20) NOT NULL,
-                  `token` text NOT NULL,
-                  `created` int(11) NOT NULL DEFAULT 0,
-                  `notes` varchar(255) NOT NULL DEFAULT '',
-                  `lastused` int(11) NOT NULL DEFAULT 0,
-                  `status` tinyint(4) NOT NULL DEFAULT 0,
-                  `parentToken` int(11) DEFAULT NULL,
-                  `applicationid` int(11) DEFAULT NULL,
-                  `actions` int(11) NOT NULL DEFAULT 0,
-                  `removedate` int(11) NOT NULL DEFAULT 0,
-                  `deviceinfo` text,
-                  `scope` text,
-                  `expires` int(11) DEFAULT NULL,
-                  `ipaddress` varchar(45) DEFAULT NULL,
-                  `code_challenge` varchar(128) DEFAULT NULL,
-                  `code_challenge_method` varchar(10) DEFAULT NULL,
-                  `token_lookup` varchar(64) DEFAULT NULL,
-                  PRIMARY KEY (`tokenid`),
-                  UNIQUE KEY `idx_usertokens_token_lookup` (`token_lookup`),
-                  KEY `idx_usertokens_userid_status` (`userid`,`status`),
-                  KEY `idx_usertokens_type_status` (`tokentype`,`status`),
-                  KEY `idx_usertokens_applicationid` (`applicationid`),
-                  FOREIGN KEY (`userid`) REFERENCES `#PREFIX#users` (`userid`) ON DELETE CASCADE ON UPDATE CASCADE
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8;",
-                "INSERT IGNORE INTO `#PREFIX#users` (`userid`, `username`, `active`) VALUES (1, 'Guest', 1);"
             ];
         }
 
         foreach ($statements as $sql) {
             $database->query($database->prepareQuery($sql));
+        }
+
+        // The Guest row at userid 1, which the users migration reserves but does not write.
+        // Every column is given because the migration gives these no default.
+        $guest = $database->queryBuilder()->table('#PREFIX#users')->where('userid', 1)->first();
+        if (!$guest || $guest->numRows == 0) {
+            $database->queryBuilder()->table('#PREFIX#users')->insert([
+                'userid'    => 1,
+                'username'  => 'Guest',
+                'active'    => 1,
+                'usertype'  => 0,
+                'sex'       => 0,
+                'birthdate' => 0,
+                'modified'  => 0,
+            ]);
         }
 
         static::bringUsertokensUpToDate($database);

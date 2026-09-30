@@ -527,8 +527,8 @@ class UnifiedAuthMiddlewareTest extends TestCase
         $db->query("DELETE FROM `usertokens` WHERE `userid` = 661");
         $db->query("DELETE FROM `users` WHERE `userid` = 661");
         $db->query(
-            "INSERT INTO `users` (`userid`, `username`, `email`, `active`)
-             VALUES (661, 'jwtuser', 'jwt@test.com', 1)"
+            "INSERT INTO `users` (`userid`, `username`, `email`, `active`, `usertype`, `sex`, `birthdate`, `modified`)
+             VALUES (661, 'jwtuser', 'jwt@test.com', 1, 0, 0, 0, 0)"
         );
         $db->query($db->prepareQuery(
             // token_lookup as well: authentication matches on the digest now, and a

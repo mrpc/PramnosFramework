@@ -221,7 +221,7 @@ $db->query('DELETE FROM legacy_rows WHERE stale = 1');
 PHP);
         $this->write('tests/Unit/FixtureTest.php', <<<'PHP'
 <?php
-$db->query('INSERT INTO users (userid) VALUES (1)');
+$db->query('INSERT INTO users (userid, usertype, sex, birthdate, modified) VALUES (1, 0, 0, 0, 0)');
 PHP);
 
         // Act

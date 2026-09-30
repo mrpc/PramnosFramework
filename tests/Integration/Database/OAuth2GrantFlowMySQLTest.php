@@ -280,7 +280,7 @@ class OAuth2GrantFlowMySQLTest extends TestCase
         $unique   = bin2hex(random_bytes(4));
         $username = $username . '_' . $unique;
         $sql = $this->db->prepareQuery(
-            "INSERT INTO users (username, email, active) VALUES (%s, %s, 1)",
+            "INSERT INTO users (username, email, active, usertype, sex, birthdate, modified) VALUES (%s, %s, 1, 0, 0, 0, 0)",
             $username,
             "{$username}@example.com"
         );

@@ -150,6 +150,8 @@ class SchemaMigrationsCharacterizationTest extends TestCase
                 // in raw DDL). It references the stub users table and must be removed before
                 // users can be dropped without CASCADE.
                 'userstogroups'           => ['userstogroups_userid_fkey'],
+                // Added by the userdetails migration, which User::setupDb() now runs.
+                'userdetails'             => ['fk_userdetails_userid'],
                 'user_privacy_settings'   => ['fk_user_privacy_settings_userid'],
                 'user_consents'           => ['fk_user_consents_userid'],
                 'data_processing_records' => ['fk_data_processing_records_userid'],

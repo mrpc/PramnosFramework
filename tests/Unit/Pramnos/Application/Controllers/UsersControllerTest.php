@@ -309,11 +309,11 @@ class UsersControllerTest extends TestCase
 
         // Tables are freshly created above — insert test fixtures.
         // Insert Anonymous
-        $this->db->query('INSERT INTO `users` (`userid`, `username`, `email`, `usertype`, `active`) VALUES (1, "Anonymous", "", 0, 1)');
+        $this->db->query('INSERT INTO `users` (`userid`, `username`, `email`, `usertype`, `active`, `sex`, `birthdate`, `modified`) VALUES (1, "Anonymous", "", 0, 1, 0, 0, 0)');
         // Insert admin user
-        $this->db->query('INSERT INTO `users` (`userid`, `username`, `email`, `usertype`, `active`) VALUES (2, "admin", "admin@example.com", 100, 1)');
+        $this->db->query('INSERT INTO `users` (`userid`, `username`, `email`, `usertype`, `active`, `sex`, `birthdate`, `modified`) VALUES (2, "admin", "admin@example.com", 100, 1, 0, 0, 0)');
         // Insert standard user
-        $this->db->query('INSERT INTO `users` (`userid`, `username`, `email`, `usertype`, `active`) VALUES (3, "testuser", "test@example.com", 1, 1)');
+        $this->db->query('INSERT INTO `users` (`userid`, `username`, `email`, `usertype`, `active`, `sex`, `birthdate`, `modified`) VALUES (3, "testuser", "test@example.com", 1, 1, 0, 0, 0)');
 
         $_SESSION = [];
         $_SERVER = [];
@@ -1243,8 +1243,8 @@ class UsersControllerTest extends TestCase
         // user cache would hand the controller the address the edit replaced, and the test
         // would be asserting the mailer path while looking like it asserts this one.
         $this->db->query(
-            "INSERT INTO `users` (`username`, `email`, `usertype`, `active`, `validated`)"
-            . " VALUES ('noaddress', 'not-an-address', 0, 1, 1)"
+            "INSERT INTO `users` (`username`, `email`, `usertype`, `active`, `validated`, `sex`, `birthdate`, `modified`)"
+            . " VALUES ('noaddress', 'not-an-address', 0, 1, 1, 0, 0, 0)"
         );
         $id = (int) $this->db->getInsertId();
 
@@ -1768,8 +1768,8 @@ next", ['mail'])->toMail(null)['body'] ?? '';
         // whatever the table hands out: a fixed one collided with a row a sibling test had
         // just added, the insert failed, and the controller loaded that row instead.
         $this->db->query(
-            'INSERT INTO `users` (`username`, `email`, `usertype`, `active`) '
-            . 'VALUES ("senior", "senior@example.com", 120, 1)'
+            'INSERT INTO `users` (`username`, `email`, `usertype`, `active`, `sex`, `birthdate`, `modified`) '
+            . 'VALUES ("senior", "senior@example.com", 120, 1, 0, 0, 0)'
         );
         $id = (int) $this->db->getInsertId();
         $this->currentAdminUsertype(80);
@@ -1813,8 +1813,8 @@ next", ['mail'])->toMail(null)['body'] ?? '';
     {
         // Arrange — an id the table hands out, for the reason given in the test above
         $this->db->query(
-            'INSERT INTO `users` (`username`, `email`, `usertype`, `active`) '
-            . 'VALUES ("peer", "peer@example.com", 80, 1)'
+            'INSERT INTO `users` (`username`, `email`, `usertype`, `active`, `sex`, `birthdate`, `modified`) '
+            . 'VALUES ("peer", "peer@example.com", 80, 1, 0, 0, 0)'
         );
         $id = (int) $this->db->getInsertId();
         $this->currentAdminUsertype(80);
@@ -1867,8 +1867,8 @@ next", ['mail'])->toMail(null)['body'] ?? '';
     {
         // Arrange
         $this->db->query(
-            'INSERT INTO `users` (`userid`, `username`, `email`, `usertype`, `active`) '
-            . 'VALUES (6, "noemail", "", 10, 1)'
+            'INSERT INTO `users` (`userid`, `username`, `email`, `usertype`, `active`, `sex`, `birthdate`, `modified`) '
+            . 'VALUES (6, "noemail", "", 10, 1, 0, 0, 0)'
         );
         $_GET['_option'] = '6';
 

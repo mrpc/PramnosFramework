@@ -223,7 +223,7 @@ class SessionTest extends TestCase
         $secretKey = 'super_secret_key_0123456789abcde';
         // Setup DB
         $this->db->query("INSERT INTO `applications` (`appid`, `name`, `apikey`, `apisecret`) VALUES (1, 'Test App', '{$secretKey}', '')");
-        $this->db->query("INSERT INTO `users` (`userid`, `username`, `email`, `active`) VALUES (55, 'tokenguy', 'guy@token.com', 1)");
+        $this->db->query("INSERT INTO `users` (`userid`, `username`, `email`, `active`, `usertype`, `sex`, `birthdate`, `modified`) VALUES (55, 'tokenguy', 'guy@token.com', 1, 0, 0, 0, 0)");
         
         // Create a JWT
         $payload = [
@@ -315,7 +315,7 @@ class SessionTest extends TestCase
     {
         $this->db->query("DELETE FROM `applications` WHERE `appid` = 2");
         $this->db->query("DELETE FROM `usertokens` WHERE `userid` = 55 AND `applicationid` = 2");
-        $this->db->query("INSERT IGNORE INTO `users` (`userid`, `username`, `email`, `active`) VALUES (55, 'tokenguy', 'guy@token.com', 1)");
+        $this->db->query("INSERT IGNORE INTO `users` (`userid`, `username`, `email`, `active`, `usertype`, `sex`, `birthdate`, `modified`) VALUES (55, 'tokenguy', 'guy@token.com', 1, 0, 0, 0, 0)");
         $this->db->query("INSERT INTO `applications` (`appid`, `name`, `apikey`, `apisecret`) VALUES (2, 'App2', 'key', '')");
         $badLookup = \Pramnos\User\Token::lookup('bad_token');
         $this->db->query("INSERT INTO `usertokens` (`userid`, `applicationid`, `tokentype`, `token`, `token_lookup`, `expires`, `status`, `created`, `scope`, `deviceinfo`) VALUES (55, 2, 'access_token', 'bad_token', '{$badLookup}', " . (time()+3600) . ", 1, " . time() . ", '', '')");

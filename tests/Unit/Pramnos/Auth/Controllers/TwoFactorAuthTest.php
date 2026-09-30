@@ -203,7 +203,7 @@ class TwoFactorAuthTest extends BaseTestCase
             $db->query("DELETE FROM `{$table}`");
         }
         $db->query("DELETE FROM `#PREFIX#users` WHERE `userid` = 2");
-        $db->query("INSERT INTO `#PREFIX#users` (`userid`, `username`, `email`) VALUES (2, 'testuser', 'test@test.com')");
+        $db->query("INSERT INTO `#PREFIX#users` (`userid`, `username`, `email`, `usertype`, `sex`, `birthdate`, `modified`) VALUES (2, 'testuser', 'test@test.com', 0, 0, 0, 0)");
         $db->query("SET FOREIGN_KEY_CHECKS=1");
 
         $app = \Pramnos\Application\Application::getInstance();

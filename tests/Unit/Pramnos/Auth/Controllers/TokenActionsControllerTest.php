@@ -104,7 +104,7 @@ class TokenActionsControllerTest extends BaseTestCase
             PRIMARY KEY (`urlid`)
         )");
 
-        $db->query("INSERT INTO `#PREFIX#users` (`userid`, `username`, `email`) VALUES (1, 'testuser', 'test@test.com')");
+        $db->query("INSERT INTO `#PREFIX#users` (`userid`, `username`, `email`, `usertype`, `sex`, `birthdate`, `modified`) VALUES (1, 'testuser', 'test@test.com', 0, 0, 0, 0)");
         $db->query("INSERT INTO `#PREFIX#usertokens` (`tokenid`, `userid`, `tokentype`, `token`, `ipaddress`) VALUES (10, 1, 'oauth', 'testtoken', '127.0.0.1')");
         $db->query("INSERT INTO `#PREFIX#urls` (`urlid`, `url`, `hash`) VALUES (1, '/api/test', 0)");
         $db->query("INSERT INTO `#PREFIX#tokenactions` (`actionid`, `tokenid`, `urlid`, `method`, `params`, `return_status`, `execution_time_ms`, `servertime`) VALUES (100, 10, 1, 'GET', '', 200, 15.5, " . time() . ")");

@@ -90,7 +90,7 @@ class TokensControllerTest extends BaseTestCase
         // foreign key to `applications`, and MySQL refuses to TRUNCATE a referenced table.
         $db->query("DELETE FROM `applications`");
 
-        $db->query("INSERT INTO `#PREFIX#users` (`userid`, `username`, `email`) VALUES (1, 'testuser', 'test@test.com')");
+        $db->query("INSERT INTO `#PREFIX#users` (`userid`, `username`, `email`, `usertype`, `sex`, `birthdate`, `modified`) VALUES (1, 'testuser', 'test@test.com', 0, 0, 0, 0)");
         $db->query("INSERT INTO `applications` (`appid`, `name`, `apikey`, `apisecret`) VALUES (100, 'Test App', 'dummy_key', 'dummy_secret')");
         $db->query("INSERT INTO `#PREFIX#usertokens` (`tokenid`, `userid`, `tokentype`, `token`, `applicationid`, `status`, `created`, `scope`, `deviceinfo`) VALUES (10, 1, 'oauth', 'testtoken', 100, 1, 0, '', '')");
 

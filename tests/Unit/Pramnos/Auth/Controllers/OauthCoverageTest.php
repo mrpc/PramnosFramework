@@ -310,6 +310,10 @@ class OauthCoverageTest extends TestCase
     {
         // Arrange
         $this->db->queryBuilder()->table('users')->insert([
+            'usertype' => 0,
+            'sex' => 0,
+            'birthdate' => 0,
+            'modified' => 0,
             'userid' => 77, 'username' => 'family_user', 'email' => 'fam@test.com', 'active' => 1
         ]);
         $this->db->queryBuilder()->table('applications')->insert([
@@ -395,6 +399,10 @@ class OauthCoverageTest extends TestCase
     {
         // Arrange
         $this->db->queryBuilder()->table('users')->insert([
+            'usertype' => 0,
+            'sex' => 0,
+            'birthdate' => 0,
+            'modified' => 0,
             'userid' => 78, 'username' => 'refresh_user', 'email' => 'ref@test.com', 'active' => 1
         ]);
         $this->db->queryBuilder()->table('applications')->insert([
@@ -618,6 +626,10 @@ class OauthCoverageTest extends TestCase
     {
         // Arrange — user row required by FK constraint on usertokens
         $this->db->queryBuilder()->table('users')->insert([
+            'usertype' => 0,
+            'sex' => 0,
+            'birthdate' => 0,
+            'modified' => 0,
             'userid' => 99, 'username' => 'state_user', 'email' => 'su@t.com', 'active' => 1,
         ]);
         $this->db->queryBuilder()->table('applications')->insert([
@@ -698,6 +710,10 @@ class OauthCoverageTest extends TestCase
     {
         // Arrange — user with mobile set
         $this->db->queryBuilder()->table('users')->insert([
+            'usertype' => 0,
+            'sex' => 0,
+            'birthdate' => 0,
+            'modified' => 0,
             'userid' => 100, 'username' => 'phoneuser', 'email' => 'ph@test.com',
             'active' => 1, 'mobile' => '+30-6940000000', 'phone' => '+30-2100000000'
         ]);
@@ -724,6 +740,10 @@ class OauthCoverageTest extends TestCase
         // insert so it defaults to NULL (or empty). We then explicitly NULL it
         // via raw SQL to guarantee the fallback condition.
         $this->db->queryBuilder()->table('users')->insert([
+            'usertype' => 0,
+            'sex' => 0,
+            'birthdate' => 0,
+            'modified' => 0,
             'userid' => 101, 'username' => 'nomobi', 'email' => 'nm@test.com',
             'active' => 1, 'phone' => '+30-2100000001'
         ]);
@@ -753,6 +773,10 @@ class OauthCoverageTest extends TestCase
         // Arrange
         $regdate = time() - 86400;
         $this->db->queryBuilder()->table('users')->insert([
+            'usertype' => 0,
+            'sex' => 0,
+            'birthdate' => 0,
+            'modified' => 0,
             'userid' => 102, 'username' => 'userscope', 'email' => 'us@test.com',
             'active' => 1, 'maingroup' => 42, 'regdate' => $regdate
         ]);
@@ -783,6 +807,10 @@ class OauthCoverageTest extends TestCase
     {
         // Arrange — validated = 3 (phone/other method confirmed)
         $this->db->queryBuilder()->table('users')->insert([
+            'usertype' => 0,
+            'sex' => 0,
+            'birthdate' => 0,
+            'modified' => 0,
             'userid' => 103, 'username' => 'val3user', 'email' => 'v3@test.com',
             'active' => 1, 'validated' => 3
         ]);
@@ -810,6 +838,10 @@ class OauthCoverageTest extends TestCase
     {
         // Arrange — token exists but revoked
         $this->db->queryBuilder()->table('users')->insert([
+            'usertype' => 0,
+            'sex' => 0,
+            'birthdate' => 0,
+            'modified' => 0,
             'userid' => 110, 'username' => 'revdui', 'email' => 'revui@t.com', 'active' => 1
         ]);
         $this->db->queryBuilder()->table('applications')->insert([
@@ -843,6 +875,10 @@ class OauthCoverageTest extends TestCase
     {
         // Arrange — token exists but expired
         $this->db->queryBuilder()->table('users')->insert([
+            'usertype' => 0,
+            'sex' => 0,
+            'birthdate' => 0,
+            'modified' => 0,
             'userid' => 111, 'username' => 'expui', 'email' => 'expui@t.com', 'active' => 1
         ]);
         $this->db->queryBuilder()->table('applications')->insert([
@@ -882,6 +918,10 @@ class OauthCoverageTest extends TestCase
         // Arrange
         $_SERVER['REQUEST_METHOD'] = 'POST';
         $this->db->queryBuilder()->table('users')->insert([
+            'usertype' => 0,
+            'sex' => 0,
+            'birthdate' => 0,
+            'modified' => 0,
             'userid' => 120, 'username' => 'revd', 'email' => 'rv@t.com', 'active' => 1
         ]);
         $this->db->queryBuilder()->table('applications')->insert([
@@ -922,6 +962,10 @@ class OauthCoverageTest extends TestCase
         // Arrange
         $_SERVER['REQUEST_METHOD'] = 'POST';
         $this->db->queryBuilder()->table('users')->insert([
+            'usertype' => 0,
+            'sex' => 0,
+            'birthdate' => 0,
+            'modified' => 0,
             'userid' => 121, 'username' => 'noexp', 'email' => 'ne@t.com', 'active' => 1
         ]);
         $this->db->queryBuilder()->table('applications')->insert([
@@ -1031,6 +1075,9 @@ class OauthCoverageTest extends TestCase
 
         // Pre-create the system user
         $this->db->queryBuilder()->table('users')->insert([
+            'sex' => 0,
+            'birthdate' => 0,
+            'modified' => 0,
             'userid' => 150, 'username' => 'sys_existing', 'email' => 'sys_existing@system.local',
             'active' => 1, 'usertype' => 1
         ]);
@@ -1366,6 +1413,10 @@ class OauthCoverageTest extends TestCase
         $_SESSION['uid'] = 130;
 
         $this->db->queryBuilder()->table('users')->insert([
+            'usertype' => 0,
+            'sex' => 0,
+            'birthdate' => 0,
+            'modified' => 0,
             'userid' => 130, 'username' => 'rethrow', 'email' => 'rt@t.com', 'active' => 1
         ]);
         $this->db->queryBuilder()->table('applications')->insert([
@@ -1444,6 +1495,10 @@ class OauthCoverageTest extends TestCase
         // Arrange
         $_SERVER['REQUEST_METHOD'] = 'POST';
         $this->db->queryBuilder()->table('users')->insert([
+            'usertype' => 0,
+            'sex' => 0,
+            'birthdate' => 0,
+            'modified' => 0,
             'userid' => 140, 'username' => 'basicauth', 'email' => 'ba@t.com', 'active' => 1
         ]);
         $this->db->queryBuilder()->table('applications')->insert([
@@ -1487,6 +1542,10 @@ class OauthCoverageTest extends TestCase
     {
         // Arrange
         $this->db->queryBuilder()->table('users')->insert([
+            'usertype' => 0,
+            'sex' => 0,
+            'birthdate' => 0,
+            'modified' => 0,
             'userid' => 160, 'username' => 'oidcuser', 'email' => 'oidc2@test.com',
             'active' => 1, 'firstname' => 'Jane', 'lastname' => 'Doe'
         ]);
@@ -1522,6 +1581,10 @@ class OauthCoverageTest extends TestCase
     {
         // Arrange
         $this->db->queryBuilder()->table('users')->insert([
+            'usertype' => 0,
+            'sex' => 0,
+            'birthdate' => 0,
+            'modified' => 0,
             'userid' => 161, 'username' => 'noopenid', 'email' => 'no@openid.com', 'active' => 1
         ]);
         $this->db->queryBuilder()->table('applications')->insert([
@@ -1563,6 +1626,9 @@ class OauthCoverageTest extends TestCase
     {
         // Arrange
         $this->db->queryBuilder()->table('users')->insert([
+            'usertype' => 0,
+            'sex' => 0,
+            'birthdate' => 0,
             'userid' => 162, 'username' => 'profiletest', 'email' => 'pr@test.com',
             'active' => 1, 'firstname' => 'Bob', 'lastname' => 'Builder',
             'website' => 'https://bob.example.com', 'modified' => 1700000000
@@ -1845,6 +1911,10 @@ class OauthCoverageTest extends TestCase
         $unittesting_logged = true;
 
         $this->db->queryBuilder()->table('users')->insert([
+            'usertype' => 0,
+            'sex' => 0,
+            'birthdate' => 0,
+            'modified' => 0,
             'userid' => 200, 'username' => 'statedeny', 'email' => 'sd@t.com', 'active' => 1
         ]);
         $this->db->queryBuilder()->table('applications')->insert([

@@ -65,6 +65,10 @@ class McpTokenCommandTest extends TestCase
         $suffix = bin2hex(random_bytes(6));
 
         $this->db->queryBuilder()->table('#PREFIX#users')->insert(array(
+            'usertype' => 0,
+            'sex' => 0,
+            'birthdate' => 0,
+            'modified' => 0,
             'username' => 'mcptok_' . $suffix,
             'email'    => 'mcptok_' . $suffix . '@example.com',
             'password' => '',

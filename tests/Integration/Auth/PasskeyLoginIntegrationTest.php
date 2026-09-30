@@ -118,14 +118,14 @@ class PasskeyLoginIntegrationTest extends TestCase
         }
 
         $this->db->query($this->db->prepareQuery(
-            "INSERT INTO `#PREFIX#users` (`username`,`password`,`email`,`firstname`,`lastname`,`active`) "
-            . "VALUES (%s,%s,%s,%s,%s,1)",
+            "INSERT INTO `#PREFIX#users` (`username`,`password`,`email`,`firstname`,`lastname`,`active`, `usertype`, `sex`, `birthdate`, `modified`) "
+            . "VALUES (%s,%s,%s,%s,%s,1, 0, 0, 0, 0)",
             self::U_ACTIVE, 'hash', 'alice@example.com', 'Alice', 'Smith'
         ));
         $this->activeUid = $this->uidByUsername(self::U_ACTIVE);
 
         $this->db->query($this->db->prepareQuery(
-            "INSERT INTO `#PREFIX#users` (`username`,`password`,`email`,`active`) VALUES (%s,%s,%s,0)",
+            "INSERT INTO `#PREFIX#users` (`username`,`password`,`email`,`active`, `usertype`, `sex`, `birthdate`, `modified`) VALUES (%s,%s,%s,0, 0, 0, 0, 0)",
             self::U_INACTIVE, 'hash', 'bob@example.com'
         ));
         $this->inactiveUid = $this->uidByUsername(self::U_INACTIVE);

@@ -176,6 +176,10 @@ class DbInspectToolTest extends TestCase
         // Arrange — a row whose value we can look for in the answer
         $marker = 'fw-aggregate-probe-' . bin2hex(random_bytes(4)) . '@example.com';
         $this->db->queryBuilder()->table('#PREFIX#users')->insert(array(
+            'usertype' => 0,
+            'sex' => 0,
+            'birthdate' => 0,
+            'modified' => 0,
             'username' => 'aggprobe_' . bin2hex(random_bytes(4)),
             'email'    => $marker,
             'password' => '',

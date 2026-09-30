@@ -84,4 +84,31 @@ class TestingSchemaCreatesTheSchemaFirstTest extends TestCase
             $this->db->rollbackTransaction();
         }
     }
+
+    /**
+     * A stub of a table — one a migration test built with two columns and left behind —
+     * is replaced by the real thing rather than taken as it is.
+     *
+     * Without this, every migration's `up()` returned early because the table existed and
+     * the next test inserting an `apikey` was told the statement could not be prepared.
+     */
+    public function testAStubTableIsRebuiltInItsProductionShape(): void
+    {
+        // Arrange — rolled back at the end, so the real table is untouched.
+        $this->db->startTransaction();
+
+        try {
+            $this->db->query('DROP TABLE IF EXISTS public.applications CASCADE');
+            $this->db->query('CREATE TABLE public.applications (appid serial PRIMARY KEY, name varchar(255))');
+
+            // Act
+            Schema::table('applications', $this->db);
+
+            // Assert
+            $this->assertTrue($this->db->schema()->hasColumn('applications', 'apikey'), 'the stub was kept');
+            $this->assertTrue($this->db->schema()->hasColumn('applications', 'apisecret'));
+        } finally {
+            $this->db->rollbackTransaction();
+        }
+    }
 }

@@ -666,6 +666,17 @@ from a second and a wider `callback` from a third, and the first attempt at this
 two. Add a table by putting its recipe in `Schema::RECIPES`. `Schema::ensure([...])` takes
 an explicit list for the cases that genuinely need one.
 
+**A stub is replaced, not kept.** For `applications`, `usertokens`, `users`, `userdetails` and
+`settings`, `Schema::table()` checks for a column every real copy has (`apikey`, `token`,
+`username`, `fieldname`, `setting`). A table that exists without it is a stub that some test
+built and left behind, so it is dropped and rebuilt. Otherwise every migration's `up()` would
+return early because the table exists, and the next insert would fail on a column the stub
+never had.
+
+**`User::setupDb()` is these recipes.** It builds `users`, `userdetails` and `usertokens` through
+`Schema::table()`, then adds the two group tables and the Guest row at `userid` 1. It is
+deprecated for new tests: call `Schema::table()` for the tables a test reads.
+
 **Both create the PostgreSQL schema first.** A migration names the schema its table lives in
 (`create_authserver_schema`, `create_pramnos_schema`, `create_applications_schema`) in
 `$dependencies`, and `Schema::ensure()` runs that one before it. The migration tests drop

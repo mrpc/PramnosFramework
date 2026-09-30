@@ -88,6 +88,18 @@ final class Schema
             \Pramnos\Framework\Migrations\Auth\AddTokenLookupToUsertokens::class,
         ],
         /*
+         * Keys and indexes come from the same `core/` sweeps as usertokens', for the same
+         * reason. `usertype`, `sex`, `birthdate` and `modified` have no default here, so a
+         * seed gives them, as registration does.
+         */
+        'users' => [
+            \Pramnos\Framework\Migrations\Auth\CreateUsersTable::class,
+        ],
+        // Read by every `User::load()`, so a sign-in cannot happen without it.
+        'userdetails' => [
+            \Pramnos\Framework\Migrations\Auth\CreateUserdetailsTable::class,
+        ],
+        /*
          * `Settings::setSetting()` writes here, so any test that changes a setting persistently
          * needs it — and a suite that dropped it earlier in the run left those tests answering
          * "the database refused the query" with nothing to say which table.
@@ -118,8 +130,37 @@ final class Schema
             );
         }
 
+        $db ??= Factory::getDatabase();
+
+        /*
+         * A table that exists without its defining column is somebody's stub, not this one.
+         *
+         * Migration tests build `applications (appid, name)` to test one ALTER against, and one
+         * that failed before its cleanup left it behind. Every `up()` below then returned early
+         * because the table existed, the add-column migrations filled in a few columns, and the
+         * next test inserting an `apikey` was told the statement could not be prepared.
+         */
+        $sentinel = self::SENTINELS[$name] ?? null;
+        if ($sentinel !== null && $db->schema()->hasTable($name) && !$db->schema()->hasColumn($name, $sentinel)) {
+            $db->query($db->type === 'postgresql'
+                ? 'DROP TABLE IF EXISTS ' . $db->schema()->quoteTable($name) . ' CASCADE'
+                : 'DROP TABLE IF EXISTS ' . $db->schema()->quoteTable($name));
+        }
+
         self::ensure(self::RECIPES[$name], $db);
     }
+
+    /**
+     * A column every real copy of the table has, so a stub without it is recognised. Tables
+     * with no entry are taken as they are found.
+     */
+    private const SENTINELS = [
+        'applications' => 'apikey',
+        'usertokens'   => 'token',
+        'users'        => 'username',
+        'userdetails'  => 'fieldname',
+        'settings'     => 'setting',
+    ];
 
     /**
      * Ensure every one of these migrations has been applied to this connection.

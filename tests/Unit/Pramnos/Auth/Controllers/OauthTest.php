@@ -276,7 +276,7 @@ class OauthTest extends TestCase
         $user->email = 'test@test.com';
         $user->language = \Pramnos\Framework\Factory::getLanguage()->currentlang();
         
-        $this->db->queryBuilder()->table('users')->insert(['userid' => 55, 'username' => 'test', 'email' => 'test@test.com', 'active' => 1]);
+        $this->db->queryBuilder()->table('users')->insert(['usertype' => 0, 'sex' => 0, 'birthdate' => 0, 'modified' => 0, 'userid' => 55, 'username' => 'test', 'email' => 'test@test.com', 'active' => 1]);
         $this->db->queryBuilder()->table('applications')->insert(['appid' => 1, 'name' => 'App 1', 'status' => 1, 'apikey' => 'test_client_id', 'apisecret' => '', 'callback' => 'https://example.com/cb']);
         
         $app = \Pramnos\Application\Application::getInstance();
@@ -360,7 +360,7 @@ class OauthTest extends TestCase
         $_SERVER['REQUEST_METHOD'] = 'POST';
         $_POST['token'] = 'some_token';
         
-        $this->db->queryBuilder()->table('users')->insert(['userid' => 55, 'username' => 'test', 'email' => 'test@test.com', 'active' => 1]);
+        $this->db->queryBuilder()->table('users')->insert(['usertype' => 0, 'sex' => 0, 'birthdate' => 0, 'modified' => 0, 'userid' => 55, 'username' => 'test', 'email' => 'test@test.com', 'active' => 1]);
         $this->db->queryBuilder()->table('usertokens')->insert([
             'userid' => 55, 'applicationid' => 1, 'tokentype' => 'access_token',
             ...\Pramnos\User\Token::storageFor((string) 'some_token'), 'expires' => time() + 3600, 'status' => 1, 'created' => time(),
@@ -487,6 +487,10 @@ class OauthTest extends TestCase
         $unittesting_logged = true;
 
         $this->db->queryBuilder()->table('users')->insert([
+            'usertype' => 0,
+            'sex' => 0,
+            'birthdate' => 0,
+            'modified' => 0,
             'userid' => 55, 'username' => 'upd', 'email' => 'upd@t.com', 'active' => 1
         ]);
         $this->db->queryBuilder()->table('applications')->insert([
@@ -575,6 +579,10 @@ class OauthTest extends TestCase
     {
         $_SERVER['REQUEST_METHOD'] = 'POST';
         $this->db->queryBuilder()->table('users')->insert([
+            'usertype' => 0,
+            'sex' => 0,
+            'birthdate' => 0,
+            'modified' => 0,
             'userid' => 55, 'username' => 'itest', 'email' => 'i@test.com', 'active' => 1
         ]);
         $this->db->queryBuilder()->table('applications')->insert([
@@ -608,6 +616,10 @@ class OauthTest extends TestCase
     {
         $_SERVER['REQUEST_METHOD'] = 'POST';
         $this->db->queryBuilder()->table('users')->insert([
+            'usertype' => 0,
+            'sex' => 0,
+            'birthdate' => 0,
+            'modified' => 0,
             'userid' => 55, 'username' => 'exp', 'email' => 'e@t.com', 'active' => 1
         ]);
         $this->db->queryBuilder()->table('applications')->insert([
@@ -669,6 +681,10 @@ class OauthTest extends TestCase
     public function testUserinfoWithTokenNoOpenidScope(): void
     {
         $this->db->queryBuilder()->table('users')->insert([
+            'usertype' => 0,
+            'sex' => 0,
+            'birthdate' => 0,
+            'modified' => 0,
             'userid' => 55, 'username' => 'ui', 'email' => 'ui@t.com', 'active' => 1
         ]);
         $this->db->queryBuilder()->table('applications')->insert([
@@ -690,6 +706,10 @@ class OauthTest extends TestCase
     public function testUserinfoWithOpenidScope(): void
     {
         $this->db->queryBuilder()->table('users')->insert([
+            'usertype' => 0,
+            'sex' => 0,
+            'birthdate' => 0,
+            'modified' => 0,
             'userid' => 55, 'username' => 'oidc', 'email' => 'oidc@t.com', 'active' => 1,
             'firstname' => 'Alice', 'lastname' => 'Smith'
         ]);
@@ -715,6 +735,10 @@ class OauthTest extends TestCase
     public function testLogoutRevokesFindableToken(): void
     {
         $this->db->queryBuilder()->table('users')->insert([
+            'usertype' => 0,
+            'sex' => 0,
+            'birthdate' => 0,
+            'modified' => 0,
             'userid' => 55, 'username' => 'logme', 'email' => 'lo@t.com', 'active' => 1
         ]);
         $this->db->queryBuilder()->table('applications')->insert([
@@ -762,6 +786,10 @@ class OauthTest extends TestCase
         $unittesting_logged = true;
 
         $this->db->queryBuilder()->table('users')->insert([
+            'usertype' => 0,
+            'sex' => 0,
+            'birthdate' => 0,
+            'modified' => 0,
             'userid' => 55, 'username' => 'auto', 'email' => 'a@t.com', 'active' => 1
         ]);
         $this->db->queryBuilder()->table('applications')->insert([
@@ -814,6 +842,10 @@ class OauthTest extends TestCase
         $unittesting_logged = true;
 
         $this->db->queryBuilder()->table('users')->insert([
+            'usertype' => 0,
+            'sex' => 0,
+            'birthdate' => 0,
+            'modified' => 0,
             'userid' => 55, 'username' => 'consent', 'email' => 'c@t.com', 'active' => 1
         ]);
         $this->db->queryBuilder()->table('applications')->insert([
@@ -862,6 +894,10 @@ class OauthTest extends TestCase
         $unittesting_logged = true;
 
         $this->db->queryBuilder()->table('users')->insert([
+            'usertype' => 0,
+            'sex' => 0,
+            'birthdate' => 0,
+            'modified' => 0,
             'userid' => 55, 'username' => 'deny', 'email' => 'd@t.com', 'active' => 1
         ]);
         $this->db->queryBuilder()->table('applications')->insert([

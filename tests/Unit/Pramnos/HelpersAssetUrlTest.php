@@ -86,15 +86,36 @@ class HelpersAssetUrlTest extends TestCase
     /** @return array<string, array{string}> Every scaffold file that could load an asset */
     public static function scaffoldFiles(): array
     {
-        $root  = dirname(__DIR__, 3);
-        $files = [];
+        $root = dirname(__DIR__, 3);
+
+        /*
+         * Walked twice at most. Docker Desktop's file sharing on macOS answers "No such file
+         * or directory" for a directory that exists, for a moment after files on the host
+         * change — reproduced by rewriting three files and building the suite at once. A
+         * provider that throws takes its ~300 cases with it. A directory that is really
+         * missing fails the second walk too, so nothing real is hidden by one retry.
+         */
+        try {
+            $files = self::walk($root);
+        } catch (\UnexpectedValueException) {
+            usleep(250000);
+            $files = self::walk($root);
+        }
+        $files['Init.php'] = [$root . '/src/Pramnos/Console/Commands/Init.php'];
+
+        return $files;
+    }
+
+    /** @return array<string, array{string}> */
+    private static function walk(string $root): array
+    {
+        $files    = [];
         $iterator = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($root . '/scaffolding/themes', \FilesystemIterator::SKIP_DOTS));
         foreach ($iterator as $file) {
             if (str_ends_with($file->getFilename(), '.php')) {
                 $files[substr($file->getPathname(), strlen($root) + 1)] = [$file->getPathname()];
             }
         }
-        $files['Init.php'] = [$root . '/src/Pramnos/Console/Commands/Init.php'];
 
         return $files;
     }
