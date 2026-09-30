@@ -107,6 +107,8 @@ class SettingsController extends Controller
             \Pramnos\Auth\TrustedDevices::DAYS_SETTING,
             \Pramnos\Auth\TrustedDevices::EXCLUDE_ADMINS_SETTING,
             \Pramnos\Auth\PushApprovals::ENABLED_SETTING,
+            \Pramnos\Auth\PushApprovals::NUMBER_SETTING,
+            \Pramnos\Auth\Factors\PushApprovalSecondFactor::ENROLMENT_SETTING,
         ];
         $settings = [];
         foreach ($keys as $key) {
@@ -346,6 +348,13 @@ class SettingsController extends Controller
             ));
         }
         $this->saveChoice($request, \Pramnos\Auth\PushApprovals::ENABLED_SETTING, ['0', '1'], '0');
+        $this->saveChoice($request, \Pramnos\Auth\PushApprovals::NUMBER_SETTING, \Pramnos\Auth\PushApprovals::NUMBER_POLICIES, 'risk');
+        $this->saveChoice(
+            $request,
+            \Pramnos\Auth\Factors\PushApprovalSecondFactor::ENROLMENT_SETTING,
+            \Pramnos\Auth\Factors\PushApprovalSecondFactor::ENROLMENT_POLICIES,
+            'strong'
+        );
 
         // Security
         Settings::setSetting('loginlockoutwindowseconds', (string) $this->normalizeIntRange(

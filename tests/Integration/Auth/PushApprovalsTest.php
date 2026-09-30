@@ -70,6 +70,7 @@ class PushApprovalsTest extends BaseTestCase
         }
         $this->runMigrations([
             \Pramnos\Framework\Migrations\AuthServer\CreateAuthserverTrustedDevicesTable::class,
+            \Pramnos\Framework\Migrations\AuthServer\AddTrustedViaToAuthserverTrustedDevices::class,
             \Pramnos\Framework\Migrations\AuthServer\CreateAuthserverPushApprovalsTable::class,
             \Pramnos\Framework\Migrations\Notifications\CreatePushSubscriptionsTable::class,
             \Pramnos\Framework\Migrations\Notifications\AddTrustedDeviceToPushSubscriptions::class,
@@ -140,14 +141,14 @@ class PushApprovalsTest extends BaseTestCase
      * captured instead of sent. `$staleRead` makes its next read see the ask as still
      * unanswered — the read of a request that lost the race to another answer.
      */
-    private function approvals(string $session = 'waiting-browser', ?TrustedDevices $devices = null, bool $staleRead = false): PushApprovals
+    private function approvals(string $session = 'waiting-browser', ?TrustedDevices $devices = null, bool $staleRead = false, bool $risky = false): PushApprovals
     {
-        return new class ($devices ?? $this->devices(), $session, $staleRead) extends PushApprovals {
+        return new class ($devices ?? $this->devices(), $session, $staleRead, $risky) extends PushApprovals {
             /** @var list<array{recipients: list<array<string, mixed>>, push: array<string, mixed>}> */
             public array $sent = [];
             public int $now;
 
-            public function __construct(TrustedDevices $devices, public string $session, public bool $staleRead)
+            public function __construct(TrustedDevices $devices, public string $session, public bool $staleRead, public bool $risky)
             {
                 parent::__construct($devices);
                 $this->now = time();
@@ -156,6 +157,11 @@ class PushApprovalsTest extends BaseTestCase
             protected function canPush(): bool
             {
                 return true;
+            }
+
+            protected function looksRisky(int $userId): bool
+            {
+                return $this->risky;
             }
 
             protected function byToken(string $token): ?array
@@ -204,6 +210,28 @@ class PushApprovalsTest extends BaseTestCase
         $_COOKIE[TrustedDevices::COOKIE] = $this->phoneCookie;
     }
 
+    /** The laptop's cookie, from {@see asKnownLaptop()}. */
+    private string $laptopCookie = '';
+
+    /**
+     * Sign in from a laptop the owner trusted once, whose trust has since expired: known, not
+     * trusted. Returns its device id.
+     */
+    private function asKnownLaptop(): int
+    {
+        $id = (int) $this->devices()->trust(self::OWNER);
+        $this->laptopCookie = (string) $_COOKIE[TrustedDevices::COOKIE];
+        $this->db->queryBuilder()->table(TrustedDevices::TABLE)->where('device_id', $id)
+            ->update(['expires_at' => time() - 1]);
+
+        return $id;
+    }
+
+    private function asKnownLaptopCookie(): void
+    {
+        $_COOKIE[TrustedDevices::COOKIE] = $this->laptopCookie;
+    }
+
     /** Approve as the phone does: picking the number the waiting page shows. */
     private function approveFromPhone(PushApprovals $approvals): string
     {
@@ -242,13 +270,13 @@ class PushApprovalsTest extends BaseTestCase
     }
 
     /**
-     * Every ask needs the number — whether an attempt "looks familiar" is decided from its
-     * User-Agent and country, which whoever holds the password chooses. The waiting page shows
-     * the number, the phone gets three to pick from, and the notification's only button is No.
-     * The row is bound to the waiting browser's session, and the notification carries where to
-     * answer and where to send the receipt.
+     * A browser the account never trusted needs the number, however familiar it looks — its
+     * User-Agent and country are what whoever holds the password chooses. The waiting page
+     * shows the number, the phone gets three to pick from, and the notification's only button
+     * is No. The row is bound to the waiting browser's session, and the notification carries
+     * where to answer and where to send the receipt.
      */
-    public function testEveryAskNeedsTheNumber(): void
+    public function testAnUnknownBrowserNeedsTheNumber(): void
     {
         // Arrange
         $approvals = $this->approvals();
@@ -284,9 +312,11 @@ class PushApprovalsTest extends BaseTestCase
     }
 
     /**
-     * Approving without a number is not approving: it is a refusal, like a wrong number.
+     * A Yes without the number, on an ask that needs one, changes nothing — it is what a
+     * lock-screen button would send, and such an ask carries none. It is neither an approval
+     * nor a refusal: the phone can still answer properly.
      */
-    public function testApprovingWithoutTheNumberRefuses(): void
+    public function testAYesWithoutTheNumberChangesNothing(): void
     {
         // Arrange
         $approvals = $this->approvals();
@@ -297,8 +327,69 @@ class PushApprovalsTest extends BaseTestCase
         $answer = $approvals->decide($this->tokenOf($approvals), self::OWNER, PushApprovals::APPROVED);
 
         // Assert
-        $this->assertSame(PushApprovals::DENIED, $answer);
-        $this->assertFalse($approvals->consume(self::OWNER));
+        $this->assertSame('invalid', $answer);
+        $this->assertSame('sent', $approvals->status(self::OWNER)['state']);
+        $this->assertSame(PushApprovals::APPROVED, $this->approveFromPhone($approvals), 'still answerable');
+    }
+
+    /**
+     * A browser this account trusted before — its trust since expired, so it takes the second
+     * step — signing in with nothing unusual gets a plain Yes: no number, and a Yes on the
+     * lock screen beside the No. That Yes approves.
+     */
+    public function testABrowserTrustedBeforeGetsAPlainYes(): void
+    {
+        // Arrange
+        $approvals = $this->approvals();
+        $this->asKnownLaptop();
+
+        // Act
+        $approvals->start(self::OWNER);
+        $status = $approvals->status(self::OWNER);
+        $push   = end($approvals->sent)['push'];
+        $this->asPhone();
+        $answer = $approvals->decide($this->tokenOf($approvals), self::OWNER, PushApprovals::APPROVED);
+
+        // Assert
+        $this->assertNull($status['number']);
+        $this->assertSame(['approve', 'deny'], array_column($push['actions'], 'action'));
+        $this->assertSame([], $approvals->forAnswering($this->tokenOf($approvals), self::OWNER)['choices']);
+        $this->assertSame(PushApprovals::APPROVED, $answer);
+    }
+
+    /**
+     * The plain Yes needs all of it: a browser trusted before, nothing unusual about the
+     * attempt, and a site that allows it. Anything unusual, a forgotten browser, or
+     * `auth_push_number_matching` = `always`, and the number is back.
+     */
+    public function testThePlainYesNeedsAKnownBrowserACalmAttemptAndTheSite(): void
+    {
+        // Arrange
+        $saved = Settings::getSetting(PushApprovals::NUMBER_SETTING, null);
+        $laptop = $this->asKnownLaptop();
+        $numbered = function (PushApprovals $approvals): bool {
+            $approvals->start(self::OWNER);
+
+            return $approvals->status(self::OWNER)['number'] !== null;
+        };
+
+        try {
+            // Act & Assert — something unusual
+            $this->assertTrue($numbered($this->approvals('waiting-browser', null, false, true)), 'unusual');
+
+            // The site asks for the number every time
+            Settings::setSetting(PushApprovals::NUMBER_SETTING, 'always', false);
+            $this->assertTrue($numbered($this->approvals()), 'always');
+            Settings::setSetting(PushApprovals::NUMBER_SETTING, 'nonsense', false);
+            $this->assertSame('risk', PushApprovals::numberPolicy(), 'nonsense is the default');
+
+            // The browser forgotten
+            $this->devices()->revoke(self::OWNER, $laptop);
+            $this->asKnownLaptopCookie();
+            $this->assertTrue($numbered($this->approvals()), 'forgotten');
+        } finally {
+            Settings::setSetting(PushApprovals::NUMBER_SETTING, $saved === null ? '' : (string) $saved, false);
+        }
     }
 
     /**
@@ -531,6 +622,45 @@ class PushApprovalsTest extends BaseTestCase
         } finally {
             Settings::setSetting(TrustedDevices::EXCLUDE_ADMINS_SETTING, $saved === null ? '' : (string) $saved, false);
         }
+    }
+
+    /**
+     * Whether the phone prompt counts as the account's real second factor is the site's
+     * `auth_push_counts_for_enrolment`. `strong` (the default) counts it only when a phone
+     * that would be asked was trusted with a factor that counts itself — here a passkey, not
+     * the owner's phone as the fixture trusts it, with nothing recorded; `always` counts any
+     * phone; `never` none.
+     */
+    public function testThePromptCountsForEnrolmentAsTheSiteSays(): void
+    {
+        // Arrange
+        $saved   = Settings::getSetting(PushApprovalSecondFactor::ENROLMENT_SETTING, null);
+        $factor  = new PushApprovalSecondFactor($this->approvals());
+        $answers = [];
+
+        try {
+            // Act — the owner's phone was trusted with nothing recorded
+            foreach (['strong', 'always', 'never', 'nonsense'] as $policy) {
+                Settings::setSetting(PushApprovalSecondFactor::ENROLMENT_SETTING, $policy, false);
+                $answers[$policy] = $factor->countsForEnrolment(self::OWNER);
+            }
+
+            // A second phone, trusted with a passkey
+            Settings::setSetting(PushApprovalSecondFactor::ENROLMENT_SETTING, 'strong', false);
+            $id       = (int) $this->devices()->trustVia(self::OWNER, 'passkey');
+            $endpoint = 'https://web.push.apple.com/strong' . bin2hex(random_bytes(4));
+            Subscriptions::store(self::OWNER, ['endpoint' => $endpoint, 'keys' => ['p256dh' => 'k', 'auth' => 'a']], 'Safari');
+            Subscriptions::linkTrustedDevice(self::OWNER, $endpoint, $id);
+            unset($_COOKIE[TrustedDevices::COOKIE]);
+            $strongPhone = $factor->countsForEnrolment(self::OWNER);
+        } finally {
+            Settings::setSetting(PushApprovalSecondFactor::ENROLMENT_SETTING, $saved === null ? '' : (string) $saved, false);
+        }
+
+        // Assert
+        $this->assertSame(['strong' => false, 'always' => true, 'never' => false, 'nonsense' => false], $answers);
+        $this->assertTrue($strongPhone);
+        $this->assertFalse($factor->countsForEnrolment(self::OTHER), 'no phone at all');
     }
 
     /**

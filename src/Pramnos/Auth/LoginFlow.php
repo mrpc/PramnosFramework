@@ -942,7 +942,7 @@ class LoginFlow
         // Only after a real second factor: the password alone, or a browser already trusted,
         // is not grounds for trusting anything.
         if ($trust && !in_array($method, ['password', 'trusted_device', NewDeviceAuthLink::METHOD], true)) {
-            $this->trustedDevices()->trust($userId);
+            $this->trustedDevices()->trustVia($userId, $method);
         }
 
         return LoginFlowResult::success($userId);

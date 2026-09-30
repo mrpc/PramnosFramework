@@ -123,11 +123,11 @@ class Push extends \Pramnos\Application\Controller
     }
 
     /**
-     * "No, it's not me", straight from the notification's button.
+     * "Yes, it's me" or "No", straight from the notification's buttons.
      *
-     * Only a refusal: approving needs the number, which the lock screen cannot pick. The
-     * answer counts only from a browser signed in as the account and trusted by it — see
-     * PushApprovals::decide().
+     * Yes appears only on an ask that needs no number; sent for one that does, it changes
+     * nothing. The answer counts only from a browser signed in as the account and trusted by
+     * it — see PushApprovals::decide().
      */
     public function respond(): mixed
     {
@@ -142,11 +142,8 @@ class Push extends \Pramnos\Application\Controller
             return $this->json(['error' => 'Sign in first.'], 401);
         }
 
-        if ((string) ($_GET['decision'] ?? '') !== PushApprovals::DENIED) {
-            return $this->json(['error' => 'Approving needs the number, on the approval page.'], 400);
-        }
-
-        $result = $this->approvals()->decide($this->token(), $userId, PushApprovals::DENIED);
+        $decision = (string) ($_GET['decision'] ?? '');
+        $result   = $this->approvals()->decide($this->token(), $userId, $decision);
 
         return in_array($result, [PushApprovals::APPROVED, PushApprovals::DENIED], true)
             ? $this->json(['ok' => true, 'decision' => $result])

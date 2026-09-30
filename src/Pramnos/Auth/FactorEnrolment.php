@@ -37,12 +37,13 @@ use Pramnos\Auth\Passkey\PasskeyServiceInterface;
  * An authenticator app, a passkey, or any adaptor an application registered that scores at
  * least {@see MIN_STRENGTH}. Not the mailed code, which is the thing being escaped from.
  *
- * Not the phone prompt either ({@see Factors\PushApprovalSecondFactor}), whatever its
- * strength. It is not something the account enrolled: it is a browser the account trusted,
- * and a browser is trusted after *any* second factor — the mailed code included. Counting it
- * would let an administrator escape the requirement with the very code it exists to move
- * them off. The account's real factor is whichever one trusted the browser, and it is
- * counted on its own.
+ * The phone prompt ({@see Factors\PushApprovalSecondFactor}) is the site's call, because it
+ * is not something the account enrolled: it is a browser the account trusted, and a browser
+ * can be trusted after *any* second factor — the mailed code included. The setting
+ * `auth_push_counts_for_enrolment` says which: `strong` (the default) counts it only when a
+ * phone that would be asked was trusted with a factor that itself counts
+ * ({@see methodIsStrong()}); `always` counts it, as Google counts its prompt, for a site that
+ * does not need the stricter bar; `never` does not.
  *
  * Passkeys are asked separately because they are not a registered second factor — they
  * replace the password rather than follow it, so `SecondFactorRegistry` does not know about
@@ -94,15 +95,48 @@ class FactorEnrolment
     }
 
     /**
+     * Would a sign-in completed with this method count as the account holding a real factor?
+     *
+     * A passkey does; a registered factor does at {@see MIN_STRENGTH} or above. The phone
+     * prompt does not — a browser trusted through it inherits nothing, since the phone that
+     * approved may itself have been trusted with a mailed code — and neither does anything
+     * unknown, which is how rows from before `trusted_via` existed read.
+     */
+    public static function methodIsStrong(string $method): bool
+    {
+        if ($method === 'passkey') {
+            return true;
+        }
+
+        if ($method === '' || $method === Factors\PushApprovalSecondFactor::METHOD) {
+            return false;
+        }
+
+        try {
+            $factor = SecondFactorRegistry::get($method);
+        } catch (\Throwable) {
+            return false;
+        }
+
+        return $factor !== null && $factor->strength() >= self::MIN_STRENGTH;
+    }
+
+    /**
      * Whether the account holds a factor stronger than a mailed code.
      */
     public function hasStrongFactor(int $userId): bool
     {
         try {
             foreach (SecondFactorRegistry::enrolledFor($userId) as $factor) {
-                if ($factor->name() !== Factors\PushApprovalSecondFactor::METHOD
-                    && $factor->strength() >= self::MIN_STRENGTH
-                ) {
+                if ($factor->name() === Factors\PushApprovalSecondFactor::METHOD) {
+                    if ($factor instanceof Factors\PushApprovalSecondFactor && $factor->countsForEnrolment($userId)) {
+                        return true;
+                    }
+
+                    continue;
+                }
+
+                if ($factor->strength() >= self::MIN_STRENGTH) {
                     return true;
                 }
             }

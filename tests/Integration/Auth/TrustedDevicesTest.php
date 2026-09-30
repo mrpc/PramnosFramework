@@ -56,6 +56,7 @@ class TrustedDevicesTest extends BaseTestCase
         $this->db->schema()->dropTableIfExists(TrustedDevices::TABLE);
         $this->runMigrations([
             \Pramnos\Framework\Migrations\AuthServer\CreateAuthserverTrustedDevicesTable::class,
+            \Pramnos\Framework\Migrations\AuthServer\AddTrustedViaToAuthserverTrustedDevices::class,
         ], $this->db);
 
         foreach ([TrustedDevices::ENABLED_SETTING, TrustedDevices::DAYS_SETTING, TrustedDevices::EXCLUDE_ADMINS_SETTING] as $name) {
@@ -150,7 +151,7 @@ class TrustedDevicesTest extends BaseTestCase
         $this->assertSame(Token::lookup((string) $devices->written), $row['token_lookup']);
         $this->assertStringNotContainsString((string) $devices->written, json_encode($row));
         $this->assertSame($devices->now + 30 * 86400, (int) $row['expires_at'], 'the days the site gives');
-        $this->assertSame($devices->writtenUntil, (int) $row['expires_at'], 'the cookie lasts as long as the row');
+        $this->assertSame($devices->now + TrustedDevices::KNOWN_DAYS * 86400, $devices->writtenUntil, 'the cookie outlives the trust, to keep the browser known');
         $this->assertSame('safari|ios', $row['fingerprint']);
         $this->assertSame('203.0.113.9', $row['ip']);
     }
@@ -329,6 +330,64 @@ class TrustedDevicesTest extends BaseTestCase
         $this->assertSame(0, $devices->revokeAll(self::OWNER));
         $devices->touch(1);
         $this->assertSame([], $devices->forUser(0));
+    }
+
+    /**
+     * The browser stays known after its trust ends: the cookie lives a year, the row is kept,
+     * and known() says so — while isTrusted() says no. Forgetting it, or another account, is
+     * not known.
+     */
+    public function testABrowserStaysKnownAfterItsTrustEnds(): void
+    {
+        // Arrange
+        $devices = $this->devices();
+        $id      = (int) $devices->trust(self::OWNER);
+
+        // Act — past the thirty days
+        $devices->now += 31 * 86400;
+        $trusted = $devices->isTrusted(self::OWNER);
+        $known   = $devices->known(self::OWNER);
+
+        // Assert
+        $this->assertFalse($trusted);
+        $this->assertTrue($known);
+        $this->assertSame($devices->now - 31 * 86400 + TrustedDevices::KNOWN_DAYS * 86400, $devices->writtenUntil, 'the cookie outlives the trust');
+        $this->assertFalse($devices->known(self::OTHER), 'another account');
+        $devices->revoke(self::OWNER, $id);
+        $this->assertFalse($devices->known(self::OWNER), 'forgotten');
+        unset($_COOKIE[TrustedDevices::COOKIE]);
+        $this->assertFalse($devices->known(self::OWNER), 'no cookie');
+    }
+
+    /**
+     * trustVia() records which factor trusted the browser; trust() alone records none.
+     */
+    public function testTheFactorThatTrustedTheBrowserIsRecorded(): void
+    {
+        // Arrange
+        $devices = $this->devices();
+
+        // Act
+        $via  = (int) $devices->trustVia(self::OWNER, 'passkey');
+        $none = (int) $devices->trust(self::OWNER);
+
+        // Assert
+        $this->assertSame('passkey', $this->row($via)['trusted_via']);
+        $this->assertNull($this->row($none)['trusted_via']);
+    }
+
+    /**
+     * Without its table the browser is simply not known.
+     */
+    public function testAMissingTableIsNotKnown(): void
+    {
+        // Arrange
+        $devices = $this->devices();
+        $devices->trust(self::OWNER);
+        $this->db->schema()->dropTableIfExists(TrustedDevices::TABLE);
+
+        // Act & Assert
+        $this->assertFalse($devices->known(self::OWNER));
     }
 
     /**

@@ -9,9 +9,9 @@
  *   $this->result    after a POST: approved | denied | expired | invalid
  *   $this->error     invalid_token when the form's session token failed
  *
- * Every ask shows three numbers and no Yes: the right one is on the screen of the browser
- * signing in, and picking it is the approval. A familiar-looking attempt gets no shortcut —
- * what makes an attempt look familiar is what the person holding the password chooses.
+ * An ask that needs the number shows three and no Yes: the right one is on the screen of the
+ * browser signing in, and picking it is the approval. A plain Yes is only for an ask that
+ * needs none — a browser the account trusted before, with nothing unusual about the attempt.
  */
 $brand    = $this->brand ?? [];
 $primary  = htmlspecialchars((string) ($brand['primary_color'] ?? '#2563eb'), ENT_QUOTES);
@@ -57,16 +57,25 @@ $row      = 'display:flex;justify-content:space-between;gap:16px;margin:0 0 4px'
                     <div role="alert" class="alert alert-danger">This page expired. Open the notification again.</div>
                 <?php endif; ?>
 
-                <p style="font-size:14px;margin-bottom:12px">Pick the number shown on the screen you are signing in on.</p>
-                <form method="POST" action="<?php echo $base; ?>/approve" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px">
-                    <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
-                    <input type="hidden" name="token" value="<?php echo $token; ?>">
-                    <input type="hidden" name="decision" value="approved">
-                    <?php foreach ($approval['choices'] as $choice): ?>
-                        <button type="submit" name="number" value="<?php echo (int) $choice; ?>"
-                                class="btn" style="height:64px;font-size:24px;font-weight:700;background:#fff;color:#111;border:1px solid #ccc"><?php echo (int) $choice; ?></button>
-                    <?php endforeach; ?>
-                </form>
+                <?php if ($approval['choices'] !== []): ?>
+                    <p style="font-size:14px;margin-bottom:12px">Pick the number shown on the screen you are signing in on.</p>
+                    <form method="POST" action="<?php echo $base; ?>/approve" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px">
+                        <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
+                        <input type="hidden" name="token" value="<?php echo $token; ?>">
+                        <input type="hidden" name="decision" value="approved">
+                        <?php foreach ($approval['choices'] as $choice): ?>
+                            <button type="submit" name="number" value="<?php echo (int) $choice; ?>"
+                                    class="btn" style="height:64px;font-size:24px;font-weight:700;background:#fff;color:#111;border:1px solid #ccc"><?php echo (int) $choice; ?></button>
+                        <?php endforeach; ?>
+                    </form>
+                <?php else: ?>
+                    <form method="POST" action="<?php echo $base; ?>/approve" style="margin-bottom:8px">
+                        <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
+                        <input type="hidden" name="token" value="<?php echo $token; ?>">
+                        <input type="hidden" name="decision" value="approved">
+                        <button type="submit" class="btn" style="<?php echo $btnStyle; ?>">Yes, it's me</button>
+                    </form>
+                <?php endif; ?>
 
                 <form method="POST" action="<?php echo $base; ?>/approve">
                     <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>

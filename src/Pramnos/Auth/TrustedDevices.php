@@ -22,6 +22,12 @@ use Pramnos\User\Token;
  * other account, and a row whose account signs in elsewhere is untouched. It is never
  * extended by use — the days are the days the person was told.
  *
+ * **Known outlives trusted.** The cookie lives {@see KNOWN_DAYS} days, longer than the trust.
+ * Once the trust expires the browser takes the second step again, but it is still a browser
+ * that once completed one for this account — a fact nobody can forge by choosing a
+ * User-Agent — and {@see known()} says so. A phone prompt for a known browser may be a plain
+ * Yes ({@see PushApprovals}). Forgetting the device, or a new password, ends that too.
+ *
  * Settings (all editable in the administration's System Settings):
  *   - `auth_trusted_devices`                 off unless set to 1
  *   - `auth_trusted_device_days`             30, between 1 and 365
@@ -43,6 +49,12 @@ class TrustedDevices
     public const ADMIN_USERTYPE = 90;
 
     public const DEFAULT_DAYS = 30;
+
+    /** How long the cookie keeps the browser {@see known()}, trusted or not. */
+    public const KNOWN_DAYS = 365;
+
+    /** The factor the next {@see trust()} is for — set by {@see trustVia()}. */
+    private ?string $via = null;
 
     /**
      * Whether the checkbox is offered at all. Off until the administration turns it on:
@@ -83,6 +95,24 @@ class TrustedDevices
     }
 
     /**
+     * Trust the browser making this request, recording which second factor it was trusted
+     * with — what decides whether it counts towards the account's enrolment
+     * ({@see Factors\PushApprovalSecondFactor::countsForEnrolment()}).
+     *
+     * @return int|null The new device's id, or null when trusting is not allowed or failed
+     */
+    public function trustVia(int $userId, string $method): ?int
+    {
+        $this->via = $method;
+
+        try {
+            return $this->trust($userId);
+        } finally {
+            $this->via = null;
+        }
+    }
+
+    /**
      * Trust the browser making this request, for this account.
      *
      * @return int|null The new device's id, or null when trusting is not allowed or failed
@@ -97,19 +127,25 @@ class TrustedDevices
         $now     = $this->now();
         $expires = $now + $this->days() * 86400;
 
+        $values = [
+            'userid'       => $userId,
+            'token_lookup' => Token::lookup($token),
+            'user_agent'   => substr($this->userAgent(), 0, 255),
+            'fingerprint'  => substr(SignInFingerprint::fromUserAgent($this->userAgent()), 0, 64),
+            'ip'           => substr($this->ip(), 0, 45),
+            'country'      => substr(SignInRisk::country(), 0, 2),
+            'created_at'   => $now,
+            'last_used_at' => $now,
+            'expires_at'   => $expires,
+        ];
+
+        if ($this->via !== null) {
+            $values['trusted_via'] = substr($this->via, 0, 32);
+        }
+
         try {
             $db = \Pramnos\Framework\Factory::getDatabase();
-            $db->queryBuilder()->table(self::TABLE)->insert([
-                'userid'       => $userId,
-                'token_lookup' => Token::lookup($token),
-                'user_agent'   => substr($this->userAgent(), 0, 255),
-                'fingerprint'  => substr(SignInFingerprint::fromUserAgent($this->userAgent()), 0, 64),
-                'ip'           => substr($this->ip(), 0, 45),
-                'country'      => substr(SignInRisk::country(), 0, 2),
-                'created_at'   => $now,
-                'last_used_at' => $now,
-                'expires_at'   => $expires,
-            ]);
+            $db->queryBuilder()->table(self::TABLE)->insert($values);
 
             $row = $db->queryBuilder()->table(self::TABLE)
                 ->where('token_lookup', Token::lookup($token))
@@ -124,7 +160,7 @@ class TrustedDevices
             return null;
         }
 
-        $this->writeCookie($token, $expires);
+        $this->writeCookie($token, max($expires, $now + self::KNOWN_DAYS * 86400));
         ActivityLog::record($userId, 'device_trusted', ['days' => $this->days()]);
 
         return (int) $row->fields['device_id'];
@@ -160,6 +196,33 @@ class TrustedDevices
         }
 
         return $row && ($row->numRows ?? 0) > 0 ? (array) $row->fields : null;
+    }
+
+    /**
+     * Has this browser ever been trusted by this account — even if the trust has since expired?
+     *
+     * Proof of an earlier second factor, from a token only that browser holds. Not a reason to
+     * skip anything: only to let a phone prompt for it be a plain Yes. A forgotten device, or
+     * one from before a password change, is not known.
+     */
+    public function known(int $userId): bool
+    {
+        $token = $this->readCookie();
+
+        if ($userId < 1 || $token === '') {
+            return false;
+        }
+
+        try {
+            return \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
+                ->table(self::TABLE)
+                ->where('token_lookup', Token::lookup($token))
+                ->where('userid', $userId)
+                ->whereNull('revoked_at')
+                ->exists();
+        } catch (\Throwable) {
+            return false;
+        }
     }
 
     /**

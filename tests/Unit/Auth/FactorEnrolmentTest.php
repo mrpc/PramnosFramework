@@ -200,11 +200,12 @@ class FactorEnrolmentTest extends TestCase
     }
 
     /**
-     * The phone prompt does not, whatever its strength: it is a browser the account trusted,
-     * and trust follows any second factor, the mailed code included. Counting it would let an
-     * administrator out of the requirement with the code it exists to move them off.
+     * A factor that merely calls itself `push`, without being the framework's phone prompt,
+     * does not count whatever its strength: whether the prompt counts is the prompt's own
+     * decision ({@see PushApprovalSecondFactor::countsForEnrolment()}), and an impostor has
+     * none to make.
      */
-    public function testThePhonePromptDoesNotSatisfyIt(): void
+    public function testSomethingNamedPushThatIsNotThePromptDoesNotSatisfyIt(): void
     {
         // Arrange — the prompt at its full strength, and a mailed code: the browser that
         // answers it may have been trusted with nothing better than that code
@@ -219,6 +220,69 @@ class FactorEnrolmentTest extends TestCase
 
         // Assert
         $this->assertTrue($required);
+    }
+
+    /**
+     * The phone prompt satisfies it exactly when it says it counts — the site's
+     * `auth_push_counts_for_enrolment`, applied by the factor.
+     */
+    public function testThePhonePromptCountsWhenItSaysSo(): void
+    {
+        // Arrange — the prompt switched on, which is what lets it through the factor list
+        $this->withFloor(80);
+        $answers = [];
+        $saved   = \Pramnos\Application\Settings::getSetting(\Pramnos\Auth\PushApprovals::ENABLED_SETTING);
+        \Pramnos\Application\Settings::setSetting(\Pramnos\Auth\PushApprovals::ENABLED_SETTING, '1', false);
+
+        foreach ([true, false] as $counts) {
+            SecondFactorRegistry::reset();
+            SecondFactorRegistry::register(new class ($counts) extends \Pramnos\Auth\Factors\PushApprovalSecondFactor {
+                public function __construct(private bool $counts)
+                {
+                }
+
+                public function isEnrolledFor(int $userId): bool
+                {
+                    return true;
+                }
+
+                public function countsForEnrolment(int $userId): bool
+                {
+                    return $this->counts;
+                }
+            });
+
+            // Act
+            $answers[] = (new FactorEnrolment($this->passkeys(false)))->isRequiredFor(7, 90);
+        }
+        \Pramnos\Application\Settings::setSetting(\Pramnos\Auth\PushApprovals::ENABLED_SETTING, (string) $saved, false);
+
+        // Assert
+        $this->assertSame([false, true], $answers);
+    }
+
+    /**
+     * Which completed sign-ins count as holding a real factor, for a browser they trusted: a
+     * passkey, and a registered factor at the threshold or above. Not the mailed code, not the
+     * phone prompt (the phone behind it may have been trusted with a mailed code), not an
+     * unknown or empty method — which is how rows from before `trusted_via` read.
+     */
+    public function testWhichMethodsAreStrong(): void
+    {
+        // Arrange
+        $this->withFloor(80);
+        SecondFactorRegistry::reset();
+        SecondFactorRegistry::register($this->factor('twofactor', 60, true));
+        SecondFactorRegistry::register($this->factor('email', 20, true));
+
+        // Act
+        $strong = array_filter(
+            ['passkey', 'twofactor', 'email', 'push', '', 'nonsense'],
+            static fn (string $method): bool => FactorEnrolment::methodIsStrong($method)
+        );
+
+        // Assert
+        $this->assertSame(['passkey', 'twofactor'], array_values($strong));
     }
 
     /**

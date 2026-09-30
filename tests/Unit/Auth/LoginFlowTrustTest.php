@@ -111,8 +111,9 @@ class LoginFlowTrustTest extends TestCase
         $this->flow->chooseTrust(true);
         $this->flow->completeTwoFactor('123456');
 
-        // Assert
+        // Assert — trusted once, and the factor that did it is recorded with it
         $this->assertSame([7], $this->flow->devices->trustedFor);
+        $this->assertSame(['twofactor'], $this->flow->devices->via);
 
         // Arrange — again, unticked
         $this->flow->devices->trustedFor = [];
@@ -252,6 +253,16 @@ class FakeTrustedDevices extends TrustedDevices
 
     /** @var list<int> */
     public array $trustedFor = [];
+
+    /** @var list<string> Which factor each trust was for. */
+    public array $via = [];
+
+    public function trustVia(int $userId, string $method): ?int
+    {
+        $this->via[] = $method;
+
+        return parent::trustVia($userId, $method);
+    }
 
     public function allowedFor(int $userId): bool
     {

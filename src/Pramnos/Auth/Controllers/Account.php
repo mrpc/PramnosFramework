@@ -263,8 +263,9 @@ class Account extends Controller
     /**
      * "Is it you trying to sign in?" — the page a trusted phone answers on.
      *
-     * Opened from the notification. GET shows what is known about the attempt, three numbers
-     * to pick the right one from, and a no. POST records the answer. Answering needs this browser to be signed in as the account and
+     * Opened from the notification. GET shows what is known about the attempt, and three
+     * numbers to pick the right one from — or, for an ask that needs none, a plain yes — and a
+     * no. POST records the answer. Answering needs this browser to be signed in as the account and
      * trusted by it; anything else sees that it cannot answer from here.
      */
     public function approve(): mixed

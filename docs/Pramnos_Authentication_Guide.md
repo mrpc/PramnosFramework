@@ -411,28 +411,41 @@ first. The step-up sends it as it begins — nothing to start, as with Google �
 
 1. The phone's service worker reports receipt (`POST /push/ack?token=…`) and the page says
    "Delivered to your phone ✓". After **20 seconds without it** the page opens "Try another way".
-2. **Every ask needs the number.** The waiting page shows it; the page the notification opens
-   (`account/approve`) offers three and the phone must pick the right one. The notification's only
-   button is **No, it's not me** — there is no one-tap Yes. Whether an attempt "looks familiar" is
-   decided from its User-Agent and country, which whoever holds the password chooses, so it earns
-   no shortcut: a lock-screen Yes is what prompt bombing counts on.
+2. **A number, unless the attempt is plainly the account's own.** The waiting page shows it; the
+   page the notification opens (`account/approve`) offers three and the phone must pick the right
+   one, and the notification's only button is **No, it's not me**. The exception is a plain
+   **Yes / No** — on the notification and on the page — for a browser the account **trusted
+   before** (`TrustedDevices::known()`: its cookie outlives the trust, `KNOWN_DAYS` = 365) signing
+   in with **nothing unusual** (`SignInRisk`). An attempt that merely *looks* familiar earns
+   nothing: User-Agent and country are what whoever holds the password chooses, and a lock-screen
+   Yes is what prompt bombing counts on. `auth_push_number_matching`: `risk` (default) as above,
+   `always` for the number every time.
 3. Approved, the waiting page submits by itself (`method=push`, through `requestSubmit()` so the
    box goes with it) and signs in.
 
 The rules: only **trusted** devices are asked, never every subscribed browser; answering needs a
 browser **signed in as the account and carrying its trust cookie**, so a forwarded link approves
-nothing; the wrong number — or none — is a refusal; **the first answer stands** (a No and a Yes
+nothing; the wrong number is a refusal, and a Yes without the number an ask needs changes
+nothing; **the first answer stands** (a No and a Yes
 arriving together are settled by the row, so a refusal is never overwritten); only the **waiting
 browser's session** can use an approval, once, within **60 s of the answer**
 (`PushApprovals::CONSUME_WINDOW`); each ask can be answered for **120 s**; at most **3 asks in 10
 minutes** per account. "No, it's not me" records `signin_denied`, and mails
 `SecurityChangeNotifier::SIGNIN_DENIED` — the password is known to somebody else.
 
-**It orders the offer; it does not satisfy enrolment.** `push` scores 70 so that it is offered
-first, but `FactorEnrolment` does not count it towards `require_factor_enrolment_from_usertype`: a
-browser can be trusted after a mailed code, and the prompt would otherwise let an administrator out
-of the requirement with that code. The account needs its own authenticator, passkey or adaptor of
-strength ≥ 40.
+**Does it satisfy enrolment? The site decides.** `push` scores 70 so that it is offered first.
+Whether it also counts towards `require_factor_enrolment_from_usertype` is
+`auth_push_counts_for_enrolment` (`PushApprovalSecondFactor::countsForEnrolment()`), because a
+browser can be trusted after a mailed code:
+
+| Value | Counts when |
+| --- | --- |
+| `strong` (default) | a phone that would be asked was trusted with a factor that counts itself — an authenticator, a passkey, an adaptor of strength ≥ 40 (`authserver.trusted_devices.trusted_via`, `FactorEnrolment::methodIsStrong()`) |
+| `always` | there is any phone to ask, as Google counts its prompt — for a site that does not need the stricter bar |
+| `never` | never: the account needs its own authenticator, passkey or adaptor |
+
+A browser trusted through the phone prompt itself, or before `trusted_via` existed, counts as not
+strong.
 
 **Never the only way.** The page always has "Try another way", and an account whose only other
 option would be nothing is also offered a mailed code: switching the prompt on lets `email`
@@ -443,7 +456,7 @@ through the factor list whatever `twofactor_methods` says.
 | `GET account/pushstatus` | the waiting page | `{state: sent\|delivered\|approved\|denied\|expired\|none, number, devices, expires_in}` |
 | `GET/POST account/approve?token=` | the phone, signed in and trusted | the question, and the answer |
 | `POST push/ack?token=` | the phone's worker | the receipt; the token is the credential |
-| `POST push/respond?token=&decision=denied` | the notification's button | "No, it's not me"; any other decision is a 400 |
+| `POST push/respond?token=&decision=` | the notification's buttons | No always; Yes only on an ask that needs no number |
 | `POST push/subscribe` | the page | now also links the subscription to its trusted device |
 
 ### A passkey inside the username autofill

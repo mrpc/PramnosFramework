@@ -75,10 +75,9 @@ class PushApprovalEndpointsTest extends TestCase
     }
 
     /**
-     * The service decides; the endpoint reports. A refusal it accepts is a 200 naming the
-     * decision; one it refuses is a 403 with the reason. An approval is not the endpoint's to
-     * give — it needs the number, which the lock screen cannot pick — so it is a 400 that
-     * never reaches the service.
+     * The service decides; the endpoint reports. An answer it accepts is a 200 naming the
+     * decision; one it refuses is a 403 with the reason. Whether a Yes without a number may
+     * approve is the service's rule, so the endpoint passes it on.
      */
     public function testTheServiceDecidesAndTheEndpointReports(): void
     {
@@ -90,18 +89,14 @@ class PushApprovalEndpointsTest extends TestCase
         $_GET = ['token' => 'good', 'decision' => 'denied'];
         $controller->respond();
         $denied = [$controller->status, $controller->payload];
-        $_GET = ['token' => 'good', 'decision' => 'approved'];
-        $controller->respond();
-        $approved = $controller->status;
-        $_GET = ['token' => 'bad', 'decision' => 'denied'];
+        $_GET = ['token' => 'bad', 'decision' => 'approved'];
         $controller->respond();
 
         // Assert
         $this->assertSame([200, ['ok' => true, 'decision' => 'denied']], $denied);
-        $this->assertSame(400, $approved);
         $this->assertSame(403, $controller->status);
         $this->assertSame('invalid', $controller->payload['reason']);
-        $this->assertSame([['good', 42, 'denied'], ['bad', 42, 'denied']], $controller->approvals->decisions);
+        $this->assertSame([['good', 42, 'denied'], ['bad', 42, 'approved']], $controller->approvals->decisions);
     }
 
     /**

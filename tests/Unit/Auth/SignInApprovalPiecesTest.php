@@ -97,11 +97,11 @@ class SignInApprovalPiecesTest extends TestCase
 
     /**
      * The notification goes by push only — a mail would arrive after it can be answered —
-     * and carries a button only when it was given somewhere to send it. The button is No and
-     * nothing else: a one-tap Yes on the lock screen is what prompt bombing counts on, and
-     * approving needs the number anyway.
+     * and carries buttons only when it was given somewhere to send them. An ask that needs the
+     * number gets No alone — picking a number takes a page, and a one-tap Yes is what prompt
+     * bombing counts on; one that does not (`oneTap`) gets Yes as well.
      */
-    public function testTheNotificationCarriesOnlyARefusalButton(): void
+    public function testTheNotificationCarriesYesOnlyWhenNoNumberIsNeeded(): void
     {
         // Arrange
         $familiar   = new SignInApprovalNotification('Chrome on Windows', 'GR', 1700000000, 'https://x/approve', 'https://x/ack', 'https://x/respond?token=t');
@@ -118,6 +118,9 @@ class SignInApprovalPiecesTest extends TestCase
         $this->assertSame(['deny'], array_column($withButtons['actions'], 'action'));
         $this->assertSame(['deny'], array_keys($withButtons['data']['actions']));
         $this->assertSame('https://x/respond?token=t&decision=denied', $withButtons['data']['actions']['deny']['post']);
+        $oneTap = (new SignInApprovalNotification('Chrome on Windows', 'GR', 1700000000, 'https://x/approve', 'https://x/ack', 'https://x/respond?token=t', true))->toPush(null);
+        $this->assertSame(['approve', 'deny'], array_column($oneTap['actions'], 'action'));
+        $this->assertSame('https://x/respond?token=t&decision=approved', $oneTap['data']['actions']['approve']['post']);
         $this->assertArrayNotHasKey('actions', $withNumber);
         $this->assertArrayNotHasKey('actions', $withNumber['data']);
         $this->assertStringStartsWith('Chrome on Windows · ', $withNumber['body'], 'no country, no empty separator');

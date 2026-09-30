@@ -108,7 +108,7 @@ class ScaffoldSignInApprovalViewsTest extends TestCase
      * The phone's approval page exists in every theme — the controller renders `approve`
      * whichever theme is installed — and answers with `decision` approved or denied, the
      * number-matching buttons named `number` over the offered choices, and a way to say no.
-     * There is no plain Yes: every ask needs the number.
+     * The plain Yes is only for an ask with no choices — one that needs no number.
      */
     #[DataProvider('themes')]
     public function testApprovalPageAnswersYesByNumberAndNo(string $theme): void
@@ -126,7 +126,9 @@ class ScaffoldSignInApprovalViewsTest extends TestCase
         $this->assertGreaterThan(0, $loop, 'the number buttons do not loop over the choices');
         $this->assertStringContainsString('name="number"', $inLoop);
         $this->assertStringContainsString("No, it's not me", $source);
-        $this->assertStringNotContainsString("Yes, it's me", $source, 'a Yes without the number');
+        $yes = (int) strpos($source, "Yes, it's me");
+        $this->assertGreaterThan($loop, $yes, 'the plain Yes comes after the numbers');
+        $this->assertStringContainsString('<?php else: ?>', substr($source, $loop, $yes - $loop), 'and only instead of them');
     }
 
     /**
@@ -166,6 +168,8 @@ class ScaffoldSignInApprovalViewsTest extends TestCase
             '\Pramnos\Auth\TrustedDevices::DAYS_SETTING'            => 'auth_trusted_device_days',
             '\Pramnos\Auth\TrustedDevices::EXCLUDE_ADMINS_SETTING'  => 'auth_trusted_devices_exclude_admins',
             '\Pramnos\Auth\PushApprovals::ENABLED_SETTING'          => 'auth_push_approval',
+            '\Pramnos\Auth\PushApprovals::NUMBER_SETTING'           => 'auth_push_number_matching',
+            '\Pramnos\Auth\Factors\PushApprovalSecondFactor::ENROLMENT_SETTING' => 'auth_push_counts_for_enrolment',
         ];
 
         foreach ($settings as $constant => $name) {

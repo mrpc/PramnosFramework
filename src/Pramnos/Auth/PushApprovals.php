@@ -25,11 +25,14 @@ use Pramnos\User\Token;
  *  - **The answer comes from the device, not the link.** Approving requires the answering
  *    browser to be signed in as the account *and* to carry its trust cookie. A forwarded
  *    notification link approves nothing.
- *  - **Every ask needs the number.** The waiting page shows a number and the phone must pick
- *    it out of three, as Microsoft and Google now require. Whether an attempt "looks
- *    familiar" is decided from its User-Agent and its country, both of which an attacker
- *    holding the password chooses — so a familiar-looking attempt is not grounds for a
- *    one-tap Yes, and a reflexive tap on a notification approves nothing.
+ *  - **A number, unless the attempt is plainly the account's own.** The waiting page shows a
+ *    number and the phone must pick it out of three, so a reflexive tap approves nothing. The
+ *    one exception, under `auth_push_number_matching` = `risk` (the default): a browser this
+ *    account trusted before ({@see TrustedDevices::known()} — its cookie, which nobody can
+ *    forge by choosing a User-Agent) with nothing unusual about the attempt
+ *    ({@see SignInRisk}) gets a plain Yes. `always` asks for the number every time. What
+ *    never earns the Yes is an attempt that merely *looks* familiar — its User-Agent and
+ *    country are what whoever holds the password chooses.
  *  - **Only the waiting browser can use the approval**, by the hash of its session id, once,
  *    and within {@see CONSUME_WINDOW} seconds of the phone's answer.
  *  - **Not for administrators, when the site excludes them** from trusted devices: their
@@ -47,6 +50,14 @@ class PushApprovals
     public const TABLE = 'authserver.push_approvals';
 
     public const ENABLED_SETTING = 'auth_push_approval';
+
+    /**
+     * When the phone has to pick the number: `risk` (default) — unless the browser signing in
+     * is {@see TrustedDevices::known()} and the attempt shows nothing unusual; `always`.
+     */
+    public const NUMBER_SETTING = 'auth_push_number_matching';
+
+    public const NUMBER_POLICIES = ['risk', 'always'];
 
     /** Where the pending sign-in keeps the approval it is waiting on. */
     public const SESSION_KEY = 'pf_push_approval';
@@ -114,6 +125,7 @@ class PushApprovals
             // The browser signing in is never asked to approve itself.
             if ($deviceId > 0 && isset($devices[$deviceId]) && !$devices[$deviceId]['is_current']) {
                 $row['device_name'] = $devices[$deviceId]['name'];
+                $row['trusted_via'] = (string) ($devices[$deviceId]['trusted_via'] ?? '');
                 $rows[] = $row;
             }
         }
@@ -144,8 +156,8 @@ class PushApprovals
 
         $token   = bin2hex(random_bytes(32));
         $now     = $this->now();
-        $number  = random_int(10, 99);
-        $choices = $this->choicesAround($number);
+        $number  = $this->needsNumber($userId) ? random_int(10, 99) : null;
+        $choices = $number === null ? [] : $this->choicesAround($number);
 
         $row = [
             'userid'         => $userId,
@@ -184,10 +196,14 @@ class PushApprovals
             $now,
             \Pramnos\Http\SiteUrl::to(self::APPROVE_PATH . '?token=' . $token),
             \Pramnos\Http\SiteUrl::to('push/ack?token=' . $token),
-            \Pramnos\Http\SiteUrl::to('push/respond?token=' . $token)
+            \Pramnos\Http\SiteUrl::to('push/respond?token=' . $token),
+            $number === null
         ));
 
-        ActivityLog::record($userId, 'signin_approval_asked', ['devices' => count($recipients)]);
+        ActivityLog::record($userId, 'signin_approval_asked', [
+            'devices' => count($recipients),
+            'number'  => $number !== null,
+        ]);
 
         return true;
     }
@@ -196,7 +212,7 @@ class PushApprovals
      * What the waiting page shows: whether the phone has it, and what it answered.
      *
      * `state` is `none` (nothing asked by this browser), `sent`, `delivered`, `approved`,
-     * `denied` or `expired`. `number` is the one the phone has to pick.
+     * `denied` or `expired`. `number` is set when the phone has to pick it.
      *
      * @return array{state: string, number: int|null, devices: list<string>, expires_in: int}
      */
@@ -267,9 +283,10 @@ class PushApprovals
     /**
      * The phone's answer.
      *
-     * Only from a browser signed in as the account and trusted by it. Approving with the
-     * wrong number — or none — is taken as a refusal: somebody guessing is the case the
-     * number exists for.
+     * Only from a browser signed in as the account and trusted by it. When the ask needs a
+     * number, approving with the wrong one is taken as a refusal — somebody guessing is the
+     * case the number exists for — and approving with none (the lock screen's button, which
+     * such an ask does not carry) changes nothing.
      *
      * The first answer stands. Two arriving together — two devices, or the notification's
      * No and the page's Yes — are settled by the database, not by whichever writes last, so
@@ -296,8 +313,14 @@ class PushApprovals
             return 'expired';
         }
 
-        if ($decision === self::APPROVED && $row['number'] !== null && $picked !== (int) $row['number']) {
-            $decision = self::DENIED;
+        if ($decision === self::APPROVED && $row['number'] !== null) {
+            if ($picked === null) {
+                return 'invalid';
+            }
+
+            if ($picked !== (int) $row['number']) {
+                $decision = self::DENIED;
+            }
         }
 
         $recorded = $this->claim((int) $row['approval_id'], 'decision', [
@@ -470,6 +493,33 @@ class PushApprovals
         shuffle($choices);
 
         return $choices;
+    }
+
+    /** The site's {@see NUMBER_SETTING}, `risk` unless it says otherwise. */
+    public static function numberPolicy(): string
+    {
+        $policy = (string) Settings::getSetting(self::NUMBER_SETTING, 'risk');
+
+        return in_array($policy, self::NUMBER_POLICIES, true) ? $policy : 'risk';
+    }
+
+    /**
+     * Must the phone pick a number for this attempt?
+     *
+     * Yes, unless the site allows the plain Yes and this is a browser the account trusted
+     * before, signing in with nothing unusual about it.
+     */
+    protected function needsNumber(int $userId): bool
+    {
+        return self::numberPolicy() === 'always'
+            || !$this->devices()->known($userId)
+            || $this->looksRisky($userId);
+    }
+
+    /** Anything {@see SignInRisk} finds unusual about this sign-in. */
+    protected function looksRisky(int $userId): bool
+    {
+        return SignInRisk::assess($userId) !== [];
     }
 
     protected function sessionLookup(): string

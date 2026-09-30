@@ -9,9 +9,9 @@
  *   $this->result    after a POST: approved | denied | expired | invalid
  *   $this->error     invalid_token when the form's session token failed
  *
- * Every ask shows three numbers and no Yes: the right one is on the screen of the browser
- * signing in, and picking it is the approval. A familiar-looking attempt gets no shortcut —
- * what makes an attempt look familiar is what the person holding the password chooses.
+ * An ask that needs the number shows three and no Yes: the right one is on the screen of the
+ * browser signing in, and picking it is the approval. A plain Yes is only for an ask that
+ * needs none — a browser the account trusted before, with nothing unusual about the attempt.
  */
 $brand    = $this->brand ?? [];
 $primary  = htmlspecialchars((string) ($brand['primary_color'] ?? '#2563eb'), ENT_QUOTES);
@@ -54,16 +54,25 @@ $where    = $country !== '' ? $country : 'an unknown place';
                 <div role="alert" class="alert alert-error mb-4">This page expired. Open the notification again.</div>
             <?php endif; ?>
 
-            <p class="text-sm mb-3">Pick the number shown on the screen you are signing in on.</p>
-            <form method="POST" action="<?php echo $base; ?>/approve" class="grid grid-cols-3 gap-3 mb-4">
-                <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
-                <input type="hidden" name="token" value="<?php echo $token; ?>">
-                <input type="hidden" name="decision" value="approved">
-                <?php foreach ($approval['choices'] as $choice): ?>
-                    <button type="submit" name="number" value="<?php echo (int) $choice; ?>"
-                            class="btn btn-outline h-16 text-2xl font-bold"><?php echo (int) $choice; ?></button>
-                <?php endforeach; ?>
-            </form>
+            <?php if ($approval['choices'] !== []): ?>
+                <p class="text-sm mb-3">Pick the number shown on the screen you are signing in on.</p>
+                <form method="POST" action="<?php echo $base; ?>/approve" class="grid grid-cols-3 gap-3 mb-4">
+                    <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
+                    <input type="hidden" name="token" value="<?php echo $token; ?>">
+                    <input type="hidden" name="decision" value="approved">
+                    <?php foreach ($approval['choices'] as $choice): ?>
+                        <button type="submit" name="number" value="<?php echo (int) $choice; ?>"
+                                class="btn btn-outline h-16 text-2xl font-bold"><?php echo (int) $choice; ?></button>
+                    <?php endforeach; ?>
+                </form>
+            <?php else: ?>
+                <form method="POST" action="<?php echo $base; ?>/approve" class="mb-3">
+                    <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
+                    <input type="hidden" name="token" value="<?php echo $token; ?>">
+                    <input type="hidden" name="decision" value="approved">
+                    <button type="submit" class="btn btn-primary w-full">Yes, it's me</button>
+                </form>
+            <?php endif; ?>
 
             <form method="POST" action="<?php echo $base; ?>/approve">
                 <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>

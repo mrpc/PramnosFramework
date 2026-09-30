@@ -490,7 +490,8 @@ class SettingsControllerIntegrationTest extends TestCase
 
     /**
      * Who may register, "don't ask again" and the phone prompt are saved from the screen —
-     * yes/no fields fall back to "no" on nonsense, and the days are kept between 1 and 365.
+     * yes/no fields fall back to "no" on nonsense, the days are kept between 1 and 365, and
+     * the phone prompt's two choices fall back to their defaults.
      *
      * "No" on nonsense is the point: none of these may switch itself on because a field
      * carried a value nobody chose.
@@ -505,6 +506,8 @@ class SettingsControllerIntegrationTest extends TestCase
             'auth_trusted_device_days'            => '9999',
             'auth_trusted_devices_exclude_admins' => 'maybe',
             'auth_push_approval'                  => '1',
+            'auth_push_number_matching'           => 'always',
+            'auth_push_counts_for_enrolment'      => 'whenever',
         ];
 
         // Act
@@ -513,6 +516,8 @@ class SettingsControllerIntegrationTest extends TestCase
         ob_end_clean();
 
         // Assert
+        $this->assertSame('always', (string) Settings::getSetting('auth_push_number_matching'));
+        $this->assertSame('strong', (string) Settings::getSetting('auth_push_counts_for_enrolment'), 'nonsense is the default');
         $this->assertSame('1', (string) Settings::getSetting('auth_allow_registration'));
         $this->assertSame('example.com, example.org', (string) Settings::getSetting('auth_registration_domains'));
         $this->assertSame('1', (string) Settings::getSetting('auth_trusted_devices'));

@@ -546,7 +546,7 @@ an IP address on your LAN.
 | `POST /push/subscribe` | Records `PushSubscription.toJSON()` for the signed-in account. |
 | `POST /push/unsubscribe` | Forgets one endpoint, scoped to the signed-in account. |
 | `POST /push/ack?token=` | A sign-in approval's receipt, sent by the worker as the push arrives. The token is the credential — the worker may have no page and no session. |
-| `POST /push/respond?token=&decision=denied` | "No, it's not me" from an approval's notification button — refusing only; approving needs the number, on the approval page. POST only, signed in, and only from a trusted device — see the Authentication guide's *Trusted devices and sign-in approval*. |
+| `POST /push/respond?token=&decision=` | Yes/No from an approval's notification buttons — Yes only on an ask that needs no number. POST only, signed in, and only from a trusted device — see the Authentication guide's *Trusted devices and sign-in approval*. |
 
 `subscribe` also links the subscription to the browser's **trusted device**
 (`pushsubscriptions.trusted_device_id`) when it carries the trust cookie — that link is

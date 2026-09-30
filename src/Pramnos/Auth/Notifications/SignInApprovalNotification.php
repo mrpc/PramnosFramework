@@ -10,9 +10,10 @@ use Pramnos\Notification\NotificationInterface;
  * "Trying to sign in?" — the push a trusted phone receives when a sign-in waits on it.
  *
  * What the lock screen has room for: which browser, where, when. Tapping it opens the page
- * that answers ({@see \Pramnos\Auth\PushApprovals::APPROVE_PATH}): approving means picking the
- * number the waiting screen shows, and that takes a page. The one button the lock screen gets
- * is **No** — refusing needs no number, and a one-tap Yes is what prompt bombing counts on.
+ * that answers ({@see \Pramnos\Auth\PushApprovals::APPROVE_PATH}). An ask that needs the number
+ * gets one button on the lock screen, **No** — refusing needs no number, and picking one takes
+ * a page. An ask that does not (`$oneTap`: a browser the account trusted before, nothing
+ * unusual) also gets **Yes, it's me**.
  *
  * `ack` is where the service worker reports that the push arrived, before it even shows it:
  * the waiting screen says "delivered" from that, and suggests another way when it never
@@ -28,7 +29,8 @@ class SignInApprovalNotification implements NotificationInterface
         private int $when,
         private string $answerUrl,
         private string $ackUrl,
-        private string $respondUrl = ''
+        private string $respondUrl = '',
+        private bool $oneTap = false
     ) {
     }
 
@@ -53,6 +55,11 @@ class SignInApprovalNotification implements NotificationInterface
         if ($this->respondUrl !== '') {
             $push['actions'] = [['action' => 'deny', 'title' => t('No, it’s not me')]];
             $data['actions'] = ['deny' => ['post' => $this->respondUrl . '&decision=denied']];
+
+            if ($this->oneTap) {
+                array_unshift($push['actions'], ['action' => 'approve', 'title' => t('Yes, it’s me')]);
+                $data['actions']['approve'] = ['post' => $this->respondUrl . '&decision=approved'];
+            }
         }
 
         $push['data'] = $data;

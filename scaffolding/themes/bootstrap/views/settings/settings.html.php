@@ -297,6 +297,8 @@ ksort($initialSteps, SORT_NUMERIC);
                     $trustDays  = (int) ($s[\Pramnos\Auth\TrustedDevices::DAYS_SETTING] ?? 0) ?: \Pramnos\Auth\TrustedDevices::DEFAULT_DAYS;
                     $trustAdmin = (string) ($s[\Pramnos\Auth\TrustedDevices::EXCLUDE_ADMINS_SETTING] ?? '') === '1' ? '1' : '0';
                     $pushOn     = (string) ($s[\Pramnos\Auth\PushApprovals::ENABLED_SETTING] ?? '') === '1' ? '1' : '0';
+                    $pushNumber = \Pramnos\Auth\PushApprovals::numberPolicy();
+                    $pushEnrol  = \Pramnos\Auth\Factors\PushApprovalSecondFactor::enrolmentPolicy();
                     ?>
                         <div class="col-12"><h3 class="h6 fw-semibold mt-3 mb-0">Registration</h3></div>
                         <div class="col-md-6">
@@ -336,11 +338,28 @@ ksort($initialSteps, SORT_NUMERIC);
                             <?php echo $yesNo(\Pramnos\Auth\PushApprovals::ENABLED_SETTING, $pushOn); ?>
                             <div class="form-text">
                                 "Is it you trying to sign in?" on the account's trusted devices that receive notifications,
-                                with a number to pick when the attempt looks new. Another way is always offered beside it.
+                                with a number to pick unless the attempt is plainly the account's own. Another way is always offered beside it.
                                 <?php if (empty($this->pushReady)): ?>
                                 <strong>Push is not set up here yet</strong> — run <code>push:setup</code> — so nobody will be asked until it is.
                                 <?php endif; ?>
                             </div>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-semibold" for="<?php echo \Pramnos\Auth\PushApprovals::NUMBER_SETTING; ?>">When the phone must pick a number</label>
+                            <select class="form-select form-select-sm" id="<?php echo \Pramnos\Auth\PushApprovals::NUMBER_SETTING; ?>" name="<?php echo \Pramnos\Auth\PushApprovals::NUMBER_SETTING; ?>">
+                                <option value="risk" <?php echo $pushNumber === 'risk' ? 'selected' : ''; ?>>A number unless it is a browser the account trusted before and nothing is unusual (default)</option>
+                                <option value="always" <?php echo $pushNumber === 'always' ? 'selected' : ''; ?>>A number every time</option>
+                            </select>
+                            <div class="form-text">Otherwise the phone gets a plain "Yes, it's me".</div>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-semibold" for="<?php echo \Pramnos\Auth\Factors\PushApprovalSecondFactor::ENROLMENT_SETTING; ?>">Does the phone count as a second factor for required enrolment</label>
+                            <select class="form-select form-select-sm" id="<?php echo \Pramnos\Auth\Factors\PushApprovalSecondFactor::ENROLMENT_SETTING; ?>" name="<?php echo \Pramnos\Auth\Factors\PushApprovalSecondFactor::ENROLMENT_SETTING; ?>">
+                                <option value="strong" <?php echo $pushEnrol === 'strong' ? 'selected' : ''; ?>>Only if the phone was trusted with an authenticator or passkey (default)</option>
+                                <option value="always" <?php echo $pushEnrol === 'always' ? 'selected' : ''; ?>>Yes, whenever there is a phone to ask</option>
+                                <option value="never" <?php echo $pushEnrol === 'never' ? 'selected' : ''; ?>>No, the account needs its own authenticator or passkey</option>
+                            </select>
+                            <div class="form-text">For accounts that must enrol something better than a mailed code. A phone can be trusted after a mailed code.</div>
                         </div>
                     </div>
                 </div></div>
