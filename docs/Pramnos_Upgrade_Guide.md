@@ -608,6 +608,48 @@ the tag is cut — assembled as it happens rather than reconstructed from a mont
 | **Webhook endpoints on internal addresses** | A client-registered endpoint is checked at `/Webhook/register` and at every delivery (`Http\Client::forUserSuppliedUrl()`, pinned, no redirects followed). Public addresses and — by default — the private network (RFC 1918, carrier-grade NAT, IPv6 ULA) are allowed; **loopback and link-local are refused**, including `169.254.169.254`. An endpoint an administrator enters on the application's page is delivered to as written. `lastError` for a transport failure reads `Delivery refused or failed: …` instead of `cURL error: …`. | **A relying party receiving webhooks on `localhost` or `127.x` stops receiving** — the events are recorded as `failed`, not lost silently. Either list its range in `'authserver' => ['webhooks' => ['allow_private_ranges' => ['127.0.0.1/32']]]` in `app/app.php`, or re-enter the endpoint on `/admin/Applications/view/{appid}`. To refuse the private network too, set `'allow_private' => false`; to accept `http://` endpoints, `'require_https' => false`. A monitor that matched `cURL error:` in `last_error` should match `Delivery refused or failed:`. |
 | **A new framework migration** | `2026_09_24_000001_add_registered_by_to_oauth2_webhook_endpoints` adds `registered_by` (`client` or `admin`, default `client`) to `applications.oauth2_webhook_endpoints`. `WebhookService` writes it on every registration. | **Run `migrate` once after upgrading.** Until it runs, registering an endpoint fails on the unknown column; delivery keeps working and treats every row as `client`. An application sharing this database that writes endpoint rows with its own code needs no change: the default is the stricter answer. |
 | **New methods on webhook and applications classes** | `ApplicationsController::webhook()` / `webhookrotate()` / `webhookdelete()` / `webhookService()` / `applicationExists()`; `WebhookService::saveEndpoint()` / `endpointsFor()` / `deleteEndpoint()` / `rotateEndpointSecret()` / `allowedPrivateRanges()` / `addressRefusal()`; `Client::allowAddresses()`; `OutboundUrl::inRanges()`. All additive. | **Grep a subclass of `ApplicationsController` for `function webhook`** — the likeliest collision, since an application may have added its own. A declaration with a different signature is a fatal at class load; rename yours or match the parent's. `Webhook::storeEndpoint()` keeps its signature and now delegates to `WebhookService::saveEndpoint()`. |
+| **`users` column defaults** | The users migration gives `usertype`, `sex`, `birthdate` and `modified` a default of 0. It used to declare them `NOT NULL` with no default, as the reference production schema does, so an insert that omitted one was refused. Only a **new** installation gets the defaults from the migration: `CREATE TABLE` does not run on a table that already exists. | Nothing is required, and no existing insert changes behaviour. To accept inserts that omit these columns on an existing installation, run the statements in [`users` columns without a default](#users-columns-without-a-default) below. |
+
+### `users` columns without a default
+
+An installation whose `users` table was created before the defaults existed keeps
+`usertype`, `sex`, `birthdate` and `modified` as `NOT NULL` with no default. Any insert that
+leaves one of them out is then refused: `Field 'usertype' doesn't have a default value` on
+MySQL in strict mode, `null value in column "usertype" … violates not-null constraint` on
+PostgreSQL. The framework's own code always writes all four, so this matters for seeders,
+imports, and an application's own inserts.
+
+To check whether an installation needs it:
+
+```sql
+-- MySQL: a NULL in COLUMN_DEFAULT means no default
+SELECT COLUMN_NAME, COLUMN_DEFAULT FROM information_schema.COLUMNS
+ WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users'
+   AND COLUMN_NAME IN ('usertype', 'sex', 'birthdate', 'modified');
+
+-- PostgreSQL
+SELECT column_name, column_default FROM information_schema.columns
+ WHERE table_schema = 'public' AND table_name = 'users'
+   AND column_name IN ('usertype', 'sex', 'birthdate', 'modified');
+```
+
+To add the defaults. The statement is the same on both drivers:
+
+```sql
+ALTER TABLE users
+    ALTER COLUMN usertype  SET DEFAULT 0,
+    ALTER COLUMN sex       SET DEFAULT 0,
+    ALTER COLUMN birthdate SET DEFAULT 0,
+    ALTER COLUMN modified  SET DEFAULT 0;
+```
+
+- **Table prefix:** on a MySQL installation with a prefix, the table is `<prefix>users`, for
+  example `pf_users`.
+- **Existing rows are untouched.** A default applies only to rows inserted from then on, and
+  none of the four columns can hold a NULL today.
+- **Safe to run twice**, and safe on a table that already has the defaults. It changes only
+  column metadata, so on MySQL 8 and PostgreSQL it neither rewrites the table nor locks it for
+  longer than an instant.
 
 ### How this list was produced, and how to reproduce it
 

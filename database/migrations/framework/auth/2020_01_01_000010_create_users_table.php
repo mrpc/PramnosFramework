@@ -8,7 +8,13 @@ use Pramnos\Database\DatabaseCapabilities;
 /**
  * Creates the users table — the central user account registry.
  *
- * This schema matches the reference production schema exactly. The `usertype`
+ * This schema matches the reference production schema, with one deliberate difference:
+ * `usertype`, `sex`, `birthdate` and `modified` default to 0. Production declares them
+ * NOT NULL with no default, so every insert that omits one — a seeder, an import, a test —
+ * is refused, while the value 0 is what every one of those writers means. An installation
+ * created before the defaults existed adds them with the statements in the Upgrade Guide.
+ *
+ * The `usertype`
  * column encodes the role at the account level (0=simple, 1=salesman, 2=admin),
  * while fine-grained permissions are managed through the authserver RBAC tables.
  *
@@ -64,11 +70,11 @@ class CreateUsersTable extends Migration
                 ->comment('Timezone abbreviation used for date display (e.g. "EET")');
             $table->string('dateformat', 15)->default('d/m/Y H:i')
                 ->comment('PHP date format string for the user\'s preferred date/time display');
-            $table->tinyInteger('usertype')
+            $table->tinyInteger('usertype')->default(0)
                 ->comment('Account privilege level: 0 = Simple user, 1 = Salesman, 2 = Administrator');
-            $table->tinyInteger('sex')
+            $table->tinyInteger('sex')->default(0)
                 ->comment('Gender: 0 = female, 1 = male');
-            $table->bigInteger('birthdate')
+            $table->bigInteger('birthdate')->default(0)
                 ->comment('Birth date as a Unix timestamp (stored as bigint for historical compatibility)');
             $table->integer('photo')->nullable()
                 ->comment('usageid reference to the user\'s profile photo in the media/usage table');
@@ -82,7 +88,7 @@ class CreateUsersTable extends Migration
                 ->comment('VAT registration number (Greece: ΑΦΜ)');
             $table->string('website', 255)->default('')
                 ->comment('User\'s personal or company website URL');
-            $table->integer('modified')
+            $table->integer('modified')->default(0)
                 ->comment('Unix timestamp of the last profile modification');
             $table->bigInteger('fbauth')->nullable()
                 ->comment('Facebook numeric user ID for OAuth-linked accounts; NULL if not linked');
