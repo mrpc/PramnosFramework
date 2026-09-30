@@ -344,6 +344,35 @@ ksort($initialSteps, SORT_NUMERIC);
                     </select>
                     <small style="color:#888;font-size:11px;display:block">For accounts that must enrol something better than a mailed code. A phone can be trusted after a mailed code.</small>
                 </div>
+
+                <?php
+                $ccOn      = (string) ($s[\Pramnos\Security\CookieConsent::ENABLED_SETTING] ?? '') === '0' ? '0' : '1';
+                $ccCats    = (string) ($s[\Pramnos\Security\CookieConsent::CATEGORIES_SETTING] ?? '');
+                $ccCats    = $ccCats === '' ? implode(', ', \Pramnos\Security\CookieConsent::KNOWN_CATEGORIES) : $ccCats;
+                $ccPolicy  = (string) ($s[\Pramnos\Security\CookieConsent::POLICY_URL_SETTING] ?? '');
+                $ccVersion = (string) ($s[\Pramnos\Security\CookieConsent::VERSION_SETTING] ?? '') ?: '1';
+                ?>
+                <h3 style="font-size:15px;margin:20px 0 8px">Cookie consent</h3>
+                <div style="margin-bottom:12px">
+                    <label style="display:block;font-weight:600;margin-bottom:4px" for="<?php echo \Pramnos\Security\CookieConsent::ENABLED_SETTING; ?>">Show the cookie banner</label>
+                    <?php echo $yesNo(\Pramnos\Security\CookieConsent::ENABLED_SETTING, $ccOn); ?>
+                    <small style="color:#888;font-size:11px;display:block">Off only if this site sets no cookie beyond the strictly necessary ones.</small>
+                </div>
+                <div style="margin-bottom:12px">
+                    <label style="display:block;font-weight:600;margin-bottom:4px" for="<?php echo \Pramnos\Security\CookieConsent::CATEGORIES_SETTING; ?>">Categories to ask about</label>
+                    <input type="text" id="<?php echo \Pramnos\Security\CookieConsent::CATEGORIES_SETTING; ?>" name="<?php echo \Pramnos\Security\CookieConsent::CATEGORIES_SETTING; ?>" placeholder="preferences, analytics, marketing" style="width:100%;padding:8px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box" value="<?php echo htmlspecialchars($ccCats); ?>">
+                    <small style="color:#888;font-size:11px;display:block">Any of: preferences, analytics, marketing. "Strictly necessary" is always shown and cannot be turned off.</small>
+                </div>
+                <div style="margin-bottom:12px">
+                    <label style="display:block;font-weight:600;margin-bottom:4px" for="<?php echo \Pramnos\Security\CookieConsent::POLICY_URL_SETTING; ?>">Cookie policy page</label>
+                    <input type="text" id="<?php echo \Pramnos\Security\CookieConsent::POLICY_URL_SETTING; ?>" name="<?php echo \Pramnos\Security\CookieConsent::POLICY_URL_SETTING; ?>" placeholder="https://example.com/cookies" style="width:100%;padding:8px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box" value="<?php echo htmlspecialchars($ccPolicy); ?>">
+                    <small style="color:#888;font-size:11px;display:block">Linked from the banner. Empty for no link.</small>
+                </div>
+                <div style="margin-bottom:12px">
+                    <label style="display:block;font-weight:600;margin-bottom:4px" for="<?php echo \Pramnos\Security\CookieConsent::VERSION_SETTING; ?>">Policy version</label>
+                    <input type="text" id="<?php echo \Pramnos\Security\CookieConsent::VERSION_SETTING; ?>" name="<?php echo \Pramnos\Security\CookieConsent::VERSION_SETTING; ?>" placeholder="1" style="width:100%;padding:8px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box" value="<?php echo htmlspecialchars($ccVersion); ?>">
+                    <small style="color:#888;font-size:11px;display:block">Change it when the policy changes: everybody is asked again.</small>
+                </div>
             </div>
         </div>
 

@@ -2108,6 +2108,8 @@ class Init extends Command
             'services', 'organizations', 'emails',
             // Reached from a mail or a landing-page form, never from the SPA itself.
             'mailinglist',
+            // The cookie banner's settings and consent trail, fetched by pf-consent.js.
+            'cookieconsent',
         ];
 
         if (in_array('auth', $features, true)) {
@@ -4417,6 +4419,7 @@ HTML,
         }
 
         return $themeJs
+            . "    <?php echo \\Pramnos\\Security\\CookieConsent::tag(sURL); ?>\n"
             . "    <script src=\"<?php echo sURL; ?>assets/js/pf-utils.js\"></script>\n"
             . $this->serviceWorkerRegistration()
             . "    <?php \$this->document->renderJs(); ?>\n";

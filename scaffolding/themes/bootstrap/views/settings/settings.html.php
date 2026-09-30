@@ -361,6 +361,35 @@ ksort($initialSteps, SORT_NUMERIC);
                             </select>
                             <div class="form-text">For accounts that must enrol something better than a mailed code. A phone can be trusted after a mailed code.</div>
                         </div>
+
+                <?php
+                $ccOn      = (string) ($s[\Pramnos\Security\CookieConsent::ENABLED_SETTING] ?? '') === '0' ? '0' : '1';
+                $ccCats    = (string) ($s[\Pramnos\Security\CookieConsent::CATEGORIES_SETTING] ?? '');
+                $ccCats    = $ccCats === '' ? implode(', ', \Pramnos\Security\CookieConsent::KNOWN_CATEGORIES) : $ccCats;
+                $ccPolicy  = (string) ($s[\Pramnos\Security\CookieConsent::POLICY_URL_SETTING] ?? '');
+                $ccVersion = (string) ($s[\Pramnos\Security\CookieConsent::VERSION_SETTING] ?? '') ?: '1';
+                ?>
+                        <div class="col-12"><h3 class="h6 fw-semibold mt-3 mb-0">Cookie consent</h3></div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-semibold" for="<?php echo \Pramnos\Security\CookieConsent::ENABLED_SETTING; ?>">Show the cookie banner</label>
+                            <?php echo $yesNo(\Pramnos\Security\CookieConsent::ENABLED_SETTING, $ccOn); ?>
+                            <div class="form-text">Off only if this site sets no cookie beyond the strictly necessary ones.</div>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-semibold" for="<?php echo \Pramnos\Security\CookieConsent::CATEGORIES_SETTING; ?>">Categories to ask about</label>
+                            <input type="text" class="form-control form-control-sm" id="<?php echo \Pramnos\Security\CookieConsent::CATEGORIES_SETTING; ?>" name="<?php echo \Pramnos\Security\CookieConsent::CATEGORIES_SETTING; ?>" placeholder="preferences, analytics, marketing" value="<?php echo htmlspecialchars($ccCats); ?>">
+                            <div class="form-text">Any of: preferences, analytics, marketing. "Strictly necessary" is always shown and cannot be turned off.</div>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-semibold" for="<?php echo \Pramnos\Security\CookieConsent::POLICY_URL_SETTING; ?>">Cookie policy page</label>
+                            <input type="text" class="form-control form-control-sm" id="<?php echo \Pramnos\Security\CookieConsent::POLICY_URL_SETTING; ?>" name="<?php echo \Pramnos\Security\CookieConsent::POLICY_URL_SETTING; ?>" placeholder="https://example.com/cookies" value="<?php echo htmlspecialchars($ccPolicy); ?>">
+                            <div class="form-text">Linked from the banner. Empty for no link.</div>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-semibold" for="<?php echo \Pramnos\Security\CookieConsent::VERSION_SETTING; ?>">Policy version</label>
+                            <input type="text" class="form-control form-control-sm" id="<?php echo \Pramnos\Security\CookieConsent::VERSION_SETTING; ?>" name="<?php echo \Pramnos\Security\CookieConsent::VERSION_SETTING; ?>" placeholder="1" value="<?php echo htmlspecialchars($ccVersion); ?>">
+                            <div class="form-text">Change it when the policy changes: everybody is asked again.</div>
+                        </div>
                     </div>
                 </div></div>
             </div>

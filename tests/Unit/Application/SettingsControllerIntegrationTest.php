@@ -486,6 +486,62 @@ class SettingsControllerIntegrationTest extends TestCase
         $this->assertSame([3 => 60, 5 => 300, 10 => 900], json_decode($json, true));
     }
 
+    // ── Cookie consent ────────────────────────────────────────────────────────
+
+    /**
+     * The cookie banner's four settings are saved from the screen. Categories are
+     * narrowed to the ones the banner knows, in its own order — a typo must not become
+     * a switch in front of a visitor that controls nothing — and the switch falls back
+     * to "on" for a value nobody chose.
+     */
+    public function testCookieConsentSettingsAreSaved(): void
+    {
+        // Arrange
+        $_POST = [
+            'cookie_consent_enabled'    => 'maybe',
+            'cookie_consent_categories' => ' Marketing, analytcs, analytics ',
+            'cookie_consent_policy_url' => ' https://example.com/cookies ',
+            'cookie_consent_version'    => ' 3 ',
+        ];
+
+        // Act
+        ob_start();
+        $this->controller->saveSystem();
+        ob_end_clean();
+
+        // Assert
+        $this->assertSame('1', (string) Settings::getSetting('cookie_consent_enabled'));
+        // The misspelt "analytcs" is gone; the order is the banner's, not the form's.
+        $this->assertSame('analytics,marketing', (string) Settings::getSetting('cookie_consent_categories'));
+        $this->assertSame('https://example.com/cookies', (string) Settings::getSetting('cookie_consent_policy_url'));
+        $this->assertSame('3', (string) Settings::getSetting('cookie_consent_version'));
+    }
+
+    /**
+     * A form without the cookie fields leaves them alone, and turning the banner off
+     * is a value the screen accepts.
+     */
+    public function testAbsentCookieConsentFieldsAreKeptAndOffIsAccepted(): void
+    {
+        // Arrange
+        Settings::setSetting('cookie_consent_version', '7', false);
+        Settings::setSetting('cookie_consent_categories', 'analytics', false);
+        $_POST = ['sitename' => 'Unrelated save', 'cookie_consent_enabled' => '0'];
+
+        // Act
+        ob_start();
+        $this->controller->saveSystem();
+        $this->controller->display();
+        ob_end_clean();
+
+        // Assert
+        $this->assertSame('7', (string) Settings::getSetting('cookie_consent_version'));
+        $this->assertSame('analytics', (string) Settings::getSetting('cookie_consent_categories'));
+        $this->assertSame('0', (string) Settings::getSetting('cookie_consent_enabled'));
+        // The screen is handed the values it renders.
+        $this->assertSame('7', $this->controller->lastView->settings['cookie_consent_version'] ?? null);
+    }
+
     // ── Registration, trusted devices, the phone prompt ───────────────────────
 
     /**

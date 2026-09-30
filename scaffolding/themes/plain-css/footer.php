@@ -1,7 +1,7 @@
     <footer class="main-footer">
         <div class="container">
             <div class="footer-content">
-                <p>&copy; <?php echo date('Y'); ?> <?php echo \Pramnos\Application\Application::getInstance()->applicationInfo['name']; ?>. All rights reserved.</p>
+                <p>&copy; <?php echo date('Y'); ?> <?php echo \Pramnos\Application\Application::getInstance()->applicationInfo['name']; ?>. All rights reserved.<?php if (\Pramnos\Security\CookieConsent::enabled()): ?> · <a href="#" data-consent-open><?php echo htmlspecialchars(\Pramnos\Framework\Factory::getLanguage()->_('Cookie settings')); ?></a><?php endif; ?></p>
             </div>
         </div>
     </footer>
@@ -26,5 +26,6 @@
     </div>
     <script src="<?php echo sURL; ?>assets/js/push.js" defer></script>
     <?php endif; ?>
+    <?php echo \Pramnos\Security\CookieConsent::tag(sURL); ?>
     <script src="<?php echo sURL; ?>assets/js/pf-utils.js"></script>
     <?php $this->document->renderJs(); ?>

@@ -412,6 +412,37 @@ $btnSec = 'px-4 py-2 border border-base-300 text-base-content text-sm font-mediu
                 </div>
 
                 <?php
+                $ccOn      = (string) ($s[\Pramnos\Security\CookieConsent::ENABLED_SETTING] ?? '') === '0' ? '0' : '1';
+                $ccCats    = (string) ($s[\Pramnos\Security\CookieConsent::CATEGORIES_SETTING] ?? '');
+                $ccCats    = $ccCats === '' ? implode(', ', \Pramnos\Security\CookieConsent::KNOWN_CATEGORIES) : $ccCats;
+                $ccPolicy  = (string) ($s[\Pramnos\Security\CookieConsent::POLICY_URL_SETTING] ?? '');
+                $ccVersion = (string) ($s[\Pramnos\Security\CookieConsent::VERSION_SETTING] ?? '') ?: '1';
+                ?>
+                <h3 class="font-semibold mt-6 mb-2">Cookie consent</h3>
+                <div class="grid grid-cols-1 gap-4">
+                    <div>
+                        <label class="<?php echo $label; ?>" for="<?php echo \Pramnos\Security\CookieConsent::ENABLED_SETTING; ?>">Show the cookie banner</label>
+                        <?php echo $yesNo(\Pramnos\Security\CookieConsent::ENABLED_SETTING, $ccOn); ?>
+                        <p class="text-xs text-base-content/60 mt-1">Off only if this site sets no cookie beyond the strictly necessary ones.</p>
+                    </div>
+                    <div>
+                        <label class="<?php echo $label; ?>" for="<?php echo \Pramnos\Security\CookieConsent::CATEGORIES_SETTING; ?>">Categories to ask about</label>
+                        <input type="text" class="<?php echo $input; ?>" id="<?php echo \Pramnos\Security\CookieConsent::CATEGORIES_SETTING; ?>" name="<?php echo \Pramnos\Security\CookieConsent::CATEGORIES_SETTING; ?>" placeholder="preferences, analytics, marketing" value="<?php echo htmlspecialchars($ccCats); ?>">
+                        <p class="text-xs text-base-content/60 mt-1">Any of: preferences, analytics, marketing. "Strictly necessary" is always shown and cannot be turned off.</p>
+                    </div>
+                    <div>
+                        <label class="<?php echo $label; ?>" for="<?php echo \Pramnos\Security\CookieConsent::POLICY_URL_SETTING; ?>">Cookie policy page</label>
+                        <input type="text" class="<?php echo $input; ?>" id="<?php echo \Pramnos\Security\CookieConsent::POLICY_URL_SETTING; ?>" name="<?php echo \Pramnos\Security\CookieConsent::POLICY_URL_SETTING; ?>" placeholder="https://example.com/cookies" value="<?php echo htmlspecialchars($ccPolicy); ?>">
+                        <p class="text-xs text-base-content/60 mt-1">Linked from the banner. Empty for no link.</p>
+                    </div>
+                    <div>
+                        <label class="<?php echo $label; ?>" for="<?php echo \Pramnos\Security\CookieConsent::VERSION_SETTING; ?>">Policy version</label>
+                        <input type="text" class="<?php echo $input; ?>" id="<?php echo \Pramnos\Security\CookieConsent::VERSION_SETTING; ?>" name="<?php echo \Pramnos\Security\CookieConsent::VERSION_SETTING; ?>" placeholder="1" value="<?php echo htmlspecialchars($ccVersion); ?>">
+                        <p class="text-xs text-base-content/60 mt-1">Change it when the policy changes: everybody is asked again.</p>
+                    </div>
+                </div>
+
+                <?php
                 /**
                  * What this application has enabled — read-only, and next to the settings
                  * that refer to it.

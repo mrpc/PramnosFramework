@@ -197,6 +197,12 @@ if (Session::isHttps()) {
 ],
 ```
 
+### Cookie consent (EU)
+
+The session cookie is strictly necessary and needs no consent. Anything optional, such as
+analytics, marketing pixels or remembered preferences, goes behind the framework's cookie
+banner. See the [Cookie Consent Guide](Pramnos_Cookie_Consent_Guide.md).
+
 ## Password Security
 
 ### Hashing

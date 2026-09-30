@@ -1,6 +1,6 @@
     <footer class="bg-gray-800 text-gray-300 py-8 mt-auto">
         <div class="container mx-auto px-4 max-w-5xl text-center">
-            <p class="mb-0">&copy; <?php echo date('Y'); ?> <?php echo \Pramnos\Application\Application::getInstance()->applicationInfo['name']; ?>. All rights reserved.</p>
+            <p class="mb-0">&copy; <?php echo date('Y'); ?> <?php echo \Pramnos\Application\Application::getInstance()->applicationInfo['name']; ?>. All rights reserved.<?php if (\Pramnos\Security\CookieConsent::enabled()): ?> · <a href="#" class="underline hover:text-white" data-consent-open><?php echo htmlspecialchars(\Pramnos\Framework\Factory::getLanguage()->_('Cookie settings')); ?></a><?php endif; ?></p>
         </div>
     </footer>
     <?php
@@ -40,5 +40,6 @@
     </div>
     <script src="<?php echo sURL; ?>assets/js/push.js" defer></script>
     <?php endif; ?>
+    <?php echo \Pramnos\Security\CookieConsent::tag(sURL); ?>
     <script src="<?php echo sURL; ?>assets/js/pf-utils.js"></script>
     <?php $this->document->renderJs(); ?>

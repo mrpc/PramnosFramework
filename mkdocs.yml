@@ -101,6 +101,7 @@ nav:
     - Authentication: Pramnos_Authentication_Guide.md
     - Authorization: Pramnos_Authorization_Guide.md
     - Security Hardening: Pramnos_Security_Guide.md
+    - Cookie Consent: Pramnos_Cookie_Consent_Guide.md
     - Account & Security (End Users): Pramnos_Account_Guide.md
     - Third-Party Integration: Pramnos_AuthServer_Integration_Guide.md
     - OAuth2 Client (signing in elsewhere): Pramnos_OAuth_Client_Guide.md

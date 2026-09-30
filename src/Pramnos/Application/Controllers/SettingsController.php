@@ -109,6 +109,11 @@ class SettingsController extends Controller
             \Pramnos\Auth\PushApprovals::ENABLED_SETTING,
             \Pramnos\Auth\PushApprovals::NUMBER_SETTING,
             \Pramnos\Auth\Factors\PushApprovalSecondFactor::ENROLMENT_SETTING,
+            // The cookie banner.
+            \Pramnos\Security\CookieConsent::ENABLED_SETTING,
+            \Pramnos\Security\CookieConsent::CATEGORIES_SETTING,
+            \Pramnos\Security\CookieConsent::POLICY_URL_SETTING,
+            \Pramnos\Security\CookieConsent::VERSION_SETTING,
         ];
         $settings = [];
         foreach ($keys as $key) {
@@ -355,6 +360,29 @@ class SettingsController extends Controller
             \Pramnos\Auth\Factors\PushApprovalSecondFactor::ENROLMENT_POLICIES,
             'strong'
         );
+
+        /*
+         * The cookie banner. Categories are normalised to the ones the banner knows, so the
+         * field cannot promise a visitor a switch that controls nothing.
+         */
+        $this->saveChoice($request, \Pramnos\Security\CookieConsent::ENABLED_SETTING, ['0', '1'], '1');
+        foreach ([
+            \Pramnos\Security\CookieConsent::CATEGORIES_SETTING,
+            \Pramnos\Security\CookieConsent::POLICY_URL_SETTING,
+            \Pramnos\Security\CookieConsent::VERSION_SETTING,
+        ] as $consentKey) {
+            $value = (string) $request->get($consentKey, '__KEEP__', 'post');
+            if ($value === '__KEEP__') {
+                continue;
+            }
+            if ($consentKey === \Pramnos\Security\CookieConsent::CATEGORIES_SETTING) {
+                $value = implode(',', array_intersect(
+                    \Pramnos\Security\CookieConsent::KNOWN_CATEGORIES,
+                    array_map('trim', explode(',', strtolower($value)))
+                ));
+            }
+            Settings::setSetting($consentKey, trim($value));
+        }
 
         // Security
         Settings::setSetting('loginlockoutwindowseconds', (string) $this->normalizeIntRange(
