@@ -52,8 +52,9 @@ class CreateAuthserverRbacFunctions extends Migration
 
         $db = $this->application->database;
 
-        $orgTable  = Settings::getSetting('authserver_organization_table', 'user_organizations');
-        $orgColumn = Settings::getSetting('authserver_organization_column', 'organization_id');
+        // A blank setting is the default, as in Role::membershipTable() and organizationColumn().
+        $orgTable  = trim((string) Settings::getSetting('authserver_organization_table', '')) ?: 'user_organizations';
+        $orgColumn = trim((string) Settings::getSetting('authserver_organization_column', '')) ?: 'organization_id';
 
         // The placeholder used in object_id_pattern values, e.g. "{organization_id}"
         $orgPlaceholder = '{' . $orgColumn . '}';

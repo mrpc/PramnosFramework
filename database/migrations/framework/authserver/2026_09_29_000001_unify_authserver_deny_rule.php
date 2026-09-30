@@ -124,8 +124,9 @@ class UnifyAuthserverDenyRule extends Migration
     /** PL/pgSQL: stays raw. `$letInactiveThrough` is the fix; false restores the older body. */
     private function createMembershipTrigger(bool $letInactiveThrough): void
     {
-        $orgTable  = Settings::getSetting('authserver_organization_table', 'user_organizations');
-        $orgColumn = Settings::getSetting('authserver_organization_column', 'organization_id');
+        // A blank setting is the default, as in Role::membershipTable() and organizationColumn().
+        $orgTable  = trim((string) Settings::getSetting('authserver_organization_table', '')) ?: 'user_organizations';
+        $orgColumn = trim((string) Settings::getSetting('authserver_organization_column', '')) ?: 'organization_id';
         $skip      = $letInactiveThrough
             ? 'IF NEW.is_active IS FALSE THEN RETURN NEW; END IF;'
             : '';

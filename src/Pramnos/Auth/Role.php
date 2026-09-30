@@ -414,16 +414,24 @@ class Role extends Model
      */
     public static function membershipTable(): string
     {
-        $setting = (string) Settings::getSetting('authserver_organization_table', '');
+        $setting = trim((string) Settings::getSetting('authserver_organization_table', ''));
 
         return $setting !== ''
             ? 'authserver.' . $setting
             : 'authserver.user_organizations';
     }
 
-    /** The organisation column, respecting `authserver_organization_column`. */
+    /**
+     * The organisation column, respecting `authserver_organization_column`.
+     *
+     * An empty setting is the default, as for {@see membershipTable()}: a setting saved blank
+     * (or restored to "" by code that found it absent) must not become a column named "".
+     * Every reader of the two settings goes through these two methods.
+     */
     public static function organizationColumn(): string
     {
-        return (string) Settings::getSetting('authserver_organization_column', 'organization_id');
+        $setting = trim((string) Settings::getSetting('authserver_organization_column', ''));
+
+        return $setting !== '' ? $setting : 'organization_id';
     }
 }

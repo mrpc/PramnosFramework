@@ -40,7 +40,8 @@ class CreateAuthserverRolesTable extends Migration
             return;
         }
 
-        $orgColumn = Settings::getSetting('authserver_organization_column', 'organization_id');
+        // A blank setting is the default, as in Role::membershipTable() and organizationColumn().
+        $orgColumn = trim((string) Settings::getSetting('authserver_organization_column', '')) ?: 'organization_id';
 
         $schema->createTable('authserver.roles', function ($table) use ($orgColumn) {
             $table->comment('RBAC role definitions — roles group permissions and can be scoped to an organisation');

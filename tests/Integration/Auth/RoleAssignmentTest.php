@@ -564,4 +564,40 @@ class RoleAssignmentTest extends BaseTestCase
         // Cleanup
         Settings::setSetting('authserver_organization_table', (string) $previous, false);
     }
+
+    /**
+     * A blank setting is the default, for the table and the column, and for every reader of
+     * them. Saved blank, or "restored" to "" by code that found it absent, it used to reach the
+     * permission resolver as the table `authserver.` — no name — and fail its query.
+     */
+    public function testBlankOrganizationSettingsAreTheDefaults(): void
+    {
+        // Arrange
+        $saved = [
+            'authserver_organization_table'  => Settings::getSetting('authserver_organization_table', ''),
+            'authserver_organization_column' => Settings::getSetting('authserver_organization_column', ''),
+        ];
+        Settings::setSetting('authserver_organization_table', ' ', false);
+        Settings::setSetting('authserver_organization_column', '', false);
+
+        try {
+            // Act
+            $read = [
+                Role::membershipTable(),
+                Role::organizationColumn(),
+                \Pramnos\Messaging\MassMessageAudience::organizationMembershipTable(),
+                \Pramnos\Messaging\MassMessageAudience::organizationColumn(),
+            ];
+
+            // Assert
+            $this->assertSame(
+                ['authserver.user_organizations', 'organization_id', 'authserver.user_organizations', 'organization_id'],
+                $read
+            );
+        } finally {
+            foreach ($saved as $name => $value) {
+                Settings::setSetting($name, (string) $value, false);
+            }
+        }
+    }
 }

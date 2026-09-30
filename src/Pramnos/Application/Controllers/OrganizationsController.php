@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Pramnos\Application\Controllers;
 
 use Pramnos\Application\Controller;
-use Pramnos\Application\Settings;
 use Pramnos\Html\Icon;
 
 /**
@@ -555,12 +554,7 @@ class OrganizationsController extends Controller
      */
     private function resolveOrgMembershipTable(): string
     {
-        $setting = Settings::getSetting('authserver_organization_table', '');
-        if ($setting !== '') {
-            return 'authserver.' . $setting;
-        }
-
-        return 'authserver.user_organizations';
+        return \Pramnos\Auth\Role::membershipTable();
     }
 
     /**
@@ -570,6 +564,6 @@ class OrganizationsController extends Controller
      */
     private function resolveOrgColumn(): string
     {
-        return Settings::getSetting('authserver_organization_column', 'organization_id');
+        return \Pramnos\Auth\Role::organizationColumn();
     }
 }

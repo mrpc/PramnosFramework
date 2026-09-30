@@ -272,14 +272,10 @@ class PermissionResolver implements PermissionResolverInterface
      */
     private function assignedRoleRowsForOrganization(int $userId, int $organizationId): array
     {
-        $orgColumn = (string) \Pramnos\Application\Settings::getSetting(
-            'authserver_organization_column',
-            'organization_id'
-        );
-        $memberTable = 'authserver.' . (string) \Pramnos\Application\Settings::getSetting(
-            'authserver_organization_table',
-            'user_organizations'
-        );
+        // Through Role's readers: an empty setting is the default there, and was the table
+        // `authserver.` — with no name — here.
+        $orgColumn   = Role::organizationColumn();
+        $memberTable = Role::membershipTable();
 
         $schema = $this->database->schema();
         if (!$schema->hasTable(self::T_ROLE_DEFS)

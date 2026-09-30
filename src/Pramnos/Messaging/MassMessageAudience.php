@@ -411,21 +411,13 @@ class MassMessageAudience
     /** Where organization membership lives — the same setting the organizations screen reads. */
     public static function organizationMembershipTable(): string
     {
-        $setting = trim((string) \Pramnos\Application\Settings::getSetting(
-            'authserver_organization_table',
-            ''
-        ));
-
-        return 'authserver.' . ($setting !== '' ? $setting : 'user_organizations');
+        return \Pramnos\Auth\Role::membershipTable();
     }
 
     /** The organization foreign key on that table. */
     public static function organizationColumn(): string
     {
-        return (string) \Pramnos\Application\Settings::getSetting(
-            'authserver_organization_column',
-            'organization_id'
-        );
+        return \Pramnos\Auth\Role::organizationColumn();
     }
 
     /**
