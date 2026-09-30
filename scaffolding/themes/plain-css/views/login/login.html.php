@@ -125,5 +125,5 @@ $errorFieldAttributes = $errorText !== ''
         <p style="text-align:center;color:#888;font-size:12px;margin-top:16px"><?php echo htmlspecialchars((string) $brand['footer']); ?></p>
     <?php endif; ?>
 </div>
-<script src="<?php echo sURL; ?>assets/js/pf-webauthn.js"></script>
-<script src="<?php echo sURL; ?>assets/js/pf-auth.js"></script>
+<script src="<?php echo assetUrl('assets/js/pf-webauthn.js'); ?>"></script>
+<script src="<?php echo assetUrl('assets/js/pf-auth.js'); ?>"></script>

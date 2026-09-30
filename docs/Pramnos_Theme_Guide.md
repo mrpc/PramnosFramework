@@ -587,6 +587,24 @@ takes the answer it gets.
     If you serve several requests in one PHP lifetime by other means, call
     `Document::reset()` between them.
 
+### Static files: `assetUrl()`
+
+Load a script or stylesheet through `assetUrl()` rather than `sURL . 'assets/…'`:
+
+```php
+<script src="<?php echo assetUrl('assets/js/pf-auth.js'); ?>"></script>
+<link rel="stylesheet" href="<?php echo assetUrl('assets/css/style.css'); ?>">
+```
+
+It appends `?v=<modification time>`. A file served at a fixed URL is kept by whatever sits
+in front of it (a CDN answering `HIT` until `max-age` runs out, or a browser cache), so a
+deployed fix reaches nobody until then. The stamp changes the URL when the file changes,
+and only then. The file is looked up beside the front controller that is running, so it
+works whatever the web root is called. A file that is not there gets no stamp.
+
+Every framework asset the scaffold loads goes through it: the `pf-*.js` scripts, `push.js`,
+`style.css` and the cookie banner.
+
 ### Theme Functions File
 
 Create a `functions.php` file for theme customization:

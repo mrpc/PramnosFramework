@@ -4,7 +4,7 @@
              fallback stack with nothing but two console errors to say so. */ ?>
     <link rel="stylesheet" href="<?php echo sURL; ?>assets/vendor/inter/latest/inter.css">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="stylesheet" href="<?php echo sURL; ?>assets/css/style.css">
+    <link rel="stylesheet" href="<?php echo assetUrl('assets/css/style.css'); ?>">
     <?php $this->document->renderCss(); ?>
     <?php
     $_navUser     = \Pramnos\User\User::getCurrentUser() ?: null;

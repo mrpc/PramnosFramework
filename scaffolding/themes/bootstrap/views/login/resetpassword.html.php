@@ -86,4 +86,4 @@ $expired   = ($errorKey === 'invalid_reset_link' && $token === '');
         </div>
     </div>
 </div>
-<script src="<?php echo sURL; ?>assets/js/pf-auth.js"></script>
+<script src="<?php echo assetUrl('assets/js/pf-auth.js'); ?>"></script>

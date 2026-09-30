@@ -73,7 +73,7 @@ final class MessageEditor
 
         if ($mode === self::BUILTIN) {
             return '<style>' . self::BUILTIN_CSS . '</style>'
-                . '<script src="' . $attr((defined('sURL') ? (string) \sURL : '/') . 'assets/js/pf-editor.js') . '"></script>';
+                . '<script src="' . $attr(assetUrl('assets/js/pf-editor.js')) . '"></script>';
         }
 
         if ($mode === self::TINYMCE) {

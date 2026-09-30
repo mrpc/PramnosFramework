@@ -267,6 +267,36 @@ if (!function_exists('adminUrl')) {
         return \Pramnos\Http\AdminArea::url($path);
     }
 }
+if (!function_exists('assetUrl')) {
+    /**
+     * A static file's URL, stamped with its modification time.
+     *
+     * ```php
+     * <script src="<?php echo assetUrl('assets/js/pf-auth.js'); ?>"></script>
+     * ```
+     *
+     * A file served at a fixed URL is kept by whatever sits in front of it — a CDN
+     * answering `HIT` for as long as `max-age` allows, a browser cache — so a deployed
+     * fix reaches nobody until that runs out. `?v=<mtime>` changes the URL whenever the
+     * file changes, and only then.
+     *
+     * The file is looked up beside the front controller that is running, which is the
+     * web root whatever it is called. A file that is not there gets no stamp rather than
+     * an error.
+     *
+     * @param  string      $path Path under the web root, e.g. `assets/js/pf-auth.js`
+     * @param  string|null $base URL of the web root; `sURL` when omitted
+     */
+    function assetUrl(string $path, ?string $base = null): string
+    {
+        $path   = ltrim($path, '/');
+        $base ??= defined('sURL') ? (string) \sURL : '/';
+        $script = (string) ($_SERVER['SCRIPT_FILENAME'] ?? '');
+        $mtime  = $script !== '' ? @filemtime(dirname($script) . '/' . $path) : false;
+
+        return $base . $path . ($mtime ? '?v=' . $mtime : '');
+    }
+}
 
 if (!function_exists('t')) {
     /**
@@ -353,7 +383,7 @@ if (!function_exists('humanCheckField')) {
          * identically.
          */
         $json  = json_encode($challenge, JSON_UNESCAPED_SLASHES | JSON_HEX_TAG);
-        $src   = (defined('sURL') ? sURL : '') . 'assets/js/pf-humancheck.js';
+        $src   = assetUrl('assets/js/pf-humancheck.js', defined('sURL') ? sURL : '');
 
         return '<input type="hidden" name="human_challenge" value="'
             . htmlspecialchars($token, ENT_QUOTES, 'UTF-8') . '">'

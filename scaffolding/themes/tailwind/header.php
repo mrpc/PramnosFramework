@@ -1,6 +1,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <script src="<?php echo sURL; ?>assets/vendor/tailwind/tailwind.min.js"></script>
-    <link rel="stylesheet" href="<?php echo sURL; ?>assets/css/style.css">
+    <link rel="stylesheet" href="<?php echo assetUrl('assets/css/style.css'); ?>">
     <?php $this->document->renderCss(); ?>
     <?php
     $_navUser     = \Pramnos\User\User::getCurrentUser() ?: null;

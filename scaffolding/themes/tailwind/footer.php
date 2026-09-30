@@ -38,8 +38,8 @@
             </div>
         </div>
     </div>
-    <script src="<?php echo sURL; ?>assets/js/push.js" defer></script>
+    <script src="<?php echo assetUrl('assets/js/push.js'); ?>" defer></script>
     <?php endif; ?>
     <?php echo \Pramnos\Security\CookieConsent::tag(sURL); ?>
-    <script src="<?php echo sURL; ?>assets/js/pf-utils.js"></script>
+    <script src="<?php echo assetUrl('assets/js/pf-utils.js'); ?>"></script>
     <?php $this->document->renderJs(); ?>

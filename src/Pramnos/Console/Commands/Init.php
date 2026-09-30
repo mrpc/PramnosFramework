@@ -1591,7 +1591,7 @@ class Init extends Command
             'serviceWorkerRegistration' => $this->serviceWorkerRegistration('$siteUrl'),
             // The shell does not boot the application, so the banner fetches its settings.
             'cookieConsentScript' => $this->withCookieConsent
-                ? "    <script src=\"<?php echo htmlspecialchars(\$siteUrl . 'assets/js/pf-consent.js', ENT_QUOTES); ?>\""
+                ? "    <script src=\"<?php echo htmlspecialchars(\$siteUrl, ENT_QUOTES) . \$stamp('assets/js/pf-consent.js'); ?>\""
                   . " data-config-url=\"<?php echo htmlspecialchars(\$siteUrl . 'cookieconsent', ENT_QUOTES); ?>\" defer></script>\n"
                 : '',
             'devPort'       => (string) $devPort,
@@ -4434,7 +4434,7 @@ HTML,
             . $this->faviconLinks()
             . $themeCss
             . $tokens
-            . "    <link rel=\"stylesheet\" href=\"<?php echo sURL; ?>assets/css/style.css\">\n"
+            . "    <link rel=\"stylesheet\" href=\"<?php echo assetUrl('assets/css/style.css'); ?>\">\n"
             . "    <?php \$this->document->renderCss(); ?>\n";
     }
 
@@ -4463,7 +4463,7 @@ HTML,
 
         return $themeJs
             . "    <?php echo \\Pramnos\\Security\\CookieConsent::tag(sURL); ?>\n"
-            . "    <script src=\"<?php echo sURL; ?>assets/js/pf-utils.js\"></script>\n"
+            . "    <script src=\"<?php echo assetUrl('assets/js/pf-utils.js'); ?>\"></script>\n"
             . $this->serviceWorkerRegistration()
             . "    <?php \$this->document->renderJs(); ?>\n";
     }

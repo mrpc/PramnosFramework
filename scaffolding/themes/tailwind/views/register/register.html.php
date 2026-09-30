@@ -105,4 +105,4 @@ $closed    = ($this->registrationOpen ?? true) === false;
         </p>
     </div>
 </div>
-<script src="<?php echo sURL; ?>assets/js/pf-auth.js"></script>
+<script src="<?php echo assetUrl('assets/js/pf-auth.js'); ?>"></script>

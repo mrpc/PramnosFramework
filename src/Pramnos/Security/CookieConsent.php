@@ -195,7 +195,9 @@ final class CookieConsent
         $base = $baseUrl === '' ? '' : rtrim($baseUrl, '/') . '/';
         $json = (string) json_encode(self::config($base), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
 
-        return '<script src="' . htmlspecialchars($base . 'assets/js/pf-consent.js', ENT_QUOTES)
+        // Stamped with the file's time: a CDN keeps an unversioned script for as long as
+        // max-age allows, so a fixed banner would reach nobody until it expired.
+        return '<script src="' . htmlspecialchars(assetUrl('assets/js/pf-consent.js', $base), ENT_QUOTES)
             . '" data-config="' . htmlspecialchars($json, ENT_QUOTES) . '" defer></script>';
     }
 

@@ -122,7 +122,7 @@ $this->activeNav = 'privacy';
                             </button>
                             <span class="text-muted small" data-push-state></span>
                         </div>
-                        <script src="<?php echo sURL; ?>assets/js/push.js" defer></script>
+                        <script src="<?php echo assetUrl('assets/js/push.js'); ?>" defer></script>
                     </form>
                 </div>
             </div>
