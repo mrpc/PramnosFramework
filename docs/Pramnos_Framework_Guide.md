@@ -598,7 +598,10 @@ variables.
 3. `ROOT/views/`;
 4. **`src/Views/`** — beside the view directories, where something shared by several
    of them belongs;
-5. a theme override, if the active theme allows them.
+5. **beside the file being drawn** — so a scaffold view the application did not override
+   (the application has `src/Views/OAuth2/` for one file, and the framework's
+   `security.html.php` is drawn) finds its own `../partials/…` there;
+6. a theme override, if the active theme allows them.
 
 Both `.html.php` and `.tpl.php` are tried at each step.
 

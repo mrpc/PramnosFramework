@@ -220,19 +220,26 @@ $this->activeNav = 'security';
             </div>
 
             <!-- Trusted devices: "don't ask again on this device", each revocable -->
-            <?php if (!empty($this->trustedDevices)): ?>
+            <?php /* Shown whenever the site offers it, so a page that says "your trusted devices" has
+                     them — or says how a device becomes one. */ ?>
+            <?php if (!empty($this->trustedDevicesOffered)): ?>
             <div class="card bg-base-100 shadow-sm">
                 <div class="px-4 py-3 border-b border-base-300 flex items-center justify-between">
                     <span class="font-semibold text-base-content">Trusted devices</span>
+<?php if (!empty($this->trustedDevices)): ?>
                     <form method="post" action="<?php echo sURL . $routeBase; ?>/revokedevice" class="m-0">
                         <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
                         <input type="hidden" name="all" value="1">
                         <button type="submit" class="text-sm text-error hover:underline">Forget all</button>
                     </form>
+                    <?php endif; ?>
                 </div>
                 <p class="px-4 pt-3 text-xs text-base-content/60">
                     These skip the second step when you sign in, and can approve your sign-ins elsewhere.
                 </p>
+                <?php if (empty($this->trustedDevices)): ?>
+                <p class="px-4 py-3 text-sm text-base-content/70">No device is trusted yet. When you sign in with your second step, leave “Don't ask again on this device” ticked, and that device will appear here.</p>
+                <?php endif; ?>
                 <ul class="divide-y divide-base-200">
                     <?php foreach ($this->trustedDevices as $d): ?>
                         <li class="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between px-4 py-3">

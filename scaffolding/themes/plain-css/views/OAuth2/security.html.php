@@ -119,18 +119,25 @@ $this->activeNav = 'security';
             </div>
 
             <!-- Trusted devices: "don't ask again on this device", each revocable -->
-            <?php if (!empty($this->trustedDevices)): ?>
+            <?php /* Shown whenever the site offers it, so a page that says "your trusted devices" has
+                     them — or says how a device becomes one. */ ?>
+            <?php if (!empty($this->trustedDevicesOffered)): ?>
             <div class="card" style="margin-bottom:16px">
                 <div class="card-header" style="display:flex;justify-content:space-between;align-items:center">
                     <strong>Trusted devices</strong>
+<?php if (!empty($this->trustedDevices)): ?>
                     <form method="post" action="<?php echo sURL . $routeBase; ?>/revokedevice" style="margin:0">
                         <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
                         <input type="hidden" name="all" value="1">
                         <button type="submit" class="btn btn-sm" style="background:transparent;color:#b91c1c;border-color:transparent">Forget all</button>
                     </form>
+                    <?php endif; ?>
                 </div>
                 <div class="card-body" style="padding:0">
                     <p style="padding:12px 16px 0;margin:0;font-size:.85em;color:#666">These skip the second step when you sign in, and can approve your sign-ins elsewhere.</p>
+                <?php if (empty($this->trustedDevices)): ?>
+                    <p style="padding:12px 16px;margin:0;font-size:.9em;color:#444">No device is trusted yet. When you sign in with your second step, leave “Don't ask again on this device” ticked, and that device will appear here.</p>
+                <?php endif; ?>
                     <table style="width:100%;border-collapse:collapse;font-size:.9em">
                         <tbody>
                         <?php foreach ($this->trustedDevices as $d): ?>

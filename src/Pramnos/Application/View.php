@@ -11,6 +11,9 @@ use Pramnos\Application\Template\TemplateCache;
  */
 class View extends \Pramnos\Framework\Base
 {
+    /** The template file being drawn right now, for its partials to be found beside it. */
+    private string $renderingFile = '';
+
     /**
      * Array of models
      * @var \Pramnos\Application\Model[]
@@ -475,6 +478,9 @@ class View extends \Pramnos\Framework\Base
             return;
         }
         $includeFile = $this->getIncludePath($file);
+        // A partial's own partials are found beside it; the including file's afterwards.
+        $including = $this->renderingFile;
+        $this->renderingFile = $file;
 
         $model = $this->model;
         $lang  = \Pramnos\Framework\Factory::getLanguage();
@@ -483,6 +489,7 @@ class View extends \Pramnos\Framework\Base
         }
         $_pdb_partial_start = microtime(true);
         include $includeFile;
+        $this->renderingFile = $including;
 
         // Record the partial in the DebugBar's ViewsCollector. insert() does a
         // plain include (it does not go through getTpl()), so without this the
@@ -573,6 +580,17 @@ class View extends \Pramnos\Framework\Base
             // and in `ROOT/views/`, and found neither. Added last so no path that
             // resolved before resolves differently now.
             $this->path !== '' ? dirname($this->path) : null,
+            /*
+             * Beside the file being drawn.
+             *
+             * An application with a view directory of its own — `src/Views/OAuth2/` holding
+             * one override — gets the framework's scaffold for every other view in it, and
+             * that view's `insert('../partials/account_breadcrumb')` was looked for under
+             * `src/Views/`, where the application has no partials. The breadcrumb and the
+             * account sidebar vanished from the security page with nothing in any log a
+             * person reads. Last, so an application's own partial still wins.
+             */
+            $this->renderingFile !== '' ? dirname($this->renderingFile) : null,
         ]);
 
         // 2 & 3. Relative to view path and ROOT/views/
@@ -751,6 +769,7 @@ class View extends \Pramnos\Framework\Base
             try {
                 $lang  = \Pramnos\Framework\Factory::getLanguage();
                 $model = $this->model;
+                $this->renderingFile = $tplfile;
                 include $this->getIncludePath($tplfile);
             } catch (\Exception $ex) {
                 ob_end_clean();

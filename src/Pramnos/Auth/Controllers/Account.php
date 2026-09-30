@@ -1941,6 +1941,7 @@ class Account extends Controller
         $view->twoFactorEnabled = $this->isTwoFactorEnabled((int) $currentUser->userid);
         $view->activeSessions   = $this->getActiveSessions((int) $currentUser->userid);
         // Browsers told "don't ask again", each revocable, and whether this is one of them.
+        $view->trustedDevicesOffered = $this->trustedDevices()->enabled();
         $view->trustedDevices   = $this->trustedDevices()->enabled()
             ? $this->trustedDevices()->forUser((int) $currentUser->userid)
             : [];
