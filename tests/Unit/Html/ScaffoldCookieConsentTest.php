@@ -38,15 +38,15 @@ class ScaffoldCookieConsentTest extends TestCase
     }
 
     /**
-     * Every theme footer emits the tag and a "Cookie settings" link that reopens the
-     * dialog, and loads the tag before the page's own scripts so the Consent Mode
-     * default is on the data layer before anything reads it.
+     * The footer `init` generates, in every UI system, carries a "Cookie settings" link
+     * that reopens the dialog and loads the tag before the page's own scripts, so the
+     * Consent Mode default is on the data layer before anything reads it.
      */
     #[DataProvider('themes')]
-    public function testEveryFooterLoadsTheBannerAndALinkBackToIt(string $theme): void
+    public function testEveryGeneratedFooterLoadsTheBannerAndALinkBackToIt(string $theme): void
     {
         // Arrange
-        $footer = self::read('scaffolding/themes/' . $theme . '/footer.php');
+        $footer = self::initMethod('buildThemeFooter', $theme, 'App', []);
 
         // Act
         $tagAt = strpos($footer, '\Pramnos\Security\CookieConsent::tag(sURL)');
@@ -56,6 +56,32 @@ class ScaffoldCookieConsentTest extends TestCase
         $this->assertNotFalse($tagAt, $theme . ' footer does not load the banner');
         $this->assertStringContainsString('data-consent-open', $footer);
         $this->assertLessThan($jsAt, $tagAt, 'the banner loads before the page scripts');
+    }
+
+    /**
+     * The standalone sign-in layout has no header, so it carries its own way back to
+     * the site — positioned out of the flow so the centred card stays where it is.
+     */
+    #[DataProvider('themes')]
+    public function testTheStandaloneLayoutLinksBackToTheSite(string $theme): void
+    {
+        // Act
+        $layout = self::initMethod('buildThemeLoginLayout', $theme, []);
+
+        // Assert
+        $this->assertMatchesRegularExpression('#<a href="<\?php echo sURL; \?>"[^>]*absolute[^>]*>&larr; #', $layout);
+        $this->assertLessThan(strpos($layout, '[MODULE]'), strpos($layout, '&larr;'), 'the link is outside the card');
+    }
+
+    /** Call a private Init builder on an instance with the minimum state it reads. */
+    private static function initMethod(string $name, mixed ...$args): string
+    {
+        $instance = (new \ReflectionClass(Init::class))->newInstanceWithoutConstructor();
+        (new \ReflectionProperty(Init::class, 'withServiceWorker'))->setValue($instance, false);
+        (new \ReflectionProperty(Init::class, 'targetBaseDir'))->setValue($instance, sys_get_temp_dir() . '/pf-no-such-project');
+        (new \ReflectionProperty(Init::class, 'webRoot'))->setValue($instance, 'www');
+
+        return (string) (new \ReflectionMethod(Init::class, $name))->invoke($instance, ...$args);
     }
 
     /**

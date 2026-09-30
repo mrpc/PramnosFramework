@@ -4495,9 +4495,32 @@ HTML,
     {
         return "<head>\n"
             . $this->themeHeadAssets($uiSystem, $catalog)
-            . "</head>\n<body>\n[MODULE]\n"
+            . "</head>\n<body>\n"
+            . $this->themeLoginBackLink($uiSystem)
+            . "[MODULE]\n"
             . $this->themeFootAssets($uiSystem, $catalog)
             . "</body>\n";
+    }
+
+    /**
+     * "← <app name>", top left of the standalone layout.
+     *
+     * The layout has no header — that is what lets the auth card sit alone in the middle of
+     * the page — and the header carried the only link back to the site. Without this,
+     * somebody who reached `/login` by mistake had the browser's back button and nothing
+     * else. Positioned out of the flow, so the centred card does not move.
+     */
+    private function themeLoginBackLink(string $uiSystem): string
+    {
+        $class = match ($uiSystem) {
+            'bootstrap' => ' class="btn btn-link btn-sm position-absolute top-0 start-0 m-3"',
+            'tailwind'  => ' class="btn btn-ghost btn-sm absolute left-4 top-4 z-10"',
+            default     => ' class="pf-back-link" style="position:absolute;left:16px;top:16px"',
+        };
+
+        return "    <a href=\"<?php echo sURL; ?>\"{$class}>&larr; <?php echo htmlspecialchars("
+            . "(string) (\\Pramnos\\Application\\Application::currentInstance()?->applicationInfo['name'] ?? 'Home'),"
+            . " ENT_QUOTES, 'UTF-8'); ?></a>\n";
     }
 
     private function buildThemeFooter(string $uiSystem, string $appName, array $catalog): string
@@ -4506,21 +4529,21 @@ HTML,
             'bootstrap' => <<<HTML
     <footer class="bg-dark text-light py-4 mt-auto">
         <div class="container text-center">
-            <p class="mb-0">&copy; <?php echo date('Y'); ?> <?php echo htmlspecialchars((string) (\Pramnos\Application\Application::currentInstance()?->applicationInfo['name'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>. All rights reserved.</p>
+            <p class="mb-0">&copy; <?php echo date('Y'); ?> <?php echo htmlspecialchars((string) (\Pramnos\Application\Application::currentInstance()?->applicationInfo['name'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>. All rights reserved.<?php if (\Pramnos\Security\CookieConsent::enabled()): ?> · <a href="#" class="link-light" data-consent-open><?php echo htmlspecialchars((string) \Pramnos\Framework\Factory::getLanguage()->_('Cookie settings'), ENT_QUOTES, 'UTF-8'); ?></a><?php endif; ?></p>
         </div>
     </footer>
 HTML,
             'tailwind' => <<<HTML
     <footer class="footer footer-center bg-base-200 text-base-content/70 p-6 mt-auto">
         <aside>
-            <p>&copy; <?php echo date('Y'); ?> <?php echo htmlspecialchars((string) (\Pramnos\Application\Application::currentInstance()?->applicationInfo['name'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>. All rights reserved.</p>
+            <p>&copy; <?php echo date('Y'); ?> <?php echo htmlspecialchars((string) (\Pramnos\Application\Application::currentInstance()?->applicationInfo['name'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>. All rights reserved.<?php if (\Pramnos\Security\CookieConsent::enabled()): ?> · <a href="#" class="link link-hover" data-consent-open><?php echo htmlspecialchars((string) \Pramnos\Framework\Factory::getLanguage()->_('Cookie settings'), ENT_QUOTES, 'UTF-8'); ?></a><?php endif; ?></p>
         </aside>
     </footer>
 HTML,
             default => <<<HTML
     <footer class="main-footer">
         <div class="container">
-            <p>&copy; <?php echo date('Y'); ?> <?php echo htmlspecialchars((string) (\Pramnos\Application\Application::currentInstance()?->applicationInfo['name'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>. All rights reserved.</p>
+            <p>&copy; <?php echo date('Y'); ?> <?php echo htmlspecialchars((string) (\Pramnos\Application\Application::currentInstance()?->applicationInfo['name'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>. All rights reserved.<?php if (\Pramnos\Security\CookieConsent::enabled()): ?> · <a href="#" data-consent-open><?php echo htmlspecialchars((string) \Pramnos\Framework\Factory::getLanguage()->_('Cookie settings'), ENT_QUOTES, 'UTF-8'); ?></a><?php endif; ?></p>
         </div>
     </footer>
 HTML,

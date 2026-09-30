@@ -542,13 +542,15 @@ rendering any of them, and a scaffolded theme ships `login.php`:
     <?php $this->document->renderCss(); ?>
 </head>
 <body>
+    <a href="<?php echo sURL; ?>" class="pf-back-link" style="position:absolute;left:16px;top:16px">&larr; <?php echo htmlspecialchars(/* app name */); ?></a>
 [MODULE]
+    <?php echo \Pramnos\Security\CookieConsent::tag(sURL); ?>
     <script src="<?php echo sURL; ?>assets/js/pf-utils.js"></script>
     <?php $this->document->renderJs(); ?>
 </body>
 ```
 
-Three things about that file are deliberate:
+Four things about that file are deliberate:
 
 - **`<head>` and `<body>` are written out**, unlike `theme.html.php`. `getheader()`
   extracts `<head>…</head>` and the document appends it inside its own head, and the
@@ -557,6 +559,11 @@ Three things about that file are deliberate:
 - **`renderCss()` and `renderJs()` are still there.** A standalone layout is not a
   suppressed one: the login page enqueues assets like any other — the passkey flow is
   one — and dropping those calls breaks it in a way that looks like a JavaScript bug.
+- **"← <app name>" is the way back.** The header is what carried the link to the home
+  page, so without it somebody who reached `/login` by mistake had only the browser's
+  back button. It is positioned out of the flow (`absolute`, top left), so the centred
+  card does not move. The classes are the UI system's own: `btn btn-link` under
+  Bootstrap, `btn btn-ghost` under Tailwind, `pf-back-link` in plain CSS.
 - **The navigation is not built at all.** Not hidden with CSS: `NavRegistry` is never
   consulted, so nothing queries the user's permissions to assemble a menu that is not
   going to be shown.
