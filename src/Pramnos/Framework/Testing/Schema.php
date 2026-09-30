@@ -146,7 +146,34 @@ final class Schema
         $application->database = $db;
 
         foreach ($migrationClasses as $class) {
-            (new $class($application))->up();
+            $migration = new $class($application);
+
+            /*
+             * The PostgreSQL schema a table lives in, first. A migration declares it in
+             * `$dependencies`, and the runner honours that; this did not, so a table in
+             * `authserver.*` was created only while something else had left the schema
+             * standing. The migration tests drop it, so a test built on this failed with
+             * "schema authserver does not exist" whenever one of them had run before it.
+             */
+            foreach ($migration->dependencies ?? [] as $dependency) {
+                if (isset(self::SCHEMA_MIGRATIONS[$dependency])) {
+                    $schemaClass = self::SCHEMA_MIGRATIONS[$dependency];
+                    (new $schemaClass($application))->up();
+                }
+            }
+
+            $migration->up();
         }
     }
+
+    /**
+     * The migrations that create a schema rather than a table, by the name a table's
+     * migration lists them under in `$dependencies`. Each `up()` is idempotent and does
+     * nothing on MySQL, where a schema is a table prefix.
+     */
+    private const SCHEMA_MIGRATIONS = [
+        'create_authserver_schema'   => \Pramnos\Framework\Migrations\AuthServer\CreateAuthserverSchema::class,
+        'create_pramnos_schema'      => \Pramnos\Framework\Migrations\Core\CreatePramnosSchema::class,
+        'create_applications_schema' => \Pramnos\Framework\Migrations\AuthServer\CreateApplicationsSchema::class,
+    ];
 }

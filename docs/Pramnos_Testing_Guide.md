@@ -666,6 +666,18 @@ from a second and a wider `callback` from a third, and the first attempt at this
 two. Add a table by putting its recipe in `Schema::RECIPES`. `Schema::ensure([...])` takes
 an explicit list for the cases that genuinely need one.
 
+**Both create the PostgreSQL schema first.** A migration names the schema its table lives in
+(`create_authserver_schema`, `create_pramnos_schema`, `create_applications_schema`) in
+`$dependencies`, and `Schema::ensure()` runs that one before it. The migration tests drop
+these schemas. Without that ordering, a test that built `authserver.loginlockouts` failed
+with `schema "authserver" does not exist`, but only in a run where a migration test had gone
+first.
+
+**Ensure every table the code under test reads, not only the one it writes.** `User::load()`
+reads `userdetails`, `Apikey::getData()` resolves its owner through `users`, and a push
+retention policy on MySQL is a row in `pramnos.framework_policies`. A table the test did not
+ensure is one that an earlier test in the same run may have dropped.
+
 **Seeding a row means seeding it the way production does.** The canonical `usertokens` has
 `token`, `deviceinfo` and `scope` as `TEXT NOT NULL`, and MySQL gives a TEXT column no
 default — so a seed that omits one is refused, and a stub that declared them nullable was
@@ -1485,7 +1497,7 @@ them already:
 
 | Extension | What leaks without it |
 | --- | --- |
-| `RequestIdentityIsolation` | An identity sealed by one test stays sealed. A controller test running after a middleware test finds itself signed in as somebody it never authenticated — **135 failures**, in tests that had nothing to do with authentication. |
+| `RequestIdentityIsolation` | An identity sealed by one test stays sealed. A controller test running after a middleware test finds itself signed in as somebody it never authenticated — **135 failures**, in tests that had nothing to do with authentication. It also clears `$unittesting_logged`, the override that makes `Session::staticIsLogged()` answer "signed in" under `UNITTESTING` whatever the session says. One test that set it and never cleared it signed in every test after it. |
 | `DocumentIsolation` | `Document` is a mutable singleton per type. A test that sets `->type = 'json'` is writing to the shared HTML document, and the next test that renders gets it — **three failures**, each of which appeared only in a full run. |
 | `GateIsolation` | `Gate` keeps abilities, policies and hooks in statics. A `Gate::before(fn () => true)` registered by one test would allow everything for every test after it — and the failure lands in a test asserting that an ordinary user is *refused*. Written **with** the feature rather than after the failures. |
 | `ServerGlobalIsolation` | `$_SERVER` is a superglobal. Fourteen of the framework's test classes started with `$_SERVER = []`, and the tests that paid were elsewhere: a console command with no `PHP_SELF`, a URL with a port and no host — **warnings in a full run only**. It is restored to what it was after the bootstrap script, so what `tests/bootstrap.php` sets is kept. |

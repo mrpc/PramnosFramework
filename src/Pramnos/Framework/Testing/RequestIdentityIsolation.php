@@ -64,11 +64,17 @@ final class RequestIdentityIsolation implements Extension, PreparationStartedSub
     /**
      * Clears the sealed identity before the test that is about to run.
      *
+     * And the `$unittesting_logged` override `Session::staticIsLogged()` honours under
+     * `UNITTESTING`: it answers "signed in" whatever the session says, so one test that
+     * set it and never cleared it signed in every test after it. The session helpers'
+     * own tests failed that way, with `logoutUser()` visibly having emptied the session.
+     *
      * @param PreparationStarted $event The event, whose payload is not needed here
      * @return void
      */
     public function notify(PreparationStarted $event): void
     {
         RequestIdentity::reset();
+        $GLOBALS['unittesting_logged'] = false;
     }
 }
