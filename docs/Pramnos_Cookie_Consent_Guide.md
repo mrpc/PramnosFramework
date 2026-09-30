@@ -227,10 +227,15 @@ Then load it in the footer below the consent tag:
 
 ```html
 <?php echo \Pramnos\Security\CookieConsent::tag(sURL); ?>
-<script src="<?php echo sURL; ?>assets/js/gtm.js" defer></script>
+<script src="<?php echo assetUrl('assets/js/gtm.js'); ?>" defer></script>
 ```
 
-Both are `defer`, so they run in document order. In the container:
+Both are `defer`, so they run in document order. The consent script pushes the all-denied
+default the moment it runs, before it has any configuration, so the order holds in a **SPA
+shell** too. There the script fetches its settings, but the default does not wait for the
+fetch. Put `gtm.js` after the consent line in the shell, also with `defer`.
+
+In the container:
 
 - Google tags (GA4, Google Ads, Floodlight) read Consent Mode by themselves. Set the
   container's consent overview so they require their built-in consent.

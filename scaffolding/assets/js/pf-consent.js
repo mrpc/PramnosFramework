@@ -22,8 +22,9 @@
  *   open()                   → the preferences dialog
  * and a `pramnos:consent` event on `document` with `detail.granted` after every choice.
  *
- * Google Consent Mode v2: on load it pushes `consent default` (everything denied but
- * security) to `window.dataLayer`, then `consent update` with the visitor's choice, and a
+ * Google Consent Mode v2: the moment it runs it pushes `consent default` (everything denied
+ * but security) to `window.dataLayer`, before any configuration arrives; then `consent
+ * update` with the visitor's choice, and a
  * `{event: 'pramnos_consent'}` entry a Tag Manager trigger can fire on. A GTM or gtag.js
  * loaded *after* this script therefore starts from the right state.
  *
@@ -81,7 +82,8 @@
         + 'border:1px solid var(--pf-c-border);background:var(--pf-c-bg);color:var(--pf-c-fg)}'
         + '.pf-consent button.pf-consent-primary{background:var(--pf-c-accent);border-color:var(--pf-c-accent);color:var(--pf-c-accent-fg)}'
         + '.pf-consent button:focus-visible{outline:2px solid var(--pf-c-accent);outline-offset:2px}'
-        + '.pf-consent-dialog{background:var(--pf-c-bg);border:1px solid var(--pf-c-border);border-radius:8px;'
+        // margin:auto is what centres a modal <dialog>; Tailwind's preflight zeroes it.
+        + '.pf-consent-dialog{margin:auto;background:var(--pf-c-bg);border:1px solid var(--pf-c-border);border-radius:8px;'
         + 'padding:20px;width:min(520px,calc(100vw - 32px));color:var(--pf-c-fg)}'
         + '.pf-consent-dialog::backdrop{background:rgba(0,0,0,.5)}'
         + '.pf-consent-row{display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-top:1px solid var(--pf-c-border)}'
@@ -98,8 +100,15 @@
         if (!match) {
             return null;
         }
+        var value;
+        try {
+            value = decodeURIComponent(match[1]);
+        } catch (e) {
+            // A malformed cookie is no choice: ask again rather than stop here.
+            return null;
+        }
         var parts = {};
-        decodeURIComponent(match[1]).split('&').forEach(function (pair) {
+        value.split('&').forEach(function (pair) {
             var at = pair.indexOf('=');
             if (at > 0) {
                 parts[pair.slice(0, at)] = pair.slice(at + 1);
@@ -417,7 +426,6 @@
         }
         config = Object.assign({}, DEFAULTS, loaded, { text: Object.assign({}, DEFAULTS.text, loaded.text || {}) });
         granted = storedChoice();
-        googleConsent('default', true);
         if (granted !== null) {
             googleConsent('update');
         }
@@ -440,6 +448,12 @@
     }
 
     window.PramnosConsent = { has: has, onGrant: onGrant, open: open };
+
+    // The Consent Mode default, now: it is all-denied whatever the configuration says, so
+    // it waits for nothing. In a SPA the configuration is fetched, and a Tag Manager loaded
+    // after this script would otherwise run before the default existed — or for ever, if
+    // the fetch failed.
+    googleConsent('default', true);
 
     function boot() {
         var inline = self && self.getAttribute('data-config');

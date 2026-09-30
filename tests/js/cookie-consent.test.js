@@ -510,6 +510,50 @@ describe('Google Consent Mode v2', () => {
     });
 });
 
+describe('findings from a real deployment', () => {
+    /**
+     * In a SPA the configuration is fetched. The all-denied default must already be on
+     * the data layer while that fetch is outstanding — a Tag Manager loaded after the
+     * script runs in that window — and even if it never answers.
+     */
+    test('the Consent Mode default is pushed before the configuration arrives', () => {
+        // Arrange / Act — a fetch that never resolves.
+        const dom = load({ configUrl: '/cookieconsent', fetchImpl: () => new Promise(() => {}) });
+
+        // Assert
+        const first = Array.prototype.slice.call(dom.window.dataLayer[0]);
+        assert.deepEqual(first.slice(0, 2), ['consent', 'default']);
+        assert.equal(first[2].ad_storage, 'denied');
+    });
+
+    /**
+     * A cookie that is not valid percent-encoding is no choice, not an exception:
+     * the default is still pushed and the banner asks again.
+     */
+    test('a malformed cookie asks again instead of throwing', () => {
+        // Arrange / Act
+        const dom = load({ cookie: '%E0%A4%A' });
+
+        // Assert
+        assert.ok(bannerOf(dom), 'the banner is shown');
+        assert.equal(Array.prototype.slice.call(dom.window.dataLayer[0])[1], 'default');
+    });
+
+    /**
+     * A modal dialog is centred by the browser's `margin: auto`, which Tailwind's
+     * preflight (`* { margin: 0 }`) removes — so the dialog sets it itself, or it opens
+     * in the top-left corner.
+     */
+    test('the dialog centres itself whatever the page reset', () => {
+        // Arrange / Act
+        const dom = load();
+        const css = dom.document.adoptedStyleSheets.map((sheet) => sheet.css).join('');
+
+        // Assert
+        assert.match(css, /\.pf-consent-dialog\{margin:auto;/);
+    });
+});
+
 describe('agreement with PHP', () => {
     /**
      * The cookie is written here and read by `CookieConsent::granted()`. If the
