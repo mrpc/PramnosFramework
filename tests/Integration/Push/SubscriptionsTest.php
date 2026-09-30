@@ -80,6 +80,28 @@ class SubscriptionsTest extends TestCase
     }
 
     /**
+     * `push:setup` finds the table the migration made.
+     *
+     * It asked for `pushsubscriptions`, without the `pramnos` schema the migration creates it
+     * in — so on every installation it reported the table missing, ran the migration, found
+     * "nothing to migrate", and stopped with "the table still is not there", never reaching
+     * the key pair. Found on glideday's production, where the table had existed for two weeks.
+     */
+    public function testPushSetupFindsTheTableTheMigrationMade(): void
+    {
+        // Arrange — the table is created by setUp()
+        $setup = new class extends \Pramnos\Console\Commands\PushSetup {
+            public function probe(): bool
+            {
+                return $this->hasTable();
+            }
+        };
+
+        // Act & Assert
+        $this->assertTrue($setup->probe());
+    }
+
+    /**
      * A browser that subscribes is stored, once, and readable back.
      */
     public function testASubscriptionIsStoredAndFound(): void

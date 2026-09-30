@@ -168,7 +168,9 @@ class PushSetup extends Command
     protected function hasTable(): bool
     {
         try {
-            return \Pramnos\Framework\Factory::getDatabase()->schema()->hasTable('pushsubscriptions');
+            // Schema-qualified, as the migration creates it: `pushsubscriptions` alone is a
+            // table no installation has, so the step reported the table missing for ever.
+            return \Pramnos\Framework\Factory::getDatabase()->schema()->hasTable('pramnos.pushsubscriptions');
         } catch (\Throwable) {
             return false;
         }
