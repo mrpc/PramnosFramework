@@ -114,7 +114,8 @@
 
         btn.addEventListener('click', function () {
             btn.disabled = true;
-            window.PramnosWebAuthn.authenticate(optionsUrl, verifyUrl)
+            // Read at the click, not at load: "don't ask again" rewrites it when toggled.
+            window.PramnosWebAuthn.authenticate(optionsUrl, btn.getAttribute('data-verify-url') || verifyUrl)
                 .then(function (r) { window.location = (r && r.redirect) || redirect; })
                 .catch(function () {
                     btn.disabled = false;
@@ -319,7 +320,126 @@
         });
     }
 
+    /**
+     * "Don't ask again on this device" — one box, for every way through the page.
+     *
+     * Each form on the two-step page is a different way to finish, so the box cannot belong to
+     * any one of them. Its state is added to whichever form is submitted, as 1 or 0, and to
+     * the passkey button's address. Without this script nothing is added and the server keeps
+     * the default — ticked — which is also what the box shows.
+     */
+    function wireTrustDevice() {
+        var box = document.querySelector('[data-pf-trust-device]');
+
+        if (!box) { return; }
+
+        function value() { return box.checked ? '1' : '0'; }
+
+        document.querySelectorAll('form').forEach(function (form) {
+            form.addEventListener('submit', function () {
+                var field = form.querySelector('input[name="trust_device"]');
+
+                if (!field) {
+                    field = document.createElement('input');
+                    field.type = 'hidden';
+                    field.name = 'trust_device';
+                    form.appendChild(field);
+                }
+
+                field.value = value();
+            });
+        });
+
+        function passkeyAddress() {
+            document.querySelectorAll('[data-pf-passkey-stepup]').forEach(function (btn) {
+                var url = (btn.getAttribute('data-verify-url') || '').replace(/[?&]trust=[01]/, '');
+                btn.setAttribute('data-verify-url', url + (url.indexOf('?') === -1 ? '?' : '&') + 'trust=' + value());
+            });
+        }
+
+        box.addEventListener('change', passkeyAddress);
+        passkeyAddress();
+    }
+
+    /**
+     * The two-step page waiting on its phone prompt.
+     *
+     * Asks the server every two seconds where the prompt stands and says so: sent, delivered
+     * to the phone, approved (the page signs in by submitting its form), refused, or expired.
+     * **Another way is never more than one click away**, and after twenty seconds with no
+     * receipt from the phone the page opens it by itself — waiting for a notification that is
+     * not coming is the failure this exists to prevent.
+     */
+    function wirePushApproval() {
+        var root = document.querySelector('[data-pf-push-approval]');
+
+        if (!root) { return; }
+
+        var url     = root.getAttribute('data-status-url');
+        var form    = root.querySelector('form[data-pf-push-finish]');
+        var status  = root.querySelector('[data-pf-push-state]');
+        var others  = document.querySelector(root.getAttribute('data-other-ways') || '#pf-other-ways');
+        var resend  = root.querySelector('[data-pf-push-resend]');
+        var patience = parseInt(root.getAttribute('data-patience') || '20', 10) * 1000;
+        var started = Date.now();
+        var done    = false;
+        var said    = {
+            sent: root.getAttribute('data-say-sent') || 'Sent. Waiting for your phone…',
+            delivered: root.getAttribute('data-say-delivered') || 'Delivered to your phone ✓ — tap Yes on it.',
+            slow: root.getAttribute('data-say-slow') || 'Your phone has not received it yet. You can use another way below.',
+            denied: root.getAttribute('data-say-denied') || 'The sign-in was refused on your phone.',
+            expired: root.getAttribute('data-say-expired') || 'The notification expired. Send it again, or use another way.'
+        };
+
+        function say(text) { if (status) { status.textContent = text; } }
+        function openOthers() { if (others && 'open' in others) { others.open = true; } }
+        function stop(text) {
+            done = true;
+            say(text);
+            openOthers();
+            if (resend) { reveal(resend); }
+        }
+
+        function poll() {
+            if (done) { return; }
+
+            fetch(url, { credentials: 'same-origin', headers: { Accept: 'application/json' } })
+                .then(function (r) { return r.json(); })
+                .then(function (s) {
+                    var state = s && s.state;
+
+                    if (state === 'approved') {
+                        done = true;
+                        say(said.delivered);
+                        // requestSubmit, not submit: it fires the submit event, which is what
+                        // copies "don't ask again" into the form. submit() would sign in
+                        // without it, and the server trusts only a box it was sent.
+                        if (form) { form.requestSubmit ? form.requestSubmit() : form.submit(); }
+                        return;
+                    }
+                    if (state === 'denied') { return stop(said.denied); }
+                    if (state === 'expired' || state === 'none') { return stop(said.expired); }
+
+                    if (state === 'delivered') {
+                        say(said.delivered);
+                    } else if (Date.now() - started > patience) {
+                        say(said.slow);
+                        openOthers();
+                    } else {
+                        say(said.sent);
+                    }
+
+                    setTimeout(poll, 2000);
+                })
+                .catch(function () { setTimeout(poll, 4000); });
+        }
+
+        poll();
+    }
+
     function init() {
+        wireTrustDevice();
+        wirePushApproval();
         wireOtpInputs();
         wirePasswordPolicyForms();
         wireSubmitProgress();

@@ -516,6 +516,46 @@ class AccountCharacterizationTest extends BaseTestCase
         );
     }
 
+    /**
+     * A new password ends every browser the account trusted: a trusted browser skips the
+     * second step and can approve sign-ins elsewhere, and people change a password because
+     * somebody else may have it. updatePassword() is where both the change and the reset
+     * arrive, so the revocation lives there.
+     */
+    public function testUpdatePasswordForgetsEveryTrustedDevice(): void
+    {
+        // Arrange
+        $userId  = $this->makeUser('_trust');
+        $devices = new class extends \Pramnos\Auth\TrustedDevices {
+            /** @var list<int> */
+            public array $revokedFor = [];
+
+            public function revokeAll(int $userId): int
+            {
+                $this->revokedFor[] = $userId;
+
+                return 1;
+            }
+        };
+        $dashboard = new class ($devices) extends Account {
+            public function __construct(private \Pramnos\Auth\TrustedDevices $devices)
+            {
+                parent::__construct();
+            }
+
+            protected function trustedDevices(): \Pramnos\Auth\TrustedDevices
+            {
+                return $this->devices;
+            }
+        };
+
+        // Act
+        $this->callPrivate($dashboard, 'updatePassword', $userId, 'N3wP@ssword!');
+
+        // Assert
+        $this->assertSame([$userId], $devices->revokedFor);
+    }
+
     // ── Tests — eraseUserData ─────────────────────────────────────────────────
 
     /**

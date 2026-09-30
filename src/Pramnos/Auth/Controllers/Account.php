@@ -72,6 +72,9 @@ class Account extends Controller
             'authlink',
             // The same, for the link that confirms a self-registered address.
             'confirmemail',
+            // The waiting two-step page following its phone prompt: the pending login in
+            // this session is what it answers about, so there is no account to sign in as.
+            'pushstatus',
         ]);
         // Authenticated account-management actions.
         $this->addAuthAction([
@@ -80,6 +83,9 @@ class Account extends Controller
             'privacy', 'security', 'changepassword', 'emailfactor',
             'sessions', 'revokesession',
             'profile',
+            // The phone answering "Is it you trying to sign in?" — signed in, and trusted.
+            'approve',
+            'revokedevice',
         ]);
         // POST with the session's token, or refused before the action runs: see Controller::exec().
         $this->addWriteAction(['revokeapplication']);
@@ -157,6 +163,13 @@ class Account extends Controller
             return $this->renderStepUp(['error' => 'invalid_token']);
         }
 
+        // "Don't ask again on this device" travels with every form on the page, as 1 or 0;
+        // a form without it leaves the choice as it was.
+        $trust = $this->post('trust_device');
+        if ($trust !== '') {
+            $this->flow()->chooseTrust($trust === '1');
+        }
+
         // Asking for the sign-in link again, when that is what is being demanded.
         if ($this->post('send_auth_link') !== '') {
             return $this->renderStepUp(
@@ -180,7 +193,14 @@ class Account extends Controller
 
         if ($sendFactor !== '') {
             if ($this->flow()->sendFactorChallenge($sendFactor)) {
-                return $this->renderStepUp(['notice' => 'email_code_sent']);
+                return $this->renderStepUp(['notice' => $sendFactor === \Pramnos\Auth\Factors\PushApprovalSecondFactor::METHOD
+                    ? 'push_sent'
+                    : 'email_code_sent']);
+            }
+
+            // A phone prompt refused is the ask limit, and it has its own words.
+            if ($sendFactor === \Pramnos\Auth\Factors\PushApprovalSecondFactor::METHOD) {
+                return $this->renderStepUp(['error' => 'push_failed']);
             }
 
             // A refusal is usually the rate limit rather than a failure, and the two need
@@ -194,7 +214,8 @@ class Account extends Controller
         }
 
         $code = $this->post('code');
-        if ($code === '') {
+        // The phone prompt has nothing to type: the approval is the answer.
+        if ($code === '' && $this->post('method') !== \Pramnos\Auth\Factors\PushApprovalSecondFactor::METHOD) {
             return $this->renderStepUp(['error' => 'missing_code']);
         }
 
@@ -218,7 +239,101 @@ class Account extends Controller
         }
 
         // Pending state is kept by LoginFlow so the user can retry.
-        return $this->renderStepUp(['error' => 'invalid_code']);
+        return $this->renderStepUp(['error' => $method === \Pramnos\Auth\Factors\PushApprovalSecondFactor::METHOD
+            ? 'push_not_approved'
+            : 'invalid_code']);
+    }
+
+    /**
+     * Where the waiting two-step page's phone prompt stands (JSON).
+     *
+     * Polled by the page every couple of seconds: `sent`, `delivered` once the phone's
+     * worker reports the push arrived, then `approved` (the page submits and signs in),
+     * `denied` or `expired`. `number` is set when the phone has to pick it.
+     */
+    public function pushstatus(): mixed
+    {
+        if ($this->flow()->pendingUserId() === null) {
+            return Response::json(['state' => 'none'], 401);
+        }
+
+        return Response::json($this->flow()->pushStatus(), 200);
+    }
+
+    /**
+     * "Is it you trying to sign in?" — the page a trusted phone answers on.
+     *
+     * Opened from the notification. GET shows what is known about the attempt, three numbers
+     * to pick the right one from, and a no. POST records the answer. Answering needs this browser to be signed in as the account and
+     * trusted by it; anything else sees that it cannot answer from here.
+     */
+    public function approve(): mixed
+    {
+        $userId = (int) ($this->currentUserId() ?? 0);
+        $token  = $this->requestMethod() === 'POST' ? $this->post('token') : $this->query('token');
+
+        $approvals = $this->pushApprovals();
+        $ctx       = ['token' => $token, 'approval' => $approvals->forAnswering($token, $userId)];
+
+        if ($this->requestMethod() === 'POST' && $ctx['approval'] !== null) {
+            if (!$this->checkCsrf()) {
+                $ctx['error'] = 'invalid_token';
+            } else {
+                $picked        = $this->post('number');
+                $ctx['result'] = $approvals->decide(
+                    $token,
+                    $userId,
+                    $this->post('decision'),
+                    $picked === '' ? null : (int) $picked
+                );
+                $ctx['approval'] = $approvals->forAnswering($token, $userId);
+            }
+        }
+
+        $doc        = $this->document();
+        $doc->title = t('Is it you trying to sign in?');
+        $this->useStandaloneLayout();
+
+        $view            = $this->getView('login');
+        $view->routeBase = $this->routeBase;
+        $view->brand     = $this->brand();
+
+        foreach ($ctx as $key => $value) {
+            $view->$key = $value;
+        }
+
+        return $view->display('approve');
+    }
+
+    /** Stop trusting one of the signed-in account's devices, from the security page. */
+    public function revokedevice(): void
+    {
+        $userId = (int) ($this->currentUserId() ?? 0);
+
+        if ($this->requestMethod() === 'POST' && $this->checkCsrf() && $userId > 1) {
+            $all = $this->post('all') !== '';
+            $done = $all
+                ? $this->trustedDevices()->revokeAll($userId) > 0
+                : $this->trustedDevices()->revoke($userId, (int) $this->post('device'));
+
+            if ($done) {
+                $this->addMessage($all
+                    ? 'Every device will be asked for the second step again.'
+                    : 'That device will be asked for the second step again.');
+            }
+        }
+
+        $this->redirect(sURL . $this->routeBase . '/security');
+    }
+
+    protected function pushApprovals(): \Pramnos\Auth\PushApprovals
+    {
+        return new \Pramnos\Auth\PushApprovals($this->trustedDevices());
+    }
+
+    protected function trustedDevices(): \Pramnos\Auth\TrustedDevices
+    {
+        return new \Pramnos\Auth\TrustedDevices();
     }
 
     /**
@@ -269,6 +384,11 @@ class Account extends Controller
             );
         } catch (PasskeyException $e) {
             return Response::json(['error' => 'authentication_failed'], 401);
+        }
+
+        // The page's "don't ask again" rides on the address: the body is the assertion.
+        if (isset($_GET['trust'])) {
+            $this->flow()->chooseTrust((string) $_GET['trust'] === '1');
         }
 
         $flowResult = $this->flow()->completePasskey($result->userId);
@@ -989,6 +1109,15 @@ class Account extends Controller
         // rather than to hide it: a control that vanishes leaves somebody wondering whether
         // they imagined it.
         $view->resendIn         = $this->flow()->secondsUntilResend();
+        // The phone prompt: which devices it went to, and whether the page should wait on it.
+        $pushFactor             = in_array(\Pramnos\Auth\Factors\PushApprovalSecondFactor::METHOD, $methods, true);
+        $view->pushFactor       = $pushFactor;
+        $view->pushStatus       = $pushFactor ? $this->flow()->pushStatus() : null;
+        // "Don't ask again on this device", ticked unless the person unticked it.
+        $view->canTrust         = $this->flow()->canTrustDevice();
+        $view->trustDays        = $this->flow()->trustDays();
+        $view->pushOffered      = $this->pushApprovals()->enabled();
+        $view->trustChosen      = $this->flow()->trustChoice();
 
         foreach ($ctx as $key => $value) {
             $view->$key = $value;
@@ -1810,6 +1939,10 @@ class Account extends Controller
         $view->recentActivity   = $this->getActivityLog((int) $currentUser->userid, 20);
         $view->twoFactorEnabled = $this->isTwoFactorEnabled((int) $currentUser->userid);
         $view->activeSessions   = $this->getActiveSessions((int) $currentUser->userid);
+        // Browsers told "don't ask again", each revocable, and whether this is one of them.
+        $view->trustedDevices   = $this->trustedDevices()->enabled()
+            ? $this->trustedDevices()->forUser((int) $currentUser->userid)
+            : [];
         $view->currentSid       = md5(session_id());
         // Offered only where the application allows the method: a switch for something
         // that cannot happen is worse than no switch.
@@ -2737,7 +2870,13 @@ class Account extends Controller
     }
 
     /**
-     * Update the stored password hash for a user.
+     * Update the stored password hash for a user — and stop trusting every browser the account
+     * trusted.
+     *
+     * A trusted browser skips the second step on the strength of the password, and can approve
+     * sign-ins elsewhere. People change or reset a password because they think somebody else
+     * has it; that person's browser must not keep either power. Both the change and the reset
+     * come through here.
      */
     protected function updatePassword(int $userId, string $newPassword): void
     {
@@ -2748,6 +2887,7 @@ class Account extends Controller
         if ((int) $user->userid > 1) {
             $user->setPassword($newPassword);
             $user->save();
+            $this->trustedDevices()->revokeAll($userId);
         }
     }
 

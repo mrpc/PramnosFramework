@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Pramnos\Application\Controllers;
 
+use Pramnos\Auth\PushApprovals;
+use Pramnos\Auth\TrustedDevices;
 use Pramnos\Push\Subscriptions;
 use Pramnos\Push\Vapid;
 
@@ -25,7 +27,7 @@ use Pramnos\Push\Vapid;
  */
 class Push extends \Pramnos\Application\Controller
 {
-    public $actions = ['key', 'subscribe', 'unsubscribe'];
+    public $actions = ['key', 'subscribe', 'unsubscribe', 'ack', 'respond'];
 
     /**
      * The VAPID public key, for `PushManager.subscribe()`.
@@ -66,6 +68,15 @@ class Push extends \Pramnos\Application\Controller
             (string) ($_SERVER['HTTP_USER_AGENT'] ?? '')
         );
 
+        /*
+         * A trusted device's browser says which device it is, by the trust cookie it carries.
+         * That link is what makes it one of the phones a sign-in elsewhere can be approved
+         * from — and only a browser that is trusted can make it.
+         */
+        if ($stored) {
+            $this->linkTrustedDevice($userId, (string) ($subscription['endpoint'] ?? ''));
+        }
+
         return $stored
             ? $this->json(['ok' => true])
             : $this->json([
@@ -98,6 +109,67 @@ class Push extends \Pramnos\Application\Controller
         $this->forget($endpoint, $userId);
 
         return $this->json(['ok' => true]);
+    }
+
+    /**
+     * The phone's receipt for a sign-in approval, sent by the service worker as the push
+     * arrives. The token in the address is the credential: the worker may have no page open.
+     */
+    public function ack(): mixed
+    {
+        return $this->approvals()->acknowledge($this->token())
+            ? $this->json(['ok' => true])
+            : $this->json(['error' => 'No such approval, or it has expired.'], 404);
+    }
+
+    /**
+     * "No, it's not me", straight from the notification's button.
+     *
+     * Only a refusal: approving needs the number, which the lock screen cannot pick. The
+     * answer counts only from a browser signed in as the account and trusted by it — see
+     * PushApprovals::decide().
+     */
+    public function respond(): mixed
+    {
+        // A POST, as the worker sends it: an answer must not be something a link can give.
+        if (strtoupper((string) ($_SERVER['REQUEST_METHOD'] ?? 'GET')) !== 'POST') {
+            return $this->json(['error' => 'POST only.'], 405);
+        }
+
+        $userId = $this->currentUser();
+
+        if ($userId === null) {
+            return $this->json(['error' => 'Sign in first.'], 401);
+        }
+
+        if ((string) ($_GET['decision'] ?? '') !== PushApprovals::DENIED) {
+            return $this->json(['error' => 'Approving needs the number, on the approval page.'], 400);
+        }
+
+        $result = $this->approvals()->decide($this->token(), $userId, PushApprovals::DENIED);
+
+        return in_array($result, [PushApprovals::APPROVED, PushApprovals::DENIED], true)
+            ? $this->json(['ok' => true, 'decision' => $result])
+            : $this->json(['error' => 'That approval cannot be answered from here.', 'reason' => $result], 403);
+    }
+
+    protected function token(): string
+    {
+        return (string) ($_GET['token'] ?? '');
+    }
+
+    protected function approvals(): PushApprovals
+    {
+        return new PushApprovals();
+    }
+
+    protected function linkTrustedDevice(int $userId, string $endpoint): void
+    {
+        $device = (new TrustedDevices())->current($userId);
+
+        if ($device !== null) {
+            Subscriptions::linkTrustedDevice($userId, $endpoint, (int) $device['device_id']);
+        }
     }
 
     /**

@@ -11,6 +11,9 @@ use_cases:
   - Migrating an old password table, or sharing one with another writer
   - Offering a second factor by email, or choosing which factors exist
   - Adding passkey sign-in to a SPA, or to a screen that has only a password form
+  - Letting a trusted phone approve sign-ins ("Is it you trying to sign in?")
+  - Offering "Don't ask again on this device", or listing and revoking trusted devices
+  - Letting administrators decide who may register, from the admin screen
 ---
 
 # Pramnos Authentication & User Management Guide
@@ -368,6 +371,80 @@ step-up offers them in:
 | `passkey` | WebAuthn — a device holding a key | strongest; also a *primary* method |
 | `totp` | an authenticator app | strong; needs enrolling in advance |
 | `email` | a six-digit code, mailed | weakest; needs nothing set up in advance |
+| `push` | "Is it you trying to sign in?" on a trusted phone | offered first when the account has one — see below |
+
+### Trusted devices and sign-in approval
+
+Google's two sign-in conveniences, for every application on the framework. Both are **off until
+an administrator turns them on** in System Settings → Security, because each changes what a
+password can do.
+
+**"Don't ask again on this device"** (`auth_trusted_devices`). The two-step page shows the box,
+**ticked by default**. Finishing a real second factor with it ticked trusts the browser for
+`auth_trusted_device_days` (30, 1–365): a password sign-in from it skips the second step until
+then. Use does not extend it. `auth_trusted_devices_exclude_admins` (off) makes usertype ≥ 90
+always take the second step — including browsers trusted before it was switched on, which also
+stop receiving and answering phone prompts.
+
+**The server trusts only a box it was sent.** `pf-auth.js` copies the box into whichever form is
+submitted, as `trust_device=1` or `0` (and onto the passkey's address as `?trust=`); the step-up
+remembers it with `LoginFlow::chooseTrust()`. A page that never sends it trusts nothing — no
+JavaScript, or an application's own copy of `login/login_2fa` from before the box. Shown ticked is
+not chosen: an application that copied the two-step view must add the box (and load `pf-auth.js`)
+before its users can trust a device at all.
+
+**A new password forgets every trusted device.** `Account::updatePassword()` — where both the
+change and the reset arrive — calls `revokeAll()`: people change a password because somebody else
+may have it, and that person's browser must not keep skipping the second step.
+
+- `Pramnos\Auth\TrustedDevices` — `trust()`, `isTrusted()`, `current()`, `forUser()`, `revoke()`,
+  `revokeAll()`. The cookie (`pf_trusted_device`, HTTP-only, Lax) holds a random token;
+  `authserver.trusted_devices` holds only `Token::lookup()` of it.
+- `/account/security` lists them, marks "This device", and forgets one or all
+  (`account/revokedevice`, POST with the session token).
+- A password alone, a trusted browser, or an emailed sign-in link never trusts anything.
+
+**Approval from a trusted phone** (`auth_push_approval`). Needs push working — VAPID keys and
+`minishlink/web-push` (see the Push guide); the settings screen says when it is not. An account
+with a trusted device that is **subscribed to notifications** gets the `push` factor, offered
+first. The step-up sends it as it begins — nothing to start, as with Google — and the page waits:
+
+1. The phone's service worker reports receipt (`POST /push/ack?token=…`) and the page says
+   "Delivered to your phone ✓". After **20 seconds without it** the page opens "Try another way".
+2. **Every ask needs the number.** The waiting page shows it; the page the notification opens
+   (`account/approve`) offers three and the phone must pick the right one. The notification's only
+   button is **No, it's not me** — there is no one-tap Yes. Whether an attempt "looks familiar" is
+   decided from its User-Agent and country, which whoever holds the password chooses, so it earns
+   no shortcut: a lock-screen Yes is what prompt bombing counts on.
+3. Approved, the waiting page submits by itself (`method=push`, through `requestSubmit()` so the
+   box goes with it) and signs in.
+
+The rules: only **trusted** devices are asked, never every subscribed browser; answering needs a
+browser **signed in as the account and carrying its trust cookie**, so a forwarded link approves
+nothing; the wrong number — or none — is a refusal; **the first answer stands** (a No and a Yes
+arriving together are settled by the row, so a refusal is never overwritten); only the **waiting
+browser's session** can use an approval, once, within **60 s of the answer**
+(`PushApprovals::CONSUME_WINDOW`); each ask can be answered for **120 s**; at most **3 asks in 10
+minutes** per account. "No, it's not me" records `signin_denied`, and mails
+`SecurityChangeNotifier::SIGNIN_DENIED` — the password is known to somebody else.
+
+**It orders the offer; it does not satisfy enrolment.** `push` scores 70 so that it is offered
+first, but `FactorEnrolment` does not count it towards `require_factor_enrolment_from_usertype`: a
+browser can be trusted after a mailed code, and the prompt would otherwise let an administrator out
+of the requirement with that code. The account needs its own authenticator, passkey or adaptor of
+strength ≥ 40.
+
+**Never the only way.** The page always has "Try another way", and an account whose only other
+option would be nothing is also offered a mailed code: switching the prompt on lets `email`
+through the factor list whatever `twofactor_methods` says.
+
+| Endpoint | Who | What |
+| --- | --- | --- |
+| `GET account/pushstatus` | the waiting page | `{state: sent\|delivered\|approved\|denied\|expired\|none, number, devices, expires_in}` |
+| `GET/POST account/approve?token=` | the phone, signed in and trusted | the question, and the answer |
+| `POST push/ack?token=` | the phone's worker | the receipt; the token is the credential |
+| `POST push/respond?token=&decision=denied` | the notification's button | "No, it's not me"; any other decision is a 400 |
+| `POST push/subscribe` | the page | now also links the subscription to its trusted device |
 
 ### A passkey inside the username autofill
 

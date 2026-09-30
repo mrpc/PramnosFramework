@@ -53,6 +53,12 @@ class SecurityChangeNotifier
     public const PASSKEY_REMOVED = 'passkey_removed';
 
     /**
+     * A sign-in was refused from a trusted device ("No, it's not me"). Not a change, but the
+     * same kind of news: somebody else has the password.
+     */
+    public const SIGNIN_DENIED = 'signin_denied';
+
+    /**
      * Report a change, to the account and — for an address change — to the old address.
      *
      * @param int         $userId   Whose account changed

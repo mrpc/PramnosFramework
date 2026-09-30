@@ -207,7 +207,16 @@ self.addEventListener('push', (event) => {
 
     const title = payload.title || self.registration.scope.replace(/^https?:\/\//, '');
 
-    event.waitUntil(self.registration.showNotification(title, {
+    /*
+     * A receipt, when the payload asks for one — a sign-in approval does, so the screen waiting
+     * on this phone can say "delivered" rather than leave somebody wondering. Sent alongside
+     * showing the notification, not after it: the receipt is that the push arrived.
+     */
+    const receipt = payload.data && payload.data.ack
+        ? fetch(payload.data.ack, { method: 'POST', credentials: 'include' }).catch(() => undefined)
+        : Promise.resolve();
+
+    event.waitUntil(Promise.all([receipt, self.registration.showNotification(title, {
         body: payload.body || '',
         icon: payload.icon || '/assets/img/icon-192.png',
         badge: payload.badge || '/assets/img/badge-72.png',
@@ -237,7 +246,7 @@ self.addEventListener('push', (event) => {
                         return undefined;
                     }
 
-                    return fetch('/push/unsubscribe', {
+                    return fetch(sitePath('push/unsubscribe'), {
                         method: 'POST',
                         credentials: 'include',
                         headers: { 'Content-Type': 'application/json' },
@@ -248,8 +257,11 @@ self.addEventListener('push', (event) => {
         }
 
         return undefined;
-    }));
+    })]));
 });
+
+/** A path of this site, relative to where the worker is installed — the site may live in a folder. */
+const sitePath = (path) => new URL(path, self.registration.scope).href;
 
 self.addEventListener('notificationclick', (event) => {
     event.notification.close();
@@ -277,6 +289,15 @@ self.addEventListener('notificationclick', (event) => {
     }
 
     const url = data.url || '/';
+
+    /*
+     * A notification that has to open its own page — "Is it you trying to sign in?" — opens it,
+     * rather than focusing whatever tab is open and hoping it routes.
+     */
+    if (data.open) {
+        event.waitUntil(clients.openWindow(url));
+        return;
+    }
 
     event.waitUntil((async () => {
         const open = await clients.matchAll({ type: 'window', includeUncontrolled: true });
@@ -315,7 +336,7 @@ self.addEventListener('pushsubscriptionchange', (event) => {
      */
     event.waitUntil((async () => {
         try {
-            const response = await fetch('/push/key');
+            const response = await fetch(sitePath('push/key'));
             const { publicKey } = await response.json();
 
             const subscription = await self.registration.pushManager.subscribe({
@@ -323,7 +344,7 @@ self.addEventListener('pushsubscriptionchange', (event) => {
                 applicationServerKey: publicKey
             });
 
-            await fetch('/push/subscribe', {
+            await fetch(sitePath('push/subscribe'), {
                 method: 'POST',
                 credentials: 'include',
                 headers: { 'Content-Type': 'application/json' },

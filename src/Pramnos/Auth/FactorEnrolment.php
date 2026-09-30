@@ -37,6 +37,13 @@ use Pramnos\Auth\Passkey\PasskeyServiceInterface;
  * An authenticator app, a passkey, or any adaptor an application registered that scores at
  * least {@see MIN_STRENGTH}. Not the mailed code, which is the thing being escaped from.
  *
+ * Not the phone prompt either ({@see Factors\PushApprovalSecondFactor}), whatever its
+ * strength. It is not something the account enrolled: it is a browser the account trusted,
+ * and a browser is trusted after *any* second factor — the mailed code included. Counting it
+ * would let an administrator escape the requirement with the very code it exists to move
+ * them off. The account's real factor is whichever one trusted the browser, and it is
+ * counted on its own.
+ *
  * Passkeys are asked separately because they are not a registered second factor — they
  * replace the password rather than follow it, so `SecondFactorRegistry` does not know about
  * them, and an account that has one is exactly as protected as one with an authenticator.
@@ -93,7 +100,9 @@ class FactorEnrolment
     {
         try {
             foreach (SecondFactorRegistry::enrolledFor($userId) as $factor) {
-                if ($factor->strength() >= self::MIN_STRENGTH) {
+                if ($factor->name() !== Factors\PushApprovalSecondFactor::METHOD
+                    && $factor->strength() >= self::MIN_STRENGTH
+                ) {
                     return true;
                 }
             }

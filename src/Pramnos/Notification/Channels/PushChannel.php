@@ -134,6 +134,16 @@ class PushChannel implements ChannelInterface
     }
 
     /**
+     * How soon the push service should wake the device: `normal` for news, `high` for
+     * something a person is waiting on — a sign-in approval — which a phone in power saving
+     * would otherwise hold back for minutes.
+     */
+    protected function urgency(): string
+    {
+        return 'normal';
+    }
+
+    /**
      * The two class names the delivery goes through.
      *
      * Methods rather than the constants read directly, so a test can point them at a double.
@@ -244,7 +254,7 @@ class PushChannel implements ChannelInterface
                 'privateKey' => $vapid['privateKey'],
             ]]);
 
-            $push->setDefaultOptions(['TTL' => static::TTL, 'urgency' => 'normal']);
+            $push->setDefaultOptions(['TTL' => static::TTL, 'urgency' => $this->urgency()]);
 
             foreach ($subscriptions as $row) {
                 $push->queueNotification(

@@ -200,6 +200,28 @@ class FactorEnrolmentTest extends TestCase
     }
 
     /**
+     * The phone prompt does not, whatever its strength: it is a browser the account trusted,
+     * and trust follows any second factor, the mailed code included. Counting it would let an
+     * administrator out of the requirement with the code it exists to move them off.
+     */
+    public function testThePhonePromptDoesNotSatisfyIt(): void
+    {
+        // Arrange — the prompt at its full strength, and a mailed code: the browser that
+        // answers it may have been trusted with nothing better than that code
+        $this->withFloor(80);
+        SecondFactorRegistry::reset();
+        SecondFactorRegistry::register($this->factor(\Pramnos\Auth\Factors\PushApprovalSecondFactor::METHOD, 70, true));
+        SecondFactorRegistry::register($this->factor('email', 20, true));
+        $enrolment = new FactorEnrolment($this->passkeys(false));
+
+        // Act
+        $required = $enrolment->isRequiredFor(7, 90);
+
+        // Assert
+        $this->assertTrue($required);
+    }
+
+    /**
      * An authenticator does.
      */
     public function testAnAuthenticatorSatisfiesIt(): void

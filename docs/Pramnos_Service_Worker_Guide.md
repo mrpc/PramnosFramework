@@ -254,6 +254,16 @@ those handlers are, and `pushsubscriptionchange` is the one worth copying even i
 skip the others — without it, a browser that rotates its keys stops receiving
 notifications permanently and nobody is told.
 
+Two payload fields change what they do. `data.ack` is a URL the worker POSTs to as the push
+arrives — a receipt, used by sign-in approvals so the waiting page can say "delivered". And
+`data.open: true` makes a tap open `url` in a new window instead of focusing a tab that is
+already open. The worker's own requests (`push/key`, `push/subscribe`, `push/unsubscribe`) are
+resolved against its registration scope, so a site installed in a folder works.
+
+A worker scaffolded before these were added has neither. The framework does not rewrite an
+application's worker: copy the `Web push` block of `scaffolding/templates/service-worker.js.stub`
+over yours, as for the handlers themselves.
+
 ---
 
 ## See also

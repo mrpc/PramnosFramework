@@ -65,6 +65,14 @@ class LoginFlow
      */
     protected const S_PENDING_METHODS = 'loginflow_pending_methods';
 
+    /**
+     * Whether "don't ask again on this device" was ticked for the step-up in flight.
+     *
+     * Kept beside the pending state, not in it: it is the person's answer to a question the
+     * step-up page asks, and it is only acted on when a real second factor completes.
+     */
+    protected const S_TRUST_DEVICE = 'loginflow_trust_device';
+
     private ?Auth $auth;
     private ?Loginlockout $lockout;
     private ?TwoFactorAuthService $twoFactor;
@@ -179,12 +187,75 @@ class LoginFlow
 
         $methods = $this->stepUpMethods($userId);
 
+        /*
+         * A browser the account trusted — "don't ask again on this device" — is let through on
+         * the password. That is the promise the checkbox made, for the days it named; the
+         * device list in the account screens is where it is taken back.
+         */
+        if ($methods !== [] && $this->trustedDevices()->isTrusted($userId)) {
+            return $this->finishLogin($userId, $remember, $identifier, 'trusted_device');
+        }
+
         if ($methods !== []) {
             $this->beginStepUp($userId, $remember, $identifier, $methods);
             return LoginFlowResult::stepUpRequired($userId, $methods);
         }
 
         return $this->finishLogin($userId, $remember, $identifier);
+    }
+
+    /**
+     * The step-up page's "don't ask again on this device", for the step-up in flight.
+     *
+     * Called by the controller with the box's state before it completes the step-up; acted on
+     * only when a second factor completes, and only when the account may trust a device.
+     *
+     * **Nothing is trusted unless this was called with true.** The box is shown ticked, but
+     * the server does not assume it: a page that never sent it — no JavaScript, or an
+     * application's own two-step view that predates the box — trusts nothing, rather than
+     * trusting a browser whose owner was never asked.
+     */
+    public function chooseTrust(bool $trust): void
+    {
+        $_SESSION[static::S_TRUST_DEVICE] = $trust;
+    }
+
+    /** Whether the step-up page should offer "don't ask again on this device". */
+    public function canTrustDevice(): bool
+    {
+        $pending = $this->pending();
+
+        return $pending !== null && $this->trustedDevices()->allowedFor($pending['userId']);
+    }
+
+    /**
+     * Whether the page should show "don't ask again on this device" ticked — it does, until the
+     * person unticks it. What the page *shows*; what is trusted is only what it sent
+     * ({@see chooseTrust()}).
+     */
+    public function trustChoice(): bool
+    {
+        return (bool) ($_SESSION[static::S_TRUST_DEVICE] ?? true);
+    }
+
+    /** How many days "don't ask again" lasts, for the page to say. */
+    public function trustDays(): int
+    {
+        return $this->trustedDevices()->days();
+    }
+
+    /**
+     * The phone prompt the pending sign-in is waiting on, for the waiting page to follow.
+     *
+     * @return array{state: string, number: int|null, devices: list<string>, expires_in: int}
+     */
+    public function pushStatus(): array
+    {
+        $pending = $this->pending();
+
+        return $pending === null
+            ? ['state' => 'none', 'number' => null, 'devices' => [], 'expires_in' => 0]
+            : $this->pushApprovals()->status($pending['userId']);
     }
 
     /**
@@ -662,6 +733,20 @@ class LoginFlow
             }
         }
 
+        /*
+         * The phone prompt is never the only way through.
+         *
+         * A phone can be flat, offline, or in another room; a push can simply not arrive. An
+         * account whose only other option would be nothing is also offered a mailed code —
+         * the one way every account can take — so "try another way" always leads somewhere.
+         */
+        $others = array_diff($methods, [Factors\PushApprovalSecondFactor::METHOD, 'passkey']);
+        if (in_array(Factors\PushApprovalSecondFactor::METHOD, $methods, true) && $others === []
+            && \Pramnos\Email\Email::isConfigured()
+        ) {
+            $methods[] = EmailSecondFactor::METHOD;
+        }
+
         return $methods;
     }
 
@@ -802,6 +887,16 @@ class LoginFlow
     /**
      * The new-device auth link (seam so tests can inject a double).
      */
+    protected function trustedDevices(): TrustedDevices
+    {
+        return new TrustedDevices();
+    }
+
+    protected function pushApprovals(): PushApprovals
+    {
+        return new PushApprovals($this->trustedDevices());
+    }
+
     protected function authLink(): NewDeviceAuthLink
     {
         return $this->authLink ??= new NewDeviceAuthLink();
@@ -837,8 +932,17 @@ class LoginFlow
 
         $this->auth()->setLoginMethod($method);
 
+        $trust = (bool) ($_SESSION[static::S_TRUST_DEVICE] ?? false);
+        unset($_SESSION[static::S_TRUST_DEVICE]);
+
         if (!$this->establishSession($userId, $remember)) {
             return LoginFlowResult::failed();
+        }
+
+        // Only after a real second factor: the password alone, or a browser already trusted,
+        // is not grounds for trusting anything.
+        if ($trust && !in_array($method, ['password', 'trusted_device', NewDeviceAuthLink::METHOD], true)) {
+            $this->trustedDevices()->trust($userId);
         }
 
         return LoginFlowResult::success($userId);
@@ -878,6 +982,21 @@ class LoginFlow
          */
         if (in_array(NewDeviceAuthLink::METHOD, $methods, true)) {
             $this->sendAuthLink();
+        }
+
+        /*
+         * The phone prompt goes out at once, as Google's does: the point of it is that there
+         * is nothing to start. Sent here for the reason the link is — the renderer runs on
+         * every refresh, and each run would be another notification on somebody's phone. A
+         * second one is the page's "send it again", which the ask limit bounds.
+         *
+         * A choice left over from an earlier step-up in this session is dropped: trust is
+         * given only for a box this step-up's page actually sent as ticked.
+         */
+        unset($_SESSION[static::S_TRUST_DEVICE]);
+
+        if (in_array(Factors\PushApprovalSecondFactor::METHOD, $methods, true)) {
+            $this->sendFactorChallenge(Factors\PushApprovalSecondFactor::METHOD);
         }
     }
 

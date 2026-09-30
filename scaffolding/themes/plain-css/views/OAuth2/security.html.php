@@ -118,6 +118,48 @@ $this->activeNav = 'security';
                 </div>
             </div>
 
+            <!-- Trusted devices: "don't ask again on this device", each revocable -->
+            <?php if (!empty($this->trustedDevices)): ?>
+            <div class="card" style="margin-bottom:16px">
+                <div class="card-header" style="display:flex;justify-content:space-between;align-items:center">
+                    <strong>Trusted devices</strong>
+                    <form method="post" action="<?php echo sURL . $routeBase; ?>/revokedevice" style="margin:0">
+                        <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
+                        <input type="hidden" name="all" value="1">
+                        <button type="submit" class="btn btn-sm" style="background:transparent;color:#b91c1c;border-color:transparent">Forget all</button>
+                    </form>
+                </div>
+                <div class="card-body" style="padding:0">
+                    <p style="padding:12px 16px 0;margin:0;font-size:.85em;color:#666">These skip the second step when you sign in, and can approve your sign-ins elsewhere.</p>
+                    <table style="width:100%;border-collapse:collapse;font-size:.9em">
+                        <tbody>
+                        <?php foreach ($this->trustedDevices as $d): ?>
+                            <tr style="border-bottom:1px solid #f5f5f5">
+                                <td style="padding:10px 16px">
+                                    <div><?php echo htmlspecialchars((string) ($d['name'] ?? 'A browser')); ?></div>
+                                    <small style="color:#888">
+                                        Trusted <?php echo htmlspecialchars(localDateTime((int) ($d['created_at'] ?? 0))); ?>
+                                        · until <?php echo htmlspecialchars(localDateTime((int) ($d['expires_at'] ?? 0))); ?>
+                                    </small>
+                                </td>
+                                <td style="padding:10px 16px;text-align:right;white-space:nowrap">
+                                    <?php if (!empty($d['is_current'])): ?>
+                                        <span style="color:#28a745;font-size:.85em;margin-right:8px">This device</span>
+                                    <?php endif; ?>
+                                    <form method="post" action="<?php echo sURL . $routeBase; ?>/revokedevice" style="margin:0;display:inline">
+                                        <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
+                                        <input type="hidden" name="device" value="<?php echo (int) ($d['device_id'] ?? 0); ?>">
+                                        <button type="submit" class="btn btn-sm">Forget</button>
+                                    </form>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <?php endif; ?>
+
             <!-- Active sessions -->
             <div class="card" style="margin-bottom:16px">
                 <div class="card-header"><strong>Active Sessions</strong></div>

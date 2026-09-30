@@ -106,6 +106,37 @@ class Subscriptions
     }
 
     /**
+     * Mark this browser's subscription as belonging to one of the account's trusted devices.
+     *
+     * Only a trusted device is asked to approve a sign-in elsewhere, and the subscription is
+     * how it is reached. Unlinked when trust ends is not needed: the approval checks the
+     * device is still trusted before using the link.
+     */
+    public static function linkTrustedDevice(int $userId, string $endpoint, int $deviceId): bool
+    {
+        if ($userId < 1 || $deviceId < 1 || trim($endpoint) === '') {
+            return false;
+        }
+
+        try {
+            \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
+                ->table('pramnos.pushsubscriptions')
+                ->where('userid', $userId)
+                ->where('endpoint_hash', hash('sha256', trim($endpoint)))
+                ->update(['trusted_device_id' => $deviceId]);
+        } catch (\Throwable $exception) {
+            \Pramnos\Logs\Logger::log(
+                'Could not link a push subscription to its device: ' . $exception->getMessage(),
+                'push'
+            );
+
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
      * Every subscription for one account.
      *
      * @return list<array<string, mixed>>

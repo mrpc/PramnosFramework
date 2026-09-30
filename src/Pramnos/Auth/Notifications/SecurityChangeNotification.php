@@ -176,6 +176,21 @@ class SecurityChangeNotification implements NotificationInterface
             ) . '</p>';
         }
 
+        // A refused sign-in is not a change anybody made: there is no "if it was you". The
+        // password worked, so somebody else has it, and the one thing to do is change it.
+        if ($this->what === \Pramnos\Auth\SecurityChangeNotifier::SIGNIN_DENIED) {
+            $body .= '<p>' . t(
+                'Somebody signed in with your password and you refused it from your phone, so '
+                . 'they did not get in. But your password is known to them. Open the site '
+                . 'yourself — not a link in an email, including this one — and change it.'
+            ) . '</p>';
+
+            return array(
+                'subject' => t('%s — %s', $headline, $this->siteName),
+                'body'    => $body,
+            );
+        }
+
         $body .= '<p>' . t('If you made this change, there is nothing to do.') . '</p>'
             . '<p>' . t(
                 '<strong>If you did not</strong>, somebody else is using your account. Open '
@@ -233,6 +248,8 @@ class SecurityChangeNotification implements NotificationInterface
                 => t('A passkey was added to your account'),
             \Pramnos\Auth\SecurityChangeNotifier::PASSKEY_REMOVED
                 => t('A passkey was removed from your account'),
+            \Pramnos\Auth\SecurityChangeNotifier::SIGNIN_DENIED
+                => t('You refused a sign-in that used your password'),
             default => t('Your account security settings were changed'),
         };
     }

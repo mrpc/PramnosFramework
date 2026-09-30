@@ -70,6 +70,17 @@ class SecondFactorRegistry
         $application = \Pramnos\Application\Application::currentInstance();
         $allowed = is_object($application) ? EmailSecondFactor::allowedMethods() : null;
 
+        /*
+         * The phone prompt is switched on in the administration, not in app.php: it is a
+         * decision about this installation's users, taken by whoever runs it. And when it is
+         * on, the mailed code comes with it — the prompt must never be the only way in, and a
+         * mailed code is the one other way every account can take.
+         */
+        if ($allowed !== null && (string) \Pramnos\Application\Settings::getSetting(PushApprovals::ENABLED_SETTING, '0') === '1') {
+            $allowed[] = Factors\PushApprovalSecondFactor::METHOD;
+            $allowed[] = EmailSecondFactor::METHOD;
+        }
+
         $factors = array();
 
         foreach (self::$factors as $name => $factor) {
@@ -156,7 +167,7 @@ class SecondFactorRegistry
 
         self::$defaultsRegistered = true;
 
-        foreach ([new Factors\TotpSecondFactor(), new Factors\EmailCodeSecondFactor()] as $factor) {
+        foreach ([new Factors\TotpSecondFactor(), new Factors\EmailCodeSecondFactor(), new Factors\PushApprovalSecondFactor()] as $factor) {
             if (!isset(self::$factors[$factor->name()])) {
                 self::$factors[$factor->name()] = $factor;
             }

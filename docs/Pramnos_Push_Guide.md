@@ -545,6 +545,12 @@ an IP address on your LAN.
 | `GET /push/key` | The VAPID public key. Public on purpose: it is the half of the pair the browser is supposed to hold. Answers 503 if no pair has been generated. |
 | `POST /push/subscribe` | Records `PushSubscription.toJSON()` for the signed-in account. |
 | `POST /push/unsubscribe` | Forgets one endpoint, scoped to the signed-in account. |
+| `POST /push/ack?token=` | A sign-in approval's receipt, sent by the worker as the push arrives. The token is the credential — the worker may have no page and no session. |
+| `POST /push/respond?token=&decision=denied` | "No, it's not me" from an approval's notification button — refusing only; approving needs the number, on the approval page. POST only, signed in, and only from a trusted device — see the Authentication guide's *Trusted devices and sign-in approval*. |
+
+`subscribe` also links the subscription to the browser's **trusted device**
+(`pushsubscriptions.trusted_device_id`) when it carries the trust cookie — that link is
+what makes it one of the phones a sign-in elsewhere can be approved from.
 
 The last two require a session, because a subscription belongs to an account —
 without one there is nobody to notify. (That is deliberately the opposite of the
@@ -553,6 +559,23 @@ one-click mail endpoints, where requiring a session would break every request.)
 `POST /push/unsubscribe` answers success when there was nothing to forget: the
 browser has already unsubscribed by the time it calls, and reporting a failure
 for something in exactly the state the caller asked for is not useful.
+
+---
+
+## Sign-in approvals
+
+The phone prompt ("Is it you trying to sign in?") is a push with three differences, all in
+`Pramnos\Auth\ApprovalPushChannel`, a `PushChannel` subclass:
+
+- it goes only to the subscriptions it is handed — the account's **trusted** devices — never
+  to every browser the account subscribed in;
+- `TTL` is 120 seconds, because an approval arriving after it expired can only confuse;
+- `urgency()` is `high`, so a phone in power saving does not hold it back. `PushChannel::urgency()`
+  is the seam (`normal` by default) for any channel of your own.
+
+The payload asks the worker for two things the scaffolded worker does: `data.ack` — POST there
+the moment the push arrives, which is how the waiting page knows it was delivered — and
+`data.open` — tapping opens `url` in its own window rather than focusing an open tab.
 
 ---
 
