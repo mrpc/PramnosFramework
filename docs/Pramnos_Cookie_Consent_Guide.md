@@ -53,7 +53,8 @@ answer it without the prompt.
   and the `/cookieconsent` route. Configure it under
   **System Settings → Security → Cookie consent**.
 - **No** is for a site that sets only strictly necessary cookies. It writes
-  `'cookie_consent' => false` into `app/app.php` and leaves the script out of the SPA shell.
+  `'cookie_consent' => false` into `app/app.php`, and gives the SPA shell the script configured
+  `{"enabled":false}` inline, so it fetches nothing.
 
 ### Switching it off, or back on, in `app/app.php`
 
@@ -73,7 +74,8 @@ on later still asks every visitor. The key belongs to the deployment and is vers
 a live server cannot add a banner to a site whose theme was never checked for one.
 
 To turn it on, delete the line. An MVC project then works immediately, because its footer
-already calls `tag()`. A SPA or hybrid project also needs the shell line from step 3 below.
+already calls `tag()`. In a SPA or hybrid project, also replace the shell's
+`data-config="{&quot;enabled&quot;:false}"` with the `data-config-url` of step 3 below.
 
 ### An existing project
 

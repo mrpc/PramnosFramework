@@ -123,17 +123,20 @@ class InitCookieConsentTest extends TestCase
     }
 
     /**
-     * A declined SPA shell has no script at all, so it makes no request for a
-     * configuration that would only say "off".
+     * A declined SPA shell still loads the script, configured off inline: no request for a
+     * configuration that would only say "off", and every `data-consent` script is released,
+     * as on an MVC page. Without the script those never ran in a SPA.
      */
-    public function testADeclinedSpaShellHasNoBanner(): void
+    public function testADeclinedSpaShellLoadsTheScriptConfiguredOff(): void
     {
         // Act
         $this->scaffold(['--app-style' => 'spa', '--spa-stack' => 'vanilla', '--cookie-consent' => 'no']);
 
         // Assert
         $shell = (string) file_get_contents($this->tmpDir . '/www/spa.php');
-        $this->assertStringNotContainsString('pf-consent.js', $shell);
+        $this->assertStringContainsString('pf-consent.js', $shell);
+        $this->assertStringContainsString('data-config="{&quot;enabled&quot;:false}"', $shell);
+        $this->assertStringNotContainsString('data-config-url', $shell, 'it would fetch a configuration it already has');
         $this->assertFalse($this->appConfig()['cookie_consent']);
     }
 

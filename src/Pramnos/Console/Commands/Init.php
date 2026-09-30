@@ -1605,10 +1605,14 @@ class Init extends Command
             // application served from a subdirectory.
             'serviceWorkerRegistration' => $this->serviceWorkerRegistration('$siteUrl'),
             // The shell does not boot the application, so the banner fetches its settings.
-            'cookieConsentScript' => $this->withCookieConsent
-                ? "    <script src=\"<?php echo htmlspecialchars(\$siteUrl, ENT_QUOTES) . \$stamp('assets/js/pf-consent.js'); ?>\""
-                  . " data-config-url=\"<?php echo htmlspecialchars(\$siteUrl . 'cookieconsent', ENT_QUOTES); ?>\" defer></script>\n"
-                : '',
+            // Declined, the script still loads — configured off inline, so it asks for nothing
+            // and releases every `data-consent` script, as `CookieConsent::tag()` does on an MVC
+            // page. Left out, those scripts never ran in a SPA while they ran everywhere else.
+            'cookieConsentScript' => "    <script src=\"<?php echo htmlspecialchars(\$siteUrl, ENT_QUOTES) . \$stamp('assets/js/pf-consent.js'); ?>\""
+                . ($this->withCookieConsent
+                    ? " data-config-url=\"<?php echo htmlspecialchars(\$siteUrl . 'cookieconsent', ENT_QUOTES); ?>\""
+                    : " data-config=\"{&quot;enabled&quot;:false}\"")
+                . " defer></script>\n",
             'devPort'       => (string) $devPort,
             'appPort'       => (string) $appPort,
             // Where the pages actually live — printed by the dev server, since
