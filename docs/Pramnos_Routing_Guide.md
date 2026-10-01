@@ -785,6 +785,51 @@ Where both sources describe the same operation, **the attribute wins** — it ha
 schema, the router has only the address. The merge is per operation rather than per path,
 so a controller that documents one method of a resource does not erase the other three.
 
+The overrides are merged once, over the combined document. An override for an operation
+only the router knows therefore **adds** to the route-derived operation — a `404` beside
+its summary, tags, parameters and security — rather than replacing it.
+
+### Responses every operation shares
+
+A route carries only its address, so a route-derived operation documents `200` and
+nothing else. The `403` an API answers without an `apiKey` and the `401` it answers
+without a session come from middleware, and neither source can see them. Declare them once
+in the overrides file:
+
+```json
+{
+  "x-pramnos-default-responses": {
+    "403": { "description": "Missing or invalid apiKey header" }
+  },
+  "x-pramnos-secured-responses": {
+    "401": { "description": "Not signed in" }
+  }
+}
+```
+
+| Key | Merged into |
+|---|---|
+| `x-pramnos-default-responses` | every operation, from both sources |
+| `x-pramnos-secured-responses` | every operation with a `security` requirement — a route with permissions, or an attribute with permissions or an auth middleware |
+
+An operation's own response for the same status wins over a default. Both keys are
+consumed and do not appear in the written document.
+
+**A `null` in an override removes a key.** That is how a default is taken back from the
+few operations it does not apply to — a public address listed in `public_api_paths` answers
+no `403`:
+
+```json
+{
+  "paths": {
+    "/1.0/hooks/stripe": { "post": { "responses": { "403": null } } }
+  }
+}
+```
+
+The viewer page (`docs/index.html`) is titled from the merged document, so `info.title` in
+the overrides names it as well as the spec.
+
 ### It refuses to write an empty document
 
 Zero operations from a scan is not a document, it is a failure — and writing it is the
@@ -817,8 +862,8 @@ declare permissions or an auth middleware, and `tags` from the controller name.
 
 What cannot be inferred from routes alone — request/response schemas, examples — is
 supplied through the `--overrides` document, which is **deep-merged** over the
-generated one (scalars and objects are overridden per key; the generated paths are
-preserved). This mirrors the `openapi-overrides.json` convention used elsewhere.
+generated one (scalars and objects are overridden per key, a `null` removes the key; the
+generated paths are preserved). This mirrors the `openapi-overrides.json` convention used elsewhere.
 
 Programmatic use (e.g. to serve the spec live) goes through the same generator:
 

@@ -129,13 +129,13 @@ class ApiDocs extends Command
             $overrides = $decoded;
         }
 
-        $generator = new OpenApiGenerator($info, $servers, $overrides);
-        $document  = $generator->fromDirectory($controllersPath, $namespace);
-
+        $generator    = new OpenApiGenerator($info, $servers, $overrides);
         $routesOption = $input->getOption('routes');
         $routesRead   = '';
 
-        if ($routesOption !== null) {
+        if ($routesOption === null) {
+            $document = $generator->fromDirectory($controllersPath, $namespace);
+        } else {
             $routesPath = $this->resolve($base, (string) $routesOption);
 
             if (!is_file($routesPath)) {
@@ -144,7 +144,11 @@ class ApiDocs extends Command
             }
 
             try {
-                $fromRoutes = $generator->fromRoutes($this->collectRoutes($routesPath));
+                $document = $generator->fromDirectoryAndRoutes(
+                    $controllersPath,
+                    $namespace,
+                    $this->collectRoutes($routesPath)
+                );
             } catch (\Throwable $ex) {
                 $output->writeln(
                     "<error>Could not read {$routesPath}: " . $ex->getMessage() . '</error>'
@@ -152,23 +156,6 @@ class ApiDocs extends Command
                 return Command::FAILURE;
             }
 
-            // The attribute scan wins where both describe the same operation: it has the
-            // docblock, the parameter types and the response schema, and the router has
-            // the address. Merged per operation rather than per path, so a controller
-            // that documents one method of a resource does not erase the other three.
-            foreach ($fromRoutes['paths'] ?? [] as $path => $operations) {
-                foreach ($operations as $verb => $operation) {
-                    $document['paths'][$path][$verb] ??= $operation;
-                }
-            }
-
-            if (isset($fromRoutes['components']['securitySchemes'])) {
-                $document['components']['securitySchemes'] =
-                    ($document['components']['securitySchemes'] ?? [])
-                    + $fromRoutes['components']['securitySchemes'];
-            }
-
-            ksort($document['paths']);
             $routesRead = $routesPath;
         }
 
@@ -261,7 +248,9 @@ class ApiDocs extends Command
                 mkdir($docsDir, 0775, true);
             }
             $html = (new StubRenderer())->render('api-docs.html', [
-                'title' => (string) ($info['title'] ?? 'API') . ' — API documentation',
+                // The merged document's title, so an `info.title` in the overrides names the
+                // viewer too, not only the spec.
+                'title' => (string) ($document['info']['title'] ?? 'API') . ' — API documentation',
                 'spec'  => '../' . basename($outputPath),
             ]);
             file_put_contents($docsDir . '/index.html', $html);

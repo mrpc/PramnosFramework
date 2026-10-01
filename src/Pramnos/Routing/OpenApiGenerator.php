@@ -76,6 +76,49 @@ class OpenApiGenerator
      */
     public function fromClasses(array $classes): array
     {
+        return $this->assemble(...$this->collectClasses($classes));
+    }
+
+    /**
+     * Generate one document from controllers and router routes together.
+     *
+     * Both sources are gathered first and the overrides are merged once, at the end. Merging
+     * them per source instead loses operations: an override for an operation only the router
+     * knows lands in the attribute document as a bare `{responses: …}`, and the route-derived
+     * operation (summary, tags, parameters, security) is then discarded as already present.
+     *
+     * Where both describe the same operation the attribute wins, per operation rather than
+     * per path, so a controller that documents one method of a resource does not erase the
+     * other three.
+     *
+     * @param string $path      Absolute path to the controllers directory
+     * @param string $namespace Namespace the directory maps to
+     * @param array<string, array<string, array{permissions?: mixed, hasPermissions?: bool}>> $routes
+     *        As `Router::stopCollecting()` returns.
+     * @return array<string,mixed>
+     */
+    public function fromDirectoryAndRoutes(string $path, string $namespace, array $routes): array
+    {
+        [$paths, $secured]           = $this->collectRoutes($routes);
+        [$attrPaths, $attrSecured]   = $this->collectClasses($this->discoverClasses($path, $namespace));
+
+        foreach ($attrPaths as $uri => $operations) {
+            foreach ($operations as $verb => $operation) {
+                $paths[$uri][$verb] = $operation;
+            }
+        }
+
+        return $this->assemble($paths, $secured || $attrSecured);
+    }
+
+    /**
+     * The operations declared by `#[Route]` attributes on the given classes.
+     *
+     * @param list<class-string> $classes
+     * @return array{0: array<string, array<string, mixed>>, 1: bool} Paths, and whether any is secured
+     */
+    private function collectClasses(array $classes): array
+    {
         $paths   = [];
         $secured = false;
 
@@ -109,7 +152,7 @@ class OpenApiGenerator
             }
         }
 
-        return $this->assemble($paths, $secured);
+        return [$paths, $secured];
     }
 
     /**
@@ -138,6 +181,17 @@ class OpenApiGenerator
      * @return array<string,mixed>
      */
     public function fromRoutes(array $routes): array
+    {
+        return $this->assemble(...$this->collectRoutes($routes));
+    }
+
+    /**
+     * The operations registered on a router, as {@see fromRoutes()} documents them.
+     *
+     * @param array<string, array<string, array{permissions?: mixed, hasPermissions?: bool}>> $routes
+     * @return array{0: array<string, array<string, mixed>>, 1: bool} Paths, and whether any is secured
+     */
+    private function collectRoutes(array $routes): array
     {
         $paths   = [];
         $secured = false;
@@ -188,7 +242,7 @@ class OpenApiGenerator
             }
         }
 
-        return $this->assemble($paths, $secured);
+        return [$paths, $secured];
     }
 
     /**
@@ -222,6 +276,32 @@ class OpenApiGenerator
     {
         ksort($paths);
 
+        /*
+         * Responses every operation shares — a 403 for a missing API key, a 401 for nobody
+         * signed in — declared once instead of once per operation. Neither source can know
+         * them: they come from the application's middleware, not from the route.
+         *
+         * The operation's own response wins over a default, and an override can still take
+         * one away (`"401": null`) from the few operations it does not apply to.
+         */
+        $overrides = $this->overrides;
+        $all       = (array) ($overrides['x-pramnos-default-responses'] ?? []);
+        $onSecured = (array) ($overrides['x-pramnos-secured-responses'] ?? []);
+        unset($overrides['x-pramnos-default-responses'], $overrides['x-pramnos-secured-responses']);
+
+        if ($all !== [] || $onSecured !== []) {
+            foreach ($paths as &$operations) {
+                foreach ($operations as &$operation) {
+                    $operation['responses'] = ($operation['responses'] ?? [])
+                        + (isset($operation['security']) ? $onSecured : [])
+                        + $all;
+                    ksort($operation['responses']);
+                }
+                unset($operation);
+            }
+            unset($operations);
+        }
+
         $document = ['openapi' => '3.0.3', 'info' => $this->info];
         if ($this->servers !== []) {
             $document['servers'] = $this->servers;
@@ -234,7 +314,7 @@ class OpenApiGenerator
             ];
         }
 
-        return $this->deepMerge($document, $this->overrides);
+        return $this->deepMerge($document, $overrides);
     }
 
     /**
@@ -358,7 +438,8 @@ class OpenApiGenerator
 
     /**
      * Recursively merge $override into $base ($override wins on scalar conflicts;
-     * lists are replaced wholesale).
+     * lists are replaced wholesale; a `null` removes the key, which is how an override
+     * takes back a generated or default response).
      *
      * @param array<string,mixed> $base
      * @param array<string,mixed> $override
@@ -367,7 +448,9 @@ class OpenApiGenerator
     private function deepMerge(array $base, array $override): array
     {
         foreach ($override as $key => $value) {
-            if (is_array($value) && isset($base[$key]) && is_array($base[$key]) && !array_is_list($value)) {
+            if ($value === null) {
+                unset($base[$key]);
+            } elseif (is_array($value) && isset($base[$key]) && is_array($base[$key]) && !array_is_list($value)) {
                 $base[$key] = $this->deepMerge($base[$key], $value);
             } else {
                 $base[$key] = $value;

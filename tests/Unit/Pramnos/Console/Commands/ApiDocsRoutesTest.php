@@ -296,4 +296,148 @@ PHP_ROUTES);
         $this->assertStringContainsString('boom', $tester->getDisplay());
         $this->assertFalse(Router::isCollecting(), 'a raising route file left the collector on');
     }
+
+    /**
+     * Runs api:docs over the route fixture with the given overrides document.
+     *
+     * @param array<string,mixed> $overrides
+     * @return array<string,mixed> The written document
+     */
+    private function generateWithOverrides(array $overrides, bool $html = false): array
+    {
+        $this->writeRouteFile();
+        file_put_contents($this->tmp . '/overrides.json', json_encode($overrides));
+
+        $tester = $this->tester();
+        $exit   = $tester->execute([
+            '--controllers' => $this->fixturesDir(),
+            '--namespace'   => 'Pramnos\\Tests\\Fixtures\\OpenApi',
+            '--routes'      => 'src/Api/routes.php',
+            '--overrides'   => 'overrides.json',
+            '--output'      => 'openapi.json',
+            '--no-html'     => !$html,
+        ]);
+        $this->assertSame(Command::SUCCESS, $exit, $tester->getDisplay());
+
+        return json_decode((string) file_get_contents($this->tmp . '/openapi.json'), true);
+    }
+
+    /**
+     * Responses every operation shares are declared once, not once per operation.
+     *
+     * A route carries only its address, so a route-derived operation documented nothing but
+     * `200`. The 403 an API answers without a key and the 401 it answers without a session
+     * come from middleware, and saying so took one override per operation — 192 of them in
+     * one application, kept by hand as the routes changed.
+     */
+    public function testDefaultResponsesAreMergedIntoEveryOperation(): void
+    {
+        // Arrange & Act
+        $doc = $this->generateWithOverrides([
+            'x-pramnos-default-responses' => ['403' => ['description' => 'Missing API key']],
+            'x-pramnos-secured-responses' => ['401' => ['description' => 'Not signed in']],
+        ]);
+
+        // Assert — every operation, from both sources, gets the shared default
+        $list = $doc['paths']['/1.0/channels']['get']['responses'];
+        $this->assertSame('Missing API key', $list['403']['description']);
+        $this->assertSame('Missing API key', $doc['paths']['/api/ping']['get']['responses']['403']['description']);
+
+        // The operation's own response is kept beside the defaults
+        $this->assertSame('Successful response', $list['200']['description']);
+
+        // The secured default only where the route requires a credential
+        $this->assertArrayNotHasKey('401', $list);
+        $this->assertSame(
+            'Not signed in',
+            $doc['paths']['/1.0/channels/{id}']['delete']['responses']['401']['description']
+        );
+
+        // The instructions are consumed, not published as part of the API's document
+        $this->assertArrayNotHasKey('x-pramnos-default-responses', $doc);
+        $this->assertArrayNotHasKey('x-pramnos-secured-responses', $doc);
+    }
+
+    /**
+     * A null in an override takes a default back from the operation it does not apply to.
+     *
+     * A public address — a webhook, a pairing handshake — answers no 403 for a missing key.
+     * Without a way to remove a default, declaring it once would make it wrong there.
+     */
+    public function testANullOverrideRemovesADefaultResponse(): void
+    {
+        // Arrange & Act
+        $doc = $this->generateWithOverrides([
+            'x-pramnos-default-responses' => ['403' => ['description' => 'Missing API key']],
+            'paths' => ['/1.0/channels' => ['post' => ['responses' => ['403' => null]]]],
+        ]);
+
+        // Assert — removed where the override says so, kept everywhere else
+        $this->assertArrayNotHasKey('403', $doc['paths']['/1.0/channels']['post']['responses']);
+        $this->assertArrayHasKey('403', $doc['paths']['/1.0/channels']['get']['responses']);
+    }
+
+    /**
+     * An override on an operation only the router knows adds to it instead of replacing it.
+     *
+     * The overrides used to be merged into the attribute document first, where such an
+     * operation does not exist, so it was created there as a bare `{responses: …}` and the
+     * route-derived one — summary, tags, parameters, security — was discarded as already
+     * present. Documenting one extra response cost the operation everything else it had.
+     */
+    public function testAnOverrideOnARouteOnlyOperationKeepsWhatTheRouteSaid(): void
+    {
+        // Arrange & Act
+        $doc = $this->generateWithOverrides([
+            'paths' => ['/1.0/channels/{id}' => ['delete' => [
+                'responses' => ['404' => ['description' => 'No such channel']],
+            ]]],
+        ]);
+
+        // Assert
+        $delete = $doc['paths']['/1.0/channels/{id}']['delete'];
+        $this->assertSame('No such channel', $delete['responses']['404']['description']);
+        $this->assertSame(['channels'], $delete['tags'], 'the route-derived tag was lost');
+        $this->assertSame('id', $delete['parameters'][0]['name'], 'the path parameter was lost');
+        $this->assertSame([['bearerAuth' => []]], $delete['security'], 'the security was lost');
+        $this->assertArrayHasKey('bearerAuth', $doc['components']['securitySchemes']);
+    }
+
+    /**
+     * The viewer is titled from the document, so `info.title` in the overrides names it.
+     *
+     * Read from `--title` only, a project that set its title in the overrides got a spec
+     * titled correctly beside a viewer that said "API — API documentation".
+     */
+    public function testTheViewerTitleComesFromTheMergedDocument(): void
+    {
+        // Arrange & Act
+        $this->generateWithOverrides(['info' => ['title' => 'Example API']], true);
+
+        // Assert
+        $html = (string) file_get_contents($this->tmp . '/docs/index.html');
+        $this->assertStringContainsString('Example API — API documentation', $html);
+    }
+
+    /**
+     * `fromRoutes()` on its own applies the defaults too, for an application that builds its
+     * document in code rather than through the command.
+     */
+    public function testFromRoutesAppliesTheDefaultResponses(): void
+    {
+        // Arrange
+        $generator = new \Pramnos\Routing\OpenApiGenerator([], [], [
+            'x-pramnos-secured-responses' => ['401' => ['description' => 'Not signed in']],
+        ]);
+
+        // Act
+        $doc = $generator->fromRoutes([
+            'GET'    => ['/open' => ['hasPermissions' => false]],
+            'DELETE' => ['/closed' => ['hasPermissions' => true, 'permissions' => ['x:write']]],
+        ]);
+
+        // Assert — only the operation that requires a credential answers 401
+        $this->assertArrayNotHasKey('401', $doc['paths']['/open']['get']['responses']);
+        $this->assertSame('Not signed in', $doc['paths']['/closed']['delete']['responses']['401']['description']);
+    }
 }
