@@ -292,37 +292,6 @@ class FrameworkMigrationsPostgreSQLTest extends TestCase
     }
 
     // -------------------------------------------------------------------------
-    // Auth: userlog
-    // -------------------------------------------------------------------------
-
-    /**
-     * userlog must have logid auto-increment PK (SERIAL → integer in pg),
-     * userid (bigint), date (integer), log (nullable text), logtype (smallint), details (text).
-     */
-    public function testAuthUserlogUpCreatesAuditTable(): void
-    {
-        // Arrange
-        $this->loadMigration('auth', 'CreateUsersTable')->up();
-        $m = $this->loadMigration('auth', 'CreateUserlogTable');
-
-        // Act
-        $m->up();
-
-        // Assert
-        $this->assertTrue($this->tableExists('userlog'));
-        $this->assertColumnType('userlog', 'logid', 'integer');
-        $this->assertColumnType('userlog', 'userid', 'bigint');
-        $this->assertColumnType('userlog', 'date', 'integer');
-        $this->assertColumnNullable('userlog', 'log', true);
-        $this->assertColumnType('userlog', 'logtype', 'smallint');
-        $this->assertColumnType('userlog', 'details', 'text');
-
-        // Assert — rollback
-        $m->down();
-        $this->assertFalse($this->tableExists('userlog'));
-    }
-
-    // -------------------------------------------------------------------------
     // Auth: usernotes
     // -------------------------------------------------------------------------
 

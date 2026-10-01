@@ -6,6 +6,7 @@ use_cases:
   - Reacting in application code when any model is saved or deleted
   - Turning a model save into a live update in the browser
   - Keeping an audit trail of everything a model changed
+  - Recording what a user did, in place of the deprecated userlog table
 ---
 
 # Pramnos Change Feed Guide
@@ -320,6 +321,10 @@ $device->logEvent('device.assigned_on_finalize', ['tmpdeviceid' => 7]);
 
 A save records what changed; this records what *happened*. It needs no
 `$emitChanges` — a model can record deliberate events without announcing every save.
+
+This is also where events about a **user** go. `userlog` is
+[deprecated](Pramnos_Authentication_Guide.md#userlog-is-deprecated): it records only the
+user a row is about, and this table records the actor and the source as well.
 
 The event is a **machine code**, rendered at read time. A `description` argument
 exists for events no code describes, and should stay the exception: prose stored in

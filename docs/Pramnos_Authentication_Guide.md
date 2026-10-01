@@ -1188,6 +1188,26 @@ $user->save();
 $user->delete();
 ```
 
+### `userlog` is deprecated
+
+`userlog` holds one row per event about a user. It records the user the row is about but
+never who acted, so an administrator's change to an account is indistinguishable from the
+user's own. It is also a second store beside
+[`pramnos.changelog_events`](Pramnos_Change_Feed_Guide.md#recording-an-event-a-diff-cannot-express),
+which records the entity, the actor and the source, with `details` as JSON, for users and
+everything else alike. Two stores for the same events means every reader has to consult
+both.
+
+- **No framework migration creates it.** A new installation has no `userlog`.
+- **An installation that already has it keeps it.** The framework never drops it, and the
+  DevPanel's user log shows its rows wherever the table exists.
+- **The framework does not write to it.** Record user events in `changelog_events`, through
+  `Model::logEvent()`, with the `changelog` feature enabled.
+
+An application that still writes to `userlog` keeps working on its existing databases. On a
+new installation it has to create the table in one of its own migrations, or move those
+writes to `changelog_events`.
+
 ## JWT Token Authentication
 
 ### Generating JWT Tokens

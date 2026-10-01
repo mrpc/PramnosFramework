@@ -937,6 +937,46 @@ class DevPanelControllerIntegrationTest extends TestCase
         $this->assertStringContainsString('User logged in', $this->controller->lastRenderedContent);
     }
 
+    /**
+     * An installation without `userlog` gets an explanation, not an error box.
+     *
+     * The framework no longer creates the table, so on a new installation its absence is the
+     * normal state. The page says where user events are recorded instead, and does not try
+     * to read the table at all.
+     */
+    public function testUserLogViewWithoutTheTableSaysWhereEventsAre()
+    {
+        // Arrange — a database whose schema reports that userlog does not exist
+        $_GET['user'] = '1';
+        $db = new class extends FakeDatabase {
+            /** A schema builder stand-in that knows of no userlog table. */
+            public function schema()
+            {
+                return new class {
+                    /** @param string $table */
+                    public function hasTable($table): bool
+                    {
+                        return false;
+                    }
+                };
+            }
+        };
+        $db->mockResults['LIMIT 1'] = new FakeDatabaseResult(['userid' => 1, 'username' => 'alice'], [
+            ['userid' => 1, 'username' => 'alice']
+        ]);
+        $singleton = &Factory::getDatabase();
+        $singleton = $db;
+
+        // Act
+        $this->controller->users();
+
+        // Assert
+        $this->assertStringContainsString('no userlog table', $this->controller->lastRenderedContent);
+        $this->assertStringContainsString('changelog_events', $this->controller->lastRenderedContent);
+        // The table was never queried, so no error was raised for it.
+        $this->assertSame([], array_values(array_filter($db->executedSql, fn ($sql) => str_contains($sql, 'userlog'))));
+    }
+
     public function testPerformanceReport()
     {
         $_GET['range'] = '6';

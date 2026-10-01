@@ -257,37 +257,6 @@ class FrameworkMigrationsMySQLTest extends TestCase
     }
 
     // -------------------------------------------------------------------------
-    // Auth: userlog
-    // -------------------------------------------------------------------------
-
-    /**
-     * userlog must have logid auto-increment PK, userid, date (int), log (nullable),
-     * logtype (tinyint), and details (text).
-     */
-    public function testAuthUserlogUpCreatesAuditTable(): void
-    {
-        // Arrange
-        $this->loadMigration('auth', 'CreateUsersTable')->up();
-        $m = $this->loadMigration('auth', 'CreateUserlogTable');
-
-        // Act
-        $m->up();
-
-        // Assert
-        $this->assertTrue($this->tableExists('userlog'));
-        $this->assertColumnType('userlog', 'logid', 'int');
-        $this->assertColumnType('userlog', 'userid', 'bigint');
-        $this->assertColumnType('userlog', 'date', 'int');
-        $this->assertColumnNullable('userlog', 'log', true);
-        $this->assertColumnType('userlog', 'logtype', 'tinyint');
-        $this->assertColumnType('userlog', 'details', 'text');
-
-        // Assert – rollback
-        $m->down();
-        $this->assertFalse($this->tableExists('userlog'));
-    }
-
-    // -------------------------------------------------------------------------
     // Auth: usernotes
     // -------------------------------------------------------------------------
 

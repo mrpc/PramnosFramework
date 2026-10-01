@@ -2009,8 +2009,8 @@ class DevPanelController extends Controller
     /**
      * Paginated userlog entries for a specific user.
      *
-     * Shows audit-log rows from the userlog table (logid, date unix-ts, logtype,
-     * log, details) ordered newest-first, 50 per page.
+     * Shows audit-log rows from the deprecated userlog table (logid, date unix-ts, logtype,
+     * log, details) ordered newest-first, 50 per page, on installations that still have it.
      * Linked from the Active Sessions table via ?user=X.
      */
     private function renderUserLog(int $userId): string
@@ -2042,6 +2042,24 @@ class DevPanelController extends Controller
 
         $logs  = [];
         $total = 0;
+
+        // `userlog` is deprecated and no longer created by the framework: only an installation
+        // that predates that has one. Elsewhere the view says so instead of reporting an error.
+        try {
+            $hasUserlog = $db->schema()->hasTable('userlog');
+        } catch (\Throwable $ex) {
+            $hasUserlog = true; // could not tell: read it, and the read reports its own error
+        }
+
+        if (!$hasUserlog) {
+            return "<p><a href='?action=users'>← Back to Users</a></p>"
+                . $this->alert(
+                    'This installation has no userlog table. User events are recorded in '
+                    . 'pramnos.changelog_events (the changelog feature).',
+                    'info'
+                );
+        }
+
         try {
             $total = (int) $db->queryBuilder()
                 ->table('#PREFIX#userlog')
