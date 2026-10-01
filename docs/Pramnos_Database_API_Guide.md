@@ -436,6 +436,15 @@ a listing of twelve rows in three groups would report the size of the first grou
 page arithmetic would follow that number, and the last page would be empty or unreachable — on a screen
 that renders perfectly.
 
+## Cloning a `Database`
+
+`clone $db` gives a second object over the **same** link: queries through either reach the
+same session. The link belongs to the original. Closing or destroying the clone drops its
+handles and closes nothing, so the original stays connected; `close()` on the clone returns
+`false`. Closing the original ends the link for both.
+
+A clone that calls `connect()` opens a link of its own, owns it, and closes it as usual.
+
 ## Result Handling
 
 **CRITICAL**: Pramnos query results use different patterns for single vs multiple records:

@@ -280,6 +280,17 @@ class Database extends \Pramnos\Framework\Base
     private $_dbConnection;
 
     /**
+     * Whether the links this instance holds are its own to close.
+     *
+     * A `clone` copies the link handles, not the connections behind them, so without this
+     * both objects closed the same link: whichever was destroyed first disconnected the
+     * other, and the second close raised «mysqli object is already closed» from a
+     * destructor. A clone uses the links it inherited and leaves closing them to the
+     * original; once it opens a link of its own, that one is its own.
+     */
+    private bool $ownsConnection = true;
+
+    /**
      * Active prepared statements indexed by statement ID.
      * Used by prepare() / execute() for both MySQL and PostgreSQL.
      * @var array
@@ -702,6 +713,7 @@ class Database extends \Pramnos\Framework\Base
                 }
             }
 
+            $this->ownsConnection = true;
             if ($type === 'write') {
                 $this->_writeConnection = $connection;
             } else {
@@ -983,6 +995,7 @@ class Database extends \Pramnos\Framework\Base
         $this->_writeConnection = null;
         $this->_dbConnection = null;
         $this->preparedStatements = [];
+        $this->ownsConnection = true;
         // Flavor/version are properties of the *server we are talking to*, so a
         // new connection (possibly to a different host) must re-detect them.
         $this->serverVersion = null;
@@ -1374,6 +1387,17 @@ class Database extends \Pramnos\Framework\Base
      */
     public function close()
     {
+        // A clone's links belong to the instance it was cloned from: drop them, close nothing.
+        if (!$this->ownsConnection) {
+            $this->_dbConnection    = null;
+            $this->_writeConnection = null;
+            $this->_readConnection  = null;
+            $this->statements       = [];
+            $this->connected        = false;
+
+            return false;
+        }
+
         $connection = $this->_dbConnection;
         $this->_dbConnection   = null;
         $this->_writeConnection = null;
@@ -3712,6 +3736,14 @@ class Database extends \Pramnos\Framework\Base
             fclose($this->_slowQueryLogHandler);
         }
         unset($request);
+    }
+
+    /**
+     * A clone shares the original's links without owning them; see {@see $ownsConnection}.
+     */
+    public function __clone()
+    {
+        $this->ownsConnection = false;
     }
 
     /**
