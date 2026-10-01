@@ -21,6 +21,9 @@ use Pramnos\Database\Migration;
  */
 class AddMissingIndexesToExistingTables extends Migration
 {
+    public string $feature = 'core';
+    public string $scope   = 'framework';
+
     /**
      * Run the migration.
      *

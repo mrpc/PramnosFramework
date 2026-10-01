@@ -70,7 +70,7 @@ class CreateUsersTable extends Migration
 | Property | Type | Default | Purpose |
 |---|---|---|---|
 | `$feature` | `string` | `''` | Feature key; empty = app migration |
-| `$scope` | `string` | `'app'` | `'app'` or `'framework'` |
+| `$scope` | `string` | `'app'` | `'app'` or `'framework'`. Every migration under `database/migrations/framework/` declares `'framework'`, and a test fails if one does not |
 | `$priority` | `int` | `50` | Lower number runs first |
 | `$dependencies` | `array` | `[]` | Slugs of migrations that must run before this one |
 | `$autorun` | `bool` | `true` | `false` = requires `--force` |

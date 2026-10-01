@@ -16,6 +16,9 @@ use Pramnos\Database\Migration;
  */
 class AddMissingForeignKeysToExistingTables extends Migration
 {
+    public string $feature = 'core';
+    public string $scope   = 'framework';
+
     /**
      * Run LAST, after every create_* migration, so all referenced tables exist
      * before their FKs are added. This migration is the SOLE definer of several
