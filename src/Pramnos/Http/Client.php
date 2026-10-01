@@ -51,6 +51,8 @@ class Client
     private array   $headers        = [];
 
     private ?string $body           = null;
+    /** @var list<array{name: string, contents: string, filename?: string, type?: string}> The parts of a multipart body, as given. */
+    private array   $parts          = [];
     private string  $contentType    = '';
     private int     $timeout        = 30;
     private int     $connectTimeout = 10;
@@ -248,6 +250,7 @@ class Client
      */
     public function json(array|object $data): static
     {
+        $this->parts       = [];
         $this->body        = (string) json_encode($data, JSON_UNESCAPED_UNICODE);
         $this->contentType = 'application/json';
         return $this;
@@ -261,9 +264,86 @@ class Client
      */
     public function form(array $data): static
     {
+        $this->parts       = [];
         $this->body        = http_build_query($data);
         $this->contentType = 'application/x-www-form-urlencoded';
         return $this;
+    }
+
+    /**
+     * Set the request body as `multipart/form-data`: fields and files in one request.
+     *
+     * ```php
+     * Client::post($webhook)->multipart([
+     *     ['name' => 'payload_json', 'contents' => $json, 'type' => 'application/json'],
+     *     ['name' => 'files[0]', 'contents' => $bytes, 'filename' => 'cover.jpg', 'type' => 'image/jpeg'],
+     * ])->send();
+     * ```
+     *
+     * A part with a `filename` is a file; one without is a field. `type` is the part's own
+     * `Content-Type` and may be left out. The body is built here, as a string, so a retry
+     * resends exactly the same bytes and a fake sees them; {@see multipartParts()} gives a
+     * test the parts without parsing it back.
+     *
+     * A filename often comes from a user, and a line break in it would be a header of the
+     * caller's choosing, so a line break in `name`, `filename` or `type` is refused and a
+     * double quote is sent as `%22`, which is what browsers do.
+     *
+     * @param list<array{name: string, contents: string, filename?: string, type?: string}> $parts
+     * @throws \InvalidArgumentException When a part has no name, its contents are not a
+     *         string, or a header value holds a line break.
+     */
+    public function multipart(array $parts): static
+    {
+        $clean = [];
+        foreach (array_values($parts) as $i => $part) {
+            if (!is_array($part) || !is_string($part['name'] ?? null) || $part['name'] === '') {
+                throw new \InvalidArgumentException("Multipart part {$i} has no name.");
+            }
+            if (!is_string($part['contents'] ?? null)) {
+                throw new \InvalidArgumentException("Multipart part \"{$part['name']}\" has no string contents.");
+            }
+            foreach (['name', 'filename', 'type'] as $key) {
+                if (isset($part[$key]) && preg_match('/[\r\n]/', (string) $part[$key]) === 1) {
+                    throw new \InvalidArgumentException("Multipart part {$i}: a line break in its {$key} is refused.");
+                }
+            }
+            $clean[] = array_intersect_key($part, ['name' => 1, 'contents' => 1, 'filename' => 1, 'type' => 1]);
+        }
+
+        // Random, and checked against the contents: a boundary that occurs inside a part
+        // would end it there.
+        do {
+            $boundary = 'pramnos' . bin2hex(random_bytes(16));
+        } while (array_filter($clean, static fn (array $p): bool => str_contains($p['contents'], $boundary)) !== []);
+
+        $quote = static fn (string $value): string => str_replace('"', '%22', $value);
+        $body  = '';
+        foreach ($clean as $part) {
+            $body .= '--' . $boundary . "\r\n"
+                . 'Content-Disposition: form-data; name="' . $quote($part['name']) . '"'
+                . (isset($part['filename']) ? '; filename="' . $quote((string) $part['filename']) . '"' : '')
+                . "\r\n"
+                . (isset($part['type']) && $part['type'] !== '' ? 'Content-Type: ' . $part['type'] . "\r\n" : '')
+                . "\r\n" . $part['contents'] . "\r\n";
+        }
+
+        $this->parts       = $clean;
+        $this->body        = $body . '--' . $boundary . "--\r\n";
+        $this->contentType = 'multipart/form-data; boundary=' . $boundary;
+        return $this;
+    }
+
+    /**
+     * The parts {@see multipart()} was given, for a fake to assert on.
+     *
+     * Empty for any other kind of body.
+     *
+     * @return list<array{name: string, contents: string, filename?: string, type?: string}>
+     */
+    public function multipartParts(): array
+    {
+        return $this->parts;
     }
 
     /**
@@ -271,6 +351,7 @@ class Client
      */
     public function body(string $body, string $contentType = 'application/octet-stream'): static
     {
+        $this->parts       = [];
         $this->body        = $body;
         $this->contentType = $contentType;
         return $this;
@@ -746,6 +827,7 @@ class Client
         $clone->method      = strtoupper($method);
         $clone->url         = $url;
         $clone->body        = null;
+        $clone->parts       = [];
         $clone->contentType = '';
         return $clone;
     }

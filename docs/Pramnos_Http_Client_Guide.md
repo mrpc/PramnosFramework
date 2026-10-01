@@ -6,6 +6,7 @@ use_cases:
   - Reading only part of a large or endless HTTP response
   - Fetching a page or feed that comes back compressed
   - Writing tests for code that makes outbound HTTP calls
+  - Uploading a file with a message to a chat platform or media API
   - Fetching a URL that a user supplied, without opening an SSRF hole
   - Diagnosing a request that times out or exhausts memory
   - Downloading a large file, or a .gz one, straight to disk
@@ -75,9 +76,29 @@ Client::post($url)->json(['name' => 'Alice'])->send();
 // URL-encoded form
 Client::post($url)->form(['username' => 'alice', 'password' => 'secret'])->send();
 
+// Fields and files together — multipart/form-data
+Client::post($webhook)->multipart([
+    ['name' => 'payload_json', 'contents' => $json, 'type' => 'application/json'],
+    ['name' => 'files[0]', 'contents' => $bytes, 'filename' => 'cover.jpg', 'type' => 'image/jpeg'],
+])->send();
+
 // Anything else
 Client::put($url)->body($xml, 'application/xml')->send();
 ```
+
+### Files with a message: `multipart()`
+
+Each part is `name` and `contents`, plus `filename` for a file and `type` for the part's
+own `Content-Type`. A part with a `filename` is a file; one without is a field. Contents
+are bytes, so read a file with `file_get_contents()` first.
+
+The body is built when `multipart()` is called, as a string. A retry therefore resends the
+same bytes, and a fake receives them like any other body. The boundary is random and is
+checked against the contents.
+
+**A filename is often the user's**, so a line break in `name`, `filename` or `type` throws
+`InvalidArgumentException`; it would otherwise be a header the caller chose. A double quote
+is sent as `%22`, which is what browsers do.
 
 ### Headers and authentication
 
@@ -519,6 +540,17 @@ Client::fake([
 ]);
 ```
 
+A multipart request's parts are readable without parsing the body:
+
+```php
+Client::fake([
+    'https://discord.com/api/*' => function (Client $req) use (&$parts): ClientResponse {
+        $parts = $req->multipartParts();   // the list given to multipart(), [] for any other body
+        return ClientResponse::make(['id' => '1'], 200);
+    },
+]);
+```
+
 `ClientResponse::make()` builds a response by hand — an array body is
 JSON-encoded and given `content-type: application/json` automatically:
 
@@ -555,6 +587,8 @@ for development only — it makes the connection trivially interceptable.
 | `->basicAuth(string $user, string $pass): static` | `Authorization: Basic` |
 | `->json(array\|object $data): static` | JSON body + content type |
 | `->form(array $data): static` | URL-encoded form body |
+| `->multipart(array $parts): static` | `multipart/form-data` body of fields and files |
+| `->multipartParts(): array` | The parts given to `multipart()`, for a fake |
 | `->body(string $body, string $contentType): static` | Raw body |
 | `->timeout(int $seconds): static` | Whole-request timeout (default 30) |
 | `->connectTimeout(int $seconds): static` | TCP connect timeout (default 10) |
