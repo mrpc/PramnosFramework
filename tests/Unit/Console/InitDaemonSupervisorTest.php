@@ -112,6 +112,28 @@ class InitDaemonSupervisorTest extends TestCase
     }
 
     /**
+     * The supervisor runs as www-data, the user the image maps to the host's ids.
+     *
+     * As root it is usually the first process to touch `var/` on a fresh clone, so `var/`
+     * and its locks become root-owned and `./dockertest` dies in the bootstrap with
+     * "Unable to open lock file". Asserted inside the `daemons` block, because the `app`
+     * service legitimately has no `user:` (Apache drops privileges itself).
+     */
+    public function testTheSupervisorRunsAsTheHostMappedUser(): void
+    {
+        // Arrange & Act
+        $this->scaffold('queue');
+
+        // Assert
+        $compose = $this->read('docker-compose.yml');
+        $this->assertMatchesRegularExpression(
+            '/^  daemons:\n(?:    .*\n|      .*\n)*?    user: www-data\n/m',
+            $compose,
+            'the daemons service must declare user: www-data'
+        );
+    }
+
+    /**
      * And the class it runs exists, is valid PHP, and declares the queue worker.
      *
      * A compose service pointing at a command nothing registers is a container that restarts

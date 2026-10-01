@@ -6166,12 +6166,18 @@ PHP;
          * boots the framework into its maintenance page and returns 0, which `on-failure`
          * looks at and correctly does nothing about — leaving the supervisor gone, and every
          * other container up and healthy beside it.
+         *
+         * `user: www-data`, like every `exec` the wrappers run: the image maps that user to the
+         * host's ids. As root, this container is usually the first thing to touch `var/` on a
+         * fresh clone, and creates it root-owned — after which the test bootstrap's lock file
+         * and the application's logs can no longer be written by anyone else.
          */
         if ($cliName !== '' && self::needsDaemonSupervisor($features)) {
             $compose .= "  daemons:\n    container_name: {$slug}_daemons\n"
                 . "    build:\n      context: .\n      args:\n"
                 . "        UID: \${UID:-1000}\n        GID: \${GID:-1000}\n"
                 . "    restart: unless-stopped\n"
+                . "    user: www-data\n"
                 . "    command: php /var/www/html/$cliName.php daemons:start\n"
                 . "    volumes:\n      - .:/var/www/html\n$extraVolumes"
                 . "    depends_on:\n      - db\n";

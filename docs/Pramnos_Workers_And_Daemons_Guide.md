@@ -954,6 +954,7 @@ runs the code the site is running:
   daemons:
     build: { context: . }
     restart: unless-stopped          # for the reason given above
+    user: www-data                   # the image maps it to the host user
     command: php /var/www/html/console.php daemons:start
     volumes:
       - .:/var/www/html
@@ -963,6 +964,12 @@ runs the code the site is running:
 
 `pramnos init` writes exactly that for an application whose features have background work —
 the queue, messaging, broadcasting, or the periodic jobs `auth` and `authserver` schedule.
+
+`user: www-data` is the Docker form of the `var/` problem above. Without it the supervisor runs
+as root, is usually the first process to touch `var/` on a fresh clone, and leaves it
+root-owned — so `./dockertest` stops at *Unable to open lock file* and the application cannot
+write its logs. On a project that already hit it: add the line, then
+`docker compose exec -u root app chown -R www-data:www-data var`.
 
 ---
 
