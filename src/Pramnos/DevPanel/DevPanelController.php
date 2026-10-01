@@ -2378,6 +2378,7 @@ class DevPanelController extends Controller
             if ($scope['cutoff'] !== '') {
                 $all = $runner->filterCutoff($all, $scope['cutoff']);
             }
+            $all = $runner->filterExcluded($all, $scope['exclude']);
             $history = [];
             $last    = '—';
             foreach ($runner->getHistory() as $row) {

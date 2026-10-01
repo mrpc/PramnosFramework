@@ -460,4 +460,63 @@ class MigrationScopeTest extends TestCase
         $this->assertSame($app->migrationScope()['dirs'], $scope['dirs']);
         $this->assertNotEmpty($scope['skipped']);
     }
+
+    // =========================================================================
+    // Excluded migrations
+    // =========================================================================
+
+    /**
+     * `'migrations' => ['exclude' => [...]]` reaches the scope, normalised.
+     *
+     * Slugs are lower case everywhere else, so a list written by hand in another case
+     * must still match; blanks and repeats are dropped so a stray comma excludes nothing.
+     */
+    public function testExcludedMigrationsAreReadAndNormalised(): void
+    {
+        // Arrange
+        $app = $this->makeApp(['migrations' => ['exclude' => [' Create_Usertokens_Table ', '', 'create_usertokens_table', 'other']]]);
+
+        // Act
+        $scope = MigrationLoader::scopeFor($app);
+
+        // Assert
+        $this->assertSame(['create_usertokens_table', 'other'], $scope['exclude']);
+    }
+
+    /**
+     * No list, or something that is not a list, means nothing is excluded.
+     */
+    public function testNoExclusionListMeansNothingIsExcluded(): void
+    {
+        // Arrange & Act & Assert — absent, and present but not a list
+        $this->assertSame([], MigrationLoader::scopeFor($this->makeApp([]))['exclude']);
+        $this->assertSame([], MigrationLoader::scopeFor($this->makeApp(['migrations' => ['exclude' => 'one']]))['exclude']);
+    }
+
+    /**
+     * A caller holding no application, or one whose scope lacks the key, gets an empty list.
+     *
+     * The DevPanel and the MCP tools read `$scope['exclude']` unconditionally, so the key
+     * must always be there.
+     */
+    public function testScopeForAlwaysCarriesTheExcludeKey(): void
+    {
+        // Arrange — an application subclass answering the shape from before the key existed
+        $old = new class extends Application {
+            /** No initialisation needed. */
+            public function __construct()
+            {
+            }
+
+            /** @return array<string, mixed> */
+            public function migrationScope(bool $includeConventionalAppDir = false): array
+            {
+                return ['dirs' => [], 'skipped' => [], 'cutoff' => ''];
+            }
+        };
+
+        // Act & Assert
+        $this->assertSame([], MigrationLoader::scopeFor(null)['exclude']);
+        $this->assertSame([], MigrationLoader::scopeFor($old)['exclude']);
+    }
 }

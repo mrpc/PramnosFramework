@@ -99,7 +99,7 @@ class MigrationLoader
      *
      * @param  object|null $app Ideally a Pramnos application.
      * @param  bool $includeConventionalAppDir See Application::migrationScope().
-     * @return array{dirs: string[], skipped: array<string, string>, cutoff: string}
+     * @return array{dirs: string[], skipped: array<string, string>, cutoff: string, exclude: string[]}
      */
     public static function scopeFor(?object $app, bool $includeConventionalAppDir = false): array
     {
@@ -120,6 +120,7 @@ class MigrationLoader
                 'dirs'    => static::resolveDefaultDirectories(),
                 'skipped' => [],
                 'cutoff'  => '',
+                'exclude' => [],
             ];
         }
 
@@ -128,7 +129,64 @@ class MigrationLoader
             'dirs'    => is_array($scope['dirs'] ?? null) ? $scope['dirs'] : [],
             'skipped' => is_array($scope['skipped'] ?? null) ? $scope['skipped'] : [],
             'cutoff'  => is_string($scope['cutoff'] ?? null) ? $scope['cutoff'] : '',
+            'exclude' => is_array($scope['exclude'] ?? null)
+                ? array_values(array_map('strval', $scope['exclude']))
+                : [],
         ];
+    }
+
+    /**
+     * The excluded slugs that match no migration on disk.
+     *
+     * An exclusion is a promise that a table is the application's own, and a typo in it
+     * keeps nothing out: the migration runs and nothing says so. Checked against every
+     * framework directory as well as `$dirs`, so a slug in a feature the installation has
+     * switched off is not reported as unknown.
+     *
+     * @param string[] $exclude Slugs from `'migrations' => ['exclude' => [...]]`
+     * @param string[] $dirs    The directories in scope
+     * @return string[]
+     */
+    public static function unknownExclusions(array $exclude, array $dirs): array
+    {
+        if ($exclude === []) {
+            return [];
+        }
+        $base = static::resolveFrameworkMigrationsBase();
+        if ($base !== null) {
+            $dirs = array_merge($dirs, glob($base . '/*', GLOB_ONLYDIR) ?: []);
+        }
+        $known = static::slugsFromDirectories(array_unique($dirs));
+
+        return array_values(array_diff($exclude, array_keys($known)));
+    }
+
+    /**
+     * The tables a migration creates or changes, read from its source.
+     *
+     * For advice, not enforcement: `migrate:status` uses it to name the migrations that
+     * still touch a table whose creating migration was excluded. It reads the schema
+     * builder calls that write — `createTable`, `alterTable`, `table`, `dropTableIfExists`
+     * — with a literal name. Raw SQL and computed names are not seen.
+     *
+     * @return string[] Table names, `#PREFIX#` removed
+     */
+    public static function tablesWrittenBy(Migration $migration): array
+    {
+        $file = (new \ReflectionClass($migration))->getFileName();
+        if ($file === false || !is_file($file)) {
+            return [];
+        }
+        preg_match_all(
+            '/->(?:createTable|alterTable|table|dropTableIfExists)\(\s*[\'"]([^\'"]+)[\'"]/',
+            (string) file_get_contents($file),
+            $matches
+        );
+
+        return array_values(array_unique(array_map(
+            static fn (string $t): string => str_replace('#PREFIX#', '', $t),
+            $matches[1]
+        )));
     }
 
     /**

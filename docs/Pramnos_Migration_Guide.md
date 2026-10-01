@@ -7,6 +7,7 @@ use_cases:
   - Writing a migration that must coexist with an application's own tables and views
   - Working out why migrate:status reports migrations that will never run
   - Configuring migration_cutoff or the features gate for an existing schema
+  - Stopping the framework from creating or altering a table the application manages itself
   - Finding out whether a migration's statements actually succeeded
   - Reading a Ran with errors row, or deciding a migration's outcome in its own code
   - Writing a migration that alters a table which may hold data it cannot accept
@@ -213,6 +214,10 @@ return [
         // (e.g. its own `sessions` layout) — only the app's own `paths` run.
         // Defaults to true (unchanged behaviour for existing apps).
         'framework' => false,
+
+        // Framework migrations this installation never runs, by slug — for a table the
+        // application manages itself. See "Leaving a framework table alone" below.
+        'exclude'   => ['create_mailtemplates_table'],
     ],
 
     // Skip every migration at or before this timestamp. Set it to the baseline
@@ -221,6 +226,52 @@ return [
     'migration_cutoff' => '2025-01-01 00:00:01',
 ];
 ```
+
+#### Leaving a framework table alone: `migrations.exclude`
+
+When an application manages one framework table itself — its own `mailtemplates` layout, a
+`usertokens` table it shares with another writer — it names the migrations to leave alone:
+
+```php
+'migrations' => [
+    'exclude' => ['create_mailtemplates_table'],
+],
+```
+
+| | `migration_cutoff` | `'framework' => false` | `exclude` |
+|---|---|---|---|
+| Skips | every migration up to a date | every framework migration | the slugs listed |
+| Typical use | a schema that predates the migration system | an application that owns the whole schema | one table the application owns |
+
+The slug is the file name without its timestamp, as `migrate:status` prints it. Matching is
+case-insensitive.
+
+**Every path obeys it**: `migrate`, the per-request auto-run, `migrate:status`, the
+DevPanel's migration card and the MCP status tools. An excluded migration is never run, never
+recorded in the ledger and never counted as pending. Take a slug off the list and it is
+pending again, with nothing to repair.
+
+**An excluded migration counts as satisfied for its dependents.** Excluding it is the
+application saying the table exists and is its own, so a migration that depends on it still
+runs, and the dependency pool does not pull it back in. If the table does not actually exist,
+those dependents fail; that is the application's side of the promise.
+
+**Excluding the migration that creates a table does not exclude the ones that alter it.**
+`migrate:status` names them:
+
+```
+usertokens is excluded (create_usertokens_table), but add_token_lookup_to_usertokens,
+add_oidc_context_to_usertokens still change it. Exclude them too if the table is yours.
+```
+
+This is read from each migration's schema-builder calls (`createTable`, `alterTable`, `table`,
+`dropTableIfExists`) with a literal table name, so it is advice: a change made in raw SQL is
+not seen.
+
+A slug that matches no migration is reported by `migrate` and `migrate:status`, because a typo
+excludes nothing. A slug belonging to a feature this installation has switched off is not
+reported, since that migration exists. `migrate <slug>` for an excluded migration refuses and
+says why, instead of printing *Nothing to migrate*.
 
 #### What the fingerprint covers
 

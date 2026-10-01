@@ -248,6 +248,26 @@ class ApplicationAutoMigrationsPostgreSQLTest extends TestCase
         );
     }
 
+    /**
+     * The request-lifecycle run obeys `'migrations' => ['exclude' => [...]]`.
+     *
+     * This is the path nobody invokes by name — every request runs it — so an exclusion the
+     * CLI honoured and this one ignored would create the application's own table on the
+     * next page view. Asserted on the table and on the ledger.
+     */
+    public function testAnExcludedMigrationIsNotAutoRun(): void
+    {
+        // Arrange
+        $app = $this->makeApp(['migrations' => ['exclude' => ['am_create_autorun_table']]]);
+
+        // Act
+        $app->triggerAutoMigrations();
+
+        // Assert
+        $this->assertFalse($this->tableExists('am_autorun_test'), 'an excluded migration ran on a request');
+        $this->assertNotContains('am_create_autorun_table', $this->ranSlugs());
+    }
+
     // -----------------------------------------------------------------------
     // 5b. Application-declared migration directories (app.php 'migrations')
     // -----------------------------------------------------------------------

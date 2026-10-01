@@ -138,6 +138,16 @@ class Migrate extends Command
                 $output->writeln('<error>Migration not found: ' . $name . '</error>');
                 return 1;
             }
+            // Named on purpose and excluded on purpose: the exclusion wins, because it is the
+            // application's statement that the table is its own. Saying so beats the
+            // «Nothing to migrate» the runner would otherwise print.
+            if (in_array($migrations[0]->getSlug(), $migrationScope['exclude'], true)) {
+                $output->writeln(
+                    '<error>' . $migrations[0]->getSlug() . ' is excluded by app.php\'s '
+                    . 'migrations.exclude, so it does not run here.</error>'
+                );
+                return 1;
+            }
         }
 
         $options = [];
@@ -156,6 +166,11 @@ class Migrate extends Command
         $cutoff = $input->getOption('cutoff') ?: $migrationScope['cutoff'];
         if ($cutoff !== '') {
             $options['cutoff'] = $cutoff;
+        }
+
+        if ($migrationScope['exclude'] !== []) {
+            $options[MigrationRunner::OPTION_EXCLUDE] = $migrationScope['exclude'];
+            $this->warnAboutUnknownExclusions($output, $migrationScope['exclude'], $dirs);
         }
 
         $runner = new MigrationRunner($db);
@@ -351,4 +366,18 @@ class Migrate extends Command
         return $label;
     }
 
+    /**
+     * Says which excluded slugs match no migration — a typo keeps nothing out.
+     *
+     * @param string[] $exclude
+     * @param string[] $dirs
+     */
+    private function warnAboutUnknownExclusions(OutputInterface $output, array $exclude, array $dirs): void
+    {
+        foreach (MigrationLoader::unknownExclusions($exclude, $dirs) as $slug) {
+            $output->writeln(
+                '<comment>migrations.exclude names "' . $slug . '", which matches no migration.</comment>'
+            );
+        }
+    }
 }

@@ -93,7 +93,8 @@ class MigrateStatus extends Command
             }
         }
 
-        $cutoff = $migrationScope['cutoff'];
+        $cutoff  = $migrationScope['cutoff'];
+        $exclude = array_flip($migrationScope['exclude']);
 
         // A connection is what tells Ran from Pending; without one the disk
         // listing is still worth printing, and saying so beats returning 1 and
@@ -124,6 +125,8 @@ class MigrateStatus extends Command
         $table->setHeaders(['Migration', 'Scope', 'Feature', 'Status', 'Batch', 'Time (s)', 'Ran At']);
 
         $hasPending  = false;
+        $pending     = [];
+        $excluded    = [];
         $skippedRows = [];
         $withErrors  = [];
         $declinedRows = [];
@@ -161,7 +164,11 @@ class MigrateStatus extends Command
             // never counted as pending. A migration whose feature is off is
             // skipped whatever its timestamp, so the feature reason is checked
             // first.
-            $reason = $skipReasons[$slug] ?? $this->cutoffReason($migration, $cutoff);
+            if (isset($exclude[$slug])) {
+                $excluded[$slug] = $migration;
+            }
+            $reason = $skipReasons[$slug]
+                ?? (isset($exclude[$slug]) ? 'excluded' : $this->cutoffReason($migration, $cutoff));
             if ($reason !== null) {
                 $skippedRows[] = [
                     $slug,
@@ -175,7 +182,8 @@ class MigrateStatus extends Command
                 continue;
             }
 
-            $hasPending = true;
+            $hasPending     = true;
+            $pending[$slug] = $migration;
             $table->addRow([
                 $slug,
                 $migration->scope,
@@ -230,6 +238,8 @@ class MigrateStatus extends Command
                 );
             }
         }
+
+        $this->reportExclusions($output, $excluded, $pending, $migrationScope['exclude'], $dirs);
 
         // The whole point of the third state: what was rejected is readable here,
         // rather than in var/logs/upgradeerrors.log, which nothing points at.
@@ -315,4 +325,60 @@ class MigrateStatus extends Command
         return strcmp($timestamp, $cutoff) <= 0 ? 'cutoff' : null;
     }
 
+    /**
+     * What an exclusion leaves behind: pending migrations on the same tables, and typos.
+     *
+     * Excluding the migration that creates a table does not stop a later one from altering
+     * it — `create_users_table` excluded, `add_gdpr_columns_to_users` still pending. Each such
+     * migration is named here, so the application can decide whether to exclude it too. Read
+     * from the schema-builder calls in each file, so it is advice: raw SQL is not seen.
+     *
+     * @param array<string, Migration> $excluded Excluded migrations found on disk
+     * @param array<string, Migration> $pending  Migrations that will run
+     * @param string[]                 $exclude  The configured slugs
+     * @param string[]                 $dirs     The directories in scope
+     */
+    private function reportExclusions(
+        OutputInterface $output,
+        array $excluded,
+        array $pending,
+        array $exclude,
+        array $dirs
+    ): void {
+        foreach (MigrationLoader::unknownExclusions($exclude, $dirs) as $slug) {
+            $output->writeln(
+                '<comment>migrations.exclude names "' . $slug . '", which matches no migration.</comment>'
+            );
+        }
+
+        $writers = [];
+        foreach ($pending as $slug => $migration) {
+            foreach (MigrationLoader::tablesWrittenBy($migration) as $table) {
+                $writers[$table][] = $slug;
+            }
+        }
+
+        // Once per table, however many excluded migrations touch it.
+        $excludedBy = [];
+        foreach ($excluded as $slug => $migration) {
+            foreach (MigrationLoader::tablesWrittenBy($migration) as $table) {
+                $excludedBy[$table][] = $slug;
+            }
+        }
+
+        foreach ($excludedBy as $table => $slugs) {
+            if (empty($writers[$table])) {
+                continue;
+            }
+            $output->writeln(sprintf(
+                '<comment>%s is excluded (%s), but %s still change%s it.</comment>'
+                . ' Exclude %s too if the table is yours.',
+                $table,
+                implode(', ', $slugs),
+                implode(', ', $writers[$table]),
+                count($writers[$table]) === 1 ? 's' : '',
+                count($writers[$table]) === 1 ? 'it' : 'them'
+            ));
+        }
+    }
 }

@@ -3630,7 +3630,7 @@ class Application extends Base
      *         whose directories are exactly what `app.php` declares; true for the
      *         CLI, which has always scanned the conventional directory and must
      *         not start hiding what it finds there.
-     * @return array{dirs: string[], skipped: array<string, string>, cutoff: string}
+     * @return array{dirs: string[], skipped: array<string, string>, cutoff: string, exclude: string[]}
      *         dirs — eligible directories; skipped — directory path => reason;
      *         cutoff — `YYYY_MM_DD_HHmmss`, or `''` when the app sets none.
      */
@@ -3676,7 +3676,32 @@ class Application extends Base
             'cutoff'  => $this->normalizeMigrationCutoff(
                 $this->applicationInfo['migration_cutoff'] ?? ''
             ),
+            'exclude' => $this->excludedMigrations(),
         ];
+    }
+
+    /**
+     * Migrations this installation never runs, by slug.
+     *
+     * `app.php`'s `'migrations' => ['exclude' => ['create_mailtemplates_table']]`: a framework
+     * migration whose table the application manages itself. Unlike `migration_cutoff`, which
+     * skips an epoch, and `'framework' => false`, which skips every framework migration, this
+     * names the ones to leave alone. Read by every path that runs or counts migrations,
+     * through {@see migrationScope()}.
+     *
+     * @return string[]
+     */
+    protected function excludedMigrations(): array
+    {
+        $config = $this->applicationInfo['migrations'] ?? null;
+        if (!is_array($config) || !is_array($config['exclude'] ?? null)) {
+            return [];
+        }
+
+        return array_values(array_unique(array_filter(
+            array_map(static fn ($slug): string => strtolower(trim((string) $slug)), $config['exclude']),
+            static fn (string $slug): bool => $slug !== ''
+        )));
     }
 
     /**
@@ -4173,6 +4198,12 @@ class Application extends Base
             return;
         }
 
+        // Excluded slugs leave the map before the fingerprint is taken, so changing the list
+        // changes the key and the next request looks again.
+        foreach ($scope['exclude'] ?? [] as $slug) {
+            unset($slugTimestamps[$slug]);
+        }
+
         // Apply cutoff filter at the filename level so the fingerprint only
         // covers migrations that are actually eligible to run.
         if ($cutoff !== '') {
@@ -4267,6 +4298,9 @@ class Application extends Base
         $options    = [];
         if ($cutoff !== '') {
             $options['cutoff'] = $cutoff;
+        }
+        if (!empty($scope['exclude'])) {
+            $options[\Pramnos\Database\MigrationRunner::OPTION_EXCLUDE] = $scope['exclude'];
         }
 
         $runner->run($migrations, $options, static function(string $event, string $slug, string $error, float $ms = 0.0): void {

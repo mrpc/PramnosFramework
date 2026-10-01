@@ -400,8 +400,13 @@ class MigrationRunner
     {
         $this->ensureHistoryTable();
 
-        $force  = (bool) ($options['force']  ?? false);
-        $cutoff = $options['cutoff'] ?? null;
+        $force   = (bool) ($options['force']  ?? false);
+        $cutoff  = $options['cutoff'] ?? null;
+        $exclude = array_values(array_map('strval', (array) ($options[self::OPTION_EXCLUDE] ?? [])));
+
+        // Before anything else looks at the batch, so an excluded migration is not adopted,
+        // sorted, counted or run.
+        $migrations = $this->filterExcluded($migrations, $exclude);
 
         /*
          * Carry a version-keyed history across before deciding anything is pending.
@@ -442,8 +447,9 @@ class MigrationRunner
         // in a previous batch is satisfied and must not trigger "unknown dep" errors.
         $alreadyRan = $this->db !== null ? $this->getRanSlugs() : [];
 
-        // Determine which migrations to attempt (sorted, filtered)
-        $candidates = $this->sort($migrations, $alreadyRan);
+        // Determine which migrations to attempt (sorted, filtered). An excluded slug counts
+        // as satisfied, so its dependents run and the pool does not pull it back in.
+        $candidates = $this->sort($migrations, array_merge($alreadyRan, $exclude));
         $candidates = $this->filterAutorun($candidates, $force);
 
         if ($cutoff !== null) {
@@ -995,6 +1001,30 @@ class MigrationRunner
     }
 
     /**
+     * Returns the migrations whose slug is not in `$exclude`.
+     *
+     * For the callers that only report — the DevPanel, the MCP tools — so that an excluded
+     * migration is never counted as pending. {@see run()} applies the same list through
+     * {@see OPTION_EXCLUDE}, which also treats it as satisfied for its dependents.
+     *
+     * @param Migration[] $migrations
+     * @param string[]    $exclude    Slugs, as `Migration::getSlug()` returns them
+     * @return Migration[]
+     */
+    public function filterExcluded(array $migrations, array $exclude): array
+    {
+        if ($exclude === []) {
+            return array_values($migrations);
+        }
+        $excluded = array_flip(array_map('strval', $exclude));
+
+        return array_values(array_filter(
+            $migrations,
+            static fn (Migration $m): bool => !isset($excluded[$m->getSlug()])
+        ));
+    }
+
+    /**
      * Returns only migrations whose filename timestamp is strictly after the
      * given cutoff string (format: YYYY_MM_DD_HHmmss).
      *
@@ -1126,6 +1156,17 @@ class MigrationRunner
      * get the other.
      */
     public const OPTION_ADOPT_BASELINE = 'adoptBaseline';
+
+    /**
+     * Option name for the slugs this run must leave alone — `app.php`'s
+     * `'migrations' => ['exclude' => [...]]`.
+     *
+     * An excluded migration is not run, and is treated as **satisfied** for every migration
+     * that depends on it: excluding a framework migration is the application saying the table
+     * it creates is its own. Leaving it unsatisfied would block every dependent, and the
+     * dependency pool would otherwise pull it straight back in.
+     */
+    public const OPTION_EXCLUDE = 'exclude';
 
     /**
      * Refuse to run a whole history against a database that plainly is not new.

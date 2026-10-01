@@ -53,6 +53,7 @@ class MigrationStatusTool implements McpToolInterface
         if ($scope['cutoff'] !== '') {
             $migrations = $runner->filterCutoff($migrations, $scope['cutoff']);
         }
+        $migrations = $runner->filterExcluded($migrations, $scope['exclude']);
         $history    = $runner->getHistory();
 
         $historyMap = [];

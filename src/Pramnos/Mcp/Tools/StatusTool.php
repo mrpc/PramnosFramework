@@ -113,6 +113,7 @@ class StatusTool implements McpToolInterface
             if ($scope['cutoff'] !== '') {
                 $migrations = $runner->filterCutoff($migrations, $scope['cutoff']);
             }
+            $migrations = $runner->filterExcluded($migrations, $scope['exclude']);
             $history = $runner->getHistory();
         } catch (\Throwable $exception) {
             return ['unknown' => true, 'error' => $exception->getMessage()];

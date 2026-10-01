@@ -639,4 +639,77 @@ PHP;
         $this->assertSame(0, $code);
         $this->assertStringContainsString('baseline_thing', $display);
     }
+
+    /**
+     * The configured exclusion keeps a migration out of a plain `migrate`.
+     *
+     * WHAT: of two migrations in the directory, the excluded one is never attempted.
+     * WHY:  `'migrations' => ['exclude' => [...]]` is the application saying a table is its
+     *       own; a run that ignored it would create the very table it was told to leave alone.
+     */
+    public function testConfiguredExclusionIsApplied(): void
+    {
+        // Arrange
+        $this->writeMigrationFile('2026_05_21_000046_owned_thing', 'MigrateTest_Owned');
+        $this->writeMigrationFile('2026_05_21_000047_other_thing', 'MigrateTest_Other');
+        $tester = $this->makeTester(
+            $this->makeDbMock(),
+            ['migrations' => ['exclude' => ['owned_thing']]]
+        );
+
+        // Act
+        $code    = $tester->execute(['--path' => $this->tmpDir]);
+        $display = $tester->getDisplay();
+
+        // Assert — the other one ran, the excluded one was never mentioned
+        $this->assertSame(0, $code);
+        $this->assertStringContainsString('other_thing', $display);
+        $this->assertStringNotContainsString('owned_thing', $display);
+    }
+
+    /**
+     * Naming an excluded migration explicitly is refused, and the reason is given.
+     *
+     * WHAT: `migrate owned_thing` exits 1 and names migrations.exclude.
+     * WHY:  the runner would otherwise drop it and print «Nothing to migrate», which reads
+     *       as if the migration had already run.
+     */
+    public function testNamingAnExcludedMigrationSaysItIsExcluded(): void
+    {
+        // Arrange
+        $this->writeMigrationFile('2026_05_21_000046_owned_thing', 'MigrateTest_Owned2');
+        $tester = $this->makeTester(
+            $this->makeDbMock(),
+            ['migrations' => ['exclude' => ['owned_thing']]]
+        );
+
+        // Act
+        $code = $tester->execute(['--path' => $this->tmpDir, 'migration' => 'owned_thing']);
+
+        // Assert
+        $this->assertSame(1, $code);
+        $this->assertStringContainsString('excluded by app.php', $tester->getDisplay());
+    }
+
+    /**
+     * An excluded slug that matches nothing is reported before the run.
+     *
+     * WHAT: a misspelt slug produces a line naming it.
+     * WHY:  a typo excludes nothing — the migration runs — and nothing else would say so.
+     */
+    public function testAnUnknownExclusionIsReported(): void
+    {
+        // Arrange
+        $this->writeMigrationFile('2026_05_21_000046_owned_thing', 'MigrateTest_Owned3');
+        $tester = $this->makeTester(
+            $this->makeDbMock(),
+            ['migrations' => ['exclude' => ['owned_thingg']]]
+        );
+
+        // Act
+        $tester->execute(['--path' => $this->tmpDir]);
+
+        // Assert
+        $this->assertStringContainsString('"owned_thingg", which matches no migration', $tester->getDisplay());
+    }
 }
