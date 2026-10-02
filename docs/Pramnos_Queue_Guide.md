@@ -242,6 +242,34 @@ Scheduler::call(function () use ($queue, $store) {
 
 An id nobody queued reads as an empty batch that is finished.
 
+### A failed task waits before it is tried again
+
+`markTaskAsFailed()` on a task with attempts left puts it back to `pending` with
+`availableat` in the future: **30 seconds per attempt so far, at most ten minutes**. No
+worker claims it before then, on any claim path (both `SKIP LOCKED` shapes and the
+fallback).
+
+The reason is the case that reached production. A unit queued while a deploy landed was
+claimed by a worker still running the old code, and it failed there. Retried at once, it went
+straight back to the same worker. The orchestrator restarts workers once it sees the new
+deploy, within a minute, and the delay outlasts that window.
+
+To change the curve, override `retryDelaySeconds()`:
+
+```php
+class Queue extends \Pramnos\Queue\QueueManager
+{
+    protected function retryDelaySeconds(\Pramnos\Queue\QueueItem $task): int
+    {
+        return 5;   // a queue of cheap, idempotent units
+    }
+}
+```
+
+`retryTask()`, an operator's retry of a task that failed for good, is available at once. Until
+`migrate` has added the `availableat` column, retries are immediate as before and nothing
+fails.
+
 ---
 
 ## Keeping the durable queue honest

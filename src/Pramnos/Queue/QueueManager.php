@@ -490,7 +490,8 @@ class QueueManager
         if ($startfrom > 0) {
             $startDate = date('Y-m-d H:i:s', $startfrom);
             $recent    = $model->getList(
-                "WHERE status = 'pending' AND createdat >= '$startDate' AND priority <= 10" . $typeClause,
+                "WHERE status = 'pending' AND createdat >= '$startDate' AND priority <= 10" . $typeClause
+                    . $this->availableClause($now),
                 'ORDER BY priority ASC, createdat ASC' . $limit
             );
             $offered += count($recent);
@@ -501,7 +502,9 @@ class QueueManager
             }
         }
 
-        $pending  = $model->getList("WHERE status = 'pending'" . $typeClause, $order);
+        // Model filter fragments rather than the builder: claimFirstOf() works on loaded
+        // models, and this path is the fallback for servers without SKIP LOCKED.
+        $pending  = $model->getList("WHERE status = 'pending'" . $typeClause . $this->availableClause($now), $order);
         $offered += count($pending);
         $claimed  = $this->claimFirstOf($pending, $now, $lockExpiry);
 
@@ -629,7 +632,7 @@ class QueueManager
                         lockexpires = %s
                   WHERE taskid = (
                         SELECT taskid FROM " . $table . "
-                         WHERE status = 'pending'" . $typeClause . '
+                         WHERE status = 'pending'" . $typeClause . $this->availableClause($now) . '
                          ORDER BY priority ASC, createdat ASC
                          FOR UPDATE SKIP LOCKED
                          LIMIT 1
@@ -666,6 +669,7 @@ class QueueManager
         try {
             $picked = $database->query(
                 'SELECT taskid FROM ' . $table . " WHERE status = 'pending'" . $typeClause
+                . $this->availableClause($now)
                 . ' ORDER BY priority ASC, createdat ASC LIMIT 1 FOR UPDATE SKIP LOCKED'
             );
 
@@ -736,6 +740,17 @@ class QueueManager
      * @var bool
      */
     protected static $skipLockedUnavailable = false;
+
+    /**
+     * Whether `queueitems.availableat` exists, per table, once per process.
+     *
+     * A worker on new code can start before `migrate` has added the column, and a claim that
+     * named a missing column would stop the whole queue. Until the column is there, retries
+     * are simply not delayed.
+     *
+     * @var array<string, bool>
+     */
+    private static array $hasAvailableAt = [];
 
     /**
      * Forget that discovery — for tests, and for a process that changes connection.
@@ -917,8 +932,8 @@ class QueueManager
      * Mark a task as failed.
      *
      * If attempts < maxattempts the status is reset to 'pending' for automatic
-     * retry. Only when all attempts are exhausted is the task permanently
-     * marked as 'failed'.
+     * retry, claimable after {@see retryDelaySeconds()}. Only when all attempts are
+     * exhausted is the task permanently marked as 'failed'.
      *
      * @param  QueueItem    $task
      * @param  string|null  $errorMessage
@@ -935,6 +950,10 @@ class QueueManager
             $task->completedat = date('Y-m-d H:i:s');
         } else {
             $task->status = 'pending';
+            // Not at once: the conditions that just failed it are most likely still there.
+            if ($this->hasAvailableAt()) {
+                $task->availableat = date('Y-m-d H:i:s', time() + $this->retryDelaySeconds($task));
+            }
         }
 
         $task->error          = $errorMessage;
@@ -965,6 +984,10 @@ class QueueManager
         $task->status    = 'pending';
         $task->attempts  = 0;
         $task->error     = null;
+        if ($this->hasAvailableAt()) {
+            // An operator asking for a retry means now.
+            $task->availableat = null;
+        }
         $task->updatedat = date('Y-m-d H:i:s');
         $task->save();
 
@@ -1822,6 +1845,55 @@ class QueueManager
      * @param  mixed  $data
      * @return string  SHA-256 hex digest
      */
+    /**
+     * The claim condition that keeps a delayed retry back until its time.
+     *
+     * Empty until the column exists. `$now` is this method's own `date()` output, never
+     * input, which is why it is interpolated rather than bound: the claim statements it joins
+     * are raw because `FOR UPDATE SKIP LOCKED` is not something the query builder expresses.
+     */
+    private function availableClause(string $now): string
+    {
+        return $this->hasAvailableAt()
+            ? " AND (availableat IS NULL OR availableat <= '" . $now . "')"
+            : '';
+    }
+
+    /** Whether this installation's queue table has `availableat` yet. */
+    private function hasAvailableAt(): bool
+    {
+        $table = $this->getQueueTableName();
+        if (!isset(self::$hasAvailableAt[$table])) {
+            try {
+                self::$hasAvailableAt[$table] = $this->controller->application->database
+                    ->schema()->hasColumn($table, 'availableat');
+            } catch (\Throwable) {
+                return false;
+            }
+        }
+
+        return self::$hasAvailableAt[$table];
+    }
+
+    /**
+     * How long a failed task waits before it may be claimed again.
+     *
+     * Thirty seconds per attempt so far, at most ten minutes: long enough that the retry is
+     * unlikely to land on the same worker in the same state — a deploy's old process, a
+     * provider's bad minute — and short enough that a transient failure costs little.
+     * Override to change the curve.
+     */
+    protected function retryDelaySeconds(QueueItem $task): int
+    {
+        return min(600, 30 * max(1, (int) $task->attempts));
+    }
+
+    /** Forget whether the table has `availableat` — for tests that build and drop it. */
+    public static function forgetSchemaCache(): void
+    {
+        self::$hasAvailableAt = [];
+    }
+
     private function generateTaskHash(string $type, mixed $data): string
     {
         if (is_array($data)) {

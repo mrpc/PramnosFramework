@@ -33,6 +33,9 @@ namespace Pramnos\Queue;
  * @property float|null  $execution_time Wall-clock seconds
  * @property float|null  $cpu_time       CPU seconds the handler used, or null
  * @property string|null $success_message
+ * @property string|null $batchid        The addMany() call that queued it, or null
+ * @property string|null $batchname      What that batch is for
+ * @property string|null $availableat    Earliest time a retry may be claimed, or null
  */
 class QueueItem extends \Pramnos\Application\Model
 {
@@ -82,6 +85,12 @@ class QueueItem extends \Pramnos\Application\Model
     public $cpu_time;
     /** @var string|null  Human-readable success/warning message */
     public $success_message;
+    /** @var string|null  The QueueManager::addMany() call that queued it */
+    public $batchid;
+    /** @var string|null  What that batch is for */
+    public $batchname;
+    /** @var string|null  Earliest time a retry may be claimed; null = at once */
+    public $availableat;
 
     /** @var string */
     protected $_primaryKey = 'taskid';

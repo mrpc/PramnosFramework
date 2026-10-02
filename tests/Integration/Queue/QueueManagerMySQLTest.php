@@ -69,6 +69,9 @@ class QueueManagerMySQLTest extends TestCase
         $this->runQueueMigration();
 
         $this->manager = new QueueManager($this->controller);
+        // The table was just rebuilt; the manager and the model must look at its columns again.
+        QueueManager::forgetSchemaCache();
+        \Pramnos\Application\Model::$columnCache = [];
     }
 
     protected function tearDown(): void
@@ -247,6 +250,10 @@ class QueueManagerMySQLTest extends TestCase
         $this->assertSame('pending', $row->fields['status'],
             "status must be 'pending' after first failure when retries remain");
         $this->assertSame(1, (int)$row->fields['attempts']);
+
+        // The retry waits out its delay before it can be claimed (see the delay tests below).
+        $this->assertFalse($this->manager->getNextTask(), 'a retry must not be claimable at once');
+        $this->makeAvailableNow($id);
 
         // Attempt 2 — now permanently failed
         $task2 = $this->manager->getNextTask();
@@ -2002,6 +2009,140 @@ class QueueManagerMySQLTest extends TestCase
 
         // Assert — nothing left of it
         $this->assertFalse($this->manager->batchInProgress('channels.collect'));
+    }
+
+    // -------------------------------------------------------------------------
+    // A failed task waits before it is tried again
+    // -------------------------------------------------------------------------
+
+    /** Move a delayed retry's time into the past, as if its delay had run out. */
+    private function makeAvailableNow(int $taskId): void
+    {
+        $this->db->queryBuilder()->table('queueitems')->where('taskid', $taskId)
+            ->update(['availableat' => date('Y-m-d H:i:s', time() - 1)]);
+    }
+
+    /**
+     * A failure that leaves attempts sets `availableat` thirty seconds per attempt ahead,
+     * and until then no worker can claim the task.
+     *
+     * The case that went to production: a unit queued while a deploy landed was claimed by a
+     * worker still on the old code, failed, and its immediate retry went to the same worker.
+     */
+    public function testAFailedTaskIsNotClaimableUntilItsDelayRunsOut(): void
+    {
+        // Arrange
+        $id   = $this->manager->addTask('flaky_task', [], maxAttempts: 3);
+        $task = $this->manager->getNextTask();
+        $before = time();
+
+        // Act
+        $this->manager->markTaskAsFailed($task, 'old code');
+
+        // Assert — delayed by one attempt's worth
+        $row = $this->db->queryBuilder()->table('queueitems')->where('taskid', $id)->first();
+        $this->assertSame('pending', $row->fields['status']);
+        $availableAt = strtotime((string) $row->fields['availableat']);
+        $this->assertGreaterThanOrEqual($before + 30, $availableAt);
+        $this->assertLessThanOrEqual(time() + 31, $availableAt);
+        $this->assertFalse($this->manager->getNextTask(), 'claimed before its time');
+
+        // Act & Assert — once the time has come, it is claimable again
+        $this->makeAvailableNow($id);
+        $again = $this->manager->getNextTask();
+        $this->assertNotFalse($again);
+        $this->assertSame($id, (int) $again->taskid);
+    }
+
+    /**
+     * The fallback claim, for servers without SKIP LOCKED, holds a retry back too.
+     *
+     * Three claim paths exist and each builds its own SELECT; a delay honoured by two of them
+     * is a delay that depends on which database version is underneath.
+     */
+    public function testTheFallbackClaimHoldsADelayedRetryBack(): void
+    {
+        // Arrange — a manager that never takes the SKIP LOCKED path
+        $manager = new class ($this->controller) extends QueueManager {
+            protected function supportsSkipLocked(): bool
+            {
+                return false;
+            }
+        };
+        $id = $manager->addTask('flaky_task', [], maxAttempts: 3);
+        $manager->markTaskAsFailed($manager->getNextTask(), 'boom');
+
+        // Act & Assert — held back, then available
+        $this->assertFalse($manager->getNextTask());
+        $this->makeAvailableNow($id);
+        $this->assertSame($id, (int) $manager->getNextTask()->taskid);
+    }
+
+    /**
+     * An operator's retry of a failed task is available at once.
+     */
+    public function testRetryTaskClearsTheDelay(): void
+    {
+        // Arrange — failed for good, with a delay left from its last retry
+        $id = $this->manager->addTask('flaky_task', [], maxAttempts: 2);
+        $this->manager->markTaskAsFailed($this->manager->getNextTask(), 'one');
+        $this->makeAvailableNow($id);
+        $this->manager->markTaskAsFailed($this->manager->getNextTask(), 'two');
+        $this->db->queryBuilder()->table('queueitems')->where('taskid', $id)
+            ->update(['availableat' => date('Y-m-d H:i:s', time() + 3600)]);
+
+        // Act
+        $this->assertTrue($this->manager->retryTask($id));
+
+        // Assert
+        $this->assertSame($id, (int) $this->manager->getNextTask()->taskid);
+    }
+
+    /**
+     * The delay grows with the attempts and stops at ten minutes; a subclass can change it.
+     */
+    public function testTheRetryDelayCurve(): void
+    {
+        // Arrange
+        $probe = new class ($this->controller) extends QueueManager {
+            /** Exposes the protected curve. */
+            public function delayFor(int $attempts): int
+            {
+                $task = new \Pramnos\Queue\QueueItem($this->controller);
+                $task->attempts = $attempts;
+
+                return $this->retryDelaySeconds($task);
+            }
+        };
+
+        // Act & Assert
+        $this->assertSame(30, $probe->delayFor(0));
+        $this->assertSame(30, $probe->delayFor(1));
+        $this->assertSame(90, $probe->delayFor(3));
+        $this->assertSame(600, $probe->delayFor(50));
+    }
+
+    /**
+     * Before `migrate` has added the column, a retry is simply not delayed — and nothing fails.
+     *
+     * A worker on new code can start before the migration runs. A claim that named a missing
+     * column would stop the whole queue.
+     */
+    public function testWithoutTheColumnRetriesAreImmediateAndNothingBreaks(): void
+    {
+        // Arrange — the migration taken back
+        require_once dirname(__DIR__, 3) . '/database/migrations/framework/queue/2026_10_02_000002_add_availableat_to_queueitems.php';
+        (new \Pramnos\Framework\Migrations\Queue\AddAvailableatToQueueitems($this->app))->down();
+        QueueManager::forgetSchemaCache();
+        // Run outside migrate, so nothing flushed the model's column cache for it.
+        \Pramnos\Application\Model::$columnCache = [];
+        $id = $this->manager->addTask('flaky_task', [], maxAttempts: 3);
+
+        // Act
+        $this->manager->markTaskAsFailed($this->manager->getNextTask(), 'boom');
+
+        // Assert — claimable at once, as before the column existed
+        $this->assertSame($id, (int) $this->manager->getNextTask()->taskid);
     }
 
 }

@@ -77,6 +77,8 @@ class QueueManagerPostgreSQLTest extends QueueManagerMySQLTest
         $this->runQueueMigration();
 
         $this->manager = new \Pramnos\Queue\QueueManager($this->controller);
+        \Pramnos\Queue\QueueManager::forgetSchemaCache();
+        \Pramnos\Application\Model::$columnCache = [];
     }
 
     protected function tearDown(): void
