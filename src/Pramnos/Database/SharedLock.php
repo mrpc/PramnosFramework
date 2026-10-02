@@ -126,6 +126,31 @@ class SharedLock
     }
 
     /**
+     * Take the lock, waiting up to $seconds for its holder to give it back.
+     *
+     * For work that must happen once but may wait its turn — a token refresh, an enqueue
+     * that checks for duplicates — rather than be skipped like a scheduled task whose other
+     * copy is already running.
+     *
+     * @param int $seconds    How long to keep asking
+     * @param int $intervalMs Pause between attempts
+     * @return bool True when this process now holds it
+     */
+    public function acquireWithin(int $seconds, int $intervalMs = 200): bool
+    {
+        $deadline = microtime(true) + $seconds;
+
+        while (!$this->acquire()) {
+            if (microtime(true) >= $deadline) {
+                return false;
+            }
+            usleep($intervalMs * 1000);
+        }
+
+        return true;
+    }
+
+    /**
      * Give it back.
      *
      * Scoped to this owner, so a process whose lease expired and was taken over cannot

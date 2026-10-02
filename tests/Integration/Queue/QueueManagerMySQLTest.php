@@ -1438,6 +1438,10 @@ class QueueManagerMySQLTest extends TestCase
         foreach ($migrations as $m) {
             $m->up();
         }
+
+        // addMany(unique: true) takes a SharedLock; idempotent when the table is there.
+        require_once dirname(__DIR__, 3) . '/database/migrations/framework/core/2026_09_23_000001_create_locks_table.php';
+        (new \Pramnos\Framework\Migrations\Core\CreateLocksTable($this->app))->up();
     }
 
     protected function dropQueueTable(): void
@@ -1790,6 +1794,148 @@ class QueueManagerMySQLTest extends TestCase
         $this->assertSame(1, $this->manager->purgeOldTasks(24));
         $this->assertSame(array(), $this->manager->history());
     }
+    // -------------------------------------------------------------------------
+    // addMany(): a pass spread over the worker pool
+    // -------------------------------------------------------------------------
+
+    /**
+     * Every row of one queueitems batch, oldest first.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function batchRows(string $batchId): array
+    {
+        $result = $this->db->queryBuilder()->table('queueitems')
+            ->where('batchid', $batchId)->orderBy('taskid')->get();
+
+        $rows = [];
+        while ($result && $result->fetch()) {
+            $rows[] = $result->fields;
+        }
+
+        return $rows;
+    }
+
+    /**
+     * One task per payload, all carrying the batch's id and name, in the order given.
+     *
+     * The batch columns are what lets a pass later ask whether its units are done, so they
+     * are read back from the table rather than taken from the returned object.
+     */
+    public function testAddManyQueuesOneTaskPerPayloadAsOneBatch(): void
+    {
+        // Arrange
+        $payloads = [['id' => 1], ['id' => 2], ['id' => 3]];
+
+        // Act
+        $batch = $this->manager->addMany('pass_unit', $payloads, priority: 20, maxAttempts: 1, batch: 'channels.collect');
+
+        // Assert — the object
+        $this->assertSame(3, $batch->queued());
+        $this->assertSame(0, $batch->skipped);
+        $this->assertSame('channels.collect', $batch->name);
+        $this->assertMatchesRegularExpression('/^[0-9a-f]{32}$/', $batch->id);
+
+        // Assert — the rows
+        $rows = $this->batchRows($batch->id);
+        $this->assertCount(3, $rows);
+        $this->assertSame($batch->taskIds, array_map(static fn ($r): int => (int) $r['taskid'], $rows));
+        $this->assertSame([1, 2, 3], array_map(static fn ($r): int => json_decode((string) $r['payload'], true)['id'], $rows));
+        $this->assertSame(['pending'], array_values(array_unique(array_column($rows, 'status'))));
+        $this->assertSame(['channels.collect'], array_values(array_unique(array_column($rows, 'batchname'))));
+        $this->assertSame(20, (int) $rows[0]['priority']);
+        $this->assertSame(1, (int) $rows[0]['maxattempts']);
+    }
+
+    /**
+     * With `unique`, a payload whose identical task is still waiting is skipped — and so is
+     * the same payload twice in one call — while one that has finished is queued again.
+     *
+     * The pass runs again before its units are done; it must not queue them twice, and it
+     * must queue the ones that already ran so they run again.
+     */
+    public function testAddManyUniqueSkipsWaitingDuplicatesOnly(): void
+    {
+        // Arrange — #1 waiting, #2 finished
+        $this->manager->addTask('pass_unit', ['id' => 1]);
+        $finished = $this->manager->addTask('pass_unit', ['id' => 2]);
+        $this->db->queryBuilder()->table('queueitems')->where('taskid', $finished)->update(['status' => 'completed']);
+
+        // Act — #1 again, #2 again, #3 twice
+        $batch = $this->manager->addMany('pass_unit', [['id' => 1], ['id' => 2], ['id' => 3], ['id' => 3]], unique: true);
+
+        // Assert
+        $this->assertSame(2, $batch->skipped, 'the waiting #1 and the second #3');
+        $ids = array_map(static fn ($r): int => json_decode((string) $r['payload'], true)['id'], $this->batchRows($batch->id));
+        $this->assertSame([2, 3], $ids);
+    }
+
+    /**
+     * Nothing to queue is an empty batch, and nothing is written.
+     */
+    public function testAddManyWithNoPayloadsQueuesNothing(): void
+    {
+        // Act
+        $batch = $this->manager->addMany('pass_unit', [], unique: true);
+
+        // Assert
+        $this->assertSame(0, $batch->queued());
+        $this->assertSame([], $this->batchRows($batch->id));
+    }
+
+    /**
+     * A batch is queued whole or not at all.
+     *
+     * The third payload cannot be encoded, so its insert fails after two have succeeded;
+     * the transaction takes those two back. A pass that queued part of itself would be
+     * reported as done by its batch status while units were never queued.
+     */
+    public function testAddManyIsAllOrNothing(): void
+    {
+        // Arrange — a value json_encode() cannot represent, so the third row is invalid JSON
+        $broken = ['id' => "\xB1\x31"];
+
+        // Act
+        try {
+            $this->manager->addMany('pass_unit', [['id' => 1], ['id' => 2], $broken]);
+            $this->fail('an unencodable payload must fail the batch');
+        } catch (\Throwable) {
+            // expected
+        }
+
+        // Assert — none of the three
+        $this->assertSame(0, (int) $this->db->queryBuilder()->table('queueitems')->where('type', 'pass_unit')->count());
+    }
+
+    /**
+     * Two producers of the same type do not interleave: one waits for the other's lock, and
+     * gives up with an error rather than queueing duplicates unguarded.
+     */
+    public function testAddManyUniqueWaitsForAnotherProducer(): void
+    {
+        // Arrange — another producer holds the type's lock; this manager waits one second
+        $other = new \Pramnos\Database\SharedLock('queue:enqueue:pass_unit', 60, $this->db);
+        $this->assertTrue($other->acquire());
+        $manager = new class ($this->controller) extends QueueManager {
+            protected const ENQUEUE_LOCK_WAIT = 1;
+        };
+
+        // Act & Assert
+        try {
+            $manager->addMany('pass_unit', [['id' => 1]], unique: true);
+            $this->fail('a held enqueue lock must stop a unique batch');
+        } catch (\RuntimeException $exception) {
+            $this->assertStringContainsString('try again', $exception->getMessage());
+        } finally {
+            $other->release();
+        }
+        $this->assertSame(0, (int) $this->db->queryBuilder()->table('queueitems')->where('type', 'pass_unit')->count());
+
+        // And once it is free, the same call goes through and releases the lock behind it.
+        $this->assertSame(1, $manager->addMany('pass_unit', [['id' => 1]], unique: true)->queued());
+        $this->assertNull($other->holder());
+    }
+
 }
 
 /**

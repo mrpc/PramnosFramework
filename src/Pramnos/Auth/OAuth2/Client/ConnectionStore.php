@@ -220,7 +220,7 @@ class ConnectionStore
          * sent.
          */
         $lock = new SharedLock('oauth:refresh:' . $connection->id, self::REFRESH_LOCK_TTL, $this->db());
-        if (!$this->waitFor($lock)) {
+        if (!$lock->acquireWithin(static::REFRESH_LOCK_WAIT)) {
             // Not terminal: the connection is fine, somebody else is refreshing it.
             throw new OAuthClientException(
                 $connection->provider . ': another process is refreshing this connection',
@@ -290,23 +290,6 @@ class ConnectionStore
             refreshExpiresAt: $tokens->refreshExpiresAt,
             scopes: $tokens->scopes,
         );
-    }
-
-    /**
-     * Take $lock, waiting up to {@see REFRESH_LOCK_WAIT} seconds for its holder to finish.
-     */
-    private function waitFor(SharedLock $lock): bool
-    {
-        $deadline = microtime(true) + static::REFRESH_LOCK_WAIT;
-
-        while (!$lock->acquire()) {
-            if (microtime(true) >= $deadline) {
-                return false;
-            }
-            usleep(200000);
-        }
-
-        return true;
     }
 
     /** The connection with this id, read fresh from the table, or null. */

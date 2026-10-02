@@ -1,6 +1,7 @@
 ---
 use_cases:
   - Dispatching work to a queue, immediately or delayed
+  - Splitting a scheduled pass into one queued task per item, for a pool of workers
   - Choosing a queue driver
   - Running or supervising a queue worker
   - Finding out why a queue is falling behind
@@ -176,6 +177,45 @@ SQL analogue of Redis's claim-by-`ZREM`: for each due row it issues
 so competing pollers never double-process. Because the capability is defined by
 `QueueDriverInterface`, further backends (a future message bus, etc.) are added
 by implementing that one interface.
+
+---
+
+## Spreading a pass over the worker pool — `addMany()`
+
+A scheduled pass that loops over every channel, feed or site inside `schedule:run` takes
+longer with every customer. Queue one task per thing instead, and whichever worker is free
+claims the next one; N workers do N at once.
+
+```php
+$batch = $queue->addMany('pass_unit', array_map(
+    fn (int $id) => ['pass' => 'channels.collect', 'id' => $id],
+    $dueChannelIds
+), unique: true, batch: 'channels.collect');
+
+$batch->queued();   // tasks created
+$batch->skipped;    // payloads whose identical task was still waiting
+$batch->id;         // written to every task's batchid
+$batch->taskIds;    // in the order given
+```
+
+| Argument | |
+|---|---|
+| `$taskType` | the handler that runs each unit |
+| `$payloads` | any iterable, one payload per task |
+| `priority`, `maxAttempts` | as for `addTask()` |
+| `unique` | skip a payload whose identical task is `pending` or `processing` |
+| `batch` | what the batch is for; stored as `batchname` |
+
+**`unique` is atomic.** Duplicates are looked for and the rows written under a
+`SharedLock` on the task type, so two producers queueing the same pass at once cannot both
+insert a unit. A unit whose earlier copy has finished, in any way, is queued again. The same
+payload twice in one call is queued once. A producer that waits 30 seconds for the lock gets
+a `RuntimeException` and queues nothing.
+
+**A batch is queued whole or not at all.** The rows are written in one transaction.
+
+The handler maps a unit back to the work, and that mapping is the application's: a
+`pass_unit` task whose `execute()` looks up `pass` and calls the method for `id`.
 
 ---
 

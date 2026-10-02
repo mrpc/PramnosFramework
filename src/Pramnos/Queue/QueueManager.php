@@ -57,6 +57,12 @@ class QueueManager
     protected const CLAIM_ATTEMPTS = 10;
 
     /**
+     * Seconds {@see addMany()} waits for another producer of the same task type to finish
+     * queueing before it gives up. Protected so a test can shorten it.
+     */
+    protected const ENQUEUE_LOCK_WAIT = 30;
+
+    /**
      * Worker identifier written to the lockedby column so stalled tasks can
      * be attributed to the worker that held them.
      *
@@ -130,6 +136,164 @@ class QueueManager
     }
 
     // ── Claiming ──────────────────────────────────────────────────────────────
+
+    /**
+     * Queue one task per payload, as one batch.
+     *
+     * ```php
+     * $batch = $queue->addMany('pass_unit', array_map(
+     *     fn (int $id) => ['pass' => 'channels.collect', 'id' => $id],
+     *     $dueChannelIds
+     * ), unique: true, batch: 'channels.collect');
+     *
+     * $batch->queued();   // how many were created
+     * $batch->skipped;    // how many were already waiting
+     * ```
+     *
+     * The shape a scheduled pass takes when its work is spread over the worker pool: one
+     * unit per channel, feed or site, claimed by whichever worker is free. Every task carries
+     * the batch's id and name, so {@see batchStatus()} can say when the pass is done and
+     * {@see batchInProgress()} whether the last one still is.
+     *
+     * **`unique` is atomic here.** Duplicates are looked for and the new rows written while
+     * a {@see \Pramnos\Database\SharedLock} on the task type is held, so two producers queueing
+     * the same pass at once cannot both insert a unit. A unit counts as a duplicate while an
+     * identical one is `pending` or `processing`; one that has finished, in any way, does
+     * not stop it being queued again. The same payload twice in one call is queued once.
+     *
+     * The rows are written in one transaction: a batch is queued whole or not at all.
+     *
+     * @param string          $taskType    Registered handler type name
+     * @param iterable<mixed> $payloads    One task payload each
+     * @param int             $priority    Dispatch priority — lower = sooner
+     * @param int             $maxAttempts Attempts before a task is failed for good
+     * @param bool            $unique      Skip payloads with an identical task still waiting
+     * @param string          $batch       What the batch is for, e.g. `channels.collect`
+     * @throws \RuntimeException When another process holds the type's enqueue lock for
+     *         {@see ENQUEUE_LOCK_WAIT} seconds
+     */
+    public function addMany(
+        string $taskType,
+        iterable $payloads,
+        int $priority = 10,
+        int $maxAttempts = 3,
+        bool $unique = false,
+        string $batch = ''
+    ): QueueBatch {
+        $database = $this->controller->application->database;
+        $batchId  = bin2hex(random_bytes(16));
+
+        $rows = [];
+        foreach ($payloads as $payload) {
+            $rows[] = [$payload, $this->generateTaskHash($taskType, $payload)];
+        }
+
+        $lock = null;
+        if ($unique && $rows !== []) {
+            $lock = new \Pramnos\Database\SharedLock('queue:enqueue:' . $taskType, 60, $database);
+            if (!$lock->acquireWithin(static::ENQUEUE_LOCK_WAIT)) {
+                throw new \RuntimeException(
+                    'Another process has been queueing ' . $taskType . ' tasks for '
+                    . static::ENQUEUE_LOCK_WAIT . ' seconds; try again.'
+                );
+            }
+        }
+
+        try {
+            $skipped = 0;
+            if ($unique) {
+                $live = $this->liveTaskHashes(array_column($rows, 1));
+                $kept = [];
+                foreach ($rows as [$payload, $hash]) {
+                    if (isset($live[$hash])) {
+                        $skipped++;
+                        continue;
+                    }
+                    $live[$hash] = true;
+                    $kept[]      = [$payload, $hash];
+                }
+                $rows = $kept;
+            }
+
+            $taskIds = $this->insertBatch($taskType, $rows, $priority, $maxAttempts, $batchId, $batch);
+        } finally {
+            $lock?->release();
+        }
+
+        return new QueueBatch($batchId, $batch, $taskIds, $skipped);
+    }
+
+    /**
+     * Write the rows of one batch, in one transaction.
+     *
+     * @param list<array{0: mixed, 1: string}> $rows Payload and task hash
+     * @return list<int> The new task ids
+     */
+    private function insertBatch(
+        string $taskType,
+        array $rows,
+        int $priority,
+        int $maxAttempts,
+        string $batchId,
+        string $batch
+    ): array {
+        if ($rows === []) {
+            return [];
+        }
+
+        $database = $this->controller->application->database;
+        $now      = date('Y-m-d H:i:s');
+        $ids      = [];
+
+        $database->startTransaction();
+        try {
+            foreach ($rows as [$payload, $hash]) {
+                $database->queryBuilder()->table($this->getQueueTableName())->insert([
+                    'type'        => $taskType,
+                    'payload'     => (string) json_encode($payload),
+                    'status'      => 'pending',
+                    'priority'    => $priority,
+                    'attempts'    => 0,
+                    'maxattempts' => $maxAttempts,
+                    'task_hash'   => $hash,
+                    'batchid'     => $batchId,
+                    'batchname'   => $batch === '' ? null : $batch,
+                    'createdat'   => $now,
+                ]);
+                $ids[] = (int) $database->getInsertId();
+            }
+            $database->commitTransaction();
+        } catch (\Throwable $exception) {
+            $database->rollbackTransaction();
+            throw $exception;
+        }
+
+        return $ids;
+    }
+
+    /**
+     * Which of these hashes belong to a task still pending or processing.
+     *
+     * @param list<string> $hashes
+     * @return array<string, true>
+     */
+    private function liveTaskHashes(array $hashes): array
+    {
+        $live = [];
+        foreach (array_chunk(array_values(array_unique($hashes)), 500) as $chunk) {
+            $result = $this->controller->application->database->queryBuilder()
+                ->table($this->getQueueTableName())
+                ->select(['task_hash'])
+                ->whereIn('task_hash', $chunk)
+                ->whereIn('status', ['pending', 'processing'])
+                ->get();
+            while ($result && $result->fetch()) {
+                $live[(string) $result->fields['task_hash']] = true;
+            }
+        }
+
+        return $live;
+    }
 
     /**
      * Return a list of pending tasks (without locking them).
