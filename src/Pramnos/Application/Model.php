@@ -67,6 +67,21 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
 
 
     public static $columnCache = array();
+
+    /**
+     * This model's slot in {@see $columnCache}: its table, on the database it is read from.
+     *
+     * The table name alone was the key, so one process holding two connections — a MySQL and
+     * a PostgreSQL database with the same tables, a migration copying between them — read the
+     * columns of whichever had been introspected first for both. A write then built its
+     * column list from the wrong table and silently left out a column the other one had.
+     * `Database::columnCacheKey()` already tells connections apart, and the joined tables
+     * were keyed by it; the model's own table now is too, so one table has one entry.
+     */
+    private function columnCacheSlot(): string
+    {
+        return \Pramnos\Database\Database::getInstance()->columnCacheKey($this->getFullTableName());
+    }
     /**
      * SQL error if any
      * @var string
@@ -381,8 +396,8 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
             }
             $itemdata = array();
 
-            if (isset(self::$columnCache[$this->getFullTableName()])) {
-                foreach (self::$columnCache[$this->getFullTableName()] as $fields) {
+            if (isset(self::$columnCache[$this->columnCacheSlot()])) {
+                foreach (self::$columnCache[$this->columnCacheSlot()] as $fields) {
                     if ($fields['Field'] != $this->_primaryKey) {
                         $field = $fields['Field'];
                         if ($fields['Null'] == "NO") {
@@ -450,9 +465,10 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
                 // query log, and so anybody enabling this has one less thing to write.
                 $cacheKey = $database->columnCacheKey($this->getFullTableName());
                 $result = $database->query($sql, false, 3600, $cacheKey);
-                self::$columnCache[$this->getFullTableName()] = array();
+                $slot = $this->columnCacheSlot();
+                self::$columnCache[$slot] = array();
                 while ($result->fetch()) {
-                    self::$columnCache[$this->getFullTableName()][] = $result->fields;
+                    self::$columnCache[$slot][] = $result->fields;
                     if ($result->fields['Field'] != $this->_primaryKey) {
                         $field = $result->fields['Field'];
                         if ($result->fields['Null'] == "NO") {
@@ -2185,7 +2201,7 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
     protected function _getFieldTypes($join = '')
     {
         $fieldTypes = array();
-        $tableName = $this->getFullTableName();
+        $tableName = $this->columnCacheSlot();
         
         // Ensure column cache is populated for main table
         if (!isset(self::$columnCache[$tableName])) {
@@ -2461,21 +2477,22 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
         $cacheKey = $database->columnCacheKey($tableName);
         
         // Get main table fields
-        if (isset(self::$columnCache[$this->getFullTableName()])) {
-            foreach (self::$columnCache[$this->getFullTableName()] as $fieldInfo) {
+        if (isset(self::$columnCache[$this->columnCacheSlot()])) {
+            foreach (self::$columnCache[$this->columnCacheSlot()] as $fieldInfo) {
                 $fields[] = $fieldInfo['Field'];
             }
         } else {
             $sql = $this->columnIntrospectionSql($tableName);
             
             $result = $database->query($sql, true, 3600, $cacheKey);
+            $slot   = $this->columnCacheSlot();
             while ($result->fetch()) {
                 $fields[] = $result->fields['Field'];
                 // Cache the results
-                if (!isset(self::$columnCache[$this->getFullTableName()])) {
-                    self::$columnCache[$this->getFullTableName()] = array();
+                if (!isset(self::$columnCache[$slot])) {
+                    self::$columnCache[$slot] = array();
                 }
-                self::$columnCache[$this->getFullTableName()][] = $result->fields;
+                self::$columnCache[$slot][] = $result->fields;
             }
         }
         
@@ -2533,8 +2550,10 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
         $database = \Pramnos\Database\Database::getInstance();
         $fields = array();
         
-        // Check cache first
-        $cacheKey = $tableName;
+        // Check cache first — under the key it is written with below. It was read under the
+        // bare table name and written under the connection's key, so it never hit, and every
+        // call introspected again and emptied the entry before refilling it.
+        $cacheKey = $database->columnCacheKey($tableName);
         if (isset(self::$columnCache[$cacheKey])) {
             foreach (self::$columnCache[$cacheKey] as $fieldInfo) {
                 $fields[] = $fieldInfo['Field'];
@@ -2545,7 +2564,6 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
         try {
             $sql = $this->columnIntrospectionSql($tableName);
             
-            $cacheKey = $database->columnCacheKey($tableName);
             $result = $database->query($sql, true, 3600, $cacheKey);
             
             // Initialize cache for this table
@@ -2604,7 +2622,7 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
         
         $cacheKey = null;
         if ($alias === 'a') {
-            $cacheKey = $this->getFullTableName();
+            $cacheKey = $this->columnCacheSlot();
         } else {
             // Parse join to find the table name for this alias
             $joinPattern = '/(?:INNER\s+JOIN|LEFT\s+(?:OUTER\s+)?JOIN|RIGHT\s+(?:OUTER\s+)?JOIN|FULL\s+(?:OUTER\s+)?JOIN|CROSS\s+JOIN|JOIN)\s+([`"\w.#]+)\s+(?:AS\s+)?([a-zA-Z_][a-zA-Z0-9_]*)/i';

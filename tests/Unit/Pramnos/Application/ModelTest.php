@@ -1076,7 +1076,7 @@ class ModelTest extends TestCase
         
         // Seed column cache directly to bypass DB inspection
         $tableName = $model->getFullTableName();
-        Model::$columnCache[$tableName] = [
+        Model::$columnCache[\Pramnos\Database\Database::getInstance()->columnCacheKey($tableName)] = [
             ['Field' => 'id', 'Type' => 'int', 'Null' => 'NO'],
             ['Field' => 'name', 'Type' => 'varchar(255)', 'Null' => 'NO'],
             ['Field' => 'metadata', 'Type' => 'json', 'Null' => 'YES']
@@ -1150,7 +1150,6 @@ class ModelTest extends TestCase
             ['Field' => 'name', 'Type' => 'varchar(255)', 'Null' => 'NO'],
             ['Field' => 'meta', 'Type' => 'json', 'Null' => 'YES']
         ];
-        Model::$columnCache['test_users'] = $columns;
         Model::$columnCache[\Pramnos\Database\Database::getInstance()->columnCacheKey('test_users')] = $columns;
 
         $refMethod = new \ReflectionMethod($model, '_getFieldTypes');

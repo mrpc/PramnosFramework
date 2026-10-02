@@ -61,7 +61,7 @@ class ModelSearchConditionsTest extends TestCase
         $reflection = new \ReflectionClass(\Pramnos\Application\Model::class);
         $property = $reflection->getProperty("columnCache");
         $property->setValue(null, [
-            "dummy_table" => [
+            $this->database->columnCacheKey("dummy_table") => [
                 ["Field" => "id", "Type" => "int(11)"],
                 ["Field" => "name", "Type" => "varchar(255)"],
                 ["Field" => "price", "Type" => "decimal(10,2)"]
@@ -141,7 +141,7 @@ class ModelSearchConditionsTest extends TestCase
         $reflection = new \ReflectionClass(\Pramnos\Application\Model::class);
         $property = $reflection->getProperty("columnCache");
         $property->setValue(null, [
-            "dummy_table" => [
+            $this->database->columnCacheKey("dummy_table") => [
                 ["Field" => "id", "Type" => "integer"],
                 ["Field" => "name", "Type" => "character varying(255)"],
                 ["Field" => "price", "Type" => "numeric(10,2)"]

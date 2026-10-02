@@ -52,8 +52,9 @@ class ModelApiListTest extends TestCase
         $reflection = new \ReflectionClass(\Pramnos\Application\Model::class);
         if ($reflection->hasProperty("columnCache")) {
             $property = $reflection->getProperty("columnCache");
+            // Keyed as the model looks it up: the table on this connection.
             $property->setValue(null, [
-                "dummy_table" => [
+                \Pramnos\Database\Database::getInstance()->columnCacheKey("dummy_table") => [
                     ["Field" => "id"],
                     ["Field" => "b.`deyacode`"],
                     ["Field" => "name"]

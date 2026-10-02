@@ -222,7 +222,7 @@ class ModelSearchConditionsTest extends TestCase
     {
         // Arrange
         $this->useDatabaseOfType('mysql');
-        Model::$columnCache['people'] = [
+        Model::$columnCache[\Pramnos\Database\Database::getInstance()->columnCacheKey('people')] = [
             ['Field' => 'views', 'Type' => 'int(11)'],
             ['Field' => 'name',  'Type' => 'varchar(255)'],
         ];
