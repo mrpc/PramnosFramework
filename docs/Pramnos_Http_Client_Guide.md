@@ -540,6 +540,23 @@ Client::fake([
 ]);
 ```
 
+A faked request can say how it was sent, so a test asserts the verb and the signature
+rather than only the address the fake was registered under:
+
+```php
+Client::fake([
+    'https://discord.com/api/*' => function (Client $req) use (&$sent): ClientResponse {
+        $sent = [$req->method(), $req->url(), $req->requestHeaders(), $req->requestBody()];
+        return ClientResponse::make(['id' => '1'], 200);
+    },
+]);
+// $sent[0] === 'PATCH', $sent[2]['Authorization'] === 'Bot …'
+```
+
+`requestHeaders()` is the list the transport sends, built in one place: `User-Agent`,
+`Content-Type` when there is a body, then every header set on the request. A header set by
+hand replaces the automatic one of the same name, so `Content-Type` is never sent twice.
+
 A multipart request's parts are readable without parsing the body:
 
 ```php
@@ -589,6 +606,9 @@ for development only — it makes the connection trivially interceptable.
 | `->form(array $data): static` | URL-encoded form body |
 | `->multipart(array $parts): static` | `multipart/form-data` body of fields and files |
 | `->multipartParts(): array` | The parts given to `multipart()`, for a fake |
+| `->method(): string`, `->url(): string` | The verb and the URL, base URL applied |
+| `->requestHeaders(): array` | The headers as sent, by name |
+| `->requestBody(): ?string` | The body as sent, or null |
 | `->body(string $body, string $contentType): static` | Raw body |
 | `->timeout(int $seconds): static` | Whole-request timeout (default 30) |
 | `->connectTimeout(int $seconds): static` | TCP connect timeout (default 10) |

@@ -227,6 +227,37 @@ class ClientTransportTest extends TestCase
     }
 
     /**
+     * What `requestHeaders()` reports is what arrives, and a hand-set Content-Type is sent once.
+     *
+     * The transport builds its header list from `requestHeaders()`, so a test of a fake and
+     * the wire cannot disagree. Before, a Content-Type set by hand beside a body setter went
+     * out twice, and which one a server honoured was the server's choice.
+     */
+    public function testRequestHeadersAreWhatArrivesAndContentTypeIsSentOnce(): void
+    {
+        // Arrange — the server hands the whole request back as the body.
+        $url = $this->serve(static function (int $i, string $request): string {
+            return self::response(200, $request);
+        });
+        $request = Client::post($url)
+            ->json(['a' => 1])
+            ->header('Content-Type', 'application/vnd.api+json')
+            ->timeout(5);
+
+        // Act
+        $echoed = $request->send()->body();
+
+        // Assert — every reported header arrived, and Content-Type exactly once
+        $headers = $request->requestHeaders();
+        $this->assertNotEmpty($headers, 'the sweep found nothing to check');
+        foreach ($headers as $name => $value) {
+            $this->assertStringContainsString($name . ': ' . $value, $echoed);
+        }
+        $this->assertSame(1, preg_match_all('/^Content-Type:/mi', $echoed));
+        $this->assertStringContainsString('Content-Type: application/vnd.api+json', $echoed);
+    }
+
+    /**
      * A body on a CUSTOMREQUEST verb reaches the server too.
      *
      * POST takes the CURLOPT_POST path and PUT/PATCH/DELETE take

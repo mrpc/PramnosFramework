@@ -335,6 +335,50 @@ class Client
     }
 
     /**
+     * The request's method, upper case — what a fake asserts to tell a POST from a PATCH.
+     */
+    public function method(): string
+    {
+        return $this->method;
+    }
+
+    /**
+     * The request's URL, with the base URL applied.
+     */
+    public function url(): string
+    {
+        return $this->resolveUrl();
+    }
+
+    /**
+     * The headers this request sends, by name: `User-Agent`, `Content-Type` when there is a
+     * body, then every header set on it.
+     *
+     * The same list the transport sends, built in one place, so what a fake reads is what
+     * would have gone over the wire. Named so as not to clash with the {@see headers()}
+     * setter.
+     *
+     * @return array<string, string>
+     */
+    public function requestHeaders(): array
+    {
+        $headers = ['User-Agent' => $this->userAgent];
+        if ($this->contentType !== '') {
+            $headers['Content-Type'] = $this->contentType;
+        }
+
+        return array_merge($headers, $this->headers);
+    }
+
+    /**
+     * The request body as it will be sent, or null when there is none.
+     */
+    public function requestBody(): ?string
+    {
+        return $this->body;
+    }
+
+    /**
      * The parts {@see multipart()} was given, for a fake to assert on.
      *
      * Empty for any other kind of body.
@@ -1097,11 +1141,8 @@ class Client
             $writer = $this->sinkWriter($state);
         }
 
-        $curlHeaders = ['User-Agent: ' . $this->userAgent];
-        if ($this->contentType !== '') {
-            $curlHeaders[] = 'Content-Type: ' . $this->contentType;
-        }
-        foreach ($this->headers as $name => $value) {
+        $curlHeaders = [];
+        foreach ($this->requestHeaders() as $name => $value) {
             $curlHeaders[] = $name . ': ' . $value;
         }
 
