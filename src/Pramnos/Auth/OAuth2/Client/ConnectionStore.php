@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Pramnos\Auth\OAuth2\Client;
 
 use Pramnos\Database\Database;
+use Pramnos\Database\SharedLock;
 use Pramnos\Security\Encrypter;
 
 /**
@@ -46,6 +47,17 @@ use Pramnos\Security\Encrypter;
 class ConnectionStore
 {
     private const TABLE = 'oauthconnections';
+
+    /**
+     * Seconds {@see refresh()} waits for another process's refresh of the same connection.
+     *
+     * Longer than a token request normally takes, so a waiter usually finds the work done
+     * rather than giving up. Protected so a test can shorten it.
+     */
+    protected const REFRESH_LOCK_WAIT = 30;
+
+    /** Lease on the refresh lock, longer than the HTTP client's own timeout. */
+    private const REFRESH_LOCK_TTL = 120;
 
     public function __construct(private ?Database $database = null)
     {
@@ -170,6 +182,10 @@ class ConnectionStore
      * the caller decides whether that is an error or a fact to report, and the row records
      * it either way.
      *
+     * Safe to call from several workers at once: one refreshes, the others wait and are
+     * handed its result. A caller still waiting after {@see REFRESH_LOCK_WAIT} seconds gets
+     * a non-terminal `temporarily_unavailable`, and the connection is left alone.
+     *
      * @throws OAuthClientException
      */
     public function refresh(Connection $connection, OAuthClient $client): Connection
@@ -193,6 +209,57 @@ class ConnectionStore
             );
         }
 
+        /*
+         * One refresh per connection at a time, across processes and servers.
+         *
+         * A provider that rotates refresh tokens accepts the first of two concurrent
+         * refreshes and answers the second `invalid_grant`, which is terminal — so two
+         * workers reading one sign-in at once killed a connection the user had done nothing
+         * to. Under the lock the row is read again: if another process refreshed it while
+         * this one waited, its tokens are the answer and the spent refresh token is never
+         * sent.
+         */
+        $lock = new SharedLock('oauth:refresh:' . $connection->id, self::REFRESH_LOCK_TTL, $this->db());
+        if (!$this->waitFor($lock)) {
+            // Not terminal: the connection is fine, somebody else is refreshing it.
+            throw new OAuthClientException(
+                $connection->provider . ': another process is refreshing this connection',
+                'temporarily_unavailable',
+                $connection->provider
+            );
+        }
+
+        try {
+            $current = $this->findById($connection->id);
+
+            if ($current === null || $current->isDead()) {
+                throw new OAuthClientException(
+                    $connection->provider . ': '
+                    . ($current?->deadReason ?: 'the connection no longer exists'),
+                    'invalid_grant',
+                    $connection->provider
+                );
+            }
+
+            $refreshedElsewhere = $current->refreshToken !== $connection->refreshToken
+                || $current->accessToken !== $connection->accessToken;
+            if ($refreshedElsewhere && !$current->needsRefresh()) {
+                return $current;
+            }
+
+            return $this->refreshHeld($current, $client);
+        } finally {
+            $lock->release();
+        }
+    }
+
+    /**
+     * The request and the write, for a connection whose refresh lock this process holds.
+     *
+     * @throws OAuthClientException
+     */
+    private function refreshHeld(Connection $connection, OAuthClient $client): Connection
+    {
         try {
             $tokens = $client->refresh($connection->refreshToken)->mergedInto($connection->toTokenSet());
         } catch (OAuthClientException $exception) {
@@ -223,6 +290,31 @@ class ConnectionStore
             refreshExpiresAt: $tokens->refreshExpiresAt,
             scopes: $tokens->scopes,
         );
+    }
+
+    /**
+     * Take $lock, waiting up to {@see REFRESH_LOCK_WAIT} seconds for its holder to finish.
+     */
+    private function waitFor(SharedLock $lock): bool
+    {
+        $deadline = microtime(true) + static::REFRESH_LOCK_WAIT;
+
+        while (!$lock->acquire()) {
+            if (microtime(true) >= $deadline) {
+                return false;
+            }
+            usleep(200000);
+        }
+
+        return true;
+    }
+
+    /** The connection with this id, read fresh from the table, or null. */
+    private function findById(int $id): ?Connection
+    {
+        $result = $this->db()->queryBuilder()->table(self::TABLE)->where('id', $id)->first();
+
+        return $result && $result->numRows > 0 ? $this->hydrate($result->fields) : null;
     }
 
     /**

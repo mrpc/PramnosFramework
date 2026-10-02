@@ -303,6 +303,162 @@ class ConnectionStoreTest extends TestCase
     }
 
     /**
+     * A connection another process has just refreshed is not refreshed again.
+     *
+     * The race, played in sequence: two workers read the same row, the first refreshes and
+     * the provider rotates the refresh token, then the second refreshes with the row it read
+     * earlier. A rotating provider answers that spent token `invalid_grant`, which is
+     * terminal, so the second worker used to mark a healthy connection dead. Read again
+     * under the lock, the row already holds the first worker's tokens and they are returned
+     * without a request.
+     */
+    public function testAConnectionRefreshedElsewhereIsNotRefreshedAgain(): void
+    {
+        // Arrange — both workers hold the same, soon-to-expire row
+        $this->store->save(7, 'acme', new TokenSet(accessToken: 'at-old', refreshToken: 'rt-old', expiresAt: time() + 30));
+        $staleCopy = $this->store->find(7, 'acme');
+
+        // The first worker refreshes; the provider rotates the refresh token.
+        Client::fake(['https://acme.test/token' => ClientResponse::make(
+            ['access_token' => 'at-new', 'refresh_token' => 'rt-new', 'expires_in' => 3600],
+            200
+        )]);
+        $this->store->refresh($this->store->find(7, 'acme'), new OAuthClient($this->provider()));
+
+        // From now on the provider behaves as a rotating one does with a spent token.
+        Client::resetFakes();
+        $requests = 0;
+        Client::fake(['https://acme.test/token' => function () use (&$requests): ClientResponse {
+            $requests++;
+
+            return ClientResponse::make(['error' => 'invalid_grant', 'error_description' => 'Refresh token already used'], 400);
+        }]);
+
+        // Act — the second worker refreshes with the copy it read before
+        $result = $this->store->refresh($staleCopy, new OAuthClient($this->provider()));
+
+        // Assert — handed the first worker's tokens, nothing sent, and the connection alive
+        $this->assertSame('at-new', $result->accessToken);
+        $this->assertSame('rt-new', $result->refreshToken);
+        $this->assertSame(0, $requests, 'the spent refresh token was sent to the provider');
+        $this->assertFalse($this->store->find(7, 'acme')->isDead());
+    }
+
+    /**
+     * A refresh waits for another process's refresh of the same connection, and gives up
+     * without harming it.
+     *
+     * The lock is held by somebody else for longer than the wait. The caller gets a
+     * non-terminal error — try later — and the connection is neither refreshed nor dead.
+     */
+    public function testARefreshWaitsForTheLockAndGivesUpHarmlessly(): void
+    {
+        // Arrange — a store that waits one second, and a lock somebody else holds
+        $this->store->save(7, 'acme', new TokenSet(accessToken: 'at', refreshToken: 'rt', expiresAt: time() + 30));
+        $connection = $this->store->find(7, 'acme');
+        $store = new class ($this->db) extends ConnectionStore {
+            protected const REFRESH_LOCK_WAIT = 1;
+        };
+        $other = new \Pramnos\Database\SharedLock('oauth:refresh:' . $connection->id, 60, $this->db);
+        $this->assertTrue($other->acquire());
+
+        $requests = 0;
+        Client::fake(['https://acme.test/token' => function () use (&$requests): ClientResponse {
+            $requests++;
+
+            return ClientResponse::make(['access_token' => 'at-new', 'expires_in' => 3600], 200);
+        }]);
+
+        // Act
+        try {
+            $store->refresh($connection, new OAuthClient($this->provider()));
+            $this->fail('a refresh that never got the lock must raise');
+        } catch (OAuthClientException $exception) {
+            // Assert — retryable, not a revoked grant
+            $this->assertFalse($exception->isTerminal());
+            $this->assertSame('temporarily_unavailable', $exception->error);
+        } finally {
+            $other->release();
+        }
+
+        $this->assertSame(0, $requests, 'it refreshed without the lock');
+        $this->assertFalse($this->store->find(7, 'acme')->isDead());
+    }
+
+    /**
+     * The lock is released after a refresh, whether it succeeded or failed.
+     *
+     * A lock left behind would make every later refresh of the connection wait out its
+     * lease and then give up.
+     */
+    public function testTheRefreshLockIsReleasedAfterSuccessAndFailure(): void
+    {
+        // Arrange
+        $this->store->save(7, 'acme', new TokenSet(accessToken: 'at', refreshToken: 'rt', expiresAt: time() + 30));
+        $connection = $this->store->find(7, 'acme');
+        $lock = new \Pramnos\Database\SharedLock('oauth:refresh:' . $connection->id, 60, $this->db);
+
+        // Act — a failing refresh first
+        Client::fake(['https://acme.test/token' => ClientResponse::make(['error' => 'temporarily_unavailable'], 503)]);
+        try {
+            $this->store->refresh($connection, new OAuthClient($this->provider()));
+        } catch (OAuthClientException) {
+            // expected
+        }
+
+        // Assert — free after the failure
+        $this->assertNull($lock->holder(), 'the lock outlived a failed refresh');
+
+        // Act — then a successful one
+        Client::resetFakes();
+        Client::fake(['https://acme.test/token' => ClientResponse::make(['access_token' => 'at-2', 'expires_in' => 3600], 200)]);
+        $this->store->refresh($this->store->find(7, 'acme'), new OAuthClient($this->provider()));
+
+        // Assert — free after the success
+        $this->assertNull($lock->holder(), 'the lock outlived a successful refresh');
+    }
+
+    /**
+     * A connection that died, or was forgotten, while a refresh waited is not refreshed.
+     *
+     * The row read under the lock decides: a dead connection raises its recorded reason as
+     * a terminal error, and nothing is sent.
+     */
+    public function testAConnectionThatDiedWhileWaitingIsNotRefreshed(): void
+    {
+        // Arrange — the caller's copy is active; the row has since been marked dead
+        $this->store->save(7, 'acme', new TokenSet(accessToken: 'at', refreshToken: 'rt', expiresAt: time() + 30));
+        $connection = $this->store->find(7, 'acme');
+        $this->store->markDead($connection, 'Revoked by the user');
+        $requests = 0;
+        Client::fake(['https://acme.test/token' => function () use (&$requests): ClientResponse {
+            $requests++;
+
+            return ClientResponse::make(['access_token' => 'x', 'expires_in' => 3600], 200);
+        }]);
+
+        // Act & Assert — dead
+        try {
+            $this->store->refresh($connection, new OAuthClient($this->provider()));
+            $this->fail('a dead connection must not be refreshed');
+        } catch (OAuthClientException $exception) {
+            $this->assertTrue($exception->isTerminal());
+            $this->assertStringContainsString('Revoked by the user', $exception->getMessage());
+        }
+
+        // Act & Assert — forgotten
+        $this->store->forget(7, 'acme');
+        try {
+            $this->store->refresh($connection, new OAuthClient($this->provider()));
+            $this->fail('a forgotten connection must not be refreshed');
+        } catch (OAuthClientException $exception) {
+            $this->assertStringContainsString('no longer exists', $exception->getMessage());
+        }
+
+        $this->assertSame(0, $requests);
+    }
+
+    /**
      * A transient failure leaves the connection alone.
      *
      * The other side of the distinction. Killing a live connection over a 503 makes every
@@ -473,6 +629,10 @@ class ConnectionStoreTest extends TestCase
         foreach (MigrationLoader::loadFromDirectory($dir, $this->app) as $migration) {
             $migration->up();
         }
+
+        // The refresh lock lives in pramnos.locks; idempotent when the table is there.
+        require_once dirname(__DIR__, 4) . '/database/migrations/framework/core/2026_09_23_000001_create_locks_table.php';
+        (new \Pramnos\Framework\Migrations\Core\CreateLocksTable($this->app))->up();
     }
 
     protected function dropTable(): void

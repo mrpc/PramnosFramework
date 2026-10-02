@@ -1,5 +1,6 @@
 ---
 use_cases:
+  - Refreshing third-party tokens from several queue workers at once
   - Letting a user connect their Google, Meta or TikTok account to this application
   - Calling a third-party API on a user's behalf and keeping the token alive
   - Diagnosing a connection that stopped working or a feed that went quiet
@@ -110,6 +111,29 @@ $response = \Pramnos\Http\Client::get('https://www.googleapis.com/…')
 a write, and separating them produces a specific bug: the provider rotates the refresh
 token, the response is used, the row is not updated, and the next refresh presents a token
 the provider has already retired. One call, one write.
+
+### Refreshing from several workers at once
+
+`refresh()` takes a [`SharedLock`](Pramnos_Workers_And_Daemons_Guide.md) on the connection,
+so one process refreshes it at a time, across servers. This matters because a provider that
+rotates refresh tokens (TikTok, for one) accepts the first of two concurrent refreshes and
+answers the second `invalid_grant`. That error is terminal, so without the lock the second
+worker would mark a healthy connection dead.
+
+Once the lock is held, the row is read again:
+
+| The row now | `refresh()` |
+|---|---|
+| holds tokens another process refreshed, still valid | returns them without a request |
+| is dead, or gone | throws a terminal `OAuthClientException`, sends nothing |
+| is as the caller read it | refreshes, writes, returns |
+
+A caller that waits 30 seconds without getting the lock receives a **non-terminal**
+`OAuthClientException` with `error = 'temporarily_unavailable'`, and the connection is left
+alone. Treat it like a provider's 503 and try again later. The lock lives in
+`pramnos.locks`, which the `core` migrations create.
+
+Callers need no lock of their own around a refresh.
 
 ## Keeping connections alive
 
