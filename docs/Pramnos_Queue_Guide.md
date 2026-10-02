@@ -217,6 +217,31 @@ a `RuntimeException` and queues nothing.
 The handler maps a unit back to the work, and that mapping is the application's: a
 `pass_unit` task whose `execute()` looks up `pass` and calls the method for `id`.
 
+### Knowing when a pass is done
+
+```php
+$status = $queue->batchStatus($batch->id);
+$status->finished();     // nothing pending or processing
+$status->toArray();      // id, pending, processing, completed, warning, failed, total, finished
+
+$queue->batchInProgress('channels.collect');   // any unit of a batch by this name still waiting or running
+```
+
+`withoutOverlapping()` guards the run that *queues* a pass, and that run ends in a second.
+The units go on for as long as they take, so check `batchInProgress()` before queueing the
+next pass, or a slow one gets a second copy of itself queued on top:
+
+```php
+Scheduler::call(function () use ($queue, $store) {
+    if ($queue->batchInProgress('channels.collect')) {
+        return;
+    }
+    $queue->addMany('pass_unit', $store->dueUnits(), unique: true, batch: 'channels.collect');
+})->everyFiveMinutes();
+```
+
+An id nobody queued reads as an empty batch that is finished.
+
 ---
 
 ## Keeping the durable queue honest

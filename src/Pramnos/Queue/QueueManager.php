@@ -224,6 +224,58 @@ class QueueManager
     }
 
     /**
+     * How far a batch has got, counted by status.
+     *
+     * ```php
+     * $status = $queue->batchStatus($batch->id);
+     * $status->finished();          // nothing pending or processing
+     * $status->failed;              // tasks out of attempts
+     * ```
+     *
+     * An id nobody queued reads as an empty, finished batch: there is nothing of it left.
+     */
+    public function batchStatus(string $batchId): QueueBatchStatus
+    {
+        $query  = $this->controller->application->database->queryBuilder()->table($this->getQueueTableName());
+        $result = $query->select(['status', $query->raw('COUNT(*) AS n')])
+            ->where('batchid', $batchId)
+            ->groupBy('status')
+            ->get();
+
+        $counts = ['pending' => 0, 'processing' => 0, 'completed' => 0, 'warning' => 0, 'failed' => 0];
+        while ($result && $result->fetch()) {
+            $status = (string) $result->fields['status'];
+            if (isset($counts[$status])) {
+                $counts[$status] = (int) $result->fields['n'];
+            }
+        }
+
+        return new QueueBatchStatus($batchId, ...$counts);
+    }
+
+    /**
+     * Whether any task of a batch with this name is still pending or processing.
+     *
+     * What `withoutOverlapping()` cannot know: it guards the run that *queues* a pass, which
+     * ends in a second, while the units run for as long as they take. A pass that checks this
+     * first does not queue a second copy of itself on top of one still being worked through.
+     *
+     * ```php
+     * if (!$queue->batchInProgress('channels.collect')) {
+     *     $queue->addMany('pass_unit', $units, unique: true, batch: 'channels.collect');
+     * }
+     * ```
+     */
+    public function batchInProgress(string $name): bool
+    {
+        return $this->controller->application->database->queryBuilder()
+            ->table($this->getQueueTableName())
+            ->where('batchname', $name)
+            ->whereIn('status', ['pending', 'processing'])
+            ->count() > 0;
+    }
+
+    /**
      * Write the rows of one batch, in one transaction.
      *
      * @param list<array{0: mixed, 1: string}> $rows Payload and task hash

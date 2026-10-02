@@ -1936,6 +1936,74 @@ class QueueManagerMySQLTest extends TestCase
         $this->assertNull($other->holder());
     }
 
+    /**
+     * A batch's tasks are counted by status, and it is finished once none waits or runs.
+     *
+     * The statuses are set in the table, so the counts are the database's answer and not an
+     * echo of what the test asked for.
+     */
+    public function testBatchStatusCountsTheBatchsTasksByStatus(): void
+    {
+        // Arrange — five units, then each moved to a different state
+        $batch = $this->manager->addMany('pass_unit', [['id' => 1], ['id' => 2], ['id' => 3], ['id' => 4], ['id' => 5]]);
+        [$a, $b, $c, $d] = $batch->taskIds;
+        $set = fn (int $id, string $status) => $this->db->queryBuilder()->table('queueitems')->where('taskid', $id)->update(['status' => $status]);
+        $set($a, 'processing');
+        $set($b, 'completed');
+        $set($c, 'warning');
+        $set($d, 'failed');
+        // An unrelated task must not be counted.
+        $this->manager->addTask('pass_unit', ['id' => 99]);
+
+        // Act
+        $status = $this->manager->batchStatus($batch->id);
+
+        // Assert
+        $this->assertSame(
+            ['id' => $batch->id, 'pending' => 1, 'processing' => 1, 'completed' => 1, 'warning' => 1, 'failed' => 1, 'total' => 5, 'finished' => false],
+            $status->toArray()
+        );
+
+        // Act & Assert — the last two done, and it is finished
+        $set($a, 'completed');
+        $set($batch->taskIds[4], 'completed');
+        $this->assertTrue($this->manager->batchStatus($batch->id)->finished());
+    }
+
+    /**
+     * An id nobody queued is an empty, finished batch.
+     */
+    public function testAnUnknownBatchIsEmptyAndFinished(): void
+    {
+        // Act
+        $status = $this->manager->batchStatus('0000000000000000000000000000dead');
+
+        // Assert
+        $this->assertSame(0, $status->total());
+        $this->assertTrue($status->finished());
+    }
+
+    /**
+     * A pass is in progress while any task of a batch by its name waits or runs, and not
+     * once they have all finished.
+     */
+    public function testBatchInProgressFollowsThePassByName(): void
+    {
+        // Arrange
+        $batch = $this->manager->addMany('pass_unit', [['id' => 1], ['id' => 2]], batch: 'channels.collect');
+
+        // Assert — waiting
+        $this->assertTrue($this->manager->batchInProgress('channels.collect'));
+        $this->assertFalse($this->manager->batchInProgress('feeds.read'), 'another pass is not this one');
+
+        // Act — one fails for good, one completes
+        $this->db->queryBuilder()->table('queueitems')->where('taskid', $batch->taskIds[0])->update(['status' => 'failed']);
+        $this->db->queryBuilder()->table('queueitems')->where('taskid', $batch->taskIds[1])->update(['status' => 'completed']);
+
+        // Assert — nothing left of it
+        $this->assertFalse($this->manager->batchInProgress('channels.collect'));
+    }
+
 }
 
 /**
