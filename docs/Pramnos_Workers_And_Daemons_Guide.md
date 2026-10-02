@@ -616,6 +616,47 @@ stops through its stop file.
   change of size is logged to the `daemons` log with it, so the decision and the process
   count are on one line.
 
+### What an operator decides: `DaemonControls`
+
+The supervisor reads two tables every cycle, and the services screen writes them. They hold
+what a sentinel file cannot, a decision that has to last beyond the next cycle.
+
+| Table | Holds | The supervisor |
+|---|---|---|
+| `pramnos.worker_pools` | a pool defined on the screen, or the screen's changes to a `queuePool()` the code declares | applies the row's limits over the declaration; runs no workers for a pool whose `enabled` is false; supervises a screen-only pool beside the code's |
+| `pramnos.stopped_services` | services an operator stopped | leaves them off the list, so they are stopped and not started again |
+
+**Every limit in a pool row is nullable, and null means "as declared".** Lowering one
+ceiling on the screen does not freeze the code pool's other limits at today's values.
+Deleting the row puts a code pool back to its declaration, and removes a screen-only pool.
+
+```php
+$controls = new \Pramnos\Console\DaemonControls();
+
+$controls->savePool('mail', ['types' => 'mail', 'floor' => 1, 'ceiling' => 2], 'alice');
+$controls->setPoolEnabled('passes', false, 'alice');   // stop a pool
+$controls->stopService('schedule', 'alice');           // keep a service stopped
+$controls->startService('schedule');
+$controls->deletePool('mail');
+```
+
+`savePool()` validates every value and throws `InvalidArgumentException` with a sentence that
+names the field. It checks that:
+- the name and the task types use a narrow alphabet, because worker ids and command
+  arguments are built from them;
+- each limit is a whole number in its range;
+- the ceiling is not below the floor;
+- shrink below is less than grow above.
+
+**Without the tables nothing changes.** An installation that has not run `migrate`, or
+whose database cannot answer, supervises exactly what its code declares.
+
+Every cycle writes what it saw of each pool to `var/daemon_orchestrator_pools.json`
+(`DaemonOrchestrator::poolsFilePath()`). For each pool it records whether it comes from
+`code` or the `screen`, whether it is enabled, its size, backlog, load, and the
+`BurstPolicy` decision. The screen reads this file instead of guessing what the supervisor
+will do.
+
 ### Worker ids are compared, not searched for
 
 The orchestrator recognises its own processes by the `--worker-id` it passed, reading

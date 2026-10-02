@@ -124,6 +124,78 @@ abstract class DaemonOrchestrator extends CommandBase
     private array $poolDecisions = [];
 
     /**
+     * This cycle's reading of each pool, written to {@see poolsFilePath()} for the screen.
+     *
+     * @var array<string, array<string, mixed>>
+     */
+    private array $poolReport = [];
+
+    /**
+     * This cycle's controls from the services screen.
+     *
+     * @var array{pools: array<string, array<string, mixed>>, stopped: array<string, mixed>}
+     */
+    private array $cycleControls = ['pools' => [], 'stopped' => []];
+
+    /** @var array<string, true> Pools the application declared this cycle */
+    private array $declaredPools = [];
+
+    /**
+     * The services screen's controls, or none when they cannot be read.
+     *
+     * A database that cannot answer must not stop the supervisor supervising: it runs what
+     * the code declares, which is what it did before the screen could change anything.
+     *
+     * @return array{pools: array<string, array<string, mixed>>, stopped: array<string, mixed>}
+     */
+    protected function loadControls(): array
+    {
+        try {
+            $controls = new DaemonControls();
+
+            return ['pools' => $controls->pools(), 'stopped' => $controls->stoppedServices()];
+        } catch (\Throwable) {
+            return ['pools' => [], 'stopped' => []];
+        }
+    }
+
+    /**
+     * Where the supervisor writes each pool's reading for the services screen.
+     */
+    public static function poolsFilePath(): string
+    {
+        $base = defined('ROOT') ? ROOT : sys_get_temp_dir();
+        return $base . '/var/daemon_orchestrator_pools.json';
+    }
+
+    /**
+     * Write this cycle's pool readings, so the screen can show what the supervisor saw.
+     *
+     * Beside the state file and through a rename, so a reader never sees half of it.
+     */
+    private function writePoolsFile(): void
+    {
+        $file = $this->getPoolsFile();
+        $dir  = dirname($file);
+        if (!is_dir($dir)) {
+            return;
+        }
+
+        $tmp = $file . '.' . getmypid() . '.tmp';
+        $json = json_encode(['at' => time(), 'pools' => array_values($this->poolReport)], JSON_UNESCAPED_SLASHES);
+        if ($json !== false && @file_put_contents($tmp, $json) !== false) {
+            @rename($tmp, $file);
+        }
+        $this->poolReport = [];
+    }
+
+    /** The pools file for this orchestrator; overridable like the state file. */
+    protected function getPoolsFile(): string
+    {
+        return dirname($this->getStateFile()) . '/daemon_orchestrator_pools.json';
+    }
+
+    /**
      * A pool of `queue:process` workers whose size follows the backlog.
      *
      * ```php
@@ -161,11 +233,42 @@ abstract class DaemonOrchestrator extends CommandBase
      */
     protected function queuePool(string $name, array $config = []): array
     {
+        return $this->buildQueuePool($name, $config, 'code');
+    }
+
+    /**
+     * A pool's workers, with the screen's changes applied over its declared configuration.
+     *
+     * @param array<string, mixed> $config As declared, or empty for a pool from the screen
+     * @param string               $source `code` or `screen`, for the dashboard
+     * @return list<array<string, mixed>>
+     */
+    private function buildQueuePool(string $name, array $config, string $source): array
+    {
+        $this->declaredPools[$name] = true;
+        $row = $this->cycleControls['pools'][$name] ?? null;
+        if ($row !== null) {
+            $config = DaemonControls::asPoolConfig($row) + $config;
+        }
+
         $slug   = strtolower((string) preg_replace('/[^a-z0-9]+/i', '-', $name));
         $slug   = trim($slug, '-') !== '' ? trim($slug, '-') : 'pool';
         $types  = $config['types'] ?? [];
         $types  = array_values(array_filter(array_map('trim', is_array($types) ? $types : explode(',', (string) $types))));
         $policy = BurstPolicy::fromConfig($config);
+
+        if ($row !== null && !$row['enabled']) {
+            // Stopped on the screen: no workers, and the supervisor stops the ones it has.
+            unset($this->poolSizes[$name]);
+            $this->poolDecisions[$name] = 'stopped by ' . ($row['updated_by'] ?? 'an operator');
+            $this->poolReport[$name]    = [
+                'name' => $name, 'source' => $source, 'enabled' => false, 'types' => $types,
+                'size' => 0, 'backlog' => null, 'load' => null,
+                'decision' => $this->poolDecisions[$name], 'config' => $config,
+            ];
+
+            return [];
+        }
 
         $current = $this->poolSizes[$name]['size'] ?? $this->runningInPool($slug);
         $since   = isset($this->poolSizes[$name]) ? $this->poolSizes[$name]['since'] : null;
@@ -181,6 +284,11 @@ abstract class DaemonOrchestrator extends CommandBase
         $this->poolSizes[$name] = [
             'size'  => $target,
             'since' => $target === $current && $since !== null ? $since + 1 : 0,
+        ];
+        $this->poolReport[$name] = [
+            'name' => $name, 'source' => $source, 'enabled' => true, 'types' => $types,
+            'size' => $target, 'backlog' => $backlog, 'load' => $load,
+            'decision' => $this->poolDecisions[$name], 'config' => $config,
         ];
 
         $base   = defined('ROOT') ? \ROOT : sys_get_temp_dir();
@@ -310,7 +418,41 @@ abstract class DaemonOrchestrator extends CommandBase
      */
     protected function collectDesiredProcesses(): array
     {
+        /*
+         * What an operator decided on the services screen, read once per cycle: pools defined
+         * or adjusted there, and services stopped there. Read before the application's list,
+         * because queuePool() applies the screen's changes as it builds each pool.
+         */
+        $this->cycleControls = $this->loadControls();
+        $this->declaredPools = [];
+
         $desired = $this->buildDesiredProcesses();
+
+        // Pools that exist only on the screen, after the application has declared its own.
+        foreach ($this->cycleControls['pools'] as $name => $row) {
+            if (!isset($this->declaredPools[$name])) {
+                $desired = array_merge($desired, $this->buildQueuePool($name, [], 'screen'));
+            }
+        }
+
+        $desired = array_values(array_filter(
+            $this->withFrameworkProcesses($desired),
+            fn (array $process): bool => !isset($this->cycleControls['stopped'][(string) ($process['id'] ?? '')])
+        ));
+
+        $this->writePoolsFile();
+
+        return $desired;
+    }
+
+    /**
+     * The framework's own processes, added to the application's list.
+     *
+     * @param  array<int, array<string, mixed>> $desired
+     * @return array<int, array<string, mixed>>
+     */
+    private function withFrameworkProcesses(array $desired): array
+    {
 
         if (!$this->includeScheduler()) {
             return $this->withBroadcastServer($desired);
