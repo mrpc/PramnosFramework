@@ -2145,6 +2145,61 @@ class QueueManagerMySQLTest extends TestCase
         $this->assertSame($id, (int) $this->manager->getNextTask()->taskid);
     }
 
+    /**
+     * A queue pool's backlog is the pending tasks of its types, counted in the real table.
+     *
+     * Only `pending` counts: a task being processed is already a worker's, and counting it
+     * would grow the pool for work that has been taken.
+     */
+    public function testAQueuePoolCountsThePendingTasksOfItsTypes(): void
+    {
+        // Arrange — two pending pass units, one claimed, one pending of another type
+        $this->manager->addMany('pass_unit', [['id' => 1], ['id' => 2], ['id' => 3]]);
+        $this->manager->getNextTask('pass_unit');
+        $this->manager->addTask('mail', ['to' => 'a']);
+        $orch = new class extends \Pramnos\Console\DaemonOrchestrator {
+            /** Nothing is run. */
+            public function __construct()
+            {
+            }
+
+            /** @param list<string> $types */
+            public function backlog(array $types): ?int
+            {
+                return $this->poolBacklog($types);
+            }
+
+            /** @return array<int, array<string, mixed>> */
+            protected function buildDesiredProcesses(): array
+            {
+                return [];
+            }
+
+            /** Not a job. */
+            protected function getJobName(): string
+            {
+                return 'probe';
+            }
+
+            /** Not shown. */
+            protected function getDashboardTitle(): string
+            {
+                return 'probe';
+            }
+
+            /** Not run. */
+            protected function getEntryPoint(): string
+            {
+                return '/dev/null';
+            }
+        };
+
+        // Act & Assert
+        $this->assertSame(2, $orch->backlog(['pass_unit']));
+        $this->assertSame(3, $orch->backlog(['pass_unit', 'mail']));
+        $this->assertSame(3, $orch->backlog([]), 'no types is every type');
+    }
+
 }
 
 /**

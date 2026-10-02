@@ -104,6 +104,189 @@ abstract class DaemonOrchestrator extends CommandBase
      */
     abstract protected function buildDesiredProcesses(): array;
 
+    // ── Queue pools ───────────────────────────────────────────────────────────
+
+    /**
+     * Pool size per pool name, and how many cycles it has held that size.
+     *
+     * In memory, because it only has to outlive one cycle: a restarted supervisor starts from
+     * the workers it finds alive, with the cooldown off for its first decision.
+     *
+     * @var array<string, array{size: int, since: int}>
+     */
+    private array $poolSizes = [];
+
+    /**
+     * The last {@see BurstPolicy::explain()} line per pool, for the dashboard and the log.
+     *
+     * @var array<string, string>
+     */
+    private array $poolDecisions = [];
+
+    /**
+     * A pool of `queue:process` workers whose size follows the backlog.
+     *
+     * ```php
+     * protected function buildDesiredProcesses(): array
+     * {
+     *     return $this->queuePool('passes', [
+     *         'types'        => ['pass_unit'],
+     *         'floor'        => 1,
+     *         'ceiling'      => 8,
+     *         'grow_above'   => 50,
+     *         'shrink_below' => 5,
+     *     ]);
+     * }
+     * ```
+     *
+     * Each cycle the pool's size is {@see BurstPolicy::target()} of its current size, the
+     * pending tasks of its types, and the load per core: one worker more, one fewer, or the
+     * same. So a pass that queues two hundred units grows the pool one step per cycle while
+     * the backlog lasts, and it shrinks back once the queue is drained. Every shrink stops the
+     * highest-numbered worker through its stop file, and a task it held is reclaimed by
+     * `queue:reclaim`.
+     *
+     * | Key | |
+     * |---|---|
+     * | `types` | task types the workers take, a list or a comma string; empty for every type |
+     * | `floor`, `ceiling` | always at least, never more than; default 1 and 4 |
+     * | `grow_above`, `shrink_below` | backlog thresholds, with a gap between them |
+     * | `load_ceiling` | load per core past which nothing is added; null for no gate |
+     * | `cooldown` | cycles to wait after a change; default 3 |
+     * | `args` | further `queue:process` arguments, e.g. `['--runtime', '3600']` |
+     *
+     * @param string               $name   The pool's name: worker ids, lock files, the dashboard
+     * @param array<string, mixed> $config
+     * @return list<array<string, mixed>> One desired-process entry per worker
+     */
+    protected function queuePool(string $name, array $config = []): array
+    {
+        $slug   = strtolower((string) preg_replace('/[^a-z0-9]+/i', '-', $name));
+        $slug   = trim($slug, '-') !== '' ? trim($slug, '-') : 'pool';
+        $types  = $config['types'] ?? [];
+        $types  = array_values(array_filter(array_map('trim', is_array($types) ? $types : explode(',', (string) $types))));
+        $policy = BurstPolicy::fromConfig($config);
+
+        $current = $this->poolSizes[$name]['size'] ?? $this->runningInPool($slug);
+        $since   = isset($this->poolSizes[$name]) ? $this->poolSizes[$name]['since'] : null;
+        $backlog = $this->poolBacklog($types);
+        $load    = $this->loadPerCore();
+
+        $target = $policy->target($current, $backlog, $load, $since);
+        $this->poolDecisions[$name] = $policy->explain($current, $backlog, $load, $since);
+
+        if ($target !== $current) {
+            \Pramnos\Logs\Logger::log('[pool ' . $name . '] ' . $this->poolDecisions[$name], 'daemons');
+        }
+        $this->poolSizes[$name] = [
+            'size'  => $target,
+            'since' => $target === $current && $since !== null ? $since + 1 : 0,
+        ];
+
+        $base   = defined('ROOT') ? \ROOT : sys_get_temp_dir();
+        $extra  = array_values(array_map('strval', (array) ($config['args'] ?? [])));
+        $typeArgs = $types === [] ? [] : ['--type', implode(',', $types)];
+
+        $processes = [];
+        for ($i = 1; $i <= $target; $i++) {
+            $workerId    = 'queue-' . $slug . '-' . $i;
+            $processes[] = [
+                'id'       => $workerId,
+                'daemon'   => 'queue',
+                'workerId' => $workerId,
+                'pool'     => $name,
+                'lockFile' => $base . '/var/QUEUE_' . strtoupper(str_replace('-', '_', $slug)) . '_' . $i . '.lock',
+                'profile'  => $name . ' pool' . ($types === [] ? '' : ' (' . implode(', ', $types) . ')'),
+                'tokens'   => array_merge(
+                    ['queue:process', '--daemon', '--quiet'],
+                    $typeArgs,
+                    $extra,
+                    ['--worker-id', $workerId]
+                ),
+            ];
+        }
+
+        return $processes;
+    }
+
+    /**
+     * Every pool's last decision, as {@see BurstPolicy::explain()} worded it.
+     *
+     * @return array<string, string>
+     */
+    public function poolDecisions(): array
+    {
+        return $this->poolDecisions;
+    }
+
+    /**
+     * Pending tasks of these types (every type when empty), or null when it cannot be read.
+     *
+     * Null rather than 0 on failure: {@see BurstPolicy} holds a pool whose backlog is unknown,
+     * where 0 would read as "drained" and shrink it during the database trouble that made the
+     * count fail. Cheap because of the `(status, type)` index.
+     *
+     * @param list<string> $types
+     */
+    protected function poolBacklog(array $types): ?int
+    {
+        try {
+            $query = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
+                ->table('queueitems')
+                ->where('status', 'pending');
+            if ($types !== []) {
+                $query->whereIn('type', $types);
+            }
+
+            return $query->count();
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    /**
+     * One-minute load average per core, or null when the machine will not say.
+     *
+     * Null does not gate growth — a load that cannot be read is not a load known to be high —
+     * which is {@see BurstPolicy}'s rule, not this method's.
+     */
+    protected function loadPerCore(): ?float
+    {
+        $load = function_exists('sys_getloadavg') ? sys_getloadavg() : false;
+        if (!is_array($load) || !isset($load[0])) {
+            return null;
+        }
+
+        $cores = 0;
+        $cpuinfo = @file_get_contents('/proc/cpuinfo');
+        if (is_string($cpuinfo)) {
+            $cores = (int) preg_match_all('/^processor\s*:/mi', $cpuinfo);
+        }
+
+        return (float) $load[0] / max(1, $cores);
+    }
+
+    /**
+     * How many of a pool's workers are alive, from the state file the reconciler keeps.
+     *
+     * Read once, when the supervisor starts, so a restart keeps the size it found instead of
+     * dropping back to the floor.
+     */
+    protected function runningInPool(string $slug): int
+    {
+        $prefix  = 'queue-' . $slug . '-';
+        $running = 0;
+        foreach ($this->loadState() as $entry) {
+            if (str_starts_with((string) ($entry['id'] ?? ''), $prefix)
+                && $this->isProcessRunning((int) ($entry['pid'] ?? 0))
+            ) {
+                $running++;
+            }
+        }
+
+        return $running;
+    }
+
     // ── The schedule ──────────────────────────────────────────────────────────
 
     /**

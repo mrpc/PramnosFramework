@@ -1,5 +1,6 @@
 ---
 use_cases:
+  - Scaling a pool of queue workers up and down with the backlog
   - Writing a long-running worker or daemon
   - Scheduling recurring work
   - Supervising background processes in production
@@ -570,6 +571,50 @@ confirming the policy — while a prefix-matching deduplicator killed two worker
 cooperative stop are prerequisites rather than companions: an autoscaler over a queue that
 abandons what a stopped worker held is a machine for losing work in proportion to how much it
 scales.
+
+### A pool that follows the backlog — `queuePool()`
+
+`BurstPolicy` is the arithmetic; `queuePool()` is what puts it to work. Return it from
+`buildDesiredProcesses()` and the pool's size is decided again every cycle:
+
+```php
+protected function buildDesiredProcesses(): array
+{
+    return array_merge(
+        $this->queuePool('passes', [
+            'types'        => ['pass_unit'],
+            'floor'        => 1,
+            'ceiling'      => 8,
+            'grow_above'   => 50,
+            'shrink_below' => 5,
+            'cooldown'     => 3,
+        ]),
+        $this->queuePool('mail', ['types' => 'mail', 'floor' => 1, 'ceiling' => 2]),
+    );
+}
+```
+
+| Key | Default | |
+|---|---|---|
+| `types` | every type | a list or a comma string; becomes `queue:process --type` |
+| `floor`, `ceiling` | 1, 4 | |
+| `grow_above`, `shrink_below` | 1000, a fifth of it | pending tasks of the pool's types |
+| `load_ceiling` | 0.75 | load per core past which nothing is added; `null` for no gate |
+| `cooldown` | 3 | cycles to wait after a change |
+| `args` | none | more `queue:process` arguments, e.g. `['--runtime', '3600']` |
+
+Each cycle it counts the pool's pending tasks (the `(status, type)` index makes that cheap),
+reads the load per core, and asks `BurstPolicy::target()` for one worker more, one fewer or
+the same. Worker *n* of a pool named `passes` is `queue-passes-n`, with the lock file
+`var/QUEUE_PASSES_n.lock`. A shrink drops the highest-numbered worker, which the orchestrator
+stops through its stop file.
+
+- **A count that fails holds the pool.** It does not read as "drained", which would shrink
+  the pool during the database trouble that made the count fail.
+- **A restarted supervisor starts from the workers it finds alive**, not from the floor.
+- **Every decision is kept in words.** `poolDecisions()` returns `explain()` per pool, and a
+  change of size is logged to the `daemons` log with it, so the decision and the process
+  count are on one line.
 
 ### Worker ids are compared, not searched for
 

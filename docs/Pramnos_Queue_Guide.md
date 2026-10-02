@@ -547,13 +547,13 @@ finishes and nothing new is taken**.
 
 ### How many workers, and elasticity
 
-**The framework ships the worker, not the pool.** `queue:process --daemon` is a complete
-worker — signals, lock file, cooperative stop as above — and deciding how many of them run,
-noticing when one dies and restarting it belongs to a supervisor: systemd, supervisord, or
-an application's own orchestrator.
+`queue:process --daemon` is a complete worker: signals, lock file, cooperative stop as above.
+How many of them run is the supervisor's decision. The framework's orchestrator makes it with
+[`queuePool()`](Pramnos_Workers_And_Daemons_Guide.md#a-pool-that-follows-the-backlog-queuepool),
+which sizes a pool from the backlog of its task types. systemd or supervisord can run a fixed
+number instead.
 
-If you build an autoscaler on top, three constraints are worth having from somebody who
-did:
+The pool follows three constraints, and they apply to any autoscaler built on this queue:
 
 - **One step per reconcile cycle**, never a jump to a computed target. That is the whole
   load protection: an incremental policy only has to be right about the direction, where a
