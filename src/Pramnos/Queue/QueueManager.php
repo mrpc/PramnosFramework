@@ -254,6 +254,57 @@ class QueueManager
     }
 
     /**
+     * The batches queued in the last $hours, newest first, with their tasks counted by status.
+     *
+     * What the services screen lists under the pools: a pass that fanned out, how far it has
+     * got, and whether anything in it failed.
+     *
+     * @return list<array{id: string, name: string, queued_at: string, pending: int,
+     *               processing: int, completed: int, warning: int, failed: int, total: int,
+     *               finished: bool}>
+     */
+    public function recentBatches(int $hours = 24, int $limit = 20): array
+    {
+        $query  = $this->controller->application->database->queryBuilder()->table($this->getQueueTableName());
+        $result = $query->select([
+                'batchid', 'batchname', 'status',
+                $query->raw('COUNT(*) AS n'), $query->raw('MIN(createdat) AS first'),
+            ])
+            ->whereNotNull('batchid')
+            ->where('createdat', '>=', date('Y-m-d H:i:s', time() - $hours * 3600))
+            ->groupBy(['batchid', 'batchname', 'status'])
+            ->get();
+
+        $batches = [];
+        while ($result && $result->fetch()) {
+            $row = $result->fields;
+            $id  = (string) $row['batchid'];
+            $batches[$id] ??= [
+                'id' => $id, 'name' => (string) ($row['batchname'] ?? ''), 'queued_at' => (string) $row['first'],
+                'pending' => 0, 'processing' => 0, 'completed' => 0, 'warning' => 0, 'failed' => 0,
+            ];
+            $status = (string) $row['status'];
+            if (isset($batches[$id][$status])) {
+                $batches[$id][$status] = (int) $row['n'];
+            }
+            if ((string) $row['first'] < $batches[$id]['queued_at']) {
+                $batches[$id]['queued_at'] = (string) $row['first'];
+            }
+        }
+
+        usort($batches, static fn (array $a, array $b): int => strcmp($b['queued_at'], $a['queued_at']));
+
+        return array_map(static function (array $batch): array {
+            $status = new QueueBatchStatus(
+                $batch['id'], $batch['pending'], $batch['processing'],
+                $batch['completed'], $batch['warning'], $batch['failed']
+            );
+
+            return ['name' => $batch['name'], 'queued_at' => $batch['queued_at']] + $status->toArray();
+        }, array_slice($batches, 0, $limit));
+    }
+
+    /**
      * Whether any task of a batch with this name is still pending or processing.
      *
      * What `withoutOverlapping()` cannot know: it guards the run that *queues* a pass, which

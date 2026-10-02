@@ -2205,6 +2205,37 @@ class QueueManagerMySQLTest extends TestCase
         $this->assertSame(3, $orch->backlog([]), 'no types is every type');
     }
 
+    /**
+     * The recent batches are listed newest first, each with its tasks counted by status, and
+     * a task queued on its own is not a batch.
+     */
+    public function testRecentBatchesListsEachBatchWithItsCounts(): void
+    {
+        // Arrange — an older batch, partly done, then a newer one; and a lone task
+        $old = $this->manager->addMany('pass_unit', [['id' => 1], ['id' => 2]], batch: 'channels.collect');
+        $this->db->queryBuilder()->table('queueitems')->where('batchid', $old->id)
+            ->update(['createdat' => date('Y-m-d H:i:s', time() - 600)]);
+        $this->db->queryBuilder()->table('queueitems')->where('taskid', $old->taskIds[0])->update(['status' => 'failed']);
+        $new = $this->manager->addMany('pass_unit', [['id' => 3]], batch: 'feeds.read');
+        $this->manager->addTask('mail', ['to' => 'a']);
+
+        // Act
+        $batches = $this->manager->recentBatches();
+
+        // Assert
+        $this->assertSame([$new->id, $old->id], array_column($batches, 'id'));
+        $this->assertSame('feeds.read', $batches[0]['name']);
+        $this->assertSame([1, 1, 2, false], [$batches[1]['pending'], $batches[1]['failed'], $batches[1]['total'], $batches[1]['finished']]);
+
+        // The limit narrows it
+        $this->assertSame([$new->id], array_column($this->manager->recentBatches(limit: 1), 'id'));
+
+        // And a batch older than the window is not listed
+        $this->db->queryBuilder()->table('queueitems')->where('batchid', $old->id)
+            ->update(['createdat' => date('Y-m-d H:i:s', time() - 2 * 86400)]);
+        $this->assertSame([$new->id], array_column($this->manager->recentBatches(hours: 24), 'id'));
+    }
+
 }
 
 /**

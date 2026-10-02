@@ -21,8 +21,10 @@ use Pramnos\Application\Controller;
  * IMPORTANT: The orchestrator CLI process must be running (`pramnos orchestrate`)
  * for start/restart to take effect. This controller cannot spawn processes directly.
  *
- * Actions: display, stop, start, restart, logs, status
- * All actions require authentication + usertype >= 80.
+ * Actions: display, stop, start, restart, restartall, logs, status,
+ *          poolsave, poolstop, poolstart, pooldelete
+ * All actions require authentication + usertype >= 80; every change is a POST with the
+ * session's token, and is written to the `auth` log with who made it.
  *
  * Scaffolded wrappers live at `src/Controllers/Services.php`.
  *
@@ -40,9 +42,12 @@ class ServicesController extends Controller
 
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
-        $this->addAuthAction(['display', 'stop', 'start', 'restart', 'logs', 'status']);
+        $this->addAuthAction([
+            'display', 'stop', 'start', 'restart', 'logs', 'status',
+            'restartall', 'poolsave', 'poolstop', 'poolstart', 'pooldelete',
+        ]);
         // POST with the session's token, or refused before the action runs: see Controller::exec().
-        $this->addWriteAction(['stop', 'start', 'restart']);
+        $this->addWriteAction(['stop', 'start', 'restart', 'restartall', 'poolsave', 'poolstop', 'poolstart', 'pooldelete']);
         parent::__construct($application);
     }
 
@@ -65,6 +70,11 @@ class ServicesController extends Controller
         // Whether the supervisor is up, because that is what decides if the buttons on
         // this page do anything at all — see orchestratorStatus().
         $view->orchestrator = $this->orchestratorStatus();
+        // The pools as the supervisor last saw them, the batches they are working through,
+        // and what an operator has stopped: the numbers a scaling decision is made from.
+        $view->pools    = $this->loadPools();
+        $view->batches  = $this->loadBatches();
+        $view->stopped  = $this->controls()->stoppedServices();
 
         return $view->display();
     }
@@ -104,8 +114,17 @@ class ServicesController extends Controller
             return;
         }
 
+        /*
+         * Recorded, then signalled. The stop file alone made the worker exit and the
+         * supervisor — which still had it on its list — start it again a cycle later, so
+         * "Stop" was a restart. Listed in pramnos.stopped_services it stays off the list.
+         */
+        $kept = $this->tryControl(fn (\Pramnos\Console\DaemonControls $c) => $c->stopService($name, $this->who()));
         file_put_contents($lockFile . '.stop', '1');
-        $this->addMessage('Stopped.');
+        $this->audit('stopped service ' . $name);
+        $kept
+            ? $this->addMessage('Stopped. It stays stopped until you start it.')
+            : $this->addMessage('Stopped. The supervisor will start it again: run migrate so a stop can be kept.');
         $this->redirect(adminUrl('services'));
     }
 
@@ -123,15 +142,20 @@ class ServicesController extends Controller
 
         // See stop() for why the name is read here rather than taken as an argument.
         $name = (string) \Pramnos\Http\Request::staticGetOption();
+        $this->tryControl(fn (\Pramnos\Console\DaemonControls $c) => $c->startService($name));
         $this->clearStopFile($name);
-        $this->addMessage('Started.');
+        $this->audit('started service ' . $name);
+        $this->addMessage('Started. The supervisor brings it up on its next cycle.');
         $this->redirect(adminUrl('services'));
     }
 
     /**
-     * Request a service restart: removes the stop sentinel so the orchestrator
-     * will respawn the process. If the service is currently running, the existing
-     * process continues until its next heartbeat sees a changed state.
+     * Restart a service: it exits gracefully and the supervisor starts it again.
+     *
+     * Through the stop file, which is exactly what a restart is to a supervisor that still
+     * wants the process. It used to *remove* the stop file — the same as Start — which did
+     * nothing at all to a worker that was running, the only one anybody restarts. A stopped
+     * service is started instead.
      */
     public function restart(mixed $name = null): void
     {
@@ -140,9 +164,117 @@ class ServicesController extends Controller
         }
 
         // See stop() for why the name is read here rather than taken as an argument.
+        $name    = (string) \Pramnos\Http\Request::staticGetOption();
+        $service = $this->findService($name);
+        $this->tryControl(fn (\Pramnos\Console\DaemonControls $c) => $c->startService($name));
+
+        $lockFile = (string) ($service['lockFile'] ?? '');
+        if ($service !== null && $lockFile !== '' && ($service['status'] ?? '') === 'running') {
+            file_put_contents($lockFile . '.stop', '1');
+        } else {
+            $this->clearStopFile($name);
+        }
+
+        $this->audit('restarted service ' . $name);
+        $this->addMessage('Restarting. It finishes its current task, exits, and the supervisor starts it again.');
+        $this->redirect(adminUrl('services'));
+    }
+
+    /**
+     * Restart every running service — for a deploy the supervisor cannot see.
+     *
+     * The supervisor restarts everything when git HEAD changes. A deploy that changes no
+     * commit — `composer update`, a copied build, an edited setting a worker reads once —
+     * leaves the old code running in every worker until somebody asks.
+     */
+    public function restartall(): void
+    {
+        if ($this->requireMinUserType($this->requiredUserType)) {
+            return;
+        }
+
+        $count = 0;
+        foreach ($this->loadServiceList() as $service) {
+            $lockFile = (string) ($service['lockFile'] ?? '');
+            if ($lockFile !== '' && ($service['status'] ?? '') === 'running') {
+                file_put_contents($lockFile . '.stop', '1');
+                $count++;
+            }
+        }
+
+        $this->audit('restarted all services (' . $count . ')');
+        $this->addMessage('Restarting ' . $count . ' service(s). Each finishes its current task first.');
+        $this->redirect(adminUrl('services'));
+    }
+
+    /**
+     * Create a pool, or change one — a pool the code declares included.
+     *
+     * Blank fields are "as declared": a code pool keeps its own value for each. The supervisor
+     * applies the change on its next cycle; nothing is spawned from this request.
+     */
+    public function poolsave(): void
+    {
+        if ($this->requireMinUserType($this->requiredUserType)) {
+            return;
+        }
+
+        $request = new \Pramnos\Http\Request();
+        $name    = trim((string) $request->get('name', '', 'post'));
+        $fields  = [];
+        foreach (['types', 'floor', 'ceiling', 'grow_above', 'shrink_below', 'load_percent', 'cooldown'] as $key) {
+            $fields[$key] = $request->get($key, '', 'post');
+        }
+        $existing          = $this->controls()->pools()[$name] ?? null;
+        $fields['enabled'] = $existing['enabled'] ?? true;
+
+        try {
+            $this->controls()->savePool($name, $fields, $this->who());
+        } catch (\InvalidArgumentException $exception) {
+            $this->addError($exception->getMessage());
+            $this->redirect(adminUrl('services'));
+            return;
+        } catch (\Throwable) {
+            $this->addError('The pool could not be saved. Run migrate: the pools table may not exist yet.');
+            $this->redirect(adminUrl('services'));
+            return;
+        }
+
+        $this->audit('saved pool ' . $name);
+        $this->addMessage('Saved. The supervisor applies it on its next cycle.');
+        $this->redirect(adminUrl('services'));
+    }
+
+    /** Stop a pool: it runs no workers until started. */
+    public function poolstop(): void
+    {
+        $this->setPool(false);
+    }
+
+    /** Start a stopped pool. */
+    public function poolstart(): void
+    {
+        $this->setPool(true);
+    }
+
+    /**
+     * Remove a pool's row: a pool from the screen goes, a code pool returns to its declaration.
+     */
+    public function pooldelete(): void
+    {
+        if ($this->requireMinUserType($this->requiredUserType)) {
+            return;
+        }
+
         $name = (string) \Pramnos\Http\Request::staticGetOption();
-        $this->clearStopFile($name);
-        $this->addMessage('Restarted.');
+        if (!$this->tryControl(fn (\Pramnos\Console\DaemonControls $c) => $c->deletePool($name))) {
+            $this->addError('That pool could not be removed.');
+            $this->redirect(adminUrl('services'));
+            return;
+        }
+
+        $this->audit('removed pool ' . $name);
+        $this->addMessage('Removed.');
         $this->redirect(adminUrl('services'));
     }
 
@@ -215,6 +347,11 @@ class ServicesController extends Controller
             // is the expected reading rather than an incident, and nothing this page can
             // do will change it.
             'orchestrator' => $this->orchestratorStatus(),
+            'pools'        => $this->loadPools(),
+            'batches'      => $this->loadBatches(),
+            // Not `stopped`, which is the count above: these are the services an operator
+            // stopped, which the supervisor will not start again.
+            'stopped_by_operator' => array_keys($this->controls()->stoppedServices()),
         ]);
     }
 
@@ -328,6 +465,126 @@ class ServicesController extends Controller
         }
 
         return is_dir('/proc/' . $pid);
+    }
+
+    /**
+     * Every pool: what the supervisor last saw of it, and any saved row it has not seen yet.
+     *
+     * A pool saved a moment ago is listed before the supervisor has acted on it, marked as
+     * waiting, so the operator sees that the save worked and that the next cycle is pending.
+     *
+     * @return list<array<string, mixed>>
+     */
+    protected function loadPools(): array
+    {
+        $seen = [];
+        $file = \Pramnos\Console\DaemonOrchestrator::poolsFilePath();
+        $json = is_file($file) ? json_decode((string) @file_get_contents($file), true) : null;
+        foreach ((array) ($json['pools'] ?? []) as $pool) {
+            if (is_array($pool) && isset($pool['name'])) {
+                $seen[(string) $pool['name']] = $pool + ['row' => null, 'waiting' => false];
+            }
+        }
+
+        foreach ($this->controls()->pools() as $name => $row) {
+            if (isset($seen[$name])) {
+                $seen[$name]['row'] = $row;
+                // Saved after the supervisor's last reading: what it shows is about to change.
+                $seen[$name]['waiting'] = $row['updated_at'] > (int) ($json['at'] ?? 0);
+                continue;
+            }
+            $seen[$name] = [
+                'name' => $name, 'source' => 'screen', 'enabled' => $row['enabled'],
+                'types' => $row['types'] === null ? [] : explode(',', $row['types']),
+                'size' => null, 'backlog' => null, 'load' => null, 'decision' => '',
+                'config' => \Pramnos\Console\DaemonControls::asPoolConfig($row),
+                'row' => $row, 'waiting' => true,
+            ];
+        }
+
+        ksort($seen);
+
+        return array_values($seen);
+    }
+
+    /**
+     * The batches of the last day, or none when this installation has no queue.
+     *
+     * @return list<array<string, mixed>>
+     */
+    protected function loadBatches(): array
+    {
+        try {
+            return (new \Pramnos\Queue\QueueManager($this))->recentBatches();
+        } catch (\Throwable) {
+            return [];
+        }
+    }
+
+    /** The screen's controls, against the application's database. */
+    protected function controls(): \Pramnos\Console\DaemonControls
+    {
+        return new \Pramnos\Console\DaemonControls();
+    }
+
+    /**
+     * Apply a change to the controls, and say whether it could be kept.
+     *
+     * False when the tables are not there yet or the database refused — the caller says so
+     * rather than claiming a decision was saved.
+     *
+     * @param callable(\Pramnos\Console\DaemonControls): mixed $change
+     */
+    private function tryControl(callable $change): bool
+    {
+        try {
+            $change($this->controls());
+
+            return true;
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
+    /** Stop or start the pool named in the URL. */
+    private function setPool(bool $enabled): void
+    {
+        if ($this->requireMinUserType($this->requiredUserType)) {
+            return;
+        }
+
+        $name = (string) \Pramnos\Http\Request::staticGetOption();
+        if (!$this->tryControl(fn (\Pramnos\Console\DaemonControls $c) => $c->setPoolEnabled($name, $enabled, $this->who()))) {
+            $this->addError('That pool could not be changed. Run migrate: the pools table may not exist yet.');
+            $this->redirect(adminUrl('services'));
+            return;
+        }
+
+        $this->audit(($enabled ? 'started' : 'stopped') . ' pool ' . $name);
+        $this->addMessage($enabled ? 'Started.' : 'Stopped. Its workers finish their current task and exit.');
+        $this->redirect(adminUrl('services'));
+    }
+
+    /** The signed-in operator, as recorded beside what they changed. */
+    private function who(): string
+    {
+        $user = \Pramnos\User\User::getCurrentUser();
+
+        return $user !== null && (int) ($user->userid ?? 0) > 0
+            ? (string) ($user->username ?? ('user ' . (int) $user->userid))
+            : '';
+    }
+
+    /**
+     * Record a change to the workers where the other administrative actions are recorded.
+     */
+    protected function audit(string $what): void
+    {
+        \Pramnos\Logs\Logger::log(
+            'Services: ' . $what . ' by ' . ($this->who() ?: 'an unknown user')
+            . ' from ' . (string) ($_SERVER['REMOTE_ADDR'] ?? '?'),
+            'auth'
+        );
     }
 
     private function loadServiceList(): array

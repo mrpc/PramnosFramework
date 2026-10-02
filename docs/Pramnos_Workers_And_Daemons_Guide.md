@@ -1,5 +1,6 @@
 ---
 use_cases:
+  - Stopping, restarting or resizing workers from the administration screen
   - Scaling a pool of queue workers up and down with the backlog
   - Writing a long-running worker or daemon
   - Scheduling recurring work
@@ -803,17 +804,42 @@ DaemonOrchestrator::stateFilePath();          // ROOT/var/daemon_orchestrator_st
 DaemonOrchestrator::orchestratorLockPath();   // ROOT/var/DAEMON_ORCHESTRATOR.lock
 ```
 
-### The services screen needs the supervisor to be running
+### The services screen
 
-`/admin/Services` lists what the orchestrator manages, and its Stop, Start and Restart
-buttons **do not spawn or kill anything**: they write and remove a sentinel file, and the
-orchestrator acts on it on its next cycle.
+`/admin/Services` (usertype 80 and up) is where an operator watches and controls what the
+orchestrator supervises. It has four parts:
 
-So with no orchestrator running:
+| Part | Shows | Controls |
+|---|---|---|
+| **Worker pools** | each pool, from `code` or the `screen`: its task types, workers, backlog, load per core, and the `BurstPolicy` decision; *waiting for supervisor* while a saved change has not been applied | Stop / Start, Edit limits, Reset (a code pool, back to its declaration) or Remove (a screen pool), Add a pool |
+| **Services** | every supervised process, with its pid, status and log | Stop, Start, Restart, Logs |
+| **Batches** | batches queued in the last 24 hours, with pending, processing, done and failed | — |
+| **Restart all** | — | gracefully restarts every running service |
 
-- **Stop** still works — a daemon polls its own stop file.
-- **Start** and **Restart** do nothing whatsoever. No error, no message: the operator clicks,
-  the page reloads, the service stays down.
+The numbers refresh from `GET /admin/Services/status` every ten seconds without reloading
+the page, so an open form keeps what was typed in it.
+
+**What each control does:**
+
+- **Stop** records the service in `pramnos.stopped_services` and writes its stop file. The
+  worker finishes its task and exits, and the supervisor leaves it off its list until
+  **Start** removes the record.
+- **Restart** writes the stop file of a running service. The worker exits, and the
+  supervisor, which still wants it, starts it again.
+- **Restart all** does that for every running service. Use it after a deploy the supervisor
+  cannot see: it restarts by itself only when git HEAD changes, so `composer update` or a
+  copied build is invisible to it.
+- **A pool's Stop, Start, Edit and Remove** write `pramnos.worker_pools`. Blank fields in
+  *Edit limits* keep the value declared in code, which is shown as the placeholder.
+
+**Nothing on the screen spawns or kills a process itself.** Every control is written where
+the supervisor reads it, and the supervisor acts on its next cycle. With no orchestrator
+running, only a stop file takes effect, because a daemon checks its own. Every change is a
+POST carrying the session's token and is recorded in the `auth` log with who made it.
+
+**Customised views:** a project that published the services view with
+`project:publish-views` keeps its old copy. To get the screen above, run
+`project:publish-views --group=services --force`.
 
 **A pid is not enough to tell whether it is running.** The supervisor's normal home is a
 container of its own — that is what `pramnos init` writes for an application with background
@@ -831,7 +857,8 @@ The screen therefore reports the supervisor's own state above the list — runni
 and last cycle, stale if it has not cycled for two minutes, and a warning naming the
 consequence if it is not running at all. `GET /admin/Services/status` carries the same reading
 as `orchestrator`, which is what a monitor should look at first: with the supervisor gone,
-"0 running" is the expected number rather than an incident.
+"0 running" is the expected number rather than an incident. The same response carries
+`pools`, `batches` and `stopped_by_operator`.
 
 ---
 

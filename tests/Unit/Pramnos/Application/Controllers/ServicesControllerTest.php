@@ -13,6 +13,15 @@ class TestableServicesController extends ServicesController
 {
     public array $redirectedTo = [];
 
+    /** @var \Pramnos\Console\DaemonControls|null Controls to use instead of the database's */
+    public ?\Pramnos\Console\DaemonControls $fakeControls = null;
+
+    /** The test's controls when it set some. */
+    protected function controls(): \Pramnos\Console\DaemonControls
+    {
+        return $this->fakeControls ?? parent::controls();
+    }
+
     public function redirect($url = null, $quit = true, $code = '302')
     {
         if ($url === null) {
@@ -32,6 +41,9 @@ class TestableServicesController extends ServicesController
              *  deprecation on PHP 8.2+ and the deprecation is the only warning a stub
              *  gives before it stops accepting what the controller publishes. */
             public mixed $orchestrator;
+            public mixed $pools;
+            public mixed $batches;
+            public mixed $stopped;
             
             public function display($view = '') {
                 return 'mock html view for ' . $view;
@@ -41,9 +53,96 @@ class TestableServicesController extends ServicesController
     }
 }
 
+/**
+ * The screen's controls, in memory: what the controller wrote, readable by the test.
+ */
+class MemoryDaemonControls extends \Pramnos\Console\DaemonControls
+{
+    /** @var array<string, array<string, mixed>> */
+    public array $poolRows = [];
+
+    /** @var array<string, array<string, mixed>> */
+    public array $stoppedRows = [];
+
+    /** When true every write fails, as it does before migrate has created the tables. */
+    public bool $broken = false;
+
+    /** No database. */
+    public function __construct()
+    {
+    }
+
+    /** @return array<string, array<string, mixed>> */
+    public function pools(): array
+    {
+        return $this->poolRows;
+    }
+
+    /** Validated by the real implementation's rules, stored here. */
+    public function savePool(string $name, array $fields, string $by = ''): void
+    {
+        $this->failIfBroken();
+        if (preg_match('/^[a-z0-9][a-z0-9_.-]{0,59}$/i', $name) !== 1) {
+            throw new \InvalidArgumentException('A pool name is letters, digits, dots, dashes and underscores.');
+        }
+        $this->poolRows[$name] = [
+            'name' => $name, 'types' => ($fields['types'] ?? '') === '' ? null : (string) $fields['types'],
+            'floor' => null, 'ceiling' => ($fields['ceiling'] ?? '') === '' ? null : (int) $fields['ceiling'],
+            'grow_above' => null, 'shrink_below' => null, 'load_percent' => null, 'cooldown' => null,
+            'enabled' => (bool) ($fields['enabled'] ?? true), 'updated_at' => time(), 'updated_by' => $by,
+        ];
+    }
+
+    /** Stores the flag. */
+    public function setPoolEnabled(string $name, bool $enabled, string $by = ''): void
+    {
+        $this->failIfBroken();
+        $this->poolRows[$name] = ['enabled' => $enabled, 'updated_by' => $by] + ($this->poolRows[$name] ?? [
+            'name' => $name, 'types' => null, 'floor' => null, 'ceiling' => null, 'grow_above' => null,
+            'shrink_below' => null, 'load_percent' => null, 'cooldown' => null, 'updated_at' => time(),
+        ]);
+    }
+
+    /** Forgets the row. */
+    public function deletePool(string $name): void
+    {
+        $this->failIfBroken();
+        unset($this->poolRows[$name]);
+    }
+
+    /** @return array<string, array<string, mixed>> */
+    public function stoppedServices(): array
+    {
+        return $this->stoppedRows;
+    }
+
+    /** Records the stop. */
+    public function stopService(string $id, string $by = ''): void
+    {
+        $this->failIfBroken();
+        $this->stoppedRows[$id] = ['id' => $id, 'stopped_at' => time(), 'stopped_by' => $by];
+    }
+
+    /** Forgets the stop. */
+    public function startService(string $id): void
+    {
+        $this->failIfBroken();
+        unset($this->stoppedRows[$id]);
+    }
+
+    /** A table that is not there. */
+    private function failIfBroken(): void
+    {
+        if ($this->broken) {
+            throw new \RuntimeException('no such table');
+        }
+    }
+}
+
 class ServicesControllerTest extends TestCase
 {
     private TestableServicesController $controller;
+    private MemoryDaemonControls $controls;
     private string $stateFile;
     private string $logFile;
     private string $lockFile;
@@ -75,6 +174,8 @@ class ServicesControllerTest extends TestCase
         }
         
         $this->controller = new TestableServicesController($app);
+        $this->controls   = new MemoryDaemonControls();
+        $this->controller->fakeControls = $this->controls;
 
         // Reset globals
         $_GET = [];
@@ -221,7 +322,7 @@ class ServicesControllerTest extends TestCase
             $this->assertCount(1, $this->controller->redirectedTo);
             // The message, not a query parameter: `?message=…` was in the URL and nothing read it.
             $this->assertContains(
-                'Stopped.',
+                'Stopped. It stays stopped until you start it.',
                 $_SESSION['_messages'] ?? []
             );
             $this->assertFileExists($this->lockFile . '.stop');
@@ -263,7 +364,7 @@ class ServicesControllerTest extends TestCase
             $this->assertCount(1, $this->controller->redirectedTo);
             // The message, not a query parameter: `?message=…` was in the URL and nothing read it.
             $this->assertContains(
-                'Started.',
+                'Started. The supervisor brings it up on its next cycle.',
                 $_SESSION['_messages'] ?? []
             );
             $this->assertFileDoesNotExist($this->lockFile . '.stop');
@@ -285,7 +386,7 @@ class ServicesControllerTest extends TestCase
             $this->assertCount(1, $this->controller->redirectedTo);
             // The message, not a query parameter: `?message=…` was in the URL and nothing read it.
             $this->assertContains(
-                'Restarted.',
+                'Restarting. It finishes its current task, exits, and the supervisor starts it again.',
                 $_SESSION['_messages'] ?? []
             );
             $this->assertFileDoesNotExist($this->lockFile . '.stop');
@@ -413,7 +514,7 @@ class ServicesControllerTest extends TestCase
             $this->assertCount(1, $this->controller->redirectedTo);
             // The message, not a query parameter: `?message=…` was in the URL and nothing read it.
             $this->assertContains(
-                'Started.',
+                'Started. The supervisor brings it up on its next cycle.',
                 $_SESSION['_messages'] ?? []
             );
         }
@@ -606,5 +707,289 @@ class ServicesControllerTest extends TestCase
         $this->assertIsArray($json);
         $this->assertSame(0, $json['total'],
             'status() must report 0 services when the state file does not exist');
+    }
+
+    // ── What the screen decides, kept where the supervisor reads it ──────────
+
+    /**
+     * Run one action, catching the redirect every action ends with.
+     *
+     * @param callable(): mixed $action
+     */
+    private function act(callable $action): void
+    {
+        try {
+            $action();
+        } catch (\RuntimeException $exception) {
+            $this->assertSame('redirect_quit', $exception->getMessage());
+        }
+    }
+
+    /** Make the state file's one service a running one: this process, with its lock. */
+    private function makeTheServiceRun(): void
+    {
+        file_put_contents($this->stateFile, json_encode([[
+            'id' => 'test-worker-id', 'daemon' => 'test', 'workerId' => 'worker',
+            'pid' => getmypid(), 'lockFile' => $this->lockFile,
+        ]]));
+        @unlink($this->lockFile . '.stop');
+    }
+
+    /**
+     * Stop records the service as stopped, with who stopped it, beside signalling it.
+     *
+     * The stop file alone was undone a cycle later: the worker exited and the supervisor,
+     * which still had it on its list, started it again.
+     */
+    public function testStopKeepsTheServiceStopped(): void
+    {
+        // Arrange
+        $this->setMockUser(98);
+        $_GET['_option'] = 'test-worker-id';
+
+        // Act
+        $this->act(fn () => $this->controller->stop());
+
+        // Assert
+        $this->assertArrayHasKey('test-worker-id', $this->controls->stoppedRows);
+        $this->assertFileExists($this->lockFile . '.stop');
+    }
+
+    /**
+     * Without the tables a stop still signals, and says plainly that it will not last.
+     */
+    public function testAStopThatCannotBeKeptSaysSo(): void
+    {
+        // Arrange
+        $this->setMockUser(98);
+        $this->controls->broken = true;
+        $_GET['_option'] = 'test-worker-id';
+
+        // Act
+        $this->act(fn () => $this->controller->stop());
+
+        // Assert
+        $this->assertContains('Stopped. The supervisor will start it again: run migrate so a stop can be kept.', $_SESSION['_messages'] ?? []);
+        $this->assertFileExists($this->lockFile . '.stop');
+    }
+
+    /**
+     * Start forgets the stop, so the supervisor brings the service back.
+     */
+    public function testStartForgetsTheStop(): void
+    {
+        // Arrange
+        $this->setMockUser(98);
+        $this->controls->stopService('test-worker-id');
+        $_GET['_option'] = 'test-worker-id';
+
+        // Act
+        $this->act(fn () => $this->controller->start());
+
+        // Assert
+        $this->assertSame([], $this->controls->stoppedRows);
+    }
+
+    /**
+     * Restart of a running service writes its stop file: it exits, and the supervisor —
+     * which still wants it — starts it again.
+     *
+     * It used to remove the stop file, which did nothing at all to a running worker.
+     */
+    public function testRestartOfARunningServiceSignalsIt(): void
+    {
+        // Arrange
+        $this->setMockUser(98);
+        $this->makeTheServiceRun();
+        $_GET['_option'] = 'test-worker-id';
+
+        // Act
+        $this->act(fn () => $this->controller->restart());
+
+        // Assert
+        $this->assertFileExists($this->lockFile . '.stop');
+    }
+
+    /**
+     * Restart all signals every running service, and says how many.
+     */
+    public function testRestartAllSignalsEveryRunningService(): void
+    {
+        // Arrange — one running, one not
+        $this->setMockUser(98);
+        $idle = $this->lockFile . '.idle';
+        file_put_contents($this->stateFile, json_encode([
+            ['id' => 'a', 'daemon' => 'test', 'workerId' => 'a', 'pid' => getmypid(), 'lockFile' => $this->lockFile],
+            ['id' => 'b', 'daemon' => 'test', 'workerId' => 'b', 'pid' => 99999999, 'lockFile' => $idle],
+        ]));
+
+        // Act
+        $this->act(fn () => $this->controller->restartall());
+
+        // Assert
+        $this->assertFileExists($this->lockFile . '.stop');
+        $this->assertFileDoesNotExist($idle . '.stop');
+        $this->assertContains('Restarting 1 service(s). Each finishes its current task first.', $_SESSION['_messages'] ?? []);
+    }
+
+    /**
+     * A pool saved from the form is stored with who saved it; blank fields stay blank.
+     */
+    public function testPoolSaveStoresThePool(): void
+    {
+        // Arrange
+        $this->setMockUser(98);
+        $_POST = ['name' => 'mail', 'types' => 'mail', 'ceiling' => '2', 'floor' => ''];
+
+        // Act
+        $this->act(fn () => $this->controller->poolsave());
+
+        // Assert
+        $row = $this->controls->poolRows['mail'];
+        $this->assertSame('mail', $row['types']);
+        $this->assertSame(2, $row['ceiling']);
+        $this->assertTrue($row['enabled']);
+        $this->assertContains('Saved. The supervisor applies it on its next cycle.', $_SESSION['_messages'] ?? []);
+    }
+
+    /**
+     * An invalid pool is refused with the reason, and nothing is stored.
+     */
+    public function testPoolSaveRefusesAnInvalidPool(): void
+    {
+        // Arrange
+        $this->setMockUser(98);
+        $_POST = ['name' => 'mail; reboot'];
+
+        // Act
+        $this->act(fn () => $this->controller->poolsave());
+
+        // Assert
+        $this->assertSame([], $this->controls->poolRows);
+        $this->assertNotEmpty($_SESSION['_errors'] ?? []);
+    }
+
+    /**
+     * Saving a stopped pool again keeps it stopped: editing a limit is not starting it.
+     */
+    public function testEditingAStoppedPoolKeepsItStopped(): void
+    {
+        // Arrange
+        $this->setMockUser(98);
+        $this->controls->setPoolEnabled('mail', false);
+        $_POST = ['name' => 'mail', 'ceiling' => '3'];
+
+        // Act
+        $this->act(fn () => $this->controller->poolsave());
+
+        // Assert
+        $this->assertFalse($this->controls->poolRows['mail']['enabled']);
+    }
+
+    /**
+     * Pool stop, start and delete reach the controls.
+     */
+    public function testPoolStopStartAndDelete(): void
+    {
+        // Arrange
+        $this->setMockUser(98);
+        $_GET['_option'] = 'passes';
+
+        // Act & Assert
+        $this->act(fn () => $this->controller->poolstop());
+        $this->assertFalse($this->controls->poolRows['passes']['enabled']);
+
+        $this->act(fn () => $this->controller->poolstart());
+        $this->assertTrue($this->controls->poolRows['passes']['enabled']);
+
+        $this->act(fn () => $this->controller->pooldelete());
+        $this->assertArrayNotHasKey('passes', $this->controls->poolRows);
+    }
+
+    /**
+     * A pool change that cannot be stored is reported as such, not as done.
+     */
+    public function testAPoolChangeThatCannotBeStoredIsAnError(): void
+    {
+        // Arrange
+        $this->setMockUser(98);
+        $this->controls->broken = true;
+        $_GET['_option'] = 'passes';
+        $_POST = ['name' => 'passes'];
+
+        // Act
+        $this->act(fn () => $this->controller->poolstop());
+        $this->act(fn () => $this->controller->pooldelete());
+        $this->act(fn () => $this->controller->poolsave());
+
+        // Assert — three errors, no message claiming success
+        $this->assertCount(3, $_SESSION['_errors'] ?? []);
+        $this->assertSame([], $_SESSION['_messages'] ?? []);
+    }
+
+    /**
+     * The status JSON carries the pools as the supervisor saw them, a pool saved since as
+     * waiting, a pool that exists only as a row, and the services an operator stopped.
+     */
+    public function testStatusReportsPoolsAndOperatorStops(): void
+    {
+        // Arrange — the supervisor's last reading, a minute ago
+        $this->setMockUser(98);
+        $poolsFile = \Pramnos\Console\DaemonOrchestrator::poolsFilePath();
+        file_put_contents($poolsFile, json_encode(['at' => time() - 60, 'pools' => [
+            ['name' => 'passes', 'source' => 'code', 'enabled' => true, 'types' => ['pass_unit'],
+             'size' => 3, 'backlog' => 120, 'load' => 0.2, 'decision' => 'running=3 target=3', 'config' => []],
+        ]]));
+        $this->controls->savePool('passes', ['ceiling' => 2]);   // saved after that reading
+        $this->controls->savePool('mail', ['types' => 'mail']);  // never seen by the supervisor
+        $this->controls->stopService('schedule');
+
+        // Act
+        ob_start();
+        try {
+            $this->controller->status();
+        } finally {
+            $json = json_decode((string) ob_get_clean(), true);
+            @unlink($poolsFile);
+        }
+
+        // Assert
+        $pools = array_column($json['pools'], null, 'name');
+        $this->assertSame(3, $pools['passes']['size']);
+        $this->assertTrue($pools['passes']['waiting'], 'saved after the reading, so the reading is about to change');
+        $this->assertSame(2, $pools['passes']['row']['ceiling']);
+        $this->assertSame('screen', $pools['mail']['source']);
+        $this->assertTrue($pools['mail']['waiting']);
+        $this->assertSame(['schedule'], $json['stopped_by_operator']);
+        $this->assertIsArray($json['batches']);
+    }
+
+    /** @return array<string, array{string}> */
+    public static function newActions(): array
+    {
+        return [
+            'restartall' => ['restartall'], 'poolsave' => ['poolsave'], 'poolstop' => ['poolstop'],
+            'poolstart' => ['poolstart'], 'pooldelete' => ['pooldelete'],
+        ];
+    }
+
+    /**
+     * Below the screen's usertype, every new action is refused and changes nothing.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('newActions')]
+    public function testANewActionIsRefusedBelowTheUsertype(string $action): void
+    {
+        // Arrange — a user below the floor of 80, and a running service to restart
+        $this->setMockUser(10);
+        $this->makeTheServiceRun();
+        $_GET['_option'] = 'passes';
+        $_POST = ['name' => 'passes', 'ceiling' => '2'];
+
+        // Act
+        $this->act(fn () => $this->controller->$action());
+
+        // Assert — nothing written, nothing signalled
+        $this->assertSame([], $this->controls->poolRows);
+        $this->assertFileDoesNotExist($this->lockFile . '.stop');
     }
 }

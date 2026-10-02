@@ -254,4 +254,19 @@ class DaemonControlsTest extends TestCase
         $this->assertSame([], $this->controls->pools());
         $this->assertSame([], $this->controls->stoppedServices());
     }
+
+    /**
+     * An empty service id is refused rather than stored as a stop for nothing.
+     */
+    public function testAnEmptyServiceIdIsRefused(): void
+    {
+        // Arrange
+        $this->connect('mysql', 'db', 3306);
+
+        // Assert
+        $this->expectException(\InvalidArgumentException::class);
+
+        // Act
+        $this->controls->stopService('  ');
+    }
 }
