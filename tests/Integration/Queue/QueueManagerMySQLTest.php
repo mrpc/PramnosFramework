@@ -1903,14 +1903,15 @@ class QueueManagerMySQLTest extends TestCase
         $broken = ['id' => "\xB1\x31"];
 
         // Act
+        $threw = false;
         try {
             $this->manager->addMany('pass_unit', [['id' => 1], ['id' => 2], $broken]);
-            $this->fail('an unencodable payload must fail the batch');
         } catch (\Throwable) {
-            // expected
+            $threw = true;
         }
 
-        // Assert — none of the three
+        // Assert — it failed, and none of the three is there
+        $this->assertTrue($threw, 'an unencodable payload must fail the batch');
         $this->assertSame(0, (int) $this->db->queryBuilder()->table('queueitems')->where('type', 'pass_unit')->count());
     }
 
@@ -1927,15 +1928,19 @@ class QueueManagerMySQLTest extends TestCase
             protected const ENQUEUE_LOCK_WAIT = 1;
         };
 
-        // Act & Assert
+        // Act
+        $message = null;
         try {
             $manager->addMany('pass_unit', [['id' => 1]], unique: true);
-            $this->fail('a held enqueue lock must stop a unique batch');
         } catch (\RuntimeException $exception) {
-            $this->assertStringContainsString('try again', $exception->getMessage());
+            $message = $exception->getMessage();
         } finally {
             $other->release();
         }
+
+        // Assert
+        $this->assertNotNull($message, 'a held enqueue lock must stop a unique batch');
+        $this->assertStringContainsString('try again', $message);
         $this->assertSame(0, (int) $this->db->queryBuilder()->table('queueitems')->where('type', 'pass_unit')->count());
 
         // And once it is free, the same call goes through and releases the lock behind it.

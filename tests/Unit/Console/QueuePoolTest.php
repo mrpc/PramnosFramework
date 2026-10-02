@@ -197,6 +197,72 @@ class QueuePoolTest extends TestCase
         $decision = $orch->poolDecisions()['passes'];
         $this->assertStringContainsString('running=1 target=2 backlog=500', $decision);
     }
+
+    /**
+     * The real load reader answers a non-negative number per core on a machine that has one.
+     */
+    public function testTheLoadReaderAnswersPerCore(): void
+    {
+        // Arrange
+        $orch = new RealSeamsOrchestrator(sys_get_temp_dir() . '/nonexistent-state.json');
+
+        // Act
+        $load = $orch->load();
+
+        // Assert — Linux in the container always has a load average
+        $this->assertIsFloat($load);
+        $this->assertGreaterThanOrEqual(0.0, $load);
+    }
+
+    /**
+     * The running count reads the state file: live entries of this pool only.
+     */
+    public function testTheRunningCountReadsTheStateFile(): void
+    {
+        // Arrange — two live workers of `passes` (this process's pid), one dead, one of another pool
+        $file = tempnam(sys_get_temp_dir(), 'poolstate');
+        file_put_contents($file, json_encode([
+            ['id' => 'queue-passes-1', 'pid' => getmypid()],
+            ['id' => 'queue-passes-2', 'pid' => getmypid()],
+            ['id' => 'queue-passes-3', 'pid' => 999999999],
+            ['id' => 'queue-mail-1', 'pid' => getmypid()],
+        ]));
+        $orch = new RealSeamsOrchestrator($file);
+
+        // Act
+        $running = $orch->running('passes');
+        @unlink($file);
+
+        // Assert
+        $this->assertSame(2, $running);
+    }
+
+    /**
+     * A backlog that cannot be counted is null, not zero.
+     *
+     * Zero would read as "drained" and shrink the pool during the database trouble that made
+     * the count fail.
+     */
+    public function testAFailingBacklogCountIsNull(): void
+    {
+        // Arrange — the application's database refuses every query
+        $db = $this->createMock(\Pramnos\Database\Database::class);
+        $db->method('queryBuilder')->willThrowException(new \RuntimeException('gone'));
+        $singleton = &\Pramnos\Framework\Factory::getDatabase();
+        $previous  = $singleton;
+        $singleton = $db;
+        $orch = new RealSeamsOrchestrator(sys_get_temp_dir() . '/nonexistent-state.json');
+
+        // Act
+        try {
+            $backlog = $orch->backlog(['pass_unit']);
+        } finally {
+            $singleton = $previous;
+        }
+
+        // Assert
+        $this->assertNull($backlog);
+    }
 }
 
 /**
@@ -273,6 +339,69 @@ class PoolProbeOrchestrator extends DaemonOrchestrator
     protected function getDashboardTitle(): string
     {
         return 'test';
+    }
+
+    /** Not run. */
+    protected function getEntryPoint(): string
+    {
+        return '/dev/null';
+    }
+}
+
+/**
+ * An orchestrator with the real seams, exposed, and a state file the test chooses.
+ */
+class RealSeamsOrchestrator extends DaemonOrchestrator
+{
+    /** @param string $stateFile Where loadState() reads */
+    public function __construct(private string $stateFile)
+    {
+    }
+
+    /** The real load reader. */
+    public function load(): ?float
+    {
+        return $this->loadPerCore();
+    }
+
+    /** The real running count. */
+    public function running(string $slug): int
+    {
+        return $this->runningInPool($slug);
+    }
+
+    /**
+     * The real backlog count.
+     *
+     * @param list<string> $types
+     */
+    public function backlog(array $types): ?int
+    {
+        return $this->poolBacklog($types);
+    }
+
+    /** The test's state file. */
+    protected function getStateFile(): string
+    {
+        return $this->stateFile;
+    }
+
+    /** @return array<int, array<string, mixed>> */
+    protected function buildDesiredProcesses(): array
+    {
+        return [];
+    }
+
+    /** Not a job. */
+    protected function getJobName(): string
+    {
+        return 'real_seams';
+    }
+
+    /** Not shown. */
+    protected function getDashboardTitle(): string
+    {
+        return 'real seams';
     }
 
     /** Not run. */
