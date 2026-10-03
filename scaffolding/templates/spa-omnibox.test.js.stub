@@ -159,15 +159,22 @@ describe('Omnibox', () => {
         // Assert
         await waitFor(() => expect(screen.getByText('No results')).toBeTruthy());
 
-        // Act — the endpoint refused.
+        // Act — the endpoint refused. The component logs the failure; caught here so the
+        // suite stays silent, and asserted so the warning is tested rather than tolerated.
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
         await type('zzzz');
         calls[1].reject(new Error('boom'));
 
         // Assert — a different message, because a 403 and no matches look identical
         // otherwise and only one of them is the searcher's problem.
-        await waitFor(() =>
-            expect(screen.getByText('Search is unavailable right now.')).toBeTruthy()
-        );
+        try {
+            await waitFor(() =>
+                expect(screen.getByText('Search is unavailable right now.')).toBeTruthy()
+            );
+            expect(warn).toHaveBeenCalledWith('Omnibox request failed', expect.any(Error));
+        } finally {
+            warn.mockRestore();
+        }
     });
 
     it('closes and clears when the term drops below the minimum', async () => {
