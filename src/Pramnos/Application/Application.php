@@ -154,6 +154,76 @@ class Application extends Base
      */
     protected static $lastUsedApplication = null;
 
+    /** The name this instance is registered under in the application registry. */
+    private string $instanceKey = 'default';
+
+    /**
+     * The registry name of an application built with no name: `default` for the site.
+     * {@see Api} answers `api`, so building the API does not replace the site.
+     */
+    protected static function defaultInstanceName(): string
+    {
+        return 'default';
+    }
+
+    /**
+     * The application registered under this name, or null — without building one.
+     *
+     * {@see getInstance()} builds an application when none is registered, which is a side
+     * effect a caller that only wants to know may not want.
+     */
+    public static function instanceNamed(string $name): ?self
+    {
+        return self::$appInstances[$name] ?? null;
+    }
+
+    /**
+     * Make this application the one {@see currentInstance()} and an argument-less
+     * {@see getInstance()} answer with, and say which one was before.
+     *
+     * For code that drives more than one application in a process, as a test client does:
+     * anything a request runs that asks for "the application" must get the one handling it.
+     *
+     * @return string|null The previous current application's name, for {@see restoreCurrentInstance()}
+     */
+    public function makeCurrentInstance(): ?string
+    {
+        $previous = self::$lastUsedApplication;
+        // An instance the registry does not hold under its name — one built without the
+        // constructor, or replaced since — gets a name of its own rather than taking a slot
+        // that belongs to another application.
+        if ((self::$appInstances[$this->instanceKey] ?? null) !== $this) {
+            $this->instanceKey = isset(self::$appInstances[$this->instanceKey])
+                ? $this->instanceKey . '#' . spl_object_id($this)
+                : $this->instanceKey;
+            self::$appInstances[$this->instanceKey] = $this;
+        }
+        self::$lastUsedApplication = $this->instanceKey;
+
+        return $previous;
+    }
+
+    /**
+     * Make the site the current application again, if one is registered.
+     *
+     * For the start of each test: the current application is process-wide, so one built by
+     * the test before — the API, typically — would otherwise answer for the next test's
+     * argument-less {@see getInstance()} and bare `TestClient`. `BaseTestCase` calls this in
+     * `setUp()`.
+     */
+    public static function resetCurrentInstance(): void
+    {
+        self::$lastUsedApplication = isset(self::$appInstances['default']) ? 'default' : null;
+    }
+
+    /**
+     * Put back the application {@see makeCurrentInstance()} replaced.
+     */
+    public static function restoreCurrentInstance(?string $name): void
+    {
+        self::$lastUsedApplication = $name;
+    }
+
     /**
      * Service providers queued for bootstrap.
      *
@@ -205,12 +275,24 @@ class Application extends Base
         }
         $this->appName = $appName;
         if ($appName == '') {
-            self::$appInstances['default'] = $this;
-            self::$lastUsedApplication = 'default';
+            /*
+             * Registered under the class's own default name, not always `default`.
+             *
+             * The API application is built with no name too, and used to take `default` —
+             * the site's slot. In one process holding both (a test suite above all), building
+             * the API replaced the site, and every later request meant for the site was
+             * resolved by the API's controllers: a page that should be a 404 answered 200 with
+             * an empty body, but only when an API test had run first. The configuration is
+             * still `app.php`; only the registry key differs.
+             */
+            $this->instanceKey = static::defaultInstanceName();
+            self::$appInstances[$this->instanceKey] = $this;
+            self::$lastUsedApplication = $this->instanceKey;
             $this->applicationInfo = self::loadApplicationInfo(
                 APP_PATH . DS . 'app.php'
             );
         } else {
+            $this->instanceKey = $appName;
             self::$appInstances[$appName] = $this;
             self::$lastUsedApplication = $appName;
             $this->applicationInfo = self::loadApplicationInfo(

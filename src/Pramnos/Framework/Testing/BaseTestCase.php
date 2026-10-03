@@ -68,6 +68,11 @@ abstract class BaseTestCase extends TestCase
         // Clean up request-scoped state so nothing leaks between tests.
         $this->resetRequestState();
 
+        // The site is the current application at the start of every test. Without this, an
+        // application built by the test before — the API — answered for this one's
+        // getInstance() and bare TestClient, and only in a full run.
+        \Pramnos\Application\Application::resetCurrentInstance();
+
         // Initialize application if possible
         try {
             if (class_exists('\Pramnos\Application\Application')) {

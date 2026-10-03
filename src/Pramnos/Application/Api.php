@@ -54,6 +54,14 @@ class Api extends Application
     public ?int $lastStatusCode = null;
 
     /**
+     * Registered as `api`, so building the API beside the site does not replace it.
+     */
+    protected static function defaultInstanceName(): string
+    {
+        return 'api';
+    }
+
+    /**
      * Application class constructor
      * @param string $appName Application Name used for namespaces
      */

@@ -30,9 +30,16 @@ class TestClient
     public function __construct(?Application $app = null)
     {
         if ($app === null) {
-            // `currentInstance()` makes the branch below reachable. With `getInstance()` it
-            // could not be: that never returns null, so the fallback was dead code carrying a
-            // coverage-ignore to explain why.
+            /*
+             * The current application: whichever this test built last, or the site. A test
+             * that builds the API and then asks for a client drives the API.
+             *
+             * What made this order-dependent was the current application surviving from one
+             * test to the next, so after an API test a site test's bare client drove the API.
+             * BaseTestCase resets it to the site before every test
+             * ({@see Application::resetCurrentInstance()}), and the API no longer takes the
+             * site's slot when it is built.
+             */
             $appInstance = Application::currentInstance();
             if ($appInstance === null) {
                 $this->app = new Application();
@@ -191,7 +198,14 @@ class TestClient
          * `dispatch()` has five of them and a client that remembers four pages out of
          * five is worse than one that remembers none.
          */
-        $response = $this->dispatch($method, $uri, $parameters, $headers);
+        // The request runs with this client's application as the current one, so anything it
+        // asks for "the application" gets this one, whichever was built last.
+        $previous = $this->app->makeCurrentInstance();
+        try {
+            $response = $this->dispatch($method, $uri, $parameters, $headers);
+        } finally {
+            Application::restoreCurrentInstance($previous);
+        }
 
         $this->lastResponse = $response;
         $this->lastUri      = $uri;

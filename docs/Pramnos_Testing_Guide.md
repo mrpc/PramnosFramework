@@ -1,5 +1,6 @@
 ---
 use_cases:
+  - Testing the API and the site in one suite without one answering for the other
   - Writing a test for a controller, model or HTTP endpoint
   - Using factories or seeders to build test data
   - Choosing a base test case, or testing without booting the application
@@ -96,6 +97,28 @@ whatever controller the request before it had resolved.
 
 If you handle several requests in one process yourself, call `beginRequest()` per
 request. A single-request process needs nothing: the constructor calls it.
+
+### The site and the API in one suite
+
+A suite usually tests both applications: the site and the API. They share a process, so
+which one is *current* (the one `Application::getInstance()` and a bare `new TestClient()`
+answer with) matters.
+
+- **A bare `new TestClient()` drives the current application.** In a test that builds the
+  API first (`new \App\Api()`), that is the API; otherwise it is the site.
+- **Every test starts with the site current.** `BaseTestCase::setUp()` calls
+  `Application::resetCurrentInstance()`, so an API built by one test does not answer for
+  the next test's requests.
+- **The API is registered as `api`, the site as `default`.** Building one never replaces the
+  other: `Application::instanceNamed('default')` is still the site after the API is built.
+- **During a request, the client's application is the current one.** Code the request runs
+  that asks for "the application" gets the one handling it, then the previous one is put
+  back (`makeCurrentInstance()` / `restoreCurrentInstance()`).
+
+To be explicit, pass the application: `new TestClient(new \App\Api())` for the API,
+`new TestClient(Application::instanceNamed('default'))` for the site. A test that does not
+extend `BaseTestCase` and mixes the two can call `Application::resetCurrentInstance()` in its
+own `setUp()`.
 
 ### Signing a user in
 
