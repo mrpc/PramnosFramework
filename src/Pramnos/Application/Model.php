@@ -1996,7 +1996,7 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
                     'userid'      => $this->currentChangeUserId(),
                     'source'      => $this->currentChangeSource(),
                     'created_at'  => date('c'),
-                )
+                ) + (($scope = $this->changeScope()) !== null ? array('scope' => $scope) : array())
             );
         } catch (\Throwable $ex) {
             // Recording that something happened must not be the reason it fails to.
@@ -2006,6 +2006,28 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
                 $ex
             );
         }
+    }
+
+    /**
+     * Which tenant, organisation or account this model's events belong to.
+     *
+     * ```php
+     * protected function changeScope(): ?string
+     * {
+     *     return 'org:' . $this->organization_id;
+     * }
+     * ```
+     *
+     * Written to `changelog_events.scope` by {@see logEvent()} and read back with
+     * {@see \Pramnos\Changelog\ChangelogReader::eventsInScope()}. Null — the default — writes
+     * no scope, which is right for an application with no tenants. A string rather than an id
+     * so one column can hold more than one kind of owner.
+     *
+     * @return string|null At most 64 characters
+     */
+    protected function changeScope(): ?string
+    {
+        return null;
     }
 
     /**

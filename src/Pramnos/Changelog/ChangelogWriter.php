@@ -65,8 +65,42 @@ class ChangelogWriter implements ListenerInterface
     public static function registerEncoders(): void
     {
         WriteSpool::transform(self::TABLE, static fn (array $row): array => self::encodeJson($row, ['changes']));
-        WriteSpool::transform(self::EVENTS_TABLE, static fn (array $row): array => self::encodeJson($row, ['details']));
+        WriteSpool::transform(
+            self::EVENTS_TABLE,
+            static fn (array $row): array => self::dropScopeWithoutColumn(self::encodeJson($row, ['details']))
+        );
         WriteSpool::transform(self::TRACE_TABLE, static fn (array $row): array => self::encodeJson($row, ['context']));
+    }
+
+    /** @var bool Whether changelog_events.scope has been seen to exist */
+    protected static bool $scopeColumnExists = false;
+
+    /**
+     * Drop the scope from an event when the column is not there yet.
+     *
+     * An application can ship a model that overrides `changeScope()` before
+     * `migrate` adds the column. Without this, every event that model writes would fail at
+     * the drain until the migration runs; with it, the event is kept and only its scope is
+     * lost. Runs in the drain, so the check costs the request nothing.
+     *
+     * @param  array<string, mixed> $row
+     * @return array<string, mixed>
+     */
+    protected static function dropScopeWithoutColumn(array $row): array
+    {
+        if (!array_key_exists('scope', $row) || static::$scopeColumnExists) {
+            return $row;
+        }
+
+        // ponytail: only a yes is cached, so a pre-migration drain re-asks per scoped row;
+        // that lasts until `migrate`, after which it is one query per process.
+        static::$scopeColumnExists = \Pramnos\Database\Database::getInstance()
+            ->schema()->hasColumn(self::EVENTS_TABLE, 'scope');
+        if (!static::$scopeColumnExists) {
+            unset($row['scope']);
+        }
+
+        return $row;
     }
 
     /**

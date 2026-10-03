@@ -7,6 +7,7 @@ use_cases:
   - Turning a model save into a live update in the browser
   - Keeping an audit trail of everything a model changed
   - Recording what a user did, in place of the deprecated userlog table
+  - Showing one organisation's activity log in a multi-tenant application
 ---
 
 # Pramnos Change Feed Guide
@@ -349,6 +350,48 @@ ChangelogRenderer::label('wcm-device', [
     'device.assigned_on_finalize' => 'Assigned on finalize',
 ]);
 ```
+
+### One tenant's events
+
+A multi-tenant application asks "what happened in this organisation". Have the model
+say which tenant its events belong to:
+
+```php
+protected function changeScope(): ?string
+{
+    return 'org:' . $this->organization_id;
+}
+```
+
+`logEvent()` writes it to `changelog_events.scope`, and the reader filters on it:
+
+```php
+ChangelogReader::eventsInScope('org:12');              // newest first, 50 by default
+ChangelogReader::eventsInScope('org:12', 'post', 20);  // only its posts
+```
+
+- **Null by default.** A model that does not override `changeScope()` writes no scope,
+  so an application with no tenants writes exactly the row it always did.
+- **A string, not an id**, so one column can hold more than one kind of owner
+  (`org:12`, `account:7`). At most 64 characters.
+- **Events only.** The automatic feed has no scope, and neither does `history()`'s
+  view; `eventsInScope()` reads the events table directly.
+- **Costs an application with no tenants nothing.** On PostgreSQL the index on
+  `(scope, created_at)` is partial, `WHERE scope IS NOT NULL`, so it stays empty while
+  nothing is scoped. MySQL has no partial indexes and gets no index: a full one would be
+  paid on every insert by applications that never scope anything.
+- **Not in the compression `segmentby`.** Changing segmentby on a live hypertable means
+  decompressing every chunk first, so that is a maintenance-window decision.
+- **Copied onto the event, not joined from the record.** The post already knows its
+  organisation, but a join loses `post.deleted` once the post is gone, and rewrites
+  history if the post moves to another organisation. The event keeps the tenant it
+  happened in.
+- **Deploying before `migrate` loses nothing but the scope.** Until the column exists
+  the drain writes the event without it, and `eventsInScope()` returns `[]`. Events
+  written before a model had a scope belong to none.
+
+Storing the tenant inside `details` and filtering on `details->>'organization_id'` works
+on a small table, but it reads every compressed chunk in the window.
 
 ### Traces are opt-in
 

@@ -94,7 +94,7 @@ class ChangelogMigrationTimescaleDBTest extends TestCase
     /**
      * Run the migration under test.
      */
-    private function migrate(): void
+    private function migrate(string $shortName = 'CreateChangelogTables'): void
     {
         $app = $this->getMockBuilder(Application::class)
             ->disableOriginalConstructor()
@@ -111,14 +111,14 @@ class ChangelogMigrationTimescaleDBTest extends TestCase
         );
 
         foreach ($migrations as $migration) {
-            if ((new \ReflectionClass($migration))->getShortName() === 'CreateChangelogTables') {
+            if ((new \ReflectionClass($migration))->getShortName() === $shortName) {
                 $migration->up();
 
                 return;
             }
         }
 
-        $this->fail('CreateChangelogTables was not found by the migration loader');
+        $this->fail($shortName . ' was not found by the migration loader');
     }
 
     private function isHypertable(string $table): bool
@@ -337,5 +337,50 @@ class ChangelogMigrationTimescaleDBTest extends TestCase
         // Assert
         $this->assertTrue($this->schema->hasTable('pramnos.changelog'));
         $this->assertTrue($this->schema->hasView('pramnos.changelog_history'));
+    }
+
+    /**
+     * The scope column can be added to a live events table whose chunks are compressed.
+     *
+     * The case that matters is not an empty table: it is an installation with months of
+     * compressed events. A nullable column without a default is one TimescaleDB accepts on a
+     * compressed hypertable — which is why the migration adds an index rather than changing
+     * the segmentby, which would mean decompressing every chunk first.
+     */
+    public function testTheScopeIsAddedToACompressedEventsTable(): void
+    {
+        // Arrange — an event in a chunk that is then compressed
+        $this->migrate();
+        $this->db->queryBuilder()->table('pramnos.changelog_events')->insert([
+            'entity' => 'post', 'itemid' => '1', 'event' => 'posted', 'logtype' => 0,
+            'userid' => 7, 'source' => 'web', 'created_at' => date('Y-m-d H:i:s', time() - 30 * 86400),
+        ]);
+        // Raw: chunk compression is a TimescaleDB function the builder has no call for.
+        $this->db->query(
+            "SELECT compress_chunk(c, if_not_compressed => true) FROM show_chunks('pramnos.changelog_events') c"
+        );
+
+        $compressed = $this->db->query(
+            "SELECT COUNT(*) AS cnt FROM timescaledb_information.chunks
+              WHERE hypertable_schema = 'pramnos' AND hypertable_name = 'changelog_events' AND is_compressed"
+        );
+        $this->assertGreaterThan(0, (int) $compressed->fields['cnt'], 'no chunk was compressed, so this proves nothing');
+
+        // Act
+        $this->migrate('AddScopeToChangelogEvents');
+        $this->db->queryBuilder()->table('pramnos.changelog_events')->insert([
+            'entity' => 'post', 'itemid' => '2', 'event' => 'posted', 'logtype' => 0,
+            'userid' => 7, 'source' => 'web', 'created_at' => date('Y-m-d H:i:s'), 'scope' => 'org:1',
+        ]);
+
+        // Assert — the old row reads with no scope, the new one with its own
+        $this->assertTrue($this->schema->hasColumn('pramnos.changelog_events', 'scope'));
+        $rows = $this->db->queryBuilder()->table('pramnos.changelog_events')
+            ->orderBy('itemid')->get();
+        $scopes = [];
+        while ($rows->fetch()) {
+            $scopes[$rows->fields['itemid']] = $rows->fields['scope'];
+        }
+        $this->assertSame(['1' => null, '2' => 'org:1'], $scopes);
     }
 }

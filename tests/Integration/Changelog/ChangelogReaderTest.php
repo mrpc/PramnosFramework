@@ -58,6 +58,7 @@ class ChangelogReaderTest extends BaseTestCase
 
         $this->runMigrations([
             \Pramnos\Framework\Migrations\Changelog\CreateChangelogTables::class,
+            \Pramnos\Framework\Migrations\Changelog\AddScopeToChangelogEvents::class,
         ], $this->db);
 
         $this->clearProbe();
@@ -66,6 +67,7 @@ class ChangelogReaderTest extends BaseTestCase
     protected function tearDown(): void
     {
         $this->clearProbe();
+        \Pramnos\Database\WriteSpool::reset();
 
         parent::tearDown();
     }
@@ -237,6 +239,151 @@ class ChangelogReaderTest extends BaseTestCase
         $this->assertSame('operator', $byOrigin['events']['details']['reason'] ?? null);
     }
 
+    // ── An organisation's activity, by scope ──────────────────────────────────
+
+    /**
+     * A scope returns that tenant's events and nobody else's, newest first.
+     *
+     * This is the whole reason the column exists: "what happened in this organisation" was
+     * answerable only by a key inside `details`, which on a compressed hypertable decompresses
+     * every chunk in the window. Another tenant's event in the same table, and an unscoped one,
+     * must both stay out.
+     */
+    public function testAScopeReturnsOnlyThatTenantsEvents(): void
+    {
+        // Arrange
+        $this->seedEvent('older', 'Ours, earlier', 600, null, 'org:probe-1');
+        $this->seedEvent('newer', 'Ours, later', 60, null, 'org:probe-1');
+        $this->seedEvent('theirs', 'Another tenant', 30, null, 'org:probe-2');
+        $this->seedEvent('nobodys', 'No tenant', 30);
+
+        // Act
+        $rows = ChangelogReader::eventsInScope('org:probe-1');
+
+        // Assert
+        $this->assertSame(['newer', 'older'], array_column($rows, 'event'));
+        $this->assertSame(['org:probe-1', 'org:probe-1'], array_column($rows, 'scope'));
+    }
+
+    /**
+     * The entity narrows a scope to one kind of record, and the limit is honoured.
+     */
+    public function testAnEntityAndALimitNarrowAScope(): void
+    {
+        // Arrange
+        $this->seedEvent('device1', 'A device event', 300, null, 'org:probe-1');
+        $this->seedEvent('device2', 'Another', 200, null, 'org:probe-1');
+        $this->db->queryBuilder()->table(ChangelogWriter::EVENTS_TABLE)->insert([
+            'entity' => self::ENTITY . '-post', 'itemid' => '1', 'event' => 'posted', 'logtype' => 0,
+            'userid' => 7, 'source' => 'web', 'created_at' => $this->stamp(100), 'scope' => 'org:probe-1',
+        ]);
+
+        // Act
+        $devices = ChangelogReader::eventsInScope('org:probe-1', self::ENTITY);
+        $newest  = ChangelogReader::eventsInScope('org:probe-1', null, 1);
+
+        // Assert
+        $this->assertSame(['device2', 'device1'], array_column($devices, 'event'), 'the post leaked into the device filter');
+        $this->assertSame(['posted'], array_column($newest, 'event'));
+    }
+
+    /**
+     * End to end: a model's `changeScope()` reaches the column, and the reader finds it.
+     *
+     * Through the real spool with the sync driver, so the events transformer — the one that
+     * would drop the scope on a database without the column — runs and lets it through.
+     */
+    public function testAModelsScopeReachesTheColumn(): void
+    {
+        // Arrange
+        \Pramnos\Database\WriteSpool::reset();
+        \Pramnos\Database\WriteSpool::setDriver(\Pramnos\Database\WriteSpool::DRIVER_SYNC);
+        $model = new ScopedReaderProbe();
+        $model->probeid = (int) self::ITEM;
+
+        // Act
+        $model->record('posted');
+
+        // Assert
+        $rows = ChangelogReader::eventsInScope('org:probe-1');
+        $this->assertCount(1, $rows, 'the scoped event was not written, or not with its scope');
+        $this->assertSame(self::ENTITY, $rows[0]['entity']);
+        $this->assertSame('posted', $rows[0]['event']);
+    }
+
+    /**
+     * The scope index costs an application with no tenants nothing.
+     *
+     * PostgreSQL gets a partial index over the scoped rows only, so a table where every scope is
+     * null has an index with no entries. MySQL has no partial indexes and gets none: a full index
+     * would be maintained on every insert by applications that never scope anything.
+     */
+    public function testTheScopeIndexIsPartialOnPostgresAndAbsentOnMysql(): void
+    {
+        // Arrange — rebuilt, so a database migrated by an earlier shape of this migration cannot pass
+        $migration = new \Pramnos\Framework\Migrations\Changelog\AddScopeToChangelogEvents($this->migrationApp());
+        $migration->down();
+        $migration->up();
+
+        // Act
+        $hasIndex = $this->db->schema()->hasIndex(ChangelogWriter::EVENTS_TABLE, 'idx_changelog_events_scope');
+
+        // Assert
+        if ($this->db->getDriverName() !== 'pgsql') {
+            $this->assertFalse($hasIndex, 'MySQL got a full scope index that every unscoped insert would pay for');
+
+            return;
+        }
+        $this->assertTrue($hasIndex);
+        // Raw: index definitions are catalogue introspection the builder has no call for.
+        $definition = $this->db->query(
+            "SELECT indexdef FROM pg_indexes WHERE schemaname = 'pramnos' AND indexname = 'idx_changelog_events_scope'"
+        );
+        $this->assertStringContainsString(
+            'WHERE (scope IS NOT NULL)',
+            (string) $definition->fields['indexdef'],
+            'the index covers unscoped rows too'
+        );
+    }
+
+    /**
+     * Before the migration, a scoped event is still written — without its scope — and the
+     * reader answers empty rather than failing.
+     *
+     * An application can deploy a model that overrides `changeScope()` before it runs
+     * `migrate`. Without the guard, every event that model writes fails at the drain until
+     * somebody notices; with it, only the scope is lost, and only until the column exists.
+     */
+    public function testBeforeTheMigrationTheEventIsKeptWithoutItsScope(): void
+    {
+        // Arrange — the column removed, and the writer's memory of it cleared
+        $migration = new \Pramnos\Framework\Migrations\Changelog\AddScopeToChangelogEvents($this->migrationApp());
+        $migration->down();
+        $known = new \ReflectionProperty(ChangelogWriter::class, 'scopeColumnExists');
+        $known->setValue(null, false);
+        \Pramnos\Database\WriteSpool::reset();
+        \Pramnos\Database\WriteSpool::setDriver(\Pramnos\Database\WriteSpool::DRIVER_SYNC);
+        $model = new ScopedReaderProbe();
+        $model->probeid = (int) self::ITEM;
+
+        try {
+            // Act
+            $model->record('posted');
+
+            // Assert — the event is there; the scoped read is empty, not an error
+            $this->assertSame(['posted'], array_column(ChangelogReader::history(self::ENTITY, self::ITEM), 'event'));
+            $this->assertSame([], ChangelogReader::eventsInScope('org:probe-1'));
+            $this->assertFalse($known->getValue(), 'a missing column was remembered as present');
+        } finally {
+            // The column back for every test after this one
+            $migration->up();
+        }
+
+        // Assert — and the migration is idempotent once it has run
+        $migration->up();
+        $this->assertTrue($this->db->schema()->hasColumn(ChangelogWriter::EVENTS_TABLE, 'scope'));
+    }
+
     // ── The trace ─────────────────────────────────────────────────────────────
 
     /**
@@ -292,6 +439,15 @@ class ChangelogReaderTest extends BaseTestCase
 
     // ── Fixture ───────────────────────────────────────────────────────────────
 
+    /** The bare application a migration needs: only its database is ever read. */
+    private function migrationApp(): \Pramnos\Application\Application
+    {
+        $application = (new \ReflectionClass(\Pramnos\Application\Application::class))->newInstanceWithoutConstructor();
+        $application->database = $this->db;
+
+        return $application;
+    }
+
     /** A timestamp $secondsAgo before now, in the form the columns hold. */
     private function stamp(int $secondsAgo): string
     {
@@ -317,9 +473,10 @@ class ChangelogReaderTest extends BaseTestCase
         string $event,
         string $description,
         int $secondsAgo = 100,
-        ?array $details = null
+        ?array $details = null,
+        ?string $scope = null
     ): void {
-        $this->db->queryBuilder()->table(ChangelogWriter::EVENTS_TABLE)->insert([
+        $this->db->queryBuilder()->table(ChangelogWriter::EVENTS_TABLE)->insert(($scope === null ? [] : ['scope' => $scope]) + [
             'entity'      => self::ENTITY,
             'itemid'      => self::ITEM,
             'event'       => $event,
@@ -343,10 +500,37 @@ class ChangelogReaderTest extends BaseTestCase
         ) {
             try {
                 $this->db->queryBuilder()->table($table)
-                    ->where('entity', self::ENTITY)->delete();
+                    ->whereIn('entity', [self::ENTITY, self::ENTITY . '-post'])->delete();
             } catch (\Throwable $exception) {
                 // No table on a lane mid-migration; nothing to clear.
             }
         }
+    }
+}
+
+/** A model whose events belong to a tenant, for the end-to-end scope tests. */
+class ScopedReaderProbe extends \Pramnos\Application\Model
+{
+    protected $modelname = 'reader-probe-device';
+
+    protected $_primaryKey = 'probeid';
+
+    public $probeid = 0;
+
+    /** No database lookup: the probe exists only to call logEvent(). */
+    public function __construct()
+    {
+    }
+
+    /** The tenant every event of this probe belongs to. */
+    protected function changeScope(): ?string
+    {
+        return 'org:probe-1';
+    }
+
+    /** Record an event, as the model itself would. */
+    public function record(string $event): void
+    {
+        $this->logEvent($event);
     }
 }

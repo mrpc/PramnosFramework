@@ -70,6 +70,47 @@ class ChangelogReader
     }
 
     /**
+     * What happened in one tenant, newest first — an organisation's activity log.
+     *
+     * ```php
+     * ChangelogReader::eventsInScope('org:12');               // everything
+     * ChangelogReader::eventsInScope('org:12', 'post', 20);   // only its posts
+     * ```
+     *
+     * Reads the application events only, from their table rather than the history view: the
+     * automatic feed carries no scope, and the view has no scope column to filter on. The
+     * scope is whatever the models' {@see \Pramnos\Application\Model::changeScope()}
+     * returns; events written before a model had one are not in any scope.
+     *
+     * Empty, not an error, before the `changelog_events.scope` migration has run.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public static function eventsInScope(string $scope, ?string $entity = null, int $limit = 50): array
+    {
+        $database = \Pramnos\Database\Database::getInstance();
+        if (!$database->schema()->hasColumn(ChangelogWriter::EVENTS_TABLE, 'scope')) {
+            return [];
+        }
+
+        $query = $database->queryBuilder()
+            ->table(ChangelogWriter::EVENTS_TABLE)
+            ->where('scope', $scope);
+        if ($entity !== null) {
+            $query->where('entity', $entity);
+        }
+
+        $result = $query->orderBy('created_at', 'DESC')->limit($limit)->get();
+
+        $rows = [];
+        while ($result && $result->fetch()) {
+            $rows[] = static::decode($result->fields);
+        }
+
+        return $rows;
+    }
+
+    /**
      * The request context behind one feed row, when it was captured.
      *
      * Separate and explicit, for the one row somebody is investigating. It is deliberately

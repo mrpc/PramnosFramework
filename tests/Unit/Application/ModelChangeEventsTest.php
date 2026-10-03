@@ -49,6 +49,16 @@ class EventProbeModel extends Model
     }
 }
 
+/** The same probe, belonging to a tenant. */
+class ScopedEventProbeModel extends EventProbeModel
+{
+    /** The tenant every event of this probe belongs to. */
+    protected function changeScope(): ?string
+    {
+        return 'org:12';
+    }
+}
+
 /**
  * The semantic half of the audit trail — what a model says happened, as opposed to what changed.
  *
@@ -209,6 +219,40 @@ class ModelChangeEventsTest extends TestCase
             str_replace('.', '', $files[0]),
             'the event was spooled for a different table'
         );
+    }
+
+    /**
+     * A model that names its tenant puts it on every event; one that does not adds no key.
+     *
+     * The key is left out rather than written as null so an application that never scopes
+     * anything sends exactly the row it always did — including to a database the scope
+     * migration has not reached.
+     */
+    public function testTheScopeIsWrittenOnlyByAModelThatHasOne(): void
+    {
+        // Arrange
+        $scoped = new ScopedEventProbeModel();
+        $scoped->probeid = 3;
+
+        // Act
+        $scoped->callLogEvent('posted');
+        $row = $this->onlyRow();
+
+        // Assert
+        $this->assertSame('org:12', $row['scope'] ?? null);
+
+        // Arrange — the same event from an unscoped model, in a fresh spool
+        foreach (glob($this->spoolDir . '/*') ?: [] as $file) {
+            unlink($file);
+        }
+        $plain = new EventProbeModel();
+        $plain->probeid = 3;
+
+        // Act
+        $plain->callLogEvent('posted');
+
+        // Assert — no scope key at all, not a null one
+        $this->assertArrayNotHasKey('scope', $this->onlyRow());
     }
 
     /**
