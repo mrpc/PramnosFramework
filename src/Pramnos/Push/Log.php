@@ -105,7 +105,7 @@ class Log
     /**
      * The most recent attempts, newest first.
      *
-     * @param  array{userid?: int, status?: int, failed?: bool, endpoint_hash?: string} $filter
+     * @param  array{userid?: int, status?: int, failed?: bool, endpoint_hash?: string, tag?: string} $filter
      * @return list<array<string, mixed>>
      */
     public static function recent(int $limit = 100, array $filter = []): array
@@ -127,6 +127,10 @@ class Log
 
             if (isset($filter['endpoint_hash']) && $filter['endpoint_hash'] !== '') {
                 $query->where('endpoint_hash', (string) $filter['endpoint_hash']);
+            }
+
+            if (isset($filter['tag']) && $filter['tag'] !== '') {
+                $query->where('tag', (string) $filter['tag']);
             }
 
             if (!empty($filter['failed'])) {

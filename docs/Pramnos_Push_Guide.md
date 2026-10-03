@@ -1,5 +1,6 @@
 ---
 use_cases:
+  - Sending a test notification to check that a device receives pushes
   - Finding out why somebody did not see a push notification
   - Sending a notification to a device whose browser is closed
   - Deciding between web push, SSE and WebSockets for an alert
@@ -577,6 +578,9 @@ an IP address on your LAN.
 | `POST /push/unsubscribe` | Forgets one endpoint, scoped to the signed-in account. |
 | `POST /push/ack?token=` | A sign-in approval's receipt, sent by the worker as the push arrives. The token is the credential — the worker may have no page and no session. |
 | `POST /push/respond?token=&decision=` | Yes/No from an approval's notification buttons — Yes only on an ask that needs no number. POST only, signed in, and only from a trusted device — see the Authentication guide's *Trusted devices and sign-in approval*. |
+| `POST /push/test` | Sends a test notification to the signed-in account's browsers, or only to the one whose `{"endpoint": …}` is in the body. Answers each test's `token`. POST only, signed in. See [Testing a device](#testing-a-device). |
+| `POST /push/testack?token=` | A test's receipt, sent by the worker as the push arrives. The token is the credential. |
+| `GET /push/teststatus?token=` | `{received, received_at, expired}` for one of the signed-in account's own tests. |
 
 `subscribe` also links the subscription to the browser's **trusted device**
 (`pushsubscriptions.trusted_device_id`) when it carries the trust cookie — that link is
@@ -591,6 +595,59 @@ browser has already unsubscribed by the time it calls, and reporting a failure
 for something in exactly the state the caller asked for is not useful.
 
 ---
+
+## Testing a device
+
+"I got nothing" has two possible causes, and a push log `201` cannot tell them apart:
+- the notification never reached the device;
+- it reached the device and the device did not show it.
+
+A test can. It goes through the same `PushChannel` as every notification, so it is logged like
+any other. Each browser gets its own copy with its own receipt address, and the service worker
+posts that receipt **the moment the push arrives**, before it shows anything. A device that
+receipted a test it never displayed points at the phone's settings: notifications for the site
+or the browser, battery optimisation, Do Not Disturb.
+
+```php
+use Pramnos\Push\TestPush;
+
+$tests = (new TestPush())->send($userId);          // every browser on the account
+$tests = (new TestPush())->send($userId, $hash);   // one: its endpoint_hash
+// [['token' => '…', 'endpoint_hash' => '…', 'user_agent' => 'Chrome on Android',
+//   'status' => 201, 'outcome' => ['kind' => 'delivered', …]], …]
+
+(new TestPush())->status($tests[0]['token']);
+// ['received_at' => 1759474010 or null, 'expired' => false, …]
+```
+
+**Where to use it:**
+- **On the administration screen,** each push's page (`/admin/PushLog/view/{id}`) has
+  *Send a test to this device*. It sends to the device that push went to and opens the
+  test's own page. That page says whether the device confirmed it, or that it never did once
+  the hour for a receipt has passed.
+- **On an application's own device screen** ("This device"), post the browser's own
+  subscription endpoint to `/push/test`, then ask `/push/teststatus` for the returned token
+  until it says `received`:
+
+  ```js
+  const sub = await (await navigator.serviceWorker.ready).pushManager.getSubscription();
+  const { tests } = await (await fetch('/push/test', {
+      method: 'POST', credentials: 'include',
+      body: JSON.stringify({ endpoint: sub.endpoint }),
+  })).json();
+  // then GET /push/teststatus?token=tests[0].token a few times
+  ```
+
+**Receipts** are kept in `pramnos.pushtests`, one row per test per device, and accepted for an
+hour (`TestPush::RECEIPT_WINDOW`). The token is the receipt's credential, so only its SHA-256 is
+stored, like every other token at rest. They are stored in the database rather than the cache,
+because the receipt is a request from the device and may reach another web server than the
+one that sent the test. A test notification's push log row is tagged `pramnos-test:<token>`;
+`TestPush::tokenOf($row)` reads it back. The tag is unique, so two tests never replace each
+other on the lock screen.
+
+The scaffolded service worker already posts `data.ack` for sign-in approvals, and tests use the
+same mechanism, so a project's `sw.js` needs no change.
 
 ## Sign-in approvals
 

@@ -7,6 +7,8 @@
  *   $this->outcome      — Log::outcome(): kind, label, explanation
  *   $this->subscription — Subscriptions::describe() of the device it went to, or null
  *   $this->history      — the latest attempts to that same device, newest first
+ *   $this->receipt      — for a test notification, TestPush::status(): whether the device
+ *                         itself confirmed it arrived; null for any other push
  *
  * The list says what happened; this page answers "why did this person not see it". The
  * device's own history is the evidence: deliveries to a browser the person says shows nothing
@@ -27,6 +29,7 @@ $when    = static function (array $r): string {
 $css = ['delivered' => 'badge-success', 'gone' => 'badge-warning', 'not_sent' => 'badge-ghost', 'busy' => 'badge-warning', 'failed' => 'badge-error'];
 $badge = static fn (array $what): string => '<span class="badge badge-sm ' . ($css[$what['kind']] ?? '') . '">'
     . htmlspecialchars($what['label'], ENT_QUOTES, 'UTF-8') . '</span>';
+$receipt = is_array($this->receipt ?? null) ? $this->receipt : null;
 $userId = (int) ($row['userid'] ?? 0);
 $hash   = (string) ($row['endpoint_hash'] ?? '');
 ?>
@@ -37,13 +40,34 @@ $hash   = (string) ($row['endpoint_hash'] ?? '');
 
     <h2 class="text-lg font-semibold mb-3 flex items-center gap-2">Push notification #<?php echo (int) ($row['pushid'] ?? 0); ?> <?php echo $badge($outcome); ?></h2>
 
-    <div class="alert mb-4 block" role="status">
+    <div role="status" class="alert mb-4 block">
         <strong><?php echo $e($outcome['label']); ?>.</strong>
         <?php echo $e($outcome['explanation']); ?>
         <?php if ((string) ($row['error'] ?? '') !== ''): ?>
             <div class="text-xs text-base-content/60">Reason: <?php echo $e($row['error']); ?></div>
         <?php endif; ?>
     </div>
+
+    <?php if ($receipt !== null): ?>
+        <?php if ($receipt['received_at'] !== null): ?>
+            <div role="status" class="alert alert-success mb-4 block">
+                <strong>The device received this test</strong> at <?php echo $e(localDateTime($receipt['received_at'])); ?>.
+                If nothing appeared on its screen, the cause is on the device: notifications for this site
+                or for the browser, battery optimisation, or Do Not Disturb.
+            </div>
+        <?php elseif ($receipt['expired']): ?>
+            <div role="status" class="alert alert-warning mb-4 block">
+                <strong>The device never confirmed this test.</strong> It did not reach the browser: the
+                phone may have been off or offline for the hour the receipt was accepted, or the browser
+                was closed and is not woken for pushes.
+            </div>
+        <?php else: ?>
+            <div role="status" class="alert alert-warning mb-4 block">
+                <strong>Waiting for the device to confirm.</strong> Its service worker sends a receipt the
+                moment the push arrives; reload in a moment.
+            </div>
+        <?php endif; ?>
+    <?php endif; ?>
 
     <div class="card bg-base-100 border border-base-300 p-4 mb-4">
         <h3 class="font-semibold mb-2">The message</h3>
@@ -90,6 +114,13 @@ $hash   = (string) ($row['endpoint_hash'] ?? '');
                     <tr><th>Failures since</th><td><?php echo (int) $device['failure_count']; ?></td></tr>
                 </tbody>
             </table>
+            <form method="post" action="<?php echo $e(adminUrl('PushLog/test/') . (int) ($row['pushid'] ?? 0)); ?>" style="margin-top:12px">
+                <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
+                <button type="submit" class="btn btn-sm btn-outline btn-primary">Send a test to this device</button>
+                <span class="text-xs text-base-content/60">
+                    A fixed notification; its page shows whether the device confirms it.
+                </span>
+            </form>
         <?php endif; ?>
     </div>
 

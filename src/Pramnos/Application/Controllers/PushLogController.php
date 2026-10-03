@@ -43,7 +43,9 @@ class PushLogController extends Controller
 
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
-        $this->addAuthAction(['display', 'view']);
+        $this->addAuthAction(['display', 'view', 'test']);
+        // POST with the session's token: it sends a notification to somebody's phone.
+        $this->addWriteAction(['test']);
         parent::__construct($application);
     }
 
@@ -114,8 +116,57 @@ class PushLogController extends Controller
         $view->outcome      = Log::outcome($row);
         $view->subscription = $this->subscription((int) ($row['userid'] ?? 0), $hash);
         $view->history      = $hash === '' ? [] : $this->rows(20, ['endpoint_hash' => $hash]);
+        // A test notification's receipt: whether the device itself said it arrived.
+        $token              = \Pramnos\Push\TestPush::tokenOf($row);
+        $view->receipt      = $token === null ? null : $this->testPush()->status($token);
 
         return $view->display('view');
+    }
+
+    /**
+     * Send a test notification to the device a logged push went to, and open the test's page.
+     *
+     * The answer to "the log says delivered and they saw nothing": a test whose page then shows
+     * whether the device itself confirmed it arrived.
+     */
+    public function test(): mixed
+    {
+        if ($this->requireMinUserType($this->requiredUserType)) {
+            return null;
+        }
+
+        $row  = $this->find((int) \Pramnos\Http\Request::staticGetOption());
+        $hash = (string) ($row['endpoint_hash'] ?? '');
+        if ($row === null || $hash === '') {
+            $this->addError('There is no device to send a test to.');
+            $this->redirect(adminUrl('PushLog'));
+            return null;
+        }
+
+        $tests = $this->testPush()->send((int) $row['userid'], $hash);
+        if ($tests === []) {
+            $this->addError('That device is no longer subscribed, so a test cannot reach it.');
+            $this->redirect(adminUrl('PushLog/view/') . (int) $row['pushid']);
+            return null;
+        }
+
+        \Pramnos\Logs\Logger::log(
+            'Push test sent to account ' . (int) $row['userid'] . ' by '
+            . (string) (\Pramnos\User\User::getCurrentUser()->username ?? 'an administrator'),
+            'auth'
+        );
+
+        $logged = $this->rows(1, ['tag' => \Pramnos\Push\Notifications\TestPushNotification::TAG_PREFIX . $tests[0]['token']]);
+        $this->addMessage('Test sent: ' . $tests[0]['outcome']['label'] . '. This page shows when the device confirms it.');
+        $this->redirect(adminUrl('PushLog/view/') . (int) ($logged[0]['pushid'] ?? $row['pushid']));
+
+        return null;
+    }
+
+    /** The test sender, as a seam. */
+    protected function testPush(): \Pramnos\Push\TestPush
+    {
+        return new \Pramnos\Push\TestPush();
     }
 
     /**

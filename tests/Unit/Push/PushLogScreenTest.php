@@ -271,6 +271,52 @@ class PushLogScreenTest extends TestCase
             /** @var list<string> Where redirect() was asked to go */
             public array $redirectedTo = [];
 
+            /** @var object|null The fake test sender */
+            public ?object $sender = null;
+
+            /** The fake sender, built on first use. */
+            protected function testPush(): \Pramnos\Push\TestPush
+            {
+                return $this->sender ??= new class extends \Pramnos\Push\TestPush {
+                    /** @var list<array{0: int, 1: ?string}> */
+                    public array $sent = [];
+
+                    /** @var list<array<string, mixed>> */
+                    public array $answer = [['token' => 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'endpoint_hash' => 'abc', 'user_agent' => 'Chrome',
+                        'status' => 201, 'outcome' => ['kind' => 'delivered', 'label' => 'Delivered', 'explanation' => '']]];
+
+                    public function send(int $userId, ?string $endpointHash = null): array
+                    {
+                        $this->sent[] = [$userId, $endpointHash];
+
+                        return $this->answer;
+                    }
+
+                    public function status(string $token): ?array
+                    {
+                        return ['token' => $token, 'userid' => 42, 'endpoint_hash' => 'abc', 'sent_at' => 1, 'received_at' => 5, 'expired' => false];
+                    }
+                };
+            }
+
+            /** Recorded rather than flashed. */
+            protected function addMessage($message)
+            {
+            }
+
+            /** Make the sender answer as if the device had unsubscribed. */
+            public function nothingSubscribed(): void
+            {
+                $this->testPush();
+                $this->sender->answer = [];
+            }
+
+            /** @return list<array{0: int, 1: ?string}> What the sender was asked to send, if it was built */
+            public function testPushSent(): array
+            {
+                return $this->sender?->sent ?? [];
+            }
+
             /** @return array<string, mixed>|null */
             protected function find(int $pushId): ?array
             {
@@ -312,6 +358,8 @@ class PushLogScreenTest extends TestCase
                     public mixed $subscription = null;
 
                     public mixed $history = null;
+
+                    public mixed $receipt = null;
 
                     public string $layout = '';
 
@@ -469,6 +517,8 @@ class PushLogScreenTest extends TestCase
 
             public mixed $history = null;
 
+            public mixed $receipt = null;
+
             /** The breadcrumb partial is the theme chrome's; nothing to render here. */
             public function insert(string $partial): void
             {
@@ -513,5 +563,136 @@ class PushLogScreenTest extends TestCase
         // Assert
         $this->assertStringContainsString("adminUrl('PushLog/view/')", $source);
         $this->assertStringContainsString('Log::outcome($row)', $source, 'the list words outcomes the way the detail page does');
+    }
+
+    /**
+     * "Send a test" goes to the device the row went to, for that row's account, and opens the
+     * test's own page.
+     */
+    public function testATestGoesToTheRowsDeviceAndOpensItsPage(): void
+    {
+        // Arrange
+        $_GET = ['_option' => '7'];
+        \Pramnos\Http\Request::resetInstance();
+        $controller = $this->controller();
+
+        // Act
+        $controller->test();
+
+        // Assert — to account 42's browser `abc`, then to the new row (the stub's rows() answers #1)
+        $this->assertSame([[42, 'abc']], $controller->sender->sent);
+        $this->assertSame(['tag' => \Pramnos\Push\Notifications\TestPushNotification::TAG_PREFIX . str_repeat('a', 32)], $controller->filter);
+        $this->assertStringEndsWith('PushLog/view/1', $controller->redirectedTo[0]);
+    }
+
+    /**
+     * A row with no device, or a device that has gone, sends nothing and says why.
+     */
+    public function testNoDeviceSendsNothing(): void
+    {
+        // Arrange — a refusal row: no endpoint
+        $_GET = ['_option' => '7'];
+        \Pramnos\Http\Request::resetInstance();
+        $refused = $this->controller();
+        $refused->found['endpoint_hash'] = '';
+
+        // a device that unsubscribed since
+        $gone = $this->controller();
+        $gone->nothingSubscribed();
+
+        // Act
+        $refused->test();
+        $gone->test();
+
+        // Assert
+        $this->assertSame([], $refused->testPushSent());
+        $this->assertStringEndsWith('PushLog', $refused->redirectedTo[0]);
+        $this->assertStringEndsWith('PushLog/view/7', $gone->redirectedTo[0]);
+    }
+
+    /**
+     * The detail page of a test is fed its receipt; any other push has none.
+     */
+    public function testATestsPageIsFedItsReceipt(): void
+    {
+        // Arrange
+        $_GET = ['_option' => '7'];
+        \Pramnos\Http\Request::resetInstance();
+        $test  = $this->controller();
+        $test->found['tag'] = \Pramnos\Push\Notifications\TestPushNotification::TAG_PREFIX . str_repeat('b', 32);
+        $plain = $this->controller();
+
+        // Act
+        $test->view();
+        $plain->view();
+
+        // Assert
+        $this->assertSame(5, $test->view->receipt['received_at']);
+        $this->assertNull($plain->view->receipt);
+    }
+
+    /** @return array<string, array{string, array<string, mixed>, string}> */
+    public static function receipts(): array
+    {
+        $cases = [];
+        foreach (['bootstrap', 'tailwind', 'plain-css'] as $theme) {
+            $cases[$theme . ': received'] = [$theme, ['received_at' => 1700000000, 'expired' => false], 'The device received this test'];
+            $cases[$theme . ': waiting']  = [$theme, ['received_at' => null, 'expired' => false], 'Waiting for the device to confirm'];
+            $cases[$theme . ': expired']  = [$theme, ['received_at' => null, 'expired' => true], 'The device never confirmed this test'];
+        }
+
+        return $cases;
+    }
+
+    /**
+     * Each theme says which of the three a test is in, and offers another test.
+     *
+     * @param array<string, mixed> $receipt
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('receipts')]
+    public function testEveryThemeShowsTheReceipt(string $theme, array $receipt, string $expected): void
+    {
+        // Arrange
+        $row  = ['pushid' => 9, 'userid' => 42, 'title' => 'Test notification', 'status' => 201,
+                 'endpoint_hash' => 'abc', 'tag' => 'pramnos-test:x', 'sent' => '2026-10-03 08:00:00'];
+        $view = new class {
+            public string $activeNav = '';
+
+            public mixed $row = null;
+
+            public mixed $outcome = null;
+
+            public mixed $subscription = null;
+
+            public mixed $history = null;
+
+            public mixed $receipt = null;
+
+            /** No chrome here. */
+            public function insert(string $partial): void
+            {
+            }
+        };
+        $view->row          = $row;
+        $view->outcome      = \Pramnos\Push\Log::outcome($row);
+        $view->subscription = ['id' => 1, 'user_agent' => 'Chrome', 'created_at' => 1, 'last_success_at' => null, 'failure_count' => 0];
+        $view->history      = [];
+        $view->receipt      = $receipt;
+        $file = dirname(__DIR__, 3) . '/scaffolding/themes/' . $theme . '/views/pushlog/view.html.php';
+
+        // Act
+        ob_start();
+        try {
+            (\Closure::bind(function () use ($file): void {
+                include $file;
+            }, $view, null))();
+        } finally {
+            $html = (string) ob_get_clean();
+        }
+
+        // Assert
+        $this->assertStringContainsString($expected, $html);
+        $this->assertStringContainsString('PushLog/test/9', $html, 'the button to send another');
+        $this->assertStringContainsString(\Pramnos\Http\Session::getInstance()->getTokenField(), $html);
     }
 }

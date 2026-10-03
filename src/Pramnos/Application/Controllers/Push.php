@@ -27,7 +27,7 @@ use Pramnos\Push\Vapid;
  */
 class Push extends \Pramnos\Application\Controller
 {
-    public $actions = ['key', 'subscribe', 'unsubscribe', 'ack', 'respond'];
+    public $actions = ['key', 'subscribe', 'unsubscribe', 'ack', 'respond', 'test', 'testack', 'teststatus'];
 
     /**
      * The VAPID public key, for `PushManager.subscribe()`.
@@ -148,6 +148,86 @@ class Push extends \Pramnos\Application\Controller
         return in_array($result, [PushApprovals::APPROVED, PushApprovals::DENIED], true)
             ? $this->json(['ok' => true, 'decision' => $result])
             : $this->json(['error' => 'That approval cannot be answered from here.', 'reason' => $result], 403);
+    }
+
+    /**
+     * Send a test notification to the signed-in account's browsers — or to the one posting.
+     *
+     * `{"endpoint": "…"}` in the body, as `PushSubscription.toJSON()` gives it, limits the test
+     * to that browser: what a "This device" screen sends. Without it every browser on the
+     * account gets one. Each answer carries a token for {@see teststatus()}, which says when the
+     * device confirmed it arrived.
+     *
+     * POST only: a link must not be able to send notifications.
+     */
+    public function test(): mixed
+    {
+        if (strtoupper((string) ($_SERVER['REQUEST_METHOD'] ?? 'GET')) !== 'POST') {
+            return $this->json(['error' => 'POST only.'], 405);
+        }
+
+        $userId = $this->currentUser();
+        if ($userId === null) {
+            return $this->json(['error' => 'Sign in first.'], 401);
+        }
+
+        $endpoint = (string) ($this->body()['endpoint'] ?? '');
+        $tests    = $this->testPush()->send($userId, $endpoint === '' ? null : hash('sha256', $endpoint));
+
+        if ($tests === []) {
+            return $this->json([
+                'error' => $endpoint === ''
+                    ? 'No browser on this account is subscribed to notifications.'
+                    : 'This browser is not subscribed to notifications for this account.',
+            ], 404);
+        }
+
+        return $this->json(['tests' => array_map(static fn (array $t): array => [
+            'token'   => $t['token'],
+            'browser' => $t['user_agent'],
+            'sent'    => $t['outcome']['kind'] === 'delivered',
+            'outcome' => $t['outcome']['label'],
+            'explanation' => $t['outcome']['explanation'],
+        ], $tests)]);
+    }
+
+    /**
+     * A device's receipt for a test, posted by the service worker the moment it arrives.
+     * The token in the address is the credential: the worker may have no page or session.
+     */
+    public function testack(): mixed
+    {
+        return $this->testPush()->acknowledge($this->token())
+            ? $this->json(['ok' => true])
+            : $this->json(['error' => 'No such test, or it has expired.'], 404);
+    }
+
+    /**
+     * Whether a test has arrived, for the page that sent it — only the account's own tests.
+     */
+    public function teststatus(): mixed
+    {
+        $userId = $this->currentUser();
+        if ($userId === null) {
+            return $this->json(['error' => 'Sign in first.'], 401);
+        }
+
+        $status = $this->testPush()->status($this->token());
+        if ($status === null || $status['userid'] !== $userId) {
+            return $this->json(['error' => 'No such test.'], 404);
+        }
+
+        return $this->json([
+            'received'    => $status['received_at'] !== null,
+            'received_at' => $status['received_at'],
+            'expired'     => $status['expired'],
+        ]);
+    }
+
+    /** The test sender, as a seam. */
+    protected function testPush(): \Pramnos\Push\TestPush
+    {
+        return new \Pramnos\Push\TestPush();
     }
 
     protected function token(): string
