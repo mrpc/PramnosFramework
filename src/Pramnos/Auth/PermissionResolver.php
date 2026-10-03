@@ -29,7 +29,7 @@ use Pramnos\Database\Database;
  * Deliberately independent of the legacy Pramnos\Auth\Permissions class (which
  * targets a different, unrelated table).
  */
-class PermissionResolver implements PermissionResolverInterface
+class PermissionResolver implements OrganizationPermissionResolverInterface
 {
     private const T_PERMS = 'authserver.permissions';
     private const T_ROLES = 'authserver.user_roles';

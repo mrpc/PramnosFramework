@@ -260,6 +260,9 @@ class Gate
      * **Off by default**, and deliberately explicit: a gate that silently consults a database
      * for names nobody registered is a gate whose answers cannot be read off the code.
      *
+     * With {@see OrganizationScope::resolveWith()} set, the store answers for the request's
+     * organisation: system-wide roles and that organisation's, not every organisation's.
+     *
      * @param string|null $resourceType The store's `$resourceType`, or null to switch it off
      * @return void
      */

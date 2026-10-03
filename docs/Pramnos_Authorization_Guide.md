@@ -6,6 +6,8 @@ use_cases:
   - Working out why a permission check returned what it did
   - Choosing between a usertype capability, a gate and a permission row
   - Isolating one organisation's or tenant's data from another's
+  - Giving a user a different role in each organisation they belong to
+  - Working out why a member was refused in one organisation and allowed in another
   - Creating a role and giving it to somebody
   - Turning on user groups and putting accounts in them
   - Giving the same permissions to every member of a group
@@ -353,6 +355,12 @@ A role's organisation cannot be changed once anybody holds it. The holders who a
 not members of the new organisation would silently stop having it — create a separate
 role for that organisation instead.
 
+**An organisation's role is only enforced per organisation if the application says which
+organisation a request is about.** Without an
+[organisation resolver](#checking-permissions-in-an-organisation), a user's roles from every
+organisation are read together, so a Client in one organisation and an Editor in another
+can edit in both.
+
 ### In code
 
 ```php
@@ -565,17 +573,32 @@ on a role, so they have no organisation to scope by.
 It is one joined query — measurably cheaper than reading memberships separately, even
 when they are already in memory.
 
-### It is opt-in, and that is the part to get right
+### Telling the framework which organisation a request is about
 
-`ApiCrudController`, `Gate` and `Permissions` use `resolve()`, because they are not given an
-organisation and have no way to guess one. `/api/internal/permissions` calls
-`resolveForOrganization()` when the resource server passes `organization_id` — see the
-[AuthServer Integration guide](Pramnos_AuthServer_Integration_Guide.md). Isolating tenants means your code deciding which
-organisation a request is about and asking that question.
+The framework cannot guess the organisation: one application takes it from a subdomain,
+another from a header, another from the signed-in member's current workspace. So it asks
+the application, once:
 
-For **reads**, that is usually not an authorization question at all but a query one,
-and a global scope on the models is the answer — one line, covering every list path
-including the REST endpoints:
+```php
+// where the application boots, e.g. Application::init() or a service provider
+\Pramnos\Auth\OrganizationScope::resolveWith(fn () => Tenant::currentOrganizationId());
+```
+
+From then on every permission check the framework makes in a request uses
+`resolveForOrganization()` for the organisation the resolver returns:
+`ApiCrudController::authorize()`, `permissionFor()` and `permissionForObject()`,
+`Permissions::isAllowed()`, and `Gate`'s permission fallback. A resolver returning `null`
+means "this request is about no organisation" and is checked as before.
+
+**This changes what an unanswered action means for the generated CRUD endpoints.** Read
+[Checking permissions in an organisation](#checking-permissions-in-an-organisation) before
+you turn it on. `/api/internal/permissions` calls `resolveForOrganization()` when the
+resource server passes `organization_id`; see the
+[AuthServer Integration guide](Pramnos_AuthServer_Integration_Guide.md).
+
+For **reads**, isolating tenants is usually not an authorization question at all but a query
+one, and a global scope on the models is the answer. It is one line and covers every list
+path, including the REST endpoints:
 
 ```php
 Invoice::addGlobalScope('tenant', fn(string $f): string =>
@@ -583,18 +606,158 @@ Invoice::addGlobalScope('tenant', fn(string $f): string =>
 );
 ```
 
-See [the ORM guide](Pramnos_ORM_Guide.md#scopes).
+See [the ORM guide](Pramnos_ORM_Guide.md#scopes). The two work together: the scope decides
+which rows a member sees, and the organisation's roles decide what they may do to them.
 
 ### And a warning about the default
 
-`ApiCrudController::authorize()` treats "no rule at all" as **allowed**, deliberately,
-so that a project which has granted nothing keeps working. Combined with `resolve()`
-being the unscoped one, a scaffolded multi-tenant API is open by default: no grants
-written, no scope registered, every row served to everyone signed in.
+`ApiCrudController::authorize()` treats "no rule at all" as **allowed** when no organisation
+is in scope, deliberately, so that a project which has granted nothing keeps working. A
+scaffolded multi-tenant API **without an organisation resolver** is therefore open by default:
+no grants written, no scope registered, every row served to everyone signed in.
 
 That is the correct default for a single-tenant application and the wrong one for a
-multi-tenant one. If you are building the second, register the scope before you
-generate the endpoints, not after.
+multi-tenant one. If you are building the second:
+
+1. set `OrganizationScope::resolveWith()`, so an action no role grants is refused;
+2. register the models' tenant scope, so a member only sees their organisation's rows;
+3. do both before you generate the endpoints, not after.
+
+## Checking permissions in an organisation
+
+This section is for an application whose users belong to several organisations and hold a
+**different role in each**: a project agency whose clients log in, a SaaS with workspaces,
+a municipality's departments. Read it before setting `OrganizationScope::resolveWith()`,
+because it changes how the generated API answers.
+
+### The problem, in one example
+
+Maria is a **Client** in organisation A and an **Editor** in organisation B. The roles grant
+only what each may do. Nothing is written as "not allowed":
+
+| Role | Organisation | Grants on `posts` |
+|---|---|---|
+| Client | A | `read` |
+| Editor | B | `read`, `update` |
+
+Maria opens a post of organisation A and presses **Save** (`PUT /posts/42`).
+
+| | What the check reads | Result |
+|---|---|---|
+| **No organisation resolver** | every role Maria holds anywhere: Client **and** Editor | `update` is granted by Editor: **saved**. Wrong. |
+| **Resolver, organisation A** | system-wide roles, and A's roles because she is a member: Client | no role grants `update`: **refused**. Right. |
+| **Resolver, organisation B** | system-wide roles, and B's: Editor | `update` granted: **saved**. Right. |
+
+The first row is two problems, not one. Read without an organisation, Maria's roles are
+merged across organisations. And even with the merge removed, the Client role says nothing
+about `update`, and **outside an organisation "nothing" means "allowed"** for the generated
+endpoints (see [API endpoints](#api-endpoints)). The resolver fixes both: the roles are read
+for one organisation, and an action no role grants is refused.
+
+### What the resolver changes, and where
+
+| Check | Without a resolver | With one, and an organisation in scope |
+|---|---|---|
+| Which roles count | every role the user holds | system-wide roles, plus that organisation's if the user is an active member |
+| `ApiCrudController::authorize()` / `permissionFor()` with no matching grant | allowed | **refused** |
+| `ApiCrudController::permissionForObject()` with no matching grant | no opinion (`null`) | **refused** (`false`) |
+| `Permissions::isAllowed()` with no matching grant | `false` (or `null` with the last argument `false`) | the same |
+| `Gate` with `fallbackToPermissions()` | refuses an ability nobody grants | the same, in that organisation |
+| The permission store can't be read | no opinion | **refused** |
+
+`Permissions::isAllowed()` and `Gate` already refused what nobody granted. For them the
+resolver only removes the merge across organisations. The generated CRUD endpoints are the
+ones whose answer to "nothing granted" changes.
+
+A request the resolver says is about **no** organisation (it returns `null`) is checked
+exactly as before.
+
+### Setting it up
+
+```php
+use Pramnos\Auth\OrganizationScope;
+
+// Once, where the application boots.
+OrganizationScope::resolveWith(function (): ?int {
+    return Tenant::currentOrganizationId();   // int, or null for "no organisation"
+});
+```
+
+The resolver may return an `int`, a numeric string, or `null`. It is called per check, so
+keep it cheap: read a value the request already established, don't query for it.
+
+**One controller whose organisation comes from somewhere else**, for example its URL:
+
+```php
+class ProjectsController extends \Pramnos\Application\ApiCrudController
+{
+    protected function permissionOrganizationId(): ?int
+    {
+        return (int) $this->request->get('organization') ?: null;
+    }
+}
+```
+
+**A check outside the request**, such as a worker acting for one tenant, or a screen listing
+what a member may do in each of their organisations:
+
+```php
+$permissions = \Pramnos\Auth\Permissions::getInstance();
+$permissions->isAllowedInOrganization($userId, $organizationId, 'posts', 'update');
+```
+
+It takes the same arguments as `isAllowed()`, with the organisation second, and does not
+change the request's organisation for anything else. Answers are cached per organisation, so
+asking about A and then B on one instance gives each its own answer.
+
+### Before you turn it on
+
+Once an organisation is in scope, an endpoint action that no role grants is refused **for
+everyone**, the organisation's owner included. That is the point: a role model is closed
+until a grant opens it. It also means:
+
+- **Every role needs every action it should have.** An Owner role that was relying on
+  "nothing said, so allowed" for `delete` loses `delete`. List each role's actions per
+  resource before switching.
+- **A new endpoint is closed until granted.** Add the grant to the roles in the same change
+  that adds the endpoint, or nobody can use it.
+- **System-wide roles keep working everywhere.** A support or administrator role with
+  `organization_id` NULL counts in every organisation, which is usually what staff need.
+- **Direct grants to a user count in every organisation.** They belong to the person, not to
+  a role, so there is no organisation to scope them by.
+- **Your own `User::hasPermission()` scheme is asked first, unchanged.** If the application
+  declares its own permission names, the generated endpoints use those answers before the
+  store's, with no organisation. See [API endpoints](#api-endpoints).
+
+### When something goes wrong, the answer is no
+
+Every failure refuses. None falls back to the unscoped check, because the unscoped check
+merges every organisation's roles, which is the thing this exists to prevent.
+
+| What happened | Result | Where it is recorded |
+|---|---|---|
+| The resolver throws | refused | error log: `Refused <resource>.<action>: the organisation could not be resolved: …` |
+| The resolver returns something that is not an id (`'abc'`, `0`, an array) | refused | the same |
+| The application supplies its own resolver (`permissionResolver()`) that doesn't implement `OrganizationPermissionResolverInterface` | refused in an organisation; unchanged outside one | error log names the class |
+| The permission tables can't be read | refused in an organisation; no opinion outside one | — |
+
+**Diagnosing a refusal nobody expected:**
+1. Check the error log for `Refused`. It names the resource and action.
+2. Check what the resolver returned for the request (it returns `null` → the old rules apply).
+3. Check the member's roles in that organisation with
+   `PermissionResolver::resolveForOrganization($userId, null, $orgId)`: is there a grant
+   for that `object_type` and `action`?
+4. Check the membership: an inactive or expired row in `authserver.user_organizations`
+   means the organisation's roles don't count.
+
+### A permission resolver of your own
+
+`ApiCrudController::permissionResolver()` can return a resolver of the application's own, as
+`PermissionResolverInterface`. To answer in an organisation it must also implement
+`OrganizationPermissionResolverInterface::resolveForOrganization()`. Without it, every check
+in an organisation is refused and the error log says which class is missing it. It is a
+separate interface because adding a method to `PermissionResolverInterface` would stop every
+existing implementation from loading.
 
 ## Usertypes: what a kind of account may reach
 
@@ -659,7 +822,8 @@ answered by `Permissions::isAllowed($userId, $resource, $privilege, …)`. So:
 
 The store is asked with `$nonExistEqualsFalse = false`, so "no rule" arrives as **no
 opinion** rather than as a denial — the gate decides what that means, not the absence of a
-row.
+row. With [an organisation resolver](#checking-permissions-in-an-organisation)
+set, the store answers for the request's organisation only.
 
 It is **off by default and deliberately explicit**: a gate that silently consulted a
 database for names nobody registered would be a gate whose answers cannot be read off the
@@ -711,16 +875,19 @@ protected function authorize(string $action): bool
 }
 ```
 
-| The store says | Result |
-| --- | --- |
-| explicit **allow** | allowed |
-| explicit **deny** | refused |
-| **no rule at all** | allowed |
+| The store says | No organisation in scope | An organisation in scope |
+| --- | --- | --- |
+| explicit **allow** | allowed | allowed |
+| explicit **deny** | refused | refused |
+| **no rule at all** | allowed | **refused** |
+| **can't be read** | no opinion → allowed | **refused** |
 
-The last row is a compatibility decision, stated plainly so nobody discovers it in
-production: **a project that has granted nothing keeps working exactly as it did before this
-class existed.** A failure to *read* permissions is also treated as "no opinion" rather than
-as a decision, so a broken query cannot silently deny — or silently allow — on its own.
+The left column's last two rows are a compatibility decision, stated plainly so nobody
+discovers it in production: **a project that has granted nothing keeps working exactly as it
+did before this class existed.** The right column applies once the application has said which
+organisation a request is about, because an application with roles per organisation means
+"not granted" when it grants nothing; see
+[Checking permissions in an organisation](#checking-permissions-in-an-organisation).
 
 To tighten it, override in the generated controller:
 
@@ -774,6 +941,10 @@ public function read($id): mixed
 `permissionForObject()` is three-valued like everything else here, so compare against
 `false` rather than treating `null` as a refusal. Reading `null` as "no" would refuse
 every request in a project that has written no grants at all.
+
+In an organisation, `permissionForObject()` returns `false` where it would return `null`, so
+the same `=== false` comparison refuses a record no role grants. Nothing in the controller
+changes.
 
 ---
 
@@ -1024,7 +1195,7 @@ deliberate:
 | a global `auth()` helper | `Gate::` statics | the framework has three unrelated `auth()` methods already; a fourth spelling would have been the worst of them |
 | policies only | policies **and** a permission-store bridge | the store was already there and already used; a gate that ignored it would have split authorization in two |
 
-## Reference## Reference
+## Reference
 
 **Classes:**
 
@@ -1038,7 +1209,12 @@ deliberate:
 - `Pramnos\Auth\PermissionResolverInterface` — substitute your own
 - `Pramnos\Application\Controller` — `can()`, `cannot()`, `auth()`, `$actions_auth`,
   `$action_permissions`
-- `Pramnos\Application\ApiCrudController` — `authorize()`, `permissionFor()`
+- `Pramnos\Application\ApiCrudController` — `authorize()`, `permissionFor()`,
+  `permissionForObject()`, `permissionOrganizationId()`
+- `Pramnos\Auth\OrganizationScope` — `resolveWith()`, `current()`, `isConfigured()`, `reset()`
+- `Pramnos\Auth\OrganizationPermissionResolverInterface` — a resolver that can answer in one
+  organisation
+- `Permissions::isAllowedInOrganization()` — `isAllowed()` about a named organisation
 - `Pramnos\Routing\Router` — `hasPermissions()`, `addRoute()`;
   `Pramnos\Routing\Route` — `requirePermissions()`, `addPermissions()`
 - `Pramnos\Application\NavRegistry` — permission-gated menu items

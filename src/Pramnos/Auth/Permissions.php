@@ -35,6 +35,12 @@ class Permissions extends \Pramnos\Framework\Base
     /** @var string|null Resolved store: legacy|authserver|none */
     protected $_store = null;
     protected $_cache = array();
+
+    /**
+     * The organisation {@see isAllowedInOrganization()} is asking about, for the length of
+     * that call; null means "whatever {@see \Pramnos\Auth\OrganizationScope} says".
+     */
+    private ?int $organizationOverride = null;
     protected $_defaut = array();
 
     /**
@@ -300,12 +306,31 @@ class Permissions extends \Pramnos\Framework\Base
      * @param string $subjectType defaults to user
      * @param bool $nonExistEqualsFalse If set to true, if a permission
      * doesn't exist, we return false.
+     *
+     * With {@see OrganizationScope::resolveWith()} set, a user's roles are read for the
+     * request's organisation only; {@see isAllowedInOrganization()} names one explicitly.
+     * A resolver that fails refuses.
+     *
      * @return  boolean|NULL
      */
     public function isAllowed($subject, $resource, $privilege,
             $resourceElement = '', $resourceType = 'module',
             $subjectType = 'user', $nonExistEqualsFalse = true)
     {
+        // A failure to find the organisation refuses: falling back to the unscoped answer
+        // would hand out the union of the user's roles in every organisation.
+        try {
+            $organizationId = $this->organizationId();
+        } catch (\Throwable $ex) {
+            \Pramnos\Logs\Logger::logError(
+                'Refused ' . $resource . '.' . $privilege . ': the organisation could not be resolved: ' . $ex->getMessage(),
+                $ex
+            );
+            return false;
+        }
+        // One answer per organisation: a decision about one must never be served for another.
+        $cacheSubject = $organizationId === null ? $subject : $subject . '@org' . $organizationId;
+
         if ($nonExistEqualsFalse == false) {
             return $this->_isAllowed(
                 $subject, $resource, $privilege,
@@ -313,20 +338,69 @@ class Permissions extends \Pramnos\Framework\Base
             );
         }
 
-        if (isset($this->_cache[$subject][$resource][$privilege]
+        if (isset($this->_cache[$cacheSubject][$resource][$privilege]
             [$resourceElement][$resourceType][$subjectType])) {
-            return $this->_cache[$subject][$resource][$privilege]
+            return $this->_cache[$cacheSubject][$resource][$privilege]
                 [$resourceElement][$resourceType][$subjectType];
         }
-        $this->_cache[$subject][$resource]
+        $this->_cache[$cacheSubject][$resource]
             [$privilege][$resourceElement][$resourceType]
             [$subjectType] = (bool) $this->_isAllowed(
                 $subject,
                 $resource, $privilege, $resourceElement, $resourceType,
                 $subjectType
             );
-        return $this->_cache[$subject][$resource][$privilege]
+        return $this->_cache[$cacheSubject][$resource][$privilege]
             [$resourceElement][$resourceType][$subjectType];
+    }
+
+    /**
+     * {@see isAllowed()}, about one organisation named here rather than the request's.
+     *
+     * For a check made outside the request the organisation resolver describes — an
+     * administration screen listing what a member may do in each of their organisations, a
+     * worker acting for one tenant. The user's system-wide roles count, and the roles of
+     * `$organizationId` if they are a member of it; roles in other organisations do not.
+     *
+     * Its own method rather than a parameter on `isAllowed()`, because a new parameter there
+     * would stop every subclass that overrides it from loading.
+     *
+     * @param mixed  $subject        The user id
+     * @param int    $organizationId The organisation the question is about
+     * @param string $resource
+     * @param string $privilege
+     * @param string $resourceElement
+     * @param string $resourceType
+     * @param string $subjectType
+     * @param bool   $nonExistEqualsFalse
+     * @return bool|null
+     */
+    public function isAllowedInOrganization($subject, int $organizationId, $resource, $privilege,
+            $resourceElement = '', $resourceType = 'module',
+            $subjectType = 'user', $nonExistEqualsFalse = true)
+    {
+        $previous = $this->organizationOverride;
+        $this->organizationOverride = $organizationId;
+
+        try {
+            return $this->isAllowed(
+                $subject, $resource, $privilege, $resourceElement,
+                $resourceType, $subjectType, $nonExistEqualsFalse
+            );
+        } finally {
+            $this->organizationOverride = $previous;
+        }
+    }
+
+    /**
+     * The organisation the current check is about: the one named by
+     * {@see isAllowedInOrganization()}, or the request's.
+     *
+     * @throws \Throwable Whatever the application's resolver threw; callers refuse.
+     */
+    private function organizationId(): ?int
+    {
+        return $this->organizationOverride ?? \Pramnos\Auth\OrganizationScope::current();
     }
 
     /**
@@ -447,15 +521,28 @@ class Permissions extends \Pramnos\Framework\Base
     protected function _isAllowedFromAuthserver($subject, $resource, $privilege,
         $resourceElement = '', $subjectType = 'user')
     {
+        // Reached directly through the public _isAllowed() as well as through isAllowed(), so
+        // the refusal for an organisation that cannot be found is made here too.
+        try {
+            $organizationId = $subjectType === 'user' ? $this->organizationId() : null;
+        } catch (\Throwable $ex) {
+            \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+            return false;
+        }
+
         try {
             $resolver = new \Pramnos\Auth\PermissionResolver(
                 $this->db()
             );
             // A group is resolved as a group. `resolve()` takes a user id, so a group check
             // used to answer with the grants of the user whose id the group happened to have.
+            // A user is resolved in the request's organisation when there is one: their
+            // system-wide roles and that organisation's, not every organisation's at once.
             $result = $subjectType === 'group'
                 ? $resolver->resolveForGroup((int) $subject, null)
-                : $resolver->resolve((int) $subject, null);
+                : ($organizationId === null
+                    ? $resolver->resolve((int) $subject, null)
+                    : $resolver->resolveForOrganization((int) $subject, null, $organizationId));
         } catch (\Throwable $ex) {
             \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
             return null;

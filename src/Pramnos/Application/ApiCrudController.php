@@ -96,7 +96,11 @@ class ApiCrudController extends Controller
      *   - an explicit **allow** → allowed;
      *   - an explicit **deny**  → refused;
      *   - **no rule at all**    → allowed, because a project that has granted
-     *     nothing must keep working exactly as it did before this class existed.
+     *     nothing must keep working exactly as it did before this class existed —
+     *     **except in an organisation**: when {@see permissionOrganizationId()} returns
+     *     an id (an application has set {@see \Pramnos\Auth\OrganizationScope}), no rule
+     *     is a refusal, because an application with roles per organisation means "not
+     *     granted" when it grants nothing.
      *
      * Override in the generated controller to tighten it — returning
      * `parent::authorize($action) && $user->isAdmin()`, for example.
@@ -108,6 +112,22 @@ class ApiCrudController extends Controller
         $decision = $this->permissionFor($action);
 
         return $decision !== false;
+    }
+
+    /**
+     * The organisation this request's permissions are checked in, or null for none.
+     *
+     * {@see \Pramnos\Auth\OrganizationScope::current()} by default — the resolver an
+     * application sets once. Override in a controller whose organisation comes from somewhere
+     * else, such as its own URL. Throwing refuses the request.
+     *
+     * An id here changes two things: the user's roles are read for that organisation only
+     * (system-wide roles plus that organisation's, for a member), and an action no role
+     * grants is **refused** rather than allowed.
+     */
+    protected function permissionOrganizationId(): ?int
+    {
+        return \Pramnos\Auth\OrganizationScope::current();
     }
 
     /**
@@ -364,11 +384,50 @@ class ApiCrudController extends Controller
      */
     private function resolverVerdict(int $userId, string $action, ?string $objectId): ?bool
     {
+        /*
+         * The organisation first, and a failure to find it is a refusal.
+         *
+         * Unscoped, the store answers with every role the user holds in every organisation —
+         * a Client in one and an Editor in another could write in both. And unlike a store
+         * that cannot be read, a resolver that fails must not fall back to that answer, or the
+         * failure would widen access; "no opinion" is read as allowed by authorize().
+         */
         try {
-            $result = $this->permissionResolver()->resolve($userId, null);
+            $organizationId = $this->permissionOrganizationId();
+        } catch (\Throwable $exception) {
+            \Pramnos\Logs\Logger::logError(
+                'Refused ' . $this->resourceName() . '.' . $action . ': the organisation could not be resolved: '
+                . $exception->getMessage(),
+                $exception
+            );
+            return false;
+        }
+
+        try {
+            $resolver = $this->permissionResolver();
         } catch (\Throwable) {
-            // No authserver schema, or an unreadable one: not a decision.
-            return null;
+            // No authserver schema to build it on: not a decision, except in an organisation.
+            return $organizationId === null ? null : false;
+        }
+        if ($organizationId !== null && !$resolver instanceof \Pramnos\Auth\OrganizationPermissionResolverInterface) {
+            // It cannot answer about one organisation, and its unscoped answer is the union of
+            // every organisation's roles: refused, and said why.
+            \Pramnos\Logs\Logger::logError(
+                'Refused ' . $this->resourceName() . '.' . $action . ': ' . get_class($resolver)
+                . ' does not implement OrganizationPermissionResolverInterface, so it cannot check organisation '
+                . $organizationId
+            );
+            return false;
+        }
+
+        try {
+            $result = $organizationId === null
+                ? $resolver->resolve($userId, null)
+                : $resolver->resolveForOrganization($userId, null, $organizationId);
+        } catch (\Throwable) {
+            // No authserver schema, or an unreadable one: not a decision — except in an
+            // organisation, where "no opinion" would let the request through (see below).
+            return $organizationId === null ? null : false;
         }
 
         $resource = $this->resourceName();
@@ -395,6 +454,21 @@ class ApiCrudController extends Controller
                 return false;
             }
             $verdict = true;
+        }
+
+        /*
+         * In an organisation, no rule is a refusal.
+         *
+         * Outside one, "no rule" is no opinion, and authorize() lets it through: an application
+         * that has granted nothing keeps working. An application that resolves an organisation
+         * has built roles per organisation, and in a role model an action no role grants is an
+         * action nobody may take — a Client whose role grants `read` must not `update` because
+         * no grant says "no". Anything else would make every organisation-scoped check a no-op
+         * for allow-only roles. See the Authorization Guide, "Checking permissions in an
+         * organisation".
+         */
+        if ($verdict === null && $organizationId !== null) {
+            return false;
         }
 
         return $verdict;

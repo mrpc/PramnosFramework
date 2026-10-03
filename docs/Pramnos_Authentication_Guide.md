@@ -1819,6 +1819,12 @@ That distinction matters. Collapsing `null` into `false` is how a screen ends up
 refusing a user for whom no rule was ever written — which is exactly what the
 class did before it knew which store it was reading.
 
+**Users with a role per organisation.** `isAllowed()` reads the user's roles for the
+organisation the request is about once the application has set
+`OrganizationScope::resolveWith()`; for one named organisation, use
+`isAllowedInOrganization($userId, $organizationId, 'articles', 'create')`. See
+[Checking permissions in an organisation](Pramnos_Authorization_Guide.md#checking-permissions-in-an-organisation).
+
 ### Roles
 
 The new model expresses groups as roles, and `PermissionResolver` folds a user's

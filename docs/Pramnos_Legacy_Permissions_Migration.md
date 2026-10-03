@@ -189,4 +189,6 @@ DROP TABLE permissions;   -- add your prefix
 `PermissionResolver::resolve()` directly when you need what the old API cannot
 express — conditions, expiry, audience scoping, or the full grant list. Inside a
 generated API controller you need neither: `ApiCrudController` already asks the
-application's own permission scheme first, then the store.
+application's own permission scheme first, then the store. If your users hold roles per
+organisation, set an organisation resolver as well; see
+[Checking permissions in an organisation](Pramnos_Authorization_Guide.md#checking-permissions-in-an-organisation).
