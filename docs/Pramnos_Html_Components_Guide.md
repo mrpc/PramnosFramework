@@ -1,5 +1,6 @@
 ---
 use_cases:
+  - Showing figures on an administration dashboard as tiles
   - Rendering a dropdown filter outside any form
   - Rendering a search box, checkbox or textarea with no form around it
   - Placing the cross-entity search box somewhere other than the header
@@ -72,6 +73,8 @@ name, not the rule.
     'icon'               => 'icon',
     'action'             => 'btn',
     'omnibox'            => 'search-wrapper',
+    'stat_tile'          => 'kpi',          // modifiers follow: kpi--good, kpi__value
+    'stat_grid'          => 'kpis',
 ],
 ```
 
@@ -538,6 +541,43 @@ The accessible name is a real visually-hidden `<label>`, not an `aria-label`: an
 result is a translated interface whose search box announces itself in English.
 
 ---
+
+## StatTile
+
+A figure with a label, the tile every administration dashboard draws: MRR, "paying",
+"waiting in the queue".
+
+```php
+use Pramnos\Html\StatTile;
+
+echo StatTile::grid([
+    StatTile::render('MRR', '€1,240', 'ARR €14,880'),
+    StatTile::render('Waiting in the queue', '312', 'oldest 4 min', state: StatTile::WARNING),
+    StatTile::render('Failed today', '0', link: adminUrl('Queue') . '?show=failed'),
+    StatTile::progress('Paying customers', 18, 50, "the plan's 90-day target"),
+]);
+```
+
+| Method | |
+|---|---|
+| `render($label, $value, $note = '', $link = null, $state = null)` | one tile; with a link, the whole tile is the link |
+| `progress($label, $current, $target, $note = '', $link = null)` | `current / target` and a `<progress>` bar; `good` once the target is reached; no bar when the target is 0 |
+| `grid($tiles)` | tiles side by side, wrapping on a narrow screen |
+
+**The value is shown as given.** Format it first (currency, thousands, a percentage), because
+only the caller knows what the number is. Every string is escaped.
+
+**States** are `StatTile::GOOD`, `WARNING` and `CRITICAL`. A state is drawn as a coloured
+left border, so it reads without colour too, and is on the element as `data-state` for a
+script. Anything else is ignored rather than emitted as a class.
+
+**What a theme styles:** `pf-stat-grid`, and `pf-stat-tile` with `__label`, `__value`,
+`__note`, `__progress` and the `--good`, `--warning` and `--critical` modifiers. The value
+uses tabular digits, so a number that changes does not shift its neighbours. Each scaffold
+theme's `style.css` dresses them from its own colours, in light and dark. A project scaffolded
+before this has no such rules in its theme. Copy the `Stat tiles` block from the framework's
+`scaffolding/themes/<ui>/style.css` into it, or rename the hooks with `stat_tile` and
+`stat_grid` in `component_classes`.
 
 ## Breadcrumb
 

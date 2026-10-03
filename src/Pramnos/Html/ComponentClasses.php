@@ -63,6 +63,8 @@ class ComponentClasses
         'icon'               => 'pf-icon',
         'action'             => 'pf-action',
         'omnibox'            => 'pf-omnibox',
+        'stat_tile'          => 'pf-stat-tile',
+        'stat_grid'          => 'pf-stat-grid',
     ];
 
     /**
