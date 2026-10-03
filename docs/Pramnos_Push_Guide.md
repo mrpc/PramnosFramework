@@ -1,5 +1,6 @@
 ---
 use_cases:
+  - Finding out why somebody did not see a push notification
   - Sending a notification to a device whose browser is closed
   - Deciding between web push, SSE and WebSockets for an alert
   - Adding push to a project that already has a service worker
@@ -291,7 +292,36 @@ Log::recent(100, ['userid' => 42]);                 // one account
 Log::recent(100, ['failed' => true]);               // everything that did not arrive
 Log::stats(7);                                      // delivered / gone / refused / failed
 Log::prune(90);                                     // it only grows otherwise
+Log::recent(20, ['endpoint_hash' => $hash]);        // one browser's pushes
+Log::find($pushId);                                 // one attempt, or null
+Log::outcome($row);                                 // kind, label, and what it means
 ```
+
+### One push in full: `/admin/PushLog/view/{id}`
+
+Every row on the list links to its own page, which answers the question the list cannot:
+*why did this person not see it*. It shows:
+
+- **what the outcome means, and what to check next**, from `Log::outcome()`;
+- **the message:** when, which account, which notification class, the title, the text, the
+  address it opens, and the tag (a newer notification with the same tag replaces this one on
+  the device);
+- **the device it went to:** the browser, when it subscribed, when it last received a push,
+  and its failures since. The endpoint and keys are not shown, because whoever holds them can
+  push to that browser. `Subscriptions::describe()` returns only the safe fields;
+- **the latest pushes to that same device.** These are the evidence. A run of deliveries to a
+  browser the person says shows nothing points at the device; a run of failures points at the
+  subscription.
+
+**"Delivered" means the push service accepted it, not that the person saw it.** A `201` is
+the browser vendor's service saying it will deliver to that browser. Whether a notification
+appears is then the device's decision:
+- notifications turned off for the site or for the browser;
+- battery optimisation or Do Not Disturb holding it back;
+- or simply another device than the one the person is looking at.
+
+The detail page says so beside every delivery. The list and the detail page both word
+outcomes through `Log::outcome()`, so they never disagree.
 
 ### One row per attempt, and one for every refusal
 

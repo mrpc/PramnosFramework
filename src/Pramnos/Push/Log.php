@@ -105,7 +105,7 @@ class Log
     /**
      * The most recent attempts, newest first.
      *
-     * @param  array{userid?: int, status?: int, failed?: bool} $filter
+     * @param  array{userid?: int, status?: int, failed?: bool, endpoint_hash?: string} $filter
      * @return list<array<string, mixed>>
      */
     public static function recent(int $limit = 100, array $filter = []): array
@@ -123,6 +123,10 @@ class Log
 
             if (isset($filter['status'])) {
                 $query->where('status', (int) $filter['status']);
+            }
+
+            if (isset($filter['endpoint_hash']) && $filter['endpoint_hash'] !== '') {
+                $query->where('endpoint_hash', (string) $filter['endpoint_hash']);
             }
 
             if (!empty($filter['failed'])) {
@@ -148,6 +152,96 @@ class Log
         } catch (\Throwable) {
             return [];
         }
+    }
+
+    /**
+     * One attempt, by its id, or null when there is no such row.
+     *
+     * @return array<string, mixed>|null
+     */
+    public static function find(int $pushId): ?array
+    {
+        if ($pushId < 1) {
+            return null;
+        }
+
+        try {
+            $result = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
+                ->table('pramnos.pushlog')
+                ->where('pushid', $pushId)
+                ->first();
+        } catch (\Throwable) {
+            return null;
+        }
+
+        return $result && $result->numRows > 0 ? (array) $result->fields : null;
+    }
+
+    /**
+     * What an attempt's outcome means, for a person: a kind, a label, and what to check.
+     *
+     * The status is the push service's answer, and the commonest misreading of it is
+     * "Delivered" read as "the person saw it". A 2xx means the push service accepted the
+     * message for that browser; whether it was shown is up to the device. An installation
+     * that recorded a 201 for an alert nobody saw had delivered it, and the cause was on the
+     * phone — so the explanation says where to look next, not only what happened.
+     *
+     * One place for every screen, so the list and the detail page cannot disagree.
+     *
+     * @param  array<string, mixed> $row
+     * @return array{kind: string, label: string, explanation: string}
+     */
+    public static function outcome(array $row): array
+    {
+        $status = (int) ($row['status'] ?? 0);
+
+        if ($status >= 200 && $status < 300) {
+            return [
+                'kind'        => 'delivered',
+                'label'       => 'Delivered',
+                'explanation' => 'The push service accepted it for this browser. Whether it was shown is up to the '
+                    . 'device: if the person saw nothing, check that notifications are allowed for this site '
+                    . 'and for the browser, that battery optimisation or Do Not Disturb is not holding it back, '
+                    . 'and that this is the device they were looking at.',
+            ];
+        }
+
+        if ($status === 404 || $status === 410) {
+            return [
+                'kind'        => 'gone',
+                'label'       => 'Subscription gone',
+                'explanation' => 'The browser no longer accepts notifications from this site: it was unsubscribed, '
+                    . 'its data was cleared, or permission was revoked. The subscription was deleted; the person '
+                    . 'has to allow notifications again on that device.',
+            ];
+        }
+
+        if ((string) ($row['endpoint_hash'] ?? '') === '') {
+            return [
+                'kind'        => 'not_sent',
+                'label'       => 'Not sent',
+                'explanation' => 'Nothing was sent, for the reason below. Usually the account has no browser '
+                    . 'subscribed to notifications.',
+            ];
+        }
+
+        if ($status === 429 || ($status >= 500 && $status < 600)) {
+            return [
+                'kind'        => 'busy',
+                'label'       => 'Push service busy (' . $status . ')',
+                'explanation' => 'The push service could not take it at that moment. It is the service\'s '
+                    . 'problem, not the subscription\'s, and the next notification will be tried normally.',
+            ];
+        }
+
+        return [
+            'kind'        => 'failed',
+            'label'       => $status > 0 ? 'Failed (' . $status . ')' : 'Never reached a server',
+            'explanation' => $status > 0
+                ? 'The push service refused it. The error below is its answer.'
+                : 'The request did not reach the push service: a network problem, DNS, or a firewall '
+                    . 'between this server and the browser vendor\'s service.',
+        ];
     }
 
     /**

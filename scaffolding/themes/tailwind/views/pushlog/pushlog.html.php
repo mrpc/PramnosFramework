@@ -41,25 +41,17 @@ $when   = static function (array $row): string {
  * that never reached one.
  */
 $outcome = static function (array $row): array {
-    $status = (int) ($row['status'] ?? 0);
+    // The words come from Log::outcome(), so this list and the detail page cannot disagree.
+    $what = \Pramnos\Push\Log::outcome($row);
+    $css  = [
+        'delivered' => 'badge-success',
+        'gone' => 'badge-warning',
+        'not_sent' => 'badge-ghost',
+        'busy' => 'badge-warning',
+        'failed' => 'badge-error',
+    ];
 
-    if ($status >= 200 && $status < 300) {
-        return ['badge-success', 'Delivered'];
-    }
-
-    if ($status === 404 || $status === 410) {
-        return ['badge-warning', 'Subscription gone'];
-    }
-
-    if ((string) ($row['endpoint_hash'] ?? '') === '') {
-        return ['badge-ghost', 'Not sent'];
-    }
-
-    if ($status === 429 || ($status >= 500 && $status < 600)) {
-        return ['badge-warning', 'Push service busy (' . $status . ')'];
-    }
-
-    return ['badge-error', $status > 0 ? 'Failed (' . $status . ')' : 'Never reached a server'];
+    return [$css[$what['kind']] ?? '', $what['label']];
 };
 ?>
 <div class="px-4 py-6">
@@ -131,7 +123,7 @@ $outcome = static function (array $row): array {
                     <?php foreach ($rows as $row): ?>
                         <?php [$class, $label] = $outcome($row); ?>
                         <tr>
-                            <td class="whitespace-nowrap"><?php echo $e($when($row)); ?></td>
+                            <td class="whitespace-nowrap"><a href="<?php echo $e(adminUrl('PushLog/view/') . (int) ($row['pushid'] ?? 0)); ?>" title="Details"><?php echo $e($when($row)); ?></a></td>
                             <td>
                                 <?php if ((int) ($row['userid'] ?? 0) > 0): ?>
                                     <a class="link link-hover"

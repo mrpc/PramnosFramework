@@ -451,4 +451,32 @@ class SubscriptionsTest extends TestCase
             ],
         ];
     }
+
+    /**
+     * A subscription is described by the hash the push log records, without its credentials.
+     *
+     * The endpoint and the keys let whoever holds them push to that browser, so the description
+     * a screen gets must not carry them.
+     */
+    public function testASubscriptionIsDescribedWithoutItsCredentials(): void
+    {
+        // Arrange
+        Subscriptions::store(101, $this->subscription(), 'Chrome on Android');
+        $hash = hash('sha256', $this->endpoint);
+
+        // Act
+        $device = Subscriptions::describe(101, $hash);
+
+        // Assert
+        $this->assertSame('Chrome on Android', $device['user_agent']);
+        $this->assertSame(0, $device['failure_count']);
+        $this->assertGreaterThan(0, $device['created_at']);
+        $this->assertSame(['id', 'user_agent', 'created_at', 'last_success_at', 'failure_count'], array_keys($device));
+
+        // Another account's hash, an empty one, or a deleted subscription: nothing
+        $this->assertNull(Subscriptions::describe(102, $hash));
+        $this->assertNull(Subscriptions::describe(101, ''));
+        Subscriptions::forget($this->endpoint, 101);
+        $this->assertNull(Subscriptions::describe(101, $hash));
+    }
 }

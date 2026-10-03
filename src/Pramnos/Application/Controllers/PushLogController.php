@@ -43,7 +43,7 @@ class PushLogController extends Controller
 
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
-        $this->addAuthAction(['display']);
+        $this->addAuthAction(['display', 'view']);
         parent::__construct($application);
     }
 
@@ -80,6 +80,62 @@ class PushLogController extends Controller
         $view->only    = $only;
 
         return $view->display();
+    }
+
+    /**
+     * One attempt, in full: what was sent, what the push service answered and what that means,
+     * the device it went to, and the other attempts to that device.
+     *
+     * The list answers "what happened"; this answers "why did this person not see it". The
+     * device's history is the evidence: a run of deliveries to a browser the person says shows
+     * nothing points at the device, a run of failures at the subscription.
+     */
+    public function view(): mixed
+    {
+        if ($this->requireMinUserType($this->requiredUserType)) {
+            return null;
+        }
+
+        $pushId = (int) \Pramnos\Http\Request::staticGetOption();
+        $row    = $this->find($pushId);
+        if ($row === null) {
+            $this->addError('That notification is not in the push log.');
+            $this->redirect(adminUrl('PushLog'));
+            return null;
+        }
+
+        $doc        = \Pramnos\Framework\Factory::getDocument();
+        $doc->title = 'Push notification #' . $pushId;
+
+        $hash = (string) ($row['endpoint_hash'] ?? '');
+
+        $view               = $this->getView('pushlog');
+        $view->row          = $row;
+        $view->outcome      = Log::outcome($row);
+        $view->subscription = $this->subscription((int) ($row['userid'] ?? 0), $hash);
+        $view->history      = $hash === '' ? [] : $this->rows(20, ['endpoint_hash' => $hash]);
+
+        return $view->display('view');
+    }
+
+    /**
+     * One row, as a seam.
+     *
+     * @return array<string, mixed>|null
+     */
+    protected function find(int $pushId): ?array
+    {
+        return Log::find($pushId);
+    }
+
+    /**
+     * The subscription a row went to, as a seam.
+     *
+     * @return array<string, mixed>|null
+     */
+    protected function subscription(int $userId, string $hash): ?array
+    {
+        return \Pramnos\Push\Subscriptions::describe($userId, $hash);
     }
 
     /**

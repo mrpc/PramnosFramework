@@ -379,4 +379,43 @@ class PushLogTest extends BaseTestCase
         );
     }
 
+    /**
+     * One row is found by its id, with everything the detail page shows; an unknown id is null.
+     */
+    public function testARowIsFoundById(): void
+    {
+        // Arrange
+        Log::record($this->userId, str_repeat('b', 64), ['title' => 'Editorial report', 'body' => 'Ready', 'url' => '/r', 'tag' => 'report'], 201, 'App\\Report');
+        $id = (int) Log::recent(1, ['userid' => $this->userId])[0]['pushid'];
+
+        // Act
+        $row = Log::find($id);
+
+        // Assert
+        $this->assertSame('Editorial report', $row['title']);
+        $this->assertSame('report', $row['tag']);
+        $this->assertSame(str_repeat('b', 64), $row['endpoint_hash']);
+        $this->assertNull(Log::find(0));
+        $this->assertNull(Log::find(PHP_INT_MAX));
+    }
+
+    /**
+     * The device filter returns one browser's pushes and no other's.
+     *
+     * The detail page's "recent pushes to this device" — a filter that leaked would put another
+     * browser's history beside the one being diagnosed.
+     */
+    public function testTheDeviceFilterIsExact(): void
+    {
+        // Arrange — two browsers on one account
+        Log::record($this->userId, str_repeat('c', 64), ['title' => 'to c'], 201, 'X');
+        Log::record($this->userId, str_repeat('d', 64), ['title' => 'to d'], 201, 'X');
+        Log::record($this->userId, str_repeat('c', 64), ['title' => 'to c again'], 410, 'X');
+
+        // Act
+        $rows = Log::recent(10, ['endpoint_hash' => str_repeat('c', 64)]);
+
+        // Assert
+        $this->assertSame(['to c again', 'to c'], array_column($rows, 'title'));
+    }
 }

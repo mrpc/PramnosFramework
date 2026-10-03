@@ -172,6 +172,47 @@ class Subscriptions
      * unsubscribing knows its own endpoint, and the push service's rejection names it.
      */
     /**
+     * What a screen may show about one subscription: the browser, and how it has been doing.
+     *
+     * Found by the hash the push log records, and stripped of the endpoint and the keys:
+     * whoever holds those can push to that browser, so they never reach a view.
+     *
+     * @return array{id: int, user_agent: string, created_at: int, last_success_at: ?int, failure_count: int}|null
+     *         Null when the subscription no longer exists — deleted after a 410, or forgotten.
+     */
+    public static function describe(int $userId, string $endpointHash): ?array
+    {
+        if ($userId < 1 || $endpointHash === '') {
+            return null;
+        }
+
+        try {
+            $result = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
+                ->table('pramnos.pushsubscriptions')
+                ->select(['id', 'user_agent', 'created_at', 'last_success_at', 'failure_count'])
+                ->where('userid', $userId)
+                ->where('endpoint_hash', $endpointHash)
+                ->first();
+        } catch (\Throwable) {
+            return null;
+        }
+
+        if (!$result || $result->numRows < 1) {
+            return null;
+        }
+
+        $row = (array) $result->fields;
+
+        return [
+            'id'              => (int) $row['id'],
+            'user_agent'      => (string) $row['user_agent'],
+            'created_at'      => (int) $row['created_at'],
+            'last_success_at' => $row['last_success_at'] === null ? null : (int) $row['last_success_at'],
+            'failure_count'   => (int) $row['failure_count'],
+        ];
+    }
+
+    /**
      * Has this account any browser that could receive a notification?
      *
      * A cheap indexed existence check, for a caller deciding whether `push` belongs in a

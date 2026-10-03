@@ -866,3 +866,9 @@ p.error {
         vertical-align: bottom;
     }
 }
+
+/* Outcome badges: the push log and anything else that reports delivered / warning / failed. */
+.pf-ok, .pf-warn, .pf-bad { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: .85em; }
+.pf-ok   { background: #d1e7dd; color: #0f5132; }
+.pf-warn { background: #fff3cd; color: #664d03; }
+.pf-bad  { background: #f8d7da; color: #842029; }

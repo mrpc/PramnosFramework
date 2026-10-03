@@ -263,6 +263,37 @@ class PushLogScreenTest extends TestCase
                         'failed' => 0];
             }
 
+            /** @var array<string, mixed>|null What find() answers */
+            public ?array $found = ['pushid' => 7, 'userid' => 42, 'title' => 'Editorial report',
+                'status' => 201, 'error' => '', 'endpoint_hash' => 'abc', 'notification' => 'App\\Report',
+                'sent' => '2026-10-03 07:05:50'];
+
+            /** @var list<string> Where redirect() was asked to go */
+            public array $redirectedTo = [];
+
+            /** @return array<string, mixed>|null */
+            protected function find(int $pushId): ?array
+            {
+                return $this->found !== null && $pushId === 7 ? $this->found : null;
+            }
+
+            /** @return array<string, mixed>|null */
+            protected function subscription(int $userId, string $hash): ?array
+            {
+                return ['id' => 3, 'user_agent' => 'Chrome on Android', 'created_at' => 1, 'last_success_at' => 2, 'failure_count' => 0];
+            }
+
+            /** Recorded rather than sent. */
+            public function redirect($url = null, $quit = true, $code = '302')
+            {
+                $this->redirectedTo[] = (string) $url;
+            }
+
+            /** Recorded rather than flashed. */
+            protected function addError($error)
+            {
+            }
+
             public function &getView($name = '', $type = '', $args = [])
             {
                 $this->view = new class ($name) {
@@ -274,12 +305,24 @@ class PushLogScreenTest extends TestCase
 
                     public string $only = '';
 
+                    public mixed $row = null;
+
+                    public mixed $outcome = null;
+
+                    public mixed $subscription = null;
+
+                    public mixed $history = null;
+
+                    public string $layout = '';
+
                     public function __construct(public string $name)
                     {
                     }
 
                     public function display($layout = '')
                     {
+                        $this->layout = (string) $layout;
+
                         return 'rendered';
                     }
                 };
@@ -289,4 +332,186 @@ class PushLogScreenTest extends TestCase
         };
     }
 
+    /**
+     * The detail page is fed the row, what its outcome means, the device and its history.
+     *
+     * The device's history is asked for by the row's endpoint hash, so it is that browser's
+     * pushes and nobody else's.
+     */
+    public function testTheDetailPageIsFed(): void
+    {
+        // Arrange
+        $_GET = ['_option' => '7'];
+        \Pramnos\Http\Request::resetInstance();
+        $controller = $this->controller();
+
+        // Act
+        $controller->view();
+
+        // Assert
+        $this->assertSame('view', $controller->view->layout);
+        $this->assertSame(7, $controller->view->row['pushid']);
+        $this->assertSame('delivered', $controller->view->outcome['kind']);
+        $this->assertSame('Chrome on Android', $controller->view->subscription['user_agent']);
+        $this->assertSame(['endpoint_hash' => 'abc'], $controller->filter);
+        $this->assertSame(20, $controller->limit);
+    }
+
+    /**
+     * A push that was never sent has no device and no device history to ask for.
+     */
+    public function testANotSentPushHasNoHistory(): void
+    {
+        // Arrange
+        $_GET = ['_option' => '7'];
+        \Pramnos\Http\Request::resetInstance();
+        $controller = $this->controller();
+        $controller->found['endpoint_hash'] = '';
+        $controller->found['status'] = 0;
+
+        // Act
+        $controller->view();
+
+        // Assert
+        $this->assertSame([], $controller->view->history);
+        $this->assertSame('not_sent', $controller->view->outcome['kind']);
+        $this->assertSame([], $controller->filter, 'no query for a device that does not exist');
+    }
+
+    /**
+     * An id that is not in the log goes back to the list.
+     */
+    public function testAnUnknownPushGoesBackToTheList(): void
+    {
+        // Arrange
+        $_GET = ['_option' => '999'];
+        \Pramnos\Http\Request::resetInstance();
+        $controller = $this->controller();
+
+        // Act
+        $result = $controller->view();
+
+        // Assert
+        $this->assertNull($result);
+        $this->assertNull($controller->view);
+        $this->assertCount(1, $controller->redirectedTo);
+    }
+
+    /**
+     * Below the floor, the detail page renders nothing either.
+     */
+    public function testTheDetailPageIsBehindTheFloor(): void
+    {
+        // Arrange
+        $controller = $this->controller(refused: true);
+
+        // Act & Assert
+        $this->assertNull($controller->view());
+        $this->assertNull($controller->view);
+    }
+
+    /** @return array<string, array{array<string, mixed>, string}> */
+    public static function outcomes(): array
+    {
+        return [
+            'delivered'      => [['status' => 201, 'endpoint_hash' => 'a'], 'delivered'],
+            'gone'           => [['status' => 410, 'endpoint_hash' => 'a'], 'gone'],
+            'not sent'       => [['status' => 0, 'endpoint_hash' => ''], 'not_sent'],
+            'busy'           => [['status' => 503, 'endpoint_hash' => 'a'], 'busy'],
+            'rate limited'   => [['status' => 429, 'endpoint_hash' => 'a'], 'busy'],
+            'refused'        => [['status' => 400, 'endpoint_hash' => 'a'], 'failed'],
+            'never reached'  => [['status' => 0, 'endpoint_hash' => 'a'], 'failed'],
+        ];
+    }
+
+    /**
+     * Every status has one meaning, worded once, with what to check next.
+     *
+     * @param array<string, mixed> $row
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('outcomes')]
+    public function testEveryOutcomeIsExplained(array $row, string $kind): void
+    {
+        // Act
+        $outcome = \Pramnos\Push\Log::outcome($row);
+
+        // Assert
+        $this->assertSame($kind, $outcome['kind']);
+        $this->assertNotSame('', $outcome['label']);
+        $this->assertGreaterThan(40, strlen($outcome['explanation']), 'an explanation, not a word');
+    }
+
+    /** @return array<string, array{string}> */
+    public static function themes(): array
+    {
+        return ['bootstrap' => ['bootstrap'], 'tailwind' => ['tailwind'], 'plain-css' => ['plain-css']];
+    }
+
+    /**
+     * Every theme renders the detail page: the message, what the outcome means, the device,
+     * and the device's history, with names escaped.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('themes')]
+    public function testEveryThemeRendersTheDetailPage(string $theme): void
+    {
+        // Arrange
+        $row = ['pushid' => 7, 'userid' => 42, 'title' => '<b>Report</b>', 'body' => 'Ready',
+                'url' => 'https://example.test/r', 'tag' => 'report', 'status' => 201, 'error' => '',
+                'endpoint_hash' => 'abc', 'notification' => 'App\\Report', 'sent' => '2026-10-03 07:05:50'];
+        $view = new class {
+            public string $activeNav = '';
+
+            public mixed $row = null;
+
+            public mixed $outcome = null;
+
+            public mixed $subscription = null;
+
+            public mixed $history = null;
+
+            /** The breadcrumb partial is the theme chrome's; nothing to render here. */
+            public function insert(string $partial): void
+            {
+            }
+        };
+        $view->row          = $row;
+        $view->outcome      = \Pramnos\Push\Log::outcome($row);
+        $view->subscription = ['id' => 3, 'user_agent' => 'Chrome on Android', 'created_at' => 1700000000,
+                               'last_success_at' => 1700000100, 'failure_count' => 0];
+        $view->history      = [$row, ['pushid' => 6, 'title' => 'Earlier', 'status' => 410, 'endpoint_hash' => 'abc', 'sent' => '2026-10-02 07:00:00']];
+        $file = dirname(__DIR__, 3) . '/scaffolding/themes/' . $theme . '/views/pushlog/view.html.php';
+
+        // Act
+        ob_start();
+        try {
+            (\Closure::bind(function () use ($file): void {
+                include $file;
+            }, $view, null))();
+        } finally {
+            $html = (string) ob_get_clean();
+        }
+
+        // Assert
+        $this->assertStringContainsString('Push notification #7', $html);
+        $this->assertStringContainsString('Whether it was shown is up to the device', $html);
+        $this->assertStringContainsString('Chrome on Android', $html);
+        $this->assertStringContainsString('Subscription gone', $html, 'the history row');
+        $this->assertStringContainsString('PushLog/view/6', $html);
+        $this->assertStringContainsString('&lt;b&gt;Report&lt;/b&gt;', $html);
+        $this->assertStringNotContainsString('<b>Report</b>', $html);
+    }
+
+    /**
+     * Each list row links to its detail page.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('themes')]
+    public function testTheListLinksToTheDetailPage(string $theme): void
+    {
+        // Act
+        $source = (string) file_get_contents(dirname(__DIR__, 3) . '/scaffolding/themes/' . $theme . '/views/pushlog/pushlog.html.php');
+
+        // Assert
+        $this->assertStringContainsString("adminUrl('PushLog/view/')", $source);
+        $this->assertStringContainsString('Log::outcome($row)', $source, 'the list words outcomes the way the detail page does');
+    }
 }
