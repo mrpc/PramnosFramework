@@ -44,6 +44,17 @@ class MailingList
     /** The {@see MailAction} action a confirmation token is signed for. */
     public const CONFIRM_ACTION = 'mailinglist-confirm';
 
+    /**
+     * Fired with the list and the address when a subscription is confirmed, wherever it is
+     * confirmed from. The double opt-in is the moment a newsletter counts; an application
+     * listens to it rather than to the page that happened to do it.
+     *
+     * ```php
+     * Event::listen(MailingList::EVENT_CONFIRMED, function (string $list, string $email): void { … });
+     * ```
+     */
+    public const EVENT_CONFIRMED = 'mailinglist.confirmed';
+
     /** How long a confirmation link works. */
     public const CONFIRM_TTL = 7 * 86400;
 
@@ -143,6 +154,8 @@ class MailingList
             ->where('subscriberid', (int) $row['subscriberid'])
             ->update(['status' => self::CONFIRMED, 'confirmed_at' => time()]);
         $this->clearOptOut($email, $list);
+
+        \Pramnos\Event\Event::fire(self::EVENT_CONFIRMED, $list, $email);
 
         return ['list' => $list, 'email' => $email];
     }

@@ -1,5 +1,6 @@
 ---
 use_cases:
+  - Counting confirmed newsletter subscriptions in analytics
   - Sending an email from application code
   - Configuring SMTP or another transport
   - Tracking or debugging delivery
@@ -1086,7 +1087,8 @@ A framework controller, so it answers in every application with no wrapper:
 - **Every valid request gets the same answer** — new, pending, already subscribed, or a failure
   that was logged — so the form cannot reveal who is on a list.
 - Ten requests an hour per address; past that, `429`.
-- A request with `Accept: application/json` gets `{"ok": …, "message": …}`; a browser gets a page.
+- A request with `Accept: application/json` gets `{"ok": …, "message": …, "state": "pending",
+  "list": …}`; a browser gets a page.
 
 A single-page application needs `mailinglist` among the paths its web server sends to PHP; `init`
 includes it for new projects.
@@ -1098,6 +1100,42 @@ Two steps, because mail scanners open every link in a message, and confirming on
 would subscribe everybody whose provider checks links. The token is the credential, so the button
 needs no session. An expired or foreign token, and a row no longer pending, each get a page that
 says so.
+
+### Where these pages render, and counting a confirmation
+
+The subscribe, confirm and unsubscribe pages render **in the theme's standalone layout**,
+`<theme>/login.php`, when the theme has one (every theme `pramnos init` writes does). That
+layout carries the application's `<head>` (its stylesheets, its scripts, Tag Manager, the
+cookie banner) and its footer with a way back to the site, without the site header. A theme
+without that file gets the self-contained page instead, because its full chrome may need a
+signed-in user to render, and somebody arriving from a mail link usually is not one.
+
+**Each page says what happened, for a script to read.** The content sits in an element with
+`id="pramnos-standalone"` and `data-` attributes:
+
+| `data-state` | Page |
+|---|---|
+| `pending` | after the form: a confirmation mail was sent |
+| `awaiting-confirmation` | the link opened, the button not pressed yet |
+| `confirmed` | the button confirmed the subscription |
+| `nothing-to-confirm` | the address was already confirmed, or left |
+
+`data-list` names the list. A Tag Manager trigger on
+`#pramnos-standalone[data-state="confirmed"]` counts the double opt-in, which is the one
+moment a newsletter's numbers are about.
+
+**On the server**, the confirmation fires `mailinglist.confirmed`, wherever it comes from:
+
+```php
+use Pramnos\Email\MailingList;
+use Pramnos\Event\Event;
+
+Event::listen(MailingList::EVENT_CONFIRMED, function (string $list, string $email): void {
+    // count it, welcome them, tell the CRM
+});
+```
+
+It fires once per address. A second press of the button confirms nothing and fires nothing.
 
 ### On the account screen and the preferences page
 

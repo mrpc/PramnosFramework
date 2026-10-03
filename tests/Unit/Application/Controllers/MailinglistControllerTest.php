@@ -299,4 +299,101 @@ class MailinglistControllerTest extends TestCase
         // Assert
         $this->assertStringContainsString('Not found', $out);
     }
+
+    /**
+     * The confirmation page says what happened in `data-` attributes a script can read.
+     *
+     * The confirmed double opt-in is what a newsletter's analytics counts, and the page is the
+     * only place a tag manager sees it.
+     */
+    public function testTheConfirmationPageCarriesItsState(): void
+    {
+        // Arrange
+        $token = MailAction::token(Lists::CONFIRM_ACTION, ['l' => 'newsletter', 'e' => 'reader@example.com']);
+        $_POST['t'] = $_REQUEST['t'] = $token;
+        $_SERVER['REQUEST_METHOD'] = 'POST';
+        $confirmed = $this->endpoint(confirms: ['list' => 'newsletter', 'email' => 'reader@example.com']);
+        $nothing   = $this->endpoint(confirms: null);
+
+        // Act
+        $yes = $this->call($confirmed, 'confirm');
+        $no  = $this->call($nothing, 'confirm');
+
+        // Assert
+        $this->assertStringContainsString('data-state="confirmed" data-list="newsletter"', $yes);
+        $this->assertStringContainsString('data-state="nothing-to-confirm"', $no);
+    }
+
+    /**
+     * A script posting the form is told the state too, the same whatever the address was.
+     */
+    public function testAScriptIsToldThePendingState(): void
+    {
+        // Arrange
+        $_SERVER['REQUEST_METHOD'] = 'POST';
+        $_SERVER['HTTP_ACCEPT']    = 'application/json';
+        $_POST = ['email' => 'reader@example.com', 'list' => 'newsletter', '_csrf_token' => 'x'];
+        $endpoint = $this->endpoint();
+
+        // Act
+        $json = json_decode($this->call($endpoint, 'subscribe'), true);
+
+        // Assert
+        $this->assertSame('pending', $json['state']);
+        $this->assertSame('newsletter', $json['list']);
+    }
+
+    /**
+     * With a theme that has the standalone layout, the page is the theme's, not a bare one.
+     *
+     * The layout carries the application's head — scripts, Tag Manager, the cookie banner —
+     * and its footer with a way back to the site.
+     */
+    public function testAThemeWithAStandaloneLayoutGetsThePage(): void
+    {
+        // Arrange — a theme directory with login.php, on the html document
+        $dir = sys_get_temp_dir() . '/theme_' . bin2hex(random_bytes(4));
+        mkdir($dir);
+        touch($dir . '/login.php');
+        $theme = new class ($dir) {
+            public string $contentType = '';
+
+            public function __construct(public string $fullpath)
+            {
+            }
+
+            public function setContentType(string $type): void
+            {
+                $this->contentType = $type;
+            }
+        };
+        $doc = \Pramnos\Framework\Factory::getDocument('html');
+        $previousTheme = $doc->themeObject ?? null;
+        $doc->themeObject = $theme;
+        $token = MailAction::token(Lists::CONFIRM_ACTION, ['l' => 'newsletter', 'e' => 'reader@example.com']);
+        $_POST['t'] = $_REQUEST['t'] = $token;
+        $_SERVER['REQUEST_METHOD'] = 'POST';
+        $endpoint = $this->endpoint(confirms: ['list' => 'newsletter', 'email' => 'reader@example.com']);
+
+        // Act
+        try {
+            $out     = $this->call($endpoint, 'confirm');
+            $content = (string) ($doc->content ?? '');
+            if ($content === '' && method_exists($doc, 'getContent')) {
+                $content = (string) $doc->getContent();
+            }
+        } finally {
+            $doc->themeObject = $previousTheme;
+            $doc->setContent('');
+            \Pramnos\Framework\Factory::getDocument('raw');
+            @unlink($dir . '/login.php');
+            @rmdir($dir);
+        }
+
+        // Assert — nothing echoed bare; the theme's login layout, carrying the page and its state
+        $this->assertSame('', $out);
+        $this->assertSame('login', $theme->contentType);
+        $this->assertStringContainsString('You are subscribed', $content);
+        $this->assertStringContainsString('data-state="confirmed"', $content);
+    }
 }

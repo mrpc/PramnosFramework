@@ -107,6 +107,7 @@ class Mailinglist extends \Pramnos\Application\Controller
         $label = htmlspecialchars($type !== null ? $type->label : 'this list', ENT_QUOTES);
 
         if (strtoupper((string) ($_SERVER['REQUEST_METHOD'] ?? 'GET')) !== 'POST') {
+            $this->standalonePageData = ['state' => 'awaiting-confirmation', 'list' => (string) ($verified['claim']['l'] ?? '')];
             $this->page(
                 'Confirm your subscription',
                 'Press the button to start receiving <strong>' . $label . '</strong>.',
@@ -118,6 +119,12 @@ class Mailinglist extends \Pramnos\Application\Controller
         }
 
         $confirmed = $this->lists()->confirm($token);
+
+        // What a script on the page can count: the confirmed double opt-in, and of which list.
+        $this->standalonePageData = [
+            'state' => $confirmed !== null ? 'confirmed' : 'nothing-to-confirm',
+            'list'  => (string) ($verified['claim']['l'] ?? ''),
+        ];
 
         $this->page(
             $confirmed !== null ? 'You are subscribed' : 'Nothing to confirm',
@@ -163,6 +170,8 @@ class Mailinglist extends \Pramnos\Application\Controller
             \Pramnos\Logs\Logger::logError('Mailing list subscription failed: ' . $e->getMessage(), $e);
         }
 
+        // Pending, whatever the address was: the answer must not tell who is already on the list.
+        $this->standalonePageData = ['state' => 'pending', 'list' => $list];
         $this->answer(200, 'Check your inbox: we have sent a link to confirm the subscription. If it '
             . 'does not arrive, the address may already be subscribed.');
     }
@@ -181,7 +190,7 @@ class Mailinglist extends \Pramnos\Application\Controller
                 http_response_code($status);
                 header('Content-Type: application/json; charset=utf-8');
             }
-            echo json_encode(['ok' => $status < 400, 'message' => $message]);
+            echo json_encode(['ok' => $status < 400, 'message' => $message] + $this->standalonePageData);
 
             return;
         }

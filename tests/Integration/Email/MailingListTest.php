@@ -176,6 +176,34 @@ class MailingListTest extends BaseTestCase
     }
 
     /**
+     * A confirmation fires `mailinglist.confirmed` with the list and the address — once.
+     *
+     * The double opt-in is the moment a newsletter counts, and an application hooks it here
+     * rather than on whichever page happened to confirm.
+     */
+    public function testAConfirmationFiresItsEventOnce(): void
+    {
+        // Arrange
+        $lists = $this->lists();
+        $lists->subscribe('newsletter', $this->address);
+        $heard = [];
+        \Pramnos\Event\Event::listen(\Pramnos\Email\MailingList::EVENT_CONFIRMED, function (string $list, string $email) use (&$heard): void {
+            $heard[] = [$list, $email];
+        });
+
+        // Act
+        try {
+            $lists->confirm($this->tokenFor('newsletter'));
+            $lists->confirm($this->tokenFor('newsletter'));
+        } finally {
+            \Pramnos\Event\Event::forget(\Pramnos\Email\MailingList::EVENT_CONFIRMED);
+        }
+
+        // Assert — the second confirmed nothing, so it fired nothing
+        $this->assertSame([['newsletter', $this->address]], $heard);
+    }
+
+    /**
      * A token for something else, a forged one, or one for a row that left, confirms nothing.
      */
     public function testATokenThatIsNotAConfirmationConfirmsNothing(): void
