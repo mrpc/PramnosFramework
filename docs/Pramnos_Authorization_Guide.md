@@ -201,6 +201,9 @@ $permissions->allow(42, 'articles', 'edit');
 // Deny explicitly — not the same as never granting
 $permissions->deny(42, 'articles', 'delete');
 
+// Several privileges at once: each gets the same element, resource type and subject type
+$permissions->allow('7', 'articles', ['read', 'edit'], '', 'module', 'group');
+
 // Ask
 if ($permissions->isAllowed(42, 'articles', 'edit')) {
     // ...

@@ -203,6 +203,56 @@ abstract class PermissionsCharacterizationBase extends TestCase
     // ── Tests — user type permissions ─────────────────────────────────────────
 
     /**
+     * A list of privileges goes to the subject, the type and the element it was given.
+     *
+     * The list form used to drop `$resourceElement` when it called itself, so every
+     * argument after it moved one place left: the type landed in the element, the subject
+     * type in the resource type, and the subject type fell back to `user`. A grant to the
+     * group `7` became a grant to the user whose id is 7 — somebody else entirely.
+     */
+    public function testAListOfPrivilegesIsGrantedToTheGroupItNames(): void
+    {
+        // Arrange
+        $perm = $this->makePerm();
+
+        // Act
+        $perm->allow('7', $this->resource, ['read', 'update'], '', 'module', 'group');
+
+        // Assert — both privileges on the group
+        foreach (['read', 'update'] as $privilege) {
+            $this->assertTrue(
+                $this->makePerm()->isAllowed('7', $this->resource, $privilege, '', 'module', 'group'),
+                $privilege . ' did not reach the group'
+            );
+        }
+        // And nothing on the user who happens to share its id
+        $this->assertNull(
+            $this->makePerm()->isAllowed(7, $this->resource, 'read', '', 'module', 'user', false),
+            'the group\'s grant went to user 7'
+        );
+    }
+
+    /**
+     * The list form of deny() has the same shape, and the same element.
+     */
+    public function testAListOfPrivilegesIsDeniedOnTheElementItNames(): void
+    {
+        // Arrange
+        $perm = $this->makePerm();
+
+        // Act
+        $perm->deny('editors', $this->resource, ['delete', 'publish'], 'item42', 'module', 'group');
+
+        // Assert — denied on that element, as stored values rather than absences
+        foreach (['delete', 'publish'] as $privilege) {
+            $this->assertFalse(
+                $this->makePerm()->isAllowed('editors', $this->resource, $privilege, 'item42', 'module', 'group', false),
+                $privilege . ' was not denied on the element'
+            );
+        }
+    }
+
+    /**
      * Verifies user-type permissions using nonExistEqualsFalse=false to avoid
      * the group-membership lookup (which requires the users table).
      *

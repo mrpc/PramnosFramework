@@ -236,8 +236,8 @@ class Permissions extends \Pramnos\Framework\Base
         if (is_array($privilege)) { //Quick allow mass privileges
             foreach ($privilege as $priv) {
                 $this->allow(
-                    $subject, $resource, $priv, $resourceType,
-                    $subjectType
+                    $subject, $resource, $priv, $resourceElement,
+                    $resourceType, $subjectType
                 );
             }
             return $this;
@@ -267,8 +267,8 @@ class Permissions extends \Pramnos\Framework\Base
         if (is_array($privilege)) { //Quick allow mass privileges
             foreach ($privilege as $priv) {
                 $this->deny(
-                    $subject, $resource, $priv, $resourceType,
-                    $subjectType
+                    $subject, $resource, $priv, $resourceElement,
+                    $resourceType, $subjectType
                 );
             }
             return $this;
