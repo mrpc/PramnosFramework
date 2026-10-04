@@ -262,6 +262,40 @@ class GroupRolesTest extends TestCase
     }
 
     /**
+     * Deleting a role deletes its grants, and only its grants.
+     *
+     * The rows named a role nobody can hold any more, so they granted nothing, but they
+     * accumulated without limit: one project's test database held 326,492 for 26,330 deleted
+     * roles. A user's grant with the same number as the role is somebody else's and stays.
+     */
+    #[DataProvider('databases')]
+    public function testDeletingARoleDeletesItsGrants(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->boot($type, $host, $port, $user);
+        $roleId = $this->role('Doomed', 'edit');
+        $this->db->queryBuilder()->table('authserver.permissions')->insert([
+            'subject_type' => 'user', 'subject_id' => $roleId, 'object_type' => 'articles',
+            'action' => 'view', 'grant_type' => 'allow', 'is_active' => true,
+        ]);
+        $controller = $this->getMockBuilder(\Pramnos\Application\Controller::class)
+            ->disableOriginalConstructor()->getMock();
+        $app = $this->getMockBuilder(\Pramnos\Application\Application::class)
+            ->disableOriginalConstructor()->getMock();
+        $app->database = $this->db;
+        $controller->application = $app;
+
+        // Act
+        (new Role($controller))->delete($roleId);
+
+        // Assert
+        $grants = fn (string $subjectType): int => $this->db->queryBuilder()->table('authserver.permissions')
+            ->where('subject_type', $subjectType)->where('subject_id', $roleId)->count();
+        $this->assertSame(0, $grants('role'), "the deleted role's grants stayed behind");
+        $this->assertSame(1, $grants('user'), 'a user who shares the number lost a grant');
+    }
+
+    /**
      * Deleting a role removes its group assignments too, and the applications to tell are
      * found before the rows go — members of a group holding it among them.
      */

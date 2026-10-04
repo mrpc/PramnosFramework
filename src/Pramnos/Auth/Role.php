@@ -154,6 +154,18 @@ class Role extends Model
                 ->delete();
         }
 
+        // And what the role was allowed to do. A grant naming a deleted role matches nobody
+        // today, but it is still read by every lookup of its subject id, and one project's
+        // test database held 326,492 of them for 26,330 deleted roles.
+        if ($database->schema()->hasTable('authserver.permissions')) {
+            $database->queryBuilder()
+                ->table('authserver.permissions')
+                ->where('subject_type', 'role')
+                ->where('subject_id', $roleid)
+                ->delete();
+            $database->cacheflush('permissions');
+        }
+
         return (bool) parent::_delete($roleid);
     }
 

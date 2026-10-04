@@ -473,7 +473,9 @@ same `permissions_changed` event a direct role assignment sends:
 
 The assignments are in `authserver.group_roles` (`groupid`, `roleid`, `granted_by`,
 `granted_at`, `expires_at`, `is_active`), created by the same feature. Deleting a role
-removes them. A role given to a group is found by `WebhookService` among the role's holders.
+removes them, along with its user assignments and its own grants in
+`authserver.permissions` (`subject_type = 'role'`). There is no need to delete the grants
+first. A role given to a group is found by `WebhookService` among the role's holders.
 
 A permission check about a group is answered about the group:
 `$permissions->isAllowed($groupId, 'articles', 'edit', '', 'module', 'group')` is true when a
