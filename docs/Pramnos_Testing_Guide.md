@@ -7,6 +7,7 @@ use_cases:
   - Changing the debug toolbar's JavaScript, or any asset the framework ships
   - Running the linter or the JavaScript tests
   - Asserting that an action broadcast a realtime event
+  - Creating users in a test without leaving them in the test database
 ---
 
 # Pramnos Testing Guide
@@ -523,23 +524,34 @@ use Pramnos\Framework\Testing\BaseTestCase;
 
 class UserControllerTest extends BaseTestCase
 {
-    protected function setUp(): void
+    public function testAnAdministratorSeesTheUsers(): void
     {
-        parent::setUp();
-        
-        // Setup before each test
-        $this->user = factory(\App\Models\User::class)->create();
-    }
-    
-    protected function tearDown(): void
-    {
-        // Cleanup after each test
-        \App\Models\User::truncate();
-        
-        parent::tearDown();
+        // Arrange — erased, with everything that belongs to it, when the test ends
+        $adminId = $this->createTestUser(['usertype' => 99, 'password' => 'correct horse']);
+
+        // A user the code under test creates is handed over the same way
+        $memberId = $this->trackTestUser($this->signUp('someone@example.test'));
+        // ...
     }
 }
 ```
+
+**A user a test creates is erased when the test ends.** `createTestUser()` inserts a user with
+a unique username and email. Any column of `users` can be set, and `password` is hashed the
+way the framework hashes it. `trackTestUser()` hands over a user that the code under test
+created. `BaseTestCase::tearDown()` erases them all through `Pramnos\Auth\AccountErasure`,
+the same erase an account deletion performs. That covers the framework's tables (tokens,
+roles, memberships, notifications, push subscriptions…) and the application's own rows,
+through its `account.data_erase` listeners. An application therefore describes once what
+belongs to a person, and its tests clean up by that description.
+
+A `tearDown()` of your own must call `parent::tearDown()`. A failed erase is raised as a
+test error. A user that cannot be removed is carried by every later run, and that is how a
+suite slows down without anything failing.
+
+Never empty a shared table in `tearDown()` (`truncate()`, `DELETE` without a `WHERE`). It
+removes other tests' fixtures, and on a misconfigured run it removes the development
+database's rows.
 
 ### Database Transactions
 

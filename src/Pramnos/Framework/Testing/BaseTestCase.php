@@ -56,6 +56,13 @@ abstract class BaseTestCase extends TestCase
     protected static $dbConfig;
 
     /**
+     * Users this test created or handed over, erased in {@see tearDown()}.
+     *
+     * @var array<int, \Pramnos\Database\Database> user id => the connection it lives on
+     */
+    private array $testUsers = [];
+
+    /**
      * Initialize test environment before each test.
      * 
      * Resets framework singletons, initializes the application, 
@@ -91,6 +98,95 @@ abstract class BaseTestCase extends TestCase
 
         // Initialize session
         $this->initializeSession();
+    }
+
+    /**
+     * Erase the users this test created, with everything that belongs to them.
+     *
+     * Through {@see \Pramnos\Auth\AccountErasure}, the same erase an account deletion
+     * performs: the framework's tables, and the application's own through its
+     * `account.data_erase` listeners. So a test leaves nothing of its users behind, and the
+     * application describes what belongs to a person once, for both.
+     *
+     * A failed erase is raised, as a test error: a user that cannot be removed is a row
+     * that every later run will carry, which is how one project's suite came to hold 5,079
+     * administrators and take 22 minutes.
+     */
+    protected function tearDown(): void
+    {
+        $users           = $this->testUsers;
+        $this->testUsers = [];
+
+        foreach ($users as $userId => $database) {
+            (new \Pramnos\Auth\AccountErasure($database))->erase($userId);
+        }
+
+        parent::tearDown();
+    }
+
+    /**
+     * Create a user for this test, erased when the test ends.
+     *
+     * ```php
+     * $userId = $this->createTestUser();                              // a member
+     * $adminId = $this->createTestUser(['usertype' => 99]);           // an administrator
+     * $userId = $this->createTestUser(['password' => 'correct horse']); // can sign in
+     * ```
+     *
+     * Any column of `users` can be set. A unique username and email are generated when not
+     * given. `password` is the plain password: it is hashed the way the framework hashes it,
+     * at the cheap cost the test bootstrap sets.
+     *
+     * @param  array<string, mixed> $attributes Columns of `users`, and `password` in plain text
+     * @return int The new user's id
+     */
+    protected function createTestUser(array $attributes = []): int
+    {
+        $database = \Pramnos\Framework\Factory::getDatabase();
+        $name     = 'test_' . bin2hex(random_bytes(6));
+        $password = $attributes['password'] ?? null;
+        unset($attributes['password']);
+
+        $database->queryBuilder()->table('#PREFIX#users')->insert($attributes + [
+            'username'  => $name,
+            'email'     => $name . '@example.test',
+            'password'  => '',
+            'active'    => 1,
+            'validated' => 1,
+            'regdate'   => time(),
+            'modified'  => time(),
+        ]);
+
+        $row = $database->queryBuilder()->table('#PREFIX#users')
+            ->select('userid')->where('username', $attributes['username'] ?? $name)->first();
+        $userId = (int) $row->fields['userid'];
+        $this->trackTestUser($userId, $database);
+
+        if ($password !== null) {
+            // After the insert: the hash is peppered with the user's id.
+            $database->queryBuilder()->table('#PREFIX#users')->where('userid', $userId)
+                ->update(['password' => \Pramnos\Auth\PasswordHash::make((string) $password, $userId)]);
+        }
+
+        return $userId;
+    }
+
+    /**
+     * Have a user this test did not create with {@see createTestUser()} erased when it ends.
+     *
+     * For a user the code under test created — a sign-up, an invitation accepted.
+     *
+     * @param  int                              $userId
+     * @param  \Pramnos\Database\Database|null $database The connection it lives on; the current one by default
+     * @return int The same id, so a call can be wrapped around the code that returns it
+     */
+    protected function trackTestUser(int $userId, ?\Pramnos\Database\Database $database = null): int
+    {
+        if ($userId > 0) {
+            $this->testUsers[$userId] = $database ?? \Pramnos\Framework\Factory::getDatabase();
+        }
+
+        return $userId;
     }
 
     /**
