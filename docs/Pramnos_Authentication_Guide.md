@@ -1371,9 +1371,29 @@ Two things the framework deliberately does not decide:
   those explicitly; they are usually the largest thing left behind and the easiest to
   forget.
 
-Until this event existed, the erase was a hard-coded list of six framework tables plus
-`users`, so an application's organisation, content and connected accounts survived the
-deletion and were left pointing at a user id that no longer existed.
+#### What the framework deletes
+
+The erase is `Pramnos\Auth\AccountErasure`, which `Account::eraseUserData()` calls and which
+any code that removes an account can call too:
+
+```php
+(new \Pramnos\Auth\AccountErasure($database))->erase($userId);
+```
+
+After the listeners, it deletes the account's rows from each of these tables, explicitly,
+because none of them has a cascading foreign key to `users` on every installation:
+
+| What | Tables |
+|---|---|
+| Sign-in | `usertokens`, `authserver.user_twofactor`, `authserver.twofactor_setup`, `authserver.passkey_credentials`, `authserver.trusted_devices` |
+| Consent and privacy | `authserver.oauth2_user_consents`, `authserver.user_privacy_settings`, `authserver.user_activity_log` |
+| What the person held | role assignments (`Role::assignmentTable()`), organisation memberships (`Role::membershipTable()`), `userstogroups` |
+| Notifications | `notifications` addressed to a user class, `pramnos.pushsubscriptions`, `pramnos.pushlog`, `pramnos.pushtests` |
+| Elsewhere | invitations it sent or came from, its mailing-list rows, and finally `users` |
+
+A table the installation does not have is skipped and logged. A notification addressed to
+something else with the same id, such as an organisation, is left alone. The change log is
+not touched: its `userid` is the author of a change to some *other* record.
 
 ## The password-reset token
 
