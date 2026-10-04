@@ -63,6 +63,31 @@ abstract class BaseTestCase extends TestCase
     private array $testUsers = [];
 
     /**
+     * Tables watched for rows a test class leaves behind: table => its auto-increment key.
+     *
+     * An application adds its own in its base test case, keeping these:
+     *
+     * ```php
+     * protected static array $watchedTables = [
+     *     '#PREFIX#users' => 'userid',
+     *     'organizations' => 'organization_id',
+     * ];
+     * ```
+     *
+     * Only tables keyed by an increasing number can be watched: what is above the highest
+     * key when a class starts is what that class added.
+     *
+     * @var array<string, string>
+     */
+    protected static array $watchedTables = ['#PREFIX#users' => 'userid'];
+
+    /** @var array<class-string, array{0: \Pramnos\Database\Database, 1: array<string, int>}> Highest key per table when each class started */
+    private static array $watermarks = [];
+
+    /** @var array<class-string, array<string, int>> Rows each class left behind, removed at its end */
+    private static array $leftBehind = [];
+
+    /**
      * Initialize test environment before each test.
      * 
      * Resets framework singletons, initializes the application, 
@@ -98,6 +123,142 @@ abstract class BaseTestCase extends TestCase
 
         // Initialize session
         $this->initializeSession();
+
+        $this->watchForRowsLeftBehind();
+    }
+
+    /**
+     * Note the highest key in each watched table, once per test class.
+     *
+     * Called by {@see setUp()}. A test class with a `setUp()` of its own that does not call
+     * the parent's calls this once its connection is open.
+     *
+     * Only on a connection that is already open: a class that never touches the database
+     * must not be made to open one for this.
+     */
+    protected function watchForRowsLeftBehind(): void
+    {
+        if (isset(self::$watermarks[static::class]) || static::$watchedTables === []) {
+            return;
+        }
+
+        try {
+            $database = \Pramnos\Framework\Factory::getDatabase();
+            if (!$database->connected) {
+                return;
+            }
+
+            $marks = [];
+            foreach (static::$watchedTables as $table => $key) {
+                if ($database->schema()->hasTable($table)) {
+                    $marks[$table] = (int) $database->queryBuilder()->table($table)->max($key);
+                }
+            }
+            self::$watermarks[static::class] = [$database, $marks];
+        } catch (\Throwable) {
+            // No database for this class: nothing to watch.
+        }
+    }
+
+    /**
+     * Remove what this test class left behind in the watched tables, and say so.
+     *
+     * Rows above the class's watermark that are still there when it ends were made by its
+     * tests, or by the code they ran, and removed by nothing. A user goes through
+     * {@see \Pramnos\Auth\AccountErasure}, with everything that belongs to it; another row is
+     * deleted. Each class's count goes into the report printed when the suite ends, so the
+     * test that leaks is named rather than discovered months later as a slow suite.
+     */
+    public static function tearDownAfterClass(): void
+    {
+        if (isset(self::$watermarks[static::class])) {
+            [$database, $marks] = self::$watermarks[static::class];
+            unset(self::$watermarks[static::class]);
+
+            foreach ($marks as $table => $mark) {
+                try {
+                    $removed = self::removeAbove($database, $table, static::$watchedTables[$table], $mark);
+                } catch (\Throwable) {
+                    continue; // The connection or the table went with the class.
+                }
+                if ($removed > 0) {
+                    self::$leftBehind[static::class][$table] = $removed;
+                }
+            }
+
+            if (self::$leftBehind !== []) {
+                self::reportAtShutdown();
+            }
+        }
+
+        parent::tearDownAfterClass();
+    }
+
+    /**
+     * Remove the rows above a key, and count them.
+     */
+    private static function removeAbove(\Pramnos\Database\Database $database, string $table, string $key, int $mark): int
+    {
+        $ids = $database->queryBuilder()->table($table)->where($key, '>', $mark)->pluck($key);
+        if ($ids === []) {
+            return 0;
+        }
+
+        if ($table === '#PREFIX#users') {
+            foreach ($ids as $userId) {
+                try {
+                    (new \Pramnos\Auth\AccountErasure($database))->erase((int) $userId);
+                } catch (\Throwable) {
+                    // A listener refused, or a row of theirs is still referenced: the user row goes anyway.
+                    $database->queryBuilder()->table($table)->where($key, $userId)->delete();
+                }
+            }
+
+            return count($ids);
+        }
+
+        $database->queryBuilder()->table($table)->where($key, '>', $mark)->delete();
+
+        return count($ids);
+    }
+
+    /**
+     * Print, once, when the suite ends, which classes left rows behind.
+     */
+    private static function reportAtShutdown(): void
+    {
+        static $registered = false;
+        if ($registered) {
+            return;
+        }
+        $registered = true;
+
+        register_shutdown_function(static function (): void {
+            if (self::$leftBehind === []) {
+                return;
+            }
+            $lines = [];
+            foreach (self::$leftBehind as $class => $tables) {
+                $counts = [];
+                foreach ($tables as $table => $rows) {
+                    $counts[] = str_replace('#PREFIX#', '', $table) . ' ' . $rows;
+                }
+                $lines[] = '  ' . $class . ': ' . implode(', ', $counts);
+            }
+            fwrite(STDERR, "\nRows left behind by test classes, removed when each class ended:\n"
+                . implode("\n", $lines)
+                . "\nCreate users with createTestUser() or hand them over with trackTestUser().\n");
+        });
+    }
+
+    /**
+     * What the test classes so far left behind: class => table => rows.
+     *
+     * @return array<class-string, array<string, int>>
+     */
+    public static function rowsLeftBehind(): array
+    {
+        return self::$leftBehind;
     }
 
     /**

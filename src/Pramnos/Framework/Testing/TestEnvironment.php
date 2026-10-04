@@ -254,6 +254,11 @@ class TestEnvironment
             $host = in_array($type, ['postgresql', 'pgsql', 'timescaledb'], true) ? 'postgres' : 'mysql';
         }
 
+        $limits = (array) ($settings['test_database']['rebuild_above'] ?? []);
+        if ($limits !== []) {
+            self::rebuildIfOvergrown($type, $host, $port, $dbName, $user, $pass, $limits);
+        }
+
         try {
             if (in_array($type, ['postgresql', 'pgsql', 'timescaledb'], true)) {
                 self::setupPostgres($host, $port, $dbName, $user, $pass, $schemaPath);
@@ -338,6 +343,79 @@ class TestEnvironment
                 escapeshellarg($schemaPath)
             );
             self::runImport($command, 'psql');
+        }
+    }
+
+    /**
+     * Drop the test database when a table in it has outgrown its limit.
+     *
+     * ```php
+     * // app/config/testsettings.php
+     * 'test_database' => ['rebuild_above' => ['users' => 5000, 'notifications' => 100000]],
+     * ```
+     *
+     * The test database is kept between runs, so whatever a test leaves behind stays, and
+     * every later run pays for it: one project's suite went from minutes to 22 under 5,079
+     * administrators and 782,645 notifications. Cleanup prevents most of that; this is the
+     * floor under it. Past a limit the database is dropped here, and created and migrated
+     * from nothing by the steps that follow, at the cost of one full migration.
+     *
+     * Keys are table names as they are in the database (with the prefix, on MySQL). A table
+     * that does not exist counts as empty, and so does a database that does not exist yet.
+     *
+     * @param array<string, int> $limits table => the most rows it may hold
+     */
+    protected static function rebuildIfOvergrown($type, $host, $port, $dbName, $user, $pass, array $limits): void
+    {
+        $isPg = in_array($type, ['postgresql', 'pgsql', 'timescaledb'], true);
+        $dsn  = $isPg
+            ? "pgsql:host=$host;port=" . ($port ?? 5432) . ";dbname=$dbName;connect_timeout=" . self::CONNECT_TIMEOUT
+            : "mysql:host=$host;port=" . ($port ?? 3306) . ";dbname=$dbName";
+
+        try {
+            $pdo = new PDO($dsn, $user, $pass, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_TIMEOUT => self::CONNECT_TIMEOUT]);
+        } catch (\PDOException) {
+            return; // Not there yet: nothing has grown.
+        }
+
+        $over = [];
+        foreach ($limits as $table => $limit) {
+            $quoted = $isPg
+                ? implode('.', array_map(static fn ($part) => '"' . str_replace('"', '""', $part) . '"', explode('.', (string) $table)))
+                : '`' . str_replace('`', '``', (string) $table) . '`';
+            try {
+                // Raw: this runs before any application or framework connection exists.
+                $rows = (int) $pdo->query('SELECT COUNT(*) FROM ' . $quoted)->fetchColumn();
+            } catch (\PDOException) {
+                continue; // No such table: empty.
+            }
+            if ($rows > (int) $limit) {
+                $over[] = "$table has $rows rows (limit $limit)";
+            }
+        }
+        $pdo = null;
+
+        if ($over === []) {
+            return;
+        }
+
+        fwrite(STDERR, "\nRebuilding the test database $dbName from nothing: " . implode('; ', $over) . ".\n\n");
+
+        $server = new PDO(
+            $isPg ? "pgsql:host=$host;port=" . ($port ?? 5432) . ';dbname=postgres' : "mysql:host=$host;port=" . ($port ?? 3306),
+            $user,
+            $pass,
+            [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_TIMEOUT => self::CONNECT_TIMEOUT]
+        );
+        if ($isPg) {
+            // A session still attached would make the drop wait; none of them is a test's to keep.
+            $server->exec(
+                'SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '
+                . $server->quote($dbName) . ' AND pid <> pg_backend_pid()'
+            );
+            $server->exec('DROP DATABASE IF EXISTS "' . str_replace('"', '""', $dbName) . '"');
+        } else {
+            $server->exec('DROP DATABASE IF EXISTS `' . str_replace('`', '``', $dbName) . '`');
         }
     }
 

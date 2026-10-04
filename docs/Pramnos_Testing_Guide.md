@@ -553,6 +553,49 @@ Never empty a shared table in `tearDown()` (`truncate()`, `DELETE` without a `WH
 removes other tests' fixtures, and on a misconfigured run it removes the development
 database's rows.
 
+### Rows a test class leaves behind
+
+Users are created in many places that a test does not see, such as a sign-up the code under
+test performs or a fixture inserted by hand. So `BaseTestCase` also watches tables. When a
+class starts, it notes the highest key in each watched table. When the class ends, every row
+above that key that is still there is removed: a user through `AccountErasure`, any other
+row by a `DELETE`. When the suite ends, it prints which classes left what:
+
+```
+Rows left behind by test classes, removed when each class ended:
+  Tests\SignUpTest: users 3
+Create users with createTestUser() or hand them over with trackTestUser().
+```
+
+`users` is watched by default. An application adds its own tables, each one keyed by an
+increasing number, in its base test case:
+
+```php
+protected static array $watchedTables = [
+    '#PREFIX#users' => 'userid',
+    'organizations' => 'organization_id',
+];
+```
+
+The watch starts in `setUp()`, on a connection that is already open. A test class whose
+`setUp()` does not call the parent's can start it with `$this->watchForRowsLeftBehind()`.
+A class that defines `tearDownAfterClass()` must call `parent::tearDownAfterClass()`.
+
+### Rebuilding an overgrown test database
+
+The test database is kept between runs. Cleanup stops it from growing, but a table that
+grew before the cleanup existed, or that is not watched, can still slow every run down.
+Give it a limit in `app/config/testsettings.php`:
+
+```php
+'test_database' => ['rebuild_above' => ['users' => 5000, 'notifications' => 100000]],
+```
+
+Before the run, `TestEnvironment` counts those tables. When one is over its limit, it drops
+the test database, says so on STDERR, and builds it from nothing, which costs one full
+migration. Keys are the table names in the database, with the prefix on MySQL. A table or a
+database that does not exist counts as empty. The setting is off unless you set it.
+
 ### Database Transactions
 
 ```php

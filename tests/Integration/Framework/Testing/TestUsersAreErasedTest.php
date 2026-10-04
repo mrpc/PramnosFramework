@@ -40,6 +40,8 @@ class TestUsersAreErasedTest extends BaseTestCase
             $this->markTestSkipped('The database for this backend is not reachable.');
         }
         $this->runMigrations([\Pramnos\Framework\Migrations\Auth\CreateUsersTable::class], $this->db);
+        // This setUp() does not chain to the parent's, so it starts the watch itself.
+        $this->watchForRowsLeftBehind();
     }
 
     protected function tearDown(): void
@@ -129,4 +131,34 @@ class TestUsersAreErasedTest extends BaseTestCase
         // A second end erases nothing more and raises nothing
         parent::tearDown();
     }
+
+    /**
+     * A user nobody tracked is removed when the class ends, and the class is named for it.
+     *
+     * The floor under createTestUser(): a sign-up the test did not hand over, or a fixture
+     * inserted by hand, used to stay in the test database for every later run. The class's
+     * end removes what is above the key it started at, and the report says which class it was.
+     */
+    public function testAUserNobodyTrackedIsRemovedAtTheEndOfTheClass(): void
+    {
+        // Arrange — this class's watermark is taken; a user is then inserted by hand
+        $name = 'untracked_' . bin2hex(random_bytes(4));
+        $this->db->queryBuilder()->table('#PREFIX#users')->insert(['username' => $name, 'email' => $name . '@example.test']);
+        $userId = (int) $this->db->queryBuilder()->table('#PREFIX#users')->where('username', $name)->first()->fields['userid'];
+
+        // Act — the end of the class
+        static::tearDownAfterClass();
+
+        // Assert — removed, and reported against this class
+        $this->assertFalse($this->exists($userId), 'the untracked user survived its class');
+        $reported = self::rowsLeftBehind()[static::class]['#PREFIX#users'] ?? 0;
+        $this->assertGreaterThanOrEqual(1, $reported);
+
+        // Not a real leak: kept out of the report this suite prints at its end
+        $left = new \ReflectionProperty(BaseTestCase::class, 'leftBehind');
+        $all  = $left->getValue();
+        unset($all[static::class]);
+        $left->setValue(null, $all);
+    }
 }
+
