@@ -145,11 +145,15 @@ class AutoMigrationFingerprintTest extends TestCase
     }
 
     /** One request: a fresh Application, as the next HTTP request would build. */
-    private function request(): void
+    private function request(bool $explicit = false): void
     {
         Application::forgetVerifiedMigrations();
-        (new FingerprintTestApplication($this->db, [$this->dir], $this->historyTable))
-            ->triggerAutoMigrations();
+        $application = new FingerprintTestApplication($this->db, [$this->dir], $this->historyTable);
+        if ($explicit) {
+            // What runPendingMigrations() sets around the same call.
+            (new \ReflectionProperty(Application::class, 'autoMigrationsForced'))->setValue($application, true);
+        }
+        $application->triggerAutoMigrations();
     }
 
     private function tableExists(string $table): bool
@@ -272,6 +276,80 @@ class AutoMigrationFingerprintTest extends TestCase
     }
 
     /** Every `__fw_auto_*` key currently in the ledger. */
+    /**
+     * An explicit run that hits a failing migration says which one, and records nothing.
+     *
+     * The test bootstrap and a deploy both run migrations this way. When the fingerprint was
+     * recorded regardless, a test database built from nothing stopped at the first failure,
+     * and every later run found the fingerprint and called the schema up to date — 47 tables
+     * of 252 in one project, with no message anywhere.
+     */
+    public function testAnExplicitRunNamesTheFailureAndTriesAgainNextTime(): void
+    {
+        // Arrange — a migration that fails until a flag file exists
+        $class = 'Migration9040' . bin2hex(random_bytes(3));
+        $flag  = $this->dir . '/ready.flag';
+        file_put_contents(
+            $this->dir . '/' . $class . '.php',
+            "<?php\nuse Pramnos\\Database\\Migration;\n"
+            . "class {$class} extends Migration\n{\n"
+            . "    public \$description = 'fails until ready';\n"
+            . "    public function up(): void\n    {\n"
+            . "        if (!is_file('{$flag}')) { throw new \\RuntimeException('not ready yet'); }\n"
+            . "        \$this->schema()->createTable('fp_" . strtolower($class) . "', fn(\$t) => \$t->increments('id'));\n"
+            . "    }\n"
+            . "    public function down(): void\n    {\n    }\n}\n"
+        );
+        $this->tables[] = 'fp_' . strtolower($class);
+
+        // Act — the explicit run
+        $raised = null;
+        try {
+            $this->request(true);
+        } catch (\RuntimeException $exception) {
+            $raised = $exception;
+        }
+
+        // Assert — named, and no fingerprint to hide it next time
+        $this->assertNotNull($raised, 'a failed migration was swallowed');
+        $this->assertStringContainsString(strtolower($class), $raised->getMessage());
+        $this->assertStringContainsString('not ready yet', $raised->getMessage());
+        $this->assertSame([], $this->fingerprintRows(), 'the failure was recorded as up to date');
+
+        // Act — the cause fixed, the next run
+        touch($flag);
+        $this->request(true);
+
+        // Assert
+        $this->assertTrue($this->tableExists('fp_' . strtolower($class)), 'the failed migration was never retried');
+        unlink($flag);
+    }
+
+    /**
+     * A request that hits a failing migration does not raise into the page.
+     *
+     * It logs, and keeps the fingerprint so a failing migration is not attempted on every
+     * request; `migrate` is what retries it.
+     */
+    public function testARequestKeepsServingWhenAMigrationFails(): void
+    {
+        // Arrange
+        $class = 'Migration9041' . bin2hex(random_bytes(3));
+        file_put_contents(
+            $this->dir . '/' . $class . '.php',
+            "<?php\nuse Pramnos\\Database\\Migration;\n"
+            . "class {$class} extends Migration\n{\n"
+            . "    public function up(): void\n    {\n        throw new \\RuntimeException('broken');\n    }\n"
+            . "    public function down(): void\n    {\n    }\n}\n"
+        );
+
+        // Act — must not throw
+        $this->request();
+
+        // Assert — recorded, so the next request takes the fast path
+        $this->assertCount(1, $this->fingerprintRows());
+    }
+
     private function fingerprintRows(): array
     {
         $result = $this->db->query(

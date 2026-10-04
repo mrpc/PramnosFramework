@@ -338,6 +338,17 @@ halves to catch up and no reason to have to remember that they are two. It also
 lets a failure out, where `migrate()` swallows it — a migration failing in a
 watched window is what the operator is standing there to see.
 
+What "lets a failure out" means precisely: if any migration fails, it throws a
+`RuntimeException` naming each failed slug and the first line of its error, and it
+records **no** fingerprint, so the next call tries again. A failure stops whatever
+depends on the failed migration, so on an empty database the run can end far short of
+the full schema, and the exception is the only thing that says so. The test bootstrap
+(`TestEnvironment`) runs migrations this way and prints the message to STDERR.
+
+The automatic path in a request does not throw. It logs the same message and keeps
+the fingerprint, so a migration that fails is not attempted again on every request.
+`pramnos migrate` retries it, because only successful migrations count as run.
+
 **`migrations.framework` is not this switch**, and it is the one that looks like
 it. That key answers *which directories are in scope*, and `migrationScope()` is
 read by the CLI as well as by auto-run — so turning it off to stop the automatic

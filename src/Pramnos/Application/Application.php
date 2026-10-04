@@ -4385,9 +4385,33 @@ class Application extends Base
             $options[\Pramnos\Database\MigrationRunner::OPTION_EXCLUDE] = $scope['exclude'];
         }
 
-        $runner->run($migrations, $options, static function(string $event, string $slug, string $error, float $ms = 0.0): void {
+        $result = $runner->run($migrations, $options, static function(string $event, string $slug, string $error, float $ms = 0.0): void {
             \Pramnos\Debug\DebugBar::recordMigration($slug, $ms, $event === 'ran' ? 'ran' : 'failed');
         });
+
+        if (!empty($result['failed'])) {
+            $failures = [];
+            foreach ($result['failed'] as $slug => $error) {
+                $failures[] = $slug . ': ' . strtok(trim((string) $error), "\n");
+            }
+            $message = count($failures) . ' migration(s) failed, and whatever depends on them did not run — '
+                . implode('; ', $failures);
+
+            /*
+             * An explicit run (a deploy, the test bootstrap) records no fingerprint and
+             * raises, so the next run tries again and the caller sees which one failed. Until
+             * this, the fingerprint was recorded either way: a test database built from
+             * nothing stopped at the first failure, every later run found it "up to date",
+             * and nothing said so.
+             */
+            if ($this->autoMigrationsForced) {
+                throw new \RuntimeException($message);
+            }
+
+            // A request logs it and keeps the fingerprint, so a migration that fails is not
+            // retried on every request; `migrate` retries it, since only successes count there.
+            \Pramnos\Logs\Logger::logError('Automatic migrations: ' . $message);
+        }
 
         // Record fingerprint so the next request uses the fast path.
         $this->insertFingerprintRow($fingerprint, $histTable, $quote);
