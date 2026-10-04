@@ -126,7 +126,7 @@
     <input
         id="omnibox-input"
         type="search"
-        class="input input-bordered input-sm w-48"
+        class="input input-bordered input-sm w-28 sm:w-48"
         placeholder={placeholder || t('Search')}
         autocomplete="off"
         role="combobox"
@@ -142,7 +142,7 @@
     {#if open}
         <div
             id="omnibox-results"
-            class="dropdown-content menu z-50 mt-1 max-h-96 w-80 overflow-y-auto rounded-box bg-base-100 p-0 shadow-lg"
+            class="dropdown-content menu z-50 mt-1 max-h-96 w-80 max-w-[calc(100vw-2rem)] overflow-y-auto rounded-box bg-base-100 p-0 shadow-lg"
             role="listbox"
             aria-label={t('Search')}
         >

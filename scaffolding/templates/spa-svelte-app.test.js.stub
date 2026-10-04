@@ -11,10 +11,26 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, waitFor, cleanup } from '@testing-library/svelte';
 import App from '../App.svelte';
 
+/**
+ * The screen registry, replaced by a list each test can fill.
+ *
+ * The real one starts empty and `create:crud` writes into it, so without this the
+ * navigation tests would have nothing to draw.
+ */
+const registry = vi.hoisted(() => ({ screens: [] }));
+vi.mock('../screens/registry.js', () => registry);
+
 afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
+    registry.screens.length = 0;
 });
+
+/** The hrefs of the links inside one navigation landmark. */
+function hrefsIn(label) {
+    return Array.from(screen.getByRole('navigation', { name: label }).querySelectorAll('a'))
+        .map((a) => a.getAttribute('href'));
+}
 
 /**
  * Stub global fetch with a single canned response.
@@ -71,5 +87,35 @@ describe('App', () => {
         const [url, options] = fetch.mock.calls[0];
         expect(url).toContain('{{ apiPrefix }}');
         expect(options.credentials).toBe('same-origin');
+    });
+
+    it('puts the same screens in the phone dock as in the header row', async () => {
+        // Arrange — two generated screens
+        stubFetch({ status: 'ok' });
+        registry.screens.push({ name: 'stations', label: 'Stations' }, { name: 'shows', label: 'Shows' });
+
+        // Act
+        render(App);
+
+        // Assert — one list drawn twice: a screen missing from the dock is unreachable on a phone
+        const row = hrefsIn('Screens');
+        expect(row.length).toBe(2);
+        expect(hrefsIn('Screens on a phone')).toEqual(row);
+    });
+
+    it('keeps the dock to icons once it holds more than five screens', async () => {
+        // Arrange — six screens, more than a phone's width labels
+        stubFetch({ status: 'ok' });
+        for (const name of ['a', 'b', 'c', 'd', 'e', 'f']) {
+            registry.screens.push({ name, label: 'Screen ' + name });
+        }
+
+        // Act
+        render(App);
+
+        // Assert — every label is still there for a screen reader, but visually hidden
+        const labels = screen.getByRole('navigation', { name: 'Screens on a phone' }).querySelectorAll('.dock-label');
+        expect(labels.length).toBe(6);
+        labels.forEach((label) => expect(label.classList.contains('sr-only')).toBe(true));
     });
 });

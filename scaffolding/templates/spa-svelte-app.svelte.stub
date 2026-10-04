@@ -56,6 +56,19 @@
     let twoFactor  = $state(null);
     let factorCode = $state('');
 
+    /**
+     * The icon a screen shows in the phone's dock: the registry entry's own `icon`
+     * (an SVG string), or a plain square.
+     */
+    const DEFAULT_ICON = '<svg xmlns="http://www.w3.org/2000/svg" class="size-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3"/></svg>';
+
+    /**
+     * More than five along the bottom of a phone and the labels crowd each other
+     * into ellipses. Past that the dock is icons only; the label stays for screen
+     * readers, and as the title a long press shows.
+     */
+    const DOCK_LABELS = 5;
+
     /** Screens that require a signed-in user. */
     const PROTECTED = ['admin', ...screens.map((s) => s.name)];
 
@@ -202,31 +215,46 @@
     }
 </script>
 
-<div class="flex min-h-screen flex-col bg-base-200">
+<!--
+    One list of screens, drawn twice: as a row of buttons in the header from `lg` up,
+    and as daisyUI's dock along the bottom on a phone. A row that does not wrap pushes
+    a phone's page wider than the screen; a menu button fixes the width but hides the
+    screens, which are what the application is for.
+-->
+{#snippet screenLink(target, here, label, icon, dock, crowded)}
+    {#if dock}
+        <a href={target} class:dock-active={here} aria-current={here ? 'page' : undefined} title={crowded ? label : undefined}>
+            {@html icon}
+            <span class="dock-label max-w-16 truncate" class:sr-only={crowded}>{label}</span>
+        </a>
+    {:else}
+        <a class="btn btn-ghost btn-sm" class:btn-active={here} aria-current={here ? 'page' : undefined} href={target}>{label}</a>
+    {/if}
+{/snippet}
+
+{#snippet screenLinks(dock)}
+    <!-- The admin screen has its own entry, shown only to a signed-in user, so it
+         is filtered out of the general list. -->
+    {@const showAdmin = hasAuth && user && screens.some((s) => s.admin)}
+    {@const general = screens.filter((s) => !s.admin)}
+    {@const crowded = general.length + (showAdmin ? 1 : 0) > DOCK_LABELS}
+    {#each general as item (item.name)}
+        {@render screenLink(href('/' + item.name), route.name === item.name, item.label, item.icon ?? DEFAULT_ICON, dock, crowded)}
+    {/each}
+    {#if showAdmin}
+        {@render screenLink(href('/admin'), route.name === 'admin', 'Admin', DEFAULT_ICON, dock, crowded)}
+    {/if}
+{/snippet}
+
+<div class="flex min-h-screen flex-col overflow-x-clip bg-base-200 pb-16 lg:pb-0">
     <header class="navbar bg-base-100 shadow-sm">
         <div class="container mx-auto flex items-center gap-2">
             <a class="btn btn-ghost text-xl" href={href('/')}>
                 {appName}
             </a>
 
-            <nav class="flex items-center gap-1">
-                <!-- The admin screen has its own entry below, shown only to a
-                     signed-in user, so it is filtered out of the general list. -->
-                {#each screens.filter((s) => !s.admin) as item}
-                    <a
-                        class="btn btn-ghost btn-sm"
-                        class:btn-active={route.name === item.name}
-                        href={href('/' + item.name)}
-                    >{item.label}</a>
-                {/each}
-
-                {#if hasAuth && user && screens.some((s) => s.admin)}
-                    <a
-                        class="btn btn-ghost btn-sm"
-                        class:btn-active={route.name === 'admin'}
-                        href={href('/admin')}
-                    >Admin</a>
-                {/if}
+            <nav class="hidden items-center gap-1 lg:flex" aria-label="Screens">
+                {@render screenLinks(false)}
             </nav>
 
             <div class="ml-auto flex items-center gap-3">
@@ -237,7 +265,7 @@
                     <Omnibox />
                 {/if}
                 {#if hasAuth && user}
-                    <span class="text-sm opacity-70">{user.username ?? user.email}</span>
+                    <span class="hidden text-sm opacity-70 sm:inline">{user.username ?? user.email}</span>
                     <button class="btn btn-sm" onclick={submitLogout}>Sign out</button>
                 {:else if hasAuth}
                     <a class="btn btn-primary btn-sm" href={href('/signin')}>
@@ -248,7 +276,7 @@
         </div>
     </header>
 
-    <main class="container mx-auto flex-1 p-6">
+    <main class="container mx-auto flex-1 p-4 sm:p-6">
         {#if route.name === 'signin'}
             <div class="card mx-auto w-full max-w-sm bg-base-100 shadow">
                 <div class="card-body">
@@ -399,4 +427,10 @@
     <footer class="footer footer-center bg-base-100 p-4 text-sm">
         <p>© {new Date().getFullYear()} {appName}. All rights reserved.</p>
     </footer>
+
+    {#if screens.some((s) => !s.admin) || (hasAuth && user && screens.some((s) => s.admin))}
+        <nav class="dock dock-sm z-40 border-t border-base-300 bg-base-100 lg:hidden" aria-label="Screens on a phone">
+            {@render screenLinks(true)}
+        </nav>
+    {/if}
 </div>

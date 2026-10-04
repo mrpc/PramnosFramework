@@ -502,6 +502,14 @@ The screen lands in your `spa_source_dir` — `frontend/screens/` by default, or
 `screens/registry.js`, which the application reads to build its navigation.
 `--target=mvc|spa|both` overrides the style's choice for one run.
 
+**The navigation is drawn twice from that one list.** From `lg` up it is a row of
+buttons in the header. On a phone it is daisyUI's `dock` along the bottom of the
+screen, with an icon and a label per screen. A row that does not wrap pushes a
+phone's page wider than the screen, and a menu button hides the screens, which are
+what the application is for. Give a registry entry an `icon` (an SVG string) to
+replace the plain square. With more than five screens, the dock shows icons only and
+keeps the labels for screen readers and for the title a long press shows.
+
 **What the SPA screen actually is**, on the Svelte stack: a list that sorts,
 searches and pages on the server through the model's `getApiList()` pipeline,
 with its state in the URL, over a form whose every control matches the column's
