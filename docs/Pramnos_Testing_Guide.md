@@ -760,7 +760,7 @@ Everything else follows the rules below: schema and expensive fixtures once per 
 per test. An RSA key pair for an OAuth2 server costs a few hundred milliseconds and is
 read-only once generated, so it belongs in `setUpBeforeClass()` like any other.
 
-## Writing a test that does not slow the suite down## Writing a test that does not slow the suite down
+## Writing a test that does not slow the suite down
 
 The suite's cost is concentrated, not spread: **203 tests out of 9364 account for 46% of
 the run**, measured. Three habits are what put a test in that group, and all three have a
@@ -776,6 +776,18 @@ cheap alternative:
 | Letting the code under test shell out or reach the network | **1.9 s per test**, and variable | Skip it with the flag the command already has, or should have — `init` gained `--no-install` for exactly this. A unit test that depends on composer or on HTTP is slow *and* flaky |
 | Saving a model, in a suite or in production | **1358 ms** before 2026-08-27 — `cacheflush()` walked the whole cache tree on every write | Nothing: fixed in `FileAdapter`. If you see it again, check that `clear()` is still sampling its sweep |
 | `exec('rm -rf …')` in `tearDown()` for a small temporary tree | **≈12 ms per test** (measured: 382 ms → 272 ms over nine tests) | A recursive `unlink`/`rmdir` helper — one already exists in `ApiDocsTest`. **Measure before converting a large tree**: for a scaffolded project of hundreds of files, `rm -rf` in C may well beat PHP recursion, and this row is not a licence to assume otherwise |
+
+**A PostgreSQL test database does not wait for the disk on commit.** `TestEnvironment`
+runs `ALTER DATABASE <test db> SET synchronous_commit = off` on every run, which in one
+project took a test class from 47 s to 28.5 s and the whole suite from 12:00 to 6:45. The
+setting belongs to that database, so a development database on the same server keeps full
+durability. If the connecting user does not own the database, the step is skipped and the
+suite is only slower.
+
+**Granting many permissions? Use `allowMany()`.** One `allow()` per privilege flushes the
+permission cache and queues a `permissions_changed` lookup every time. A test that sets
+up an organisation's roles calls it dozens of times. See the
+[Authorization Guide](Pramnos_Authorization_Guide.md#permissions-grants-in-a-table).
 
 DDL is not transactional in MySQL, which is why the split is *schema per class, data per
 test* rather than everything in one transaction.

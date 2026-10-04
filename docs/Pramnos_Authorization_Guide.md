@@ -204,11 +204,23 @@ $permissions->deny(42, 'articles', 'delete');
 // Several privileges at once: each gets the same element, resource type and subject type
 $permissions->allow('7', 'articles', ['read', 'edit'], '', 'module', 'group');
 
+// Many resources at once, for one subject: one transaction, one cache flush, one webhook
+$permissions->allowMany($roleId, [
+    'articles' => ['read', 'create', 'edit'],
+    'comments' => ['read'],
+], 'module', 'group');
+
 // Ask
 if ($permissions->isAllowed(42, 'articles', 'edit')) {
     // ...
 }
 ```
+
+`allowMany()` grants on the whole of each resource. It writes either every grant or none,
+because a role set up halfway works on some screens and not on others. It flushes the
+permission cache once and queues one `permissions_changed` for the subject. Setting up a new
+organisation's roles is the case it exists for: per-privilege `allow()` did all of that
+for every privilege. The list form of `allow()` without an element goes through it.
 
 Both `allow()` and `deny()` take the same shape, and so does `isAllowed()`:
 

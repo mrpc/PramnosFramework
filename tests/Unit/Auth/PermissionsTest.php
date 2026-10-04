@@ -219,8 +219,10 @@ class PermissionsTest extends TestCase
      */
     public function testAllowArrayOfPrivilegesCallsSetPermissionForEach(): void
     {
-        // Arrange
+        // Arrange — on the legacy store; on authserver.permissions the list goes
+        // through allowMany(), which writes all of it at once
         $p = $this->makeTestable();
+        (new \ReflectionProperty(Permissions::class, '_store'))->setValue($p, 'legacy');
         $privileges = ['view', 'edit', 'delete'];
 
         // Act

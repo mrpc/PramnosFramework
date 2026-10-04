@@ -234,6 +234,9 @@ class Permissions extends \Pramnos\Framework\Base
         $resourceElement = '', $resourceType = 'module', $subjectType = 'user')
     {
         if (is_array($privilege)) { //Quick allow mass privileges
+            if ($resourceElement === '') {
+                return $this->allowMany($subject, [$resource => $privilege], $resourceType, $subjectType);
+            }
             foreach ($privilege as $priv) {
                 $this->allow(
                     $subject, $resource, $priv, $resourceElement,
@@ -246,6 +249,109 @@ class Permissions extends \Pramnos\Framework\Base
             $subject, $resource, $privilege,
             $resourceElement, $resourceType, $subjectType, true
         );
+    }
+
+    /**
+     * Grant one subject many privileges on many resources, as one write.
+     *
+     * ```php
+     * $permissions->allowMany($roleId, [
+     *     'posts'    => ['read', 'create', 'update'],
+     *     'channels' => ['read'],
+     * ], 'module', 'group');
+     * ```
+     *
+     * The same grants as an `allow()` per privilege, on the whole of each resource,
+     * without paying per privilege for what only needs doing once: the rows are written
+     * in one transaction, the permission cache is flushed once, and `permissions_changed`
+     * is queued once for the subject — whose holder lookup used to run for every
+     * privilege, even for a role created a moment ago that nobody holds yet. Setting up a
+     * new organisation's roles is the case this exists for.
+     *
+     * Either every grant is written or none is: a failure rolls the transaction back and
+     * is raised.
+     *
+     * @param  string|int                  $subject      User id, or role id for a group
+     * @param  array<string, list<string>> $grants       resource => privileges
+     * @param  string                      $resourceType A module, a menu, whatever you want
+     * @param  string                      $subjectType  user|group
+     * @return $this
+     */
+    public function allowMany($subject, array $grants, string $resourceType = 'module', string $subjectType = 'user'): static
+    {
+        if ($this->activeStore() !== 'authserver') {
+            // The legacy table has no webhook and is on its way out: one at a time is enough there.
+            foreach ($grants as $resource => $privileges) {
+                foreach ((array) $privileges as $privilege) {
+                    $this->setPermission($subject, (string) $resource, $privilege, '', $resourceType, $subjectType, true);
+                }
+            }
+
+            return $this;
+        }
+
+        $mapped = match ($subjectType) {
+            'user'  => 'user',
+            'group' => 'role',
+            default => null,
+        };
+        if ($mapped === null) {
+            \Pramnos\Logs\Logger::logError(
+                'Cannot store permissions for subject type "' . $subjectType
+                . '" in authserver.permissions: the model knows users and roles only. '
+                . 'The grants were not written.'
+            );
+
+            return $this;
+        }
+
+        $database = $this->db();
+        $database->startTransaction();
+        try {
+            foreach ($grants as $resource => $privileges) {
+                $actions = array_values(array_unique(array_map(
+                    static fn ($privilege): string => $privilege === 'admin' ? '*' : (string) $privilege,
+                    (array) $privileges
+                )));
+                if ($actions === []) {
+                    continue;
+                }
+
+                // Replaces rather than accumulates, as allow() does.
+                $database->queryBuilder()->table('authserver.permissions')
+                    ->where('subject_type', $mapped)
+                    ->where('subject_id', (int) $subject)
+                    ->where('object_type', (string) $resource)
+                    ->whereIn('action', $actions)
+                    ->whereNull('object_id')
+                    ->delete();
+
+                // ponytail: one INSERT per row inside the transaction; a multi-row INSERT
+                // needs the builder to learn one, worth it if a profile ever shows these.
+                foreach ($actions as $action) {
+                    $database->queryBuilder()->table('authserver.permissions')->insert([
+                        'subject_type' => $mapped,
+                        'subject_id'   => (int) $subject,
+                        'object_type'  => (string) $resource,
+                        'object_id'    => null,
+                        'action'       => $action,
+                        'grant_type'   => 'allow',
+                        'priority'     => 100,
+                        'is_active'    => true,
+                    ]);
+                }
+            }
+            $database->commitTransaction();
+        } catch (\Throwable $exception) {
+            $database->rollbackTransaction();
+            throw $exception;
+        }
+
+        $this->_cache = array();
+        $database->cacheflush('permissions');
+        WebhookService::permissionsChanged($mapped, (int) $subject, ['operation' => 'update']);
+
+        return $this;
     }
 
     /**

@@ -90,16 +90,16 @@ class PermissionsAuthserverStoreTest extends TestCase
             @mkdir(LOG_PATH . \DS . 'logs', 0777, true);
         }
 
-        $driver = $_ENV['DB_TYPE'] ?? (getenv('DB_TYPE') ?: 'mysql');
-        $this->isPg = in_array($driver, ['postgresql', 'pgsql', 'timescaledb'], true);
+        $connection = $this->connectionSettings();
+        $this->isPg = in_array($connection['type'], ['postgresql', 'pgsql', 'timescaledb'], true);
 
         $this->db = new Database();
-        $this->db->type     = $driver;
-        $this->db->server   = $_ENV['DB_HOST'] ?? (getenv('DB_HOST') ?: 'db');
-        $this->db->port     = (int) ($_ENV['DB_PORT'] ?? (getenv('DB_PORT') ?: ($this->isPg ? 5432 : 3306)));
-        $this->db->user     = $_ENV['DB_USER'] ?? (getenv('DB_USER') ?: 'root');
-        $this->db->password = $_ENV['DB_PASS'] ?? (getenv('DB_PASS') ?: 'secret');
-        $this->db->database = $_ENV['DB_NAME'] ?? (getenv('DB_NAME') ?: 'pramnos_test');
+        $this->db->type     = $connection['type'];
+        $this->db->server   = $connection['server'];
+        $this->db->port     = $connection['port'];
+        $this->db->user     = $connection['user'];
+        $this->db->password = $connection['password'];
+        $this->db->database = $connection['database'];
 
         try {
             if (!$this->db->connect(false)) {
@@ -117,6 +117,27 @@ class PermissionsAuthserverStoreTest extends TestCase
         $this->clearTestRows();
 
         $this->permissions = new BoundPermissions($this->db);
+    }
+
+    /**
+     * The connection this class runs on: the container's own, from the environment.
+     * {@see PermissionsAuthserverStoreMySQLTest} answers the other engine.
+     *
+     * @return array{type: string, server: string, port: int, user: string, password: string, database: string}
+     */
+    protected function connectionSettings(): array
+    {
+        $driver = $_ENV['DB_TYPE'] ?? (getenv('DB_TYPE') ?: 'mysql');
+        $isPg   = in_array($driver, ['postgresql', 'pgsql', 'timescaledb'], true);
+
+        return [
+            'type'     => $driver,
+            'server'   => $_ENV['DB_HOST'] ?? (getenv('DB_HOST') ?: 'db'),
+            'port'     => (int) ($_ENV['DB_PORT'] ?? (getenv('DB_PORT') ?: ($isPg ? 5432 : 3306))),
+            'user'     => $_ENV['DB_USER'] ?? (getenv('DB_USER') ?: 'root'),
+            'password' => $_ENV['DB_PASS'] ?? (getenv('DB_PASS') ?: 'secret'),
+            'database' => $_ENV['DB_NAME'] ?? (getenv('DB_NAME') ?: 'pramnos_test'),
+        ];
     }
 
     protected function tearDown(): void
@@ -335,5 +356,106 @@ class PermissionsAuthserverStoreTest extends TestCase
 
         // Assert
         $this->assertSame('role', $row->fields['subject_type']);
+    }
+
+    // ── allowMany ────────────────────────────────────────────────────────────
+
+    /**
+     * Many grants on many resources, written at once, each readable afterwards.
+     *
+     * The case it exists for is a new organisation's roles: dozens of privileges for a
+     * role nobody holds yet, which per-privilege `allow()` paid for with a cache flush and
+     * a webhook lookup each time.
+     */
+    public function testAllowManyWritesEveryGrant(): void
+    {
+        // Act
+        $this->permissions->allowMany(self::ROLE, [
+            'invoice'  => ['view', 'edit'],
+            'customer' => ['view'],
+        ], 'module', 'group');
+
+        // Assert — three rows, all allow, all the role's, all on the whole resource
+        $rows = $this->db->queryBuilder()->table('authserver.permissions')
+            ->where('subject_id', self::ROLE)->orderBy('object_type')->orderBy('action')->get();
+        $seen = [];
+        while ($rows->fetch()) {
+            $this->assertSame('role', $rows->fields['subject_type']);
+            $this->assertSame('allow', $rows->fields['grant_type']);
+            $this->assertNull($rows->fields['object_id']);
+            $seen[] = $rows->fields['object_type'] . ':' . $rows->fields['action'];
+        }
+        $this->assertSame(['customer:view', 'invoice:edit', 'invoice:view'], $seen);
+    }
+
+    /**
+     * An earlier verdict on the same privilege is replaced, as with allow().
+     */
+    public function testAllowManyReplacesADeny(): void
+    {
+        // Arrange
+        $this->permissions->deny(self::USER, 'invoice', 'view');
+
+        // Act
+        $this->permissions->allowMany(self::USER, ['invoice' => ['view', 'admin']]);
+
+        // Assert — allowed, by one row rather than a deny and an allow side by side
+        $this->assertTrue($this->ask('view'));
+        $this->assertSame(1, $this->db->queryBuilder()->table('authserver.permissions')
+            ->where('subject_id', self::USER)->where('action', 'view')->count());
+        // `admin` is stored as the wildcard, as allow() stores it
+        $this->assertSame(1, $this->db->queryBuilder()->table('authserver.permissions')
+            ->where('subject_id', self::USER)->where('action', '*')->count());
+    }
+
+    /**
+     * Either every grant is written or none is.
+     *
+     * A role set up halfway is worse than one not set up: it works for some screens and
+     * not others, and nothing says which. The second resource's privilege is too long for
+     * the column, so its insert fails after the first resource's rows are in.
+     */
+    public function testAllowManyWritesNothingWhenOneGrantFails(): void
+    {
+        // Act
+        $raised = false;
+        try {
+            $this->permissions->allowMany(self::ROLE, [
+                'invoice'  => ['view'],
+                'customer' => [str_repeat('x', 200)],
+            ], 'module', 'group');
+        } catch (\Throwable) {
+            $raised = true;
+        }
+
+        // Assert — raised, and rolled back
+        $this->assertTrue($raised, 'the failed insert was swallowed');
+        $this->assertSame(0, $this->db->queryBuilder()->table('authserver.permissions')
+            ->where('subject_id', self::ROLE)->count(), 'half the grants survived the failure');
+    }
+
+    /**
+     * A subject type the store cannot represent writes nothing, as allow() does.
+     */
+    public function testAllowManyRefusesAnUnrepresentableSubjectType(): void
+    {
+        // Act
+        $this->permissions->allowMany(self::USER, ['invoice' => ['view']], 'module', 'department');
+
+        // Assert
+        $this->assertNull($this->ask('view'));
+    }
+
+    /**
+     * The list form of allow() goes through the same write.
+     */
+    public function testAllowWithAListIsAllowMany(): void
+    {
+        // Act
+        $this->permissions->allow(self::USER, 'invoice', ['view', 'edit']);
+
+        // Assert
+        $this->assertTrue($this->ask('view'));
+        $this->assertTrue($this->ask('edit'));
     }
 }

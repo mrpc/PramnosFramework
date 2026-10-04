@@ -251,11 +251,11 @@ class TestEnvironment
 
         // Docker detection for standard hostnames
         if ($host === 'localhost' && file_exists('/.dockerenv')) {
-            $host = ($type === 'postgresql' || $type === 'pgsql') ? 'postgres' : 'mysql';
+            $host = in_array($type, ['postgresql', 'pgsql', 'timescaledb'], true) ? 'postgres' : 'mysql';
         }
 
         try {
-            if ($type === 'postgresql' || $type === 'pgsql') {
+            if (in_array($type, ['postgresql', 'pgsql', 'timescaledb'], true)) {
                 self::setupPostgres($host, $port, $dbName, $user, $pass, $schemaPath);
             } else {
                 self::setupMysql($host, $port, $dbName, $user, $pass, $schemaPath);
@@ -305,6 +305,23 @@ class TestEnvironment
                 );
                 $pdo->exec("CREATE DATABASE \"$dbName\" WITH TEMPLATE template1");
             });
+        }
+
+        /*
+         * **No waiting for the disk on commit, in this database only.**
+         *
+         * A test suite commits thousands of small transactions, and each one waits for
+         * its WAL to be flushed. Measured in one project: a test class from 47 s to
+         * 28.5 s, the whole suite from 12:00 to 6:45. What it gives up is the last
+         * fraction of a second of commits if the server crashes, which for a database
+         * rebuilt by the suite itself costs nothing. Set per database, so a development
+         * database on the same server keeps full durability; it applies to the sessions
+         * opened after it, which is every one the suite opens.
+         */
+        try {
+            $pdo->exec('ALTER DATABASE "' . str_replace('"', '""', $dbName) . '" SET synchronous_commit = off');
+        } catch (\PDOException) {
+            // Not the database's owner: the suite is only slower, never wrong.
         }
 
         // Import dump via psql if provided. ON_ERROR_STOP makes psql exit non-zero
