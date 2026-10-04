@@ -393,4 +393,122 @@ class EventTest extends TestCase
         // Assert — event.b listener was not triggered
         $this->assertFalse($calledForB);
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Registering twice
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /** Registers the closure an application's init() would, once per call. */
+    private static function registerAsInitWould(array &$calls): void
+    {
+        Event::listen('dup.event', function () use (&$calls) {
+            $calls[] = 'ran';
+        });
+    }
+
+    /**
+     * An application that starts twice in one process registers its listeners once.
+     *
+     * init() evaluates the same closure on every start, each time a new object. When
+     * listen() appended, a suite that started the application for every test ran one
+     * listener 3,000 times per event by the end, and those tests took 12 s each.
+     */
+    public function testTheSameClosureFromTheSamePlaceIsRegisteredOnce(): void
+    {
+        // Arrange
+        $calls = [];
+
+        // Act — three starts
+        self::registerAsInitWould($calls);
+        self::registerAsInitWould($calls);
+        self::registerAsInitWould($calls);
+        Event::fire('dup.event');
+
+        // Assert
+        $this->assertSame(['ran'], $calls);
+    }
+
+    /**
+     * The identical callable, by name or as an array, is registered once too.
+     */
+    public function testTheSameCallableIsRegisteredOnce(): void
+    {
+        // Act
+        Event::listen('dup.event', 'strtoupper');
+        Event::listen('dup.event', 'strtoupper');
+        Event::listen('dup.event', [self::class, 'staticListener']);
+        Event::listen('dup.event', [self::class, 'staticListener']);
+
+        // Assert
+        $this->assertCount(2, Event::getListeners('dup.event'));
+    }
+
+    /** A static method to register by array. */
+    public static function staticListener(): void
+    {
+    }
+
+    /**
+     * Closures written at one place but holding different values are different listeners.
+     *
+     * The case the comparison must not collapse: one loop registering a listener per item.
+     */
+    public function testClosuresThatCapturedDifferentValuesAreKept(): void
+    {
+        // Arrange
+        $seen = [];
+
+        // Act
+        foreach (['a', 'b'] as $item) {
+            Event::listen('dup.event', function () use (&$seen, $item) {
+                $seen[] = $item;
+            });
+        }
+        Event::fire('dup.event');
+
+        // Assert
+        $this->assertSame(['a', 'b'], $seen);
+    }
+
+    /**
+     * The same listener at another priority, or for another event, is another registration.
+     */
+    public function testAnotherPriorityOrEventIsAnotherRegistration(): void
+    {
+        // Act
+        Event::listen('dup.event', 'strtoupper', 10);
+        Event::listen('dup.event', 'strtoupper', 20);
+        Event::listen('other.event', 'strtoupper', 10);
+
+        // Assert
+        $this->assertCount(2, Event::getListeners('dup.event'));
+        $this->assertCount(1, Event::getListeners('other.event'));
+    }
+
+    /**
+     * Two equal instances of one listener class are one listener; unequal ones are two.
+     */
+    public function testEqualListenerInstancesAreRegisteredOnce(): void
+    {
+        // Arrange
+        $make = static fn (string $tag): ListenerInterface => new class ($tag) implements ListenerInterface {
+            public function __construct(public string $tag)
+            {
+            }
+
+            public function handle(mixed ...$args): mixed
+            {
+                return $this->tag;
+            }
+        };
+
+        // Act
+        Event::listen('dup.event', $make('x'));
+        Event::listen('dup.event', $make('x'));
+        Event::listen('dup.event', $make('y'));
+
+        // Assert
+        $this->assertSame(['x', 'y'], Event::fire('dup.event'));
+    }
 }
+

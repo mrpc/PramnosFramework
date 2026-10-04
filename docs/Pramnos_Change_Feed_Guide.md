@@ -194,6 +194,17 @@ Event::listen(ChangeFeed::EVENT, function (ModelChange $change) {
 });
 ```
 
+**Registering a listener again does nothing**, for the same event and priority. So an
+application can register its listeners in `init()` even when it starts many times in one
+process, as it does once per test in a suite. Two registrations count as the same when:
+- they are the identical callable: a function name, `[Class, 'method']`, or the same object;
+- they are closures written at the same place in the code, in the same class, that
+  captured the same values;
+- they are equal instances of the same `ListenerInterface` class.
+
+A loop that registers a closure per item, each capturing a different value, keeps every
+registration.
+
 One name rather than `model.<entity>.<op>`. Two naming schemes means two
 registrations to keep in step, and one of them gets forgotten; listeners switch on
 `$change->entity` and `$change->op`, which they already hold.
