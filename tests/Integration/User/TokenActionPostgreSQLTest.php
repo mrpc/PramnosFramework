@@ -406,12 +406,10 @@ class TokenActionPostgreSQLTest extends TestCase
     {
         $authDir = dirname(__DIR__, 3) . '/database/migrations/framework/auth';
 
-        // Create a minimal users table to satisfy the usertokens FK constraint.
-        // We don't run the full users migration (it creates many columns); this
-        // stub is enough to let usertokens' FOREIGN KEY REFERENCES users(userid) pass.
-        $this->db->query(
-            'CREATE TABLE IF NOT EXISTS "users" ("userid" BIGSERIAL PRIMARY KEY)'
-        );
+        // The real users table, from its migration, for the usertokens foreign key. A stub
+        // with only `userid` outlived this class whenever a run stopped before its cleanup,
+        // and the next class's User::setupDb() kept it.
+        \Pramnos\Framework\Testing\Schema::table('users', $this->db);
 
         $this->loadMigrationClass($authDir . '/2020_01_01_000014_create_usertokens_table.php');
         $this->loadMigrationClass($authDir . '/2020_01_01_000015_create_urls_table.php');

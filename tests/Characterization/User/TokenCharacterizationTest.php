@@ -167,23 +167,9 @@ class TokenCharacterizationTest extends TestCase
     private function ensureTokenTableExists(): void
     {
         // Arrange
-        $this->db->query('CREATE TABLE IF NOT EXISTS `#PREFIX#usertokens` (
-            `tokenid` INT AUTO_INCREMENT PRIMARY KEY,
-            `userid` INT NULL,
-            `tokentype` VARCHAR(50) NOT NULL,
-            `token` VARCHAR(255) NOT NULL,
-            `created` INT NOT NULL DEFAULT 0,
-            `notes` TEXT NULL,
-            `lastused` INT NOT NULL DEFAULT 0,
-            `status` INT NOT NULL DEFAULT 0,
-            `parentToken` INT NULL,
-            `applicationid` INT NULL,
-            `actions` INT NOT NULL DEFAULT 0,
-            `removedate` INT NOT NULL DEFAULT 0,
-            `deviceinfo` TEXT NULL,
-            `scope` TEXT NULL,
-            `ipaddress` VARCHAR(64) NULL,
-            `expires` INT NULL
-        )');
+        // The canonical `usertokens`, from the migrations that build it in production. A hand-rolled
+        // CREATE TABLE IF NOT EXISTS here became the table for every class after it in a fresh
+        // database — with columns the migration defaults and this did not.
+        \Pramnos\Framework\Testing\Schema::table('usertokens', $this->db);
     }
 }

@@ -1282,7 +1282,7 @@ class DatabaseAdditionalCoverageTest extends TestCase
     public function testGetInstanceReturnsDatabaseInstance(): void
     {
         // Act — get a named instance (avoids colliding with 'default' if used elsewhere)
-        $name = 'test_instance_' . mt_rand(1000, 9999);
+        $name = 'test_instance_' . bin2hex(random_bytes(6));
         $instance1 = Database::getInstance(null, $name);
 
         // Assert — must be a Database instance

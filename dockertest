@@ -293,6 +293,23 @@ extra_flags="--configuration phpunit.xml --display-deprecations --display-warnin
 phpunit_status=0
 
 if [[ "$parallel" -gt 0 ]]; then
+    # Every parallel run starts from nothing: the workers' databases and var/ directories are
+    # dropped first, and tests/bootstrap.php creates them again. Kept between runs, they
+    # carried whatever an earlier run had left — once a stub `users` table that a later
+    # class built its fixtures on.
+    docker-compose exec -T php-apache-environment php -r '
+        $n = (int) $argv[1];
+        for ($i = 1; $i <= $n + 4; $i++) {
+            $db = "pramnos_test_" . $i;
+            try { (new PDO("mysql:host=db;port=3306", "root", "secret"))->exec("DROP DATABASE IF EXISTS `$db`"); } catch (Throwable) {}
+            try {
+                $pg = new PDO("pgsql:host=timescaledb;port=5432;dbname=postgres", "postgres", "secret");
+                $pg->exec("SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = \x27$db\x27");
+                $pg->exec("DROP DATABASE IF EXISTS \"$db\"");
+            } catch (Throwable) {}
+        }
+        exec("rm -rf var/workers");
+    ' "$parallel" </dev/null
     # ParaTest over N workers, each with its own database (pramnos_test_<N>, created by
     # tests/bootstrap.php), then the `serial` group in one process: the classes that share
     # files — the cache directory, a generated model, the migration fingerprints — which no

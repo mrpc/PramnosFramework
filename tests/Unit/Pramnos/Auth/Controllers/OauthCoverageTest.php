@@ -161,36 +161,10 @@ class OauthCoverageTest extends TestCase
         // production. The hand-rolled copy here declared columns no migration
         // creates and omitted ones it does — see Testing\Schema.
         Schema::table('applications', $this->db);
-        $this->db->query('
-            CREATE TABLE IF NOT EXISTS `users` (
-                `userid`     bigint NOT NULL AUTO_INCREMENT,
-                `username`   varchar(255) NOT NULL,
-                `email`      varchar(255) NOT NULL,
-                `active`     tinyint(1) NOT NULL DEFAULT 1,
-                `password`   varchar(255) DEFAULT NULL,
-                `regdate`    int(11) DEFAULT 0,
-                `lastlogin`  int(11) DEFAULT 0,
-                `validated`  tinyint(1) DEFAULT 0,
-                `language`   varchar(50) DEFAULT NULL,
-                `firstname`  varchar(255) DEFAULT NULL,
-                `lastname`   varchar(255) DEFAULT NULL,
-                `timezone`   varchar(50) DEFAULT NULL,
-                `dateformat` varchar(50) DEFAULT NULL,
-                `regcompletion` int(11) DEFAULT NULL,
-                `lasttermsagreed` int(11) DEFAULT NULL,
-                `usertype`   int(11) DEFAULT 0,
-                `sex`        tinyint(1) DEFAULT 0,
-                `birthdate`  int(11) DEFAULT 0,
-                `photo`      int(11) DEFAULT 0,
-                `phone`      varchar(50) DEFAULT NULL,
-                `mobile`     varchar(50) DEFAULT NULL,
-                `fax`        varchar(50) DEFAULT NULL,
-                `website`    varchar(255) DEFAULT NULL,
-                `modified`   int(11) DEFAULT 0,
-                `maingroup`  int(11) DEFAULT 0,
-                PRIMARY KEY (`userid`)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-        ');
+        // The canonical `users`, from the migrations that build it in production. A hand-rolled
+        // CREATE TABLE IF NOT EXISTS here became the table for every class after it in a fresh
+        // database — with columns the migration defaults and this did not.
+        \Pramnos\Framework\Testing\Schema::table('users', $this->db);
         // The canonical `usertokens`, from the migrations that build it in
         // production — see Testing\Schema for why a hand-rolled copy is a trap.
         Schema::table('usertokens', $this->db);

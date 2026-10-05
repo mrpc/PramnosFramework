@@ -702,8 +702,8 @@ class MessagingModelsMySQLTest extends TestCase
 
         // ── MailTemplate::load/save/delete/getData/getList() ─────────────────
         $tpl           = new MailTemplate($this->controller);
-        $tpl->name     = 'test-tpl-' . mt_rand(1000, 9999);
-        $tpl->key      = 'tpl_key_' . mt_rand(1000, 9999);
+        $tpl->name     = 'test-tpl-' . bin2hex(random_bytes(6));
+        $tpl->key      = 'tpl_key_' . bin2hex(random_bytes(6));
         $tpl->subject  = 'Welcome';
         $tpl->text     = 'Hello {{name}}';
         $tpl->html     = 0;

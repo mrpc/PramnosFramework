@@ -584,7 +584,7 @@ class MysqlDatabaseTest extends \PHPUnit\Framework\TestCase
     {
         // Arrange
         $data = [
-            ['fieldName' => 'code',  'value' => 'DBG-INS-' . mt_rand(100, 999), 'type' => 'string'],
+            ['fieldName' => 'code',  'value' => 'DBG-INS-' . bin2hex(random_bytes(6)), 'type' => 'string'],
             ['fieldName' => 'label', 'value' => 'debug',                          'type' => 'string'],
         ];
 

@@ -83,13 +83,10 @@ class ScopesMySQLIntegrationTest extends TestCase
      */
     private function ensureApplicationsTable(): void
     {
-        $this->db->query("CREATE TABLE IF NOT EXISTS `applications` (
-            `appid`     INT AUTO_INCREMENT PRIMARY KEY,
-            `name`      VARCHAR(191) NOT NULL,
-            `apikey`    VARCHAR(191) NOT NULL,
-            `apisecret` VARCHAR(191) NOT NULL DEFAULT '',
-            `status`    INT NOT NULL DEFAULT 0
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        // The canonical `applications`, from the migrations that build it in production. A hand-rolled
+        // CREATE TABLE IF NOT EXISTS here became the table for every class after it in a fresh
+        // database — with columns the migration defaults and this did not.
+        \Pramnos\Framework\Testing\Schema::table('applications', $this->db);
 
         try {
             $this->db->query("ALTER TABLE `applications` ADD COLUMN `scope` TEXT NULL");

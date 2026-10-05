@@ -69,23 +69,18 @@ class ForeignKeyGuardMigrationTest extends TestCase
     }
 
     /**
-     * Creates a minimal `users` table if the database has none.
+     * The `users` table, from the migration that builds it, if the database has none.
      *
-     * Just a primary key — this class asserts on a foreign key *to* `locations`, and nothing it
-     * does looks at any other column.
+     * This class asserts on a foreign key *to* `locations` and reads no other column, but the
+     * table outlives it: a stub `users (userid, username)` left in a database was the table
+     * every later class's User::setupDb() found and kept, and the Guest row it inserts has
+     * columns the stub lacked.
      *
      * @return void
      */
     private function ensureUsersTable(): void
     {
-        if ($this->tableExists('users')) {
-            return;
-        }
-
-        $this->statement(
-            'CREATE TABLE users (userid ' . $this->autoKey() . ', username VARCHAR(100))',
-            true
-        );
+        \Pramnos\Framework\Testing\Schema::table('users', $this->db);
     }
 
     protected function tearDown(): void

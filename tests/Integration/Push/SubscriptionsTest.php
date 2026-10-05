@@ -61,6 +61,11 @@ class SubscriptionsTest extends TestCase
             . $this->db->schema()->resolveTableName('pramnos.pushsubscriptions') . '`'
         );
 
+        // The core table the push log registers its retention in; a fresh database lacks it.
+
+        \Pramnos\Framework\Testing\Schema::ensure([\Pramnos\Framework\Migrations\Core\CreateFrameworkPoliciesTable::class], $this->db);
+
+
         foreach (MigrationLoader::loadFromDirectory(
             dirname(__DIR__, 3) . '/database/migrations/framework/notifications',
             $this->app

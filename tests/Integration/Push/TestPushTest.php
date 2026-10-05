@@ -52,6 +52,11 @@ class TestPushTest extends TestCase
         // Rebuilt from its migration every time, so a table left by an older shape cannot pass.
         $this->db->schema()->dropTableIfExists(TestPush::TABLE);
 
+        // The core table the push log registers its retention in; a fresh database lacks it.
+
+        \Pramnos\Framework\Testing\Schema::ensure([\Pramnos\Framework\Migrations\Core\CreateFrameworkPoliciesTable::class], $this->db);
+
+
         foreach (MigrationLoader::loadFromDirectory(dirname(__DIR__, 3) . '/database/migrations/framework/notifications', $app) as $migration) {
             if ($migration instanceof \Pramnos\Framework\Migrations\Notifications\CreatePushSubscriptionsTable
                 || $migration instanceof \Pramnos\Framework\Migrations\Notifications\CreatePushLogTable

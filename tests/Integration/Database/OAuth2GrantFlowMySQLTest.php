@@ -130,61 +130,15 @@ class OAuth2GrantFlowMySQLTest extends TestCase
     {
         // Full schema must match User::setupDb() exactly so that User::save()
         // can write all its fields if this test creates the table first.
-        $this->db->query("CREATE TABLE IF NOT EXISTS `users` (
-            `userid`          bigint(20)            NOT NULL AUTO_INCREMENT,
-            `username`        varchar(50)           NOT NULL DEFAULT '',
-            `password`        varchar(100)          NOT NULL DEFAULT '',
-            `email`           varchar(150)          NOT NULL DEFAULT '',
-            `lastname`        varchar(128)          NOT NULL DEFAULT '',
-            `firstname`       varchar(128)          NOT NULL DEFAULT '',
-            `regdate`         int(11)               NOT NULL DEFAULT '0',
-            `regcompletion`   int(10) UNSIGNED      DEFAULT NULL,
-            `lasttermsagreed` int(10) UNSIGNED      DEFAULT NULL,
-            `lastlogin`       int(11)               NOT NULL DEFAULT '0',
-            `active`          tinyint(1)            NOT NULL DEFAULT '1',
-            `validated`       tinyint(4)            NOT NULL DEFAULT '1',
-            `language`        varchar(50)           NOT NULL DEFAULT '',
-            `timezone`        char(3)               NOT NULL DEFAULT '',
-            `dateformat`      varchar(15)           NOT NULL DEFAULT 'd/m/Y H:i',
-            `usertype`        tinyint(4)            NOT NULL DEFAULT '0',
-            `sex`             tinyint(3) UNSIGNED   NOT NULL DEFAULT '0',
-            `birthdate`       bigint(20)            NOT NULL DEFAULT '0',
-            `photo`           int(11)               DEFAULT NULL,
-            `phone`           varchar(50)           NOT NULL DEFAULT '',
-            `mobile`          varchar(50)           NOT NULL DEFAULT '',
-            `fax`             varchar(50)           NOT NULL DEFAULT '',
-            `website`         varchar(255)          NOT NULL DEFAULT '',
-            `modified`        int(11)               NOT NULL DEFAULT '0',
-            PRIMARY KEY (`userid`)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8");
+        // The canonical `users`, from the migrations that build it in production. A hand-rolled
+        // CREATE TABLE IF NOT EXISTS here became the table for every class after it in a fresh
+        // database — with columns the migration defaults and this did not.
+        \Pramnos\Framework\Testing\Schema::table('users', $this->db);
 
-        $this->db->query("CREATE TABLE IF NOT EXISTS `usertokens` (
-            `tokenid`               INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
-            `userid`                BIGINT NOT NULL,
-            `tokentype`             VARCHAR(20) NOT NULL,
-            `token`                 TEXT NOT NULL,
-            `created`               INT NOT NULL DEFAULT 0,
-            `notes`                 VARCHAR(255) NOT NULL DEFAULT '',
-            `lastused`              INT NOT NULL DEFAULT 0,
-            `status`                TINYINT NOT NULL DEFAULT 1,
-            `parentToken`           INT NULL,
-            `applicationid`         INT NULL,
-            `actions`               INT NOT NULL DEFAULT 0,
-            `removedate`            INT NOT NULL DEFAULT 0,
-            `deviceinfo`            TEXT NULL,
-            `scope`                 TEXT NULL,
-            `expires`               INT NULL,
-            `ipaddress`             VARCHAR(45) NULL,
-            `code_challenge`        VARCHAR(128) NULL,
-            `code_challenge_method` VARCHAR(10)  NULL,
-            KEY `idx_usertokens_userid_status`  (`userid`, `status`),
-            KEY `idx_usertokens_type_status`    (`tokentype`, `status`),
-            KEY `idx_usertokens_applicationid`  (`applicationid`),
-            KEY `idx_usertokens_code_challenge` (`code_challenge`(128)),
-            CONSTRAINT `chk_code_challenge_method`
-                CHECK (`code_challenge_method` IS NULL
-                    OR `code_challenge_method` IN ('plain', 'S256'))
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        // The canonical `usertokens`, from the migrations that build it in production. A hand-rolled
+        // CREATE TABLE IF NOT EXISTS here became the table for every class after it in a fresh
+        // database — with columns the migration defaults and this did not.
+        \Pramnos\Framework\Testing\Schema::table('usertokens', $this->db);
     }
 
     /**
@@ -196,28 +150,10 @@ class OAuth2GrantFlowMySQLTest extends TestCase
      */
     protected function createOwnedTables(): void
     {
-        $this->db->query("CREATE TABLE IF NOT EXISTS `applications` (
-            `appid`           INT AUTO_INCREMENT PRIMARY KEY,
-            `name`            VARCHAR(191) NOT NULL,
-            `apikey`          VARCHAR(191) NOT NULL,
-            `apisecret`       VARCHAR(191) NOT NULL,
-            `status`          INT NOT NULL DEFAULT 0,
-            `added`           INT NOT NULL DEFAULT 0,
-            `description`     TEXT NULL,
-            `organization`    VARCHAR(191) NULL,
-            `organizationurl` VARCHAR(255) NULL,
-            `url`             VARCHAR(255) NULL,
-            `apptype`         INT NOT NULL DEFAULT 0,
-            `accesstype`      INT NOT NULL DEFAULT 0,
-            `apiversion`      VARCHAR(50) NULL,
-            `scope`           TEXT NULL,
-            `public`          INT NOT NULL DEFAULT 0,
-            `callback`        VARCHAR(255) NULL,
-            `owner`           INT NULL,
-            `public_key`      TEXT NULL,
-            `jwks_uri`        VARCHAR(500) NULL,
-            `systemuser`      BIGINT NULL
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        // The canonical `applications`, from the migrations that build it in production. A hand-rolled
+        // CREATE TABLE IF NOT EXISTS here became the table for every class after it in a fresh
+        // database — with columns the migration defaults and this did not.
+        \Pramnos\Framework\Testing\Schema::table('applications', $this->db);
 
         $this->db->query("CREATE TABLE IF NOT EXISTS `authserver_oauth2_device_codes` (
             `id`            INT NOT NULL AUTO_INCREMENT PRIMARY KEY,

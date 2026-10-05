@@ -1075,7 +1075,7 @@ class UserCoverageTest extends TestCase
     {
         // Arrange: create a user and a group
         $user    = $this->createUser();
-        $groupId = mt_rand(100, 9999);
+        $groupId = random_int(1_000_000, 2_000_000_000); // wide: INSERT IGNORE on a taken id silently used somebody else's group
 
         $this->db->query(
             "INSERT IGNORE INTO usergroups (groupid, name, description) VALUES ({$groupId}, 'TestGroup', '')"
@@ -1230,7 +1230,7 @@ class UserCoverageTest extends TestCase
         // Arrange: pick an ID that almost certainly doesn't exist in the test DB.
         // Wrap pre-cleanup in try/catch in case the tables don't exist yet
         // (can happen if a parallel characterization test dropped them).
-        $presetId = mt_rand(50000, 99999);
+        $presetId = random_int(1_000_000, 2_000_000_000);
         try {
             $this->db->query("DELETE FROM usertokens WHERE userid = {$presetId}");
             $this->db->query("DELETE FROM users WHERE userid = {$presetId}");

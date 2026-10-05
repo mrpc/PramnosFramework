@@ -209,6 +209,13 @@ class DatabaseChannelMySQLTest extends TestCase
 
     protected function runNotificationsMigration(): void
     {
+        // The core table the push log registers its retention in, which a database the core
+        // migrations have not reached does not have. A kept test database always had it; a
+        // fresh one failed here.
+        \Pramnos\Framework\Testing\Schema::ensure([
+            \Pramnos\Framework\Migrations\Core\CreateFrameworkPoliciesTable::class,
+        ], $this->db);
+
         $dir        = dirname(__DIR__, 3) . '/database/migrations/framework/notifications';
         $migrations = MigrationLoader::loadFromDirectory($dir, $this->app);
         foreach ($migrations as $m) {

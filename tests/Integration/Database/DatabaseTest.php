@@ -737,7 +737,7 @@ class DatabaseTest extends \PHPUnit\Framework\TestCase
             ['fieldName' => 'amount', 'value' => 9.99,             'type' => 'float'],
             ['fieldName' => 'qty',    'value' => 7,                'type' => 'integer'],
             ['fieldName' => 'active', 'value' => true,             'type' => 'boolean'],
-            ['fieldName' => 'code',   'value' => 'SELONE-' . mt_rand(100, 999), 'type' => 'string'],
+            ['fieldName' => 'code',   'value' => 'SELONE-' . bin2hex(random_bytes(6)), 'type' => 'string'],
         ]);
 
         // Act — selectOne with a string binding (covers string branch, line 2935)
@@ -882,7 +882,7 @@ class DatabaseTest extends \PHPUnit\Framework\TestCase
             ['fieldName' => 'amount', 'value' => 1.50,            'type' => 'float'],
             ['fieldName' => 'qty',    'value' => 3,               'type' => 'integer'],
             ['fieldName' => 'active', 'value' => false,           'type' => 'boolean'],
-            ['fieldName' => 'code',   'value' => 'SELONE-NB-' . mt_rand(100, 999), 'type' => 'string'],
+            ['fieldName' => 'code',   'value' => 'SELONE-NB-' . bin2hex(random_bytes(6)), 'type' => 'string'],
         ]);
 
         // Act — no bindings array
