@@ -64,9 +64,7 @@ class QueueManagerMySQLTest extends TestCase
         $this->app        = $this->makeApp();
         $this->controller = $this->makeController();
 
-        // Create queueitems table via the framework migration
-        $this->dropQueueTable();
-        $this->runQueueMigration();
+        $this->prepareQueueSchema();
 
         $this->manager = new QueueManager($this->controller);
         // The table was just rebuilt; the manager and the model must look at its columns again.
@@ -76,7 +74,61 @@ class QueueManagerMySQLTest extends TestCase
 
     protected function tearDown(): void
     {
+        // The tables stay for the next test; the class's end drops them.
+        self::$dropTables = fn () => $this->dropQueueTable();
+    }
+
+    /** Drops this class's tables when it ends, so no other class finds them. */
+    public static function tearDownAfterClass(): void
+    {
+        if (self::$dropTables !== null) {
+            try {
+                (self::$dropTables)();
+            } catch (\Throwable) {
+                // The connection went with the class: nothing to drop through.
+            }
+            self::$dropTables = null;
+        }
+        unset(self::$schemaBuilt[static::class]);
+        parent::tearDownAfterClass();
+    }
+
+    /** @var array<class-string, bool> Whether this class's tables are built and unchanged */
+    private static array $schemaBuilt = [];
+
+    /** @var (\Closure(): void)|null Drops the tables, through the last test's connection */
+    private static ?\Closure $dropTables = null;
+
+    /**
+     * The queue tables, built once per class and emptied for each test.
+     *
+     * Rebuilding them from the migrations before every test cost about 300 ms of DDL on
+     * MySQL — 27 s for this class, against 6 s for the same tests on PostgreSQL, and most
+     * of the difference. Schema once per class, data per test: the Testing Guide's advice,
+     * which this class predated. A test that changes the schema calls schemaChanged(), so
+     * the next one starts from the migrations again.
+     */
+    protected function prepareQueueSchema(): void
+    {
+        if (self::$schemaBuilt[static::class] ?? false) {
+            foreach (['queueitems', 'queuestats'] as $table) {
+                if ($this->db->schema()->hasTable($table)) {
+                    $this->db->queryBuilder()->table($table)->delete();
+                }
+            }
+
+            return;
+        }
+
         $this->dropQueueTable();
+        $this->runQueueMigration();
+        self::$schemaBuilt[static::class] = true;
+    }
+
+    /** This test changed the queue schema: the next one rebuilds it from the migrations. */
+    protected function schemaChanged(): void
+    {
+        self::$schemaBuilt[static::class] = false;
     }
 
     // -------------------------------------------------------------------------
@@ -1794,6 +1846,7 @@ class QueueManagerMySQLTest extends TestCase
         $this->seedFinishedTask('roll_nostats', 'completed', 1.0, 1.0);
 
         $quote = $this->db->type === 'postgresql' ? '"' : '`';
+        $this->schemaChanged();
         $this->db->query('DROP TABLE IF EXISTS ' . $quote . 'queuestats' . $quote
             . ($this->db->type === 'postgresql' ? ' CASCADE' : ''));
 
@@ -2138,6 +2191,7 @@ class QueueManagerMySQLTest extends TestCase
         // Arrange — the migration taken back
         require_once dirname(__DIR__, 3) . '/database/migrations/framework/queue/2026_10_02_000002_add_availableat_to_queueitems.php';
         (new \Pramnos\Framework\Migrations\Queue\AddAvailableatToQueueitems($this->app))->down();
+        $this->schemaChanged();
         QueueManager::forgetSchemaCache();
         // Run outside migrate, so nothing flushed the model's column cache for it.
         \Pramnos\Application\Model::$columnCache = [];

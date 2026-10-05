@@ -73,8 +73,7 @@ class QueueManagerPostgreSQLTest extends QueueManagerMySQLTest
         $this->app        = $this->makeApp();
         $this->controller = $this->makeController();
 
-        $this->dropQueueTable();
-        $this->runQueueMigration();
+        $this->prepareQueueSchema();
 
         $this->manager = new \Pramnos\Queue\QueueManager($this->controller);
         \Pramnos\Queue\QueueManager::forgetSchemaCache();
