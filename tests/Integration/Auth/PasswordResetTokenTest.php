@@ -189,7 +189,7 @@ class PasswordResetTokenTest extends BaseTestCase
         // Arrange
         $probe = $this->probe();
         $token = bin2hex(random_bytes(32));
-        $probe->probeStore($this->uid, hash('sha256', $token), time() - 1);
+        $probe->probeStore($this->uid, hash('sha256', $token), time() - 60); // well past, not a second: a clock stepped back undid a one-second expiry
 
         // Act
         $result = $probe->probeConsume($token);

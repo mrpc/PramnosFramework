@@ -99,7 +99,7 @@ class TreeTest extends TestCase
         $path = $this->root . '/no-such-file.php';
 
         // Act
-        $started = microtime(true);
+        $started = hrtime(true);
         $message = '';
 
         try {
@@ -108,7 +108,7 @@ class TreeTest extends TestCase
             $message = $ex->getMessage();
         }
 
-        $elapsed = microtime(true) - $started;
+        $elapsed = (hrtime(true) - $started) / 1e9;
 
         // Assert — captured and checked outside the catch, so a failed expectation here
         // is not swallowed by it
@@ -228,13 +228,13 @@ class TreeTest extends TestCase
         $this->assertGreaterThan(1, $attempts, 'a single attempt is not a retry');
 
         // Act
-        $start = microtime(true);
+        $start = hrtime(true);
         try {
             Tree::files($this->root . '/not-here');
         } catch (\RuntimeException) {
             // expected
         }
-        $elapsed = (microtime(true) - $start) * 1_000_000;
+        $elapsed = ((hrtime(true) - $start) / 1e9) * 1_000_000;
 
         // Assert — every pause between attempts happened, so every attempt followed it
         $this->assertGreaterThanOrEqual(
@@ -325,9 +325,9 @@ class TreeTest extends TestCase
             ->getValue();
 
         // Act
-        $start = microtime(true);
+        $start = hrtime(true);
         Tree::matching($this->root . '/*.nothing');
-        $elapsed = (microtime(true) - $start) * 1_000_000;
+        $elapsed = ((hrtime(true) - $start) / 1e9) * 1_000_000;
 
         // Assert
         $this->assertGreaterThanOrEqual(
@@ -351,9 +351,9 @@ class TreeTest extends TestCase
             ->getValue();
 
         // Act
-        $start = microtime(true);
+        $start = hrtime(true);
         Tree::matching($this->root . '/*.php');
-        $elapsed = (microtime(true) - $start) * 1_000_000;
+        $elapsed = ((hrtime(true) - $start) / 1e9) * 1_000_000;
 
         // Assert
         $this->assertLessThan($pause, $elapsed, 'a successful match paid the retry pause');

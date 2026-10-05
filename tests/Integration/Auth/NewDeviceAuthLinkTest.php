@@ -158,7 +158,7 @@ class NewDeviceAuthLinkTest extends BaseTestCase
         // Arrange
         $link  = new NewDeviceAuthLink($this->db);
         $token = $this->issue($link);
-        $this->setExpiry(time() - 1);
+        $this->setExpiry(time() - 60); // well past, not a second: a clock stepped back undid a one-second expiry
 
         // Act
         $result = $link->consume($token);

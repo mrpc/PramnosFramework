@@ -117,9 +117,9 @@ class InitDockertestTimerTest extends TestCase
         SH);
 
         // Act
-        $start = microtime(true);
+        $start = hrtime(true);
         $output = trim((string) shell_exec('bash ' . escapeshellarg($script) . ' 2>/dev/null'));
-        $elapsed = microtime(true) - $start;
+        $elapsed = (hrtime(true) - $start) / 1e9;
 
         // Assert
         $this->assertSame('hello', $output, 'the command substitution must capture the output');

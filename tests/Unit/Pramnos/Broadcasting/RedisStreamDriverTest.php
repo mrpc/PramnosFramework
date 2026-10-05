@@ -84,7 +84,6 @@ class FakeRedisStream
  * cursor arithmetic and the envelope, neither of which needs a live server.
  */
 #[CoversClass(RedisStreamDriver::class)]
-#[\PHPUnit\Framework\Attributes\Group('serial')]
 class RedisStreamDriverTest extends TestCase
 {
     /**
@@ -393,14 +392,21 @@ class RedisStreamDriverTest extends TestCase
         $driver = new RedisStreamDriver([], static fn (): object => $redis);
 
         $seen = 0;
+        // Past any deadline the driver can have set: it reads the clock after this line, so
+        // its deadline is at most one second later than this one's.
+        $pastTheDeadline = time() + 2;
 
         // Act — a one-second ceiling, and time() is already past it after the
         // first delivery
         $driver->subscribe(
             ['chat'],
-            static function () use (&$seen): bool {
+            static function () use (&$seen, $pastTheDeadline): bool {
                 $seen++;
-                sleep(1);   // push past the deadline mid-batch
+                // On the clock the driver reads, not sleep(1): a wall clock stepped
+                // backwards left the deadline unreached after a full second.
+                while (time() < $pastTheDeadline) {
+                    usleep(50_000);
+                }
                 return true;
             },
             new SubscriptionOptions(readTimeout: 1, maxRuntime: 1),

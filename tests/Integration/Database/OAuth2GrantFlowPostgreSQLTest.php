@@ -608,7 +608,7 @@ class OAuth2GrantFlowPostgreSQLTest extends TestCase
                  expires, notes, deviceinfo)
              VALUES (%d, 'access_token', %s, %d, 1, %d, %s, %d, %s, %s)",
             $userId, $accessToken, time(), $appId, 'openid',
-            time() - 1, 'intro-exp-client', '{}'
+            time() - 60, 'intro-exp-client', '{}'
         );
         $this->db->query($sql);
 

@@ -2077,7 +2077,7 @@ class QueueManagerMySQLTest extends TestCase
     private function makeAvailableNow(int $taskId): void
     {
         $this->db->queryBuilder()->table('queueitems')->where('taskid', $taskId)
-            ->update(['availableat' => date('Y-m-d H:i:s', time() - 1)]);
+            ->update(['availableat' => date('Y-m-d H:i:s', time() - 60)]);
     }
 
     /**

@@ -179,11 +179,11 @@ class FileAdapterGarbageCollectionTest extends TestCase
         $adapter = $this->adapter(false);
 
         // Act
-        $start = microtime(true);
+        $start = hrtime(true);
         for ($i = 0; $i < 20; $i++) {
             $adapter->clear('somecategory');
         }
-        $perCall = (microtime(true) - $start) * 1000 / 20;
+        $perCall = ((hrtime(true) - $start) / 1e9) * 1000 / 20;
 
         // Assert
         $this->assertLessThan(

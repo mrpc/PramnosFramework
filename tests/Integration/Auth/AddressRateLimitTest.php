@@ -166,12 +166,14 @@ class AddressRateLimitTest extends BaseTestCase
      */
     public function testAThresholdReachedAtTheEndOfTheWindowStillRefuses(): void
     {
-        // Arrange — two failures, then age them to the far edge of the window.
+        // Arrange — two failures, then age them to the far edge of the window. Ten seconds
+        // short of it rather than one: with one, a second ticking between the ageing and the
+        // third attempt, or the clock stepping, put the first failure outside the window.
         $this->lockout->recordFailedAttemptWithin(self::SCOPE, self::ADDRESS, 600, 3);
         $this->lockout->recordFailedAttemptWithin(self::SCOPE, self::ADDRESS, 600, 3);
-        $this->ageFirstFailureBy(599);
+        $this->ageFirstFailureBy(590);
 
-        // Act — the third arrives with a second of the window left.
+        // Act — the third arrives with ten seconds of the window left.
         $this->lockout->recordFailedAttemptWithin(self::SCOPE, self::ADDRESS, 600, 3);
 
         // Assert

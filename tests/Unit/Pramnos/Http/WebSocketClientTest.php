@@ -359,9 +359,9 @@ class WebSocketClientTest extends TestCase
         $client->connect();
 
         // Act
-        $started  = microtime(true);
+        $started  = hrtime(true);
         $messages = $client->read();
-        $elapsed  = microtime(true) - $started;
+        $elapsed  = (hrtime(true) - $started) / 1e9;
 
         // Assert
         $this->assertSame([], $messages);
@@ -669,7 +669,7 @@ class WebSocketClientTest extends TestCase
         };
 
         // Act
-        $started = microtime(true);
+        $started = hrtime(true);
         try {
             $client->connect();
             $this->fail('writing the handshake to a closed peer must fail');
@@ -679,7 +679,7 @@ class WebSocketClientTest extends TestCase
             // message instead of the subject's. Re-thrown, so the branch can fail.
             throw $assertionFailure;
         } catch (\RuntimeException $e) {
-            $elapsed = microtime(true) - $started;
+            $elapsed = (hrtime(true) - $started) / 1e9;
 
             // Assert
             $this->assertStringContainsString('closed after writing', $e->getMessage());
@@ -819,7 +819,7 @@ class WebSocketClientTest extends TestCase
         };
 
         // Act
-        $started = microtime(true);
+        $started = hrtime(true);
         try {
             $client->connect();
             $this->fail('a truncated handshake must be rejected');
@@ -831,7 +831,7 @@ class WebSocketClientTest extends TestCase
         } catch (\RuntimeException $e) {
             // Assert
             $this->assertStringContainsString('does not match the key sent', $e->getMessage());
-            $this->assertLessThan(1.0, microtime(true) - $started, 'EOF ends the read, no timeout wait');
+            $this->assertLessThan(1.0, (hrtime(true) - $started) / 1e9, 'EOF ends the read, no timeout wait');
         }
     }
 }
