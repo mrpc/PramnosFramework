@@ -860,6 +860,27 @@ class FullAuthorizationCodeFlowTest extends TestCase
     }
 
     /** Does the framework's own resource server accept this token? */
+    /**
+     * The resource server accepts a token whose times are a little ahead of its own clock.
+     *
+     * With no leeway, a token is refused when the server checking it is a second behind the
+     * one that issued it — a resource server on another host, or this host after its clock is
+     * corrected backwards. That is what made this suite's PKCE exchange fail now and then on
+     * a virtual machine: issued at one second, "not yet valid" the next. The framework's own
+     * JWT middleware have always allowed 60 seconds; this is the same allowance.
+     */
+    public function testTheResourceServerToleratesASmallClockSkew(): void
+    {
+        // Act
+        $server    = $this->factory()->createResourceServer();
+        $validator = (new \ReflectionMethod($server, 'getAuthorizationValidator'))->invoke($server);
+        $leeway    = (new \ReflectionProperty($validator, 'jwtValidAtDateLeeway'))->getValue($validator);
+
+        // Assert
+        $this->assertInstanceOf(\DateInterval::class, $leeway, 'tokens are checked against the clock with no allowance');
+        $this->assertSame(OAuth2ServerFactory::CLOCK_LEEWAY_SECONDS, $leeway->s);
+    }
+
     private function tokenIsAccepted(string $accessToken): bool
     {
         try {

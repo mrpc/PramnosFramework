@@ -200,13 +200,29 @@ class OAuth2ServerFactory
     }
 
     /**
+     * How far a token's `iat`/`nbf` may be ahead of this server's clock.
+     *
+     * The same 60 seconds the framework's own JWT middleware allow (`JWT::$leeway`). Without
+     * it, a token is refused when the server checking it is a second behind the one that
+     * issued it: a resource server on another host, or this one after the clock is corrected
+     * backwards — which a virtual machine's clock is, routinely.
+     */
+    public const CLOCK_LEEWAY_SECONDS = 60;
+
+    /**
      * Build and return the Resource Server for validating access tokens.
      */
     public function createResourceServer(): ResourceServer
     {
+        $tokens = new AccessTokenRepository($this->controller);
+
         return new ResourceServer(
-            new AccessTokenRepository($this->controller),
-            new CryptKey($this->publicKeyPath, null, false)
+            $tokens,
+            new CryptKey($this->publicKeyPath, null, false),
+            new \League\OAuth2\Server\AuthorizationValidators\BearerTokenValidator(
+                $tokens,
+                new \DateInterval('PT' . self::CLOCK_LEEWAY_SECONDS . 'S')
+            )
         );
     }
 

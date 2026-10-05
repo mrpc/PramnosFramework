@@ -1243,6 +1243,14 @@ try {
 }
 ```
 
+**OAuth2 access tokens get the same 60 seconds.** The resource server that
+`OAuth2ServerFactory::createResourceServer()` builds accepts a token whose `iat` or `nbf`
+is up to `OAuth2ServerFactory::CLOCK_LEEWAY_SECONDS` ahead of its own clock. Without that
+allowance, a token is refused as "not yet valid" whenever the server that checks it is a
+second behind the one that issued it. That happens with a resource server on another host,
+or on the same host after its clock is corrected backwards, which a virtual machine's
+clock routinely is. Expiry is checked with the same allowance.
+
 ### API Authentication with JWT
 
 ```php
