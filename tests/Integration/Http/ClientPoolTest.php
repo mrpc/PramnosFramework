@@ -304,9 +304,11 @@ class ClientPoolTest extends TestCase
         }
 
         // Act
-        $started   = microtime(true);
+        // hrtime: the wall clock is corrected in steps on a virtual machine, and a step back
+        // once measured this as -0.2 s.
+        $started   = hrtime(true);
         $responses = Client::pool($urls, concurrency: 4);
-        $elapsed   = microtime(true) - $started;
+        $elapsed   = (hrtime(true) - $started) / 1e9;
 
         // Assert — all four answered …
         $this->assertCount(4, $responses);
@@ -338,9 +340,9 @@ class ClientPoolTest extends TestCase
         }
 
         // Act
-        $started = microtime(true);
+        $started = hrtime(true);
         $responses = Client::pool($urls, concurrency: 1);
-        $elapsed = microtime(true) - $started;
+        $elapsed = (hrtime(true) - $started) / 1e9;
 
         // Assert
         $this->assertCount(3, $responses);

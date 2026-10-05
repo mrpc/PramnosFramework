@@ -18,7 +18,7 @@ class MigrateLogs extends Command
     /**
      * Command configuration
      */
-    protected function configure()
+    protected function configure(): void
     {
         $this->setName('logs:convert');
         $this->setDescription('Migrate log files to structured format');

@@ -15,7 +15,7 @@ class Serve extends Command
     /**
      * Command configuration
      */
-    protected function configure()
+    protected function configure(): void
     {
         $this->setName('serve');
         $this->setDescription('Run a local server');
@@ -37,7 +37,7 @@ class Serve extends Command
      * @param InputInterface $input
      * @param OutputInterface $output
      */
-    protected function execute(InputInterface $input, OutputInterface $output)
+    protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $port = $input->getOption('port');
         $host = $input->getOption('host');

@@ -1919,7 +1919,7 @@ use Symfony\Component\Console\Input\InputOption;
 
 class CustomCommand extends Command
 {
-    protected function configure()
+    protected function configure(): void
     {
         $this->setName('custom:task');
         $this->setDescription('Execute custom task');
@@ -1929,7 +1929,7 @@ class CustomCommand extends Command
         $this->addOption('option', 'o', InputOption::VALUE_OPTIONAL, 'Optional parameter');
     }
 
-    protected function execute(InputInterface $input, OutputInterface $output)
+    protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $parameter = $input->getArgument('parameter');
         $option = $input->getOption('option');
@@ -1942,6 +1942,12 @@ class CustomCommand extends Command
     }
 }
 ```
+
+**`execute()` returns an `int` on every path**: `Command::SUCCESS`, `Command::FAILURE` or
+another exit code. symfony/console 6 raises a `TypeError` when it returns nothing, and a bare
+`return;` on an error path is the usual way that happens. Declare `: int` on `execute()` and
+`: void` on `configure()`. symfony/console 7 requires both, and a command declared this way
+works on every version the framework supports.
 
 ## Best Practices
 
