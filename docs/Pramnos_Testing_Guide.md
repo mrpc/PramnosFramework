@@ -955,6 +955,12 @@ class WidgetsMySQLTest extends DatabaseTestCase
 | `tearDown()` | Closes the connection |
 | `tearDownAfterClass()` | Drops the owned tables |
 
+**A test that changes the shape calls `$this->schemaChanged()`.** That covers adding a
+column, dropping a table and installing a trigger: anything the next test would otherwise
+inherit. The next `setUp()` then drops the owned tables and runs the DDL again. Without
+it, the tests after the change pass or fail depending on the order they run in. If every
+test in a class changes the shape, call it from `tearDown()`.
+
 Foreign keys between owned tables are handled: the drops and deletes run with
 `FOREIGN_KEY_CHECKS = 0` on MySQL, and `ownedTables()` is ordered so PostgreSQL is satisfied
 without disabling anything. Override `setUp()`/`tearDown()` freely — just call `parent::`.

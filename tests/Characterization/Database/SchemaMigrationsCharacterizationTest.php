@@ -198,9 +198,11 @@ class SchemaMigrationsCharacterizationTest extends TestCase
                 $this->db->statement("DROP TABLE IF EXISTS {$table}");
             }
 
-            // Step 3 — drop all stub tables created in setUp without CASCADE.
-            // All FK constraints that could cause cascade propagation were removed in
-            // step 1, so a plain DROP TABLE is safe and will not touch any other table.
+            // Step 3 — drop all stub tables created in setUp. CASCADE, because another
+            // class's table can hold a foreign key to one of these — `userstogroups` to
+            // `users` — which step 1 does not know about, and the drop then failed. On
+            // PostgreSQL CASCADE drops the dependent constraints and views, never the
+            // tables that hold them.
             foreach ([
                 '"public"."user_activity_log"',
                 '"public"."gdpr_requests"',
@@ -213,7 +215,7 @@ class SchemaMigrationsCharacterizationTest extends TestCase
                 '"public"."users"',
                 '"public"."applications"',
             ] as $table) {
-                $this->db->statement("DROP TABLE IF EXISTS {$table}");
+                $this->db->statement("DROP TABLE IF EXISTS {$table} CASCADE");
             }
         }
 

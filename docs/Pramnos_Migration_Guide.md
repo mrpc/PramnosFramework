@@ -437,6 +437,25 @@ framework table exists in an application that does not run the framework's
 migrations wholesale. Verified by
 `LegacyLedgerAdoptionTest::testAnEmptyMigrationCanAdoptAFrameworkMigrationByDependency()`.
 
+### A ledger an application made itself
+
+The legacy `Application::runMigration()` path writes only `key`, and the table it writes to
+was created by each application's own installer. So an installation that came from it can
+have a `schemaversion` with `key` and nothing else: no `when`, no `extra`, no unique index.
+The runner completes it on its first run:
+- it adds every column it records, `when` and `extra` included;
+- it adds a unique index on `key` when there is none, because PostgreSQL's
+  `ON CONFLICT` refuses to run without one.
+
+A ledger whose keys already repeat cannot take that index. On MySQL, where the upsert works
+without it, the ledger is left as it is and migrations still run. On PostgreSQL the repeats
+have to be removed first:
+
+```sql
+DELETE FROM schemaversion a USING schemaversion b
+ WHERE a.ctid < b.ctid AND a."key" = b."key";
+```
+
 ### The ledger's name, on an installation with a prefix
 
 `schemaversion` is resolved through the installation's table prefix, so on a site

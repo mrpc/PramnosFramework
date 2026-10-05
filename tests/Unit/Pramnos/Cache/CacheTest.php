@@ -385,6 +385,23 @@ class CacheTest extends TestCase
     }
 
     /**
+     * Skip when another test has loaded a double for \\Memcache or \\Memcached.
+     *
+     * MemcacheAdapterTest and MemcachedAdapterTest declare stand-in classes, and a class
+     * cannot be undeclared: for the rest of the process the adapter "connects" through the
+     * double. These cases assert what happens with no such extension, which a process
+     * holding the doubles cannot show — so they say so rather than assert something else.
+     */
+    private function skipIfAMemcacheDoubleIsLoaded(): void
+    {
+        foreach (['Memcache', 'Memcached'] as $class) {
+            if (class_exists($class, false) && (new \ReflectionClass($class))->isUserDefined()) {
+                $this->markTestSkipped('A test double for \\' . $class . ' is loaded in this process.');
+            }
+        }
+    }
+
+    /**
      * A cache that cannot be reached becomes a local one, not a different technology.
      *
      * This asserted the old ladder — redis → memcached → memcache → file, applied
@@ -405,6 +422,8 @@ class CacheTest extends TestCase
      */
     public function testAnUnreachableCacheFallsToTheLocalDiskNotToAnotherServer(): void
     {
+        $this->skipIfAMemcacheDoubleIsLoaded();
+
         // Act + Assert
         $cacheRedis = new Cache(null, null, 'redis');
         $this->assertSame('file', $cacheRedis->getAdapter()->getStats()['method']);
@@ -423,6 +442,8 @@ class CacheTest extends TestCase
      */
     public function testTheLadderStillWorksWhenTheInstallationAsksForIt(): void
     {
+        $this->skipIfAMemcacheDoubleIsLoaded();
+
         // Arrange
         $app = \Pramnos\Application\Application::getInstance();
         $saved = $app->applicationInfo['cache'] ?? null;

@@ -135,6 +135,10 @@ class WebhookSubscriptionTest extends BaseTestCase
             \Pramnos\Framework\Migrations\AuthServer\AddRegisteredByToOauth2WebhookEndpoints::class,
         ], $this->db);
 
+        // The tokens that say a user uses the application, in their shipped shape: the class
+        // writes into `usertokens` and used to take whatever an earlier class had left.
+        \Pramnos\Framework\Testing\Schema::table('usertokens', $this->db);
+
         $this->appId = 4242;
     }
 

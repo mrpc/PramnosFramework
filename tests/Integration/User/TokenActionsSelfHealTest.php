@@ -113,6 +113,10 @@ class TokenActionsSelfHealTest extends DatabaseTestCase
         $singleton = &Factory::getDatabase();
         $singleton = null;
 
+        // Every test here repairs the table — that is what is under test — so the next one
+        // must start from the old shape again rather than from the repaired one.
+        $this->schemaChanged();
+
         parent::tearDown();
     }
 

@@ -1003,6 +1003,8 @@ class FullAuthorizationCodeFlowTest extends TestCase
             // A client's own token lifetimes.
             \Pramnos\Framework\Migrations\AuthServer\AddTokenLifetimesToApplications::class,
             \Pramnos\Framework\Migrations\Oauth\CreateOauthconnectionsTable::class,
+            // A refresh holds a lock in `pramnos.locks`, and refuses to go ahead without one.
+            \Pramnos\Framework\Migrations\Core\CreateLocksTable::class,
         ], $this->db);
 
         foreach (['users', 'usertokens', 'applications', 'oauthconnections'] as $table) {

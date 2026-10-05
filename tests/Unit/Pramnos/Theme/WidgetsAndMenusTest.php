@@ -70,6 +70,17 @@ class WidgetsAndMenusTest extends TestCase
      *
      * @return Theme The theme under test
      */
+    /**
+     * Forget the widgets a test stored: the setting is process-wide, and the empty-area test
+     * that ran after the one that stored them found a sidebar with something in it.
+     */
+    protected function tearDown(): void
+    {
+        \Pramnos\Application\Settings::deleteSetting('theme_default_widgets');
+
+        parent::tearDown();
+    }
+
     private function makeTheme(): Theme
     {
         return new Theme('default', '', $this->createMock(\Pramnos\Application\Application::class));

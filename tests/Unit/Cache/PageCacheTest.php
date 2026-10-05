@@ -56,6 +56,9 @@ class PageCacheTest extends TestCase
 
         PageCache::resetRuntime();
         Request::resetInstance();
+        // Some tests here register toolbar collectors, and with any registered the cache
+        // stores nothing — so each test starts without them.
+        \Pramnos\Debug\DebugBar::reset();
 
         $this->staticRoot = sys_get_temp_dir() . '/pagecache-static-' . getmypid();
     }

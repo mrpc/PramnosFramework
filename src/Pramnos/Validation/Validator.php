@@ -785,10 +785,12 @@ class Validator
      */
     public static function &getInstance()
     {
-        static $instance;
-        if (!is_object($instance)) {
-            $instance = new static();
-        }
-        return $instance;
+        // One per class. A method's static is shared with every subclass since PHP 8.1, so a
+        // single slot handed the deprecated `General\Validator` whichever of the two was
+        // asked for first.
+        static $instances = [];
+        $instances[static::class] ??= new static();
+
+        return $instances[static::class];
     }
 }

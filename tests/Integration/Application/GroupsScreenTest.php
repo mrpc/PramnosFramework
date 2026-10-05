@@ -626,6 +626,7 @@ class GroupsScreenTest extends TestCase
         $this->boot($type, $host, $port, $user);
         $groupId = $this->group('Plain');
         $this->db->schema()->dropTableIfExists('authserver.group_roles');
+        $this->probeChanged($type); // the next test rebuilds what this one dropped
         $_GET['_option'] = $groupId;
 
         // Act

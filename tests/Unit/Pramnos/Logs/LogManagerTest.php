@@ -154,11 +154,14 @@ class LogManagerTest extends TestCase
     #[Test]
     public function testSearchInLogs(): void
     {
-        $this->createTestLog('search_a', "line one\nerror occurred here\nline three");
+        // A word no other log can contain: the directory is the shared one, and other
+        // tests' logs say "error" too — nine of them, in one order.
+        $marker = 'zqmarker' . bin2hex(random_bytes(4));
+        $this->createTestLog('search_a', "line one\n{$marker} occurred here\nline three");
         $this->createTestLog('search_b', "line one\nall systems stable\nline three");
 
         // Case insensitive search
-        $results = LogManager::searchInLogs('ERROR');
+        $results = LogManager::searchInLogs(strtoupper($marker));
         $this->assertCount(1, $results);
         $this->assertEquals('search_a.log', $results[0]['file']);
         $this->assertEquals(1, $results[0]['count']);
@@ -168,7 +171,7 @@ class LogManagerTest extends TestCase
         $this->assertTrue($match['context'][2]['match']);
 
         // Case sensitive search
-        $resultsSensitive = LogManager::searchInLogs('ERROR', null, 2, true);
+        $resultsSensitive = LogManager::searchInLogs(strtoupper($marker), null, 2, true);
         $this->assertEmpty($resultsSensitive);
         
         // Search specific files

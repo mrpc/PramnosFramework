@@ -950,6 +950,26 @@ class DatabaseAdditionalCoverageTest extends TestCase
     }
 
     /**
+     * A `database` setting that is a plain name — the flat shape — configures nothing.
+     *
+     * The flat shape keeps `hostname`, `user` and the rest at the top level, so `database`
+     * there is just the name. Read as a connection block it raised a warning per key and
+     * left every field null; it is now the same answer as no block at all.
+     */
+    public function testConstructWithAFlatDatabaseNameConfiguresNothing(): void
+    {
+        // Arrange
+        $settings = $this->makeSettingsStub('legacy_db');
+
+        // Act — PHPUnit fails the test on the warning the old code raised
+        $db = new Database($settings);
+
+        // Assert — the defaults, untouched
+        $this->assertSame((new Database())->server, $db->server);
+        $this->assertSame((new Database())->database, $db->database);
+    }
+
+    /**
      * __construct() with a Settings object that has only a read config (no write)
      * falls back to using readConfig for the base settings.
      *

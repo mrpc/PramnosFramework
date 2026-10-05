@@ -69,6 +69,8 @@ final class Schema
             \Pramnos\Framework\Migrations\AuthServer\AddExtendedInfoToApplications::class,
             \Pramnos\Framework\Migrations\AuthServer\AddBroadcastSecretToApplications::class,
             \Pramnos\Framework\Migrations\AuthServer\AddIsConfidentialToApplications::class,
+            \Pramnos\Framework\Migrations\AuthServer\AddTrustedToApplications::class,
+            \Pramnos\Framework\Migrations\AuthServer\AddTokenLifetimesToApplications::class,
         ],
         /*
          * The table's own shape, and not the foreign keys.
@@ -86,6 +88,7 @@ final class Schema
         'usertokens' => [
             \Pramnos\Framework\Migrations\Auth\CreateUsertokensTable::class,
             \Pramnos\Framework\Migrations\Auth\AddTokenLookupToUsertokens::class,
+            \Pramnos\Framework\Migrations\Auth\AddOidcContextToUsertokens::class,
         ],
         /*
          * Keys and indexes come from the same `core/` sweeps as usertokens', for the same
@@ -109,6 +112,15 @@ final class Schema
          * needs it — and a suite that dropped it earlier in the run left those tests answering
          * "the database refused the query" with nothing to say which table.
          */
+        /*
+         * The authserver permission store. Several classes hand-built a smaller copy to test
+         * one read against, and a write that names `granted_by` was then refused by whichever
+         * copy happened to be there.
+         */
+        'authserver.permissions' => [
+            \Pramnos\Framework\Migrations\AuthServer\CreateAuthserverPermissionsTable::class,
+            \Pramnos\Framework\Migrations\AuthServer\AddAudienceAndConditionsToPermissions::class,
+        ],
         'settings' => [
             \Pramnos\Framework\Migrations\Core\CreateSettingsTable::class,
             \Pramnos\Framework\Migrations\Core\AddUniqueConstraintToSettingsTable::class,
@@ -137,6 +149,13 @@ final class Schema
 
         $db ??= Factory::getDatabase();
 
+        // What its foreign keys point at, first. On an empty database `usertokens` failed on
+        // PostgreSQL with "relation users does not exist", because its create migration adds
+        // the key; on a kept one, some earlier class had always built `users` already.
+        foreach (self::REQUIRES[$name] ?? [] as $required) {
+            self::table($required, $db);
+        }
+
         /*
          * A table that exists without its defining column is somebody's stub, not this one.
          *
@@ -156,6 +175,16 @@ final class Schema
     }
 
     /**
+     * The recipe tables another recipe table's foreign keys point at.
+     *
+     * @var array<string, list<string>>
+     */
+    private const REQUIRES = [
+        'usertokens'  => ['users', 'applications'],
+        'userdetails' => ['users'],
+    ];
+
+    /**
      * A column every real copy of the table has, so a stub without it is recognised. Tables
      * with no entry are taken as they are found.
      */
@@ -165,6 +194,8 @@ final class Schema
         'users'        => 'username',
         'userdetails'  => 'fieldname',
         'settings'     => 'setting',
+        // A column the stubs left out and every write sets.
+        'authserver.permissions' => 'granted_by',
     ];
 
     /**

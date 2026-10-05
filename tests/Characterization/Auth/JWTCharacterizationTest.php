@@ -16,6 +16,15 @@ use PHPUnit\Framework\TestCase;
  */
 class JWTCharacterizationTest extends TestCase
 {
+    /**
+     * Start with no leeway too, not only end with none: the API middleware set 60 on the
+     * shared static, and the first test here inherited it from whichever class ran before.
+     */
+    protected function setUp(): void
+    {
+        JWT::$leeway = 0;
+    }
+
     protected function tearDown(): void
     {
         // Arrange

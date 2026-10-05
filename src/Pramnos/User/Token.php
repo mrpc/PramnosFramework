@@ -680,6 +680,21 @@ class Token extends \Pramnos\Framework\Base
      * @param  \Pramnos\Database\Database $database
      * @return bool
      */
+    /**
+     * Forget what this process learned about the `usertokens` table's columns.
+     *
+     * The answer is kept for the life of the process, which is right in a request: a column
+     * does not disappear underneath it. A test suite rebuilds the table between classes, and
+     * a class then wrote `token_lookup` into a table built without it, because an earlier
+     * class's table had one. Call this after changing the table's shape.
+     *
+     * @return void
+     */
+    public static function forgetSchemaCache(): void
+    {
+        self::$hasLookupColumn = null;
+    }
+
     private static function usertokensHasLookupColumn($database): bool
     {
         if (self::$hasLookupColumn === null) {

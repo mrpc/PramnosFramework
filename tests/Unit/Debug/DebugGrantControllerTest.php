@@ -31,6 +31,10 @@ class DebugGrantControllerTest extends TestCase
     {
         $this->originalKey = getenv('APP_KEY') === false ? null : (string) getenv('APP_KEY');
         $this->withKey('test-key-for-debug-grant');
+        // No grant from the test before: the screen shows a different page while one is live,
+        // so the test that read the off screen failed after the one that turned it on.
+        unset($_COOKIE[\Pramnos\Debug\DebugAccess::COOKIE]);
+        \Pramnos\Debug\DebugAccess::reset();
     }
 
     protected function tearDown(): void

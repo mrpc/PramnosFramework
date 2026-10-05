@@ -504,6 +504,7 @@ class LogControllerTest extends TestCase
     {
         // Arrange
         $ctrl = new TestableLogController(null);
+        $ctrl->application = null; // the constructor fills a null one in from the process
 
         // Act
         $ctrl->viewer();
@@ -707,6 +708,7 @@ class LogControllerTest extends TestCase
     {
         // Arrange
         $ctrl = new TestableLogController(null);
+        $ctrl->application = null; // the constructor fills a null one in from the process
 
         // Act
         $ctrl->stats();
@@ -892,6 +894,7 @@ class LogControllerTest extends TestCase
     {
         // Arrange
         $ctrl = new TestableLogController(null);
+        $ctrl->application = null; // the constructor fills a null one in from the process
 
         // Act
         $ctrl->archive();
@@ -992,8 +995,10 @@ class LogControllerTest extends TestCase
      */
     public function testSearchWithoutApplication(): void
     {
-        // Arrange
+        // Arrange — and really without one: the constructor fills a null application in from
+        // the process, so this test used to run against whichever application was current.
         $ctrl = new TestableLogController(null);
+        $ctrl->application = null; // the constructor fills a null one in from the process
         $_POST['query'] = 'Error';
 
         // Act
@@ -1131,6 +1136,7 @@ class LogControllerTest extends TestCase
     {
         // Arrange
         $ctrl = new TestableLogController(null);
+        $ctrl->application = null; // the constructor fills a null one in from the process
 
         // Act
         $ctrl->rotate();
@@ -1173,6 +1179,7 @@ class LogControllerTest extends TestCase
     {
         // Arrange
         $ctrl = new TestableLogController(null);
+        $ctrl->application = null; // the constructor fills a null one in from the process
 
         // Act
         $ctrl->export();
@@ -1678,6 +1685,7 @@ class LogControllerTest extends TestCase
     {
         // Arrange
         $ctrl = new TestableLogController(null);
+        $ctrl->application = null; // the constructor fills a null one in from the process
 
         // Act
         $ctrl->dashboard();
@@ -1822,6 +1830,7 @@ class LogControllerTest extends TestCase
     {
         // Arrange
         $ctrl = new TestableLogController(null);
+        $ctrl->application = null; // the constructor fills a null one in from the process
 
         // Act
         $ctrl->filter();

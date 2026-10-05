@@ -411,7 +411,7 @@ class TokenActionPostgreSQLTest extends TestCase
         // and the next class's User::setupDb() kept it.
         \Pramnos\Framework\Testing\Schema::table('users', $this->db);
 
-        $this->loadMigrationClass($authDir . '/2020_01_01_000014_create_usertokens_table.php');
+        \Pramnos\Framework\Testing\Schema::table('usertokens', $this->db); // every migration of the table, not the create alone
         $this->loadMigrationClass($authDir . '/2020_01_01_000015_create_urls_table.php');
         $this->loadMigrationClass($authDir . '/2020_01_01_000016_create_tokenactions_table.php');
     }

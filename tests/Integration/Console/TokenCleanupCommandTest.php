@@ -63,9 +63,8 @@ class TokenCleanupCommandTest extends BaseTestCase
         }
         $app->database = $this->db;
 
-        $this->runMigrations([
-            \Pramnos\Framework\Migrations\Auth\CreateUsertokensTable::class,
-        ], $this->db);
+        // From the migrations, with the tables its foreign keys point at.
+        \Pramnos\Framework\Testing\Schema::table('usertokens', $this->db);
 
         $this->deleteOwnRows();
     }
@@ -99,19 +98,12 @@ class TokenCleanupCommandTest extends BaseTestCase
     /**
      * An owner for the tokens, because `usertokens.userid` is a foreign key.
      *
-     * Whichever account the fixtures happen to have; this test is about the timestamps, not about
-     * who holds the token.
+     * A user of this test's own, erased when it ends: this test is about the timestamps, not
+     * about who holds the token, and a fresh database has nobody else to lend one.
      */
     private function anyUserId(): int
     {
-        $row = $this->db->query('SELECT MIN(userid) AS userid FROM ' . $this->db->prefix . 'users');
-        $id  = (int) ($row->fields['userid'] ?? 0);
-
-        if ($id === 0) {
-            $this->markTestSkipped('No user in the fixtures to own a token.');
-        }
-
-        return $id;
+        return $this->createTestUser();
     }
 
     /**

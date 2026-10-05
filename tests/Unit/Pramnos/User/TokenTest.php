@@ -57,6 +57,9 @@ class TokenTest extends TestCase
         foreach (self::schemaStatements($db) as $statement) {
             $db->query($statement);
         }
+        // This class's usertokens has no token_lookup; Token must ask again rather than keep
+        // the answer an earlier class's table gave.
+        \Pramnos\User\Token::forgetSchemaCache();
 
         self::releaseDatabase();
     }
@@ -190,6 +193,11 @@ class TokenTest extends TestCase
         if (!defined('CONFIG')) {
             define('CONFIG', 'tests' . DS . 'fixtures' . DS . 'app');
         }
+
+        // The request object, built now rather than inside addAction(): its constructor
+        // reads the method from $_SERVER, so a test that sets Request::$requestMethod first
+        // had it overwritten whenever no earlier class had built one.
+        \Pramnos\Framework\Factory::getRequest();
 
         // addAction() buffers its row through WriteSpool. These tests read the
         // row back immediately, and the spool directory is shared, so a drain

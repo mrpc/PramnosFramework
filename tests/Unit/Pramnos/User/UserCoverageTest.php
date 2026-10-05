@@ -125,6 +125,17 @@ class UserCoverageTest extends TestCase
             $this->db->query('SET FOREIGN_KEY_CHECKS=1');
         }
 
+        // `userfriends` on every test, not only when `users` is missing: a test here drops it
+        // when it finishes, so whichever friends test ran after that one found no table.
+        $this->db->query(
+            "CREATE TABLE IF NOT EXISTS `userfriends` (
+                `from_userid` BIGINT NOT NULL,
+                `to_userid`   BIGINT NOT NULL,
+                `confirm`     TINYINT(1) DEFAULT 0,
+                PRIMARY KEY (`from_userid`, `to_userid`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
+        );
+
         // Clear the static user caches between tests so load() always hits
         // the database and coverage lines inside the cache branches are
         // exercised predictably.

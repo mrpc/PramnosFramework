@@ -77,6 +77,8 @@ class ApiLoginIssuesAWorkingTokenTest extends BaseTestCase
             \Pramnos\Framework\Migrations\Auth\CreateLoginlockoutTable::class,
             \Pramnos\Framework\Migrations\Auth\CreateUsertokensTable::class,
             \Pramnos\Framework\Migrations\Auth\AddTokenLookupToUsertokens::class,
+            // Asked by LoginFlow whether the account has a passkey, on every sign-in.
+            \Pramnos\Framework\Migrations\AuthServer\CreatePasskeyCredentialsTable::class,
         ], $this->db);
 
         User::clearUserCache();

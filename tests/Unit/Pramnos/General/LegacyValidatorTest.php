@@ -202,4 +202,27 @@ class LegacyValidatorTest extends TestCase
         // Assert
         $this->assertInstanceOf(LegacyValidator::class, $instance);
     }
+
+    /**
+     * Each class gets its own instance, whichever is asked for first.
+     *
+     * A method's static variable is shared with subclasses since PHP 8.1, so one slot made
+     * the answer depend on call order: the new class first, and the legacy class handed
+     * back an instance of the new one — or the other way round.
+     */
+    public function testEachClassGetsItsOwnInstanceWhicheverComesFirst(): void
+    {
+        // Arrange
+        set_error_handler(fn() => true);
+
+        // Act — the new class first, which is the order that broke
+        $current = \Pramnos\Validation\Validator::getInstance();
+        $legacy  = LegacyValidator::getInstance();
+
+        restore_error_handler();
+
+        // Assert
+        $this->assertSame(\Pramnos\Validation\Validator::class, $current::class);
+        $this->assertInstanceOf(LegacyValidator::class, $legacy);
+    }
 }

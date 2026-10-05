@@ -119,11 +119,13 @@ class SessionRevocationTest extends BaseTestCase
      */
     private function migrateTables(): void
     {
-        foreach (['#PREFIX#sessions', '#PREFIX#usertokens'] as $table) {
-            $this->db->query(
-                'DROP TABLE IF EXISTS ' . $this->db->schema()->quoteTable($table)
-            );
-        }
+        // `sessions` is dropped; `usertokens` is not. Other classes' tables hold foreign keys to
+        // it — `tokenactions` among them — and the drop failed whenever one had run first.
+        // Testing\Schema::table() brings an existing table to its full shape instead.
+        $this->db->query(
+            'DROP TABLE IF EXISTS ' . $this->db->schema()->quoteTable('#PREFIX#sessions')
+        );
+        \Pramnos\Framework\Testing\Schema::table('usertokens', $this->db);
 
         $this->runMigrations([
             \Pramnos\Framework\Migrations\Core\CreateSessionsTable::class,
@@ -180,12 +182,20 @@ class SessionRevocationTest extends BaseTestCase
         parent::tearDown();
     }
 
-    /** Distinct per row: `visitorid` is this table's primary key, not a spare column. */
-    private int $nextVisitorId = 900001;
+    /**
+     * Distinct per row: `visitorid` is this table's primary key, not a spare column.
+     *
+     * Started at a random point rather than at 900001: rows another test left at those ids
+     * made the first insert a duplicate key, in some orders and not others.
+     */
+    private int $nextVisitorId = 0;
 
     /** Put a `sessions` row in place, as the session handler would. */
     private function openSession(string $sid, int $userid, int $loggedOut = 0): void
     {
+        if ($this->nextVisitorId === 0) {
+            $this->nextVisitorId = random_int(100_000_000, 1_000_000_000);
+        }
         /*
          * The shipped column names, not the obvious ones.
          *
@@ -638,7 +648,9 @@ class SessionRevocationTest extends BaseTestCase
             'created'     => time(),
             'lastused'    => time(),
             'expires'     => time() + 86400,
-            'parentToken' => $parent ?? 0,
+            // NULL when there is none, as writeToken() leaves it: 0 is a token that does not
+            // exist, which the self-referencing foreign key refuses.
+            'parentToken' => $parent,
             /*
              * Every NOT NULL column that has no default, taken from the shipped migration rather
              * than discovered one refusal at a time.

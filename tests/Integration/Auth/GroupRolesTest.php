@@ -381,6 +381,7 @@ class GroupRolesTest extends TestCase
 
         // Act — no organisations on this installation.
         $this->db->schema()->dropTableIfExists('authserver.user_organizations');
+        $this->probeChanged($type); // the next test rebuilds what this one dropped
         $memberIn3 = $this->allowed($resolver->resolveForOrganization($member, null, 3));
 
         // Assert

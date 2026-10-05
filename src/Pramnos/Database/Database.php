@@ -762,7 +762,9 @@ class Database extends \Pramnos\Framework\Base
         if ($settingsObject instanceof \Pramnos\Application\Settings) {
             $dbSettings = $settingsObject->database;
 
-            if (!$dbSettings) {
+            // A string is the flat shape's database *name*, not a connection block, and
+            // reading `->hostname` off it is a warning per key and a connection to nowhere.
+            if (!is_object($dbSettings)) {
                 return;
             }
 

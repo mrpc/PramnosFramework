@@ -327,7 +327,11 @@ class MigrationRunner
                 \"error_message\" TEXT          NULL
             )");
             // PostgreSQL supports ADD COLUMN IF NOT EXISTS directly.
+            // `when` and `extra` too: a ledger the legacy Application::runMigration() path made
+            // has `key` and nothing else, and the first insert here named both.
             $newCols = [
+                '"when"'            => 'TIMESTAMPTZ NOT NULL DEFAULT NOW()',
+                '"extra"'           => 'VARCHAR(255) NULL',
                 '"version"'         => 'VARCHAR(50) NULL',
                 '"scope"'           => "VARCHAR(255) NOT NULL DEFAULT 'app'",
                 '"feature"'         => 'VARCHAR(255) NULL',
@@ -356,7 +360,10 @@ class MigrationRunner
             )");
             // MySQL lacks ADD COLUMN IF NOT EXISTS; check via schema introspection.
             $schema  = $db->schema();
+            // `when` and `extra` too, as above: the legacy ledger has `key` only.
             $newCols = [
+                'when'           => 'TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP',
+                'extra'          => 'VARCHAR(255) NULL',
                 'version'        => 'VARCHAR(50) NULL',
                 'scope'          => "VARCHAR(255) NOT NULL DEFAULT 'app'",
                 'feature'        => 'VARCHAR(255) NULL',
@@ -367,9 +374,68 @@ class MigrationRunner
             ];
             foreach ($newCols as $col => $def) {
                 if (!$schema->hasColumn($historyTable, $col)) {
-                    $db->query("ALTER TABLE `{$historyTable}` ADD COLUMN `{$col}` {$def}");
+                    try {
+                        $db->query("ALTER TABLE `{$historyTable}` ADD COLUMN `{$col}` {$def}");
+                    } catch (\Throwable $exception) {
+                        // Already there: a second call in one run can be answered from before
+                        // the first added it. MySQL has no ADD COLUMN IF NOT EXISTS; this is it.
+                        if (!str_contains($exception->getMessage(), 'Duplicate column')) {
+                            throw $exception;
+                        }
+                    }
                 }
             }
+        }
+
+        $this->ensureUniqueKey($historyTable);
+    }
+
+    /**
+     * Give the ledger a unique `key` when it has none.
+     *
+     * The upsert that records a migration relies on it: PostgreSQL's ON CONFLICT refuses to
+     * run without one, and a ledger an application's own legacy installer created — `key` and
+     * nothing else — has none. On MySQL the upsert merely duplicates rows without it, so an
+     * old ledger whose keys already repeat is left as it is rather than made to fail.
+     *
+     * Raw: index introspection, which the builder does not express.
+     */
+    private function ensureUniqueKey(string $historyTable): void
+    {
+        $db = $this->requireDb();
+
+        if ($db->type === 'postgresql') {
+            $unique = $db->query(
+                "SELECT 1 AS present FROM pg_index i"
+                . " JOIN pg_class c ON c.oid = i.indrelid"
+                . " JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum = ANY(i.indkey)"
+                . " WHERE c.relname = '" . str_replace("'", "''", $historyTable) . "'"
+                . " AND i.indisunique AND i.indnatts = 1 AND a.attname = 'key'"
+            );
+            if (!$unique || (int) ($unique->numRows ?? 0) === 0) {
+                try {
+                    $db->query(
+                        'CREATE UNIQUE INDEX IF NOT EXISTS "' . $historyTable . '_key_unique"'
+                        . ' ON "' . $historyTable . '" ("key")'
+                    );
+                } catch (\Throwable) {
+                    // Keys that already repeat: the ledger keeps working as it did.
+                }
+            }
+
+            return;
+        }
+
+        $unique = $db->query(
+            "SHOW INDEX FROM `{$historyTable}` WHERE Column_name = 'key' AND Non_unique = 0"
+        );
+        if ($unique && (int) ($unique->numRows ?? 0) > 0) {
+            return;
+        }
+        try {
+            $db->query("ALTER TABLE `{$historyTable}` ADD UNIQUE INDEX `{$historyTable}_key_unique` (`key`)");
+        } catch (\Throwable) {
+            // Keys that already repeat: the ledger keeps working as it did.
         }
     }
 

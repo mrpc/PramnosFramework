@@ -84,6 +84,13 @@ class NavPermissionStoreTest extends BaseTestCase
          */
         \Pramnos\User\User::setupDb();
 
+        // And, when the authserver store is the one in use, its full shape: another class can
+        // have created `authserver.permissions` with only some of its columns, and the write
+        // here was then a statement PostgreSQL could not prepare.
+        if ($this->db->schema()->hasTable('authserver.permissions')) {
+            \Pramnos\Framework\Testing\Schema::table('authserver.permissions', $this->db);
+        }
+
         NavRegistry::reset();
         $this->clearRules();
 

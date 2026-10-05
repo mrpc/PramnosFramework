@@ -74,6 +74,10 @@ class TokensControllerTest extends BaseTestCase
             // substituting a stub, which left every later test running against a
             // missing parent table behind live foreign keys.
             \Pramnos\User\User::setupDb();
+            // Again here, not only above: the migrations setupDb() runs turn the checks back
+            // on, and `applications_application_settings` — present on an empty database
+            // whenever an earlier class built it — refuses the drop.
+            $db->query("SET FOREIGN_KEY_CHECKS=0");
             $db->query("DROP TABLE IF EXISTS `applications`");
             // The canonical `applications`, from the migrations that build it in
             // production. The hand-rolled copy here declared columns no migration
@@ -81,6 +85,7 @@ class TokensControllerTest extends BaseTestCase
             Schema::table('applications', $db);
             // Dropped *after* setupDb() (which creates the production usertokens table)
             // so the minimal fixture schema below always wins.
+            $db->query("SET FOREIGN_KEY_CHECKS=0");
             $db->query("DROP TABLE IF EXISTS `#PREFIX#usertokens`");
             // The canonical `usertokens`, from the migrations that build it in
             // production — see Testing\Schema for why a hand-rolled copy is a trap.

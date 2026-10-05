@@ -41,6 +41,15 @@ use Pramnos\Framework\Testing\BaseTestCase;
 #[CoversClass(Loginlockout::class)]
 class AddressRateLimitTest extends BaseTestCase
 {
+    /**
+     * One second the wall clock may step back between writing a deadline and reading it.
+     *
+     * `remaining` is the stored deadline minus `time()` at the read. On a host whose clock
+     * is corrected backwards — WSL does it routinely — the read can come a second "before"
+     * the write, and a lockout of exactly N seconds reads as N + 1.
+     */
+    private const CLOCK_STEP = 1;
+
     private $db;
 
     private Loginlockout $lockout;
@@ -120,7 +129,7 @@ class AddressRateLimitTest extends BaseTestCase
         $status = $this->lockout->getLockoutStatus(self::SCOPE, self::ADDRESS);
         $this->assertTrue($status['locked'], 'three failures in the window did not refuse the address');
         $this->assertGreaterThan(0, $status['remaining']);
-        $this->assertLessThanOrEqual(600, $status['remaining']);
+        $this->assertLessThanOrEqual(600 + self::CLOCK_STEP, $status['remaining']);
     }
 
     /**

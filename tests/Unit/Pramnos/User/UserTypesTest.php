@@ -239,7 +239,16 @@ class UserTypesTest extends TestCase
         $this->savedInstances = $instances;
         $instances['default'] = $stub;
         $ref->setValue(null, $instances);
+
+        // And current: the registry answers with the application made current last, which
+        // an earlier test may have left as another one.
+        $current = new \ReflectionProperty(\Pramnos\Application\Application::class, 'lastUsedApplication');
+        $this->savedCurrent = $current->getValue();
+        $current->setValue(null, 'default');
     }
+
+    /** @var string|null The application that was current before a test replaced the registry. */
+    private ?string $savedCurrent = null;
 
     /** @var array<string,mixed>|null The registry as it was before a test replaced it. */
     private ?array $savedInstances = null;
@@ -250,6 +259,7 @@ class UserTypesTest extends TestCase
             $ref = new \ReflectionProperty(\Pramnos\Application\Application::class, 'appInstances');
             $ref->setValue(null, $this->savedInstances);
             $this->savedInstances = null;
+            \Pramnos\Application\Application::restoreCurrentInstance($this->savedCurrent);
         }
 
         parent::tearDown();

@@ -307,6 +307,9 @@ class UsersControllerTest extends TestCase
             $this->db->query('DELETE FROM `' . $table . '`');
         }
         $this->db->query('SET FOREIGN_KEY_CHECKS = 1');
+        // And the users a previous test loaded: the cache is keyed by userid, and this class
+        // reuses userids with different emails from test to test.
+        \Pramnos\User\User::clearUserCache();
 
         // Tables are freshly created above — insert test fixtures.
         // Insert Anonymous
@@ -1873,6 +1876,9 @@ next", ['mail'])->toMail(null)['body'] ?? '';
             'INSERT INTO `users` (`userid`, `username`, `email`, `usertype`, `active`, `sex`, `birthdate`, `modified`) '
             . 'VALUES (6, "noemail", "", 10, 1, 0, 0, 0)'
         );
+        // User::load() caches the row for ten seconds, and a test that created an account
+        // through the controller may have been given userid 6 — with an email — just before.
+        $this->db->cacheflush('userlist');
         $_GET['_option'] = '6';
 
         // Act

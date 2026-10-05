@@ -57,7 +57,12 @@ class SessionTrackingUpsertTest extends BaseTestCase
             $this->markTestSkipped('The database for this backend is not reachable.');
         }
 
-        $this->runMigrations([\Pramnos\Framework\Migrations\Core\CreateSessionsTable::class], $this->db);
+        // And the widening: a long URL is recorded only once `url` is text. In a kept database some
+        // other class had run it; on an empty one this class met the original varchar.
+        $this->runMigrations([
+            \Pramnos\Framework\Migrations\Core\CreateSessionsTable::class,
+            \Pramnos\Framework\Migrations\Core\WidenSessionUrlAndAgent::class,
+        ], $this->db);
 
         // No visitor cookie: a first-time visitor has none, and the middleware mints the id itself.
         // See visitorId() for why handing it one was the wrong fixture twice over.

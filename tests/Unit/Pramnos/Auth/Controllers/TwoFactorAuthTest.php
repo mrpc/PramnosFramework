@@ -213,7 +213,11 @@ class TwoFactorAuthTest extends BaseTestCase
             $prop = $reflection->getProperty('initialized');
             $prop->setValue($app, true);
         }
-        
+        // The controller's service takes the application's connection. That application may
+        // be one another class built, holding a connection made before any settings were
+        // loaded, so it is given this test's.
+        $app->database = $db;
+
         $this->controller = new TestableTwoFactorAuth($app);
 
         $_GET = [];

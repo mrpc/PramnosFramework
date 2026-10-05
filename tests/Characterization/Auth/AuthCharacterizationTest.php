@@ -65,6 +65,11 @@ class AuthCharacterizationTest extends TestCase
             $app->database = $db;
             (new \Pramnos\Framework\Migrations\AuthServer\CreateAuthserverPermissionsTable($app))->up();
         }
+
+        // And `users`: resolving a permission loads the subject's account. On an empty
+        // database the class failed here, which a kept one — where some earlier class had
+        // built the table — never showed.
+        \Pramnos\Framework\Testing\Schema::table('users', $db);
     }
 
     protected function tearDown(): void

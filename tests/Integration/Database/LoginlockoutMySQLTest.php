@@ -31,6 +31,15 @@ use Pramnos\Database\MigrationLoader;
  */
 class LoginlockoutMySQLTest extends TestCase
 {
+    /**
+     * One second the wall clock may step back between writing a deadline and reading it.
+     *
+     * `remaining` is the stored deadline minus `time()` at the read. On a host whose clock
+     * is corrected backwards — WSL does it routinely — the read can come a second "before"
+     * the write, and a lockout of exactly N seconds reads as N + 1.
+     */
+    private const CLOCK_STEP = 1;
+
     protected Database $db;
     protected Loginlockout $lockout;
     protected string $migrationsBase;
@@ -190,7 +199,7 @@ class LoginlockoutMySQLTest extends TestCase
         $status = $this->lockout->getLockoutStatus($scope, $id);
         $this->assertTrue($status['locked'], 'must be locked after 3 failures');
         $this->assertGreaterThan(55, $status['remaining'], 'remaining must be close to 60 s');
-        $this->assertLessThanOrEqual(60, $status['remaining'], 'remaining must not exceed 60 s');
+        $this->assertLessThanOrEqual(60 + self::CLOCK_STEP, $status['remaining'], 'remaining must not exceed 60 s');
     }
 
     /**
@@ -214,7 +223,7 @@ class LoginlockoutMySQLTest extends TestCase
         $status = $this->lockout->getLockoutStatus($scope, $id);
         $this->assertTrue($status['locked']);
         $this->assertGreaterThan(295, $status['remaining']);
-        $this->assertLessThanOrEqual(300, $status['remaining']);
+        $this->assertLessThanOrEqual(300 + self::CLOCK_STEP, $status['remaining']);
     }
 
     /**
@@ -235,7 +244,7 @@ class LoginlockoutMySQLTest extends TestCase
         $status = $this->lockout->getLockoutStatus($scope, $id);
         $this->assertTrue($status['locked']);
         $this->assertGreaterThan(895, $status['remaining']);
-        $this->assertLessThanOrEqual(900, $status['remaining']);
+        $this->assertLessThanOrEqual(900 + self::CLOCK_STEP, $status['remaining']);
     }
 
     /**
@@ -256,7 +265,7 @@ class LoginlockoutMySQLTest extends TestCase
         $status = $this->lockout->getLockoutStatus($scope, $id);
         $this->assertTrue($status['locked']);
         $this->assertGreaterThan(3595, $status['remaining']);
-        $this->assertLessThanOrEqual(3600, $status['remaining']);
+        $this->assertLessThanOrEqual(3600 + self::CLOCK_STEP, $status['remaining']);
     }
 
     // -------------------------------------------------------------------------

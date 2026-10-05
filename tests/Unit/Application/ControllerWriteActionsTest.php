@@ -133,6 +133,9 @@ class ControllerWriteActionsTest extends TestCase
     public function testEachKindOfTokenIsAccepted(): void
     {
         $session = \Pramnos\Http\Session::getInstance();
+        // Starts the session, which is what names the form token: read before it, the name
+        // was empty whenever no earlier test had started one.
+        $session->getFingerprint();
         $ref     = new \ReflectionObject($session);
         $name    = (string) $ref->getProperty('_token')->getValue($session);
 

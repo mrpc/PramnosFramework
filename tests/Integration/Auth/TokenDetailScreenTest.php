@@ -450,7 +450,9 @@ class TokenDetailScreenTest extends BaseTestCase
             'tokentype'     => 'auth',
             'token'         => $token,
             'token_lookup'  => \Pramnos\User\Token::lookup($token),
-            'applicationid' => 0,
+            // NULL, as addToken() leaves it: 0 names an application that does not exist, which
+            // the foreign key the core sweep adds refuses.
+            'applicationid' => null,
             'status'        => 1,
             'created'       => time(),
             'lastused'      => time(),

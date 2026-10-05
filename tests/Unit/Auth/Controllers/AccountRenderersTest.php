@@ -54,6 +54,20 @@ class AccountRenderersTest extends TestCase
         $_GET  = [];
         $_SERVER['REQUEST_METHOD'] = 'GET';
         \Pramnos\Http\Request::resetInstance();
+
+        // Some of these actions look the current user up. Settings and a connection of this
+        // class's own, rather than whatever the class before it left — which in some orders
+        // was nothing at all.
+        \Pramnos\Application\Settings::loadSettings(
+            ROOT . DS . 'tests' . DS . 'fixtures' . DS . 'app' . DS . 'settings.php'
+        );
+        $connection = &\Pramnos\Database\Database::getInstance();
+        $connection = null;
+        $database = \Pramnos\Framework\Factory::getDatabase();
+        if (!$database->connected) {
+            $database->connect();
+        }
+        \Pramnos\User\User::setupDb();
     }
 
     protected function tearDown(): void

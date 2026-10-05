@@ -124,7 +124,6 @@ class TokenActionMySQLTest extends TestCase
             $this->db->connect(true);
         }
 
-        $this->migrationsBase = ROOT . \DS . 'database' . \DS . 'migrations' . \DS . 'framework';
     }
 
     /**
@@ -538,7 +537,10 @@ class TokenActionMySQLTest extends TestCase
 
         // Run without FK checks so usertokens can be created before users table
         $this->db->query('SET FOREIGN_KEY_CHECKS = 0');
-        $this->loadMigrationClass($authDir . '/2020_01_01_000014_create_usertokens_table.php');
+        // `usertokens` through Testing\Schema, which runs every migration the table has: the
+        // create migration alone left out `token_lookup`, which Token reads, and whichever class
+        // reached an empty database first decided the shape for every class after it.
+        \Pramnos\Framework\Testing\Schema::table('usertokens', $this->db);
         $this->loadMigrationClass($authDir . '/2020_01_01_000015_create_urls_table.php');
         $this->loadMigrationClass($authDir . '/2020_01_01_000016_create_tokenactions_table.php');
         $this->db->query('SET FOREIGN_KEY_CHECKS = 1');

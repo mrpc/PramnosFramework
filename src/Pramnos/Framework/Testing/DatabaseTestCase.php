@@ -240,9 +240,36 @@ abstract class DatabaseTestCase extends TestCase
      *
      * @return void
      */
+    /** @var array<class-string, bool> Classes whose tables a test changed the shape of */
+    private static array $schemaChanged = [];
+
+    /**
+     * Say that this test changed the owned tables' shape, so the next test rebuilds them.
+     *
+     * The schema is built once per class and only the rows are emptied between tests. A test
+     * that adds a column, drops a table or installs a trigger leaves that for every test after
+     * it, so its neighbours passed or failed by the order they ran in. Call this from such a
+     * test; the next setUp() drops the owned tables and runs schemaStatements() again.
+     *
+     * @return void
+     */
+    protected function schemaChanged(): void
+    {
+        self::$schemaChanged[static::class] = true;
+    }
+
     protected function setUp(): void
     {
         $this->db = static::openConnection();
+
+        if (self::$schemaChanged[static::class] ?? false) {
+            unset(self::$schemaChanged[static::class]);
+            static::dropOwnedTables($this->db);
+            foreach (static::schemaStatements() as $statement) {
+                $this->db->query($statement);
+            }
+        }
+
         $this->emptyOwnedTables();
     }
 

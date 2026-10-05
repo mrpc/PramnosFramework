@@ -57,6 +57,9 @@ class AdminAccessTest extends BaseTestCase
             define('CONFIG', 'tests' . DS . 'fixtures' . DS . 'app');
         }
         Settings::loadSettings($this->settingsFixture());
+        // The site, built before any test arranges an administration area: its constructor
+        // resets the area, so building it later — inside probeScreen() — undid detect().
+        \Pramnos\Application\Application::getInstance();
 
         $reference = &\Pramnos\Database\Database::getInstance();
         $reference = null;
@@ -74,8 +77,9 @@ class AdminAccessTest extends BaseTestCase
             \Pramnos\Framework\Migrations\AuthServer\CreateAuthserverRolesTable::class,
             \Pramnos\Framework\Migrations\AuthServer\CreateAuthserverUserRolesTable::class,
             \Pramnos\Framework\Migrations\AuthServer\CreateAuthserverUserOrganizationsTable::class,
-            \Pramnos\Framework\Migrations\AuthServer\CreateAuthserverPermissionsTable::class,
         ], $this->db);
+        // The permission store in its full shape, a stub some other class left replaced.
+        \Pramnos\Framework\Testing\Schema::table('authserver.permissions', $this->db);
         $this->clearRows();
 
         foreach ([AdminAccess::MODE_SETTING, AdminAccess::SUPERUSER_SETTING] as $name) {

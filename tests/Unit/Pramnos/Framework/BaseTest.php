@@ -14,6 +14,8 @@ class BaseTest extends \PHPUnit\Framework\TestCase
 
     protected function setUp(): void
     {
+        // Base keeps its messages in the session, and a test before this one left some.
+        $_SESSION = [];
         $this->object = new Base;
     }
 
