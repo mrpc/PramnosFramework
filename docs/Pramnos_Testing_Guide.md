@@ -752,6 +752,15 @@ built and left behind, so it is dropped and rebuilt. Otherwise every migration's
 return early because the table exists, and the next insert would fail on a column the stub
 never had.
 
+**Calling it from `setUp()` costs one query.** The first call in a process runs the recipe
+and records the table's columns. Later calls compare the columns with that record, and
+build the table again only when they differ, because it was dropped or a test changed it.
+A test that changes something the columns do not show, such as an index, a foreign key or a
+trigger, rebuilds what it changed or calls `schemaChanged()`.
+
+Tables a recipe depends on are built first: `usertokens` builds `users` and `applications`,
+whose rows its foreign keys point at.
+
 **`User::setupDb()` is these recipes.** It builds `users`, `userdetails` and `usertokens` through
 `Schema::table()`, then adds the two group tables and the Guest row at `userid` 1. It is
 deprecated for new tests: call `Schema::table()` for the tables a test reads.

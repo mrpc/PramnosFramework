@@ -339,6 +339,9 @@ class AccountChangePasswordTest extends BaseTestCase
 
         $mine   = md5(session_id());
         $theirs = 'other-device-' . bin2hex(random_bytes(4));
+        // The session id belongs to the process, so a class before this one in the same
+        // worker may have recorded this very session already — under another user.
+        $this->db->queryBuilder()->table('#PREFIX#sessions')->where('sid', $mine)->delete();
         $this->seedSession($mine);
         $this->seedSession($theirs);
 

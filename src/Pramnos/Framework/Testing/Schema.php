@@ -108,11 +108,6 @@ final class Schema
             \Pramnos\Framework\Migrations\Auth\CreateUserdetailsTable::class,
         ],
         /*
-         * `Settings::setSetting()` writes here, so any test that changes a setting persistently
-         * needs it — and a suite that dropped it earlier in the run left those tests answering
-         * "the database refused the query" with nothing to say which table.
-         */
-        /*
          * The authserver permission store. Several classes hand-built a smaller copy to test
          * one read against, and a write that names `granted_by` was then refused by whichever
          * copy happened to be there.
@@ -121,6 +116,11 @@ final class Schema
             \Pramnos\Framework\Migrations\AuthServer\CreateAuthserverPermissionsTable::class,
             \Pramnos\Framework\Migrations\AuthServer\AddAudienceAndConditionsToPermissions::class,
         ],
+        /*
+         * `Settings::setSetting()` writes here, so any test that changes a setting persistently
+         * needs it — and a suite that dropped it earlier in the run left those tests answering
+         * "the database refused the query" with nothing to say which table.
+         */
         'settings' => [
             \Pramnos\Framework\Migrations\Core\CreateSettingsTable::class,
             \Pramnos\Framework\Migrations\Core\AddUniqueConstraintToSettingsTable::class,
@@ -157,6 +157,24 @@ final class Schema
         }
 
         /*
+         * Built already, and still as it was left: one catalogue query instead of every
+         * migration's own hasTable()/hasColumn() round trips. Those cost about 280 ms a call
+         * for `usertokens` and what it requires, and classes call this from setUp().
+         *
+         * A table dropped or reshaped since — a stub, a test that added a column — has
+         * different columns, and is built again.
+         *
+         * ponytail: compares columns only. A test that drops an index or a foreign key and
+         * keeps the columns is not noticed; such a test rebuilds what it changed itself, or
+         * calls DatabaseTestCase::schemaChanged().
+         */
+        $key      = self::connectionKey($db) . '|' . $name;
+        $columns  = self::columnsOf($name, $db);
+        if ($columns !== '' && (self::$built[$key] ?? null) === $columns) {
+            return;
+        }
+
+        /*
          * A table that exists without its defining column is somebody's stub, not this one.
          *
          * Migration tests build `applications (appid, name)` to test one ALTER against, and one
@@ -172,6 +190,57 @@ final class Schema
         }
 
         self::ensure(self::RECIPES[$name], $db);
+        self::$built[$key] = self::columnsOf($name, $db);
+    }
+
+    /**
+     * The columns each table had when this process last built it, by connection and name.
+     *
+     * @var array<string, string>
+     */
+    private static array $built = [];
+
+    /** Which database a table lives in, so two connections never share an entry. */
+    private static function connectionKey(Database $db): string
+    {
+        return implode('|', [$db->type, $db->server, $db->port ?? '', $db->database, $db->schema ?? '', $db->prefix ?? '']);
+    }
+
+    /**
+     * The table's column names in order, or '' when there is no such table.
+     *
+     * Raw SQL: `information_schema` introspection, which the query builder does not express.
+     */
+    private static function columnsOf(string $name, Database $db): string
+    {
+        $table = $db->schema()->resolveTableName($name);
+
+        if ($db->type === 'postgresql') {
+            $schema = null;
+            if (str_contains($table, '.')) {
+                [$schema, $table] = explode('.', $table, 2);
+            } elseif (($db->schema ?? '') !== '') {
+                $schema = $db->schema;
+            }
+            $where = $schema !== null
+                ? $db->prepareQuery('table_schema = %s', $schema)
+                : 'table_schema = current_schema()';
+        } else {
+            $where = $db->prepareQuery('table_schema = %s', $db->database);
+        }
+
+        $result = $db->query(
+            'SELECT column_name AS name FROM information_schema.columns WHERE ' . $where
+            . $db->prepareQuery(' AND table_name = %s', $table)
+            . ' ORDER BY ordinal_position'
+        );
+
+        $names = [];
+        while ($result && $result->fetch()) {
+            $names[] = (string) $result->fields['name'];
+        }
+
+        return implode(',', $names);
     }
 
     /**

@@ -111,4 +111,30 @@ class TestingSchemaCreatesTheSchemaFirstTest extends TestCase
             $this->db->rollbackTransaction();
         }
     }
+
+    /**
+     * A table built once and then dropped is built again, not taken as still there.
+     *
+     * Repeated calls skip the recipe when the table's columns are the ones the last build
+     * left. A memo that answered from memory alone would leave the next test without its
+     * table after any class dropped it — so the columns are read every time.
+     */
+    public function testATableDroppedAfterItWasBuiltIsBuiltAgain(): void
+    {
+        // Arrange — built, so the process remembers it; then dropped, as a class might
+        $this->db->startTransaction();
+
+        try {
+            Schema::table('settings', $this->db);
+            $this->db->query('DROP TABLE IF EXISTS public.settings CASCADE');
+
+            // Act
+            Schema::table('settings', $this->db);
+
+            // Assert — back, in its shipped shape
+            $this->assertTrue($this->db->schema()->hasColumn('settings', 'setting'), 'the memo answered for a table that was gone');
+        } finally {
+            $this->db->rollbackTransaction();
+        }
+    }
 }
