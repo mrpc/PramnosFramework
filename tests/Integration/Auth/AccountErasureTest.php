@@ -28,6 +28,8 @@ use Pramnos\Framework\Testing\Schema;
 #[CoversClass(AccountErasure::class)]
 class AccountErasureTest extends TestCase
 {
+    use \Pramnos\Tests\Support\ReusesProbeDatabase;
+
     private const PROBE = 'pramnos_erasure_probe';
 
     private ?Database $admin = null;
@@ -72,12 +74,8 @@ class AccountErasureTest extends TestCase
         } catch (\Throwable $e) {
             $this->markTestSkipped($host . ' not reachable: ' . $e->getMessage());
         }
-        $this->admin->query('DROP DATABASE IF EXISTS ' . self::PROBE);
-        $this->admin->query('CREATE DATABASE ' . self::PROBE);
-
-        $this->db = $make(self::PROBE);
-        $this->db->connect(false);
-        Schema::ensure([
+        // Built once per class and engine, emptied for each test; see ReusesProbeDatabase.
+        $this->db = $this->openProbe($this->admin, self::PROBE, $make, [
             \Pramnos\Framework\Migrations\Core\CreateFrameworkPoliciesTable::class,
             CreateUsersTable::class,
             AuthServer\CreateOrganizationsTable::class,
@@ -90,7 +88,7 @@ class AccountErasureTest extends TestCase
             Notifications\CreatePushSubscriptionsTable::class,
             Notifications\CreatePushLogTable::class,
             Notifications\CreatePushtestsTable::class,
-        ], $this->db);
+        ]);
 
         $this->previous = Factory::getDatabase();
         $singleton      = &Factory::getDatabase();
@@ -105,7 +103,7 @@ class AccountErasureTest extends TestCase
             $singleton = $this->previous;
         }
         $this->db?->close();
-        $this->admin?->query('DROP DATABASE IF EXISTS ' . self::PROBE);
+        $this->admin?->close();
     }
 
     /** A user, and one row of theirs in every table the erase must reach. */

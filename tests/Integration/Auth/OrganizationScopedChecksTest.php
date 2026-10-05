@@ -33,6 +33,8 @@ use Pramnos\Framework\Testing\Schema;
 #[CoversClass(ApiCrudController::class)]
 class OrganizationScopedChecksTest extends TestCase
 {
+    use \Pramnos\Tests\Support\ReusesProbeDatabase;
+
     private const PROBE = 'pramnos_org_scope_probe';
 
     private const ORG_A = 3;
@@ -87,12 +89,8 @@ class OrganizationScopedChecksTest extends TestCase
         } catch (\Throwable $e) {
             $this->markTestSkipped($host . ' not reachable: ' . $e->getMessage());
         }
-        $this->admin->query('DROP DATABASE IF EXISTS ' . self::PROBE);
-        $this->admin->query('CREATE DATABASE ' . self::PROBE);
-
-        $this->db = $make(self::PROBE);
-        $this->db->connect(false);
-        Schema::ensure([
+        // Built once per class and engine, emptied for each test; see ReusesProbeDatabase.
+        $this->db = $this->openProbe($this->admin, self::PROBE, $make, [
             CreateUsersTable::class,
             AuthServer\CreateAuthserverRolesTable::class,
             AuthServer\CreateAuthserverPermissionsTable::class,
@@ -100,7 +98,7 @@ class OrganizationScopedChecksTest extends TestCase
             AuthServer\CreateAuthserverUserRolesTable::class,
             AuthServer\CreateOrganizationsTable::class,
             AuthServer\CreateAuthserverUserOrganizationsTable::class,
-        ], $this->db);
+        ]);
 
         $this->previous = Factory::getDatabase();
         $singleton      = &Factory::getDatabase();
@@ -133,7 +131,7 @@ class OrganizationScopedChecksTest extends TestCase
             $singleton = $this->previous;
         }
         $this->db?->close();
-        $this->admin?->query('DROP DATABASE IF EXISTS ' . self::PROBE);
+        $this->admin?->close();
     }
 
     /**

@@ -66,22 +66,29 @@ class TokensControllerTest extends BaseTestCase
 
         $db->query("SET FOREIGN_KEY_CHECKS=0");
 
-        // #PREFIX#users is SHARED state (userstogroups / usertokens hold FKs to it).
-        // Build it idempotently from the real schema instead of dropping it and
-        // substituting a stub, which left every later test running against a
-        // missing parent table behind live foreign keys.
-        \Pramnos\User\User::setupDb();
-        $db->query("DROP TABLE IF EXISTS `applications`");
-        // The canonical `applications`, from the migrations that build it in
-        // production. The hand-rolled copy here declared columns no migration
-        // creates and omitted ones it does — see Testing\Schema.
-        Schema::table('applications', $db);
-        // Dropped *after* setupDb() (which creates the production usertokens table)
-        // so the minimal fixture schema below always wins.
-        $db->query("DROP TABLE IF EXISTS `#PREFIX#usertokens`");
-        // The canonical `usertokens`, from the migrations that build it in
-        // production — see Testing\Schema for why a hand-rolled copy is a trap.
-        Schema::table('usertokens', $db);
+        // Schema once per class, rows per test: rebuilding these tables from their
+        // migrations before every test was most of this class's 13 seconds.
+        if (!self::$schemaBuilt) {
+            // #PREFIX#users is SHARED state (userstogroups / usertokens hold FKs to it).
+            // Build it idempotently from the real schema instead of dropping it and
+            // substituting a stub, which left every later test running against a
+            // missing parent table behind live foreign keys.
+            \Pramnos\User\User::setupDb();
+            $db->query("DROP TABLE IF EXISTS `applications`");
+            // The canonical `applications`, from the migrations that build it in
+            // production. The hand-rolled copy here declared columns no migration
+            // creates and omitted ones it does — see Testing\Schema.
+            Schema::table('applications', $db);
+            // Dropped *after* setupDb() (which creates the production usertokens table)
+            // so the minimal fixture schema below always wins.
+            $db->query("DROP TABLE IF EXISTS `#PREFIX#usertokens`");
+            // The canonical `usertokens`, from the migrations that build it in
+            // production — see Testing\Schema for why a hand-rolled copy is a trap.
+            Schema::table('usertokens', $db);
+            self::$schemaBuilt = true;
+        } else {
+            $db->query("DELETE FROM `#PREFIX#usertokens`");
+        }
 
         // DELETE, not TRUNCATE: the real users table is referenced by the
         // userstogroups FK, which makes TRUNCATE fail on MySQL.
@@ -126,15 +133,30 @@ class TokensControllerTest extends BaseTestCase
         $_SERVER = [];
 
         $db = \Pramnos\Framework\Factory::getDatabase();
-        $db->query("SET FOREIGN_KEY_CHECKS=0");
-        $db->query("DROP TABLE IF EXISTS `#PREFIX#usertokens`");
         // Only the fixture row goes away — #PREFIX#users itself is shared state
         // and other test classes (plus live FKs) depend on it existing.
         $db->query("DELETE FROM `#PREFIX#users` WHERE `userid` = 1");
-        // Drop applications too — this test creates a minimal schema (no `created`
-        // column) that breaks OauthTest when it relies on CREATE TABLE IF NOT EXISTS.
-        $db->query("DROP TABLE IF EXISTS `applications`");
-        $db->query("SET FOREIGN_KEY_CHECKS=1");
+    }
+
+    /** @var bool Whether this class's tables have been built */
+    private static bool $schemaBuilt = false;
+
+    /**
+     * Drop the tables this class rebuilt, so a later class starts from its own.
+     */
+    public static function tearDownAfterClass(): void
+    {
+        try {
+            $db = \Pramnos\Framework\Factory::getDatabase();
+            $db->query("SET FOREIGN_KEY_CHECKS=0");
+            $db->query("DROP TABLE IF EXISTS `#PREFIX#usertokens`");
+            $db->query("DROP TABLE IF EXISTS `applications`");
+            $db->query("SET FOREIGN_KEY_CHECKS=1");
+        } catch (\Throwable) {
+            // No connection left: nothing to drop through.
+        }
+        self::$schemaBuilt = false;
+        parent::tearDownAfterClass();
     }
 
     private function setMockUser(int $usertype): void

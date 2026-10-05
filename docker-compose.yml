@@ -77,7 +77,16 @@ services:
     # `TimescaleInspector` reads `jobs LEFT JOIN job_stats` precisely because a job that
     # has never run has no stats row — and the software-emulated path is driven directly
     # by `PolicyEngine`. Nothing anywhere waits for a job to fire.
-    command: postgres -c timescaledb.max_background_workers=0
+    #
+    # And no fsync, for the reason docker/mysql/my.cnf gives for MySQL's equivalent: this
+    # service keeps no volume and exists to be dropped, so crash durability buys nothing.
+    # `CREATE DATABASE` and every DDL statement otherwise wait for the disk, and the suite
+    # runs thousands of them. Measured on the PostgreSQL-heavy classes (GroupRoles,
+    # AccountErasure, FrameworkMigrationsPostgreSQL, TwoFactorAuthServicePostgreSQL).
+    # Never copy these flags to a container that holds data.
+    command: >-
+      postgres -c timescaledb.max_background_workers=0
+      -c fsync=off -c full_page_writes=off
     environment:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=secret

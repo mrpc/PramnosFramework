@@ -827,10 +827,17 @@ cheap alternative:
 | Building an expensive fixture in `setUp()` — a scaffolded project, a real JPEG | 1–2 s per test | Build it once in `setUpBeforeClass()` when the tests only read it |
 | Calling `$db->cacheflush()` in `setUp()` | **85 ms per call** — it is a directory scan | Call it once per class. It defends against what an *earlier* class left in the cache, and `query()` does not cache unless you ask it to |
 | Hashing a password at the default cost | **143 ms per hash** — and 2FA setup hashes ten | Nothing: the suite already sets `PRAMNOS_BCRYPT_COST=4` in `tests/bootstrap.php`. Use `PasswordHash::make()` rather than `password_hash()` directly, so your code obeys it |
-| Creating and dropping schema per test | ≈300 ms per test | Schema once per class; wrap each test in a transaction and roll it back |
+| Creating and dropping schema per test | ≈300 ms per test on MySQL | Schema once per class, rows deleted per test. A static flag in `setUp()` that builds the tables the first time and empties them after, with the drop in `tearDownAfterClass()`. A test that changes the schema clears the flag so the next one rebuilds |
+| A throwaway database per test (`CREATE DATABASE`, then the migrations) | ≈500 ms per test on MySQL | One per class and engine, emptied per test. The framework's own suite does this with `tests/Support/ReusesProbeDatabase`. It is safe only while the migrations seed no rows |
+| Writing a row with an explicit auto-increment id into a shared table | a duplicate-key failure in some *other* test, later | Let the sequence give the id (`RETURNING`, or read it back), and delete the row. On PostgreSQL an explicit id leaves the sequence behind |
 | Letting the code under test shell out or reach the network | **1.9 s per test**, and variable | Skip it with the flag the command already has, or should have — `init` gained `--no-install` for exactly this. A unit test that depends on composer or on HTTP is slow *and* flaky |
 | Saving a model, in a suite or in production | **1358 ms** before 2026-08-27 — `cacheflush()` walked the whole cache tree on every write | Nothing: fixed in `FileAdapter`. If you see it again, check that `clear()` is still sampling its sweep |
 | `exec('rm -rf …')` in `tearDown()` for a small temporary tree | **≈12 ms per test** (measured: 382 ms → 272 ms over nine tests) | A recursive `unlink`/`rmdir` helper — one already exists in `ApiDocsTest`. **Measure before converting a large tree**: for a scaffolded project of hundreds of files, `rm -rf` in C may well beat PHP recursion, and this row is not a licence to assume otherwise |
+
+**PHPUnit's dependency resolution costs time on a large suite.** With `#[Depends]` unused,
+`resolveDependencies="false"` on `<phpunit>` saves the quadratic resolution PHPUnit performs
+before every run. In this framework's 18,000 tests it was 47% of a run filtered to one class.
+Leave it on if any test uses `#[Depends]`.
 
 **A PostgreSQL test database does not wait for the disk on commit.** `TestEnvironment`
 runs `ALTER DATABASE <test db> SET synchronous_commit = off` on every run, which in one

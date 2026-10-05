@@ -51,6 +51,56 @@ class OauthTest extends TestCase
             $this->db->connect();
         }
 
+        // Schema once per class, rows per test: rebuilding `applications` and its
+        // companions from the migrations before every test was most of this class's
+        // 18 seconds. The tables are this class's own and are dropped when it ends.
+        if (!self::$schemaBuilt) {
+            $this->buildSchema();
+            self::$schemaBuilt = true;
+        } else {
+            $this->db->queryBuilder()->table('applications')->delete();
+        }
+        self::$classDb = $this->db;
+
+        $this->cleanDb();
+
+        $_SESSION = [];
+        $_SERVER = [];
+        $_POST = [];
+        $_GET = [];
+        
+        $this->controller = new Oauth(new Application());
+    }
+
+    protected function tearDown(): void
+    {
+        $this->cleanDb();
+
+        $singleton = &Factory::getDatabase();
+        $singleton = null;
+        Settings::clearSettings();
+
+        $_SESSION = [];
+        $_SERVER = [];
+        $_POST = [];
+        $_GET = [];
+
+        // Remove the RSA/encryption keys the controller generated under
+        // ROOT/app/keys; pre-existing keys are preserved.
+        $this->restoreAppKeys();
+    }
+
+    /** @var bool Whether this class's tables have been built */
+    private static bool $schemaBuilt = false;
+
+    /** @var \Pramnos\Database\Database|null The connection the tables were built on */
+    private static ?\Pramnos\Database\Database $classDb = null;
+
+    /**
+     * Build the tables this class tests against, from the migrations where there is one.
+     */
+    private function buildSchema(): void
+    {
         // DROP + CREATE (not IF NOT EXISTS) so this fixture is always the schema
         // under test rather than whatever a previous test left behind.
         //
@@ -146,38 +196,26 @@ class OauthTest extends TestCase
             $this->db->query('ALTER TABLE `usertokens` ADD COLUMN `deviceinfo` varchar(255) DEFAULT NULL');
         } catch (\Throwable $e) {}
 
-        $this->cleanDb();
-
-        $_SESSION = [];
-        $_SERVER = [];
-        $_POST = [];
-        $_GET = [];
-        
-        $this->controller = new Oauth(new Application());
     }
 
-    protected function tearDown(): void
+    /**
+     * Drop the test-specific applications table so later classes (like
+     * OauthCoverageTest) do not inherit this one's schema.
+     */
+    public static function tearDownAfterClass(): void
     {
-        $this->cleanDb();
-
-        // Drop the test-specific applications table so subsequent tests (like
-        // OauthCoverageTest in OauthCoverageTest.php) do not inherit our schema.
-        $this->db->query('SET FOREIGN_KEY_CHECKS = 0');
-        $this->db->query('DROP TABLE IF EXISTS `applications`');
-        $this->db->query('SET FOREIGN_KEY_CHECKS = 1');
-
-        $singleton = &Factory::getDatabase();
-        $singleton = null;
-        Settings::clearSettings();
-
-        $_SESSION = [];
-        $_SERVER = [];
-        $_POST = [];
-        $_GET = [];
-
-        // Remove the RSA/encryption keys the controller generated under
-        // ROOT/app/keys; pre-existing keys are preserved.
-        $this->restoreAppKeys();
+        if (self::$classDb !== null) {
+            try {
+                self::$classDb->query('SET FOREIGN_KEY_CHECKS = 0');
+                self::$classDb->query('DROP TABLE IF EXISTS `applications`');
+                self::$classDb->query('SET FOREIGN_KEY_CHECKS = 1');
+            } catch (\Throwable) {
+                // The connection is gone: nothing to drop through.
+            }
+        }
+        self::$classDb     = null;
+        self::$schemaBuilt = false;
+        parent::tearDownAfterClass();
     }
 
     private function cleanDb(): void

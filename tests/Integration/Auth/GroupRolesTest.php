@@ -31,6 +31,8 @@ use Pramnos\Framework\Testing\Schema;
 #[CoversClass(WebhookService::class)]
 class GroupRolesTest extends TestCase
 {
+    use \Pramnos\Tests\Support\ReusesProbeDatabase;
+
     private const PROBE = 'pramnos_group_roles_probe';
 
     private ?Database $admin = null;
@@ -74,12 +76,8 @@ class GroupRolesTest extends TestCase
         } catch (\Throwable $e) {
             $this->markTestSkipped($host . ' not reachable: ' . $e->getMessage());
         }
-        $this->admin->query('DROP DATABASE IF EXISTS ' . self::PROBE);
-        $this->admin->query('CREATE DATABASE ' . self::PROBE);
-
-        $this->db = $make(self::PROBE);
-        $this->db->connect(false);
-        Schema::ensure([
+        // Built once per class and engine, emptied for each test; see ReusesProbeDatabase.
+        $this->db = $this->openProbe($this->admin, self::PROBE, $make, [
             CreateUsersTable::class,
             AuthServer\CreateAuthserverRolesTable::class,
             AuthServer\CreateAuthserverPermissionsTable::class,
@@ -89,7 +87,7 @@ class GroupRolesTest extends TestCase
             AuthServer\CreateAuthserverUserOrganizationsTable::class,
             UserGroups\CreateUsergroupsTables::class,
             UserGroups\CreateAuthserverGroupRolesTable::class,
-        ], $this->db);
+        ]);
 
         $this->previous = Factory::getDatabase();
         $singleton      = &Factory::getDatabase();
@@ -103,7 +101,7 @@ class GroupRolesTest extends TestCase
             $singleton = $this->previous;
         }
         $this->db?->close();
-        $this->admin?->query('DROP DATABASE IF EXISTS ' . self::PROBE);
+        $this->admin?->close();
     }
 
     // ── Seeding ──────────────────────────────────────────────────────────────

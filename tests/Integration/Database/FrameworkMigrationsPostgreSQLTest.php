@@ -2677,22 +2677,24 @@ class FrameworkMigrationsPostgreSQLTest extends TestCase
         );
 
         // Assert — trigger: UPDATE must advance updated_at.
-        // Insert a parent row first so the FK constraint is satisfied.
-        $this->db->query(
-            "INSERT INTO public.applications (appid, name, status, added)
-             VALUES (1, 'test_app', 1, 0)"
-        );
+        // Insert a parent row first so the FK constraint is satisfied — with an id from the
+        // sequence, not a literal 1: a row written with an explicit id leaves the sequence
+        // behind, and the next ordinary insert into this shared table collided with it.
+        $appId = (int) $this->db->query(
+            "INSERT INTO public.applications (name, status, added)
+             VALUES ('test_app', 1, 0) RETURNING appid"
+        )->fields['appid'];
         $this->db->query(
             "INSERT INTO applications.application_settings
                  (appid, rate_limit_requests, rate_limit_window_seconds, rate_limit_burst)
-             VALUES (1, 100, 60, 10)"
+             VALUES ({$appId}, 100, 60, 10)"
         );
         $this->db->query("SELECT pg_sleep(0.05)"); // ensure clock advances
         $this->db->query(
-            "UPDATE applications.application_settings SET rate_limit_requests = 200 WHERE appid = 1"
+            "UPDATE applications.application_settings SET rate_limit_requests = 200 WHERE appid = {$appId}"
         );
         $r = $this->db->query(
-            "SELECT created_at, updated_at FROM applications.application_settings WHERE appid = 1"
+            "SELECT created_at, updated_at FROM applications.application_settings WHERE appid = {$appId}"
         );
         $this->assertNotSame(
             $r->fields['created_at'],
@@ -2706,6 +2708,7 @@ class FrameworkMigrationsPostgreSQLTest extends TestCase
             $this->tableExists('application_settings', 'applications'),
             'applications.application_settings must be gone after down()'
         );
+        $this->db->query("DELETE FROM public.applications WHERE appid = {$appId}");
     }
 
     /**
