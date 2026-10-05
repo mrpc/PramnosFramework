@@ -265,13 +265,20 @@ class DatabaseDriverTest extends TestCase
         $driver = new DatabaseDriver($store, $this->noSleep());
 
         $seen = 0;
+        // Past any deadline the driver can have set: it reads the clock after this line, so
+        // its deadline is at most one second later than this one's.
+        $pastTheDeadline = time() + 2;
 
         // Act
         $driver->subscribe(
             ['chat'],
-            static function () use (&$seen): bool {
+            static function () use (&$seen, $pastTheDeadline): bool {
                 $seen++;
-                sleep(1);   // push past the deadline inside the batch
+                // Waits on the clock the driver reads, not on sleep(1): a wall clock corrected
+                // backwards on a virtual machine left the deadline unreached after a full second.
+                while (time() < $pastTheDeadline) {
+                    usleep(50_000);
+                }
                 return true;
             },
             new SubscriptionOptions(readTimeout: 1, maxRuntime: 1),

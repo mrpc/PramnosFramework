@@ -108,7 +108,9 @@ class DeadlockRetryTest extends DatabaseTestCase
      */
     private function millisecondsOf(callable $work): float
     {
-        $started = microtime(true);
+        // hrtime, not microtime: the wall clock is corrected in steps on a virtual machine,
+        // and a step backwards in the middle made a 600 ms back-off measure as 211.
+        $started = hrtime(true);
 
         try {
             $work();
@@ -116,7 +118,7 @@ class DeadlockRetryTest extends DatabaseTestCase
             // Surfacing the error is the expected outcome; the timing is the subject.
         }
 
-        return (microtime(true) - $started) * 1000;
+        return (hrtime(true) - $started) / 1e6;
     }
 
     /** A statement that fails with the given message, as the driver reports it. */

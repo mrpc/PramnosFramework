@@ -38,6 +38,9 @@ class TrackingInfoPostgreSQLTest extends TestCase
     /** @var array<string, mixed> */
     private array $server = [];
 
+    /** @var mixed The session's signed-in user before this test, restored after it */
+    private mixed $sessionUid = null;
+
     protected function setUp(): void
     {
         /*
@@ -49,6 +52,11 @@ class TrackingInfoPostgreSQLTest extends TestCase
         $this->server = $_SERVER;
         unset($_SERVER['HTTP_USER_AGENT'], $_SERVER['REQUEST_URI'], $_SERVER['REQUEST_METHOD']);
         $_SERVER['REMOTE_ADDR'] = '127.0.0.1';
+        // The session too: with no user id given, the method reads `$_SESSION['uid']`, and a
+        // test that signed somebody in earlier in the run made this one expect
+        // 'Reporting' and read 'Reporting_u4601'.
+        $this->sessionUid = $_SESSION['uid'] ?? null;
+        unset($_SESSION['uid']);
 
         $db = new Database();
         $db->type     = 'postgresql';
@@ -71,6 +79,9 @@ class TrackingInfoPostgreSQLTest extends TestCase
     protected function tearDown(): void
     {
         $_SERVER = $this->server;
+        if ($this->sessionUid !== null) {
+            $_SESSION['uid'] = $this->sessionUid;
+        }
         $this->db = null;
         parent::tearDown();
     }

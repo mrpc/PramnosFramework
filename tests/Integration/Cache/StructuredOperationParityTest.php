@@ -302,8 +302,14 @@ class StructuredOperationParityTest extends TestCase
             $adapters[$kind] = $adapter;
         }
 
-        // Act
+        // Act — two real seconds, and until the clock the adapters read has moved two on.
+        // The second half matters on a virtual machine, whose wall clock is corrected in
+        // steps: after a step back, sleep(2) alone ended with the TTL not yet passed by it.
+        $armedAt = time();
         sleep(2);
+        while (time() < $armedAt + 2) {
+            usleep(100_000);
+        }
 
         // Assert
         foreach ($adapters as $kind => $adapter) {
