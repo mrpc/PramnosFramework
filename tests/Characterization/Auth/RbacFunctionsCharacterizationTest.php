@@ -61,19 +61,69 @@ class RbacFunctionsCharacterizationTest extends TestCase
 
         $this->migrationsBase = ROOT . \DS . 'database' . \DS . 'migrations' . \DS . 'framework';
 
-        $this->dropAuthserverSchema();
-        $this->installRbacSchema();
+        // Installed once per class, emptied for every other test: dropping the schema and
+        // running twelve migrations — functions, a view, a dozen tables — before each test was
+        // nearly all of this class's 5 seconds. The migrations seed no rows (the INSERTs in them
+        // are inside function bodies), so empty tables are the state a fresh install has.
+        if (self::$installed) {
+            $this->emptyRbacTables();
+        } else {
+            $this->dropAuthserverSchema();
+            $this->installRbacSchema();
+            self::$installed = true;
+        }
+        self::$classDb = $this->db;
     }
 
-    protected function tearDown(): void
+    /** @var bool Whether this class has installed the RBAC schema */
+    private static bool $installed = false;
+
+    /** @var Database|null The connection it was installed on */
+    private static ?Database $classDb = null;
+
+    /**
+     * Delete every row the RBAC tables hold, in one statement.
+     *
+     * Raw: catalogue introspection and a TRUNCATE over a list, which the builder does not express.
+     */
+    private function emptyRbacTables(): void
     {
-        $this->dropAuthserverSchema();
-        // Put the schema back, empty. This class runs last, so without it every run ended with a
-        // database that had no `authserver` schema at all, and the next `--filter` run failed in
-        // whichever test first wrote there — "schema authserver does not exist" — unless an
-        // earlier test in the subset happened to create it. The tables are each suite's own to
-        // build; the schema is the installation's.
-        $this->db->query('CREATE SCHEMA IF NOT EXISTS authserver');
+        $tables = $this->db->query(
+            "SELECT quote_ident(schemaname) || '.' || quote_ident(tablename) AS t FROM pg_tables"
+            . " WHERE schemaname = 'authserver' OR (schemaname = 'public' AND tablename = 'organizations')"
+        );
+        $list = [];
+        while ($tables->fetch()) {
+            $list[] = $tables->fields['t'];
+        }
+        if ($list !== []) {
+            $this->db->query('TRUNCATE ' . implode(', ', $list) . ' CASCADE');
+        }
+    }
+
+    /**
+     * Put the schema back, empty, when the class ends.
+     *
+     * This class runs last, so without it every run ended with a database that had no
+     * `authserver` schema at all, and the next `--filter` run failed in whichever test first
+     * wrote there — "schema authserver does not exist" — unless an earlier test in the subset
+     * happened to create it. The tables are each suite's own to build; the schema is the
+     * installation's.
+     */
+    public static function tearDownAfterClass(): void
+    {
+        if (self::$classDb !== null) {
+            try {
+                self::$classDb->query('DROP SCHEMA IF EXISTS authserver CASCADE');
+                self::$classDb->query('DROP TABLE IF EXISTS public.organizations CASCADE');
+                self::$classDb->query('CREATE SCHEMA IF NOT EXISTS authserver');
+            } catch (\Throwable) {
+                // The connection went first: nothing to reset through.
+            }
+        }
+        self::$classDb   = null;
+        self::$installed = false;
+        parent::tearDownAfterClass();
     }
 
     // =========================================================================

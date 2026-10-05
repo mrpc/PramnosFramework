@@ -62,6 +62,14 @@ trait ReusesProbeDatabase
     }
 
     /**
+     * This test changed the throwaway database's schema: the next one rebuilds it.
+     */
+    private function probeChanged(string $type): void
+    {
+        unset(self::$probeDrops[$type]);
+    }
+
+    /**
      * Delete every row of every table in the throwaway database.
      *
      * Raw: catalogue introspection, and one TRUNCATE over a list of tables, neither of which
@@ -92,7 +100,10 @@ trait ReusesProbeDatabase
             $list[] = $tables->fields['t'];
         }
         if ($list !== []) {
-            $db->query('TRUNCATE ' . implode(', ', $list) . ' RESTART IDENTITY CASCADE');
+            // Without RESTART IDENTITY, as MySQL's DELETE leaves AUTO_INCREMENT: ids keep
+            // rising across tests. Restarting them handed id 1 — the system account, which
+            // the code under test refuses on purpose — to the first user a test created.
+            $db->query('TRUNCATE ' . implode(', ', $list) . ' CASCADE');
         }
     }
 

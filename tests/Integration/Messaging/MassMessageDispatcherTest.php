@@ -229,14 +229,23 @@ class MassMessageDispatcherTest extends BaseTestCase
 
     // ── Fixture ──────────────────────────────────────────────────────────────
 
+    /** @var bool Whether this class has built the messaging tables yet */
+    private static bool $tablesBuilt = false;
+
     /** From the real migrations, so a test cannot pass against a schema nobody ships. */
     private function buildTables(): void
     {
         $prefix = $this->db->prefix;
 
+        // Dropped and rebuilt once per class, emptied for every other test: the DDL was most
+        // of this class's 12 seconds. The migrations below still run for each test — they are
+        // idempotent and cheap, and they bring back a table a test dropped on purpose.
         foreach (['massmessagerecipients', 'massmessages', 'messages'] as $table) {
-            $this->db->query('DROP TABLE IF EXISTS `' . $prefix . $table . '`');
+            $this->db->query(
+                (self::$tablesBuilt ? 'DELETE FROM `' : 'DROP TABLE IF EXISTS `') . $prefix . $table . '`'
+            );
         }
+        self::$tablesBuilt = true;
 
         $this->runMigrations([
             \Pramnos\Framework\Migrations\Messaging\CreateMessagesTable::class,

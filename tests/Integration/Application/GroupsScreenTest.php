@@ -76,6 +76,8 @@ class BelowTheFloorGroups extends ProbeGroups
 #[CoversClass(CreateUsergroupsTables::class)]
 class GroupsScreenTest extends TestCase
 {
+    use \Pramnos\Tests\Support\ReusesProbeDatabase;
+
     private const PROBE = 'pramnos_groups_probe';
 
     private ?Database $admin = null;
@@ -127,17 +129,18 @@ class GroupsScreenTest extends TestCase
         } catch (\Throwable $e) {
             $this->markTestSkipped($host . ' not reachable: ' . $e->getMessage());
         }
-        $this->admin->query('DROP DATABASE IF EXISTS ' . self::PROBE);
-        $this->admin->query('CREATE DATABASE ' . self::PROBE);
-
-        $this->db = self::connection($type, $host, $port, $user, self::PROBE);
-        $this->db->connect(false);
-        Schema::ensure([
-            CreateUsersTable::class,
-            \Pramnos\Framework\Migrations\AuthServer\CreateAuthserverRolesTable::class,
-            CreateUsergroupsTables::class,
-            \Pramnos\Framework\Migrations\UserGroups\CreateAuthserverGroupRolesTable::class,
-        ], $this->db);
+        // Built once per class and engine, emptied for each test; see ReusesProbeDatabase.
+        $this->db = $this->openProbe(
+            $this->admin,
+            self::PROBE,
+            static fn (string $name): Database => self::connection($type, $host, $port, $user, $name),
+            [
+                CreateUsersTable::class,
+                \Pramnos\Framework\Migrations\AuthServer\CreateAuthserverRolesTable::class,
+                CreateUsergroupsTables::class,
+                \Pramnos\Framework\Migrations\UserGroups\CreateAuthserverGroupRolesTable::class,
+            ]
+        );
 
         $this->previous = Factory::getDatabase();
         $singleton      = &Factory::getDatabase();
@@ -160,7 +163,7 @@ class GroupsScreenTest extends TestCase
             $singleton = $this->previous;
         }
         $this->db?->close();
-        $this->admin?->query('DROP DATABASE IF EXISTS ' . self::PROBE);
+        $this->admin?->close();
         $_POST = [];
         $_GET  = [];
     }
@@ -321,6 +324,7 @@ class GroupsScreenTest extends TestCase
         (new \ReflectionProperty(FeatureRegistry::class, 'enabled'))->setValue(null, ['auth' => true]);
         $this->db->query('DROP TABLE userstogroups');
         $this->db->query('DROP TABLE usergroups');
+        $this->probeChanged($type);
         $screen = new ProbeGroups();
 
         // Act
