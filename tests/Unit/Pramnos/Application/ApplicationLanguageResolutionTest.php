@@ -28,6 +28,7 @@ use Pramnos\Http\AdminArea;
  * Each test here pins one rung of the chain, in the order the resolver tries them.
  */
 #[CoversClass(Application::class)]
+#[\PHPUnit\Framework\Attributes\Group('serial')]
 class ApplicationLanguageResolutionTest extends TestCase
 {
     /** @var array<string,mixed> */

@@ -7,6 +7,7 @@ use Pramnos\Application\Api;
 use Pramnos\Framework\Factory;
 use Pramnos\Document\Raw;
 
+#[\PHPUnit\Framework\Attributes\Group('serial')]
 class ApiTest extends TestCase
 {
     protected function setUp(): void

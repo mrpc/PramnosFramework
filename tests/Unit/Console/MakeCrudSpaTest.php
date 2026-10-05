@@ -96,6 +96,7 @@ class LegacyCrudOverride extends SpaCrudProbe
  * screen. These cover the generator that closes the gap, and the three defects
  * that made the generated API unusable before it.
  */
+#[\PHPUnit\Framework\Attributes\Group('serial')]
 class MakeCrudSpaTest extends TestCase
 {
     private SpaCrudProbe $command;

@@ -33,6 +33,7 @@ use Pramnos\Console\Commands\Make\MakeTest;
 #[CoversClass(MakeProvider::class)]
 #[CoversClass(MakePolicy::class)]
 #[CoversClass(MakeTest::class)]
+#[\PHPUnit\Framework\Attributes\Group('serial')]
 class MakeScaffoldGeneratorsTest extends TestCase
 {
     /** @var string[] Absolute paths removed in tearDown. */

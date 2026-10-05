@@ -7,6 +7,7 @@ use PHPUnit\Framework\Attributes\RunInSeparateProcess;
 use PHPUnit\Framework\TestCase;
 use Pramnos\Application\Application;
 
+#[\PHPUnit\Framework\Attributes\Group('serial')]
 class ApplicationTest extends TestCase
 {
     private Application $app;

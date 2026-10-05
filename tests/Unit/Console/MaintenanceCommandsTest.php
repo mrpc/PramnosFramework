@@ -29,6 +29,7 @@ use Symfony\Component\Console\Tester\CommandTester;
  */
 #[CoversClass(MaintenanceOn::class)]
 #[CoversClass(MaintenanceOff::class)]
+#[\PHPUnit\Framework\Attributes\Group('serial')]
 class MaintenanceCommandsTest extends TestCase
 {
     private string $flag;

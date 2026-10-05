@@ -82,6 +82,7 @@ class RegistryWizardDummyCommand extends MakeCommandBase
  *  6. createModel() with existing DB table (not wizard path)
  */
 #[CoversClass(MakeCommandBase::class)]
+#[\PHPUnit\Framework\Attributes\Group('serial')]
 class MakeCommandBaseRegistryAndWizardTest extends TestCase
 {
     private RegistryWizardDummyCommand $command;

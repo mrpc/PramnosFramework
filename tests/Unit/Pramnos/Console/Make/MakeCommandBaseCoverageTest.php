@@ -117,6 +117,7 @@ class CoverageDummyMakeCommand extends MakeCommandBase
  * 10. createView() basic (non-full) path — verifies index/edit/show file creation
  */
 #[CoversClass(MakeCommandBase::class)]
+#[\PHPUnit\Framework\Attributes\Group('serial')]
 class MakeCommandBaseCoverageTest extends TestCase
 {
     private string $tmpDir;

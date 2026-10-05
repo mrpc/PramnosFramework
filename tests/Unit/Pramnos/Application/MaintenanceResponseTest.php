@@ -27,6 +27,7 @@ use Pramnos\Application\Application;
  * be a test of nothing. The decisions are what these cover, which is why they were
  * split out of `showError()` in the first place.
  */
+#[\PHPUnit\Framework\Attributes\Group('serial')]
 class MaintenanceResponseTest extends TestCase
 {
     /** @var Application The application under test */

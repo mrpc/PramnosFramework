@@ -79,7 +79,9 @@ trait RunsProcesses
         $i         = 0;
         $stdoutBuf = '';
         $stderrBuf = '';
-        $startTime = microtime(true);
+        // Monotonic: the wall clock is corrected in steps (a virtual machine's routinely is), and a
+        // step backwards froze the elapsed time at 0s, so a slow step never escalated.
+        $startTime = hrtime(true);
 
         // Once true, subprocess output is streamed live instead of being
         // buffered until the end. It starts on in verbose mode, and also flips
@@ -113,7 +115,7 @@ trait RunsProcesses
             $stdoutBuf .= $chunkOut;
             $stderrBuf .= $chunkErr;
 
-            $elapsed = (int) (microtime(true) - $startTime);
+            $elapsed = intdiv(hrtime(true) - $startTime, 1_000_000_000);
 
             // Escalate a long-running step to live output. This is what makes a
             // hang observable: after slowStepThreshold seconds we announce the

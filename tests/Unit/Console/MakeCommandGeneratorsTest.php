@@ -71,6 +71,7 @@ class DummyGeneratorCommand extends MakeCommandBase
     }
 }
 
+#[\PHPUnit\Framework\Attributes\Group('serial')]
 class MakeCommandGeneratorsTest extends TestCase
 {
     private DummyGeneratorCommand $command;

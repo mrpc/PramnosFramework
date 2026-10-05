@@ -107,6 +107,7 @@ class SpaFieldsProbe extends MakeCommandBase
 // had — and under a filter that also selects a PostgreSQL class, that is a
 // PostgreSQL one. The failures then read as generator bugs.
 #[\PHPUnit\Framework\Attributes\RunTestsInSeparateProcesses]
+#[\PHPUnit\Framework\Attributes\Group('serial')]
 class MakeSpaFieldsTest extends TestCase
 {
     private SpaFieldsProbe $command;
