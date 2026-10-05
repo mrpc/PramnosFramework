@@ -352,7 +352,7 @@ class ForeignKeyGuardMigrationTest extends TestCase
         $db->port     = (int) ($_ENV['DB_PORT'] ?? (getenv('DB_PORT') ?: ($isPg ? 5432 : 3306)));
         $db->user     = $_ENV['DB_USER'] ?? (getenv('DB_USER') ?: 'root');
         $db->password = $_ENV['DB_PASS'] ?? (getenv('DB_PASS') ?: 'secret');
-        $db->database = $_ENV['DB_NAME'] ?? (getenv('DB_NAME') ?: 'pramnos_test');
+        $db->database = $_ENV['DB_NAME'] ?? (getenv('DB_NAME') ?: TEST_DATABASE);
 
         try {
             if (!$db->connect(false)) {

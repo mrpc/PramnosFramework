@@ -67,6 +67,7 @@ use Pramnos\Http\ClientResponse;
  *
  * Requires the Docker MySQL container (host: db, port: 3306).
  */
+#[\PHPUnit\Framework\Attributes\Group('serial')]
 class FullAuthorizationCodeFlowTest extends TestCase
 {
     private const CLIENT_ID     = 'e2e-client-id';

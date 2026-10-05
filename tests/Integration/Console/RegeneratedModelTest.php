@@ -79,6 +79,7 @@ class RegeneratedModelDummyCommand extends MakeCommandBase
  * anything, and «what the table looks like» is answered by two different drivers.
  */
 #[CoversClass(MakeCommandBase::class)]
+#[\PHPUnit\Framework\Attributes\Group('serial')]
 class RegeneratedModelTest extends BaseTestCase
 {
     private $db;

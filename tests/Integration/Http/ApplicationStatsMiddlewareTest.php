@@ -24,6 +24,7 @@ use Pramnos\Http\TooManyRequestsException;
  * other, and they evaluate the update differently.
  */
 #[CoversClass(ApplicationStatsMiddleware::class)]
+#[\PHPUnit\Framework\Attributes\Group('serial')]
 class ApplicationStatsMiddlewareTest extends BaseTestCase
 {
     private $db;

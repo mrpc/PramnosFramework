@@ -18,6 +18,7 @@ use Pramnos\Security\CookieConsent;
  * and a site that turned the banner off must not silently switch everything off.
  */
 #[CoversClass(CookieConsent::class)]
+#[\PHPUnit\Framework\Attributes\Group('serial')]
 class CookieConsentTest extends TestCase
 {
     /** @var array<string, mixed> */

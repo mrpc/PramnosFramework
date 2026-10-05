@@ -41,6 +41,7 @@ use Pramnos\User\User;
  * has not written one gets the framework's class, and does not have to say so anywhere.
  */
 #[CoversClass(User::class)]
+#[\PHPUnit\Framework\Attributes\Group('serial')]
 class ApplicationOwnUserClassTest extends TestCase
 {
     private mixed $savedNamespace = null;

@@ -291,7 +291,7 @@ class BaseTestCaseTest extends BaseTestCase
         $propConfig->setValue(null, [
             'type' => 'postgresql',
             'hostname' => 'timescaledb',
-            'database' => 'pramnos_test',
+            'database' => TEST_DATABASE,
             'user' => 'postgres',
             'password' => 'secret'
         ]);

@@ -15,6 +15,7 @@ use Pramnos\Console\Commands\MakeCommandBase;
  * without its key inserts a new row on every save instead of updating, on half the installations.
  */
 #[CoversClass(MakeCommandBase::class)]
+#[\PHPUnit\Framework\Attributes\Group('serial')]
 class GeneratedModelPostgreSQLTest extends GeneratedModelTest
 {
     protected function settingsFixture(): string

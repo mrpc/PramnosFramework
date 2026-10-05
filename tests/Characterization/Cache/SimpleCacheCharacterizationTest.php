@@ -29,6 +29,7 @@ use Pramnos\Cache\SimpleCacheInvalidArgumentException;
  */
 #[CoversClass(SimpleCache::class)]
 #[CoversClass(SimpleCacheInvalidArgumentException::class)]
+#[\PHPUnit\Framework\Attributes\Group('serial')]
 class SimpleCacheCharacterizationTest extends TestCase
 {
     private SimpleCache $cache;

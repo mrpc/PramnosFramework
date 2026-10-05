@@ -28,6 +28,7 @@ use Symfony\Component\Console\Tester\CommandTester;
  * `tearDown` removes exactly those. A test that dropped `mails` to get a clean slate would take
  * the audit log of whatever ran beside it.
  */
+#[\PHPUnit\Framework\Attributes\Group('serial')]
 class MailOutboxMySQLTest extends TestCase
 {
     protected Database $db;

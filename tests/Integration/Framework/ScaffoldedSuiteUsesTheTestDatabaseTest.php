@@ -73,7 +73,7 @@ class ScaffoldedSuiteUsesTheTestDatabaseTest extends TestCase
     public function testTheSettingsNameTheTestDatabaseAfterSetup(): void
     {
         // Arrange — the two files `init` writes, with the names it gives them.
-        $development = 'pramnos_test';
+        $development = TEST_DATABASE;
         $test        = $development . '_test';
 
         file_put_contents(

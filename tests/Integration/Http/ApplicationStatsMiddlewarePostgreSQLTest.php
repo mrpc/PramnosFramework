@@ -11,6 +11,7 @@ use Pramnos\Http\Middleware\ApplicationStatsMiddleware;
  * {@see ApplicationStatsMiddlewareTest} on PostgreSQL, where the table is a hypertable.
  */
 #[CoversClass(ApplicationStatsMiddleware::class)]
+#[\PHPUnit\Framework\Attributes\Group('serial')]
 class ApplicationStatsMiddlewarePostgreSQLTest extends ApplicationStatsMiddlewareTest
 {
     protected function settingsFixture(): string

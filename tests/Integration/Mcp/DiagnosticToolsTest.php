@@ -24,6 +24,7 @@ use Pramnos\Mcp\Tools\StatusTool;
 #[CoversClass(StatusTool::class)]
 #[CoversClass(SchemaDriftTool::class)]
 #[CoversClass(RequestDebugTool::class)]
+#[\PHPUnit\Framework\Attributes\Group('serial')]
 class DiagnosticToolsTest extends TestCase
 {
     private Application $app;

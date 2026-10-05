@@ -8,6 +8,7 @@ namespace Pramnos\Tests\Integration\Database;
  * The same, on PostgreSQL — where a model names its table `public.<table>`, which is the form
  * whose cache key the migration's flush did not reach.
  */
+#[\PHPUnit\Framework\Attributes\Group('serial')]
 class ColumnCacheAfterMigratePostgreSQLTest extends ColumnCacheAfterMigrateTest
 {
     protected function settingsFixture(): string

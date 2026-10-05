@@ -50,7 +50,7 @@ class DaemonControlsTest extends TestCase
         $this->db->port     = $port;
         $this->db->user     = $type === 'mysql' ? 'root' : 'postgres';
         $this->db->password = 'secret';
-        $this->db->database = 'pramnos_test';
+        $this->db->database = TEST_DATABASE;
 
         try {
             if (!$this->db->connect(false)) {

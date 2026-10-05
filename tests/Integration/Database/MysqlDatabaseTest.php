@@ -29,7 +29,7 @@ class MysqlDatabaseTest extends \PHPUnit\Framework\TestCase
         self::$db->server   = 'db';
         self::$db->user     = 'root';
         self::$db->password = 'secret';
-        self::$db->database = 'pramnos_test';
+        self::$db->database = TEST_DATABASE;
         self::$db->port     = 3306;
         self::$db->connect(true);
 
@@ -672,7 +672,7 @@ class MysqlDatabaseTest extends \PHPUnit\Framework\TestCase
         $db->server   = 'db';
         $db->user     = 'root';
         $db->password = 'secret';
-        $db->database = 'pramnos_test';
+        $db->database = TEST_DATABASE;
         $db->port     = 3306;
         $db->connect(true);
 
@@ -770,7 +770,7 @@ class MysqlDatabaseTest extends \PHPUnit\Framework\TestCase
         $db->server   = 'db';
         $db->user     = 'root';
         $db->password = 'secret';
-        $db->database = 'pramnos_test';
+        $db->database = TEST_DATABASE;
         $db->port     = 3306;
         $db->connect(true);
 
@@ -801,7 +801,7 @@ class MysqlDatabaseTest extends \PHPUnit\Framework\TestCase
         $db->server   = 'db';
         $db->user     = 'root';
         $db->password = 'secret';
-        $db->database = 'pramnos_test';
+        $db->database = TEST_DATABASE;
         $db->port     = 3306;
         $db->connect(true);
 
@@ -834,7 +834,7 @@ class MysqlDatabaseTest extends \PHPUnit\Framework\TestCase
         $db->server      = 'db';
         $db->user        = 'root';
         $db->password    = 'secret';
-        $db->database    = 'pramnos_test';
+        $db->database    = TEST_DATABASE;
         $db->port        = 3306;
         $db->persistency = true;
 
@@ -954,7 +954,7 @@ class MysqlDatabaseTest extends \PHPUnit\Framework\TestCase
         $db->server    = 'db';
         $db->user      = 'root';
         $db->password  = 'secret';
-        $db->database  = 'pramnos_test';
+        $db->database  = TEST_DATABASE;
         $db->port      = 3306;
         // connected is false (never called connect())
 
@@ -989,7 +989,7 @@ class MysqlDatabaseTest extends \PHPUnit\Framework\TestCase
         $db->server   = 'db';
         $db->user     = 'root';
         $db->password = 'secret';
-        $db->database = 'pramnos_test';
+        $db->database = TEST_DATABASE;
         $db->port     = 3306;
         $db->connect(true);
 
@@ -1033,7 +1033,7 @@ class MysqlDatabaseTest extends \PHPUnit\Framework\TestCase
             'hostname' => 'db',
             'user'     => 'root',
             'password' => 'secret',
-            'database' => 'pramnos_test',
+            'database' => TEST_DATABASE,
             'port'     => 3306,
         ];
         $db->setReplicaConfig($replicaCfg, $replicaCfg);

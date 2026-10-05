@@ -8,6 +8,10 @@ use Pramnos\Application\Settings;
 use Pramnos\Database\Database;
 use Pramnos\Framework\Factory;
 
+// Helpers this file uses are declared there, under names the autoloader cannot map to a file;
+// required here so the file does not depend on another test having run first.
+require_once __DIR__ . '/QueueControllerMySQLTest.php';
+
 /**
  * Integration tests for QueueController against a live PostgreSQL 14 database.
  *

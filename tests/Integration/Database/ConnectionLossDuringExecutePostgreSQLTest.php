@@ -31,7 +31,7 @@ class ConnectionLossDuringExecutePostgreSQLTest extends ConnectionLossDuringExec
             'server'   => 'timescaledb',
             'user'     => 'postgres',
             'password' => 'secret',
-            'database' => 'pramnos_test',
+            'database' => TEST_DATABASE,
             'port'     => 5432,
             'schema'   => 'public',
         ];

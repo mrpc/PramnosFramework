@@ -16,6 +16,7 @@ use Pramnos\Auth\Controllers\TokensController;
  * partitioned table rather than a plain one.
  */
 #[CoversClass(TokensController::class)]
+#[\PHPUnit\Framework\Attributes\Group('serial')]
 class TokenDetailScreenPostgreSQLTest extends TokenDetailScreenTest
 {
     protected function settingsFixture(): string

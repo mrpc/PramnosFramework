@@ -42,7 +42,7 @@ class SettingsPostgreSQLTest extends TestCase
         $this->db->server   = 'timescaledb';
         $this->db->user     = 'postgres';
         $this->db->password = 'secret';
-        $this->db->database = 'pramnos_test';
+        $this->db->database = TEST_DATABASE;
         $this->db->port     = 5432;
         $this->db->schema   = 'public';
         $this->db->connect(true);

@@ -12,7 +12,7 @@ return [
         'hostname' => 'timescaledb',
         'user'     => 'postgres',
         'password' => 'secret',
-        'database' => 'pramnos_test',
+        'database' => (defined('TEST_DATABASE') ? TEST_DATABASE : 'pramnos_test'),
         'type'     => 'postgresql',
         // Strict mode, so a failed query is an exception on **every** backend.
         // mysqli throws by default; pg_* returns false. Without this the PostgreSQL

@@ -14,6 +14,60 @@ if (!defined('PRAMNOS_TESTING')) {
 }
 
 /*
+ * **One test database per parallel worker.**
+ *
+ * ParaTest gives each worker a `TEST_TOKEN` (1, 2, …). Two workers sharing `pramnos_test`
+ * would drop and create each other's tables mid-test, so a worker gets `pramnos_test_<N>` on
+ * both servers, created here when it is missing; a plain sequential run has no token and
+ * keeps `pramnos_test`. Tests name the database through this constant, and the ones that read
+ * `DB_NAME` from the environment are pointed at the same one below.
+ */
+if (!defined('TEST_DATABASE')) {
+    $pramnosTestToken = getenv('TEST_TOKEN');
+    define(
+        'TEST_DATABASE',
+        'pramnos_test' . ($pramnosTestToken !== false && $pramnosTestToken !== '' ? '_' . (int) $pramnosTestToken : '')
+    );
+
+    if (TEST_DATABASE !== 'pramnos_test') {
+        foreach (['DB_NAME', 'PG_NAME'] as $pramnosTestVariable) {
+            putenv($pramnosTestVariable . '=' . TEST_DATABASE);
+            $_ENV[$pramnosTestVariable] = TEST_DATABASE;
+        }
+
+        // Raw PDO: nothing of the framework is loaded yet. Each server is tried on its own;
+        // one that is not running leaves its tests to skip, as they do without parallelism.
+        try {
+            (new \PDO('mysql:host=db;port=3306', 'root', 'secret', [\PDO::ATTR_TIMEOUT => 2]))
+                ->exec('CREATE DATABASE IF NOT EXISTS `' . TEST_DATABASE . '`');
+        } catch (\Throwable) {
+        }
+        try {
+            $pramnosTestPg = new \PDO('pgsql:host=timescaledb;port=5432;dbname=postgres', 'postgres', 'secret');
+            $pramnosTestExists = $pramnosTestPg->query(
+                "SELECT 1 FROM pg_database WHERE datname = '" . TEST_DATABASE . "'"
+            )->fetchColumn();
+            // template1 carries the TimescaleDB extension. Workers start together, and
+            // PostgreSQL refuses to copy a template another session is copying: retry.
+            for ($pramnosTestTry = 0; $pramnosTestExists === false && $pramnosTestTry < 20; $pramnosTestTry++) {
+                try {
+                    $pramnosTestPg->exec('CREATE DATABASE "' . TEST_DATABASE . '"');
+                    break;
+                } catch (\PDOException $pramnosTestError) {
+                    if (str_contains($pramnosTestError->getMessage(), 'already exists')) {
+                        break;
+                    }
+                    usleep(250_000);
+                }
+            }
+        } catch (\Throwable) {
+        }
+        unset($pramnosTestPg, $pramnosTestExists, $pramnosTestTry, $pramnosTestError);
+    }
+    unset($pramnosTestToken, $pramnosTestVariable);
+}
+
+/*
  * `UNITTESTING`, here rather than in whichever test needs it first.
  *
  * It gates test-only seams in the framework — `MediaObject::move_uploaded_file()` uses `copy()`

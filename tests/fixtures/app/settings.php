@@ -4,7 +4,7 @@ return [
         'hostname' => 'db', // Docker MySQL service
         'user' => 'root',
         'password' => 'secret',
-        'database' => 'pramnos_test',
+        'database' => (defined('TEST_DATABASE') ? TEST_DATABASE : 'pramnos_test'),
         'type' => 'mysql',
         // Strict mode, so a failed query is an exception on **every** backend.
         // mysqli throws by default; pg_* returns false. Without this the PostgreSQL
@@ -19,7 +19,7 @@ return [
         'hostname' => 'timescaledb', // Docker Postgres service
         'user' => 'postgres',
         'password' => 'secret',
-        'database' => 'pramnos_test',
+        'database' => (defined('TEST_DATABASE') ? TEST_DATABASE : 'pramnos_test'),
         'type' => 'postgresql',
         'port' => 5432,
         'prefix' => '',

@@ -30,7 +30,7 @@ class TokenActionsSelfHealPostgreSQLTest extends TokenActionsSelfHealTest
             'server'   => 'timescaledb',
             'user'     => 'postgres',
             'password' => 'secret',
-            'database' => 'pramnos_test',
+            'database' => TEST_DATABASE,
             'port'     => 5432,
             'schema'   => 'public',
             // The parent's prefix, repeated because this method replaces that array rather than

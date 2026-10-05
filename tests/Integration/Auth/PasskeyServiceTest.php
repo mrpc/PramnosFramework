@@ -61,7 +61,7 @@ class PasskeyServiceTest extends TestCase
         $this->db->port     = (int) ($_ENV['DB_PORT'] ?? (getenv('DB_PORT') ?: ($this->isPg ? 5432 : 3306)));
         $this->db->user     = $_ENV['DB_USER'] ?? (getenv('DB_USER') ?: 'root');
         $this->db->password = $_ENV['DB_PASS'] ?? (getenv('DB_PASS') ?: 'secret');
-        $this->db->database = $_ENV['DB_NAME'] ?? (getenv('DB_NAME') ?: 'pramnos_test');
+        $this->db->database = $_ENV['DB_NAME'] ?? (getenv('DB_NAME') ?: TEST_DATABASE);
 
         try {
             if (!$this->db->connect(false)) {

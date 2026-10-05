@@ -30,6 +30,7 @@ use Pramnos\Http\Response;
 #[CoversClass(PageCacheMiddleware::class)]
 #[CoversClass(PageCache::class)]
 #[CoversClass(Application::class)]
+#[\PHPUnit\Framework\Attributes\Group('serial')]
 class PageCacheConfigAndCspTest extends TestCase
 {
     /** @var array<string,mixed> */

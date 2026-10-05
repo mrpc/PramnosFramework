@@ -7,6 +7,10 @@ namespace Pramnos\Tests\Unit\Auth\Controllers;
 use PHPUnit\Framework\TestCase;
 use Pramnos\Auth\Controllers\Account;
 
+// Helpers this file uses are declared there, under names the autoloader cannot map to a file;
+// required here so the file does not depend on another test having run first.
+require_once __DIR__ . '/AccountControllerTest.php';
+
 /**
  * `Account::register()` — the self-service sign-up leg.
  *

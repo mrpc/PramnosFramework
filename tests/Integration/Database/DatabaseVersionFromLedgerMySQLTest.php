@@ -17,6 +17,7 @@ use Pramnos\Database\Database;
  *
  * Every case is inherited; only the connection changes.
  */
+#[\PHPUnit\Framework\Attributes\Group('serial')]
 class DatabaseVersionFromLedgerMySQLTest extends DatabaseVersionFromLedgerTest
 {
     protected function connection(): Database
@@ -26,7 +27,7 @@ class DatabaseVersionFromLedgerMySQLTest extends DatabaseVersionFromLedgerTest
         $db->server   = 'db';
         $db->user     = 'root';
         $db->password = 'secret';
-        $db->database = 'pramnos_test';
+        $db->database = TEST_DATABASE;
         $db->port     = 3306;
 
         if (!$db->connect(false)) {

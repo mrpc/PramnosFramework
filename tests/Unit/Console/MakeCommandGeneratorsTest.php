@@ -22,6 +22,10 @@ use Symfony\Component\Console\Question\ChoiceQuestion;
 use Symfony\Component\Console\Helper\QuestionHelper;
 use Symfony\Component\Console\Helper\HelperSet;
 
+// Helpers this file uses are declared there, under names the autoloader cannot map to a file;
+// required here so the file does not depend on another test having run first.
+require_once __DIR__ . '/MakeCrudSpaTest.php';
+
 class DummyGeneratorCommand extends MakeCommandBase
 {
     protected function configure() {}

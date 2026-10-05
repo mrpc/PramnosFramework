@@ -13,7 +13,7 @@ class PermissionsAuthserverStoreMySQLTest extends PermissionsAuthserverStoreTest
     {
         return [
             'type' => 'mysql', 'server' => 'db', 'port' => 3306,
-            'user' => 'root', 'password' => 'secret', 'database' => 'pramnos_test',
+            'user' => 'root', 'password' => 'secret', 'database' => TEST_DATABASE,
         ];
     }
 }

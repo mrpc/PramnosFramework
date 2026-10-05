@@ -47,7 +47,7 @@ class TokenActionsSelfHealTest extends DatabaseTestCase
             'server'   => 'db',
             'user'     => 'root',
             'password' => 'secret',
-            'database' => 'pramnos_test',
+            'database' => TEST_DATABASE,
             'port'     => 3306,
             /*
              * A prefix of this class's own, so the repair works on `heal_tokenactions`.

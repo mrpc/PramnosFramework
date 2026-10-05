@@ -16,6 +16,7 @@ use Pramnos\Framework\Testing\Schema;
 use Pramnos\Framework\Testing\Connection;
 
 #[CoversClass(UsersController::class)]
+#[\PHPUnit\Framework\Attributes\Group('serial')]
 class UsersControllerTest extends TestCase
 {
     private Database $db;
@@ -1119,7 +1120,9 @@ class UsersControllerTest extends TestCase
      */
     public function testTheActivityEndpointListsTheAccountsHistory(): void
     {
-        // Arrange — one entry, with something that must not reach the page as markup
+        // Arrange — one entry, with something that must not reach the page as markup. The
+        // account's earlier history goes first: rows left by another run or class made it six.
+        $this->db->queryBuilder()->table('authserver.user_activity_log')->where('userid', 3)->delete();
         $this->db->query(
             "INSERT INTO `authserver_user_activity_log`"
             . " (`userid`, `action`, `details`, `ip_address`, `created_at`)"

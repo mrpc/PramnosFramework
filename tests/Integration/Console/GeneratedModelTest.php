@@ -56,6 +56,7 @@ class GeneratedModelDummyCommand extends MakeCommandBase
  * this reads is the driver's, and the primary key comes out of it.
  */
 #[CoversClass(MakeCommandBase::class)]
+#[\PHPUnit\Framework\Attributes\Group('serial')]
 class GeneratedModelTest extends BaseTestCase
 {
     private $db;

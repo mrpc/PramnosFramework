@@ -8,6 +8,7 @@ use_cases:
   - Running the linter or the JavaScript tests
   - Asserting that an action broadcast a realtime event
   - Creating users in a test without leaving them in the test database
+  - Running the framework's own suite in parallel, or a test that fails only in parallel
 ---
 
 # Pramnos Testing Guide
@@ -814,6 +815,38 @@ WHERE REFERENCED_TABLE_NAME = 'the_table_you_want_to_drop';
 Everything else follows the rules below: schema and expensive fixtures once per class, rows
 per test. An RSA key pair for an OAuth2 server costs a few hundred milliseconds and is
 read-only once generated, so it belongs in `setUpBeforeClass()` like any other.
+
+## Running the framework's suite in parallel
+
+```bash
+./dockertest --parallel        # 4 workers
+./dockertest --parallel=6      # or as many as you choose
+```
+
+This is the framework's own suite, not a scaffolded project's. ParaTest splits the test files
+over N workers, and then the `serial` group runs in a single process. On this machine that
+takes about 2 minutes, against 5 sequentially. The sequential `./dockertest --nocoverage`
+remains the reference run: there is no coverage in parallel, and a failure seen only in
+parallel is a test that shares something.
+
+**Each worker has its own database.** ParaTest sets `TEST_TOKEN` (1…N). `tests/bootstrap.php`
+turns it into `TEST_DATABASE = pramnos_test_<N>`, creates that database on both servers when
+it is missing, and points `DB_NAME` / `PG_NAME` at it. A sequential run has no token and keeps
+`pramnos_test`. A test therefore names the database as `TEST_DATABASE` and never as a literal.
+
+**Every class starts with no settings and no connection.** `tests/Support/DatabaseStateIsolation`
+clears both before each test class. A class that loads its own settings is unaffected. A class
+that relied on the one before it to have loaded them fails sequentially too, and the fix is to
+load them.
+
+**A helper class lives in the file that uses it, or is required.** The autoloader maps a class
+to a file of the same name. A test that uses a double declared in another test's file must
+`require_once` that file, or it works only after that file has run.
+
+**`#[Group('serial')]` is for what no database separates.** That means files under the
+project (the cache directory, `www/uploads`, a generated model), the Redis instance,
+`/tmp/dockertest-*`, and tests whose timing does not survive four workers' load. Before adding
+a class to the group, see whether the shared thing can be given a per-test name instead.
 
 ## Writing a test that does not slow the suite down
 

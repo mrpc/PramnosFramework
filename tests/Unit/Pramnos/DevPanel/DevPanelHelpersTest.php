@@ -109,6 +109,7 @@ class InspectableDevPanelController extends DevPanelController
  *  - detectRepoRoot()   — ROOT constant / fallback to framework root
  */
 #[CoversClass(DevPanelController::class)]
+#[\PHPUnit\Framework\Attributes\Group('serial')]
 class DevPanelHelpersTest extends TestCase
 {
     private InspectableDevPanelController $controller;

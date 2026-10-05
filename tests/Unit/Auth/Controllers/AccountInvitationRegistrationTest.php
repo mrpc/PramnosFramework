@@ -13,6 +13,10 @@ use Pramnos\Application\Settings;
 use Pramnos\Auth\Controllers\Account;
 use Pramnos\Auth\RegistrationPolicy;
 
+// Helpers this file uses are declared there, under names the autoloader cannot map to a file;
+// required here so the file does not depend on another test having run first.
+require_once __DIR__ . '/../LoginFlowTest.php';
+
 /**
  * Registration through an invitation, within a domain list, and with address confirmation.
  *

@@ -24,6 +24,7 @@ use Pramnos\Database\MigrationRunner;
  *
  * Requires the Docker PostgreSQL container (host: pg, port: 5432).
  */
+#[\PHPUnit\Framework\Attributes\Group('serial')]
 class ApplicationAutoMigrationsPostgreSQLTest extends TestCase
 {
     /** @var Database Live PostgreSQL connection. */
@@ -53,7 +54,7 @@ class ApplicationAutoMigrationsPostgreSQLTest extends TestCase
         $this->db->server   = 'timescaledb';
         $this->db->user     = 'postgres';
         $this->db->password = 'secret';
-        $this->db->database = 'pramnos_test';
+        $this->db->database = TEST_DATABASE;
         $this->db->port     = 5432;
         $this->db->connect(true);
 

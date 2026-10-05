@@ -48,7 +48,7 @@ class HypertableRepairTimescaleDBTest extends TestCase
         $this->db->port     = 5432;
         $this->db->user     = $_ENV['PG_USER'] ?? (getenv('PG_USER') ?: 'postgres');
         $this->db->password = $_ENV['PG_PASS'] ?? (getenv('PG_PASS') ?: 'secret');
-        $this->db->database = $_ENV['PG_NAME'] ?? (getenv('PG_NAME') ?: 'pramnos_test');
+        $this->db->database = $_ENV['PG_NAME'] ?? (getenv('PG_NAME') ?: TEST_DATABASE);
 
         try {
             if (!$this->db->connect(false)) {

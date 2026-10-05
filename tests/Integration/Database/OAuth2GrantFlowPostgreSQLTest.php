@@ -23,6 +23,7 @@ use Pramnos\Database\Database;
  * Requires the Docker TimescaleDB container (host: timescaledb, port: 5432).
  */
 #[RunTestsInSeparateProcesses]
+#[\PHPUnit\Framework\Attributes\Group('serial')]
 class OAuth2GrantFlowPostgreSQLTest extends TestCase
 {
     protected Database $db;

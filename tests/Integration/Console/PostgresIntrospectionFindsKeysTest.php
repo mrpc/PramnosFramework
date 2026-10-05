@@ -23,6 +23,10 @@ use Pramnos\Application\Settings;
 use Pramnos\Console\Commands\MakeCommandBase;
 use Pramnos\Framework\Factory;
 
+// Helpers this file uses are declared there, under names the autoloader cannot map to a file;
+// required here so the file does not depend on another test having run first.
+require_once __DIR__ . '/../../Unit/Console/MakeCrudSpaTest.php';
+
 /** Exposes the introspection the generators read. */
 class PgKeysProbe extends MakeCommandBase
 {

@@ -10,6 +10,7 @@ namespace Pramnos\Tests\Integration\Database;
  * The atomicity is the engine's, and the two report a duplicate key differently — a unique
  * violation here, error 1062 there — so a test on one lane proves nothing about the other.
  */
+#[\PHPUnit\Framework\Attributes\Group('serial')]
 class SharedLockPostgreSQLTest extends SharedLockTest
 {
     protected function settingsFixture(): string

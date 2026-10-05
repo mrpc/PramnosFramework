@@ -28,6 +28,7 @@ use Pramnos\Database\MigrationRunner;
  * a row in the same table, and the wrong answer is whichever of them the query forgets to
  * exclude.
  */
+#[\PHPUnit\Framework\Attributes\Group('serial')]
 class DatabaseVersionFromLedgerTest extends TestCase
 {
     protected Database $db;
@@ -95,7 +96,7 @@ class DatabaseVersionFromLedgerTest extends TestCase
         $db->server   = 'timescaledb';
         $db->user     = 'postgres';
         $db->password = 'secret';
-        $db->database = 'pramnos_test';
+        $db->database = TEST_DATABASE;
         $db->port     = 5432;
         $db->schema   = 'public';
 

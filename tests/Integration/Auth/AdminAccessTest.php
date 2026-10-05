@@ -24,6 +24,7 @@ use Pramnos\Framework\Testing\BaseTestCase;
  */
 #[CoversClass(AdminAccess::class)]
 #[CoversClass(NavRegistry::class)]
+#[\PHPUnit\Framework\Attributes\Group('serial')]
 class AdminAccessTest extends BaseTestCase
 {
     protected \Pramnos\Database\Database $db;

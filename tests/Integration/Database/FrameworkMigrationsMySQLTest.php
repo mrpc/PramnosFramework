@@ -47,7 +47,7 @@ class FrameworkMigrationsMySQLTest extends TestCase
         $this->db->server   = 'db';
         $this->db->user     = 'root';
         $this->db->password = 'secret';
-        $this->db->database = 'pramnos_test';
+        $this->db->database = TEST_DATABASE;
         $this->db->port     = 3306;
         $this->db->connect(true);
 
@@ -618,7 +618,7 @@ class FrameworkMigrationsMySQLTest extends TestCase
                    AND TABLE_NAME = %s
                    AND REFERENCED_TABLE_NAME = %s
                    AND REFERENCED_COLUMN_NAME = %s",
-                'pramnos_test',
+                TEST_DATABASE,
                 'massmessagerecipients',
                 'massmessages',
                 'messageid'
@@ -1791,7 +1791,7 @@ class FrameworkMigrationsMySQLTest extends TestCase
             $this->db->prepareQuery(
                 "SELECT COUNT(*) AS cnt FROM information_schema.VIEWS
                  WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s",
-                'pramnos_test',
+                TEST_DATABASE,
                 'authserver_daily_activity_summary'
             )
         );
@@ -1817,7 +1817,7 @@ class FrameworkMigrationsMySQLTest extends TestCase
             $this->db->prepareQuery(
                 "SELECT COUNT(*) AS cnt FROM information_schema.VIEWS
                  WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s",
-                'pramnos_test',
+                TEST_DATABASE,
                 'authserver_daily_activity_summary'
             )
         );
@@ -2162,7 +2162,7 @@ class FrameworkMigrationsMySQLTest extends TestCase
                 $this->db->prepareQuery(
                     "SELECT COUNT(*) AS cnt FROM information_schema.TRIGGERS
                      WHERE TRIGGER_SCHEMA = %s AND TRIGGER_NAME = %s",
-                    'pramnos_test',
+                    TEST_DATABASE,
                     $trigger
                 )
             );
@@ -2201,7 +2201,7 @@ class FrameworkMigrationsMySQLTest extends TestCase
                 $this->db->prepareQuery(
                     "SELECT COUNT(*) AS cnt FROM information_schema.TRIGGERS
                      WHERE TRIGGER_SCHEMA = %s AND TRIGGER_NAME = %s",
-                    'pramnos_test',
+                    TEST_DATABASE,
                     $trigger
                 )
             );
@@ -2287,7 +2287,7 @@ class FrameworkMigrationsMySQLTest extends TestCase
             $this->db->prepareQuery(
                 "SELECT COUNT(*) as cnt FROM information_schema.TABLES
                  WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s",
-                'pramnos_test',
+                TEST_DATABASE,
                 $name
             )
         );
@@ -2300,7 +2300,7 @@ class FrameworkMigrationsMySQLTest extends TestCase
             $this->db->prepareQuery(
                 "SELECT COUNT(*) as cnt FROM information_schema.COLUMNS
                  WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s AND COLUMN_NAME = %s",
-                'pramnos_test',
+                TEST_DATABASE,
                 $table,
                 $column
             )
@@ -2315,7 +2315,7 @@ class FrameworkMigrationsMySQLTest extends TestCase
                 "SELECT DATA_TYPE, IS_NULLABLE, COLUMN_DEFAULT, COLUMN_KEY
                  FROM information_schema.COLUMNS
                  WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s AND COLUMN_NAME = %s",
-                'pramnos_test',
+                TEST_DATABASE,
                 $table,
                 $column
             )
@@ -2340,7 +2340,7 @@ class FrameworkMigrationsMySQLTest extends TestCase
             $this->db->prepareQuery(
                 "SELECT COUNT(*) as cnt FROM information_schema.STATISTICS
                  WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s AND INDEX_NAME = %s",
-                'pramnos_test',
+                TEST_DATABASE,
                 $table,
                 $indexName
             )
@@ -2354,7 +2354,7 @@ class FrameworkMigrationsMySQLTest extends TestCase
             $this->db->prepareQuery(
                 "SELECT COUNT(*) AS cnt FROM information_schema.VIEWS
                  WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s",
-                'pramnos_test',
+                TEST_DATABASE,
                 $name
             )
         );

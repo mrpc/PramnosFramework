@@ -32,7 +32,7 @@ class SchemaBuilderMySQLTest extends TestCase
         $this->db->server   = 'db';
         $this->db->user     = 'root';
         $this->db->password = 'secret';
-        $this->db->database = 'pramnos_test';
+        $this->db->database = TEST_DATABASE;
         $this->db->port     = 3306;
         $this->db->connect(true);
 
@@ -76,7 +76,7 @@ class SchemaBuilderMySQLTest extends TestCase
                 "SELECT DATA_TYPE, COLUMN_TYPE, IS_NULLABLE, COLUMN_DEFAULT, EXTRA, COLUMN_KEY, COLUMN_COMMENT
                  FROM information_schema.COLUMNS
                  WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s AND COLUMN_NAME = %s",
-                'pramnos_test', $table, $column
+                TEST_DATABASE, $table, $column
             )
         );
         return $result->numRows > 0 ? $result->fields : null;
@@ -88,7 +88,7 @@ class SchemaBuilderMySQLTest extends TestCase
             $this->db->prepareQuery(
                 "SELECT COUNT(*) AS cnt FROM information_schema.TABLES
                  WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s",
-                'pramnos_test', $table
+                TEST_DATABASE, $table
             )
         );
         return (int) $r->fields['cnt'] === 1;
@@ -100,7 +100,7 @@ class SchemaBuilderMySQLTest extends TestCase
             $this->db->prepareQuery(
                 "SELECT COUNT(*) AS cnt FROM information_schema.STATISTICS
                  WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s AND INDEX_NAME = %s",
-                'pramnos_test', $table, $indexName
+                TEST_DATABASE, $table, $indexName
             )
         );
         return (int) $r->fields['cnt'] > 0;
@@ -112,7 +112,7 @@ class SchemaBuilderMySQLTest extends TestCase
             $this->db->prepareQuery(
                 "SELECT COUNT(*) AS cnt FROM information_schema.VIEWS
                  WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s",
-                'pramnos_test', $name
+                TEST_DATABASE, $name
             )
         );
         return (int) $r->fields['cnt'] === 1;
@@ -436,7 +436,7 @@ class SchemaBuilderMySQLTest extends TestCase
             $this->db->prepareQuery(
                 "SELECT TABLE_COMMENT FROM information_schema.TABLES
                  WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s",
-                'pramnos_test', 'sb_types'
+                TEST_DATABASE, 'sb_types'
             )
         );
         $this->assertSame("User's main table", $tableResult->fields['TABLE_COMMENT']);
@@ -491,7 +491,7 @@ class SchemaBuilderMySQLTest extends TestCase
             $this->db->prepareQuery(
                 "SELECT NON_UNIQUE FROM information_schema.STATISTICS
                  WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s AND INDEX_NAME = %s LIMIT 1",
-                'pramnos_test', 'sb_types', 'uniq_sb_slug'
+                TEST_DATABASE, 'sb_types', 'uniq_sb_slug'
             )
         );
         $this->assertSame('0', (string) $r->fields['NON_UNIQUE'], 'unique index must have NON_UNIQUE = 0');
@@ -526,7 +526,7 @@ class SchemaBuilderMySQLTest extends TestCase
                 "SELECT CONSTRAINT_NAME FROM information_schema.KEY_COLUMN_USAGE
                  WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s
                    AND REFERENCED_TABLE_NAME = %s AND COLUMN_NAME = %s",
-                'pramnos_test', 'sb_child', 'sb_parent', 'parent_id'
+                TEST_DATABASE, 'sb_child', 'sb_parent', 'parent_id'
             )
         );
         $this->assertGreaterThan(0, $r->numRows, 'FK constraint must exist in KEY_COLUMN_USAGE');
@@ -887,7 +887,7 @@ class SchemaBuilderMySQLTest extends TestCase
         $r = $this->db->query(
             "SELECT INDEX_NAME
              FROM information_schema.statistics
-             WHERE TABLE_SCHEMA = 'pramnos_test'
+             WHERE TABLE_SCHEMA = '" . TEST_DATABASE . "'
                AND TABLE_NAME   = '{$tableName}'
                AND NON_UNIQUE   = 1
              GROUP BY INDEX_NAME

@@ -62,7 +62,7 @@ class MigrationRunnerMySQLTest extends TestCase
         $this->db->server   = 'db';
         $this->db->user     = 'root';
         $this->db->password = 'secret';
-        $this->db->database = 'pramnos_test';
+        $this->db->database = TEST_DATABASE;
         $this->db->port     = 3306;
         $this->db->connect(true);
 
@@ -105,7 +105,7 @@ class MigrationRunnerMySQLTest extends TestCase
             $this->db->prepareQuery(
                 "SELECT COUNT(*) as cnt FROM information_schema.TABLES
                  WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s",
-                'pramnos_test',
+                TEST_DATABASE,
                 $this->historyTable
             )
         );
@@ -117,7 +117,7 @@ class MigrationRunnerMySQLTest extends TestCase
             $this->db->prepareQuery(
                 "SELECT COLUMN_NAME FROM information_schema.COLUMNS
                  WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s",
-                'pramnos_test',
+                TEST_DATABASE,
                 $this->historyTable
             )
         );
@@ -185,7 +185,7 @@ class MigrationRunnerMySQLTest extends TestCase
             $this->db->prepareQuery(
                 "SELECT COLUMN_NAME FROM information_schema.COLUMNS
                  WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s",
-                'pramnos_test',
+                TEST_DATABASE,
                 $this->historyTable
             )
         );
@@ -228,7 +228,7 @@ class MigrationRunnerMySQLTest extends TestCase
             $this->db->prepareQuery(
                 "SELECT COUNT(*) as cnt FROM information_schema.TABLES
                  WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s",
-                'pramnos_test',
+                TEST_DATABASE,
                 'mr_my_roles'
             )
         );
@@ -579,7 +579,7 @@ class MigrationRunnerMySQLTest extends TestCase
             $this->db->prepareQuery(
                 "SELECT COUNT(*) as cnt FROM information_schema.TABLES
                  WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s",
-                'pramnos_test',
+                TEST_DATABASE,
                 $tableName
             )
         );
@@ -592,7 +592,7 @@ class MigrationRunnerMySQLTest extends TestCase
             $this->db->prepareQuery(
                 "SELECT COUNT(*) as cnt FROM information_schema.TABLES
                  WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s",
-                'pramnos_test',
+                TEST_DATABASE,
                 $tableName
             )
         );

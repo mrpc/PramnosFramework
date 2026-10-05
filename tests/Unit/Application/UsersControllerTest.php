@@ -16,6 +16,7 @@ use Pramnos\Application\Controllers\UsersController;
  * Database interactions are covered by the Integration test suite.
  */
 #[CoversClass(UsersController::class)]
+#[\PHPUnit\Framework\Attributes\Group('serial')]
 class UsersControllerTest extends TestCase
 {
     /**

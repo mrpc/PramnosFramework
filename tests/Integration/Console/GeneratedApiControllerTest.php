@@ -73,6 +73,7 @@ class GeneratedApiDummyCommand extends MakeCommandBase
  * two different branches for the one decision that matters most.
  */
 #[CoversClass(MakeCommandBase::class)]
+#[\PHPUnit\Framework\Attributes\Group('serial')]
 class GeneratedApiControllerTest extends BaseTestCase
 {
     private $db;

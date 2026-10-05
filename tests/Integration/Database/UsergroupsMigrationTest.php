@@ -55,7 +55,7 @@ class UsergroupsMigrationTest extends TestCase
             return $db;
         };
 
-        $this->admin = $make('pramnos_test');
+        $this->admin = $make(TEST_DATABASE);
         try {
             if (!$this->admin->connect(false)) {
                 $this->markTestSkipped($host . ' not reachable');

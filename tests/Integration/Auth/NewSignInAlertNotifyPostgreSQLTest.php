@@ -15,6 +15,7 @@ use Pramnos\Auth\NewSignInAlert;
  * composite key — `ON CONFLICT` against a read-then-branch.
  */
 #[CoversClass(NewSignInAlert::class)]
+#[\PHPUnit\Framework\Attributes\Group('serial')]
 class NewSignInAlertNotifyPostgreSQLTest extends NewSignInAlertNotifyTest
 {
     protected function settingsFixture(): string

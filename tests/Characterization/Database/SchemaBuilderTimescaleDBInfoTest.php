@@ -56,7 +56,7 @@ class SchemaBuilderTimescaleDBInfoTest extends TestCase
         $db->server   = 'timescaledb';
         $db->user     = 'postgres';
         $db->password = 'secret';
-        $db->database = 'pramnos_test';
+        $db->database = TEST_DATABASE;
         $db->port     = 5432;
         $db->schema   = 'public';
 

@@ -13,6 +13,10 @@ namespace Tests\Fixtures\KernelFallbackApp {
 namespace Tests\Unit\Pramnos\Application {
 
     use PHPUnit\Framework\TestCase;
+
+// Helpers this file uses are declared there, under names the autoloader cannot map to a file;
+// required here so the file does not depend on another test having run first.
+require_once __DIR__ . '/../../Console/MakeCrudSpaTest.php';
     use Pramnos\Application\Application;
 
     /**

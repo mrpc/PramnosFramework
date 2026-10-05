@@ -32,6 +32,7 @@ use Pramnos\Framework\Testing\Connection;
  * key differently — a test on one proves nothing about the other.
  */
 #[CoversClass(SharedLock::class)]
+#[\PHPUnit\Framework\Attributes\Group('serial')]
 class SharedLockTest extends BaseTestCase
 {
     private Database $db;

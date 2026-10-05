@@ -12,6 +12,7 @@ namespace Pramnos\Tests\Integration\Console;
  * different primary-key flags. A regression that made the update branch depend on that answer would
  * pass on one engine and destroy a model on the other.
  */
+#[\PHPUnit\Framework\Attributes\Group('serial')]
 class RegeneratedModelPostgreSQLTest extends RegeneratedModelTest
 {
     protected function settingsFixture(): string

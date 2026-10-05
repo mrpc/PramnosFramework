@@ -37,6 +37,7 @@ use Pramnos\User\User;
  * a `COUNT(*)` beside it and a `LIMIT`/`OFFSET`, and `tokenactions` is a hypertable on one engine.
  */
 #[CoversClass(TokensController::class)]
+#[\PHPUnit\Framework\Attributes\Group('serial')]
 class TokenDetailScreenTest extends BaseTestCase
 {
     private $db;

@@ -35,6 +35,7 @@ use Pramnos\Application\Application;
  * it always did, which is the third path and the one every developer machine takes.
  */
 #[CoversClass(Application::class)]
+#[\PHPUnit\Framework\Attributes\Group('serial')]
 class AutoMigrationFingerprintTest extends TestCase
 {
     private object $application;

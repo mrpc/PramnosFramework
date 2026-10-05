@@ -77,7 +77,7 @@ class RegisteredMailCategoryReachesTheScreenTest extends BaseTestCase
     /** Which connection this class runs against. */
     protected function settingsFixture(): string
     {
-        return 'settings';
+        return ROOT . DS . 'tests' . DS . 'fixtures' . DS . 'app' . DS . 'settings.php';
     }
 
     /** Seed a blank row, the way an application's own seeding migration would. */

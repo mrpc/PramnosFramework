@@ -121,7 +121,7 @@ class GroupsScreenTest extends TestCase
         }
         Settings::loadSettings(ROOT . \DS . 'tests' . \DS . 'fixtures' . \DS . 'app' . \DS . 'settings.php');
 
-        $this->admin = self::connection($type, $host, $port, $user, 'pramnos_test');
+        $this->admin = self::connection($type, $host, $port, $user, TEST_DATABASE);
         try {
             if (!$this->admin->connect(false)) {
                 $this->markTestSkipped($host . ' not reachable');

@@ -35,6 +35,7 @@ use Pramnos\Database\Migrations\AddMissingIndexesToExistingTables;
 #[CoversClass(CreateUserAppAuthorizationsTable::class)]
 #[CoversClass(\Pramnos\Database\Migrations\AddMissingForeignKeysToExistingTables::class)]
 #[Group('migrations')]
+#[\PHPUnit\Framework\Attributes\Group('serial')]
 class SchemaMigrationsCharacterizationTest extends TestCase
 {
     /** @var Database Live database connection. */
@@ -672,7 +673,7 @@ class SchemaMigrationsCharacterizationTest extends TestCase
         $user = $_ENV['DB_USER'] ?? (getenv('DB_USER') ?: 'root');
         // DB_PASS is the canonical name in docker-compose (not DB_PASSWORD).
         $password = $_ENV['DB_PASS'] ?? (getenv('DB_PASS') ?: 'secret');
-        $database = $_ENV['DB_NAME'] ?? (getenv('DB_NAME') ?: 'pramnos_test');
+        $database = $_ENV['DB_NAME'] ?? (getenv('DB_NAME') ?: TEST_DATABASE);
 
         $db = new Database();
         $db->type = $driver;

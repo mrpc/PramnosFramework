@@ -22,7 +22,7 @@ class TestDatabaseHelperTest extends TestCase
         Settings::setSetting('database', [
             'hostname' => 'timescaledb',
             'port'     => 5432,
-            'database' => 'pramnos_test',
+            'database' => TEST_DATABASE,
             'user'     => 'postgres',
             'password' => 'secret',
             'type'     => 'postgresql',
@@ -74,7 +74,7 @@ class TestDatabaseHelperTest extends TestCase
     public function testSetConnectionAndResetSeams(): void
     {
         // A distinct real connection (avoids depending on pdo_sqlite).
-        $injected = new \PDO('pgsql:host=timescaledb;dbname=pramnos_test', 'postgres', 'secret');
+        $injected = new \PDO('pgsql:host=timescaledb;dbname=' . TEST_DATABASE, 'postgres', 'secret');
         TestDatabase::setConnection($injected);
         $this->assertSame($injected, TestDatabase::connection());
 

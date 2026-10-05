@@ -39,7 +39,7 @@ class MySQLConnectionTest extends TestCase
         self::$db->server   = 'db';
         self::$db->user     = 'root';
         self::$db->password = 'secret';
-        self::$db->database = 'pramnos_test';
+        self::$db->database = TEST_DATABASE;
         self::$db->port     = 3306;
         self::$db->connect(true);
 
@@ -421,7 +421,7 @@ class MySQLConnectionTest extends TestCase
         $db2->server   = 'db';
         $db2->user     = 'root';
         $db2->password = 'secret';
-        $db2->database = 'pramnos_test';
+        $db2->database = TEST_DATABASE;
         $db2->port     = 3306;
         $db2->connect(true);
 

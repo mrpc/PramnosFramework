@@ -31,7 +31,7 @@ class DatabaseTestCaseTest extends DatabaseTestCase
             'server'   => 'db',
             'user'     => 'root',
             'password' => 'secret',
-            'database' => 'pramnos_test',
+            'database' => TEST_DATABASE,
             'port'     => 3306,
         ];
     }

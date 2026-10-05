@@ -6,6 +6,10 @@ namespace Pramnos\Tests\Unit\Auth\Controllers;
 
 use PHPUnit\Framework\TestCase;
 
+// Helpers this file uses are declared there, under names the autoloader cannot map to a file;
+// required here so the file does not depend on another test having run first.
+require_once __DIR__ . '/AccountRegistrationTest.php';
+
 /**
  * `Account::sso()` — the single sign-on status page.
  *
@@ -101,6 +105,18 @@ class AccountSsoTest extends TestCase
  */
 class SsoAccount extends RegisteringAccount
 {
+    /**
+     * The signed-in user, from the same seam as currentUserId().
+     *
+     * sso() puts the user on the view as well as the id, and without this the real
+     * User::getCurrentUser() ran — which reached the database through whatever connection an
+     * earlier test had left, and failed wherever none was left.
+     */
+    protected function currentUser(): mixed
+    {
+        return $this->userId === null ? null : (object) ['userid' => $this->userId];
+    }
+
     /** @var list<array<string, mixed>> What the lookup should return */
     public array $apps = [];
 

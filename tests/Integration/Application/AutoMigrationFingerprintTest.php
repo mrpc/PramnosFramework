@@ -28,6 +28,7 @@ use Pramnos\Database\Database;
  * The cases below are written as sequences of *requests*, because that is the unit the bug
  * lives in: one request records "up to date", and the next has to disagree.
  */
+#[\PHPUnit\Framework\Attributes\Group('serial')]
 class AutoMigrationFingerprintTest extends TestCase
 {
     protected Database $db;
@@ -88,7 +89,7 @@ class AutoMigrationFingerprintTest extends TestCase
         $db->server   = 'timescaledb';
         $db->user     = 'postgres';
         $db->password = 'secret';
-        $db->database = 'pramnos_test';
+        $db->database = TEST_DATABASE;
         $db->port     = 5432;
         $db->schema   = 'public';
 

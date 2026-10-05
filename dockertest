@@ -15,6 +15,7 @@ nocoverage=false
 testdox=false
 resetdb=false
 force=false
+parallel=0
 passthrough=()
 for arg in "$@"; do
     if [[ "$arg" == "--nobrowser" ]]; then
@@ -33,6 +34,10 @@ for arg in "$@"; do
         resetdb=true
     elif [[ "$arg" == "--force" ]]; then
         force=true
+    elif [[ "$arg" == "--parallel" ]]; then
+        parallel=4
+    elif [[ "$arg" == --parallel=* ]]; then
+        parallel="${arg#--parallel=}"
     else
         passthrough+=("$arg")
     fi
@@ -287,7 +292,23 @@ extra_flags="--configuration phpunit.xml --display-deprecations --display-warnin
 # passed. Observed on a real red run.
 phpunit_status=0
 
-if [[ "$coverage" == true ]]; then
+if [[ "$parallel" -gt 0 ]]; then
+    # ParaTest over N workers, each with its own database (pramnos_test_<N>, created by
+    # tests/bootstrap.php), then the `serial` group in one process: the classes that share
+    # files — the cache directory, a generated model, the migration fingerprints — which no
+    # per-worker database separates. No coverage: it is a speed run, and --coverage stays
+    # the way to measure.
+    docker-compose exec -T -e XDEBUG_MODE=off php-apache-environment php -d memory_limit=1G vendor/bin/paratest \
+        -p "$parallel" --runner WrapperRunner --passthru-php="'-d' 'memory_limit=1G'" --no-coverage \
+        --exclude-group serial --display-deprecations --display-warnings --display-skipped "${passthrough[@]}"
+    parallel_status=$?
+    echo -e "\e[32mRunning the serial group...\e[0m"
+    docker-compose exec -T -e XDEBUG_MODE=off php-apache-environment php -d memory_limit=1G vendor/bin/phpunit \
+        --no-coverage --group serial $extra_flags "${passthrough[@]}"
+    phpunit_status=$?
+    # Red if either half was.
+    [[ $parallel_status -ne 0 ]] && phpunit_status=$parallel_status
+elif [[ "$coverage" == true ]]; then
     docker-compose exec php-apache-environment php -d memory_limit=1G vendor/bin/phpunit \
         --coverage-html coverage \
         --coverage-clover coverage/clover.xml \

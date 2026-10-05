@@ -247,7 +247,7 @@ class SettingsWriteIsOneStatementTest extends TestCase
         $db->server   = 'db';
         $db->user     = 'root';
         $db->password = 'secret';
-        $db->database = 'pramnos_test';
+        $db->database = TEST_DATABASE;
         $db->port     = 3306;
 
         try {

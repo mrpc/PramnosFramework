@@ -6,6 +6,10 @@ use PHPUnit\Framework\TestCase;
 use Pramnos\Application\FeatureRegistry;
 use Pramnos\Application\ServiceProvider;
 
+// Helpers this file uses are declared there, under names the autoloader cannot map to a file;
+// required here so the file does not depend on another test having run first.
+require_once __DIR__ . '/../Pramnos/Application/LibraryManagerTest.php';
+
 // ---------------------------------------------------------------------------
 // Test helpers: concrete providers outside the test class
 // ---------------------------------------------------------------------------

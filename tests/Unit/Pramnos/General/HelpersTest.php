@@ -9,6 +9,10 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Pramnos\General\Helpers;
 
+// HelpersWithoutParser is declared in BrowserDetectionTest.php, a name the autoloader cannot map;
+// required here so this file does not depend on that one having run first.
+require_once __DIR__ . '/../../General/BrowserDetectionTest.php';
+
 /**
  * Additional unit tests for Helpers, targeting the lines that remain uncovered
  * after HelpersExtendedTest and GlobalHelpersTest.

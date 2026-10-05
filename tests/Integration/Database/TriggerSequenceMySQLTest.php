@@ -46,7 +46,7 @@ class TriggerSequenceMySQLTest extends TestCase
         $this->db->server   = 'db';
         $this->db->user     = 'root';
         $this->db->password = 'secret';
-        $this->db->database = 'pramnos_test';
+        $this->db->database = TEST_DATABASE;
         $this->db->port     = 3306;
         $this->db->connect(true);
 
@@ -114,7 +114,7 @@ class TriggerSequenceMySQLTest extends TestCase
                   WHERE TRIGGER_SCHEMA = %s
                     AND TRIGGER_NAME   = %s
                     AND EVENT_OBJECT_TABLE = %s",
-                'pramnos_test',
+                TEST_DATABASE,
                 $triggerName,
                 $tableName
             )

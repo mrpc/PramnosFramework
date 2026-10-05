@@ -15,6 +15,7 @@ use Pramnos\User\UserTypes;
  * key, and a copy of the labels inside each bundled view. "What is 85?" had a different
  * answer depending on which file you asked.
  */
+#[\PHPUnit\Framework\Attributes\Group('serial')]
 class UserTypesTest extends TestCase
 {
     /**

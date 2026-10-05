@@ -63,6 +63,7 @@ class ExtDummyMakeCommand extends MakeCommandBase
  *     including FK fields, boolean, text, date/datetime columns
  */
 #[CoversClass(MakeCommandBase::class)]
+#[\PHPUnit\Framework\Attributes\Group('serial')]
 class MakeCommandBaseExtendedTest extends TestCase
 {
     private string $tmpDir;

@@ -11,6 +11,11 @@ use Pramnos\Framework\Factory;
 use Pramnos\Framework\Testing\BaseTestCase;
 use Pramnos\Messaging\MailTemplate;
 
+// Helpers this file uses are declared there, under names the autoloader cannot map to a file;
+// required here so the file does not depend on another test having run first.
+require_once __DIR__ . '/../../Unit/Notification/Channels/MailChannelTest.php';
+require_once __DIR__ . '/../../Unit/Notification/Channels/MailTemplateOverridesTest.php';
+
 /**
  * Finding the template an operator wrote, in the language the reader speaks.
  *
@@ -67,7 +72,7 @@ class MailTemplateLookupTest extends BaseTestCase
     /** Which connection this class runs against; the PostgreSQL subclass answers otherwise. */
     protected function settingsFixture(): string
     {
-        return 'settings';
+        return ROOT . DS . 'tests' . DS . 'fixtures' . DS . 'app' . DS . 'settings.php';
     }
 
     /** @param array<string, mixed> $extra */

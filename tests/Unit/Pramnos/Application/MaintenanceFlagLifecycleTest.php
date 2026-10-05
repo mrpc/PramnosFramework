@@ -27,6 +27,7 @@ use Pramnos\Application\Application;
  * severity, it was the time it took to guess which file to delete.
  */
 #[CoversClass(Application::class)]
+#[\PHPUnit\Framework\Attributes\Group('serial')]
 class MaintenanceFlagLifecycleTest extends TestCase
 {
     /** @var string Absolute path of the flag under test */

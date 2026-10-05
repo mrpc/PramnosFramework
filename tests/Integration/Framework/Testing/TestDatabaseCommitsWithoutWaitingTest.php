@@ -48,10 +48,10 @@ class TestDatabaseCommitsWithoutWaitingTest extends TestCase
         }
 
         // Act
-        $this->setUpPostgres('pramnos_test');
+        $this->setUpPostgres(TEST_DATABASE);
 
         // Assert
-        $this->assertSame('off', $this->synchronousCommit('pramnos_test'));
+        $this->assertSame('off', $this->synchronousCommit(TEST_DATABASE));
         // `postgres` stands in for a development database beside it
         $this->assertSame('on', $this->synchronousCommit('postgres'), 'the setting leaked past the test database');
     }

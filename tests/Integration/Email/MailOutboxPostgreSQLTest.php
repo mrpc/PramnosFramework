@@ -21,6 +21,7 @@ use Pramnos\Framework\Factory;
  * so without the swap the rows would be written to MySQL while the assertions read PostgreSQL —
  * and without the restore every later test in the suite would inherit this connection.
  */
+#[\PHPUnit\Framework\Attributes\Group('serial')]
 class MailOutboxPostgreSQLTest extends MailOutboxMySQLTest
 {
     protected function setUp(): void

@@ -52,7 +52,7 @@ class ContinuousAggregateRefreshTest extends TestCase
             @mkdir(LOG_PATH . \DS . 'logs', 0777, true);
         }
 
-        $this->connect('pramnos_test');
+        $this->connect(TEST_DATABASE);
         $this->hasTimescale = $this->db->capabilities()->hasTimescaleDB();
 
         ContinuousAggregateRegistry::register(self::VIEW, [
@@ -314,7 +314,7 @@ class ContinuousAggregateRefreshTest extends TestCase
             // ...and a second run still changes nothing
             $this->assertSame([], ContinuousAggregateRegistry::apply($this->schema, self::VIEW));
         } finally {
-            $this->connect('pramnos_test');
+            $this->connect(TEST_DATABASE);
             $this->hasTimescale = $this->db->capabilities()->hasTimescaleDB();
             $this->db->query('DROP DATABASE IF EXISTS pramnos_aggplain WITH (FORCE)');
         }
@@ -423,7 +423,7 @@ class ContinuousAggregateRefreshTest extends TestCase
             $this->assertFalse($this->schema->isContinuousAggregateCompressionEnabled(self::VIEW));
             $this->assertFalse($this->schema->enableContinuousAggregateCompression(self::VIEW));
         } finally {
-            $this->connect('pramnos_test');
+            $this->connect(TEST_DATABASE);
             $this->hasTimescale = $this->db->capabilities()->hasTimescaleDB();
             $this->db->query('DROP DATABASE IF EXISTS pramnos_aggplain WITH (FORCE)');
         }

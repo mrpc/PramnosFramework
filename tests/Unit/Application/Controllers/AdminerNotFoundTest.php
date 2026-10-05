@@ -23,8 +23,30 @@ use Pramnos\Application\Controllers\Adminer;
  * plain content type when there is no application to ask.
  */
 #[CoversClass(Adminer::class)]
+#[\PHPUnit\Framework\Attributes\Group('serial')]
 class AdminerNotFoundTest extends TestCase
 {
+    /** @var string|null The application that was current before this test */
+    private ?string $previous = null;
+
+    /**
+     * A real application is the process's current one, whatever the tests before left.
+     *
+     * The cases with no application on the controller assert that the process's own answers;
+     * which one that was had been decided by whichever earlier test last made one current,
+     * so the class passed or failed by its position in the run.
+     */
+    protected function setUp(): void
+    {
+        $application    = (new \ReflectionClass(\Pramnos\Application\Application::class))->newInstanceWithoutConstructor();
+        $this->previous = $application->makeCurrentInstance();
+    }
+
+    protected function tearDown(): void
+    {
+        \Pramnos\Application\Application::restoreCurrentInstance($this->previous);
+    }
+
     /**
      * A controller whose application records the refusal instead of ending the request.
      *

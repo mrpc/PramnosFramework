@@ -29,6 +29,7 @@ use Pramnos\Framework\Testing\BaseTestCase;
  * migration class cannot reach.
  */
 #[CoversClass(Application::class)]
+#[\PHPUnit\Framework\Attributes\Group('serial')]
 class LegacyMigrationPathFlushesColumnsTest extends BaseTestCase
 {
     private \Pramnos\Database\Database $db;

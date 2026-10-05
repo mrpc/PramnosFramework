@@ -30,6 +30,7 @@ use Pramnos\User\User;
  * below builds from the real migrations.
  */
 #[CoversClass(EmailSecondFactor::class)]
+#[\PHPUnit\Framework\Attributes\Group('serial')]
 class EmailSecondFactorTest extends BaseTestCase
 {
     private $db;

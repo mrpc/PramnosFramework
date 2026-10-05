@@ -33,7 +33,7 @@ class ModelColumnCacheAcrossDatabasesTest extends TestCase
     /**
      * A connection, or a skipped test when the container is not there.
      */
-    private function connect(string $type, string $host, int $port, string $database = 'pramnos_test'): Database
+    private function connect(string $type, string $host, int $port, string $database = TEST_DATABASE): Database
     {
         if (!defined('LOG_PATH')) {
             define('LOG_PATH', ROOT . \DS . 'var');

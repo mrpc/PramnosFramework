@@ -35,6 +35,7 @@ use Pramnos\Database\Database;
  *
  * Requires the Docker MySQL container (host: db, port: 3306).
  */
+#[\PHPUnit\Framework\Attributes\Group('serial')]
 class OAuth2GrantFlowMySQLTest extends TestCase
 {
     protected Database $db;

@@ -52,7 +52,7 @@ class MigrationMySQLCharacterizationTest extends TestCase
         $this->db->server   = 'db';
         $this->db->user     = 'root';
         $this->db->password = 'secret';
-        $this->db->database = 'pramnos_test';
+        $this->db->database = TEST_DATABASE;
         $this->db->port     = 3306;
 
         if (!$this->db->connect(true)) {
@@ -94,7 +94,7 @@ class MigrationMySQLCharacterizationTest extends TestCase
             $this->db->prepareQuery(
                 "SELECT COUNT(*) AS cnt FROM information_schema.TABLES
                  WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s",
-                'pramnos_test',
+                TEST_DATABASE,
                 'cmig_my_legacy'
             )
         );
@@ -120,7 +120,7 @@ class MigrationMySQLCharacterizationTest extends TestCase
             $this->db->prepareQuery(
                 "SELECT COUNT(*) AS cnt FROM information_schema.TABLES
                  WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s",
-                'pramnos_test',
+                TEST_DATABASE,
                 'cmig_my_legacy'
             )
         );
@@ -150,7 +150,7 @@ class MigrationMySQLCharacterizationTest extends TestCase
             $this->db->prepareQuery(
                 "SELECT COUNT(*) AS cnt FROM information_schema.TABLES
                  WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s",
-                'pramnos_test',
+                TEST_DATABASE,
                 'cmig_my_schema'
             )
         );
@@ -162,7 +162,7 @@ class MigrationMySQLCharacterizationTest extends TestCase
             $this->db->prepareQuery(
                 "SELECT DATA_TYPE FROM information_schema.COLUMNS
                  WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s AND COLUMN_NAME = 'created_at'",
-                'pramnos_test',
+                TEST_DATABASE,
                 'cmig_my_schema'
             )
         );
@@ -189,7 +189,7 @@ class MigrationMySQLCharacterizationTest extends TestCase
             $this->db->prepareQuery(
                 "SELECT COUNT(*) AS cnt FROM information_schema.TABLES
                  WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s",
-                'pramnos_test',
+                TEST_DATABASE,
                 'cmig_my_schema'
             )
         );
@@ -215,7 +215,7 @@ class MigrationMySQLCharacterizationTest extends TestCase
             $this->db->prepareQuery(
                 "SELECT COUNT(*) AS cnt FROM information_schema.TABLES
                  WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s",
-                'pramnos_test',
+                TEST_DATABASE,
                 'cmig_my_schema'
             )
         );

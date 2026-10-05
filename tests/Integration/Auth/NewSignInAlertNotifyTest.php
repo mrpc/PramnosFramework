@@ -39,6 +39,7 @@ use Pramnos\User\User;
  * one engine, and the preference is an upsert on a composite key.
  */
 #[CoversClass(NewSignInAlert::class)]
+#[\PHPUnit\Framework\Attributes\Group('serial')]
 class NewSignInAlertNotifyTest extends BaseTestCase
 {
     private $db;

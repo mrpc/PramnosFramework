@@ -44,7 +44,7 @@ trait ReusesProbeDatabase
             Schema::ensure($migrations, $db);
 
             self::$probeDrops[$type] = static function () use ($make, $name): void {
-                $server = $make('pramnos_test');
+                $server = $make(TEST_DATABASE);
                 if ($server->connect(false)) {
                     $server->query('DROP DATABASE IF EXISTS ' . $name);
                     $server->close();

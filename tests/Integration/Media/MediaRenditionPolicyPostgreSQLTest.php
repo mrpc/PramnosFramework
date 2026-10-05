@@ -16,6 +16,7 @@ namespace Pramnos\Tests\Integration\Media;
  * Everything else is inherited. A lane that repeated the assertions could disagree with the first
  * one about what it was asserting.
  */
+#[\PHPUnit\Framework\Attributes\Group('serial')]
 class MediaRenditionPolicyPostgreSQLTest extends MediaRenditionPolicyTest
 {
     /**
@@ -30,7 +31,7 @@ class MediaRenditionPolicyPostgreSQLTest extends MediaRenditionPolicyTest
             'server'   => 'timescaledb',
             'user'     => 'postgres',
             'password' => 'secret',
-            'database' => 'pramnos_test',
+            'database' => TEST_DATABASE,
             'port'     => 5432,
             'schema'   => 'public',
         ];

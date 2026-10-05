@@ -84,6 +84,7 @@ class FakeRedisStream
  * cursor arithmetic and the envelope, neither of which needs a live server.
  */
 #[CoversClass(RedisStreamDriver::class)]
+#[\PHPUnit\Framework\Attributes\Group('serial')]
 class RedisStreamDriverTest extends TestCase
 {
     /**

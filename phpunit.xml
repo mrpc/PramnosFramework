@@ -31,6 +31,12 @@
             export-ignored: a scaffolded application needs them just as much
             and can only reference what the package actually ships.
         -->
+        <!--
+            Settings and the default connection, cleared before every test class, so a class
+            never inherits the database the one before it pointed at — the order under
+            ParaTest is not the sequential order. Framework-suite only, in tests/Support.
+        -->
+        <bootstrap class="Pramnos\Tests\Support\DatabaseStateIsolation"/>
         <bootstrap class="Pramnos\Framework\Testing\RequestIdentityIsolation"/>
         <!--
             The document is a mutable per-type singleton, and both code and tests

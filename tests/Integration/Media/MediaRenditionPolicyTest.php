@@ -43,6 +43,7 @@ use Pramnos\Media\MediaObject;
  * difference: a MariaDB or TimescaleDB lane would execute the same PHP against the same two
  * statements.
  */
+#[\PHPUnit\Framework\Attributes\Group('serial')]
 class MediaRenditionPolicyTest extends DatabaseTestCase
 {
     /** @var list<string> */
@@ -58,7 +59,7 @@ class MediaRenditionPolicyTest extends DatabaseTestCase
             'server'   => 'db',
             'user'     => 'root',
             'password' => 'secret',
-            'database' => 'pramnos_test',
+            'database' => TEST_DATABASE,
             'port'     => 3306,
         ];
     }

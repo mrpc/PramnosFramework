@@ -9,6 +9,10 @@ use PHPUnit\Framework\TestCase;
 use Pramnos\Application\FeatureRegistry;
 use Pramnos\DevPanel\DevPanelController;
 
+// Helpers this file uses are declared there, under names the autoloader cannot map to a file;
+// required here so the file does not depend on another test having run first.
+require_once __DIR__ . '/DevPanelPanelContentTest.php';
+
 /**
  * What the DevPanel does when the answer is «no», and the two panels nobody had opened by id.
  *

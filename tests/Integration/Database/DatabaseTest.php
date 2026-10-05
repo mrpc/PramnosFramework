@@ -39,7 +39,7 @@ class DatabaseTest extends \PHPUnit\Framework\TestCase
         self::$db->server   = 'timescaledb';
         self::$db->user     = 'postgres';
         self::$db->password = 'secret';
-        self::$db->database = 'pramnos_test';
+        self::$db->database = TEST_DATABASE;
         self::$db->port     = 5432;
         self::$db->schema   = 'public';
         self::$db->connect(true);

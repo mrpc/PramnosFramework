@@ -136,7 +136,7 @@ class PermissionsAuthserverStoreTest extends TestCase
             'port'     => (int) ($_ENV['DB_PORT'] ?? (getenv('DB_PORT') ?: ($isPg ? 5432 : 3306))),
             'user'     => $_ENV['DB_USER'] ?? (getenv('DB_USER') ?: 'root'),
             'password' => $_ENV['DB_PASS'] ?? (getenv('DB_PASS') ?: 'secret'),
-            'database' => $_ENV['DB_NAME'] ?? (getenv('DB_NAME') ?: 'pramnos_test'),
+            'database' => $_ENV['DB_NAME'] ?? (getenv('DB_NAME') ?: TEST_DATABASE),
         ];
     }
 

@@ -45,7 +45,7 @@ class DatabaseCloneOwnershipTest extends TestCase
         $db->port     = $port;
         $db->user     = $type === 'mysql' ? 'root' : 'postgres';
         $db->password = 'secret';
-        $db->database = 'pramnos_test';
+        $db->database = TEST_DATABASE;
 
         try {
             if (!$db->connect(false)) {

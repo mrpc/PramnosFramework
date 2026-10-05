@@ -10,6 +10,10 @@ use Pramnos\Messaging\MailTemplate;
 use Pramnos\Notification\Channels\MailChannel;
 use Pramnos\Notification\NotificationInterface;
 
+// Helpers this file uses are declared there, under names the autoloader cannot map to a file;
+// required here so the file does not depend on another test having run first.
+require_once __DIR__ . '/MailChannelTest.php';
+
 /** A channel whose template lookup is scripted, so the rules can be tested without a database. */
 class ScriptedTemplateChannel extends MailChannel
 {

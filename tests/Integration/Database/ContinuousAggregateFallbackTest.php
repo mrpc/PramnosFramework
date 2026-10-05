@@ -39,7 +39,7 @@ class ContinuousAggregateFallbackTest extends TestCase
         $this->db->port     = 5432;
         $this->db->user     = 'postgres';
         $this->db->password = 'secret';
-        $this->db->database = 'pramnos_test';
+        $this->db->database = TEST_DATABASE;
 
         try {
             if (!$this->db->connect(false)) {

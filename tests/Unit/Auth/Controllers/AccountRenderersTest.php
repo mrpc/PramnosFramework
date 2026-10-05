@@ -41,6 +41,7 @@ use Pramnos\Auth\LoginFlowResult;
  *  - **the caller's context wins**, since that is where the error key and the flash live.
  */
 #[CoversClass(Account::class)]
+#[\PHPUnit\Framework\Attributes\Group('serial')]
 class AccountRenderersTest extends TestCase
 {
     protected function setUp(): void

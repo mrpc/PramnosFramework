@@ -22,6 +22,10 @@ use PHPUnit\Framework\TestCase;
 use Symfony\Component\Console\Input\ArrayInput;
 use Symfony\Component\Console\Output\BufferedOutput;
 
+// Helpers this file uses are declared there, under names the autoloader cannot map to a file;
+// required here so the file does not depend on another test having run first.
+require_once __DIR__ . '/MakeCrudSpaTest.php';
+
 /**
  * **The two capabilities that had no door.**
  *
@@ -38,6 +42,7 @@ use Symfony\Component\Console\Output\BufferedOutput;
  * exist, and nothing else in the suite would notice — which is what this file
  * is for.
  */
+#[\PHPUnit\Framework\Attributes\Group('serial')]
 class SpaMakeCommandsAreRegisteredTest extends TestCase
 {
     private \Pramnos\Console\Application $app;

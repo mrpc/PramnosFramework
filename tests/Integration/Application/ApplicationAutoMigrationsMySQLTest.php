@@ -31,6 +31,7 @@ use Pramnos\Database\MigrationRunner;
  *
  * Requires the Docker MySQL container (host: db, port: 3306).
  */
+#[\PHPUnit\Framework\Attributes\Group('serial')]
 class ApplicationAutoMigrationsMySQLTest extends TestCase
 {
     /** @var Database Live MySQL connection. */
@@ -60,7 +61,7 @@ class ApplicationAutoMigrationsMySQLTest extends TestCase
         $this->db->server   = 'db';
         $this->db->user     = 'root';
         $this->db->password = 'secret';
-        $this->db->database = 'pramnos_test';
+        $this->db->database = TEST_DATABASE;
         $this->db->port     = 3306;
         $this->db->connect(true);
 
@@ -93,7 +94,7 @@ class ApplicationAutoMigrationsMySQLTest extends TestCase
             $this->db->prepareQuery(
                 "SELECT COUNT(*) as cnt FROM information_schema.TABLES
                  WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s",
-                'pramnos_test',
+                TEST_DATABASE,
                 $table
             )
         );

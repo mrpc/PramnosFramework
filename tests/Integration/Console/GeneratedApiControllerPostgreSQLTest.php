@@ -17,6 +17,7 @@ use Pramnos\Console\Commands\MakeCommandBase;
  * type switch reads exactly that report.
  */
 #[CoversClass(MakeCommandBase::class)]
+#[\PHPUnit\Framework\Attributes\Group('serial')]
 class GeneratedApiControllerPostgreSQLTest extends GeneratedApiControllerTest
 {
     protected function settingsFixture(): string

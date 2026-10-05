@@ -40,6 +40,7 @@ use Pramnos\Framework\Testing\Connection;
  */
 #[CoversClass(MigrationRunner::class)]
 #[CoversClass(Database::class)]
+#[\PHPUnit\Framework\Attributes\Group('serial')]
 class ColumnCacheAfterMigrateTest extends BaseTestCase
 {
     private Database $db;

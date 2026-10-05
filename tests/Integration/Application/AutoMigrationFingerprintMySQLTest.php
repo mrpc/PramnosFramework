@@ -13,6 +13,7 @@ use Pramnos\Database\Database;
  * DO NOTHING` and `INSERT IGNORE` — so the engine is part of what is being tested, not a
  * detail of the fixture. Every case is inherited; only the connection changes.
  */
+#[\PHPUnit\Framework\Attributes\Group('serial')]
 class AutoMigrationFingerprintMySQLTest extends AutoMigrationFingerprintTest
 {
     protected string $historyTable = 'am_fp_schemaversion_mysql';
@@ -24,7 +25,7 @@ class AutoMigrationFingerprintMySQLTest extends AutoMigrationFingerprintTest
         $db->server   = 'db';
         $db->user     = 'root';
         $db->password = 'secret';
-        $db->database = 'pramnos_test';
+        $db->database = TEST_DATABASE;
         $db->port     = 3306;
 
         if (!$db->connect(false)) {

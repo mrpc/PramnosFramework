@@ -27,6 +27,7 @@ use Symfony\Component\Console\Tester\CommandTester;
  * very next line, and the script's last statement is `exit $phpunit_status`. A
  * fourth branch added later without a capture fails this.
  */
+#[\PHPUnit\Framework\Attributes\Group('serial')]
 class InitDockertestExitStatusTest extends TestCase
 {
     private string $tempDir = '';

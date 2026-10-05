@@ -51,7 +51,7 @@ class PolicyEngineCharacterizationTest extends TestCase
         $this->db->server   = 'db';
         $this->db->user     = 'root';
         $this->db->password = 'secret';
-        $this->db->database = 'pramnos_test';
+        $this->db->database = TEST_DATABASE;
         $this->db->port     = 3306;
 
         if (!$this->db->connect(true)) {

@@ -24,6 +24,7 @@ use Pramnos\Email\Tracking;
  */
 #[CoversClass(Tracking::class)]
 #[CoversClass(Email::class)]
+#[\PHPUnit\Framework\Attributes\Group('serial')]
 class TrackingTest extends TestCase
 {
     protected function tearDown(): void
