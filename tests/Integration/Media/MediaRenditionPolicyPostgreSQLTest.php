@@ -16,7 +16,6 @@ namespace Pramnos\Tests\Integration\Media;
  * Everything else is inherited. A lane that repeated the assertions could disagree with the first
  * one about what it was asserting.
  */
-#[\PHPUnit\Framework\Attributes\Group('serial')]
 class MediaRenditionPolicyPostgreSQLTest extends MediaRenditionPolicyTest
 {
     /**

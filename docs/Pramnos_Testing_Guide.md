@@ -834,6 +834,11 @@ turns it into `TEST_DATABASE = pramnos_test_<N>`, creates that database on both 
 it is missing, and points `DB_NAME` / `PG_NAME` at it. A sequential run has no token and keeps
 `pramnos_test`. A test therefore names the database as `TEST_DATABASE` and never as a literal.
 
+**Each worker has its own `var/`.** `VAR_PATH` and `CACHE_PATH` point at `var/workers/<N>`, so
+the file cache, the verified-migration markers and the spool are not shared. A file the code
+writes under the project root itself, such as `www/uploads/` or `src/Models/`, is not covered. A
+test that writes there names its directory after `TEST_TOKEN`, or is serial.
+
 **Every class starts with no settings and no connection.** `tests/Support/DatabaseStateIsolation`
 clears both before each test class. A class that loads its own settings is unaffected. A class
 that relied on the one before it to have loaded them fails sequentially too, and the fix is to

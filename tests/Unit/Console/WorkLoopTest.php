@@ -369,9 +369,9 @@ class WorkLoopTest extends TestCase
         };
 
         // Act
-        $started = microtime(true);
+        $started = hrtime(true); // monotonic: the wall clock steps backwards on a virtual machine
         $worker->sleepNow();
-        $elapsed = microtime(true) - $started;
+        $elapsed = (hrtime(true) - $started) / 1e9;
 
         // Assert
         $this->assertLessThan(1.0, $elapsed, 'a stopping worker slept through its interval');
@@ -405,9 +405,9 @@ class WorkLoopTest extends TestCase
         };
 
         // Act
-        $started = microtime(true);
+        $started = hrtime(true); // monotonic: the wall clock steps backwards on a virtual machine
         $worker->sleepNow();
-        $elapsed = microtime(true) - $started;
+        $elapsed = (hrtime(true) - $started) / 1e9;
 
         // Assert
         $this->assertGreaterThanOrEqual(0.9, $elapsed, 'the loop does not wait between passes');

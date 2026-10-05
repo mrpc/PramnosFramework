@@ -43,9 +43,21 @@ use Pramnos\Media\MediaObject;
  * difference: a MariaDB or TimescaleDB lane would execute the same PHP against the same two
  * statements.
  */
-#[\PHPUnit\Framework\Attributes\Group('serial')]
 class MediaRenditionPolicyTest extends DatabaseTestCase
 {
+    /**
+     * The directory under www/uploads/ this class writes to, one per parallel worker.
+     *
+     * The MySQL and PostgreSQL classes write the same files, and two workers running them at
+     * once deleted each other's renditions mid-test.
+     */
+    private static function uploadDirectory(): string
+    {
+        $token = getenv('TEST_TOKEN');
+
+        return 'media_policy' . ($token !== false && $token !== '' ? '_' . (int) $token : '');
+    }
+
     /** @var list<string> */
     private array $temporary = [];
 
@@ -120,7 +132,7 @@ class MediaRenditionPolicyTest extends DatabaseTestCase
         }
         $this->temporary = [];
 
-        foreach (['media_policy', date('Y')] as $directory) {
+        foreach ([self::uploadDirectory(), date('Y')] as $directory) {
             $path = ROOT . DS . 'www' . DS . 'uploads' . DS . $directory;
             if (is_dir($path)) {
                 $this->removeRecursive($path);
@@ -199,7 +211,7 @@ class MediaRenditionPolicyTest extends DatabaseTestCase
         // Act
         $media = new MediaObject();
         $media->deriveNothing = true;
-        $media->addImage($source, 'media_policy');
+        $media->addImage($source, self::uploadDirectory());
         $media->save();
 
         // Assert
@@ -245,7 +257,7 @@ class MediaRenditionPolicyTest extends DatabaseTestCase
         $media->thumbHeight = 0;
         $media->max = 0;
         $media->maxHeight = 0;
-        $media->addImage($source, 'media_policy');
+        $media->addImage($source, self::uploadDirectory());
         $media->save();
 
         // Assert
@@ -276,7 +288,7 @@ class MediaRenditionPolicyTest extends DatabaseTestCase
         $media = new MediaObject();
         $media->max = 0;
         $media->maxHeight = 0;
-        $media->addImage($this->png(800, 600), 'media_policy');
+        $media->addImage($this->png(800, 600), self::uploadDirectory());
         $media->save();
 
         // Act
@@ -302,7 +314,7 @@ class MediaRenditionPolicyTest extends DatabaseTestCase
     {
         // Arrange
         $media = new MediaObject();
-        $media->addImage($this->png(40, 40), 'media_policy');
+        $media->addImage($this->png(40, 40), self::uploadDirectory());
         $media->save();
 
         // Act
@@ -338,7 +350,7 @@ class MediaRenditionPolicyTest extends DatabaseTestCase
     {
         // Arrange — 40×40 source, asked for a 512×512 box
         $media = new MediaObject();
-        $media->addImage($this->png(40, 40), 'media_policy');
+        $media->addImage($this->png(40, 40), self::uploadDirectory());
         $media->save();
 
         $first = $media->get(512, 512);
@@ -378,7 +390,7 @@ class MediaRenditionPolicyTest extends DatabaseTestCase
     {
         // Arrange
         $media = new MediaObject();
-        $media->addImage($this->png(40, 40), 'media_policy');
+        $media->addImage($this->png(40, 40), self::uploadDirectory());
         $media->save();
 
         // Act
@@ -402,7 +414,7 @@ class MediaRenditionPolicyTest extends DatabaseTestCase
     {
         // Arrange — 200×200 source, a box well inside it
         $media = new MediaObject();
-        $media->addImage($this->png(200, 200), 'media_policy');
+        $media->addImage($this->png(200, 200), self::uploadDirectory());
         $media->save();
 
         $first = $media->get(50, 50);
@@ -435,7 +447,7 @@ class MediaRenditionPolicyTest extends DatabaseTestCase
     {
         // Arrange
         $media = new MediaObject();
-        $media->addImage($this->png(40, 40), 'media_policy');
+        $media->addImage($this->png(40, 40), self::uploadDirectory());
         $media->save();
 
         // Act
@@ -464,7 +476,7 @@ class MediaRenditionPolicyTest extends DatabaseTestCase
     {
         // Arrange — the upscaled one exists first
         $media = new MediaObject();
-        $media->addImage($this->png(40, 40), 'media_policy');
+        $media->addImage($this->png(40, 40), self::uploadDirectory());
         $media->save();
         $upscaled = $media->get(200, 200, false, false, false, true, true);
         $this->assertSame(200, $upscaled->x, 'precondition');
@@ -492,7 +504,7 @@ class MediaRenditionPolicyTest extends DatabaseTestCase
     {
         // Arrange
         $media = new MediaObject();
-        $media->addImage($this->png(40, 40), 'media_policy');
+        $media->addImage($this->png(40, 40), self::uploadDirectory());
         $media->save();
         $media->get(200, 200, false, false, false, true, true);
         $media->get(200, 200, false, false, false, true, false);
@@ -531,7 +543,7 @@ class MediaRenditionPolicyTest extends DatabaseTestCase
     {
         // Arrange
         $media = new MediaObject();
-        $media->addImage($this->bandedJpeg(800, 400), 'media_policy');
+        $media->addImage($this->bandedJpeg(800, 400), self::uploadDirectory());
         $media->save();
 
         // Act — cropped first, then the same box uncropped
@@ -566,7 +578,7 @@ class MediaRenditionPolicyTest extends DatabaseTestCase
     {
         // Arrange
         $media = new MediaObject();
-        $media->addImage($this->bandedJpeg(800, 400), 'media_policy');
+        $media->addImage($this->bandedJpeg(800, 400), self::uploadDirectory());
         $media->save();
 
         // Act — no cropping either way, so resample is what differs
@@ -594,7 +606,7 @@ class MediaRenditionPolicyTest extends DatabaseTestCase
     {
         // Arrange
         $media = new MediaObject();
-        $media->addImage($this->bandedJpeg(800, 400), 'media_policy');
+        $media->addImage($this->bandedJpeg(800, 400), self::uploadDirectory());
         $media->save();
         $media->get(155, 148, true);
         $media->get(155, 148, false);
@@ -649,7 +661,7 @@ class MediaRenditionPolicyTest extends DatabaseTestCase
     {
         // Arrange
         $media = new MediaObject();
-        $media->addImage($this->svg(200, 100), 'media_policy');
+        $media->addImage($this->svg(200, 100), self::uploadDirectory());
         $media->save();
 
         $this->assertFalse($media->error, (string) $media->error);
@@ -685,7 +697,7 @@ class MediaRenditionPolicyTest extends DatabaseTestCase
     {
         // Arrange — stored as a valid PNG, then corrupted underneath the library
         $media = new MediaObject();
-        $media->addImage($this->png(600, 400), 'media_policy');
+        $media->addImage($this->png(600, 400), self::uploadDirectory());
         $media->save();
 
         $countBefore = count($media->thumbnails);
@@ -766,7 +778,7 @@ class MediaRenditionPolicyTest extends DatabaseTestCase
         $media = $this->answering($this->bytesOf('jpg'));
 
         // Act
-        $media->addRemoteImage('https://example.test/logo.png', 'media_policy');
+        $media->addRemoteImage('https://example.test/logo.png', self::uploadDirectory());
 
         // Assert
         $this->assertFalse($media->error, (string) $media->error);
@@ -787,7 +799,7 @@ class MediaRenditionPolicyTest extends DatabaseTestCase
         $media = $this->answering('<!doctype html><title>Not found</title>');
 
         // Act
-        $media->addRemoteImage('https://example.test/logo.png', 'media_policy');
+        $media->addRemoteImage('https://example.test/logo.png', self::uploadDirectory());
 
         // Assert
         $this->assertIsString($media->error);
@@ -812,7 +824,7 @@ class MediaRenditionPolicyTest extends DatabaseTestCase
         );
 
         // Act
-        $media->addRemoteImage('https://example.test/logo.svg', 'media_policy');
+        $media->addRemoteImage('https://example.test/logo.svg', self::uploadDirectory());
 
         // Assert
         $this->assertIsString($media->error);
@@ -835,7 +847,7 @@ class MediaRenditionPolicyTest extends DatabaseTestCase
         $media = $this->answering($this->bytesOf('png'), 404);
 
         // Act
-        $media->addRemoteImage('https://example.test/logo.png', 'media_policy');
+        $media->addRemoteImage('https://example.test/logo.png', self::uploadDirectory());
 
         // Assert
         $this->assertIsString($media->error);
@@ -857,7 +869,7 @@ class MediaRenditionPolicyTest extends DatabaseTestCase
         $media = $this->answering('', 0);
 
         // Act
-        $media->addRemoteImage('https://example.test/logo.png', 'media_policy');
+        $media->addRemoteImage('https://example.test/logo.png', self::uploadDirectory());
 
         // Assert
         $this->assertIsString($media->error);

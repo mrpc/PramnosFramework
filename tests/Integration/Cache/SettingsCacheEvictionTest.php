@@ -37,6 +37,7 @@ use Pramnos\Cache\Adapter\RedisAdapter;
  */
 #[CoversClass(Cache::class)]
 #[CoversClass(RedisAdapter::class)]
+#[\PHPUnit\Framework\Attributes\Group('serial')]
 class SettingsCacheEvictionTest extends TestCase
 {
     private const PREFIX = 'evictprobe';

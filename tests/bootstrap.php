@@ -63,6 +63,18 @@ if (!defined('TEST_DATABASE')) {
         } catch (\Throwable) {
         }
         unset($pramnosTestPg, $pramnosTestExists, $pramnosTestTry, $pramnosTestError);
+
+        // And its own var/: the file cache, the verified-migration markers and the spool live
+        // there, and two workers sharing them removed each other's directories mid-test.
+        // Application::setDefines() keeps these, as it keeps any VAR_PATH already defined.
+        $pramnosTestVar = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'var' . DIRECTORY_SEPARATOR
+            . 'workers' . DIRECTORY_SEPARATOR . (int) getenv('TEST_TOKEN');
+        if (!is_dir($pramnosTestVar . DIRECTORY_SEPARATOR . 'cache')) {
+            @mkdir($pramnosTestVar . DIRECTORY_SEPARATOR . 'cache', 0777, true);
+        }
+        define('VAR_PATH', $pramnosTestVar);
+        define('CACHE_PATH', $pramnosTestVar . DIRECTORY_SEPARATOR . 'cache');
+        unset($pramnosTestVar);
     }
     unset($pramnosTestToken, $pramnosTestVariable);
 }
