@@ -9,6 +9,7 @@ use_cases:
   - Asserting that an action broadcast a realtime event
   - Creating users in a test without leaving them in the test database
   - Running the framework's own suite in parallel, or a test that fails only in parallel
+  - Finding why a test passes on its own and fails in the full suite
 ---
 
 # Pramnos Testing Guide
@@ -884,6 +885,7 @@ cheap alternative:
 | Writing a row with an explicit auto-increment id into a shared table | a duplicate-key failure in some *other* test, later | Let the sequence give the id (`RETURNING`, or read it back), and delete the row. On PostgreSQL an explicit id leaves the sequence behind |
 | `#[RunTestsInSeparateProcesses]` on a class | a PHP process and a full bootstrap per test — 25 tests took 5.8 s | Nothing to work around: every class already starts with no connection and no settings (see above). Keep it only for what a process cannot undo, such as `define()` without a guard, `header()` or `exit` |
 | Linting generated files with one `php -l` each | ≈40 ms a file — a scaffold of 80 files took 1.2 s | One `php -l` for many files (PHP 8.3+), then file by file only if that fails, to name the offender |
+| MySQL's general log on (`--general-log=1`) | one file write per statement, to a file that is never rotated | Off. Projects scaffolded by `pramnos init` no longer turn it on; an older `docker-compose.yml` that has it on the `db` command can drop it |
 | Letting the code under test shell out or reach the network | **1.9 s per test**, and variable | Skip it with the flag the command already has, or should have — `init` gained `--no-install` for exactly this. A unit test that depends on composer or on HTTP is slow *and* flaky |
 | Saving a model, in a suite or in production | **1358 ms** before 2026-08-27 — `cacheflush()` walked the whole cache tree on every write | Nothing: fixed in `FileAdapter`. If you see it again, check that `clear()` is still sampling its sweep |
 | `exec('rm -rf …')` in `tearDown()` for a small temporary tree | **≈12 ms per test** (measured: 382 ms → 272 ms over nine tests) | A recursive `unlink`/`rmdir` helper — one already exists in `ApiDocsTest`. **Measure before converting a large tree**: for a scaffolded project of hundreds of files, `rm -rf` in C may well beat PHP recursion, and this row is not a licence to assume otherwise |
@@ -1663,6 +1665,7 @@ them already:
 
 ```xml
 <extensions>
+    <bootstrap class="Pramnos\Framework\Testing\ProcessStateIsolation"/>
     <bootstrap class="Pramnos\Framework\Testing\RequestIdentityIsolation"/>
     <bootstrap class="Pramnos\Framework\Testing\DocumentIsolation"/>
     <bootstrap class="Pramnos\Framework\Testing\GateIsolation"/>
@@ -1672,12 +1675,13 @@ them already:
 
 | Extension | What leaks without it |
 | --- | --- |
+| `ProcessStateIsolation` | Per **test class**, not per test. It records the process once, after `tests/bootstrap.php`, and puts it back before every class: settings, the default connection, the applications, `Auth`, `Permissions`, two dozen registries (features, menu, health checks, mail types, second factors…), `$_SESSION`, `$_GET`, `$_POST`, `$_REQUEST`, `$_COOKIE`, `$_ENV`, and the environment `putenv()` changes. It also empties the caches of table shapes and loaded users. What the bootstrap set up stays, and what a class added is gone. In the framework's own suite, run in random order, this was the difference between twenty-odd failures per seed and none. |
 | `RequestIdentityIsolation` | An identity sealed by one test stays sealed. A controller test running after a middleware test finds itself signed in as somebody it never authenticated — **135 failures**, in tests that had nothing to do with authentication. It also clears `$unittesting_logged`, the override that makes `Session::staticIsLogged()` answer "signed in" under `UNITTESTING` whatever the session says. One test that set it and never cleared it signed in every test after it. |
 | `DocumentIsolation` | `Document` is a mutable singleton per type. A test that sets `->type = 'json'` is writing to the shared HTML document, and the next test that renders gets it — **three failures**, each of which appeared only in a full run. |
 | `GateIsolation` | `Gate` keeps abilities, policies and hooks in statics. A `Gate::before(fn () => true)` registered by one test would allow everything for every test after it — and the failure lands in a test asserting that an ordinary user is *refused*. Written **with** the feature rather than after the failures. |
 | `ServerGlobalIsolation` | `$_SERVER` is a superglobal. Fourteen of the framework's test classes started with `$_SERVER = []`, and the tests that paid were elsewhere: a console command with no `PHP_SELF`, a URL with a port and no host — **warnings in a full run only**. It is restored to what it was after the bootstrap script, so what `tests/bootstrap.php` sets is kept. |
 
-All reset at `PreparationStarted`, which is **before `setUp()`** — so a test that
+The others reset at `PreparationStarted`, which is **before `setUp()`** — so a test that
 deliberately seals an identity or configures a document still gets exactly what it asked
 for. There is nothing to opt out of and nothing to call.
 
@@ -1693,6 +1697,36 @@ is a third extension of the same shape, not a `setUp()` in the test that noticed
 
 Existing projects that predate this: see
 [the Upgrade Guide](Pramnos_Upgrade_Guide.md#test-isolation-extensions-for-existing-projects).
+
+## A test that passes alone and fails in the suite
+
+Such a failure is almost never a bug in the test that failed. Something that ran before it
+left state behind, and the test inherited it. To find it, run the suite in random order:
+
+```bash
+./dockertest --nocoverage --order-by=random --random-order-seed=101
+```
+
+A seed reproduces the same order, so a failure you see once you can run again. Try a few
+seeds, and a fresh database for each one: an empty database shows which tables a test only
+had because a class before it built them.
+
+These are the causes that have actually turned up, with what to do about each:
+
+| What was shared | How it showed | Instead |
+| --- | --- | --- |
+| A framework table built by hand (`CREATE TABLE IF NOT EXISTS …`) | The first class to reach an empty database defined the table for the run. A `NOT NULL` column with no default failed 225 inserts elsewhere, and a `sessions` keyed on `sid` turned every recorded visit into an update of one row | `Testing\Schema::table('name')`, which builds it from its migrations. A table with no recipe gets one in `Schema::RECIPES` |
+| A table the test never built | It existed because an earlier class had created it, until the order changed | Build every table the code under test reads, including the ones its foreign keys point at |
+| A row cached by the code under test | `User::load()` keeps a row for ten seconds and `MediaObject::getList()` a listing for sixty. A test that recycled an id, or emptied the table, read the old answer | `$db->cacheflush('<category>')` after writing rows the code has cached: `userlist` for users, `media` for media |
+| A cookie, a session key or a `$_GET` value | A `visitorid` cookie made a tracking test record somebody else; a `$_GET['_option']` became another controller's route argument | `ProcessStateIsolation` resets them before every class. Inside a class, reset what your own tests set |
+| Something registered on a singleton | An `afterLogin()` closure from one test asserted inside another class's sign-in | `ProcessStateIsolation` restores `Auth`, `Permissions` and the registries before every class |
+| An application built for the first time inside a test | Its constructor resets the administration area, which undid what the test had just arranged | Build it in `setUp()`, before arranging anything: `Application::getInstance()` |
+| A method's static variable in a class hierarchy | Since PHP 8.1 a subclass shares it, so `Validator::getInstance()` answered with whichever class asked first | In production code, key the instance by `static::class` |
+| A value tied to the process | `md5(session_id())` is the same for every test in a run, so two classes writing "the current session" collided | Delete the row for that key before writing it, or use a value of the test's own |
+| The wall clock | On WSL the clock is corrected backwards, so a deadline of exactly N seconds read as N + 1 | Measure durations with `hrtime()`, and allow one second where a test compares against `time()` |
+
+The first two rows account for most of what turns up. If a test reads a table, it should
+build that table.
 
 ## Walking a directory from a test — `Tree::files()`, not the iterator
 

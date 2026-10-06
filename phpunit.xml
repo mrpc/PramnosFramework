@@ -32,10 +32,14 @@
             and can only reference what the package actually ships.
         -->
         <!--
-            Settings and the default connection, cleared before every test class, so a class
-            never inherits the database the one before it pointed at — the order under
-            ParaTest is not the sequential order. Framework-suite only, in tests/Support.
+            And the fixture settings loaded, for the framework's own suite. In tests/Support.
         -->
+        <!--
+            The process as tests/bootstrap.php left it, before every test class: settings,
+            connection, application, Auth, Permissions, the registries and the superglobals.
+            Without it a test passed or failed by which class the run put before it.
+        -->
+        <bootstrap class="Pramnos\Framework\Testing\ProcessStateIsolation"/>
         <bootstrap class="Pramnos\Tests\Support\DatabaseStateIsolation"/>
         <bootstrap class="Pramnos\Framework\Testing\RequestIdentityIsolation"/>
         <!--

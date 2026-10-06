@@ -89,6 +89,11 @@ class ApplicationOwnUserClassTest extends TestCase
         }
 
         $app->database = $db;
+
+        // And the tables a load reads, which the class used to find only because some class
+        // before it had built them.
+        \Pramnos\Framework\Testing\Schema::table('users', $db);
+        \Pramnos\Framework\Testing\Schema::table('userdetails', $db);
     }
 
     protected function tearDown(): void

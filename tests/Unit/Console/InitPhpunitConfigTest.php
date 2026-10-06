@@ -56,6 +56,12 @@ class InitPhpunitConfigTest extends TestCase
             '<bootstrap class="Pramnos\Framework\Testing\DocumentIsolation"/>',
             $xml
         );
+        // Per class: the process as the bootstrap left it — what made the framework's own
+        // suite pass in any order.
+        $this->assertStringContainsString(
+            '<bootstrap class="Pramnos\Framework\Testing\ProcessStateIsolation"/>',
+            $xml
+        );
     }
 
     /**

@@ -73,9 +73,11 @@ is the third, and was written with the gate rather than after an incident.
 ```xml
 <phpunit ...>
     <extensions>
+        <bootstrap class="Pramnos\Framework\Testing\ProcessStateIsolation"/>
         <bootstrap class="Pramnos\Framework\Testing\RequestIdentityIsolation"/>
         <bootstrap class="Pramnos\Framework\Testing\DocumentIsolation"/>
         <bootstrap class="Pramnos\Framework\Testing\GateIsolation"/>
+        <bootstrap class="Pramnos\Framework\Testing\ServerGlobalIsolation"/>
     </extensions>
 
     <testsuites>

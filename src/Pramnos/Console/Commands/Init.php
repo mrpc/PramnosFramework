@@ -5850,6 +5850,12 @@ PHP;
             Keep them. If a test needs a specific identity or document type, it still
             establishes one in setUp(): the reset runs before that.
         -->
+        <!--
+            And per test class, the process as tests/bootstrap.php left it: settings, the
+            connection, the application, Auth, Permissions, the registries, the superglobals.
+            What the bootstrap set up stays; what a class added is gone before the next one.
+        -->
+        <bootstrap class="Pramnos\\Framework\\Testing\\ProcessStateIsolation"/>
         <bootstrap class="Pramnos\\Framework\\Testing\\RequestIdentityIsolation"/>
         <bootstrap class="Pramnos\\Framework\\Testing\\DocumentIsolation"/>
         <bootstrap class="Pramnos\\Framework\\Testing\\GateIsolation"/>
@@ -6140,7 +6146,13 @@ PHP;
             $compose .= "      POSTGRES_DB: \${APP_DB_NAME}\n      POSTGRES_USER: \${APP_DB_USER}\n      POSTGRES_PASSWORD: \${APP_DB_PASSWORD}\n";
         } else {
             $compose .= "      MYSQL_DATABASE: \${APP_DB_NAME}\n      MYSQL_USER: \${APP_DB_USER}\n      MYSQL_PASSWORD: \${APP_DB_PASSWORD}\n      MYSQL_ROOT_PASSWORD: \${APP_DB_ROOT_PASSWORD}\n";
-            $compose .= "    command: mysqld --default-authentication-plugin=mysql_native_password --sql_mode=\"NO_AUTO_VALUE_ON_ZERO\" --general-log=1 --general-log-file=/var/lib/mysql/general-log.log\n";
+            // No general log. It wrote every statement the server ran to a file that was never
+            // rotated, on every project, including the test runs that issue tens of thousands.
+            // The debug bar shows a request's queries; the comment says how to turn the log on
+            // for a session that needs the server's own view.
+            $compose .= "    # To log every statement while debugging, append to the command below:\n"
+                . "    #   --general-log=1 --general-log-file=/var/lib/mysql/general-log.log\n";
+            $compose .= "    command: mysqld --default-authentication-plugin=mysql_native_password --sql_mode=\"NO_AUTO_VALUE_ON_ZERO\"\n";
             $this->mkdir('docker/mysql-init');
             $this->writeFile('docker/mysql-init/init.sql', "GRANT ALL PRIVILEGES ON *.* TO '$dbUser'@'%';\nFLUSH PRIVILEGES;\n");
         }
