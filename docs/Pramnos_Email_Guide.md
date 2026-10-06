@@ -15,6 +15,7 @@ use_cases:
   - Choosing the line an inbox shows beside the subject
   - Making a message readable in dark mode, or by a screen reader
   - Checking SPF, DKIM, DMARC and BIMI on the sending domain
+  - Sending from a customer's own address: DKIM for their domain, or through their server
   - Stopping the mail log growing without limit
   - Sending one account a message from the administration area
   - Giving a notification a wrapper, an unsubscribe list, tracking or a Gmail action
@@ -1851,6 +1852,74 @@ them holds a lock long enough to make the maintenance the outage.
 `recipients_after` covers `massmessagerecipients`, the other table that grows without limit: one
 row per recipient per campaign, whose only remaining purpose once the campaign is finished is
 the count on its page — and the count is on the campaign row.
+
+## Mail from a customer's own domain: its signature and its server
+
+By default every message leaves through the installation's SMTP server (the `smtp_*`
+settings below), and the mail server signs it with DKIM for the installation's domain. A
+Virtualmin or Postfix server with OpenDKIM does this, and so does Amazon SES. Nothing here
+changes that.
+
+Some mail is sent **from somebody else's address**: a reply to a press release from a customer
+organisation's own mailbox, for example. For DMARC to pass, that message needs a DKIM signature
+for the customer's domain, which the relay cannot provide because it does not hold the
+customer's key. Sometimes it also has to leave through the customer's own mail server. Both
+are opt-in, per message.
+
+### Signing for the customer's domain
+
+```php
+use Pramnos\Email\DkimKey;
+
+// Once, when the customer sets the feature up:
+$key = DkimKey::generate('customer.example', 'pramnos1');
+// Keep $key->privateKeyPem with the application's other secrets.
+// The customer publishes a TXT record:
+//   $key->recordName()   →  pramnos1._domainkey.customer.example
+//   $key->recordValue()  →  v=DKIM1; k=rsa; p=MIIBIjANBgkq…
+
+// For each message:
+$email->setFrom('press@customer.example')
+      ->signWith('customer.example', 'pramnos1', $privateKeyPem)
+      ->send();
+```
+
+`signWith()` adds the signature last, after every other header, so nothing added later breaks
+it. The domain must be the From address's domain, or DMARC does not align. A key that does
+not load fails the send, and the key never appears in the error.
+`DnsAuthentication::inspect('customer.example', 'pramnos1')` reports whether the record has
+been published (see [What DNS says](#what-dns-says-and-what-the-application-cannot-see)).
+
+The record value is longer than 255 characters at 2048 bits. Most DNS screens split it
+themselves. One that does not takes it as several quoted strings, which DNS joins back
+together.
+
+### Sending through the customer's server
+
+```php
+$email->via([
+    'host'     => 'mail.customer.example',
+    'port'     => 587,
+    'user'     => 'press@customer.example',
+    'password' => $password,
+    'tls'      => true,
+])->send();
+```
+
+The five keys mean what the `smtp_*` settings mean, and the scheme follows the same rule: port
+465 is implicit TLS, 587 with `tls` is STARTTLS, another port with `tls` is implicit TLS, and
+without `tls` the connection is plain. The installation's settings are not read for this
+message. The password is never logged. A failure names the server:
+`SMTP mail.customer.example:587: Expected response code "235" but got code "535" …`.
+
+`withTransport($transport)` takes any Symfony Mailer transport instead, such as an API
+transport or a failover pair.
+
+### Both are sent at once, never queued
+
+`queue()` on a message with `signWith()`, `via()` or `withTransport()` sends it immediately,
+in this request. The outbox stores messages as rows and sends them later, so it would have to
+store the private key or the server's password in the row.
 
 ## SMTP Configuration
 

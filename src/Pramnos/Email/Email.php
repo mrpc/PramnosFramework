@@ -437,6 +437,113 @@ class Email extends \Pramnos\Framework\Base
     }
 
     /**
+     * The SMTP server this message is sent through, when it has one of its own.
+     *
+     * @var array{host: string, port: int, user: string, password: string, tls: bool}|null
+     */
+    private ?array $smtp = null;
+
+    /** A transport given for this message; it overrides every SMTP setting. */
+    private ?\Symfony\Component\Mailer\Transport\TransportInterface $transport = null;
+
+    /**
+     * Send this message through an SMTP server of its own, instead of the installation's.
+     *
+     * For mail that has to leave through somebody else's server: a customer organisation that
+     * sends from its own domain and relays through its own mail server. The array takes the
+     * same five things as the installation's `smtp_*` settings, and the scheme follows the same
+     * rule: port 465 is implicit TLS, 587 with `tls` is STARTTLS, any other port with `tls` is
+     * implicit TLS, and without it plain SMTP.
+     *
+     * ```php
+     * $email->via(['host' => 'mail.customer.example', 'port' => 587, 'user' => 'press@customer.example',
+     *              'password' => $secret, 'tls' => true]);
+     * ```
+     *
+     * The password is never logged. A failure names the server and its answer: `SMTP
+     * mail.customer.example:587: Expected response code "235" but got code "535" …`.
+     *
+     * @param array{host: string, port?: int, user?: string, password?: string, tls?: bool} $smtp
+     * @return $this
+     * @throws \InvalidArgumentException when there is no host
+     */
+    public function via(array $smtp): static
+    {
+        $host = trim((string) ($smtp['host'] ?? ''));
+        if ($host === '') {
+            throw new \InvalidArgumentException('A server for this message needs a host.');
+        }
+
+        $this->smtp = [
+            'host'     => $host,
+            'port'     => (int) ($smtp['port'] ?? 587),
+            'user'     => (string) ($smtp['user'] ?? ''),
+            'password' => (string) ($smtp['password'] ?? ''),
+            'tls'      => (bool) ($smtp['tls'] ?? true),
+        ];
+
+        return $this;
+    }
+
+    /**
+     * Send this message through a Symfony Mailer transport built elsewhere.
+     *
+     * The lower-level form of {@see via()}: an API transport (`ses+api://`, `sendgrid+api://`),
+     * a failover pair, or a transport a test inspects. The installation's settings are not read.
+     *
+     * @param \Symfony\Component\Mailer\Transport\TransportInterface $transport
+     * @return $this
+     */
+    public function withTransport(\Symfony\Component\Mailer\Transport\TransportInterface $transport): static
+    {
+        $this->transport = $transport;
+
+        return $this;
+    }
+
+    /**
+     * The DKIM signature this message is sent with, when it carries one of its own.
+     *
+     * @var array{domain: string, selector: string, key: string, passphrase: string}|null
+     */
+    private ?array $dkim = null;
+
+    /**
+     * Sign this message with DKIM for a domain of its own.
+     *
+     * Optional, and off unless called. A relay that signs for the installation's domain — a
+     * Virtualmin or Postfix server with OpenDKIM, Amazon SES — goes on doing so, and that is
+     * enough for mail from that domain. This is for mail sent **from somebody else's domain**,
+     * a customer organisation's own address, where DMARC alignment needs a signature for that
+     * domain and only the application holds its key. {@see DkimKey::generate()} makes the key
+     * pair and the DNS record to publish.
+     *
+     * The signature is added last, after every header, so nothing added later breaks it. A
+     * signed message sent with {@see queue()} is sent at once: the outbox would have to store
+     * the private key in a row to sign it later. The same holds for {@see via()}.
+     *
+     * @param string $domain        The `d=` domain: the domain of the From address
+     * @param string $selector      The `s=` selector the public key is published under
+     * @param string $privateKeyPem The RSA private key, PEM-encoded
+     * @param string $passphrase    The key's passphrase, if it has one
+     * @return $this
+     * @throws \InvalidArgumentException when the domain, the selector or the key is empty
+     */
+    public function signWith(string $domain, string $selector, string $privateKeyPem, string $passphrase = ''): static
+    {
+        $domain   = strtolower(trim($domain));
+        $selector = trim($selector);
+
+        if ($domain === '' || $selector === '' || trim($privateKeyPem) === '') {
+            throw new \InvalidArgumentException('DKIM signing needs a domain, a selector and a private key.');
+        }
+
+        $this->dkim = ['domain' => $domain, 'selector' => $selector, 'key' => $privateKeyPem, 'passphrase' => $passphrase];
+
+        return $this;
+    }
+
+    /**
      * Offer an unsubscribe: the link, the mailto, the headers and the footer line.
      *
      * ```php
@@ -874,6 +981,12 @@ class Email extends \Pramnos\Framework\Base
      */
     public function queue(): bool
     {
+        // A message with its own DKIM key or its own server is sent now: the outbox row would
+        // have to store the private key or the server's password. See signWith() and via().
+        if ($this->dkim !== null || $this->smtp !== null || $this->transport !== null) {
+            return (bool) $this->send();
+        }
+
         if (!$this->compose()) {
             $this->recordMail(false);
 
@@ -1076,77 +1189,39 @@ class Email extends \Pramnos\Framework\Base
      */
     protected function sendWithSymfonyMailer()
     {
-        $host = \Pramnos\Application\Settings::getSetting("smtp_host");
-        $user = \Pramnos\Application\Settings::getSetting("smtp_user");
-        $pass = \Pramnos\Application\Settings::getSetting("smtp_pass");
-        $port = \Pramnos\Application\Settings::getSetting('smtp_port');
-        $useTls = \Pramnos\Application\Settings::getSetting('smtp_tls') == 'yes';
+        if ($this->transport !== null) {
+            // Given for this message: the installation's SMTP settings are not read at all.
+            $transport = $this->transport;
+            $host      = 'the transport given for this message';
+            $port      = '';
+            $this->debugLog('Sending through the transport given for this message');
+        } else {
+            $smtp   = $this->smtp ?? [
+                'host'     => \Pramnos\Application\Settings::getSetting('smtp_host'),
+                'port'     => \Pramnos\Application\Settings::getSetting('smtp_port'),
+                'user'     => \Pramnos\Application\Settings::getSetting('smtp_user'),
+                'password' => \Pramnos\Application\Settings::getSetting('smtp_pass'),
+                'tls'      => \Pramnos\Application\Settings::getSetting('smtp_tls') == 'yes',
+            ];
+            $host   = (string) ($smtp['host'] ?? '');
+            $port   = (int) ($smtp['port'] ?? 0);
+            $user   = (string) ($smtp['user'] ?? '');
+            $pass   = (string) ($smtp['password'] ?? '');
+            $useTls = (bool) ($smtp['tls'] ?? false);
 
+            $this->debugLog("Credentials check" . ($this->smtp !== null ? ' (a server given for this message)' : '') . ":");
+            $this->debugLog("- SMTP Host: {$host}");
+            $this->debugLog("- SMTP User: {$user}");
+            $this->debugLog("- SMTP Port: {$port}");
+            // Whether there is one, and nothing about it: this log is the one pasted into tickets,
+            // and four characters — or the length — of a credential is part of the credential.
+            $this->debugLog("- SMTP Password: " . ($pass !== '' ? 'set' : 'not set'));
+            $this->debugLog("Sending mail via SMTP: {$host}:{$port}, User: {$user}, TLS: " . ($useTls ? 'yes' : 'no'));
 
-         // Advanced debugging for credentials
-        $this->debugLog("Credentials check:");
-        $this->debugLog("- SMTP Host: {$host}");
-        $this->debugLog("- SMTP User: {$user}");
-        $this->debugLog("- SMTP Port: {$port}");
-        // Whether there is one, and nothing about it: this log is the one pasted into tickets,
-        // and four characters — or the length — of a credential is part of the credential.
-        $this->debugLog("- SMTP Password: " . ((string) $pass !== '' ? 'set' : 'not set'));
-        
-        // Log SMTP settings (without password)
-        $this->debugLog("Sending mail via SMTP: {$host}:{$port}, User: {$user}, TLS: " . ($useTls ? 'yes' : 'no'));
-        
+            $transport = $this->smtpTransport($host, $port, $user, $pass, $useTls);
+        }
+
         try {
-            // Amazon SES and many other SMTP servers require explicit TLS settings
-            // Determine the correct scheme based on port and TLS settings
-            if ($port == 465) {
-                // Port 465 always uses implicit SSL
-                $scheme = 'smtps';
-                $this->debugLog("Using smtps (implicit SSL) for port 465");
-            } else if ($port == 587 && $useTls) {
-                // Port 587 typically uses STARTTLS (explicit TLS)
-                $scheme = 'smtp';
-                $this->debugLog("Using STARTTLS for port 587");
-            } else if ($useTls) {
-                // Other ports with TLS enabled
-                $scheme = 'smtps';
-                $this->debugLog("Using smtps (implicit SSL) based on TLS setting");
-            } else {
-                // Plain SMTP without encryption
-                $scheme = 'smtp';
-                $this->debugLog("Using plain SMTP without encryption");
-            }
-            
-            // Create DSN with proper configuration
-            $dsn = new \Symfony\Component\Mailer\Transport\Dsn(
-                $scheme,
-                $host,
-                $user,
-                $pass,
-                $port
-            );
-            
-            // For AWS SES and similar services on port 587, we need to set explicit STARTTLS mode
-            if ($port == 587 && $useTls) {
-                $factory = new \Symfony\Component\Mailer\Transport\Smtp\EsmtpTransportFactory();
-                $transport = $factory->create($dsn);
-                
-                // Force STARTTLS if available
-                if (method_exists($transport, 'setStartTLS')) {
-                    $transport->setStartTLS(true);
-                    $this->debugLog("Explicitly enabled STARTTLS on transport");
-                }
-                
-                // Configure authentication mechanisms explicitly for AWS SES
-                if (method_exists($transport, 'setAuthMode')) {
-                    $transport->setAuthMode('login');
-                    $this->debugLog("Explicitly set auth mode to 'login'");
-                }
-            } else {
-                // For other configurations, use the standard transport factory
-                $dsnString = sprintf('%s://%s:%s@%s:%d', $scheme, urlencode($user), urlencode($pass), $host, $port);
-                $transport = \Symfony\Component\Mailer\Transport::fromDsn($dsnString);
-            }
-            
             // Create Mailer
             $mailer = new \Symfony\Component\Mailer\Mailer($transport);
             
@@ -1265,14 +1340,87 @@ class Email extends \Pramnos\Framework\Base
                 $email->getHeaders()->add(new \Symfony\Component\Mime\Header\UnstructuredHeader($name, $value));
             }
             
+            // Signed last, so no header added after it can break the signature.
+            $message = $email;
+            if ($this->dkim !== null) {
+                $message = (new \Symfony\Component\Mime\Crypto\DkimSigner(
+                    $this->dkim['key'],
+                    $this->dkim['domain'],
+                    $this->dkim['selector'],
+                    [],
+                    $this->dkim['passphrase']
+                ))->sign($email);
+                $this->debugLog("Signed with DKIM for {$this->dkim['domain']}, selector {$this->dkim['selector']}");
+            }
+
             // Send email
-            $mailer->send($email);
+            $mailer->send($message);
             $this->debugLog("Email sent successfully");
             return true;
         } catch (\Exception $e) {
             \Pramnos\Logs\Logger::log("SMTP transport error: " . $e->getMessage() . "\n" . \Pramnos\Logs\Trace::of($e));
+            // Named by its server: with a server per message, "authentication failed" alone
+            // does not say which one refused.
+            if ($e instanceof \Symfony\Component\Mailer\Exception\TransportExceptionInterface) {
+                throw new \RuntimeException('SMTP ' . $host . ($port !== '' && $port !== 0 ? ':' . $port : '') . ': ' . $e->getMessage(), 0, $e);
+            }
             throw $e; // Re-throw to be caught by the outer catch
         }
+    }
+
+    /**
+     * The SMTP transport for a server: the scheme by port and TLS, STARTTLS on 587.
+     *
+     * @param string     $host
+     * @param int|string $port
+     * @param string     $user
+     * @param string     $pass   Never logged
+     * @param bool       $useTls
+     * @return \Symfony\Component\Mailer\Transport\TransportInterface
+     */
+    protected function smtpTransport(string $host, $port, string $user, string $pass, bool $useTls): \Symfony\Component\Mailer\Transport\TransportInterface
+    {
+        // Amazon SES and many other SMTP servers require explicit TLS settings
+        // Determine the correct scheme based on port and TLS settings
+        if ($port == 465) {
+            // Port 465 always uses implicit SSL
+            $scheme = 'smtps';
+            $this->debugLog("Using smtps (implicit SSL) for port 465");
+        } else if ($port == 587 && $useTls) {
+            // Port 587 typically uses STARTTLS (explicit TLS)
+            $scheme = 'smtp';
+            $this->debugLog("Using STARTTLS for port 587");
+        } else if ($useTls) {
+            // Other ports with TLS enabled
+            $scheme = 'smtps';
+            $this->debugLog("Using smtps (implicit SSL) based on TLS setting");
+        } else {
+            // Plain SMTP without encryption
+            $scheme = 'smtp';
+            $this->debugLog("Using plain SMTP without encryption");
+        }
+        
+        // Create DSN with proper configuration
+        $dsn = new \Symfony\Component\Mailer\Transport\Dsn(
+            $scheme,
+            $host,
+            $user,
+            $pass,
+            $port
+        );
+        
+        // Port 587 with TLS: the ESMTP transport, which upgrades with STARTTLS whenever the
+        // server offers it — Amazon SES and the rest.
+        if ($port == 587 && $useTls) {
+            $factory = new \Symfony\Component\Mailer\Transport\Smtp\EsmtpTransportFactory();
+            $transport = $factory->create($dsn);
+        } else {
+            // For other configurations, use the standard transport factory
+            $dsnString = sprintf('%s://%s:%s@%s:%d', $scheme, urlencode($user), urlencode($pass), $host, $port);
+            $transport = \Symfony\Component\Mailer\Transport::fromDsn($dsnString);
+        }
+
+        return $transport;
     }
     
     /**
