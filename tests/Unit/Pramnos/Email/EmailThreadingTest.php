@@ -115,24 +115,4 @@ class EmailThreadingTest extends TestCase
         // Act
         (new Email())->inReplyTo('not an id');
     }
-
-    /**
-     * queue() sends a threaded message at once: the outbox keeps no headers.
-     *
-     * Queued, it would have gone out later without In-Reply-To, outside its thread, with
-     * nothing to say why.
-     */
-    public function testQueueingAThreadedMessageSendsItNow(): void
-    {
-        // Arrange
-        $transport = new ThreadCapturingTransport();
-
-        // Act
-        $queued = $this->message($transport)->inReplyTo('original@agency.example')->queue();
-
-        // Assert
-        $this->assertTrue($queued);
-        $this->assertCount(1, $transport->sent, 'the threaded message was not sent at once');
-        $this->assertStringContainsString('In-Reply-To: <original@agency.example>', $transport->sent[0]);
-    }
 }

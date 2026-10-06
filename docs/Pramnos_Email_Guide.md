@@ -1391,8 +1391,8 @@ is the id to pass.
 letter case. An id that is not `local@domain` is refused when the header is added, with the
 header named, not by the transport during the send.
 
-A threaded message given to `queue()` is sent at once. The outbox stores the address, subject
-and body of a message, not its headers, so queued it would arrive outside its thread.
+A threaded message can be queued like any other: the outbox keeps its headers (see
+[The outbox](#the-outbox)).
 
 ## Gmail actions, and the brand mark beside the subject
 
@@ -1829,6 +1829,28 @@ right way round.
 
 A notification declares `queueable(): bool` and the mail channel does the rest. See the
 [Notifications guide](Pramnos_Notifications_Guide.md#getting-the-mail-off-the-request).
+
+
+### What a queued message keeps
+
+The `mails` row holds the address, the subject and the composed body. Everything else the send
+needs travels in the row's `extrainfo` column, as JSON, while the message waits:
+
+- copies (`cc`, `bcc`), `replyto` and the return path;
+- the attachment, the priority and the read receipt;
+- `addHeader()` headers, including a thread's `In-Reply-To` and `References`;
+- the unsubscribe link, mailto and list, and the one-click flag, from which `List-Unsubscribe`,
+  `List-Unsubscribe-Post` and `List-ID` are built;
+- tracking, and structured data for Gmail.
+
+`mail:flush` reads it back before sending, so a queued message leaves as it would have left at
+once. When the row reaches its final state, the column holds `''` once the message is sent, or
+the transport's error if it failed. A queued row is never shown as having an error.
+
+An attachment is kept as its path, so the file has to be there when the worker runs: queue
+from a file that stays, not a temporary upload. A message signed with `signWith()`, or sent
+through `via()` or `withTransport()`, is sent at once and never queued, because the row would
+have to hold the key or the password.
 
 ## What to keep of a sent message, and for how long
 

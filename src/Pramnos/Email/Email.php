@@ -1074,10 +1074,7 @@ class Email extends \Pramnos\Framework\Base
     {
         // A message with its own DKIM key or its own server is sent now: the outbox row would
         // have to store the private key or the server's password. See signWith() and via().
-        // So is a threaded one: the outbox keeps no headers, and the reply would arrive outside
-        // its thread with nothing to say why.
-        $threaded = array_intersect(array_map('strtolower', array_keys($this->headers)), self::ID_HEADERS) !== [];
-        if ($this->dkim !== null || $this->smtp !== null || $this->transport !== null || $threaded) {
+        if ($this->dkim !== null || $this->smtp !== null || $this->transport !== null) {
             return (bool) $this->send();
         }
 
@@ -1195,6 +1192,58 @@ class Email extends \Pramnos\Framework\Base
     }
 
     /**
+     * What the send needs beyond the address, subject and body, kept in the outbox row.
+     *
+     * The outbox stores a message as a `mails` row, whose columns hold the address, the subject
+     * and the composed body. Everything else the transport reads (copies, reply-to, the
+     * attachment, the unsubscribe headers, the thread, tracking) went missing between `queue()`
+     * and the worker, so queued list mail left without `List-Unsubscribe`. It travels in
+     * `extrainfo`, which a queued row does not otherwise use: the worker reads it back, and the
+     * row's final state (sent, or the error) replaces it.
+     */
+    private const OUTBOX_STATE = [
+        'cc', 'bcc', 'replyto', 'returnPath', 'attach', 'organization', 'abuse', 'priority',
+        'sendReceipt', 'headers', 'unsubscribe', 'unsubscribeMailto', 'unsubscribeList',
+        'unsubscribeOneClick', 'trackingId', 'trackingRequested', 'mailType', 'structuredData',
+        'mailId',
+    ];
+
+    /**
+     * The state the outbox keeps for this message; see {@see OUTBOX_STATE}.
+     *
+     * @return array<string, mixed>
+     */
+    public function outboxState(): array
+    {
+        $state = [];
+        foreach (self::OUTBOX_STATE as $property) {
+            $state[$property] = $this->$property;
+        }
+
+        return $state;
+    }
+
+    /**
+     * Put back what {@see outboxState()} kept: the outbox worker's half.
+     *
+     * Only the names it knows are read, so a row written by another version cannot set
+     * anything else on the message.
+     *
+     * @param array<string, mixed> $state
+     * @return $this
+     */
+    public function restoreOutboxState(array $state): static
+    {
+        foreach (self::OUTBOX_STATE as $property) {
+            if (array_key_exists($property, $state)) {
+                $this->$property = $state[$property];
+            }
+        }
+
+        return $this;
+    }
+
+    /**
      * One row in `mails`, at whatever status the caller means.
      *
      * The audit log and the outbox are the same table, which is why one method writes both:
@@ -1227,9 +1276,15 @@ class Email extends \Pramnos\Framework\Base
                     'date'       => $date,
                     'module'     => (string) $this->module,
                     'moduleinfo' => substr((string) $this->moduleinfo, 0, 255),
-                    'extrainfo'  => $status === \Pramnos\Messaging\Mail::STATUS_FAILED
-                        ? (string) $this->lastError
-                        : '',
+                    'extrainfo'  => match ($status) {
+                        \Pramnos\Messaging\Mail::STATUS_FAILED => (string) $this->lastError,
+                        // What the worker needs to send it as it would have been sent now.
+                        \Pramnos\Messaging\Mail::STATUS_QUEUED => (string) json_encode(
+                            ['outbox' => $this->outboxState()],
+                            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE
+                        ),
+                        default => '',
+                    },
                     'path'       => '',
                     'hash'       => md5($tomail . '|' . (string) $this->subject . '|' . $date),
                 ]);

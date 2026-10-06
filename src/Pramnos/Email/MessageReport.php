@@ -61,8 +61,8 @@ class MessageReport
             'module'  => (string) ($this->mail['module'] ?? ''),
             'sentAt'  => (int) ($this->mail['date'] ?? 0),
             // Only on a failure, where it holds the transport's own words. On a success it is
-            // empty, and an empty "error" row on a delivered message reads as a problem.
-            'error'   => $status === 1 ? '' : (string) ($this->mail['extrainfo'] ?? ''),
+            // empty, and on a queued message it holds what the outbox kept to send it with.
+            'error'   => $status === \Pramnos\Messaging\Mail::STATUS_FAILED ? (string) ($this->mail['extrainfo'] ?? '') : '',
         ], static fn ($value): bool => $value !== '' && $value !== null);
     }
 

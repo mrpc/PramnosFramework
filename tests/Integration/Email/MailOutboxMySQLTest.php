@@ -132,7 +132,47 @@ class MailOutboxMySQLTest extends TestCase
             (string) $rows[0]['content'],
             'the stored row does not hold the composed body'
         );
-        $this->assertSame('', (string) $rows[0]['extrainfo'], 'a queued row has no error yet');
+        // No error yet: what it holds is what the worker needs to send it, not a failure.
+        $kept = json_decode((string) $rows[0]['extrainfo'], true);
+        $this->assertIsArray($kept['outbox'] ?? null, 'a queued row does not keep what the send needs');
+    }
+
+    /**
+     * A queued message leaves as it would have left at once: copies, reply-to, its thread, its
+     * own headers and its unsubscribe headers all survive the outbox.
+     *
+     * The worker rebuilt a message from the address, the subject and the body, and everything
+     * else was dropped — so queued list mail went out without `List-Unsubscribe`, which Gmail
+     * requires of bulk senders, and a queued reply went out of its thread.
+     */
+    public function testAQueuedMessageLeavesWithEverythingItWasQueuedWith(): void
+    {
+        // Arrange
+        $email = $this->mail('reader@example.com', 'Newsletter', '<p>Issue 1</p>');
+        $email->setCc('copy@example.com');
+        $email->replyto = 'editor@example.com';
+        $email->addHeader('X-Campaign', 'issue-1');
+        $email->inReplyTo('previous@example.com');
+        $email->unsubscribe         = 'https://example.com/unsubscribe/abc';
+        $email->unsubscribeList     = 'newsletter';
+        $email->unsubscribeOneClick = true;
+        $email->queue();
+        $transport = new OutboxCapturingTransport();
+
+        // Act
+        $this->flush(new FlushThroughTransportMailer($transport));
+
+        // Assert
+        $this->assertCount(1, $transport->sent, 'the worker sent nothing');
+        $raw = $transport->sent[0];
+        $this->assertStringContainsString('Cc: copy@example.com', $raw);
+        $this->assertStringContainsString('Reply-To: editor@example.com', $raw);
+        $this->assertStringContainsString('X-Campaign: issue-1', $raw);
+        $this->assertStringContainsString('In-Reply-To: <previous@example.com>', $raw);
+        $this->assertStringContainsString('List-Unsubscribe: <https://example.com/unsubscribe/abc>', $raw);
+        $this->assertStringContainsString('List-Unsubscribe-Post: List-Unsubscribe=One-Click', $raw);
+        $this->assertSame(Mail::STATUS_SENT, (int) $this->rows()[0]['status']);
+        $this->assertSame('', (string) $this->rows()[0]['extrainfo'], 'a sent row still holds the outbox state');
     }
 
     /**
@@ -352,5 +392,43 @@ class TestableMailFlush extends MailFlush
     protected function mailer(): Email
     {
         return $this->spy;
+    }
+}
+
+/** A transport that keeps each message as it would have gone on the wire. */
+class OutboxCapturingTransport extends \Symfony\Component\Mailer\Transport\AbstractTransport
+{
+    /** @var list<string> */
+    public array $sent = [];
+
+    protected function doSend(\Symfony\Component\Mailer\SentMessage $message): void
+    {
+        $this->sent[] = $message->toString();
+    }
+
+    public function __toString(): string
+    {
+        return 'capture://';
+    }
+}
+
+/** The worker's mailer, sending for real through a capturing transport. */
+class FlushThroughTransportMailer extends FlushSpyMailer
+{
+    public function __construct(private OutboxCapturingTransport $capture)
+    {
+        parent::__construct(true);
+    }
+
+    public function sendRendered(): bool
+    {
+        $this->withTransport($this->capture);
+
+        return Email::sendRendered();
+    }
+
+    public function getLastError()
+    {
+        return Email::getLastError();
     }
 }

@@ -181,6 +181,14 @@ class MailFlush extends Command
          */
         $email->body = (string) $row['content'];
 
+        // And the rest of what it was queued with: copies, reply-to, the attachment, the
+        // unsubscribe headers, the thread, tracking. The id is this row's, for tracking to
+        // point at. A row queued before the outbox kept this has none, and sends as it did.
+        $kept = json_decode((string) ($row['extrainfo'] ?? ''), true);
+        if (is_array($kept) && is_array($kept['outbox'] ?? null)) {
+            $email->restoreOutboxState(array_merge($kept['outbox'], ['mailId' => (int) $row['id']]));
+        }
+
         if ($email->sendRendered()) {
             $this->mark((int) $row['id'], Mail::STATUS_SENT, '');
 
