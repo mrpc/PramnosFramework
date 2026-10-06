@@ -701,7 +701,7 @@ so it verifies the way the access token does. Check the signature, then:
 | `exp`, `iat` | its expiry (the access token's) and when it was issued |
 | `nonce` | the `nonce` you sent to `/oauth/authorize`, unchanged — compare it with yours |
 | `auth_time` | when the user signed in; on a code, not on a refresh |
-| scope claims | `email` → `email`, `email_verified`; `profile` → `name`, `given_name`, `family_name`, `preferred_username`, `updated_at`, `picture`, `website`; `phone` → `phone_number` |
+| scope claims | `email` → `email`, `email_verified`; `profile` → `name`, `given_name`, `family_name`, `preferred_username`, `updated_at`, `picture`, `website`; `phone` → `phone_number` (the `mobile` column, else `phone`, else `null`) |
 
 Send a `nonce` (up to 255 characters) on the authorization request: it is carried with the code
 and returned in the ID token, which is how you know the answer belongs to the request you made. A

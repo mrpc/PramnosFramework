@@ -152,8 +152,8 @@ class OauthCoverageTest extends TestCase
 
     /**
      * Create tables needed by Oauth controller tests if they do not already
-     * exist in the Docker MySQL instance.  Columns that may have been added
-     * later are patched with ALTER TABLE (errors suppressed).
+     * exist in the Docker MySQL instance. The framework's own tables come from their
+     * migrations, whole; patching them here as well made every test change their shape.
      */
     private function ensureSchema(): void
     {
@@ -190,45 +190,6 @@ class OauthCoverageTest extends TestCase
                 PRIMARY KEY (`device_code`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         ');
-
-        // Patch columns that may be missing from tables created by earlier test runs.
-        // MySQL silently ignores duplicate column errors when wrapped in try/catch.
-        foreach ([
-            // applications extras
-            'ALTER TABLE `applications` ADD COLUMN `apisecret` varchar(255) DEFAULT NULL',
-            'ALTER TABLE `applications` ADD COLUMN `public_key` text DEFAULT NULL',
-            'ALTER TABLE `applications` ADD COLUMN `systemuser` int(11) DEFAULT NULL',
-            "ALTER TABLE `applications` ADD COLUMN `apiversion` varchar(50) NOT NULL DEFAULT 'v1'",
-            'ALTER TABLE `applications` ADD COLUMN `accesstype` int(11) NOT NULL DEFAULT 0',
-            'ALTER TABLE `applications` ADD COLUMN `scope` text DEFAULT NULL',
-            'ALTER TABLE `applications` ADD COLUMN `public` int(11) NOT NULL DEFAULT 0',
-            'ALTER TABLE `applications` ADD COLUMN `callback` text DEFAULT NULL',
-            'ALTER TABLE `applications` ADD COLUMN `owner` int(11) DEFAULT NULL',
-            'ALTER TABLE `applications` ADD COLUMN `jwks_uri` varchar(255) DEFAULT NULL',
-            'ALTER TABLE `applications` ADD COLUMN `apptype` int(11) NOT NULL DEFAULT 0',
-            // Ensure apiversion column has a proper default even if added with NULL default before
-            "ALTER TABLE `applications` MODIFY COLUMN `apiversion` varchar(50) NOT NULL DEFAULT 'v1'",
-            // usertokens extras
-            'ALTER TABLE `usertokens` ADD COLUMN `parentToken` int(11) DEFAULT NULL',
-            'ALTER TABLE `usertokens` ADD COLUMN `notes` text',
-            'ALTER TABLE `usertokens` ADD COLUMN `deviceinfo` varchar(255) DEFAULT NULL',
-            // users extras
-            'ALTER TABLE `users` ADD COLUMN `maingroup` int(11) DEFAULT 0',
-            'ALTER TABLE `users` ADD COLUMN `mobile` varchar(50) DEFAULT NULL',
-            'ALTER TABLE `users` ADD COLUMN `phone` varchar(50) DEFAULT NULL',
-            'ALTER TABLE `users` ADD COLUMN `website` varchar(255) DEFAULT NULL',
-            'ALTER TABLE `users` ADD COLUMN `modified` int(11) DEFAULT 0',
-            'ALTER TABLE `users` ADD COLUMN `regdate` int(11) DEFAULT 0',
-            // Ensure mobile/phone allow NULL even if previously created as NOT NULL
-            'ALTER TABLE `users` MODIFY COLUMN `mobile` varchar(50) DEFAULT NULL',
-            'ALTER TABLE `users` MODIFY COLUMN `phone` varchar(50) DEFAULT NULL',
-        ] as $alter) {
-            try {
-                $this->db->query($alter);
-            } catch (\Throwable $e) {
-                // Ignore "Duplicate column" — expected on subsequent runs
-            }
-        }
     }
 
     private function cleanDb(): void
@@ -706,13 +667,13 @@ class OauthCoverageTest extends TestCase
      * When mobile is absent, buildUserInfoPayload() must fall back to the
      * phone column for phone_number.
      *
-     * This covers the `$u['mobile'] ?? $u['phone'] ?? null` fallback (line 674).
+     * An empty mobile is the absent one: both columns default to '', so a fallback that only
+     * looked for null gave every such account an empty phone_number.
      */
     public function testBuildUserInfoPayloadFallsBackToPhoneWhenNoMobile(): void
     {
-        // Arrange — user with phone set; mobile is intentionally absent from the
-        // insert so it defaults to NULL (or empty). We then explicitly NULL it
-        // via raw SQL to guarantee the fallback condition.
+        // Arrange — user with phone set and mobile left at its column default, which is ''
+        // in the shipped schema: the state of every account that never gave a mobile.
         $this->db->queryBuilder()->table('users')->insert([
             'usertype' => 0,
             'sex' => 0,
@@ -721,15 +682,32 @@ class OauthCoverageTest extends TestCase
             'userid' => 101, 'username' => 'nomobi', 'email' => 'nm@test.com',
             'active' => 1, 'phone' => '+30-2100000001'
         ]);
-        // Force mobile to NULL regardless of column default
-        $this->db->query("UPDATE `users` SET `mobile` = NULL WHERE `userid` = 101");
 
         // Act
         $payload = $this->callPrivate('buildUserInfoPayload', 101, ['openid', 'phone']);
 
-        // Assert — phone_number must come from the phone column since mobile is NULL
+        // Assert — phone_number must come from the phone column since mobile is empty
         $this->assertEquals('+30-2100000001', $payload['phone_number'],
             'phone column must be used when mobile is absent/null');
+    }
+
+    /**
+     * With neither number, phone_number is null — OIDC's "no value" — rather than ''.
+     */
+    public function testBuildUserInfoPayloadHasNoPhoneNumberWhenNeitherIsSet(): void
+    {
+        // Arrange — both columns at their default
+        $this->db->queryBuilder()->table('users')->insert([
+            'usertype' => 0, 'sex' => 0, 'birthdate' => 0, 'modified' => 0,
+            'userid' => 103, 'username' => 'nophone', 'email' => 'np@test.com', 'active' => 1,
+        ]);
+
+        // Act
+        $payload = $this->callPrivate('buildUserInfoPayload', 103, ['openid', 'phone']);
+
+        // Assert
+        $this->assertArrayHasKey('phone_number', $payload);
+        $this->assertNull($payload['phone_number']);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -744,19 +722,27 @@ class OauthCoverageTest extends TestCase
      */
     public function testBuildUserInfoPayloadIncludesUserScopeFields(): void
     {
-        // Arrange
-        $regdate = time() - 86400;
-        $this->db->queryBuilder()->table('users')->insert([
-            'usertype' => 0,
-            'sex' => 0,
-            'birthdate' => 0,
-            'modified' => 0,
-            'userid' => 102, 'username' => 'userscope', 'email' => 'us@test.com',
-            'active' => 1, 'maingroup' => 42, 'regdate' => $regdate
-        ]);
+        // Arrange — `maingroup` is not a framework column; an application that keeps one on
+        // `users` has it read into the claim. Added for this test only, and removed again so
+        // the table is left in its shipped shape.
+        $this->db->query('ALTER TABLE `users` ADD COLUMN `maingroup` int(11) DEFAULT 0');
 
-        // Act
-        $payload = $this->callPrivate('buildUserInfoPayload', 102, ['openid', 'user']);
+        try {
+            $regdate = time() - 86400;
+            $this->db->queryBuilder()->table('users')->insert([
+                'usertype' => 0,
+                'sex' => 0,
+                'birthdate' => 0,
+                'modified' => 0,
+                'userid' => 102, 'username' => 'userscope', 'email' => 'us@test.com',
+                'active' => 1, 'maingroup' => 42, 'regdate' => $regdate
+            ]);
+
+            // Act
+            $payload = $this->callPrivate('buildUserInfoPayload', 102, ['openid', 'user']);
+        } finally {
+            $this->db->query('ALTER TABLE `users` DROP COLUMN `maingroup`');
+        }
 
         // Assert
         $this->assertArrayHasKey('maingroup', $payload,
@@ -764,6 +750,7 @@ class OauthCoverageTest extends TestCase
         $this->assertArrayHasKey('regdate', $payload,
             'regdate must be present when user scope is granted');
         $this->assertEquals(42, $payload['maingroup']);
+        $this->assertEquals($regdate, $payload['regdate']);
     }
 
     // ─────────────────────────────────────────────────────────────────────────

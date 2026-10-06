@@ -49,7 +49,12 @@ final class UserClaims
         }
 
         if (in_array('phone', $scopes, true)) {
-            $payload['phone_number'] = $u['mobile'] ?? $u['phone'] ?? null;
+            // Empty, not null, is what a user without a mobile has: both columns default to ''.
+            // `??` took that '' and never reached the phone. No number at all is null, which
+            // is how OIDC says a claim has no value.
+            $mobile = trim((string) ($u['mobile'] ?? ''));
+            $phone  = trim((string) ($u['phone'] ?? ''));
+            $payload['phone_number'] = $mobile !== '' ? $mobile : ($phone !== '' ? $phone : null);
         }
 
         if (in_array('user', $scopes, true)) {
