@@ -6,6 +6,7 @@ use_cases:
   - Using the log viewer or the log console commands
   - Getting the log dashboard's numbers from code, a command or an MCP tool
   - Finding which command or request ran out of memory or died of a fatal error
+  - Logging an exception without writing the arguments its calls carried
 ---
 
 # Pramnos Framework - Logging System Guide
@@ -19,14 +20,15 @@ The Pramnos Framework includes a comprehensive logging system with structured lo
 3. [Structured Logging](#structured-logging)
 4. [Log Levels and PSR-3 Compliance](#log-levels-and-psr-3-compliance)
 5. [Log File Management](#log-file-management)
-6. [When the process dies: `fatal.log`](#when-the-process-dies-fatallog)
-7. [Log Viewer and Analytics](#log-viewer-and-analytics)
-8. [Log Migration and Format Conversion](#log-migration-and-format-conversion)
-9. [Console Commands](#console-commands)
-10. [Web Interface](#web-interface)
-11. [Performance and Best Practices](#performance-and-best-practices)
-12. [Configuration](#configuration)
-13. [Advanced Features](#advanced-features)
+6. [Stack traces are written without arguments](#stack-traces-are-written-without-arguments)
+7. [When the process dies: `fatal.log`](#when-the-process-dies-fatallog)
+8. [Log Viewer and Analytics](#log-viewer-and-analytics)
+9. [Log Migration and Format Conversion](#log-migration-and-format-conversion)
+10. [Console Commands](#console-commands)
+11. [Web Interface](#web-interface)
+12. [Performance and Best Practices](#performance-and-best-practices)
+13. [Configuration](#configuration)
+14. [Advanced Features](#advanced-features)
 
 ## Architecture Overview
 
@@ -346,6 +348,23 @@ echo "Modified: {$stats['modified_formatted']}\n";
 foreach ($stats['level_distribution'] as $level => $count) {
     echo "Level {$level}: {$count} entries\n";
 }
+```
+
+## Stack traces are written without arguments
+
+Every trace the framework records goes through `Pramnos\Logs\Trace::of($throwable)`. That
+covers the log line for an exception, an API error, the JSON and HTML error pages in debug,
+and the changelog's captured origin. It keeps the layout of `getTraceAsString()`, which is
+file, line, `Class->method()`, but writes **no arguments**.
+
+The reason is that a call's arguments are whatever passed through it. With PHP's default
+`zend.exception_ignore_args = Off`, `getTraceAsString()` writes up to fifteen characters of
+every string argument. Symfony Mailer authenticates with `executeCommand(base64(password))`,
+so a rejected SMTP password reached the log, and a failed query can carry the values it was
+binding. Use `Trace::of()` in your own code wherever a trace is written down:
+
+```php
+Logger::error($e->getMessage() . "\n" . \Pramnos\Logs\Trace::of($e));
 ```
 
 ## When the process dies: `fatal.log`

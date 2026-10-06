@@ -578,7 +578,7 @@ class Api extends Application
                     \Pramnos\Logs\Logger::log(
                         $message . "\nLine:\n" . $exception->getFile()
                         . ' -> ' . $exception->getLine()
-                        . "\nTrace:\n" . $exception->getTraceAsString()
+                        . "\nTrace:\n" . \Pramnos\Logs\Trace::of($exception)
                     );
                 }
                 $this->_recordTokenAction($startTime, null);

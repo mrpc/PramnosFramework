@@ -86,7 +86,7 @@ class ExceptionHandler
             $exception->getMessage()
             . "\nFile: " . $exception->getFile()
             . ' → ' . $exception->getLine()
-            . "\nTrace:\n" . $exception->getTraceAsString(),
+            . "\nTrace:\n" . \Pramnos\Logs\Trace::of($exception),
             ['exception_class' => get_class($exception)],
             $logFile
         );
@@ -147,7 +147,7 @@ class ExceptionHandler
             $payload['file']      = $exception->getFile();
             $payload['line']      = $exception->getLine();
             $payload['trace']     = array_filter(
-                explode("\n", $exception->getTraceAsString())
+                explode("\n", \Pramnos\Logs\Trace::of($exception))
             );
         }
 
@@ -185,7 +185,7 @@ class ExceptionHandler
         $message = htmlspecialchars($exception->getMessage(), ENT_QUOTES, 'UTF-8');
         $file    = htmlspecialchars($exception->getFile(), ENT_QUOTES, 'UTF-8');
         $line    = (int) $exception->getLine();
-        $trace   = htmlspecialchars($exception->getTraceAsString(), ENT_QUOTES, 'UTF-8');
+        $trace   = htmlspecialchars(\Pramnos\Logs\Trace::of($exception), ENT_QUOTES, 'UTF-8');
 
         return <<<HTML
             <!DOCTYPE html>

@@ -166,7 +166,7 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
     /**
      * Capture the stack trace and request context alongside each change.
      *
-     * Off, because it is not free: `(new \Exception())->getTraceAsString()` runs on every
+     * Off, because it is not free: `\Pramnos\Logs\Trace::of(new \Exception())` runs on every
      * save that emits, and the reference application pays exactly that on every device
      * write. Turn it on where a change is being chased, and off again afterwards.
      *
@@ -1890,7 +1890,7 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
                     // would describe the listener's stack rather than the save's — which
                     // is the one thing anybody reading it wants.
                     $this->captureTrace
-                        ? (new \Exception())->getTraceAsString()
+                        ? \Pramnos\Logs\Trace::of(new \Exception())
                         : null
                 )
             );

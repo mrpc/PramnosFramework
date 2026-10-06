@@ -955,7 +955,7 @@ class Email extends \Pramnos\Framework\Base
         catch (\Exception $exception) {
             $this->lastError = $exception->getMessage();
             $this->lastException = $exception;
-            \Pramnos\Logs\Logger::log("Email error: " . $exception->getMessage() . "\n" . $exception->getTraceAsString());
+            \Pramnos\Logs\Logger::log("Email error: " . $exception->getMessage() . "\n" . \Pramnos\Logs\Trace::of($exception));
             $sent = false;
         }
 
@@ -1270,7 +1270,7 @@ class Email extends \Pramnos\Framework\Base
             $this->debugLog("Email sent successfully");
             return true;
         } catch (\Exception $e) {
-            \Pramnos\Logs\Logger::log("SMTP transport error: " . $e->getMessage() . "\n" . $e->getTraceAsString());
+            \Pramnos\Logs\Logger::log("SMTP transport error: " . $e->getMessage() . "\n" . \Pramnos\Logs\Trace::of($e));
             throw $e; // Re-throw to be caught by the outer catch
         }
     }

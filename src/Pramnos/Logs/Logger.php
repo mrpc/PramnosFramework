@@ -607,7 +607,7 @@ class Logger
                 'code' => $exception->getCode(),
                 'file' => $exception->getFile(),
                 'line' => $exception->getLine(),
-                'trace' => $exception->getTraceAsString()
+                'trace' => Trace::of($exception)
             ];
         }
 
