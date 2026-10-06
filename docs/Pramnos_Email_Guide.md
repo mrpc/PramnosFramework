@@ -1885,6 +1885,10 @@ $email->setDebug(true)  // Enable debug logging
       ->send();
 ```
 
+The debug lines go to the framework log: the SMTP host, user and port, the scheme chosen for
+the port, and whether a password is set. Nothing about the password itself is written, neither
+characters nor length, because that log is the one people paste into tickets.
+
 ## Error Handling
 
 ### Checking for Errors

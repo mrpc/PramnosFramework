@@ -1088,10 +1088,9 @@ class Email extends \Pramnos\Framework\Base
         $this->debugLog("- SMTP Host: {$host}");
         $this->debugLog("- SMTP User: {$user}");
         $this->debugLog("- SMTP Port: {$port}");
-        $this->debugLog("- Password length: " . strlen($pass) . " chars");
-        $this->debugLog("- First 4 chars of password: " . substr($pass, 0, 4));
-        
-        
+        // Whether there is one, and nothing about it: this log is the one pasted into tickets,
+        // and four characters — or the length — of a credential is part of the credential.
+        $this->debugLog("- SMTP Password: " . ((string) $pass !== '' ? 'set' : 'not set'));
         
         // Log SMTP settings (without password)
         $this->debugLog("Sending mail via SMTP: {$host}:{$port}, User: {$user}, TLS: " . ($useTls ? 'yes' : 'no'));

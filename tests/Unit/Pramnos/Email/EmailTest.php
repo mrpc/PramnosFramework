@@ -503,6 +503,41 @@ class EmailTest extends TestCase
     }
 
     /**
+     * The debug log says whether there is an SMTP password, and nothing of the password itself.
+     *
+     * It used to write the password's length and its first four characters, next to the host
+     * and the user — in the log operators paste into tickets.
+     */
+    public function testTheDebugLogNeverContainsThePassword(): void
+    {
+        // Arrange — a debug send that fails at the transport, with a recognisable password
+        $stream = fopen('php://memory', 'r+');
+        \Pramnos\Logs\Logger::setOutputMode(\Pramnos\Logs\Logger::OUTPUT_STREAM);
+        \Pramnos\Logs\Logger::setStreamTarget($stream);
+        foreach (['smtp_host' => '127.0.0.1', 'smtp_port' => '1', 'smtp_user' => 'mailer',
+            'smtp_pass' => 'Zq9xSecretCanary', 'smtp_tls' => 'no'] as $name => $value) {
+            \Pramnos\Application\Settings::setSetting($name, $value);
+        }
+        $email = (new Email())->setDebug(true)->setBody('Body')->setTo('to@example.com')
+            ->setFrom('from@example.com')->setSubject('Subject');
+
+        try {
+            // Act
+            $email->send();
+            rewind($stream);
+            $log = (string) stream_get_contents($stream);
+        } finally {
+            \Pramnos\Logs\Logger::setStreamTarget(null);
+            \Pramnos\Logs\Logger::setOutputMode(\Pramnos\Logs\Logger::OUTPUT_FILE);
+        }
+
+        // Assert — the check ran, and no part of the password reached the log
+        $this->assertStringContainsString('SMTP Password: set', $log);
+        $this->assertStringNotContainsString('Zq9x', $log, 'the start of the password was logged');
+        $this->assertStringNotContainsString('16 chars', $log, 'the length of the password was logged');
+    }
+
+    /**
      * Asking for tracking sets an id and leaves the message alone.
      *
      * This used to assert that the pixel was appended immediately. It no longer is, and that is
