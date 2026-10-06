@@ -5,6 +5,7 @@ use_cases:
   - Reading, rotating or migrating log files
   - Using the log viewer or the log console commands
   - Getting the log dashboard's numbers from code, a command or an MCP tool
+  - Finding which command or request ran out of memory or died of a fatal error
 ---
 
 # Pramnos Framework - Logging System Guide
@@ -18,13 +19,14 @@ The Pramnos Framework includes a comprehensive logging system with structured lo
 3. [Structured Logging](#structured-logging)
 4. [Log Levels and PSR-3 Compliance](#log-levels-and-psr-3-compliance)
 5. [Log File Management](#log-file-management)
-6. [Log Viewer and Analytics](#log-viewer-and-analytics)
-7. [Log Migration and Format Conversion](#log-migration-and-format-conversion)
-8. [Console Commands](#console-commands)
-9. [Web Interface](#web-interface)
-10. [Performance and Best Practices](#performance-and-best-practices)
-11. [Configuration](#configuration)
-12. [Advanced Features](#advanced-features)
+6. [When the process dies: `fatal.log`](#when-the-process-dies-fatallog)
+7. [Log Viewer and Analytics](#log-viewer-and-analytics)
+8. [Log Migration and Format Conversion](#log-migration-and-format-conversion)
+9. [Console Commands](#console-commands)
+10. [Web Interface](#web-interface)
+11. [Performance and Best Practices](#performance-and-best-practices)
+12. [Configuration](#configuration)
+13. [Advanced Features](#advanced-features)
 
 ## Architecture Overview
 
@@ -345,6 +347,41 @@ foreach ($stats['level_distribution'] as $level => $count) {
     echo "Level {$level}: {$count} entries\n";
 }
 ```
+
+## When the process dies: `fatal.log`
+
+A fatal error stops PHP before any of your code can log it. PHP's own line, in its error log,
+gives a file and a line, and for "Allowed memory size … exhausted" that is only wherever the
+last allocation happened to fall. It does not say which command or request loaded the data.
+
+So every application writes `fatal.log` beside its other logs when a fatal error ends the
+process. `Pramnos\Logs\FatalErrorReporter` is registered by `Application`'s constructor,
+once per process, for web requests, console commands, cron jobs and daemons alike. There is
+nothing to configure. Each entry is a `critical` record with:
+
+| Field | What it holds |
+| --- | --- |
+| `entry` | The command line (`cli: urbanwater.php maintenance --zone=7`) or the request's method and path (`GET /reports/run`) |
+| `where` | The file and line PHP stopped at |
+| `request_id` | The request id, to find the same request in the other logs |
+| `peak_memory_mb`, `memory_limit` | How much it used, against how much it was allowed |
+| `elapsed_seconds` | How long it had been running |
+| `pid` | The process |
+
+A backtrace is not among them, because by the time a shutdown function runs the stack is gone.
+The entry point is usually the answer anyway: knowing that a command ran for forty minutes and
+used 3 GB tells you where to look.
+
+**What it leaves out on purpose.** Option values whose name contains `pass`, `secret`, `token`
+or `key` are written as `***`, and a URL's query string is dropped. Either can carry a
+credential, and this file is read by whoever investigates.
+
+**It still works when memory has run out.** It holds back 256 KB when it registers, releases it
+at shutdown, and raises the limit a little before writing, so the report does not die the
+same way the process did.
+
+Only fatal error types are reported: `E_ERROR`, `E_PARSE`, `E_CORE_ERROR`, `E_COMPILE_ERROR`
+and `E_USER_ERROR`. Warnings and exceptions have their own path.
 
 ## Log Viewer and Analytics
 

@@ -273,6 +273,9 @@ class Application extends Base
         if (!defined('PRAMNOS_DEFINES')) {
             $this->setDefines();
         }
+        // A fatal error leaves only a file and line in PHP's log; this adds what was running.
+        // Once per process, here because web requests and console commands both pass through.
+        \Pramnos\Logs\FatalErrorReporter::register();
         $this->appName = $appName;
         if ($appName == '') {
             /*
