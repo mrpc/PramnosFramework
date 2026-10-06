@@ -2394,16 +2394,32 @@ class FrameworkMigrationsMySQLTest extends TestCase
 
     protected function dropAllTestTables(): void
     {
+        // Only what is there. Every name below as a DROP … IF EXISTS was ~120 statements,
+        // twice a test, for objects that mostly did not exist: 12 s of this class's time.
+        $present = [];
+        $result  = $this->db->query(
+            'SELECT table_name AS name FROM information_schema.tables WHERE table_schema = DATABASE()'
+            . ' UNION ALL SELECT trigger_name FROM information_schema.triggers WHERE trigger_schema = DATABASE()'
+        );
+        while ($result && $result->fetch()) {
+            $present[(string) $result->fields['name']] = true;
+        }
+        $drop = function (string $sql) use ($present): void {
+            if (preg_match('/`([^`]+)`/', $sql, $m) && isset($present[$m[1]])) {
+                $this->db->query($sql);
+            }
+        };
+
         // Drop in dependency order (children first)
         // Drop triggers before their tables
-        $this->db->query("DROP TRIGGER IF EXISTS `trg_sync_consent_timestamp_insert`");
-        $this->db->query("DROP TRIGGER IF EXISTS `trg_sync_consent_timestamp_update`");
+        $drop("DROP TRIGGER IF EXISTS `trg_sync_consent_timestamp_insert`");
+        $drop("DROP TRIGGER IF EXISTS `trg_sync_consent_timestamp_update`");
         // Drop views first (before the underlying tables are removed)
-        $this->db->query("DROP VIEW IF EXISTS `authserver_slow_api_calls`");
-        $this->db->query("DROP VIEW IF EXISTS `authserver_effective_permissions`");
-        $this->db->query("DROP VIEW IF EXISTS `authserver_daily_activity_summary`");
-        $this->db->query("DROP VIEW IF EXISTS `applications_oauth2_application_permissions`");
-        $this->db->query("DROP VIEW IF EXISTS `applications_oauth2_active_tokens`");
+        $drop("DROP VIEW IF EXISTS `authserver_slow_api_calls`");
+        $drop("DROP VIEW IF EXISTS `authserver_effective_permissions`");
+        $drop("DROP VIEW IF EXISTS `authserver_daily_activity_summary`");
+        $drop("DROP VIEW IF EXISTS `applications_oauth2_application_permissions`");
+        $drop("DROP VIEW IF EXISTS `applications_oauth2_active_tokens`");
         // Applications schema views (000046)
         foreach ([
             'applications_usage_statistics', 'applications_application_stats_hourly',
@@ -2413,7 +2429,7 @@ class FrameworkMigrationsMySQLTest extends TestCase
             'applications_rate_limit_status', 'applications_application_health',
             'applications_api_performance_summary',
         ] as $v) {
-            $this->db->query("DROP VIEW IF EXISTS `{$v}`");
+            $drop("DROP VIEW IF EXISTS `{$v}`");
         }
         // AuthServer schema views (000046)
         foreach ([
@@ -2422,7 +2438,7 @@ class FrameworkMigrationsMySQLTest extends TestCase
             'authserver_gdpr_compliance_report', 'authserver_failed_twofactor_summary',
             'authserver_alert_suspicious_ips', 'authserver_alert_high_failure_rate',
         ] as $v) {
-            $this->db->query("DROP VIEW IF EXISTS `{$v}`");
+            $drop("DROP VIEW IF EXISTS `{$v}`");
         }
 
         $tables = [
@@ -2481,7 +2497,7 @@ class FrameworkMigrationsMySQLTest extends TestCase
         // and causes "Failed to open the referenced table" errors in subsequent tests.
         $this->db->query("SET FOREIGN_KEY_CHECKS = 0");
         foreach ($tables as $table) {
-            $this->db->query("DROP TABLE IF EXISTS `{$table}`");
+            $drop("DROP TABLE IF EXISTS `{$table}`");
         }
         $this->db->query("SET FOREIGN_KEY_CHECKS = 1");
     }

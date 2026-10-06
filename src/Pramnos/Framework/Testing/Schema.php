@@ -121,6 +121,15 @@ final class Schema
          * needs it — and a suite that dropped it earlier in the run left those tests answering
          * "the database refused the query" with nothing to say which table.
          */
+        /*
+         * The live-visitor list. Its key is `visitorid`; a copy keyed on `sid` — which is
+         * the same for every request in a test process — turned each recorded visit into an
+         * update of whichever row was there first.
+         */
+        'sessions' => [
+            \Pramnos\Framework\Migrations\Core\CreateSessionsTable::class,
+            \Pramnos\Framework\Migrations\Core\WidenSessionUrlAndAgent::class,
+        ],
         'settings' => [
             \Pramnos\Framework\Migrations\Core\CreateSettingsTable::class,
             \Pramnos\Framework\Migrations\Core\AddUniqueConstraintToSettingsTable::class,
@@ -161,17 +170,24 @@ final class Schema
          * migration's own hasTable()/hasColumn() round trips. Those cost about 280 ms a call
          * for `usertokens` and what it requires, and classes call this from setUp().
          *
-         * A table dropped or reshaped since — a stub, a test that added a column — has
-         * different columns, and is built again.
-         *
-         * ponytail: compares columns only. A test that drops an index or a foreign key and
-         * keeps the columns is not noticed; such a test rebuilds what it changed itself, or
-         * calls DatabaseTestCase::schemaChanged().
+         * A table dropped or reshaped since — a stub, an added column, a dropped index or
+         * foreign key, a trigger a test installed — has a different shape, and is built again.
          */
-        $key      = self::connectionKey($db) . '|' . $name;
-        $columns  = self::columnsOf($name, $db);
-        if ($columns !== '' && (self::$built[$key] ?? null) === $columns) {
+        $key   = self::connectionKey($db) . '|' . $name;
+        $shape = self::shapeOf($name, $db);
+        if ($shape !== '' && (self::$built[$key] ?? null) === $shape) {
             return;
+        }
+
+        /*
+         * Built here, and changed since: dropped and built again. Running the recipe over it
+         * would not do — every create migration returns early on a table that exists, so a
+         * dropped index or foreign key would stay dropped. The recipe is the whole production
+         * shape (SchemaRecipesAreCompleteTest holds it to that), so whatever differs is
+         * something a test did.
+         */
+        if ($shape !== '' && isset(self::$built[$key])) {
+            self::drop($name, $db);
         }
 
         /*
@@ -184,17 +200,37 @@ final class Schema
          */
         $sentinel = self::SENTINELS[$name] ?? null;
         if ($sentinel !== null && $db->schema()->hasTable($name) && !$db->schema()->hasColumn($name, $sentinel)) {
-            $db->query($db->type === 'postgresql'
-                ? 'DROP TABLE IF EXISTS ' . $db->schema()->quoteTable($name) . ' CASCADE'
-                : 'DROP TABLE IF EXISTS ' . $db->schema()->quoteTable($name));
+            self::drop($name, $db);
         }
 
         self::ensure(self::RECIPES[$name], $db);
-        self::$built[$key] = self::columnsOf($name, $db);
+        self::$built[$key] = self::shapeOf($name, $db);
     }
 
     /**
-     * The columns each table had when this process last built it, by connection and name.
+     * Drop a table whatever points at it: CASCADE on PostgreSQL, foreign key checks off on
+     * MySQL. Raw SQL: the schema builder's drop has neither.
+     */
+    private static function drop(string $name, Database $db): void
+    {
+        $quoted = $db->schema()->quoteTable($name);
+
+        if ($db->type === 'postgresql') {
+            $db->query('DROP TABLE IF EXISTS ' . $quoted . ' CASCADE');
+
+            return;
+        }
+
+        $db->query('SET FOREIGN_KEY_CHECKS = 0');
+        try {
+            $db->query('DROP TABLE IF EXISTS ' . $quoted);
+        } finally {
+            $db->query('SET FOREIGN_KEY_CHECKS = 1');
+        }
+    }
+
+    /**
+     * The shape each table had when this process last built it, by connection and name.
      *
      * @var array<string, string>
      */
@@ -207,11 +243,16 @@ final class Schema
     }
 
     /**
-     * The table's column names in order, or '' when there is no such table.
+     * The table's shape as one string, or '' when there is no such table.
      *
-     * Raw SQL: `information_schema` introspection, which the query builder does not express.
+     * Its columns with their type and nullability, its indexes, its constraints (foreign
+     * keys included) and its triggers: everything a test is known to change on a table it
+     * then leaves behind. One query, because this runs on every call.
+     *
+     * Raw SQL: catalogue introspection (`information_schema`, `pg_indexes`), which the query
+     * builder does not express.
      */
-    private static function columnsOf(string $name, Database $db): string
+    private static function shapeOf(string $name, Database $db): string
     {
         $table = $db->schema()->resolveTableName($name);
 
@@ -222,25 +263,41 @@ final class Schema
             } elseif (($db->schema ?? '') !== '') {
                 $schema = $db->schema;
             }
-            $where = $schema !== null
-                ? $db->prepareQuery('table_schema = %s', $schema)
-                : 'table_schema = current_schema()';
+            $in = static fn (string $schemaColumn, string $tableColumn): string =>
+                ($schema !== null ? $db->prepareQuery($schemaColumn . ' = %s', $schema) : $schemaColumn . ' = current_schema()')
+                . $db->prepareQuery(' AND ' . $tableColumn . ' = %s', $table);
+
+            $sql = "SELECT 'c' AS k, CONCAT(column_name, ':', data_type, ':', is_nullable, ':', COALESCE(character_maximum_length, 0)) AS v"
+                . ' FROM information_schema.columns WHERE ' . $in('table_schema', 'table_name')
+                . " UNION ALL SELECT 'i', CAST(indexname AS text) FROM pg_indexes WHERE " . $in('schemaname', 'tablename')
+                . " UNION ALL SELECT 'k', CONCAT(constraint_name, ':', constraint_type) FROM information_schema.table_constraints"
+                . ' WHERE ' . $in('table_schema', 'table_name')
+                . " UNION ALL SELECT 't', CAST(trigger_name AS text) FROM information_schema.triggers"
+                . ' WHERE ' . $in('event_object_schema', 'event_object_table');
         } else {
-            $where = $db->prepareQuery('table_schema = %s', $db->database);
+            $in = static fn (string $schemaColumn, string $tableColumn): string =>
+                $db->prepareQuery($schemaColumn . ' = %s AND ' . $tableColumn . ' = %s', $db->database, $table);
+
+            $sql = "SELECT 'c' AS k, CONCAT(column_name, ':', column_type, ':', is_nullable) AS v"
+                . ' FROM information_schema.columns WHERE ' . $in('table_schema', 'table_name')
+                . " UNION ALL SELECT 'i', CONCAT(index_name, ':', column_name) FROM information_schema.statistics"
+                . ' WHERE ' . $in('table_schema', 'table_name')
+                . " UNION ALL SELECT 'k', CONCAT(constraint_name, ':', constraint_type) FROM information_schema.table_constraints"
+                . ' WHERE ' . $in('table_schema', 'table_name')
+                . " UNION ALL SELECT 't', trigger_name FROM information_schema.triggers"
+                . ' WHERE ' . $in('event_object_schema', 'event_object_table');
         }
 
-        $result = $db->query(
-            'SELECT column_name AS name FROM information_schema.columns WHERE ' . $where
-            . $db->prepareQuery(' AND table_name = %s', $table)
-            . ' ORDER BY ordinal_position'
-        );
+        $result = $db->query($sql . ' ORDER BY 1, 2');
 
-        $names = [];
+        $parts   = [];
+        $columns = 0;
         while ($result && $result->fetch()) {
-            $names[] = (string) $result->fields['name'];
+            $parts[] = $result->fields['k'] . '=' . $result->fields['v'];
+            $columns += $result->fields['k'] === 'c' ? 1 : 0;
         }
 
-        return implode(',', $names);
+        return $columns > 0 ? implode(',', $parts) : '';
     }
 
     /**

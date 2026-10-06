@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Pramnos\Tests\Integration\Database;
 
-use PHPUnit\Framework\Attributes\RunTestsInSeparateProcesses;
 use PHPUnit\Framework\TestCase;
 use Pramnos\Addon\Auth\UserDatabase;
 use Pramnos\Application\Application;
@@ -15,8 +14,8 @@ use Pramnos\Database\Database;
  * Integration tests for Pramnos\Addon\Auth\UserDatabase::onAuth() against PostgreSQL 14 / TimescaleDB.
  *
  * Mirrors UserDatabaseMySQLTest but runs against the timescaledb container.
- * Each test runs in a separate process to avoid the MySQL singleton being
- * reused for the PostgreSQL connection.
+ * The connection is this class's own: the suite's isolation extension drops the shared
+ * one before every class, and setUp() builds it from the PostgreSQL settings.
  *
  * Tests focus on the MD5 legacy password path (Phase 25.3):
  *   - MD5 authentication is disabled by default
@@ -26,7 +25,6 @@ use Pramnos\Database\Database;
  *
  * Requires the Docker TimescaleDB container (host: timescaledb, port: 5432).
  */
-#[RunTestsInSeparateProcesses]
 #[\PHPUnit\Framework\Attributes\Group('serial')]
 class UserDatabasePostgreSQLTest extends TestCase
 {

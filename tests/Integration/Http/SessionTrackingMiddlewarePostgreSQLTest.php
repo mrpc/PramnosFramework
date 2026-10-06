@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Pramnos\Tests\Integration\Http;
 
 use PHPUnit\Framework\Attributes\CoversClass;
-use PHPUnit\Framework\Attributes\RunTestsInSeparateProcesses;
 use PHPUnit\Framework\TestCase;
 use Pramnos\Application\Application;
 use Pramnos\Application\Settings;
@@ -30,7 +29,6 @@ use Pramnos\Http\Request;
  * Requires the Docker TimescaleDB container (host: timescaledb, port: 5432).
  */
 #[CoversClass(SessionTrackingMiddleware::class)]
-#[RunTestsInSeparateProcesses]
 class SessionTrackingMiddlewarePostgreSQLTest extends TestCase
 {
     protected Database $db;

@@ -59,14 +59,12 @@ class SessionTrackingUpsertTest extends BaseTestCase
 
         // And the widening: a long URL is recorded only once `url` is text. In a kept database some
         // other class had run it; on an empty one this class met the original varchar.
-        $this->runMigrations([
-            \Pramnos\Framework\Migrations\Core\CreateSessionsTable::class,
-            \Pramnos\Framework\Migrations\Core\WidenSessionUrlAndAgent::class,
-        ], $this->db);
+        \Pramnos\Framework\Testing\Schema::table('sessions', $this->db);
 
         // No visitor cookie: a first-time visitor has none, and the middleware mints the id itself.
         // See visitorId() for why handing it one was the wrong fixture twice over.
         $_SESSION = [];
+        $_COOKIE  = [];
 
         $_SERVER['HTTP_USER_AGENT']      = 'PramnosTest/1.0';
         $_SERVER['REMOTE_ADDR']          = '198.51.100.20';
@@ -374,6 +372,6 @@ class SessionTrackingUpsertTest extends BaseTestCase
         $this->assertSame(42, $_SESSION['uid'] ?? null);
 
         // Put it back for tearDown, which expects a table to empty.
-        $this->runMigrations([\Pramnos\Framework\Migrations\Core\CreateSessionsTable::class], $this->db);
+        \Pramnos\Framework\Testing\Schema::table('sessions', $this->db);
     }
 }

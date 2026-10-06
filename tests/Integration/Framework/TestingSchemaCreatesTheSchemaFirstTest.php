@@ -137,4 +137,36 @@ class TestingSchemaCreatesTheSchemaFirstTest extends TestCase
             $this->db->rollbackTransaction();
         }
     }
+
+    /**
+     * An index a test dropped after the table was built is back on the next call.
+     *
+     * Running the recipe over the table would not restore it — every create migration
+     * returns early on a table that exists — so a table whose shape changed after this
+     * process built it is dropped and built again. Before, only the columns were compared,
+     * and a dropped index stayed dropped for every class after the one that dropped it.
+     */
+    public function testAnIndexDroppedAfterTheTableWasBuiltIsRestored(): void
+    {
+        // Arrange — built, then an index its create migration made dropped, as a test might.
+        // One a later migration adds would come back by itself; this one would not.
+        $this->db->startTransaction();
+
+        try {
+            Schema::table('usertokens', $this->db);
+            $this->assertTrue($this->db->schema()->hasIndex('usertokens', 'idx_usertokens_type_status'));
+            $this->db->query('DROP INDEX IF EXISTS idx_usertokens_type_status');
+
+            // Act
+            Schema::table('usertokens', $this->db);
+
+            // Assert
+            $this->assertTrue(
+                $this->db->schema()->hasIndex('usertokens', 'idx_usertokens_type_status'),
+                'the dropped index was taken as still there'
+            );
+        } finally {
+            $this->db->rollbackTransaction();
+        }
+    }
 }

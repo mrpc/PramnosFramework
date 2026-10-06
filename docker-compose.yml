@@ -32,6 +32,11 @@ services:
       context: ./docker/mysql
     image: pramnosframework-mysql:8.0
     container_name: pramnos_db
+    # In memory: this database exists to be dropped (see docker/mysql/my.cnf), and on WSL
+    # and Docker Desktop every CREATE, DROP and ALTER otherwise goes through a slow
+    # virtualised disk. Recreating the container starts it empty, which the suite expects.
+    tmpfs:
+      - /var/lib/mysql:size=2g
     environment:
       - MYSQL_ROOT_PASSWORD=secret
       - MYSQL_DATABASE=pramnos_test

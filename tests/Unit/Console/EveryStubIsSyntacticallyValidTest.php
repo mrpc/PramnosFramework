@@ -60,13 +60,16 @@ class EveryStubIsSyntacticallyValidTest extends TestCase
         // Act
         $checked   = 0;
         $offenders = [];
+        $php       = [];
         foreach ($templates as $path) {
             $rendered = $this->render((string) file_get_contents($path));
             $name     = basename($path);
 
             if (str_ends_with($name, '.php.stub') || str_starts_with(ltrim($rendered), '<?php')) {
+                // Collected, and parsed together below.
                 $checked++;
-                $error = $this->check($rendered, '.php', 'php -l');
+                $php[$name] = $rendered;
+                continue;
             } elseif (str_ends_with($name, '.js.stub') || str_ends_with($name, '.mjs.stub')) {
                 $checked++;
                 $error = $this->check($rendered, '.mjs', 'node --check');
@@ -78,6 +81,18 @@ class EveryStubIsSyntacticallyValidTest extends TestCase
 
             if ($error !== '') {
                 $offenders[] = $name . ' — ' . $error;
+            }
+        }
+
+        // One `php -l` for every PHP template (PHP 8.3+), and one each only when that
+        // fails, so the offender is named with its error. A process per template was most
+        // of this test's two seconds.
+        if ($php !== [] && !$this->allParse($php)) {
+            foreach ($php as $name => $rendered) {
+                $error = $this->check($rendered, '.php', 'php -l');
+                if ($error !== '') {
+                    $offenders[] = $name . ' — ' . $error;
+                }
             }
         }
 
@@ -119,6 +134,29 @@ class EveryStubIsSyntacticallyValidTest extends TestCase
         }
 
         return implode("\n", $lines);
+    }
+
+    /**
+     * Whether every rendered PHP template parses, in one `php -l`.
+     *
+     * @param array<string, string> $rendered Template name => rendered source
+     */
+    private function allParse(array $rendered): bool
+    {
+        $dir = sys_get_temp_dir() . '/pf-stubs-' . bin2hex(random_bytes(4));
+        mkdir($dir);
+        $files = [];
+        foreach (array_values($rendered) as $i => $source) {
+            $files[] = $dir . '/' . $i . '.php';
+            file_put_contents(end($files), $source);
+        }
+
+        exec('php -l ' . implode(' ', array_map('escapeshellarg', $files)) . ' 2>&1', $output, $status);
+
+        array_map('unlink', $files);
+        rmdir($dir);
+
+        return $status === 0;
     }
 
     /**

@@ -79,16 +79,44 @@ class OAuth2GrantFlowMySQLTest extends TestCase
         $this->testTokenIds    = [];
         $this->testDeviceCodes = [];
 
-        $this->dropOwnedTables();
-        $this->ensureSharedTables();
-        $this->createOwnedTables();
+        // The tables once per class, and only the rows between tests. Dropping and rebuilding
+        // three tables for every test — `applications` from its whole recipe — was 680 ms a
+        // test, most of this class's time.
+        if (!self::$tablesBuilt) {
+            $this->dropOwnedTables();
+            $this->ensureSharedTables();
+            $this->createOwnedTables();
+            self::$tablesBuilt = true;
+        } else {
+            $this->ensureSharedTables();
+            $this->db->query('DELETE FROM `authserver_oauth2_user_consents`');
+            $this->db->query('DELETE FROM `authserver_oauth2_device_codes`');
+        }
     }
 
     protected function tearDown(): void
     {
         $this->cleanupTestRows();
-        $this->dropOwnedTables();
     }
+
+    /**
+     * Drop the owned tables once the class is done, so a class after it that builds its own
+     * copy under the same names builds its shape and not this one's.
+     */
+    public static function tearDownAfterClass(): void
+    {
+        if (self::$tablesBuilt) {
+            $db = Database::getInstance();
+            if ($db->connected) {
+                $db->query('DROP TABLE IF EXISTS `authserver_oauth2_user_consents`');
+                $db->query('DROP TABLE IF EXISTS `authserver_oauth2_device_codes`');
+            }
+        }
+        self::$tablesBuilt = false;
+    }
+
+    /** Whether this class has built its tables yet. */
+    private static bool $tablesBuilt = false;
 
     // -------------------------------------------------------------------------
     // Table management

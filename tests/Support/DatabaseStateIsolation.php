@@ -69,17 +69,18 @@ final class DatabaseStateIsolation implements Extension, StartedSubscriber
         // there are any, and a class that registered some left every later class's cache
         // empty.
         \Pramnos\Debug\DebugBar::reset();
-        unset($_COOKIE[\Pramnos\Debug\DebugAccess::COOKIE]);
 
         // And the session: a `uid` a class signed in with made every later class's
         // getCurrentUser() load that user, from whatever database was connected by then.
         $_SESSION = [];
 
         // And the request's inputs: a `$_GET['_option']` one class left behind was the
-        // route argument another class's controller read.
+        // route argument another class's controller read, and a `visitorid` cookie made a
+        // session tracking test record somebody else.
         $_GET = [];
         $_POST = [];
         $_REQUEST = [];
+        $_COOKIE = [];
 
         // And the request: whether one had been built decided whether a test's own
         // Request::$requestMethod survived the next getRequest().

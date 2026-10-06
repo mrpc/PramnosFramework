@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Pramnos\Tests\Characterization\User;
 
 use PHPUnit\Framework\Attributes\CoversClass;
-use PHPUnit\Framework\Attributes\RunTestsInSeparateProcesses;
 use PHPUnit\Framework\TestCase;
 use Pramnos\Application\Application;
 use Pramnos\Application\Settings;
@@ -22,25 +21,22 @@ use Pramnos\User\User;
  * User has explicit PostgreSQL branching in setupDb(), save(), addToken(), and
  * deleteToken(), so all lifecycle operations should work identically on PG.
  *
- * #[RunTestsInSeparateProcesses] is required because Factory::getDatabase()
- * returns a static singleton. Running in separate processes gives each test a
- * clean PHP state so that the PG settings take effect before any MySQL
- * singleton is created by a sibling test class in the same suite.
+ * The connection is this class's own: the suite's isolation extension drops the shared
+ * one before every class, and setUp() builds it from the PostgreSQL settings.
  *
  * TimescaleDB coverage: the Docker "timescaledb" container is a PostgreSQL 14
  * server with the TimescaleDB extension. These tests therefore cover both the
  * plain PostgreSQL and TimescaleDB backends.
  */
 #[CoversClass(User::class)]
-#[RunTestsInSeparateProcesses]
 class UserPostgreSQLCharacterizationTest extends TestCase
 {
     private \Pramnos\Database\Database $db;
 
     protected function setUp(): void
     {
-        // Arrange — bootstrap constants (defined in tests/bootstrap.php but
-        // re-checked here because separate processes re-run the bootstrap)
+        // Arrange — bootstrap constants (defined in tests/bootstrap.php, and checked here so
+        // the class also runs without it)
         if (!defined('CONFIG')) {
             define('CONFIG', 'tests' . DS . 'fixtures' . DS . 'app');
         }

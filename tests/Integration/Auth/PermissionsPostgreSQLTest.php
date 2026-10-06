@@ -6,7 +6,6 @@ namespace Pramnos\Tests\Integration\Auth;
 
 use PHPUnit\Framework\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
-use PHPUnit\Framework\Attributes\RunTestsInSeparateProcesses;
 use Pramnos\Application\Application;
 use Pramnos\Application\Settings;
 use Pramnos\Auth\Permissions;
@@ -21,13 +20,12 @@ use Pramnos\Framework\Factory;
  * (lines 392–408 of Permissions.php) which uses double-quoted identifiers
  * and CREATE INDEX IF NOT EXISTS statements instead of MySQL backtick syntax.
  *
- * Runs in separate processes so the pg_settings.php fixture takes effect
- * before the MySQL Database singleton is created by sibling tests.
+ * The connection is this class's own: the suite's isolation extension drops the shared
+ * one before every class, and setUp() builds it from the PostgreSQL settings.
  *
  * Requires the Docker TimescaleDB container (host: timescaledb, port: 5432).
  */
 #[CoversClass(Permissions::class)]
-#[RunTestsInSeparateProcesses]
 class PermissionsPostgreSQLTest extends TestCase
 {
     protected Database $db;

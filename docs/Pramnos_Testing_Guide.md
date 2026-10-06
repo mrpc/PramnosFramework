@@ -753,10 +753,15 @@ return early because the table exists, and the next insert would fail on a colum
 never had.
 
 **Calling it from `setUp()` costs one query.** The first call in a process runs the recipe
-and records the table's columns. Later calls compare the columns with that record, and
-build the table again only when they differ, because it was dropped or a test changed it.
-A test that changes something the columns do not show, such as an index, a foreign key or a
-trigger, rebuilds what it changed or calls `schemaChanged()`.
+and records the table's shape: its columns with their types and nullability, its indexes,
+its constraints and its triggers. Later calls compare that shape with the table, in one
+catalogue query. A table that was dropped is built again. A table that a test changed after
+it was built (a column added or retyped, an index or foreign key dropped, a trigger
+installed) is dropped and built again. Running the recipe over it would not be enough,
+because every create migration returns early on a table that exists.
+
+So a test may change a recipe table freely, and the next call puts it back. Rows go with
+it: a table that comes back has no rows.
 
 Tables a recipe depends on are built first: `usertokens` builds `users` and `applications`,
 whose rows its foreign keys point at.
@@ -834,7 +839,7 @@ read-only once generated, so it belongs in `setUpBeforeClass()` like any other.
 
 This is the framework's own suite, not a scaffolded project's. ParaTest splits the test files
 over N workers, and then the `serial` group runs in a single process. On this machine that
-takes about 2 minutes, against 5 sequentially. The sequential `./dockertest --nocoverage`
+takes about 1½ minutes, against 3½ sequentially. The sequential `./dockertest --nocoverage`
 remains the reference run: there is no coverage in parallel, and a failure seen only in
 parallel is a test that shares something.
 
@@ -877,6 +882,8 @@ cheap alternative:
 | Creating and dropping schema per test | ≈300 ms per test on MySQL | Schema once per class, rows deleted per test. A static flag in `setUp()` that builds the tables the first time and empties them after, with the drop in `tearDownAfterClass()`. A test that changes the schema clears the flag so the next one rebuilds |
 | A throwaway database per test (`CREATE DATABASE`, then the migrations) | ≈500 ms per test on MySQL | One per class and engine, emptied per test. The framework's own suite does this with `tests/Support/ReusesProbeDatabase`. It is safe only while the migrations seed no rows |
 | Writing a row with an explicit auto-increment id into a shared table | a duplicate-key failure in some *other* test, later | Let the sequence give the id (`RETURNING`, or read it back), and delete the row. On PostgreSQL an explicit id leaves the sequence behind |
+| `#[RunTestsInSeparateProcesses]` on a class | a PHP process and a full bootstrap per test — 25 tests took 5.8 s | Nothing to work around: every class already starts with no connection and no settings (see above). Keep it only for what a process cannot undo, such as `define()` without a guard, `header()` or `exit` |
+| Linting generated files with one `php -l` each | ≈40 ms a file — a scaffold of 80 files took 1.2 s | One `php -l` for many files (PHP 8.3+), then file by file only if that fails, to name the offender |
 | Letting the code under test shell out or reach the network | **1.9 s per test**, and variable | Skip it with the flag the command already has, or should have — `init` gained `--no-install` for exactly this. A unit test that depends on composer or on HTTP is slow *and* flaky |
 | Saving a model, in a suite or in production | **1358 ms** before 2026-08-27 — `cacheflush()` walked the whole cache tree on every write | Nothing: fixed in `FileAdapter`. If you see it again, check that `clear()` is still sampling its sweep |
 | `exec('rm -rf …')` in `tearDown()` for a small temporary tree | **≈12 ms per test** (measured: 382 ms → 272 ms over nine tests) | A recursive `unlink`/`rmdir` helper — one already exists in `ApiDocsTest`. **Measure before converting a large tree**: for a scaffolded project of hundreds of files, `rm -rf` in C may well beat PHP recursion, and this row is not a licence to assume otherwise |
@@ -892,6 +899,13 @@ project took a test class from 47 s to 28.5 s and the whole suite from 12:00 to 
 setting belongs to that database, so a development database on the same server keeps full
 durability. If the connecting user does not own the database, the step is skipped and the
 suite is only slower.
+
+**The MySQL test container keeps its data in memory.** `docker-compose.yml` mounts a
+`tmpfs` at `/var/lib/mysql`, on top of the durability settings in `docker/mysql/my.cnf`. On
+WSL and Docker Desktop every `CREATE`, `DROP` and `ALTER` otherwise goes through a slow
+virtualised disk: the MySQL migration tests took 9.9 s on disk and 3.2 s in memory.
+PostgreSQL gained nothing measurable from the same change, because `fsync=off` already
+keeps it off the disk. Recreating the container starts it empty, which the suite expects.
 
 **Granting many permissions? Use `allowMany()`.** One `allow()` per privilege flushes the
 permission cache and queues a `permissions_changed` lookup every time. A test that sets

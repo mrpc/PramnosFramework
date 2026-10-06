@@ -2,7 +2,6 @@
 
 namespace Pramnos\Tests\Integration\Database;
 
-use PHPUnit\Framework\Attributes\RunTestsInSeparateProcesses;
 use PHPUnit\Framework\TestCase;
 use Pramnos\Application\Application;
 use Pramnos\Application\Settings;
@@ -14,10 +13,10 @@ use Pramnos\Database\MigrationLoader;
  * Integration tests for Pramnos\Auth\Loginlockout against PostgreSQL 14 / TimescaleDB.
  *
  * Mirrors LoginlockoutMySQLTest but runs against the timescaledb container
- * (host: timescaledb, port: 5432). Because Database::getInstance() is a
- * singleton that defaults to MySQL, each test runs in a separate process
- * so the pg_settings.php fixture takes effect before any MySQL singleton
- * is created by sibling tests.
+ * (host: timescaledb, port: 5432).
+ *
+ * The connection is this class's own: the suite's isolation extension drops the shared
+ * one before every class, and setUp() builds it from the PostgreSQL settings.
  *
  * The loginlockout table is a plain PostgreSQL table (no hypertable DDL),
  * so all tests are identical to the MySQL suite. Timestamps are stored as
@@ -25,7 +24,6 @@ use Pramnos\Database\MigrationLoader;
  *
  * Requires the Docker TimescaleDB container (host: timescaledb, port: 5432).
  */
-#[RunTestsInSeparateProcesses]
 class LoginlockoutPostgreSQLTest extends TestCase
 {
     /**

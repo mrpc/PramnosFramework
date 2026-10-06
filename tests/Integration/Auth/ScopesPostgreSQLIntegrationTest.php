@@ -6,7 +6,6 @@ namespace Pramnos\Tests\Integration\Auth;
 
 use PHPUnit\Framework\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
-use PHPUnit\Framework\Attributes\RunTestsInSeparateProcesses;
 use Pramnos\Application\Application;
 use Pramnos\Application\Settings;
 use Pramnos\Auth\Scopes;
@@ -16,15 +15,14 @@ use Pramnos\Database\Database;
  * Integration tests for Scopes::areApplicationScopesGranted() against PostgreSQL.
  *
  * Mirrors ScopesMySQLIntegrationTest but runs against the timescaledb container
- * (host: timescaledb, port: 5432).  Because Database::getInstance() is a
- * singleton that defaults to MySQL, each test runs in a separate process so
- * the pg_settings.php fixture takes effect before any MySQL singleton is
- * created by sibling tests.
+ * (host: timescaledb, port: 5432).
+ *
+ * The connection is this class's own: the suite's isolation extension drops the shared
+ * one before every class, and setUp() builds it from the PostgreSQL settings.
  *
  * Requires the Docker TimescaleDB/PostgreSQL container (host: timescaledb, port: 5432).
  */
 #[CoversClass(Scopes::class)]
-#[RunTestsInSeparateProcesses]
 class ScopesPostgreSQLIntegrationTest extends TestCase
 {
     protected Database $db;

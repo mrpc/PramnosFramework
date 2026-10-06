@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Pramnos\Tests\Characterization\Html\Datatable;
 
 use PHPUnit\Framework\Attributes\CoversClass;
-use PHPUnit\Framework\Attributes\RunTestsInSeparateProcesses;
 use PHPUnit\Framework\TestCase;
 use Pramnos\Application\Application;
 use Pramnos\Application\Settings;
@@ -16,9 +15,10 @@ use Pramnos\Html\Datatable\Datasource;
  * Characterization tests for Datasource::render() against PostgreSQL.
  *
  * Mirrors DatasourceCharacterizationTest but exercises the PostgreSQL path
- * (timescaledb:5432). Because Factory::getDatabase() is a singleton, each test
- * method runs in a separate process so that pg_settings.php takes effect before
- * any MySQL singleton is created by a sibling test.
+ * (timescaledb:5432).
+ *
+ * The connection is this class's own: the suite's isolation extension drops the shared
+ * one before every class, and setUp() builds it from the PostgreSQL settings.
  *
  * TimescaleDB coverage: the "timescaledb" Docker container is PostgreSQL 14 with
  * the TimescaleDB extension. Running against it satisfies both PostgreSQL and
@@ -31,7 +31,6 @@ use Pramnos\Html\Datatable\Datasource;
  *    database connection type is detected.
  */
 #[CoversClass(Datasource::class)]
-#[RunTestsInSeparateProcesses]
 class DatasourcePostgreSQLCharacterizationTest extends TestCase
 {
     private \Pramnos\Database\Database $db;

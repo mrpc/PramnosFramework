@@ -2,7 +2,6 @@
 
 namespace Pramnos\Tests\Integration\Database;
 
-use PHPUnit\Framework\Attributes\RunTestsInSeparateProcesses;
 use PHPUnit\Framework\TestCase;
 use Pramnos\Application\Application;
 use Pramnos\Application\Controller;
@@ -19,9 +18,8 @@ use Pramnos\Messaging\Message;
  * Integration tests for Pramnos\Messaging models against PostgreSQL 14 / TimescaleDB.
  *
  * Mirrors MessagingModelsMySQLTest but exercises the PostgreSQL path (timescaledb:5432).
- * Because Database::getInstance() is a singleton that defaults to MySQL, each test
- * runs in a separate process so that the pg_settings.php fixture takes effect before
- * any MySQL singleton is created by sibling tests.
+ * The connection is this class's own: the suite's isolation extension drops the shared
+ * one before every class, and setUp() builds it from the PostgreSQL settings.
  *
  * The messaging tables are created via framework migrations before each test
  * and torn down in tearDown. Model operations use Database::getInstance() which
@@ -29,7 +27,6 @@ use Pramnos\Messaging\Message;
  *
  * Requires the Docker TimescaleDB container (host: timescaledb, port: 5432).
  */
-#[RunTestsInSeparateProcesses]
 class MessagingModelsPostgreSQLTest extends TestCase
 {
     protected Database $db;

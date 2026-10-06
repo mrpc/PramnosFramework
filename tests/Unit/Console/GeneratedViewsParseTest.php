@@ -112,6 +112,7 @@ class GeneratedViewsParseTest extends TestCase
             new \RecursiveDirectoryIterator($this->tmpDir, \FilesystemIterator::SKIP_DOTS)
         );
 
+        $paths = [];
         foreach ($files as $file) {
             if (!$file->isFile() || $file->getExtension() !== 'php') {
                 continue;
@@ -122,28 +123,37 @@ class GeneratedViewsParseTest extends TestCase
                 continue;
             }
 
-            $checked++;
-            $output = [];
-            $status = 0;
-            exec(
-                'php -l ' . escapeshellarg($file->getPathname()) . ' 2>&1',
-                $output,
-                $status
-            );
+            $paths[] = $file->getPathname();
+        }
+        $checked = count($paths);
 
-            if ($status !== 0) {
-                $relative = substr($file->getPathname(), strlen($this->tmpDir) + 1);
-                // The message, not the first line: `php -l` prints a blank line before it
-                // in some builds, and a failure that names only the file makes whoever
-                // reads it run the linter again by hand.
-                $message = '';
-                foreach ($output as $line) {
-                    if (trim($line) !== '') {
-                        $message = trim($line);
-                        break;
+        // One `php -l` for many files (PHP 8.3+), and file by file only for a batch that
+        // failed, to name the file and its error. A process per file was a second per test.
+        foreach (array_chunk($paths, 200) as $batch) {
+            exec('php -l ' . implode(' ', array_map('escapeshellarg', $batch)) . ' 2>&1', $ignored, $batchStatus);
+            if ($batchStatus === 0) {
+                continue;
+            }
+
+            foreach ($batch as $path) {
+                $output = [];
+                $status = 0;
+                exec('php -l ' . escapeshellarg($path) . ' 2>&1', $output, $status);
+
+                if ($status !== 0) {
+                    $relative = substr($path, strlen($this->tmpDir) + 1);
+                    // The message, not the first line: `php -l` prints a blank line before it
+                    // in some builds, and a failure that names only the file makes whoever
+                    // reads it run the linter again by hand.
+                    $message = '';
+                    foreach ($output as $line) {
+                        if (trim($line) !== '') {
+                            $message = trim($line);
+                            break;
+                        }
                     }
+                    $broken[] = $relative . ' — ' . ($message !== '' ? $message : 'unknown error');
                 }
-                $broken[] = $relative . ' — ' . ($message !== '' ? $message : 'unknown error');
             }
         }
 

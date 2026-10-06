@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Pramnos\Tests\Characterization\Auth;
 
 use PHPUnit\Framework\Attributes\CoversClass;
-use PHPUnit\Framework\Attributes\RunTestsInSeparateProcesses;
 use Pramnos\Application\Application;
 use Pramnos\Application\Settings;
 use Pramnos\Auth\Permissions;
@@ -23,13 +22,10 @@ use Pramnos\Framework\Factory;
  * the raw SQL inside Permissions is already dialect-portable at the DB layer.
  * These tests lock that assumption.
  *
- * #[RunTestsInSeparateProcesses] is required because Factory::getDatabase()
- * returns a static singleton. Separate processes give each test a clean PHP
- * state so that the PostgreSQL settings take effect before any MySQL singleton
- * is created by a sibling test class in the same suite.
+ * The connection is this class's own: the suite's isolation extension drops the shared
+ * one before every class, and setUp() builds it from the PostgreSQL settings.
  */
 #[CoversClass(Permissions::class)]
-#[RunTestsInSeparateProcesses]
 class PermissionsPostgreSQLCharacterizationTest extends PermissionsCharacterizationBase
 {
     /**

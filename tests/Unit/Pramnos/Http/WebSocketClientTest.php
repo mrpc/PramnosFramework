@@ -572,12 +572,13 @@ class WebSocketClientTest extends TestCase
      */
     public function testRealConnectFailureReportsRemote(): void
     {
-        // Arrange
-        $client = new WebSocketClient('ws://nonexistent.invalid:80/socket', [], 0.5);
+        // Arrange — a closed port on loopback: refused at once, with no DNS lookup to wait
+        // out (a `.invalid` name took the resolver 4–8 s to give up on)
+        $client = new WebSocketClient('ws://127.0.0.1:1/socket', [], 0.5);
 
         // Act & Assert
         $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessageMatches('/Cannot connect to tcp:\/\/nonexistent\.invalid:80/');
+        $this->expectExceptionMessageMatches('/Cannot connect to tcp:\/\/127\.0\.0\.1:1/');
         $client->connect();
     }
 
@@ -737,12 +738,12 @@ class WebSocketClientTest extends TestCase
      */
     public function testWssDefaultsToTlsOnPort443(): void
     {
-        // Arrange
-        $client = new WebSocketClient('wss://nonexistent.invalid/socket', [], 0.5);
+        // Arrange — loopback, where nothing listens on 443: refused at once, no DNS
+        $client = new WebSocketClient('wss://127.0.0.1/socket', [], 0.5);
 
-        // Act & Assert
+        // Act & Assert — the port it tried is 443, over TLS
         $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessageMatches('/ssl:\/\/nonexistent\.invalid:443/');
+        $this->expectExceptionMessageMatches('/ssl:\/\/127\.0\.0\.1:443/');
         $client->connect();
     }
 

@@ -33,7 +33,6 @@ use Pramnos\User\User;
  */
 #[\PHPUnit\Framework\Attributes\Group('postgresql')]
 #[\PHPUnit\Framework\Attributes\Group('characterization')]
-#[\PHPUnit\Framework\Attributes\RunTestsInSeparateProcesses]
 class UserAdminCreationPostgreSQLCharacterizationTest extends TestCase
 {
     /** @var \Pramnos\Database\Database */

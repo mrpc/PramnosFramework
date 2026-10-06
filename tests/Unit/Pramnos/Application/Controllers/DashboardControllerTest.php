@@ -95,31 +95,10 @@ class DashboardControllerTest extends TestCase
         $this->cacheAdapter      = new \Pramnos\Cache\Adapter\ArrayAdapter();
         $adapterProperty->setValue($cache, $this->cacheAdapter);
 
-        /*
-         * The `sessions` table for the ActiveUsersService tests — with the framework's own
-         * columns, not invented ones.
-         *
-         * This used to declare `sessionid`, `time`, `guest` and a primary key on `sessionid`.
-         * The real table is `sid`, `visitorid`, `userid`, `logout`, `time`, `guest` and more, and
-         * `CREATE TABLE IF NOT EXISTS` meant whichever suite ran first defined it for the whole
-         * run. So a test that inserted a real session row failed with `Unknown column 'userid'`
-         * — while both suites passed in isolation. `ActiveUsersService` reads only `guest` and
-         * `time`, so nothing here needed the invented shape.
-         */
-        $db->query("CREATE TABLE IF NOT EXISTS `#PREFIX#sessions` (
-            `sid` varchar(32) NOT NULL,
-            `visitorid` varchar(255) NOT NULL DEFAULT '',
-            `uname` varchar(128) NOT NULL DEFAULT '',
-            `time` int unsigned NOT NULL DEFAULT 0,
-            `host_addr` varchar(39) NOT NULL DEFAULT '',
-            `guest` tinyint NOT NULL DEFAULT 0,
-            `agent` varchar(255) NOT NULL DEFAULT '',
-            `userid` bigint DEFAULT NULL,
-            `url` varchar(255) NOT NULL DEFAULT '',
-            `history` text,
-            `logout` tinyint NOT NULL DEFAULT 0,
-            PRIMARY KEY (`sid`)
-        )");
+        // The `sessions` table for the ActiveUsersService tests, from its migrations. A copy
+        // built here was keyed on `sid`, and whichever class ran first defined the table for
+        // the rest of the run — a session tracking test then updated one row for ever.
+        \Pramnos\Framework\Testing\Schema::table('sessions', $db);
 
         // Initialize the Application instance if missing
         $app = \Pramnos\Application\Application::getInstance();

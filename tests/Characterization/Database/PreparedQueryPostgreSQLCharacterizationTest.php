@@ -23,7 +23,6 @@ use Pramnos\Framework\Factory;
  */
 #[\PHPUnit\Framework\Attributes\Group('postgresql')]
 #[\PHPUnit\Framework\Attributes\Group('characterization')]
-#[\PHPUnit\Framework\Attributes\RunTestsInSeparateProcesses]
 class PreparedQueryPostgreSQLCharacterizationTest extends TestCase
 {
     /** @var \Pramnos\Database\Database */

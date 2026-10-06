@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Pramnos\Tests\Characterization\Application;
 
 use PHPUnit\Framework\Attributes\CoversClass;
-use PHPUnit\Framework\Attributes\RunTestsInSeparateProcesses;
 use PHPUnit\Framework\TestCase;
 use Pramnos\Application\Application;
 use Pramnos\Application\Controller;
@@ -17,9 +16,10 @@ use Pramnos\Database\Database;
  * Characterization tests for Model list/count/API query contracts against PostgreSQL.
  *
  * Mirrors ModelListApiCharacterizationTest but exercises the PostgreSQL path
- * (timescaledb:5432). Because Database::getInstance() is a singleton, each test
- * method runs in a separate process so that pg_settings.php takes effect before
- * any MySQL singleton is created by a sibling test.
+ * (timescaledb:5432).
+ *
+ * The connection is this class's own: the suite's isolation extension drops the shared
+ * one before every class, and setUp() builds it from the PostgreSQL settings.
  *
  * TimescaleDB coverage: the "timescaledb" Docker container is PostgreSQL 14 with
  * the TimescaleDB extension. Running against it satisfies both PostgreSQL and
@@ -28,7 +28,6 @@ use Pramnos\Database\Database;
  * All table names carry a random hex suffix to avoid cross-test collision.
  */
 #[CoversClass(Model::class)]
-#[RunTestsInSeparateProcesses]
 class ModelListApiPostgreSQLCharacterizationTest extends TestCase
 {
     private Database $db;

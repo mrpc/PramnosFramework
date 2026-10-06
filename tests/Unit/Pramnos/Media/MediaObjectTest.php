@@ -205,6 +205,9 @@ class MediaObjectTest extends TestCase
             $this->db->query("DELETE FROM `{$table}`");
         }
         $this->db->query('SET FOREIGN_KEY_CHECKS = 1');
+        // And what getList() cached about them: it keeps a listing for sixty seconds, so a
+        // test asking for an empty list got the rows an earlier test had inserted and read.
+        $this->db->cacheflush('media');
 
         // Clear superglobals to prevent cross-test leakage
         $_SESSION = [];

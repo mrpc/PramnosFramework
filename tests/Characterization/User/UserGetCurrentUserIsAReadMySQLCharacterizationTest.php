@@ -28,7 +28,6 @@ use Pramnos\User\User;
 #[CoversClass(User::class)]
 #[\PHPUnit\Framework\Attributes\Group('mysql')]
 #[\PHPUnit\Framework\Attributes\Group('characterization')]
-#[\PHPUnit\Framework\Attributes\RunTestsInSeparateProcesses]
 class UserGetCurrentUserIsAReadMySQLCharacterizationTest extends TestCase
 {
     /** @var \Pramnos\Database\Database */

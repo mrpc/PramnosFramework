@@ -2,7 +2,6 @@
 
 namespace Pramnos\Tests\Integration\Database;
 
-use PHPUnit\Framework\Attributes\RunTestsInSeparateProcesses;
 use PHPUnit\Framework\TestCase;
 use Pramnos\Application\Application;
 use Pramnos\Application\Settings;
@@ -16,8 +15,10 @@ use Pramnos\Database\MigrationLoader;
  * Integration tests for Pramnos\Auth\TwoFactorAuthService against PostgreSQL 14 / TimescaleDB.
  *
  * Mirrors TwoFactorAuthServiceMySQLTest but runs against the timescaledb container
- * (host: timescaledb, port: 5432). Each test runs in a separate process to avoid
- * the MySQL singleton being re-used for the PostgreSQL connection.
+ * (host: timescaledb, port: 5432).
+ *
+ * The connection is this class's own: the suite's isolation extension drops the shared
+ * one before every class, and setUp() builds it from the PostgreSQL settings.
  *
  * On TimescaleDB, CreateTwofactorAttemptsTable converts the table to a hypertable
  * with 7-day chunks. The service tests are otherwise identical — the TimescaleDB
@@ -25,7 +26,6 @@ use Pramnos\Database\MigrationLoader;
  *
  * Requires the Docker TimescaleDB container (host: timescaledb, port: 5432).
  */
-#[RunTestsInSeparateProcesses]
 class TwoFactorAuthServicePostgreSQLTest extends TestCase
 {
     protected Database $db;
@@ -63,8 +63,17 @@ class TwoFactorAuthServicePostgreSQLTest extends TestCase
         $this->migrationsBase = dirname(__DIR__, 3) . '/database/migrations/framework';
         $this->service        = new TwoFactorAuthService($this->db);
 
-        $this->dropTables();
-        $this->createTables();
+        // The tables once per class, and only their rows between tests: loading every auth
+        // migration and rebuilding three tables for each test was most of this class's time.
+        if (!self::$tablesBuilt) {
+            $this->dropTables();
+            $this->createTables();
+            self::$tablesBuilt = true;
+        } else {
+            $this->db->execute('DELETE FROM authserver.twofactor_attempts');
+            $this->db->execute('DELETE FROM authserver.twofactor_setup');
+            $this->db->execute('DELETE FROM authserver.user_twofactor');
+        }
 
         /*
          * And a `users` table, because two tests here mean "no matching row" and were getting
@@ -81,9 +90,21 @@ class TwoFactorAuthServicePostgreSQLTest extends TestCase
         \Pramnos\User\User::setupDb();
     }
 
-    protected function tearDown(): void
+    /** Whether this class has built its tables yet. */
+    private static bool $tablesBuilt = false;
+
+    /** Drop the tables once the class is done, as each test used to. */
+    public static function tearDownAfterClass(): void
     {
-        $this->dropTables();
+        if (self::$tablesBuilt) {
+            $db = Database::getInstance();
+            if ($db->connected && $db->type === 'postgresql') {
+                $db->execute('DROP TABLE IF EXISTS authserver.twofactor_attempts CASCADE');
+                $db->execute('DROP TABLE IF EXISTS authserver.twofactor_setup CASCADE');
+                $db->execute('DROP TABLE IF EXISTS authserver.user_twofactor CASCADE');
+            }
+        }
+        self::$tablesBuilt = false;
     }
 
     // -------------------------------------------------------------------------
@@ -103,29 +124,13 @@ class TwoFactorAuthServicePostgreSQLTest extends TestCase
         // authserver schema must exist before any authserver.* tables can be created
         $this->db->execute('CREATE SCHEMA IF NOT EXISTS authserver');
 
-        $app = $this->getMockBuilder(\Pramnos\Application\Application::class)
-            ->disableOriginalConstructor()
-            ->getMock();
-        $app->database = $this->db;
-
-        $dir        = $this->migrationsBase . '/auth';
-        $migrations = MigrationLoader::loadFromDirectory($dir, $app);
-        usort($migrations, fn($a, $b) => $a->priority <=> $b->priority);
-
-        $targets = [
-            'CreateUserTwofactorTable',
-            'CreateTwofactorSetupTable',
-            'CreateTwofactorAttemptsTable',
+        \Pramnos\Framework\Testing\Schema::ensure([
+            \Pramnos\Framework\Migrations\Auth\CreateUserTwofactorTable::class,
+            \Pramnos\Framework\Migrations\Auth\CreateTwofactorSetupTable::class,
+            \Pramnos\Framework\Migrations\Auth\CreateTwofactorAttemptsTable::class,
             // Widens the seed columns to fit an encrypted value.
-            'WidenTotpSecretColumns',
-        ];
-        foreach ($migrations as $m) {
-            foreach ($targets as $target) {
-                if (strpos(get_class($m), $target) !== false) {
-                    $m->up();
-                }
-            }
-        }
+            \Pramnos\Framework\Migrations\Auth\WidenTotpSecretColumns::class,
+        ], $this->db);
     }
 
     protected function setupUser(int $userId): array

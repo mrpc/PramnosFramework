@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Pramnos\Tests\Integration\Health;
 
-use PHPUnit\Framework\Attributes\RunTestsInSeparateProcesses;
 use PHPUnit\Framework\TestCase;
 use Pramnos\Application\Application;
 use Pramnos\Application\Settings;
@@ -17,9 +16,10 @@ use Pramnos\Health\HealthRegistry;
  * Integration tests for Health::display() against PostgreSQL 14 / TimescaleDB.
  *
  * Mirrors HealthDbInfoMySQLTest but targets the timescaledb container
- * (host: timescaledb, port: 5432). Each test runs in a separate process so
- * pg_settings.php is loaded before any MySQL singleton is created by sibling
- * tests in the same suite run.
+ * (host: timescaledb, port: 5432).
+ *
+ * The connection is this class's own: the suite's isolation extension drops the shared
+ * one before every class, and setUp() builds it from the PostgreSQL settings.
  *
  * Coverage:
  * - SELECT VERSION() AS v returns a non-empty string on PostgreSQL
@@ -30,7 +30,6 @@ use Pramnos\Health\HealthRegistry;
  *
  * Requires the Docker TimescaleDB container (host: timescaledb, port: 5432).
  */
-#[RunTestsInSeparateProcesses]
 class HealthDbInfoPostgreSQLTest extends TestCase
 {
     protected Database $db;

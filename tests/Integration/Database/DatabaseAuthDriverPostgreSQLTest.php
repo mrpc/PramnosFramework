@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Pramnos\Tests\Integration\Database;
 
-use PHPUnit\Framework\Attributes\RunTestsInSeparateProcesses;
 use Pramnos\Application\Settings;
 use Pramnos\Database\Database;
 
@@ -15,12 +14,11 @@ use Pramnos\Database\Database;
  * PostgreSQL. Only setUp/tearDown and the SQL helper methods differ because
  * PostgreSQL uses double-quoted identifiers and SERIAL for auto-increment.
  *
- * Each test runs in a separate process to avoid the MySQL Database singleton
- * being reused for the PostgreSQL connection.
+ * The connection is this class's own: the suite's isolation extension drops the shared
+ * one before every class, and setUp() builds it from the PostgreSQL settings.
  *
  * Requires the Docker TimescaleDB container (host: timescaledb, port: 5432).
  */
-#[RunTestsInSeparateProcesses]
 class DatabaseAuthDriverPostgreSQLTest extends DatabaseAuthDriverMySQLTest
 {
     protected function setUp(): void

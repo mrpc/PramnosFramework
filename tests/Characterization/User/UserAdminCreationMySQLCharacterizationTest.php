@@ -29,7 +29,6 @@ use Pramnos\User\User;
  */
 #[\PHPUnit\Framework\Attributes\Group('mysql')]
 #[\PHPUnit\Framework\Attributes\Group('characterization')]
-#[\PHPUnit\Framework\Attributes\RunTestsInSeparateProcesses]
 class UserAdminCreationMySQLCharacterizationTest extends TestCase
 {
     /** @var \Pramnos\Database\Database */

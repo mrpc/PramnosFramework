@@ -2,7 +2,6 @@
 
 namespace Pramnos\Tests\Integration\Database;
 
-use PHPUnit\Framework\Attributes\RunTestsInSeparateProcesses;
 use PHPUnit\Framework\TestCase;
 use Pramnos\Application\Application;
 use Pramnos\Application\Settings;
@@ -12,8 +11,10 @@ use Pramnos\Database\Database;
  * Integration tests for OAuth2 grant flows against PostgreSQL / TimescaleDB.
  *
  * Mirrors OAuth2GrantFlowMySQLTest but runs against the TimescaleDB container
- * (host: timescaledb, port: 5432). Each test runs in a separate process to avoid
- * the MySQL singleton being re-used for the PostgreSQL connection.
+ * (host: timescaledb, port: 5432).
+ *
+ * The connection is this class's own: the suite's isolation extension drops the shared
+ * one before every class, and setUp() builds it from the PostgreSQL settings.
  *
  * PostgreSQL-specific coverage beyond the MySQL tests:
  *   - PKCE CHECK constraint rejects an invalid code_challenge_method value.
@@ -22,7 +23,6 @@ use Pramnos\Database\Database;
  *
  * Requires the Docker TimescaleDB container (host: timescaledb, port: 5432).
  */
-#[RunTestsInSeparateProcesses]
 #[\PHPUnit\Framework\Attributes\Group('serial')]
 class OAuth2GrantFlowPostgreSQLTest extends TestCase
 {
