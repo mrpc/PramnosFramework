@@ -259,10 +259,101 @@ class Email extends \Pramnos\Framework\Base
         return $instance;
     }
 
+    /**
+     * The headers that carry message ids, which Symfony writes as identification headers.
+     */
+    private const ID_HEADERS = ['message-id', 'in-reply-to', 'references'];
+
+    /**
+     * Add a header to the message.
+     *
+     * `Message-ID`, `In-Reply-To` and `References` hold message ids and are written as such,
+     * with or without the angle brackets, several ids separated by spaces. An id that is not
+     * `local@domain` is refused here, rather than by the transport halfway through a send.
+     *
+     * @param string $header
+     * @param string $content
+     * @return $this
+     * @throws \InvalidArgumentException for a message-id header whose ids are not valid
+     */
     public function addHeader($header, $content)
     {
+        if (in_array(strtolower((string) $header), self::ID_HEADERS, true)) {
+            $ids = self::messageIds((string) $content);
+            try {
+                new \Symfony\Component\Mime\Header\IdentificationHeader((string) $header, $ids);
+            } catch (\Throwable $exception) {
+                throw new \InvalidArgumentException(
+                    $header . ' needs message ids of the form local@domain: ' . $exception->getMessage(),
+                    0,
+                    $exception
+                );
+            }
+            $content = implode(' ', $ids);
+        }
+
         $this->headers[$header] = $content;
         return $this;
+    }
+
+    /**
+     * Thread this message under another: `In-Reply-To` and `References`.
+     *
+     * ```php
+     * $email->inReplyTo($original->messageId, $original->references);
+     * ```
+     *
+     * `References` is the parent's own references followed by the parent, which is how mail
+     * clients rebuild the thread. Angle brackets are optional. For the reply to land in the
+     * same thread the subject should stay the original's, with `Re: ` in front.
+     *
+     * @param string       $messageId  The Message-ID of the message replied to
+     * @param list<string> $references That message's References, if it had any
+     * @return $this
+     * @throws \InvalidArgumentException for an id that is not local@domain
+     */
+    public function inReplyTo(string $messageId, array $references = []): static
+    {
+        $parent     = self::messageIds($messageId);
+        $references = self::messageIds(implode(' ', $references));
+
+        $this->addHeader('In-Reply-To', implode(' ', $parent));
+        $this->addHeader('References', implode(' ', array_values(array_unique(array_merge($references, $parent)))));
+
+        return $this;
+    }
+
+    /**
+     * Send this message with a Message-ID of the application's choosing.
+     *
+     * Stored before the send, it is what a later reply passes to {@see inReplyTo()}. Without
+     * it the transport makes one up, and nothing records it.
+     *
+     * ```php
+     * $id = bin2hex(random_bytes(16)) . '@customer.example';
+     * $email->withMessageId($id);   // store $id with the message
+     * ```
+     *
+     * @param string $messageId local@domain, with or without angle brackets
+     * @return $this
+     * @throws \InvalidArgumentException for an id that is not local@domain
+     */
+    public function withMessageId(string $messageId): static
+    {
+        return $this->addHeader('Message-ID', $messageId);
+    }
+
+    /**
+     * Message ids from a header value: angle brackets and separators removed.
+     *
+     * @return list<string>
+     */
+    private static function messageIds(string $value): array
+    {
+        return array_values(array_filter(
+            array_map(static fn (string $id): string => trim($id, " \t<>"), preg_split('/[\s,]+/', $value) ?: []),
+            static fn (string $id): bool => $id !== ''
+        ));
     }
 
     /**
@@ -983,7 +1074,10 @@ class Email extends \Pramnos\Framework\Base
     {
         // A message with its own DKIM key or its own server is sent now: the outbox row would
         // have to store the private key or the server's password. See signWith() and via().
-        if ($this->dkim !== null || $this->smtp !== null || $this->transport !== null) {
+        // So is a threaded one: the outbox keeps no headers, and the reply would arrive outside
+        // its thread with nothing to say why.
+        $threaded = array_intersect(array_map('strtolower', array_keys($this->headers)), self::ID_HEADERS) !== [];
+        if ($this->dkim !== null || $this->smtp !== null || $this->transport !== null || $threaded) {
             return (bool) $this->send();
         }
 
@@ -1335,8 +1429,14 @@ class Email extends \Pramnos\Framework\Base
                 }
             }
             
-            // Add headers
+            // Add headers. Message ids as identification headers, which Symfony requires of
+            // In-Reply-To and References; the rest as text.
             foreach ($this->headers as $name => $value) {
+                if (in_array(strtolower((string) $name), self::ID_HEADERS, true)) {
+                    $email->getHeaders()->remove($name);
+                    $email->getHeaders()->addIdHeader($name, self::messageIds((string) $value));
+                    continue;
+                }
                 $email->getHeaders()->add(new \Symfony\Component\Mime\Header\UnstructuredHeader($name, $value));
             }
             

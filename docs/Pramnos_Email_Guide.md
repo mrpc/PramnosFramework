@@ -16,6 +16,7 @@ use_cases:
   - Making a message readable in dark mode, or by a screen reader
   - Checking SPF, DKIM, DMARC and BIMI on the sending domain
   - Sending from a customer's own address: DKIM for their domain, or through their server
+  - Replying in the same thread as the message being answered
   - Stopping the mail log growing without limit
   - Sending one account a message from the administration area
   - Giving a notification a wrapper, an unsubscribe list, tracking or a Gmail action
@@ -1362,6 +1363,36 @@ allow: `Feedback-ID` takes letters, digits, `_`, `.` and `-`, and one bad charac
 over-long field invalidates the whole header.
 
 ---
+
+
+### A reply in the same thread
+
+Mail clients thread a conversation on `In-Reply-To` and `References`, which hold the message
+ids of what came before. A reply goes into its original's thread when it names that message:
+
+```php
+// The original, with an id the application chose and stored:
+$id = bin2hex(random_bytes(16)) . '@customer.example';
+$original->withMessageId($id)->send();
+
+// Later, the reply:
+$reply->setSubject('Re: ' . $subject)
+      ->inReplyTo($id, $referencesOfTheOriginal)
+      ->send();
+```
+
+`inReplyTo()` writes `In-Reply-To` and builds `References` as the original's references
+followed by the original. Without `withMessageId()` the transport makes an id up, and nothing
+records it, so choose and store one for any message that will be replied to. Angle brackets
+are optional everywhere. For a message that arrived from outside, its own `Message-ID` header
+is the id to pass.
+
+`addHeader('In-Reply-To', …)`, `References` and `Message-ID` go through the same path, in any
+letter case. An id that is not `local@domain` is refused when the header is added, with the
+header named, not by the transport during the send.
+
+A threaded message given to `queue()` is sent at once. The outbox stores the address, subject
+and body of a message, not its headers, so queued it would arrive outside its thread.
 
 ## Gmail actions, and the brand mark beside the subject
 
