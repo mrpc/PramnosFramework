@@ -45,6 +45,9 @@ final class ProfilePhoto
     /** The image types accepted: JPEG, PNG, GIF and WebP, whatever the file was called. */
     private const TYPES = [IMAGETYPE_JPEG, IMAGETYPE_PNG, IMAGETYPE_GIF, IMAGETYPE_WEBP];
 
+    /** The setting that hides the Gravatar button. On unless set to off. */
+    public const GRAVATAR_SETTING = 'profile_photo_gravatar';
+
     /** The setting that lets an SSO sign-in copy the provider's picture. Off unless set. */
     public const ADOPT_SETTING = 'profile_photo_from_provider';
 
@@ -102,6 +105,56 @@ final class ProfilePhoto
         $bytes = $fetch($url);
 
         return is_string($bytes) && self::store($user, $bytes, self::media()) === null;
+    }
+
+    /**
+     * Take the user's picture from Gravatar, because they asked to.
+     *
+     * Only on the user's own request — the profile screen's button. Gravatar is asked for the
+     * picture of a SHA-256 of the account's address, so the hash goes to a third party at the
+     * moment, and for the person, who chose it; nobody else's does, and nobody's does by
+     * default. The image is fetched by the server and copied like an upload: Gravatar sees
+     * neither the visitor's address nor when their pages are read, and the picture does not
+     * depend on Gravatar afterwards. `d=404` makes "no Gravatar for this address" an answer of
+     * its own rather than Gravatar's generic placeholder stored as the user's face.
+     *
+     * @param callable|null $fetch fn(string $url, ?int &$status): string|false — how the bytes
+     *                             are fetched; a test hands in its own
+     * @return string|null Why it did not happen, or null when the picture was set
+     */
+    public static function fromGravatar(User $user, ?callable $fetch = null): ?string
+    {
+        if (!self::gravatarAllowed()) {
+            return 'Gravatar is not available here.';
+        }
+
+        $email = strtolower(trim((string) ($user->email ?? '')));
+        if ($email === '') {
+            return 'Your account has no email address to look up on Gravatar.';
+        }
+
+        $url    = 'https://www.gravatar.com/avatar/' . hash('sha256', $email) . '?s=' . self::MAX_SIDE . '&d=404';
+        $fetch ??= static fn (string $url, ?int &$status): string|false
+            => \Pramnos\Security\OutboundUrl::fetch($url, self::MAX_BYTES, $reason, 10, 3, $status);
+        $status = 0;
+        $bytes  = $fetch($url, $status);
+
+        if ($status === 404) {
+            return 'There is no Gravatar picture for your email address.';
+        }
+        if (!is_string($bytes) || $status < 200 || $status >= 300) {
+            return 'Gravatar could not be reached. Please try again later.';
+        }
+
+        return self::store($user, $bytes, self::media());
+    }
+
+    /** Whether the installation offers the Gravatar button: yes, unless the setting turns it off. */
+    public static function gravatarAllowed(): bool
+    {
+        $value = strtolower(trim((string) Settings::getSetting(self::GRAVATAR_SETTING, '')));
+
+        return !in_array($value, ['0', 'no', 'false', 'off'], true);
     }
 
     /**

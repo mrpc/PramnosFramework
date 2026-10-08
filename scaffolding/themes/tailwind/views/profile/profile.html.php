@@ -46,8 +46,14 @@ $inputCls = 'input w-full';
                         <label for="photo" class="sr-only">Choose a picture</label>
                         <input type="file" id="photo" name="photo" accept="image/jpeg,image/png,image/gif,image/webp" class="file-input file-input-bordered">
                         <button type="submit" class="btn btn-primary">Upload</button>
+                        <?php if (\Pramnos\User\ProfilePhoto::gravatarAllowed()): ?>
+                            <button type="submit" name="gravatar" value="1" class="btn btn-outline">Use my Gravatar</button>
+                        <?php endif; ?>
                         <?php if ((int) ($u->photo ?? 0) > 0): ?>
                             <button type="submit" name="remove" value="1" class="btn btn-outline btn-error">Remove</button>
+                        <?php endif; ?>
+                        <?php if (\Pramnos\User\ProfilePhoto::gravatarAllowed()): ?>
+                            <p class="text-sm text-base-content/70 w-full">Use my Gravatar asks Gravatar for the picture of your email address, once, and keeps a copy here.</p>
                         <?php endif; ?>
                     </form>
                 </div>

@@ -1506,11 +1506,21 @@ class Account extends Controller
     // ── Profile ───────────────────────────────────────────────────────────────
 
     /**
+     * How the Gravatar picture is fetched: null for ProfilePhoto's own, through OutboundUrl.
+     * A seam, so a test can answer without the network.
+     */
+    protected function gravatarFetcher(): ?callable
+    {
+        return null;
+    }
+
+    /**
      * POST /account/profilephoto — set or remove the profile picture.
      *
      * A write action: only a POST carrying the session's token reaches it. With `remove` it
-     * removes the picture; otherwise it takes the uploaded `photo` file, which is cropped to a
-     * square and stored through Media (see ProfilePhoto). Either way it returns to the profile.
+     * removes the picture, with `gravatar` it copies the user's Gravatar picture, and otherwise
+     * it takes the uploaded `photo` file; a picture is stored as a square JPEG through Media
+     * (see ProfilePhoto). Either way it returns to the profile.
      */
     public function profilephoto()
     {
@@ -1528,6 +1538,11 @@ class Account extends Controller
         if ($this->post('remove') !== '') {
             \Pramnos\User\ProfilePhoto::remove($currentUser);
             $this->addMessage('Your profile picture has been removed.');
+        } elseif ($this->post('gravatar') !== '') {
+            $error = \Pramnos\User\ProfilePhoto::fromGravatar($currentUser, $this->gravatarFetcher());
+            $error === null
+                ? $this->addMessage('Your Gravatar picture is now your profile picture.')
+                : $this->addError($error);
         } else {
             $error = \Pramnos\User\ProfilePhoto::set($currentUser, (array) ($_FILES['photo'] ?? []));
             $error === null

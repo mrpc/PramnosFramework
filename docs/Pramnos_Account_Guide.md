@@ -67,12 +67,25 @@ allows images only from itself would not show it. The sign-in callback calls:
 \Pramnos\User\ProfilePhoto::adoptFromProvider($user, $profile['picture'] ?? '');
 ```
 
-Gravatar is not used. It would send a hash of each address to a third party, which the
-privacy policy would have to name.
+**From Gravatar, when the user asks.** The card has a **Use my Gravatar** button, with a line
+saying what it does. Pressing it asks Gravatar for the picture of the account's address and
+keeps a copy, converted like an upload. Gravatar is told only about the person who pressed
+the button, at that moment, as a SHA-256 of their address. Nobody else's address is sent, and
+nothing is sent unless somebody presses it. The server makes the request, so Gravatar sees
+neither the visitor's own address nor when their pages are read, and the picture does not
+depend on Gravatar afterwards. An address with no Gravatar picture gets "There is no Gravatar
+picture for your email address", not Gravatar's generic placeholder. An installation that
+wants no contact with Gravatar at all sets `profile_photo_gravatar` to `0`, and the button is
+not shown. A privacy policy that lists every third party should still name Gravatar as an
+option the user can choose.
 
-For an application's own code: `ProfilePhoto::set($user, $_FILES['photo'])` returns `null`
-or the reason it refused, `ProfilePhoto::remove($user)` removes the picture, and
-`ProfilePhoto::url($user->photo)` gives the absolute address.
+Gravatar is never asked for a picture on its own initiative: that would send every address's
+hash to a third party without anyone asking.
+
+For an application's own code: `ProfilePhoto::set($user, $_FILES['photo'])` and
+`ProfilePhoto::fromGravatar($user)` return `null` or the reason they refused,
+`ProfilePhoto::remove($user)` removes the picture, and `ProfilePhoto::url($user->photo)` gives
+the absolute address.
 
 ## Creating an account
 

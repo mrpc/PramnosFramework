@@ -43,8 +43,14 @@ $this->activeNav = 'profile';
                         <label for="photo">Choose a picture</label>
                         <input type="file" id="photo" name="photo" accept="image/jpeg,image/png,image/gif,image/webp">
                         <button type="submit" class="btn">Upload</button>
+                        <?php if (\Pramnos\User\ProfilePhoto::gravatarAllowed()): ?>
+                            <button type="submit" name="gravatar" value="1" class="btn">Use my Gravatar</button>
+                        <?php endif; ?>
                         <?php if ((int) ($u->photo ?? 0) > 0): ?>
                             <button type="submit" name="remove" value="1" class="btn">Remove</button>
+                        <?php endif; ?>
+                        <?php if (\Pramnos\User\ProfilePhoto::gravatarAllowed()): ?>
+                            <p style="margin:6px 0 0;font-size:0.9em;opacity:.8">Use my Gravatar asks Gravatar for the picture of your email address, once, and keeps a copy here.</p>
                         <?php endif; ?>
                     </form>
                 </div>

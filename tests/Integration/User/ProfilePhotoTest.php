@@ -511,4 +511,169 @@ class ProfilePhotoTest extends BaseTestCase
         $this->assertSame('The picture could not be read.', $reason);
         $this->assertNotNull(ProfilePhoto::set($this->user, ['error' => UPLOAD_ERR_OK, 'tmp_name' => '']));
     }
+
+    /**
+     * The Gravatar button copies the picture of the account's address, looked up by SHA-256,
+     * with d=404, and stores it as JPEG like an upload.
+     */
+    public function testGravatarCopiesThePictureOfTheAddress(): void
+    {
+        // Arrange — a Gravatar answering with an image, recording what it was asked
+        ob_start();
+        imagepng(imagecreatetruecolor(400, 400));
+        $png   = (string) ob_get_clean();
+        $asked = '';
+        $fetch = static function (string $url, ?int &$status) use ($png, &$asked): string {
+            $asked  = $url;
+            $status = 200;
+
+            return $png;
+        };
+        $this->user->email = '  Someone@Example.COM ';
+
+        // Act
+        $error = ProfilePhoto::fromGravatar($this->user, $fetch);
+
+        // Assert
+        $this->assertNull($error);
+        $this->assertSame(
+            'https://www.gravatar.com/avatar/' . hash('sha256', 'someone@example.com') . '?s=1024&d=404',
+            $asked,
+            'Gravatar was not asked by the trimmed, lowercased address'
+        );
+        $this->assertGreaterThan(0, (int) $this->user->photo);
+        $this->assertSame(IMAGETYPE_JPEG, getimagesize($this->pictureFiles($this->user)[0])[2] ?? null);
+    }
+
+    /**
+     * No Gravatar, no answer, no address, or the button turned off: each says why, and the
+     * picture stays as it was.
+     */
+    public function testGravatarSaysWhyWhenItCannot(): void
+    {
+        // Arrange
+        $notFound = static function (string $url, ?int &$status): string {
+            $status = 404;
+
+            return 'Not Found';
+        };
+        $down = static function (string $url, ?int &$status): bool {
+            $status = 0;
+
+            return false;
+        };
+
+        // Act + Assert
+        $this->assertStringContainsString('no Gravatar picture', (string) ProfilePhoto::fromGravatar($this->user, $notFound));
+        $this->assertStringContainsString('could not be reached', (string) ProfilePhoto::fromGravatar($this->user, $down));
+
+        $this->user->email = '';
+        $this->assertStringContainsString('no email address', (string) ProfilePhoto::fromGravatar($this->user, $down));
+
+        Settings::setSetting(ProfilePhoto::GRAVATAR_SETTING, 'off', false);
+        try {
+            $this->assertFalse(ProfilePhoto::gravatarAllowed());
+            $this->assertStringContainsString('not available', (string) ProfilePhoto::fromGravatar($this->user, $down));
+        } finally {
+            Settings::deleteSetting(ProfilePhoto::GRAVATAR_SETTING);
+        }
+        $this->assertTrue(ProfilePhoto::gravatarAllowed(), 'the button is on unless turned off');
+        $this->assertSame(0, (int) $this->user->photo);
+    }
+
+    /**
+     * The profile action's `gravatar` submit goes to Gravatar, and reports what came back.
+     */
+    public function testTheProfileActionTakesTheGravatarButton(): void
+    {
+        // Arrange — a user whose address has no Gravatar answer reachable from a test: the
+        // action's own fetch is the real one, so the answer is an error either way
+        Settings::setSetting(ProfilePhoto::GRAVATAR_SETTING, 'off', false);
+        \Pramnos\Http\RequestIdentity::seal((object) ['userid' => (int) $this->user->userid, 'usertype' => 1], 'test');
+        $account = new class () extends \Pramnos\Auth\Controllers\Account {
+            public array $errors = [];
+
+            public function __construct()
+            {
+            }
+
+            public function redirect($url = null, $quit = true, $code = '302')
+            {
+            }
+
+            protected function addError($error)
+            {
+                $this->errors[] = (string) $error;
+
+                return $this;
+            }
+        };
+
+        try {
+            // Act
+            $_POST = ['gravatar' => '1'];
+            $account->profilephoto();
+        } finally {
+            $_POST = [];
+            \Pramnos\Http\RequestIdentity::reset();
+            Settings::deleteSetting(ProfilePhoto::GRAVATAR_SETTING);
+        }
+
+        // Assert — it reached fromGravatar(), which refused with the setting off
+        $this->assertSame(['Gravatar is not available here.'], $account->errors);
+    }
+
+    /**
+     * A Gravatar that answers becomes the picture, and the action says so.
+     */
+    public function testTheGravatarButtonSetsThePicture(): void
+    {
+        // Arrange
+        ob_start();
+        imagepng(imagecreatetruecolor(300, 300));
+        $png = (string) ob_get_clean();
+        \Pramnos\Http\RequestIdentity::seal((object) ['userid' => (int) $this->user->userid, 'usertype' => 1], 'test');
+        $account = new class ($png) extends \Pramnos\Auth\Controllers\Account {
+            public array $messages = [];
+
+            public function __construct(private string $png)
+            {
+            }
+
+            public function redirect($url = null, $quit = true, $code = '302')
+            {
+            }
+
+            protected function addMessage($message)
+            {
+                $this->messages[] = (string) $message;
+
+                return $this;
+            }
+
+            protected function gravatarFetcher(): ?callable
+            {
+                $png = $this->png;
+
+                return static function (string $url, ?int &$status) use ($png): string {
+                    $status = 200;
+
+                    return $png;
+                };
+            }
+        };
+
+        try {
+            // Act
+            $_POST = ['gravatar' => '1'];
+            $account->profilephoto();
+        } finally {
+            $_POST = [];
+            \Pramnos\Http\RequestIdentity::reset();
+        }
+
+        // Assert
+        $this->assertSame(['Your Gravatar picture is now your profile picture.'], $account->messages);
+        $this->assertGreaterThan(0, (int) $this->reloaded()->photo);
+    }
 }
