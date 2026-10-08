@@ -866,6 +866,12 @@ class User extends \Pramnos\Framework\Base implements
         }
         $this->originalOtherinfo = $this->otherinfo;
 
+        // The profile picture, when the user has one: `photo` is its media usage, and the URL is
+        // absolute so an API client, an email or an OAuth client gets an address that works.
+        if ((int) $this->photo > 0) {
+            $this->avatarurl = ProfilePhoto::url((int) $this->photo);
+        }
+
         if ($this->avatarurl === '' or $this->avatarurl === NULL) {
             // Until 2026-08-14 this was `sURL . 'media/img/pramnoscms/noavatar.jpg'` — a path
             // into a deprecated CMS's asset folder for a file the framework has never

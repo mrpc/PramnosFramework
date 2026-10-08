@@ -3,6 +3,7 @@ use_cases:
   - Explaining the account and security screens to an end user
   - Understanding what the built-in 2FA, passkey and session UI offers
   - Handling a GDPR data export or account deletion request
+  - Letting users set a profile picture, or copying one from a sign-in provider
 ---
 
 # Account & Security — End-User Guide
@@ -20,7 +21,7 @@ needs to manage their identity, security and privacy:
 
 | Area | Pages |
 |------|-------|
-| **Profile** | View / edit profile, dashboard |
+| **Profile** | View / edit profile and profile picture, dashboard |
 | **Security** | Change password, Two-Factor Authentication, Passkeys, Active Sessions |
 | **Privacy** | Privacy settings, Export my data, Delete account |
 
@@ -28,6 +29,46 @@ All pages share one navigation sidebar and breadcrumb, so the layout is the same
 whichever theme (plain-CSS, Bootstrap, Tailwind) the application uses.
 
 ---
+
+## Profile picture
+
+**Account → Profile** has a **Profile Picture** card. Choose a JPEG, PNG or GIF and press
+**Upload**. The picture is cropped to a square of 256 pixels from its centre and replaces the
+previous one. **Remove** takes it away. Until one is uploaded, the application shows its own
+default if it has one (the `defaultAvatarUrl` setting), or no picture.
+
+The same picture appears wherever the application shows the account, with nothing more to
+do:
+
+- `GET /me` returns it as `avatarurl`, an absolute URL;
+- the OpenID Connect `picture` claim carries it to the applications you have signed in to;
+- the administration's user list and every screen that reads the account's `avatarurl` show
+  it.
+
+**How it is stored.** The picture is kept through the framework's media library. `users.photo`
+holds its media usage, and `avatarurl` is worked out from that usage when the account loads. A
+replaced or removed picture is released, and its files are deleted once nothing else uses
+them. The same image uploaded twice is stored once.
+
+**Your data.** **Export my data** includes the picture's address under *Profile picture*.
+**Delete my account** deletes the picture with the account.
+
+**From a sign-in provider.** An application whose users sign in through Google, Microsoft or
+another provider can copy the provider's picture the first time, for a user who has none of
+their own. It does so only when the `profile_photo_from_provider` setting is on. The picture
+is **copied**, never linked, because a provider's picture address expires and a page that
+allows images only from itself would not show it. The sign-in callback calls:
+
+```php
+\Pramnos\User\ProfilePhoto::adoptFromProvider($user, $profile['picture'] ?? '');
+```
+
+Gravatar is not used. It would send a hash of each address to a third party, which the
+privacy policy would have to name.
+
+For an application's own code: `ProfilePhoto::set($user, $_FILES['photo'])` returns `null`
+or the reason it refused, `ProfilePhoto::remove($user)` removes the picture, and
+`ProfilePhoto::url($user->photo)` gives the absolute address.
 
 ## Creating an account
 

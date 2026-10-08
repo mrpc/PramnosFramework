@@ -74,6 +74,10 @@ public function callback()
         accountId: $profile['id'],
         accountName: $profile['name'],
     );
+
+    // Optional: the provider's picture, for a user with none of their own, when the
+    // installation has turned `profile_photo_from_provider` on. Copied, never linked.
+    \Pramnos\User\ProfilePhoto::adoptFromProvider($this->application->currentUser, $profile['picture'] ?? '');
 }
 ```
 

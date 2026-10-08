@@ -44,7 +44,10 @@ final class UserClaims
             $payload['family_name']        = $u['lastname']   ?? '';
             $payload['preferred_username'] = $u['username']   ?? '';
             $payload['updated_at']         = $u['modified']   ?? null;
-            $payload['picture']            = $u['avatarurl']  ?? null;
+            // From the profile picture: `users.photo` is its media usage. There is no
+            // `avatarurl` column, so the row alone never carried one.
+            $payload['picture']            = \Pramnos\User\ProfilePhoto::url((int) ($u['photo'] ?? 0))
+                ?: ((string) \Pramnos\Application\Settings::getSetting('defaultAvatarUrl') ?: null);
             $payload['website']            = $u['website']    ?? null;
         }
 

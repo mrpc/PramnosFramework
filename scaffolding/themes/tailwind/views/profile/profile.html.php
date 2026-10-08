@@ -8,7 +8,8 @@
  *
  * Variables (set by Pramnos\Auth\Controllers\Account::profile):
  *   $this->routeBase — Account controller route base
- *   $this->user      — User object
+ *   $this->user      — User object; `avatarurl` and `photo` drive the picture card,
+ *                      whose form posts to Account::profilephoto()
  */
 $routeBase = $this->routeBase ?? 'Account';
 $u         = $this->user;
@@ -34,6 +35,23 @@ $inputCls = 'input w-full';
         <?php include __DIR__ . '/../partials/account_sidebar.html.php'; ?>
 
         <div class="md:col-span-3 space-y-6">
+            <div class="card bg-base-100 shadow-sm">
+                <div class="px-6 py-3 border-b border-base-300 font-semibold text-base-content">Profile Picture</div>
+                <div class="p-6 flex items-center gap-6 flex-wrap">
+                    <?php if (!empty($u->avatarurl)): ?>
+                        <img src="<?php echo htmlspecialchars((string) $u->avatarurl); ?>" alt="Your profile picture" width="96" height="96" class="rounded-full">
+                    <?php endif; ?>
+                    <form method="post" action="<?php echo sURL . $routeBase; ?>/profilephoto" enctype="multipart/form-data" class="flex gap-2 flex-wrap items-center">
+                        <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
+                        <label for="photo" class="sr-only">Choose a picture</label>
+                        <input type="file" id="photo" name="photo" accept="image/jpeg,image/png,image/gif" class="file-input file-input-bordered">
+                        <button type="submit" class="btn btn-primary">Upload</button>
+                        <?php if ((int) ($u->photo ?? 0) > 0): ?>
+                            <button type="submit" name="remove" value="1" class="btn btn-outline btn-error">Remove</button>
+                        <?php endif; ?>
+                    </form>
+                </div>
+            </div>
             <div class="card bg-base-100 shadow-sm">
                 <div class="px-6 py-3 border-b border-base-300 font-semibold text-base-content">Personal Information</div>
                 <div class="p-6">

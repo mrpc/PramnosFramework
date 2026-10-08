@@ -82,13 +82,13 @@ class Account extends Controller
             'exportdata', 'deleteaccount',
             'privacy', 'security', 'changepassword', 'emailfactor',
             'sessions', 'revokesession',
-            'profile',
+            'profile', 'profilephoto',
             // The phone answering "Is it you trying to sign in?" — signed in, and trusted.
             'approve',
             'revokedevice',
         ]);
         // POST with the session's token, or refused before the action runs: see Controller::exec().
-        $this->addWriteAction(['revokeapplication']);
+        $this->addWriteAction(['revokeapplication', 'profilephoto']);
         parent::__construct($application);
     }
 
@@ -1506,6 +1506,39 @@ class Account extends Controller
     // ── Profile ───────────────────────────────────────────────────────────────
 
     /**
+     * POST /account/profilephoto — set or remove the profile picture.
+     *
+     * A write action: only a POST carrying the session's token reaches it. With `remove` it
+     * removes the picture; otherwise it takes the uploaded `photo` file, which is cropped to a
+     * square and stored through Media (see ProfilePhoto). Either way it returns to the profile.
+     */
+    public function profilephoto()
+    {
+        $currentUser = \Pramnos\User\User::getCurrentUser();
+        if (!is_object($currentUser) || (int) ($currentUser->userid ?? 0) < 2) {
+            $this->redirect(sURL . 'login');
+            return;
+        }
+
+        // The full account: an API request's identity is a plain object with no save().
+        if (!$currentUser instanceof \Pramnos\User\User) {
+            $currentUser = new \Pramnos\User\User((int) $currentUser->userid);
+        }
+
+        if ($this->post('remove') !== '') {
+            \Pramnos\User\ProfilePhoto::remove($currentUser);
+            $this->addMessage('Your profile picture has been removed.');
+        } else {
+            $error = \Pramnos\User\ProfilePhoto::set($currentUser, (array) ($_FILES['photo'] ?? []));
+            $error === null
+                ? $this->addMessage('Your profile picture has been updated.')
+                : $this->addError($error);
+        }
+
+        $this->redirect(sURL . $this->routeBase . '/profile');
+    }
+
+    /**
      * User profile — view and edit display name, email, phone.
      * GET: render edit form. POST: validate input, save, redirect.
      */
@@ -2414,6 +2447,10 @@ class Account extends Controller
             // this person's too.
             'mailing_lists'    => fn (): array => (new \Pramnos\Email\MailingList($db))
                 ->rowsFor($userId, (string) ($userData['email'] ?? '')),
+            // The picture itself is at the URL: the export says where, and the person downloads it.
+            'profile_photo'    => fn (): array => (int) ($userData['photo'] ?? 0) > 0
+                ? ['url' => \Pramnos\User\ProfilePhoto::url((int) $userData['photo'])]
+                : [],
         ] as $section => $read) {
             try {
                 $export[$section] = $read();
@@ -2467,6 +2504,7 @@ class Account extends Controller
             'Privacy settings',
             'Activity log',
             'Mailing lists',
+            'Profile picture',
         ];
         if (\Pramnos\Event\Event::hasListeners('account.data_export')) {
             $labels[] = 'Application-specific data';

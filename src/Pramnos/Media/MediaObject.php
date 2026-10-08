@@ -1198,14 +1198,9 @@ class MediaObject extends \Pramnos\Framework\Base
         $this->filesize = (int) @filesize((string) $this->filename);
         $this->createMd5();
 
-        $sql = $database->prepareQuery(
-            "select * from `#PREFIX#media` "
-            . " where `md5` = %s and `medialink` = 0 "
-            . " limit 1",
-            $this->md5
-        );
-        $result = $database->query($sql);
-        if ($result->numRows != 0) {
+        $result = $database->queryBuilder()->table('#PREFIX#media')
+            ->where('md5', $this->md5)->where('medialink', 0)->first();
+        if ($result && $result->numRows != 0) {
             $this->medialink = $result->fields['mediaid'];
             $this->url = $result->fields['url'];
             $tmpMedia = new MediaObject();
@@ -1238,6 +1233,12 @@ class MediaObject extends \Pramnos\Framework\Base
                 if ($this->deleteOriginal === true) {
                     unlink($file . '.original');
                 }
+            }
+            // The upload is a copy of a file already stored, and nothing will point at it: the
+            // existing record keeps its own file. Left, every repeated upload was one more
+            // orphan under www/uploads.
+            if ($tmpMedia->filename !== $file && is_file($file)) {
+                @unlink($file);
             }
             $this->filename=$tmpMedia->filename;
             $this->thumbnails = $tmpMedia->thumbnails;

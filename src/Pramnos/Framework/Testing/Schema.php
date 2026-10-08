@@ -121,6 +121,10 @@ final class Schema
          * needs it — and a suite that dropped it earlier in the run left those tests answering
          * "the database refused the query" with nothing to say which table.
          */
+        // Media, and the usages that point at it (a profile picture is one). One migration
+        // builds both.
+        'media'    => [\Pramnos\Framework\Migrations\Core\CreateMediaTables::class],
+        'mediause' => [\Pramnos\Framework\Migrations\Core\CreateMediaTables::class],
         /*
          * The live-visitor list. Its key is `visitorid`; a copy keyed on `sid` — which is
          * the same for every request in a test process — turned each recorded visit into an
@@ -308,6 +312,7 @@ final class Schema
     private const REQUIRES = [
         'usertokens'  => ['users', 'applications'],
         'userdetails' => ['users'],
+        'mediause'    => ['media'],
     ];
 
     /**

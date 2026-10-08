@@ -8,7 +8,8 @@
  *
  * Variables (set by Pramnos\Auth\Controllers\Account::profile):
  *   $this->routeBase — Account controller route base
- *   $this->user      — User object
+ *   $this->user      — User object; `avatarurl` and `photo` drive the picture card,
+ *                      whose form posts to Account::profilephoto()
  */
 $routeBase = $this->routeBase ?? 'Account';
 $u         = $this->user;
@@ -31,6 +32,24 @@ $this->activeNav = 'profile';
         <?php $this->insert('../partials/account_sidebar'); ?>
 
         <div class="col-lg-9 col-md-8">
+            <div class="card mb-4">
+                <div class="card-header fw-semibold">Profile Picture</div>
+                <div class="card-body d-flex align-items-center gap-4 flex-wrap">
+                    <?php if (!empty($u->avatarurl)): ?>
+                        <img src="<?php echo htmlspecialchars((string) $u->avatarurl); ?>" alt="Your profile picture" width="96" height="96" class="rounded-circle">
+                    <?php endif; ?>
+                    <form method="post" action="<?php echo sURL . $routeBase; ?>/profilephoto" enctype="multipart/form-data" class="d-flex gap-2 flex-wrap align-items-center">
+                        <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
+                        <label for="photo" class="visually-hidden">Choose a picture</label>
+                        <input type="file" id="photo" name="photo" accept="image/jpeg,image/png,image/gif" class="form-control">
+                        <button type="submit" class="btn btn-primary">Upload</button>
+                        <?php if ((int) ($u->photo ?? 0) > 0): ?>
+                            <button type="submit" name="remove" value="1" class="btn btn-outline-danger">Remove</button>
+                        <?php endif; ?>
+                    </form>
+                </div>
+            </div>
+
             <div class="card">
                 <div class="card-header fw-semibold">Personal Information</div>
                 <div class="card-body">

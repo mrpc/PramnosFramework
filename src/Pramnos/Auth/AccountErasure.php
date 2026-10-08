@@ -110,9 +110,14 @@ class AccountErasure
         // Kept in the service that owns the table, so the rule lives with the rows.
         (new Invitations($this->database))->forgetUser($userId);
 
-        // Mailing-list rows by account and by address, read before the account row goes.
+        // Mailing-list rows by account and by address, read before the account row goes. And
+        // the profile picture: its usage is released, and the image deleted when nothing else
+        // uses it.
         $account = $this->database->queryBuilder()->table('#PREFIX#users')
-            ->select('email')->where('userid', $userId)->first();
+            ->select(['email', 'photo'])->where('userid', $userId)->first();
+        if ($account && $account->numRows > 0 && (int) ($account->fields['photo'] ?? 0) > 0) {
+            \Pramnos\User\ProfilePhoto::release((int) $account->fields['photo']);
+        }
         (new \Pramnos\Email\MailingList($this->database))->forgetUser(
             $userId,
             $account && $account->numRows > 0 ? (string) $account->fields['email'] : ''
