@@ -163,6 +163,64 @@ class ApiAdminEndpointsTest extends BaseTestCase
         $this->assertSame(['users', 'search', 'logs', 'summary'], $api->asked);
     }
 
+    /**
+     * A signed-in account with no administration access gets 403 from the lists, and may ask
+     * the search box.
+     *
+     * The inherited rule let any signed-in account read the user list and the logs of an
+     * installation that had granted nothing: no grant was "no opinion", and no opinion passed.
+     * The lists now answer to the same rule as the screens they serve.
+     */
+    public function testAMemberMayNotReadTheListsButMayAskTheBox(): void
+    {
+        // Arrange — the real authorize(), a usertype-1 account, nothing granted
+        $api = new ApiAdmin();
+        \Pramnos\Http\RequestIdentity::seal((object) ['userid' => $this->uid, 'usertype' => 1], 'test');
+
+        // Act & Assert
+        foreach (['users', 'logs', 'summary'] as $action) {
+            $this->assertSame(['status' => 403, 'error' => 'forbidden'], $api->$action(), $action . ' was open to a member');
+        }
+        $this->assertArrayNotHasKey('error', (array) $this->decodedOrArray($api->search()), 'a member was refused the box');
+    }
+
+    /**
+     * An administrator reads the lists — with an organisation in scope too.
+     *
+     * In an organisation, no grant is a refusal, and nothing granted `admin.search` or the rest:
+     * the omnibox and the lists answered 403 to everybody, administrators included.
+     */
+    public function testAnAdministratorReadsTheListsWithAnOrganisationInScope(): void
+    {
+        // Arrange
+        \Pramnos\Auth\OrganizationScope::resolveWith(static fn (): int => 7);
+        \Pramnos\Http\RequestIdentity::seal((object) ['userid' => $this->uid, 'usertype' => 99], 'test');
+        $api = new ApiAdmin();
+
+        try {
+            // Act & Assert
+            foreach (['users', 'search', 'summary'] as $action) {
+                $answer = $this->decodedOrArray($api->$action());
+                $this->assertNotSame(403, $answer['status'] ?? null, $action . ' refused an administrator in an organisation');
+            }
+        } finally {
+            \Pramnos\Auth\OrganizationScope::reset();
+        }
+    }
+
+    /** A controller answer as an array, whether it came back as a Response or as one. */
+    private function decodedOrArray(mixed $answer): array
+    {
+        if (is_array($answer)) {
+            return $answer;
+        }
+        if (is_object($answer) && method_exists($answer, 'getContent')) {
+            return (array) json_decode((string) $answer->getContent(), true);
+        }
+
+        return [];
+    }
+
     // ── The user list ─────────────────────────────────────────────────────────
 
     /** The list answers with an envelope, and the fixture account is in it. */

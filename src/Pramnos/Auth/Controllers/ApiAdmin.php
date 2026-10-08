@@ -29,6 +29,43 @@ class ApiAdmin extends ApiCrudController
     /** Resource name used when asking the permission store. */
     protected string $resource = 'admin';
 
+    /** The administration screen each action reads for: the same grant opens both. */
+    private const ABILITIES = [
+        'users'   => 'admin.users',
+        'logs'    => 'admin.logs',
+        'summary' => 'admin.dashboard',
+    ];
+
+    /**
+     * Who may call an action: whoever may open the screen it serves, as {@see AdminAccess} decides.
+     *
+     * The inherited rule — no grant is no opinion, and no opinion lets the call through — suits
+     * an application's own CRUD endpoints, which keep working before anybody has set up roles.
+     * Applied here it handed the user list and the logs to every signed-in account of an
+     * installation that had granted nothing, and refused everybody, administrators included,
+     * once an organisation was in scope. So these are decided like the screens: the
+     * `admin.*` ability, at the administration floor (usertype 98 unless set otherwise), or by
+     * grant under `admin_access = permissions`. A grant made in the permission store for the
+     * action itself still opens it.
+     *
+     * `search` is the box, not a list: any signed-in user may ask, and each registered source
+     * decides what it shows — a source with no `permission` of its own shows only to those who
+     * may open the administration area ({@see \Pramnos\Search\Registry}).
+     */
+    protected function authorize(string $action): bool
+    {
+        if ($action === 'search') {
+            return true;
+        }
+
+        $ability = self::ABILITIES[$action] ?? 'admin.' . $action;
+        if (\Pramnos\Auth\AdminAccess::allows($this->requestUser(), $ability, \Pramnos\Auth\AdminAccess::defaultUsertype())) {
+            return true;
+        }
+
+        return $this->permissionFor($action) === true;
+    }
+
     /**
      * GET /admin/users — the user list, paged and searchable.
      *

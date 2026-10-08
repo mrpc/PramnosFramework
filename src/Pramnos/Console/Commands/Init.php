@@ -5930,7 +5930,9 @@ PHP;
  *   url        — link pattern; `:id` is replaced with the primary key.
  *   limit      — cap for this source (default: 5).
  *   permission — an ability name (checked with Gate) or fn(\$user): bool. A source the
- *                viewer may not see is left out of the response entirely.
+ *                viewer may not see is left out of the response entirely. Without one, a
+ *                source shows only to administrators; open it to everybody with
+ *                fn(\$user) => true.
  *   filter     — a WHERE body applied before the term. As a callable it receives the
  *                current user, which is how a per-viewer scope is written.
  *

@@ -737,6 +737,14 @@ fetch('/api/1.0/admin/users', {
 });
 ```
 
+`/admin/users`, `/admin/logs` and `/admin/summary` answer only to whoever may open the
+screen they serve (`admin.users`, `admin.logs`, `admin.dashboard`), as
+[`AdminAccess`](Pramnos_Authorization_Guide.md) decides: the administration floor, usertype
+98 unless set otherwise, or a grant under `admin_access = permissions`. A grant made in the
+permission store for the action itself also opens it. Anyone else gets 403. `/admin/search`
+is open to any signed-in user, and its sources decide what they show (see the
+[Search guide](Pramnos_Search_Guide.md#permissions)).
+
 Without the header the request is anonymous and answers 403 `APIKeyMissing`, which is
 what `Html\SearchBox` did before this existed: the box rendered, the endpoint
 answered, and typing did nothing.

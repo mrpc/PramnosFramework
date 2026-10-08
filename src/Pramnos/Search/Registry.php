@@ -331,9 +331,11 @@ final class Registry
     /**
      * Whether the current viewer may see this source at all.
      *
-     * No `permission` means visible: the endpoint that reaches this registry does its own
-     * permission check, so a source without one inherits that grant rather than being
-     * open to the world.
+     * No `permission` means administrators: whoever may open the administration area, as
+     * {@see \Pramnos\Auth\AdminAccess} decides for the dashboard. The search endpoint lets any
+     * signed-in user ask, so a source that said nothing would otherwise show to every member —
+     * the scaffolded `Users` source included. A source meant for everybody says so with
+     * `'permission' => fn ($user) => true`.
      *
      * A named ability goes through {@see \Pramnos\Auth\Gate}, which is fail-closed —
      * an ability with no rule, policy or stored permission behind it decides `false`.
@@ -351,7 +353,11 @@ final class Registry
         $permission = $options['permission'] ?? null;
 
         if ($permission === null || $permission === '') {
-            return true;
+            return \Pramnos\Auth\AdminAccess::allows(
+                self::currentUser(),
+                'admin.dashboard',
+                \Pramnos\Auth\AdminAccess::defaultUsertype()
+            );
         }
 
         if (is_string($permission)) {

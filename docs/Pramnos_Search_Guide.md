@@ -65,9 +65,9 @@ use the box.
 
 ## Permissions
 
-The endpoint guards the box as a whole — `ApiAdmin::search()` runs `guard('search')`, so
-it is authenticated and permission-checked like every other admin action. Inside the
-registry there are two further levels, and both are opt-in.
+The endpoint lets any signed-in user ask: `ApiAdmin::search()` requires authentication
+and nothing else, with or without an organisation in scope. What an answer contains is
+decided inside the registry, at two levels.
 
 ### Per source — who may see this entity
 
@@ -97,8 +97,20 @@ naming an ability nothing defines hides the source from everybody, administrator
 included. If a registered entity never appears, check that its ability is actually
 defined before checking anything else.
 
-No `permission` means visible: the source inherits the endpoint's own grant rather than
-being open to the world.
+**No `permission` means administrators only.** A source without one shows to whoever may
+open the administration area: the dashboard's ability (`admin.dashboard`) at the
+administration floor, as [`AdminAccess`](Pramnos_Authorization_Guide.md) decides. The
+scaffolded `Users` source has no permission, so a member searching gets no user list. A
+source meant for every signed-in user says so:
+
+```php
+Registry::register('Pages', \App\Models\Page::class, [
+    'display'    => ['title'],
+    'permission' => static fn ($user): bool => true,
+]);
+```
+
+The MCP `search` tool reads the same registry, so the same rule applies to a token.
 
 ### Per row — which records this viewer may see
 

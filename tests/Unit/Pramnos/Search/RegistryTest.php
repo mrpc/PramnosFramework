@@ -26,11 +26,17 @@ class RegistryTest extends TestCase
     protected function setUp(): void
     {
         Registry::reset();
+        // An administrator by default: these tests are about how a term is run and answered,
+        // and a source with no permission of its own shows only to administrators. The tests
+        // about who sees what seal their own viewer.
+        \Pramnos\Http\RequestIdentity::reset();
+        \Pramnos\Http\RequestIdentity::seal((object) ['userid' => 2, 'usertype' => 99], 'test');
     }
 
     protected function tearDown(): void
     {
         Registry::reset();
+        \Pramnos\Http\RequestIdentity::reset();
     }
 
     /**
@@ -360,20 +366,57 @@ class RegistryTest extends TestCase
     }
 
     /**
-     * No `permission` means the endpoint's own guard is the only gate.
+     * No `permission` means administrators only.
      *
-     * The default has to be "visible", because the registry is reached through an
-     * endpoint that has already checked something. Defaulting to hidden would mean every
-     * registration needs a permission before it does anything, and the first symptom
-     * would be a search box that finds nothing.
+     * The search endpoint lets any signed-in user ask, so a source that said nothing would show
+     * to every member — the scaffolded `Users` source included, which is the installation's whole
+     * user list. Administrators, as AdminAccess decides for the dashboard, still see it; a source
+     * meant for everybody says `'permission' => fn ($user) => true`.
      */
-    public function testASourceWithoutAPermissionIsVisible(): void
+    public function testASourceWithoutAPermissionShowsOnlyToAdministrators(): void
     {
         // Arrange
         Registry::register('Users', new FakeSource([['id' => 1, 'username' => 'annak']]), ['display' => ['username']]);
 
-        // Act & Assert
-        $this->assertCount(1, Registry::query('ann')['groups']);
+        try {
+            // Act — a member, then an administrator
+            \Pramnos\Http\RequestIdentity::reset();
+            \Pramnos\Http\RequestIdentity::seal((object) ['userid' => 5, 'usertype' => 1], 'test');
+            $member = Registry::query('ann')['groups'];
+            \Pramnos\Http\RequestIdentity::reset();
+            \Pramnos\Http\RequestIdentity::seal((object) ['userid' => 6, 'usertype' => 99], 'test');
+            $admin = Registry::query('ann')['groups'];
+        } finally {
+            \Pramnos\Http\RequestIdentity::reset();
+        }
+
+        // Assert
+        $this->assertCount(0, $member, 'a member saw a source nobody opened to members');
+        $this->assertCount(1, $admin, 'an administrator lost a source with no permission of its own');
+    }
+
+    /**
+     * A source opened to everybody shows to a member.
+     */
+    public function testASourceOpenedToEverybodyShowsToAMember(): void
+    {
+        // Arrange
+        Registry::register('Pages', new FakeSource([['id' => 1, 'title' => 'Annual report']]), [
+            'display'    => ['title'],
+            'permission' => static fn ($user): bool => true,
+        ]);
+
+        try {
+            // Act
+            \Pramnos\Http\RequestIdentity::reset();
+            \Pramnos\Http\RequestIdentity::seal((object) ['userid' => 5, 'usertype' => 1], 'test');
+            $groups = Registry::query('ann')['groups'];
+        } finally {
+            \Pramnos\Http\RequestIdentity::reset();
+        }
+
+        // Assert
+        $this->assertCount(1, $groups);
     }
 
     /**
@@ -420,8 +463,8 @@ class RegistryTest extends TestCase
 
         // Assert
         $this->assertSame('tenant_id = 7', $source->lastFilter);
-        // Called with the current user — null here, because no session is signed in.
-        $this->assertNull($seen);
+        // Called with the current user: the viewer this test runs as.
+        $this->assertSame(2, (int) ($seen->userid ?? 0));
     }
 
     /**
