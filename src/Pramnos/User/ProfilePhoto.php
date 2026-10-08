@@ -12,9 +12,9 @@ use Pramnos\Media\MediaObject;
  *
  * `users.photo` holds a media **usage** id, so the picture is one `mediause` row pointing at one
  * `media` row, and replacing or removing it releases that usage — the image goes when nothing
- * else uses it. The picture is a square crop ({@see SIZE} pixels) made at upload, in the
- * upload's own format (PNG stays PNG, JPEG stays JPEG, a GIF becomes PNG); the original is kept
- * beside it, capped at 1024 pixels.
+ * else uses it. Whatever arrives — JPEG, PNG, GIF or WebP — is stored as JPEG: the original at
+ * most 1024 pixels on its longer side, and a square crop of {@see SIZE} pixels that is the
+ * picture shown.
  *
  * {@see User::load()} turns the usage into `avatarurl`, an absolute URL, so `/me`, the OIDC
  * `picture` claim and every screen that shows an avatar carry it with nothing more to do.
@@ -33,6 +33,18 @@ final class ProfilePhoto
     /** The media usage module the picture is recorded under; `specific` is the userid. */
     public const MODULE = 'userphoto';
 
+    /** The longer side of the stored original, in pixels. */
+    private const MAX_SIDE = 1024;
+
+    /** The largest file accepted. */
+    private const MAX_BYTES = 10 * 1024 * 1024;
+
+    /** The most pixels a picture may declare, so a small file cannot announce a huge image. */
+    private const MAX_PIXELS = 40_000_000;
+
+    /** The image types accepted: JPEG, PNG, GIF and WebP, whatever the file was called. */
+    private const TYPES = [IMAGETYPE_JPEG, IMAGETYPE_PNG, IMAGETYPE_GIF, IMAGETYPE_WEBP];
+
     /** The setting that lets an SSO sign-in copy the provider's picture. Off unless set. */
     public const ADOPT_SETTING = 'profile_photo_from_provider';
 
@@ -42,8 +54,9 @@ final class ProfilePhoto
     /**
      * Set the user's picture from an uploaded file: an entry of `$_FILES`.
      *
-     * The previous picture's usage is released once the new one is recorded, so a failed
-     * upload leaves the old picture in place.
+     * JPEG, PNG, GIF or WebP, judged by the file's own bytes and not by what the browser said it
+     * was. Whatever arrives is stored as JPEG ({@see toJpeg()}). The previous picture's usage is
+     * released once the new one is recorded, so a failed upload leaves the old picture in place.
      *
      * @param User                 $user
      * @param array<string, mixed> $file A `$_FILES` entry
@@ -55,10 +68,15 @@ final class ProfilePhoto
             return 'The picture did not arrive. Please choose it again.';
         }
 
-        $media = self::media();
-        $media->uploadImage($file, self::MODULE);
+        $tmp = (string) ($file['tmp_name'] ?? '');
+        // Only a file PHP received in this request: a forged `tmp_name` would otherwise read
+        // any file the server can. A test hands in a file of its own, as Media's tests do.
+        $testing = defined('UNITTESTING') && UNITTESTING === true;
+        if ($tmp === '' || (!$testing && !is_uploaded_file($tmp)) || !is_file($tmp)) {
+            return 'The picture did not arrive. Please choose it again.';
+        }
 
-        return self::adopt($user, $media);
+        return self::store($user, (string) file_get_contents($tmp), self::media());
     }
 
     /**
@@ -67,25 +85,23 @@ final class ProfilePhoto
      *
      * Copied, never linked: a provider's picture URL expires, and a page whose Content Security
      * Policy allows images from itself only would not show it. The fetch goes through
-     * `OutboundUrl`, which refuses private and internal addresses.
+     * `OutboundUrl`, which refuses private and internal addresses, and what comes back is
+     * stored as JPEG like an upload.
      *
-     * @param MediaObject|null $media The media object to fetch with; a test hands in its own
+     * @param callable|null $fetch fn(string $url): string|false — how the bytes are fetched; a
+     *                             test hands in its own
      * @return bool Whether a picture was copied
      */
-    public static function adoptFromProvider(User $user, string $url, ?MediaObject $media = null): bool
+    public static function adoptFromProvider(User $user, string $url, ?callable $fetch = null): bool
     {
         if ((int) $user->photo > 0 || trim($url) === '' || !self::adoptionAllowed()) {
             return false;
         }
 
-        $media = self::media($media);
-        $media->addRemoteImage($url, self::MODULE);
-        if ($media->error === false && (int) $media->mediaid === 0 && (int) $media->medialink === 0) {
-            // addRemoteImage() makes the files but leaves the record to the caller.
-            $media->save();
-        }
+        $fetch ??= static fn (string $url): string|false => \Pramnos\Security\OutboundUrl::fetch($url, self::MAX_BYTES, $reason, 10, 3);
+        $bytes = $fetch($url);
 
-        return self::adopt($user, $media) === null;
+        return is_string($bytes) && self::store($user, $bytes, self::media()) === null;
     }
 
     /**
@@ -161,17 +177,95 @@ final class ProfilePhoto
         self::$urls = [];
     }
 
-    /** A media object set up for a profile picture: a square thumb, no medium, a capped original. */
-    private static function media(?MediaObject $media = null): MediaObject
+    /** A media object set up for a profile picture: a square thumb, no medium. */
+    private static function media(): MediaObject
     {
-        $media ??= new MediaObject();
+        $media = new MediaObject();
         $media->thumb        = self::SIZE;
         $media->thumbHeight  = self::SIZE;
         $media->medium       = 0;
-        $media->max          = 1024;
         $media->allowUpscale = true;
 
         return $media;
+    }
+
+    /**
+     * Convert image bytes to a JPEG file and hand it to Media.
+     *
+     * @return string|null Why it was refused, or null
+     */
+    private static function store(User $user, string $bytes, MediaObject $media): ?string
+    {
+        $jpeg = self::toJpeg($bytes, $reason);
+        if ($jpeg === null) {
+            return $reason;
+        }
+
+        $media->addImage($jpeg, self::MODULE, true);
+        @unlink($jpeg);
+        if ($media->error === false && (int) $media->mediaid === 0 && (int) $media->medialink === 0) {
+            // addImage() makes the files and leaves the record to the caller.
+            $media->save();
+        }
+
+        return self::adopt($user, $media);
+    }
+
+    /**
+     * The image as a JPEG file: any of {@see TYPES}, flattened onto white, at most 1024 pixels
+     * on its longer side. Null, with the reason, when it is not one or is too large.
+     *
+     * Decoded only after its header has been read: a small file can declare a huge image, and
+     * decoding it would take the memory the header announced.
+     */
+    public static function toJpeg(string $bytes, ?string &$reason = null): ?string
+    {
+        $reason = null;
+        if ($bytes === '' || strlen($bytes) > self::MAX_BYTES) {
+            $reason = 'The picture is empty or larger than ' . (int) (self::MAX_BYTES / 1048576) . ' MB.';
+
+            return null;
+        }
+
+        $info = @getimagesizefromstring($bytes);
+        if ($info === false || !in_array($info[2] ?? 0, self::TYPES, true)) {
+            $reason = 'Please choose a JPEG, PNG, GIF or WebP picture.';
+
+            return null;
+        }
+        if ((int) $info[0] * (int) $info[1] > self::MAX_PIXELS) {
+            $reason = 'The picture is too large. Please choose a smaller one.';
+
+            return null;
+        }
+
+        $source = @imagecreatefromstring($bytes);
+        if ($source === false) {
+            $reason = 'The picture could not be read.';
+
+            return null;
+        }
+
+        $width  = imagesx($source);
+        $height = imagesy($source);
+        $scale  = min(1, self::MAX_SIDE / max($width, $height));
+        $outW   = max(1, (int) round($width * $scale));
+        $outH   = max(1, (int) round($height * $scale));
+
+        // White underneath: a JPEG has no transparency, and GD fills it black otherwise.
+        $out = imagecreatetruecolor($outW, $outH);
+        imagefill($out, 0, 0, imagecolorallocate($out, 255, 255, 255));
+        imagecopyresampled($out, $source, 0, 0, 0, 0, $outW, $outH, $width, $height);
+
+        $file = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'photo-' . bin2hex(random_bytes(8)) . '.jpg';
+        $written = imagejpeg($out, $file, 88);
+        if (!$written) {
+            $reason = 'The picture could not be stored.';
+
+            return null;
+        }
+
+        return $file;
     }
 
     /**

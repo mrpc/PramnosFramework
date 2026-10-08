@@ -41,7 +41,7 @@ $this->activeNav = 'profile';
                     <form method="post" action="<?php echo sURL . $routeBase; ?>/profilephoto" enctype="multipart/form-data">
                         <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
                         <label for="photo">Choose a picture</label>
-                        <input type="file" id="photo" name="photo" accept="image/jpeg,image/png,image/gif">
+                        <input type="file" id="photo" name="photo" accept="image/jpeg,image/png,image/gif,image/webp">
                         <button type="submit" class="btn">Upload</button>
                         <?php if ((int) ($u->photo ?? 0) > 0): ?>
                             <button type="submit" name="remove" value="1" class="btn">Remove</button>

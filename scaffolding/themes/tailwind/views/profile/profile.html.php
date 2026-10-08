@@ -44,7 +44,7 @@ $inputCls = 'input w-full';
                     <form method="post" action="<?php echo sURL . $routeBase; ?>/profilephoto" enctype="multipart/form-data" class="flex gap-2 flex-wrap items-center">
                         <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
                         <label for="photo" class="sr-only">Choose a picture</label>
-                        <input type="file" id="photo" name="photo" accept="image/jpeg,image/png,image/gif" class="file-input file-input-bordered">
+                        <input type="file" id="photo" name="photo" accept="image/jpeg,image/png,image/gif,image/webp" class="file-input file-input-bordered">
                         <button type="submit" class="btn btn-primary">Upload</button>
                         <?php if ((int) ($u->photo ?? 0) > 0): ?>
                             <button type="submit" name="remove" value="1" class="btn btn-outline btn-error">Remove</button>

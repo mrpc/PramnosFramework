@@ -32,9 +32,13 @@ whichever theme (plain-CSS, Bootstrap, Tailwind) the application uses.
 
 ## Profile picture
 
-**Account → Profile** has a **Profile Picture** card. Choose a JPEG, PNG or GIF and press
-**Upload**. The picture is cropped to a square of 256 pixels from its centre and replaces the
-previous one. **Remove** takes it away. Until one is uploaded, the application shows its own
+**Account → Profile** has a **Profile Picture** card. Choose a JPEG, PNG, GIF or WebP picture
+and press **Upload**. Whatever the format, it is stored as JPEG, so every client can show it;
+a transparent picture gets a white background. The picture shown is a square of 256 pixels
+cropped from the centre, and it replaces the previous one. The original is kept beside it,
+at most 1024 pixels on its longer side. A file over 10 MB, or one that declares more than 40
+million pixels, is refused. A picture whose camera recorded its orientation separately is
+stored as the camera wrote it, because the EXIF orientation is not read. **Remove** takes it away. Until one is uploaded, the application shows its own
 default if it has one (the `defaultAvatarUrl` setting), or no picture.
 
 The same picture appears wherever the application shows the account, with nothing more to

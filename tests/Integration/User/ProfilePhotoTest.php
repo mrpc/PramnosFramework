@@ -15,24 +15,6 @@ use Pramnos\User\ProfilePhoto;
 use Pramnos\User\User;
 
 /**
- * A media object whose remote fetch answers with a local image: no network in a test.
- */
-final class LocalFetchMediaObject extends MediaObject
-{
-    public function __construct(private string $bytes)
-    {
-        parent::__construct();
-    }
-
-    protected function fetchRemote(string $url, ?string &$reason, ?int &$status): string|false
-    {
-        $status = 200;
-
-        return $this->bytes;
-    }
-}
-
-/**
  * A profile picture is set, shown, replaced, removed, copied from a provider, and erased.
  *
  * `users.photo` holds a media usage; `avatarurl` — which every API and screen reads — is made
@@ -234,14 +216,17 @@ class ProfilePhotoTest extends BaseTestCase
         $bytes = (string) ob_get_clean();
 
         // Act + Assert — off by default
-        $this->assertFalse(ProfilePhoto::adoptFromProvider($this->user, 'https://provider.example/p.png', new LocalFetchMediaObject($bytes)));
+        $provider = static fn (string $url): string => $bytes;
+        $this->assertFalse(ProfilePhoto::adoptFromProvider($this->user, 'https://provider.example/p.png', $provider));
 
         Settings::setSetting(ProfilePhoto::ADOPT_SETTING, '1', false);
-        $this->assertTrue(ProfilePhoto::adoptFromProvider($this->user, 'https://provider.example/p.png', new LocalFetchMediaObject($bytes)));
+        $this->assertTrue(ProfilePhoto::adoptFromProvider($this->user, 'https://provider.example/p.png', $provider));
         $this->assertGreaterThan(0, (int) $this->user->photo);
 
         // A picture of the user's own is never replaced by the provider's.
-        $this->assertFalse(ProfilePhoto::adoptFromProvider($this->user, 'https://provider.example/p.png', new LocalFetchMediaObject($bytes)));
+        $this->assertFalse(ProfilePhoto::adoptFromProvider($this->user, 'https://provider.example/p.png', $provider));
+        // A provider that answers with nothing copies nothing.
+        $this->assertFalse(ProfilePhoto::adoptFromProvider(new User($this->createTestUser()), 'https://provider.example/p.png', static fn (string $url): bool => false));
     }
 
     /**
@@ -434,5 +419,96 @@ class ProfilePhotoTest extends BaseTestCase
         // Assert
         $this->assertMatchesRegularExpression('#^https?://#', (string) ($export['profile_photo']['url'] ?? ''));
         $this->assertContains('Profile picture', $probe->labels());
+    }
+
+    /** The stored files of the user's picture: its thumb and its original. @return list<string> */
+    private function pictureFiles(User $user): array
+    {
+        $media = (new MediaObject())->loadByUsage((int) $user->photo);
+
+        return [$media->getThumb()->filename, $media->filename];
+    }
+
+    /**
+     * A WebP picture is accepted, and stored — thumb and original — as JPEG.
+     */
+    public function testAWebpPictureIsStoredAsJpeg(): void
+    {
+        // Arrange
+        $file  = tempnam(sys_get_temp_dir(), 'pf-photo') . '.webp';
+        $image = imagecreatetruecolor(500, 300);
+        imagefill($image, 0, 0, imagecolorallocate($image, 20, 120, 220));
+        imagewebp($image, $file);
+        $this->files[] = $file;
+
+        // Act
+        $error = ProfilePhoto::set($this->user, ['name' => 'me.webp', 'type' => 'image/webp', 'tmp_name' => $file, 'error' => UPLOAD_ERR_OK, 'size' => filesize($file)]);
+
+        // Assert
+        $this->assertNull($error);
+        foreach ($this->pictureFiles($this->user) as $stored) {
+            $this->assertSame(IMAGETYPE_JPEG, getimagesize($stored)[2] ?? null, basename($stored) . ' is not a JPEG');
+        }
+        $this->assertSame([ProfilePhoto::SIZE, ProfilePhoto::SIZE], array_slice(getimagesize($this->pictureFiles($this->user)[0]), 0, 2));
+    }
+
+    /**
+     * A transparent PNG becomes a JPEG on white, not on black.
+     */
+    public function testATransparentPictureIsFlattenedOntoWhite(): void
+    {
+        // Arrange — fully transparent
+        $file  = tempnam(sys_get_temp_dir(), 'pf-photo') . '.png';
+        $image = imagecreatetruecolor(300, 300);
+        imagesavealpha($image, true);
+        imagefill($image, 0, 0, imagecolorallocatealpha($image, 0, 0, 0, 127));
+        imagepng($image, $file);
+        $this->files[] = $file;
+
+        // Act
+        ProfilePhoto::set($this->user, ['name' => 'me.png', 'type' => 'image/png', 'tmp_name' => $file, 'error' => UPLOAD_ERR_OK, 'size' => filesize($file)]);
+
+        // Assert — the centre pixel is white
+        $stored = imagecreatefromjpeg($this->pictureFiles($this->user)[0]);
+        $rgb    = imagecolorat($stored, 128, 128);
+        $this->assertGreaterThan(240, ($rgb >> 16) & 0xFF, 'transparency became a dark background');
+    }
+
+    /**
+     * A file that declares a huge image is refused from its header, before it is decoded.
+     *
+     * A few bytes can announce 10000x10000 pixels; decoding that takes the memory announced.
+     */
+    public function testAHugeImageIsRefusedBeforeItIsDecoded(): void
+    {
+        // Arrange — a GIF header declaring 10000 x 10000, and nothing after it
+        $bytes = "GIF89a\x10\x27\x10\x27\x00\x00\x00";
+
+        // Act
+        $file = ProfilePhoto::toJpeg($bytes, $reason);
+
+        // Assert
+        $this->assertNull($file);
+        $this->assertStringContainsString('too large', (string) $reason);
+        $this->assertNull(ProfilePhoto::toJpeg('', $empty));
+        $this->assertNotNull($empty);
+    }
+
+    /**
+     * A header that reads but a body that does not decode is refused, as is an upload with no
+     * file behind it.
+     */
+    public function testAPictureThatCannotBeDecodedIsRefused(): void
+    {
+        // Arrange — a valid 10 x 10 GIF header, and a body cut off
+        $bytes = "GIF89a\x0a\x00\x0a\x00\x00\x00\x00";
+
+        // Act
+        $file = ProfilePhoto::toJpeg($bytes, $reason);
+
+        // Assert
+        $this->assertNull($file);
+        $this->assertSame('The picture could not be read.', $reason);
+        $this->assertNotNull(ProfilePhoto::set($this->user, ['error' => UPLOAD_ERR_OK, 'tmp_name' => '']));
     }
 }
