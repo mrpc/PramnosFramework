@@ -676,4 +676,42 @@ class ProfilePhotoTest extends BaseTestCase
         $this->assertSame(['Your Gravatar picture is now your profile picture.'], $account->messages);
         $this->assertGreaterThan(0, (int) $this->reloaded()->photo);
     }
+
+    /**
+     * A phone photo is turned upright from its EXIF orientation.
+     *
+     * The rotation is asserted on an image whose top-left pixel is marked: orientation 6 (turned
+     * a quarter clockwise to view) moves it to the top right; 8 to the bottom left; 3 to the
+     * bottom right; 2 mirrors it to the top right without turning.
+     */
+    public function testAnImageIsTurnedUprightFromItsOrientation(): void
+    {
+        // Arrange — 40 x 20, with the top-left pixel red
+        $make = static function (): \GdImage {
+            $image = imagecreatetruecolor(40, 20);
+            imagefill($image, 0, 0, imagecolorallocate($image, 0, 0, 0));
+            imagesetpixel($image, 0, 0, imagecolorallocate($image, 255, 0, 0));
+
+            return $image;
+        };
+        $redAt = static fn (\GdImage $image, int $x, int $y): bool => ((imagecolorat($image, $x, $y) >> 16) & 0xFF) > 200;
+
+        // Act
+        $six   = ProfilePhoto::orient($make(), 6);
+        $eight = ProfilePhoto::orient($make(), 8);
+        $three = ProfilePhoto::orient($make(), 3);
+        $two   = ProfilePhoto::orient($make(), 2);
+        $one   = ProfilePhoto::orient($make(), 1);
+
+        // Assert
+        $this->assertSame([20, 40], [imagesx($six), imagesy($six)], 'a quarter turn did not swap the sides');
+        $this->assertTrue($redAt($six, 19, 0), 'orientation 6 is not a quarter turn clockwise');
+        $this->assertTrue($redAt($eight, 0, 39), 'orientation 8 is not a quarter turn anticlockwise');
+        $this->assertTrue($redAt($three, 39, 19), 'orientation 3 is not a half turn');
+        $this->assertTrue($redAt($two, 39, 0), 'orientation 2 is not a mirror');
+        $this->assertTrue($redAt($one, 0, 0), 'an upright image was changed');
+        foreach ([4, 5, 7] as $mirroredTurn) {
+            $this->assertInstanceOf(\GdImage::class, ProfilePhoto::orient($make(), $mirroredTurn));
+        }
+    }
 }

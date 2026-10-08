@@ -298,6 +298,11 @@ final class ProfilePhoto
 
             return null;
         }
+        // A phone writes the pixels as the sensor saw them and the turn in an EXIF tag; a JPEG
+        // re-encoded here would drop the tag and show the picture sideways.
+        if (($info[2] ?? 0) === IMAGETYPE_JPEG) {
+            $source = self::orient($source, self::orientationOf($bytes));
+        }
 
         $width  = imagesx($source);
         $height = imagesy($source);
@@ -319,6 +324,55 @@ final class ProfilePhoto
         }
 
         return $file;
+    }
+
+    /**
+     * The EXIF orientation of a JPEG (1–8), or 1 when it has none or cannot be read.
+     *
+     * Read with the exif extension when PHP has it; without it the picture is stored as the
+     * camera wrote it.
+     */
+    private static function orientationOf(string $jpeg): int
+    {
+        if (!function_exists('exif_read_data')) {
+            return 1;
+        }
+
+        // @codeCoverageIgnoreStart — the test image's PHP has no exif extension
+        $exif = @exif_read_data('data://image/jpeg;base64,' . base64_encode($jpeg));
+
+        return is_array($exif) ? (int) ($exif['Orientation'] ?? 1) : 1;
+        // @codeCoverageIgnoreEnd
+    }
+
+    /**
+     * Turn an image upright from its EXIF orientation: 1 is upright, 2–8 the mirrored and
+     * rotated cases of the specification.
+     */
+    public static function orient(\GdImage $image, int $orientation): \GdImage
+    {
+        switch ($orientation) {
+            case 2:
+                imageflip($image, IMG_FLIP_HORIZONTAL);
+                return $image;
+            case 3:
+                return imagerotate($image, 180, 0) ?: $image;
+            case 4:
+                imageflip($image, IMG_FLIP_VERTICAL);
+                return $image;
+            case 5:
+                imageflip($image, IMG_FLIP_VERTICAL);
+                return imagerotate($image, -90, 0) ?: $image;
+            case 6:
+                return imagerotate($image, -90, 0) ?: $image;
+            case 7:
+                imageflip($image, IMG_FLIP_HORIZONTAL);
+                return imagerotate($image, -90, 0) ?: $image;
+            case 8:
+                return imagerotate($image, 90, 0) ?: $image;
+            default:
+                return $image;
+        }
     }
 
     /**
