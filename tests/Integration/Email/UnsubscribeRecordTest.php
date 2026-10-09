@@ -211,6 +211,10 @@ class UnsubscribeRecordTest extends BaseTestCase
         (new \Pramnos\Framework\Migrations\Auth\CreateUserConsentsTable(
             $this->consentApplication()
         ))->up();
+        // The account is saved and found by its address: the tables it lives in are built, not
+        // assumed, or the test answers for whichever class ran before it.
+        \Pramnos\Framework\Testing\Schema::table('users', $this->db);
+        \Pramnos\Framework\Testing\Schema::table('userdetails', $this->db);
 
         $user = new \Pramnos\User\User();
         $user->username = 'consent_' . bin2hex(random_bytes(4));
