@@ -211,6 +211,12 @@ class TokenResolvingOauth extends Oauth
         return $this->extractJwtId($token);
     }
 
+    /** Built without a constructor, so without the factory that decrypts refresh tokens: none here. */
+    protected function findRefreshTokenRow(string $token): ?array
+    {
+        return null;
+    }
+
     protected function selectTokenRow(string $stored): ?array
     {
         $this->lookups[] = $stored;

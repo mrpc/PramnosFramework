@@ -332,28 +332,40 @@ class OauthControllerIntegrationTest extends TestCase
         $this->assertEquals(405, $response->getStatusCode());
     }
 
-    public function testRevokeMissingToken()
+    /**
+     * A revoke from a caller that names no client is refused before the token is read.
+     *
+     * RFC 7009 §2.1: the client authenticates, and revokes only what was issued to it.
+     */
+    public function testRevokeWithoutAClientIsRefused()
     {
+        // Arrange
         $_SERVER['REQUEST_METHOD'] = 'POST';
         $_POST = [];
-        
+
+        // Act
         $response = $this->controller->revoke();
-        $this->assertInstanceOf(\Pramnos\Http\Response::class, $response);
-        $this->assertStringContainsString('Missing token parameter', $response->getBody());
-        $this->assertEquals(400, $response->getStatusCode());
+
+        // Assert
+        $this->assertStringContainsString('invalid_client', $response->getBody());
+        $this->assertEquals(401, $response->getStatusCode());
     }
 
-    public function testRevokeSuccess()
+    /**
+     * Holding a token is not enough to revoke it: without client authentication nothing is written.
+     */
+    public function testRevokeWithATokenButNoClientWritesNothing()
     {
+        // Arrange
         $_SERVER['REQUEST_METHOD'] = 'POST';
         $_POST['token'] = 'valid-token';
+        $this->queryBuilderMock->expects($this->never())->method('update');
 
-        $this->queryBuilderMock->expects($this->once())->method('update')->with(['status' => 0]);
-
+        // Act
         $response = $this->controller->revoke();
-        $this->assertInstanceOf(\Pramnos\Http\Response::class, $response);
-        $this->assertStringContainsString('{"success":true}', $response->getBody());
-        $this->assertEquals(200, $response->getStatusCode());
+
+        // Assert
+        $this->assertEquals(401, $response->getStatusCode());
     }
 
     public function testIntrospectMethodNotAllowed()

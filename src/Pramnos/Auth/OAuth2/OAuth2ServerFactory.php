@@ -184,6 +184,24 @@ class OAuth2ServerFactory
     }
 
     /**
+     * The id a refresh token is stored under, or null when the value is not one of ours.
+     *
+     * A refresh token is League's encrypted payload, and its row holds the `refresh_token_id`
+     * inside it — so the value a client presents never matches a row as it is.
+     */
+    public function refreshTokenId(string $refreshToken): ?string
+    {
+        try {
+            $payload = json_decode(\Defuse\Crypto\Crypto::decryptWithPassword($refreshToken, $this->encryptionKey), true);
+        } catch (\Throwable) {
+            return null;
+        }
+        $id = is_array($payload) ? ($payload['refresh_token_id'] ?? null) : null;
+
+        return is_string($id) && $id !== '' ? $id : null;
+    }
+
+    /**
      * The token response: the bearer response with an ID token for `openid`.
      *
      * Protected, so an application that shapes its responses differently can override it.

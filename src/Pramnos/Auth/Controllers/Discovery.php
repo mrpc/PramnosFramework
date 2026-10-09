@@ -59,6 +59,7 @@ class Discovery extends Controller
                 'client_secret_basic', 'client_secret_post',
                 'private_key_jwt', 'none',
             ],
+            'token_endpoint_auth_signing_alg_values_supported' => \Pramnos\Auth\OAuth2\JwtAssertion::ALGORITHMS,
             'subject_types_supported'                   => ['public'],
             'id_token_signing_alg_values_supported'     => ['RS256'],
             'userinfo_signing_alg_values_supported'     => ['none'],
@@ -256,7 +257,12 @@ class Discovery extends Controller
             // secret and proves itself with PKCE instead. An MCP client reads this list and
             // the next one before it will start, and gives up if either says no.
             'token_endpoint_auth_methods_supported' => [
-                'client_secret_basic', 'client_secret_post', 'none',
+                'client_secret_basic', 'client_secret_post', 'private_key_jwt', 'none',
+            ],
+            'token_endpoint_auth_signing_alg_values_supported' => \Pramnos\Auth\OAuth2\JwtAssertion::ALGORITHMS,
+            // Revocation takes the same client authentication as the token endpoint.
+            'revocation_endpoint_auth_methods_supported' => [
+                'client_secret_basic', 'client_secret_post', 'private_key_jwt', 'none',
             ],
             'code_challenge_methods_supported'      => ['S256', 'plain'],
             'revocation_endpoint'                   => sURL . 'oauth/revoke',

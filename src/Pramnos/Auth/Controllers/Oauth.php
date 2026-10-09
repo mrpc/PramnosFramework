@@ -520,7 +520,11 @@ class Oauth extends Controller
      * Token revocation endpoint — RFC 7009.
      *
      * POST /oauth/revoke
-     * Parameters: token, token_type_hint (optional)
+     * Parameters: token, token_type_hint (optional); the client authenticates as at the token
+     * endpoint — a secret, an assertion, or a public client's bare `client_id`.
+     *
+     * A client revokes only its own tokens. An access token is revoked alone; a refresh token
+     * with the access token issued beside it, since both belong to the same grant.
      */
     public function revoke(): mixed
     {
@@ -528,29 +532,65 @@ class Oauth extends Controller
             return $this->respondJson(['error' => 'method_not_allowed'], 405);
         }
 
+        $clientId = $this->authenticatedClient();
+        if ($clientId === null) {
+            return $this->respondJson(['error' => 'invalid_client'], 401, ['endpoint' => 'revoke'])
+                ->withHeader('WWW-Authenticate', 'Basic realm="OAuth2"');
+        }
+
         $token = $_POST['token'] ?? '';
-        if ($token === '') {
+        if (!is_string($token) || $token === '') {
             return $this->respondJson(['error' => 'invalid_request', 'error_description' => 'Missing token parameter'], 400);
         }
 
-        // RFC 7009: revocation always answers 200, even for a token that does not
-        // exist, so that the endpoint cannot be used to find out which do.
-        //
-        // The value is resolved the same way introspection resolves it: a token
-        // issued through the League server is a JWT, and what is stored is its
-        // `jti`. Matching literally revoked nothing at all for those — and unlike
-        // introspection, which at least answered `active: false`, this failure was
-        // completely silent, because the endpoint answers 200 either way. A caller
-        // revoking on sign-out had no way to discover it had not worked.
-        $stored = $this->resolveStoredTokenValue($token);
+        // RFC 7009 §2.2: a token that does not exist, or is already revoked, answers 200 — so
+        // the endpoint cannot be used to find out which tokens exist.
+        $row = $this->findTokenWithHint($token, (string) ($_POST['token_type_hint'] ?? ''));
+        if ($row === null || (int) $row['status'] !== 1) {
+            return $this->respondJson(['success' => true]);
+        }
+        // §2.1: the server verifies the token was issued to the client asking.
+        if ((string) ($row['client_id'] ?? '') !== $clientId) {
+            return $this->respondJson([
+                'error'             => 'unauthorized_client',
+                'error_description' => 'The token was not issued to this client.',
+            ], 400, ['endpoint' => 'revoke', 'client_id' => $clientId]);
+        }
 
-        \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
-            ->table('#PREFIX#usertokens')
-            ->where('token_lookup', \Pramnos\User\Token::lookup((string) $stored))
-            ->where('status', 1)
-            ->update(['status' => 0]);
+        $db = \Pramnos\Framework\Factory::getDatabase();
+        if (($row['tokentype'] ?? '') === 'refresh_token') {
+            $this->revokeTokenFamily($db, (int) $row['userid'], (int) ($row['parentToken'] ?? 0) ?: (int) $row['tokenid']);
+        } else {
+            $db->queryBuilder()->table('#PREFIX#usertokens')->where('tokenid', (int) $row['tokenid'])->update(['status' => 0]);
+        }
 
         return $this->respondJson(['success' => true]);
+    }
+
+    /**
+     * The client a revoke request authenticates as, or null.
+     *
+     * A secret in the Basic header or the body, a client assertion (RFC 7523), or — for a public
+     * client, which has no secret to give — its `client_id` alone.
+     */
+    protected function authenticatedClient(): ?string
+    {
+        $assertion = $_POST['client_assertion'] ?? null;
+        if (is_string($assertion)
+            && ($_POST['client_assertion_type'] ?? '') === 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer'
+        ) {
+            $clientId = (string) ($_POST['client_id'] ?? '');
+
+            return $clientId !== '' && $this->validateJwtClientAssertion($assertion, $clientId) !== null ? $clientId : null;
+        }
+
+        $credentials = $this->extractClientCredentials();
+        if ($credentials === null && is_string($_POST['client_id'] ?? null) && $_POST['client_id'] !== '') {
+            $credentials = ['client_id' => $_POST['client_id'], 'client_secret' => null];
+        }
+
+        return $credentials !== null && $this->validateClientCredentials($credentials)
+            ? (string) $credentials['client_id'] : null;
     }
 
     // ── Introspection ─────────────────────────────────────────────────────────
@@ -578,7 +618,7 @@ class Oauth extends Controller
             return $this->respondJson(['error' => 'invalid_request', 'error_description' => 'Missing token parameter'], 400);
         }
 
-        $result = $this->findIntrospectableToken($token);
+        $result = $this->findTokenWithHint($token, (string) ($_POST['token_type_hint'] ?? ''));
 
         if ($result === null) {
             return $this->respondJson(['active' => false]);
@@ -644,6 +684,9 @@ class Oauth extends Controller
      *     session tokens, API tokens, the ones the JWT-assertion path writes —
      *     match here, and looking first keeps them working exactly as before.
      *  2. **The `jti` inside it**, when the value parses as a JWT.
+     *  3. **The `refresh_token_id` inside it**, when it decrypts as one of this server's
+     *     refresh tokens — which are League's encrypted payload, stored by that id.
+     *
      *
      * The signature is not verified, and that is deliberate: the stored row is the
      * authority on whether a token is active, and a `jti` is only useful to
@@ -664,7 +707,36 @@ class Oauth extends Controller
             }
         }
 
-        return $row;
+        return $row ?? $this->findRefreshTokenRow($token);
+    }
+
+    /**
+     * {@see findIntrospectableToken()}, taking the request's `token_type_hint` into account.
+     *
+     * A hint of `refresh_token` decrypts first, sparing the two lookups that cannot match; it is
+     * only a hint (RFC 7009 §2.1), so the others follow when it is wrong.
+     *
+     * @return array<string, mixed>|null
+     */
+    protected function findTokenWithHint(string $token, string $hint): ?array
+    {
+        if ($hint === 'refresh_token') {
+            return $this->findRefreshTokenRow($token) ?? $this->findIntrospectableToken($token);
+        }
+
+        return $this->findIntrospectableToken($token);
+    }
+
+    /**
+     * The row of one of this server's refresh tokens, by the id inside its encrypted payload.
+     *
+     * @return array<string, mixed>|null
+     */
+    protected function findRefreshTokenRow(string $token): ?array
+    {
+        $id = $this->oauth2Factory->refreshTokenId($token);
+
+        return $id !== null ? $this->selectTokenRow($id) : null;
     }
 
     /**

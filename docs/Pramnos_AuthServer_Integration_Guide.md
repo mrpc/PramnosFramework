@@ -266,6 +266,27 @@ An unknown token still answers `{"success": true}`, in the spirit of RFC 7009: a
 endpoint that distinguished a real token from an invented one would tell an
 attacker which of their guesses exist.
 
+**`/oauth/revoke`** (RFC 7009) is for a client that holds a token it no longer needs. The
+client authenticates as it does at the token endpoint — the secret in the Basic header or
+the body, a client assertion, or for a public client its `client_id` alone — and revokes only
+its own tokens:
+
+```
+POST /oauth/revoke
+Authorization: Basic base64(client_id:client_secret)
+
+token=<access or refresh token>&token_type_hint=refresh_token
+
+{ "success": true }
+```
+
+An access token is revoked alone. A refresh token is revoked with the access token issued beside
+it, since both belong to one grant. `token_type_hint` is used to look in the likelier place
+first and is otherwise only a hint. An unknown or already revoked token answers `200` like a
+revoked one; a request without client authentication answers `401 invalid_client`, and a token
+issued to another client `400 unauthorized_client`. `/oauth/introspect` finds refresh tokens
+the same way and reports them `active` until they expire or are revoked.
+
 **`/login/logout`** is for a browser. It reads the session cookie, needs no
 header, and redirects afterwards. `?local=1` clears the session and leaves the
 tokens valid — for "sign out of this browser" without breaking a running mobile

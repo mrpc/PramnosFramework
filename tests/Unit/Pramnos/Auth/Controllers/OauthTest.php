@@ -358,45 +358,257 @@ class OauthTest extends TestCase
         $this->assertEquals('General error test', $data['error_description']);
     }
     
+    /** An application `testkey` / `testsecret`, and the request authenticating as it. */
+    private function revokingClient(int $appId = 1, string $clientId = 'testkey'): void
+    {
+        $this->db->queryBuilder()->table('applications')->insert([
+            'appid' => $appId, 'name' => 'App ' . $appId, 'status' => 1, 'apikey' => $clientId, 'apisecret' => 'testsecret',
+        ]);
+        $_POST['client_id']     = $clientId;
+        $_POST['client_secret'] = 'testsecret';
+    }
+
+    /** A token row for user 55 under application 1. Returns its tokenid. */
+    private function storedToken(string $value, string $type = 'access_token', int $parent = 0, int $appId = 1): int
+    {
+        $this->db->queryBuilder()->table('usertokens')->insert([
+            'userid' => 55, 'applicationid' => $appId, 'tokentype' => $type,
+            ...\Pramnos\User\Token::storageFor($value), 'expires' => time() + 3600, 'status' => 1, 'created' => time(),
+            // NOT NULL with no default in the canonical table.
+            'deviceinfo' => '', 'scope' => '', 'parentToken' => $parent,
+        ]);
+
+        return (int) $this->db->queryBuilder()->table('usertokens')
+            ->where('token_lookup', \Pramnos\User\Token::lookup($value))->value('tokenid');
+    }
+
+    /** Whether a stored token is still active. */
+    private function isActive(string $value): bool
+    {
+        return (int) $this->db->queryBuilder()->table('usertokens')
+            ->where('token_lookup', \Pramnos\User\Token::lookup($value))->value('status') === 1;
+    }
+
+    /** User 55, who owns the stored tokens. */
+    private function tokenOwner(): void
+    {
+        $this->db->queryBuilder()->table('users')->insert(['usertype' => 0, 'sex' => 0, 'birthdate' => 0, 'modified' => 0, 'userid' => 55, 'username' => 'test', 'email' => 'test@test.com', 'active' => 1]);
+    }
+
+    /**
+     * A refresh token as this controller's server would issue it: League's encrypted payload.
+     */
+    private function refreshTokenFor(string $id): string
+    {
+        $factory = (new \ReflectionProperty(\Pramnos\Auth\Controllers\Oauth::class, 'oauth2Factory'))->getValue($this->controller);
+
+        return \Defuse\Crypto\Crypto::encryptWithPassword(json_encode(['refresh_token_id' => $id, 'client_id' => 'testkey']), $factory->getEncryptionKey());
+    }
+
+    /**
+     * An authenticated revoke without a token is a bad request.
+     */
     public function testRevokeWithNoTokenFails(): void
     {
+        // Arrange
         $_SERVER['REQUEST_METHOD'] = 'POST';
-        
+        $this->revokingClient();
+
+        // Act
         $response = $this->controller->revoke();
-        
+
+        // Assert
         $this->assertEquals(400, $response->getStatusCode());
-        $data = json_decode($response->getBody(), true);
-        $this->assertEquals('invalid_request', $data['error']);
+        $this->assertEquals('invalid_request', json_decode($response->getBody(), true)['error']);
     }
-    
+
+    /**
+     * The client the token was issued to revokes it.
+     */
     public function testRevokeValidToken(): void
     {
+        // Arrange
         $_SERVER['REQUEST_METHOD'] = 'POST';
+        $this->revokingClient();
+        $this->tokenOwner();
+        $this->storedToken('some_token');
         $_POST['token'] = 'some_token';
-        
-        $this->db->queryBuilder()->table('users')->insert(['usertype' => 0, 'sex' => 0, 'birthdate' => 0, 'modified' => 0, 'userid' => 55, 'username' => 'test', 'email' => 'test@test.com', 'active' => 1]);
-        $this->db->queryBuilder()->table('usertokens')->insert([
-            'userid' => 55, 'applicationid' => 1, 'tokentype' => 'access_token',
-            ...\Pramnos\User\Token::storageFor((string) 'some_token'), 'expires' => time() + 3600, 'status' => 1, 'created' => time(),
-            // NOT NULL with no default in the canonical table: MySQL gives a TEXT
-            // column none, and every production writer supplies it.
-            'deviceinfo' => '',
-            // NOT NULL with no default in the canonical table: MySQL gives a
-            // TEXT column none, and every production writer supplies these.
-            'scope' => '',
-        ]);
-        
+
+        // Act
         $response = $this->controller->revoke();
-        
+
+        // Assert
         $this->assertEquals(200, $response->getStatusCode());
-        $data = json_decode($response->getBody(), true);
-        $this->assertTrue($data['success']);
-        
-        // Check DB that it was revoked
-        $res = $this->db->queryBuilder()->table('usertokens')->where('token_lookup', \Pramnos\User\Token::lookup((string) 'some_token'))->first();
-        $this->assertEquals(0, $res->fields['status']);
+        $this->assertTrue(json_decode($response->getBody(), true)['success']);
+        $this->assertFalse($this->isActive('some_token'));
     }
-    
+
+    /**
+     * Without client authentication, holding a token is not enough to revoke it.
+     */
+    public function testRevokeWithoutClientAuthenticationIsRefused(): void
+    {
+        // Arrange
+        $_SERVER['REQUEST_METHOD'] = 'POST';
+        $this->revokingClient();
+        $this->tokenOwner();
+        $this->storedToken('some_token');
+        $_POST = ['token' => 'some_token'];
+
+        // Act
+        $response = $this->controller->revoke();
+
+        // Assert
+        $this->assertSame(401, $response->getStatusCode());
+        $this->assertTrue($this->isActive('some_token'));
+    }
+
+    /**
+     * A wrong secret is refused as well.
+     */
+    public function testRevokeWithAWrongSecretIsRefused(): void
+    {
+        // Arrange
+        $_SERVER['REQUEST_METHOD'] = 'POST';
+        $this->revokingClient();
+        $_POST['client_secret'] = 'not-it';
+        $_POST['token']         = 'some_token';
+
+        // Act + Assert
+        $this->assertSame(401, $this->controller->revoke()->getStatusCode());
+    }
+
+    /**
+     * Another client's token is refused, and stays active.
+     */
+    public function testAClientCannotRevokeAnotherClientsToken(): void
+    {
+        // Arrange
+        $_SERVER['REQUEST_METHOD'] = 'POST';
+        $this->db->queryBuilder()->table('applications')->insert(['appid' => 2, 'name' => 'Other', 'status' => 1, 'apikey' => 'otherkey', 'apisecret' => 'x']);
+        $this->revokingClient();
+        $this->tokenOwner();
+        $this->storedToken('theirs', 'access_token', 0, 2);
+        $_POST['token'] = 'theirs';
+
+        // Act
+        $response = $this->controller->revoke();
+
+        // Assert
+        $this->assertSame(400, $response->getStatusCode());
+        $this->assertSame('unauthorized_client', json_decode($response->getBody(), true)['error']);
+        $this->assertTrue($this->isActive('theirs'));
+    }
+
+    /**
+     * A public client — no secret registered — revokes with its client_id alone.
+     */
+    public function testAPublicClientRevokesWithItsIdAlone(): void
+    {
+        // Arrange
+        $_SERVER['REQUEST_METHOD'] = 'POST';
+        $this->db->queryBuilder()->table('applications')->insert(['appid' => 1, 'name' => 'SPA', 'status' => 1, 'apikey' => 'spa', 'apisecret' => '']);
+        $this->tokenOwner();
+        $this->storedToken('spa_token');
+        $_POST = ['client_id' => 'spa', 'token' => 'spa_token'];
+
+        // Act
+        $response = $this->controller->revoke();
+
+        // Assert
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertFalse($this->isActive('spa_token'));
+    }
+
+    /**
+     * A refresh token is found by the id inside it, and revoking it revokes the access token of the same grant.
+     *
+     * It was stored by that id while the lookup used the value as presented, so the answer was
+     * `success` and nothing was revoked.
+     */
+    public function testRevokingARefreshTokenRevokesItsGrant(): void
+    {
+        // Arrange
+        $_SERVER['REQUEST_METHOD'] = 'POST';
+        $this->revokingClient();
+        $this->tokenOwner();
+        $access = $this->storedToken('access-jti');
+        $this->storedToken('rt-1', 'refresh_token', $access);
+        $this->storedToken('unrelated');
+        $_POST['token']           = $this->refreshTokenFor('rt-1');
+        $_POST['token_type_hint'] = 'refresh_token';
+
+        // Act
+        $response = $this->controller->revoke();
+
+        // Assert
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertFalse($this->isActive('rt-1'), 'the refresh token');
+        $this->assertFalse($this->isActive('access-jti'), 'the access token issued with it');
+        $this->assertTrue($this->isActive('unrelated'), 'another grant');
+    }
+
+    /**
+     * Revoking an access token leaves the refresh token of its grant alone.
+     */
+    public function testRevokingAnAccessTokenLeavesItsRefreshToken(): void
+    {
+        // Arrange
+        $_SERVER['REQUEST_METHOD'] = 'POST';
+        $this->revokingClient();
+        $this->tokenOwner();
+        $access = $this->storedToken('access-jti');
+        $this->storedToken('rt-1', 'refresh_token', $access);
+        $_POST['token'] = 'access-jti';
+
+        // Act
+        $this->controller->revoke();
+
+        // Assert
+        $this->assertFalse($this->isActive('access-jti'));
+        $this->assertTrue($this->isActive('rt-1'));
+    }
+
+    /**
+     * A wrong hint is only a hint: an access token sent as `refresh_token` is still found.
+     */
+    public function testAWrongHintStillFindsTheToken(): void
+    {
+        // Arrange
+        $_SERVER['REQUEST_METHOD'] = 'POST';
+        $this->revokingClient();
+        $this->tokenOwner();
+        $this->storedToken('some_token');
+        $_POST['token']           = 'some_token';
+        $_POST['token_type_hint'] = 'refresh_token';
+
+        // Act
+        $this->controller->revoke();
+
+        // Assert
+        $this->assertFalse($this->isActive('some_token'));
+    }
+
+    /**
+     * Introspection sees a refresh token as active; it answered inactive for every one.
+     */
+    public function testARefreshTokenIntrospectsAsActive(): void
+    {
+        // Arrange
+        $_SERVER['REQUEST_METHOD'] = 'POST';
+        $this->revokingClient();
+        $this->tokenOwner();
+        $this->storedToken('rt-2', 'refresh_token');
+        $_POST['token'] = $this->refreshTokenFor('rt-2');
+
+        // Act
+        $body = json_decode((string) $this->controller->introspect()->getBody(), true);
+
+        // Assert
+        $this->assertTrue($body['active']);
+        $this->assertSame('testkey', $body['client_id']);
+    }
+
     public function testIntrospectWithoutAuthFails(): void
     {
         $_SERVER['REQUEST_METHOD'] = 'POST';
@@ -553,13 +765,20 @@ class OauthTest extends TestCase
         $this->assertEquals(405, $response->getStatusCode());
     }
 
+    /**
+     * RFC 7009: an unknown token answers 200, so the endpoint does not reveal which tokens exist.
+     */
     public function testRevokeUnknownTokenReturnsSuccess(): void
     {
-        // RFC 7009: even unknown tokens return 200
+        // Arrange
         $_SERVER['REQUEST_METHOD'] = 'POST';
+        $this->revokingClient();
         $_POST['token'] = 'nonexistent_token_xyz';
 
+        // Act
         $response = $this->controller->revoke();
+
+        // Assert
         $this->assertEquals(200, $response->getStatusCode());
         $this->assertTrue(json_decode($response->getBody(), true)['success']);
     }

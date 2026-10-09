@@ -3079,11 +3079,12 @@ CSS;
                     'tags'        => ['OAuth2'],
                     'operationId' => 'oauthRevoke',
                     'summary'     => 'Revoke',
-                    'description' => 'Token revocation (RFC 7009); form-encoded.',
-                    'requestBody' => $formToken(['token' => ['type' => 'string']], ['token']),
+                    'description' => 'Token revocation (RFC 7009); form-encoded. The client authenticates as at the token endpoint, and revokes only its own tokens.',
+                    'requestBody' => $formToken(['token' => ['type' => 'string'], 'token_type_hint' => ['type' => 'string']], ['token']),
                     'responses'   => [
                         '200' => $jsonResponse('Token revoked', ['success' => ['type' => 'boolean']]),
-                        '400' => ['description' => 'invalid_request'],
+                        '400' => ['description' => 'invalid_request, or unauthorized_client for another client\'s token'],
+                        '401' => ['description' => 'invalid_client'],
                     ],
                 ],
             ];
