@@ -3110,21 +3110,8 @@ CSS;
                 ],
             ];
 
-            // Capability sync IS an API-layer endpoint (under /api/<version>) — no
-            // server override.
-            $paths['/capabilities/sync'] = [
-                'post' => [
-                    'tags'        => ['Capabilities'],
-                    'operationId' => 'capabilitiesSync',
-                    'summary'     => 'Sync',
-                    'description' => 'Sync OAuth client capabilities.',
-                    'responses'   => [
-                        '200' => $jsonResponse('Capabilities synced'),
-                        '401' => ['description' => 'unauthorized'],
-                        '405' => ['description' => 'method_not_allowed'],
-                    ],
-                ],
-            ];
+            // The capabilities and permissions endpoints are server-to-server plumbing under
+            // /api/internal, outside the public versioned API — not documented here.
         }
 
         $overrides = [
@@ -3339,11 +3326,45 @@ $router->group(
 {{ routes }}
     }
 );
-
+{{ internal }}
 return $router->dispatch($newRequest);
 ROUTES;
 
-        $this->writeFile('src/Api/routes.php', str_replace('{{ routes }}', $routeBlock, $routesStub));
+        $internal = '';
+        if (in_array('authserver', $enabledFeatures, true)) {
+            $controllers = '\\' . $namespace . '\\Api\\Controllers\\';
+            $internal = <<<INTERNAL
+
+/*
+ * Server-to-server endpoints for the applications this server already trusts, at the paths the
+ * AuthServer Integration Guide publishes. Outside the version prefix: they are plumbing, not the
+ * public API. Both authenticate with the calling application's own client credentials.
+ */
+\$router->group(
+    ['prefix' => '/internal'],
+    function (\\Pramnos\\Routing\\Router \$r): void {
+        // An application declares its resources, scopes and condition keys. POST too, for a CI
+        // runner without PUT; the sync is idempotent.
+        \$r->put('/clients/{clientId}/capabilities', function (\$clientId) {
+            return (new {$controllers}Capabilities(\$this))->sync(\$clientId);
+        });
+        \$r->post('/clients/{clientId}/capabilities', function (\$clientId) {
+            return (new {$controllers}Capabilities(\$this))->sync(\$clientId);
+        });
+        // An application asks what a user may do in it.
+        \$r->get('/permissions', function () {
+            return (new {$controllers}InternalPermissions(\$this))->index();
+        });
+    }
+);
+
+INTERNAL;
+        }
+
+        $this->writeFile(
+            'src/Api/routes.php',
+            str_replace(['{{ routes }}', '{{ internal }}'], [$routeBlock, $internal], $routesStub)
+        );
 
         $apiClass = <<<PHP
 <?php
@@ -3612,18 +3633,13 @@ PHP;
                 '\\Pramnos\\Auth\\Controllers\\Capabilities',
                 'Capabilities API — OAuth client capability sync.'
             );
-            $cap = $fqcn('Capabilities');
-
-            if ($lines !== []) {
-                $lines[] = "";
-            }
-            $lines[] = "        // OAuth client capability sync";
-            $lines[] = "        \$r->post('/capabilities/sync', function () {";
-            $lines[] = "            return (new {$cap}(\$this))->sync();";
-            $lines[] = "        });";
-            $lines[] = "        \$r->post('/capabilities/sync/{clientId}', function (\$clientId) {";
-            $lines[] = "            return (new {$cap}(\$this))->sync(\$clientId);";
-            $lines[] = "        });";
+            // Routed outside the version prefix — see scaffoldRestApi().
+            $this->writeApiWrapper(
+                $namespace,
+                'InternalPermissions',
+                '\\Pramnos\\Auth\\Controllers\\InternalPermissions',
+                'Internal permissions API — what a user may do in the calling application.'
+            );
         }
 
         return implode("\n", $lines);

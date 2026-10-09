@@ -441,7 +441,15 @@ class InitCommandUnitTest extends TestCase
         $this->assertStringContainsString("\$r->get('/me/tokens'", $routes);
         $this->assertStringContainsString("\$r->delete('/me/tokens/{tokenid}'", $routes);
         $this->assertStringContainsString("\$r->get('/session/info'", $routes);
-        $this->assertStringContainsString("\$r->post('/capabilities/sync'", $routes);
+        // The internal endpoints at the paths the integration guide publishes, outside the version prefix.
+        $this->assertStringContainsString("['prefix' => '/internal']", $routes);
+        $this->assertStringContainsString("\$r->put('/clients/{clientId}/capabilities'", $routes);
+        $this->assertStringContainsString("\$r->post('/clients/{clientId}/capabilities'", $routes);
+        $this->assertStringContainsString("\$r->get('/permissions'", $routes);
+        $this->assertStringContainsString('TestApp\Api\Controllers\InternalPermissions', $routes);
+        $this->assertStringNotContainsString('/capabilities/sync', $routes, 'a second, unpublished sync path');
+        $this->assertStringContainsString('class InternalPermissions extends \Pramnos\Auth\Controllers\InternalPermissions',
+            file_get_contents("$ctrlDir/InternalPermissions.php"));
         $this->assertStringContainsString('TestApp\Api\Controllers\Me', $routes,
             'routes target the app Api\\Controllers namespace explicitly');
         $lint = shell_exec(PHP_BINARY . ' -l ' . escapeshellarg($this->tmpDir . '/src/Api/routes.php') . ' 2>&1');
@@ -453,7 +461,8 @@ class InitCommandUnitTest extends TestCase
         $this->assertArrayHasKey('/me', $overrides['paths']);
         $this->assertArrayHasKey('/session/info', $overrides['paths']);
         $this->assertArrayHasKey('/account/login', $overrides['paths']);
-        $this->assertArrayHasKey('/capabilities/sync', $overrides['paths']);
+        // Internal plumbing stays out of the public API document.
+        $this->assertArrayNotHasKey('/capabilities/sync', $overrides['paths']);
         // OAuth endpoints ARE documented, but with a path-level server override to
         // the site ROOT (they live on the web front controller, not the API base).
         $this->assertArrayHasKey('/oauth/token', $overrides['paths']);

@@ -589,7 +589,7 @@ class ProjectResyncTest extends TestCase
         // Assert
         $ov = json_decode($this->read('src/Api/openapi-overrides.json'), true);
         $this->assertArrayHasKey('/me', $ov['paths'], 'framework endpoints injected');
-        $this->assertArrayHasKey('/capabilities/sync', $ov['paths']);
+        $this->assertArrayHasKey('/account/login', $ov['paths']);
         $this->assertArrayHasKey('/widgets', $ov['paths'], 'user-added paths are preserved');
         $this->assertArrayHasKey('OAuth2', $ov['components']['securitySchemes']);
     }
