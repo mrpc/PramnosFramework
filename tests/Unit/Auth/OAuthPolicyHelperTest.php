@@ -116,20 +116,20 @@ class OAuthPolicyHelperTest extends TestCase
     }
 
     /**
-     * The 'password' grant must NOT be included by default.
+     * The 'password' grant is a default, so an application using it keeps working.
      *
-     * The Resource Owner Password Credentials grant is deprecated by RFC 9126
-     * (OAuth 2.1) due to security concerns. It must not be granted to clients
-     * without explicit opt-in.
+     * It is deprecated by OAuth 2.1, and the grant policy is now checked for every grant: left
+     * out of the defaults, every application that signs users in with it — and has never had a
+     * policy row — would be refused on the upgrade. An application with rows uses it only with one.
      */
-    public function testGetDefaultAllowedGrantTypesExcludesPasswordGrant(): void
+    public function testGetDefaultAllowedGrantTypesIncludesPasswordGrant(): void
     {
         // Act
         $types = OAuthPolicyHelper::getDefaultAllowedGrantTypes();
 
         // Assert
-        $this->assertNotContains('password', $types,
-            "'password' grant (deprecated in OAuth 2.1) must not be in the default list");
+        $this->assertContains('password', $types);
+        $this->assertNotContains('jwt_bearer', $types, 'a grant that issues for any user is never a default');
     }
 
     // -------------------------------------------------------------------------

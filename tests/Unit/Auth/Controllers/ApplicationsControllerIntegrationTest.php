@@ -226,6 +226,10 @@ class ApplicationsControllerIntegrationTest extends BaseTestCase
         $mockResult->fields = ['appid' => 1, 'name' => 'Existing App Edit'];
         
         $this->queryBuilderMock->method('first')->willReturn($mockResult);
+        // No policy tables: the Access & limits tab shows the defaults.
+        $schema = $this->createMock(\Pramnos\Database\SchemaBuilder::class);
+        $schema->method('hasTable')->willReturn(false);
+        $this->dbMock->method('schema')->willReturn($schema);
 
         ob_start();
         $_GET['_option'] = 1;

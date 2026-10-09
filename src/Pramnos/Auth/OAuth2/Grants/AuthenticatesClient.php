@@ -9,22 +9,18 @@ use League\OAuth2\Server\Exception\OAuthServerException;
 use Psr\Http\Message\ServerRequestInterface;
 
 /**
- * Client authentication for this framework's own grants, and the per-application grant policy.
+ * Client authentication for this framework's own grants.
  *
  * League authenticates with a secret only. The token endpoint also accepts a client assertion
  * (`private_key_jwt`, RFC 7523 §2.2), so a client that authenticates that way for
- * `client_credentials` can do so for these grants as well. Then the application must be allowed
- * the grant — {@see \Pramnos\Auth\OAuth2\GrantPolicy}.
+ * `client_credentials` can do so for these grants as well.
  */
 trait AuthenticatesClient
 {
-    /** The grant's name in the policy table. */
-    abstract protected function policyName(): string;
-
     /**
-     * The authenticated client, allowed this grant.
+     * The authenticated client: by its secret, or by a client assertion.
      *
-     * @throws OAuthServerException invalid_client, or unauthorized_client for a grant it is not allowed
+     * @throws OAuthServerException invalid_client
      */
     protected function validateClient(ServerRequestInterface $request)
     {
@@ -47,13 +43,10 @@ trait AuthenticatesClient
             }
         } else {
             $client = parent::validateClient($request);
-            $app    = $this->application((string) $client->getIdentifier());
         }
 
-        if (!\Pramnos\Auth\OAuth2\GrantPolicy::allows((int) $app->appid, $this->policyName())) {
-            throw new OAuthServerException('This client is not allowed the ' . $this->policyName() . ' grant.', 10, 'unauthorized_client', 400);
-        }
-
+        // The grant policy is checked once, for every grant, before this runs — see
+        // Oauth::token() and ClientPolicy.
         return $client;
     }
 

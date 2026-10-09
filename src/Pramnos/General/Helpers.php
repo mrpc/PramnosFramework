@@ -1389,4 +1389,40 @@ class Helpers
         return filter_var($ip, FILTER_VALIDATE_IP) !== false;
     }
 
+    /**
+     * Whether an address is the given address, or inside the given CIDR range.
+     *
+     * IPv4 and IPv6, each against its own family only: `10.0.0.1` is never inside an IPv6
+     * range. An invalid address or range matches nothing.
+     *
+     * @param string $ip    The address to test
+     * @param string $range An address, or a range such as `10.0.0.0/8` or `2001:db8::/32`
+     */
+    public static function ipInRange(string $ip, string $range): bool
+    {
+        $range = trim($range);
+        [$network, $prefix] = str_contains($range, '/') ? explode('/', $range, 2) : [$range, null];
+        $address = @inet_pton(trim($ip));
+        $base    = @inet_pton($network);
+        if ($address === false || $base === false || strlen($address) !== strlen($base)) {
+            return false;
+        }
+
+        $bits = $prefix === null ? strlen($base) * 8 : (int) $prefix;
+        if ($prefix !== null && (!ctype_digit($prefix) || $bits > strlen($base) * 8)) {
+            return false;
+        }
+        $bytes = intdiv($bits, 8);
+        if (substr($address, 0, $bytes) !== substr($base, 0, $bytes)) {
+            return false;
+        }
+        $rest = $bits % 8;
+        if ($rest === 0) {
+            return true;
+        }
+        $mask = 0xFF << (8 - $rest) & 0xFF;
+
+        return (ord($address[$bytes]) & $mask) === (ord($base[$bytes]) & $mask);
+    }
+
 }

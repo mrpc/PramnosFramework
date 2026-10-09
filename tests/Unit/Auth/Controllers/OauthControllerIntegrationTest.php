@@ -108,6 +108,10 @@ class OauthControllerIntegrationTest extends TestCase
         // Mock Database
         $this->dbMock = $this->createMock(Database::class);
         $this->dbMock->method('queryBuilder')->willReturn($this->queryBuilderMock);
+        // No policy tables: every application has the defaults.
+        $schema = $this->createMock(\Pramnos\Database\SchemaBuilder::class);
+        $schema->method('hasTable')->willReturn(false);
+        $this->dbMock->method('schema')->willReturn($schema);
 
         // Inject Database via reference
         $dbRef = $this->dbMock;
@@ -411,9 +415,11 @@ class OauthControllerIntegrationTest extends TestCase
         $mockResult->numRows = 1;
         $mockResult->fields = ['token' => 'valid-token', 'client_id' => '123', 'status' => 1, 'expires' => time() + 3600, 'scope' => 'read', 'userid' => 1, 'username' => 'testuser'];
 
-        // Two rows are read in order: the application, so the presented secret can
-        // be compared against the stored one, and then the token being introspected.
+        // Three rows are read in order: the application, so the presented secret can
+        // be compared against the stored one; the application again, for what its policy
+        // allows; and then the token being introspected.
         $this->queryBuilderMock->method('first')->willReturnOnConsecutiveCalls(
+            $this->applicationRow('secret'),
             $this->applicationRow('secret'),
             $mockResult
         );

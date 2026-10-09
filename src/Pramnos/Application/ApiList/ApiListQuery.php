@@ -51,6 +51,10 @@ final class ApiListQuery
         $page = 0, $itemsPerPage = 10, $debug = false, $returnAsModels = false, $useGetData = false,
         $customGetListMethod = false, $addedfields = false, $format = ''
     ): array {
+        // The calling application's page sizes: everything becomes the first page where it
+        // enforces pagination, and no page is larger than its maximum.
+        [$page, $itemsPerPage] = \Pramnos\Auth\ApplicationSettings::paginate((int) $page, (int) $itemsPerPage);
+
         // Handle unified search parameter
         $globalSearch = '';
         $fieldSearches = array();

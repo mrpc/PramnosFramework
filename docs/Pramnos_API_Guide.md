@@ -500,6 +500,14 @@ public function index()
 }
 ```
 
+### The calling application's page sizes
+
+A list built on `ApiListQuery` (`getApiList()`, `ApiCrudController`) follows the page sizes of the
+application whose API key made the request — its **Access & limits** tab. Where pagination is
+enforced, `page=0` (every row) becomes the first page at the default size; no page is larger than
+the maximum. The response's `itemsperpage` says which size was used. See
+[Access and limits](Pramnos_AuthServer_Integration_Guide.md#access-and-limits).
+
 ## Sorting, filtering and field selection
 
 The list engine assembles its SQL through `Application\ApiList\ApiListSqlBuilder`, and two of
@@ -863,8 +871,15 @@ plenty of endpoints use the word for something else (`{"status":"ok"}`).
 `Api::exec()` automatically runs:
 
 ```
-CorsMiddleware → JsonResponseMiddleware → ApiAuthMiddleware → _executeCore()
+CorsMiddleware → JsonResponseMiddleware → ApiAuthMiddleware → ApplicationPolicyMiddleware → _executeCore()
 ```
+
+`ApplicationPolicyMiddleware` applies the calling application's limits — HTTPS, its IP lock, its
+browser origins and its rate limit — once `ApiAuthMiddleware` has named it from the API key. A
+request with no application (the site's own key, a signed-in page, a public path) passes it.
+Every answer to an application carries `X-RateLimit-Limit` and `X-RateLimit-Remaining`; over the
+limit it is `429` with `Retry-After`. See
+[Access and limits](Pramnos_AuthServer_Integration_Guide.md#access-and-limits).
 
 Configure CORS via `app.php`:
 

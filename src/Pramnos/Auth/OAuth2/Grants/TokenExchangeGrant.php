@@ -39,11 +39,6 @@ class TokenExchangeGrant extends AbstractGrant
         return [$this->getIdentifier(), 'exchange_token'];
     }
 
-    protected function policyName(): string
-    {
-        return 'exchange_token';
-    }
-
     /**
      * {@inheritdoc}
      */

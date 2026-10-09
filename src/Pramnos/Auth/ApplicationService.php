@@ -185,6 +185,90 @@ class ApplicationService
     }
 
     /**
+     * What an application may do and how much: for its administration screen.
+     *
+     * Each list is what applies now — the application's own rows, or the defaults when it has
+     * none — and the `*_default` flags say which, so a screen can show the effective state.
+     *
+     * @return array{grants: list<string>, grants_default: bool, methods: list<string>,
+     *               methods_default: bool, settings: array<string, mixed>}
+     */
+    public function policy(int $appId): array
+    {
+        $public = $this->isPublic($appId);
+
+        return [
+            'grants'          => \Pramnos\Auth\OAuth2\GrantPolicy::effective($appId),
+            'grants_default'  => !\Pramnos\Auth\OAuth2\GrantPolicy::hasRows($appId),
+            'methods'         => \Pramnos\Auth\OAuth2\ClientPolicy::effectiveMethods($appId, $public),
+            'methods_default' => !\Pramnos\Auth\OAuth2\ClientPolicy::hasMethodRows($appId),
+            'settings'        => ApplicationSettings::for($appId),
+        ];
+    }
+
+    /**
+     * Save an application's grants, authentication methods and limits from its form.
+     *
+     * Grants and methods are `grants[]` and `auth_methods[]`. A selection equal to the defaults
+     * leaves an application without rows of its own, so it follows the defaults when they
+     * change; anything else is stored exactly, an empty selection included. The limits are the
+     * keys of {@see ApplicationSettings::DEFAULTS}. Nothing is saved when anything is refused.
+     *
+     * @param array<string, mixed> $input The form, as posted
+     * @return list<string> What is wrong
+     */
+    public function updatePolicy(int $appId, array $input): array
+    {
+        if (!$this->exists($appId)) {
+            return ['That record no longer exists.'];
+        }
+        $grants  = array_values(array_map('strval', (array) ($input['grants'] ?? [])));
+        $methods = array_values(array_map('strval', (array) ($input['auth_methods'] ?? [])));
+        $known   = [
+            'grants'  => array_column(OAuthPolicyHelper::getGrantTypes(), 'method'),
+            'methods' => array_column(OAuthPolicyHelper::getAuthenticationMethods(), 'method'),
+        ];
+        $errors = [];
+        foreach (array_diff($grants, $known['grants']) as $unknown) {
+            $errors[] = "\"{$unknown}\" is not a grant type.";
+        }
+        foreach (array_diff($methods, $known['methods']) as $unknown) {
+            $errors[] = "\"{$unknown}\" is not an authentication method.";
+        }
+        if ($errors !== []) {
+            return $errors;
+        }
+
+        $errors = ApplicationSettings::save($appId, $input);
+        if ($errors !== []) {
+            return $errors;
+        }
+
+        $sameSet = static fn (array $a, array $b): bool => array_diff($a, $b) === [] && array_diff($b, $a) === [];
+        if ($sameSet($grants, OAuthPolicyHelper::getDefaultAllowedGrantTypes())) {
+            \Pramnos\Auth\OAuth2\GrantPolicy::useDefaults($appId);
+        } else {
+            \Pramnos\Auth\OAuth2\GrantPolicy::setGrants($appId, $grants);
+        }
+        $defaultMethods = [...OAuthPolicyHelper::getDefaultAllowedAuthMethods(), ...($this->isPublic($appId) ? ['none'] : [])];
+        if ($sameSet($methods, $defaultMethods)) {
+            \Pramnos\Auth\OAuth2\ClientPolicy::useDefaultMethods($appId);
+        } else {
+            \Pramnos\Auth\OAuth2\ClientPolicy::setMethods($appId, $methods);
+        }
+
+        return [];
+    }
+
+    /** Whether an application has no secret — a public client. */
+    private function isPublic(int $appId): bool
+    {
+        $secret = $this->db()->queryBuilder()->table('#PREFIX#applications')->where('appid', $appId)->value('apisecret');
+
+        return trim((string) $secret) === '';
+    }
+
+    /**
      * Issue a new client secret, returning it once.
      *
      * Existing tokens stay valid until they expire: they do not depend on the secret.

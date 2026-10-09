@@ -6,6 +6,8 @@
  *   $this->application — app row array (null when creating)
  *   $this->message     — success flash (string)
  *   $this->error       — error flash (string)
+ *   $this->policy      — what the application may do and how much: ApplicationService::policy()
+ *   $this->grantTypes, $this->authMethods — the choices: OAuthPolicyHelper
  */
 $app   = $this->application ?? [];
 $isNew = empty($app['appid']);
@@ -64,6 +66,7 @@ $inp = 'width:100%;padding:8px;border:1px solid #ccc;border-radius:4px;box-sizin
             <button type="button" class="app-plain-tab active" data-tab="app-plain-basic" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:600;border-bottom:2px solid #0d6efd;margin-bottom:-2px;color:#0d6efd">Basic</button>
             <button type="button" class="app-plain-tab" data-tab="app-plain-org" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-size:13px;border-bottom:2px solid transparent;margin-bottom:-2px;color:#666">Organisation</button>
             <button type="button" class="app-plain-tab" data-tab="app-plain-oauth" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-size:13px;border-bottom:2px solid transparent;margin-bottom:-2px;color:#666">OAuth2 / API</button>
+            <?php if (!$isNew): ?><button type="button" class="app-plain-tab" data-tab="app-plain-access" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-size:13px;border-bottom:2px solid transparent;margin-bottom:-2px;color:#666">Access &amp; limits</button><?php endif; ?>
             <button type="button" class="app-plain-tab" data-tab="app-plain-legal" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-size:13px;border-bottom:2px solid transparent;margin-bottom:-2px;color:#666">Legal</button>
         </div>
 
@@ -205,6 +208,88 @@ $inp = 'width:100%;padding:8px;border:1px solid #ccc;border-radius:4px;box-sizin
                 </div>
             </div>
         </div>
+
+            <!-- Access & limits: what the application may do, and how much -->
+            <?php if (!$isNew): $policy = $this->policy ?? ['grants' => [], 'grants_default' => true, 'methods' => [], 'methods_default' => true, 'settings' => \Pramnos\Auth\ApplicationSettings::DEFAULTS]; $limits = $policy['settings']; ?>
+        <div id="app-plain-access" class="app-plain-pane" style="display:none">
+                <input type="hidden" name="policy_submitted" value="1">
+                <div class="card" style="border:1px solid #ddd;border-radius:4px;padding:16px;margin-bottom:16px">
+                    <h4 style="margin:0 0 4px;font-size:14px">Grant types</h4>
+                    <p style="color:#888;font-size:11px;margin:0 0 8px">How this application may obtain tokens. Refused at the token endpoint with <code>unauthorized_client</code> otherwise.<?php if ($policy['grants_default']): ?> This application follows the server's defaults; saving a different selection gives it its own.<?php endif; ?></p>
+                    <?php foreach (($this->grantTypes ?? []) as $choice): $choiceId = 'grants-' . $choice['method']; ?>
+                    <div style="margin-bottom:4px"><input type="checkbox" name="grants[]" id="<?php echo htmlspecialchars($choiceId); ?>" value="<?php echo htmlspecialchars($choice['method']); ?>"  <?php echo in_array($choice['method'], $policy['grants'], true) ? 'checked' : ''; ?>> <label for="<?php echo htmlspecialchars($choiceId); ?>"><strong><?php echo htmlspecialchars($choice['name']); ?></strong> — <?php echo htmlspecialchars($choice['description']); ?></label></div>
+                    <?php endforeach; ?>
+                </div>
+                <div class="card" style="border:1px solid #ddd;border-radius:4px;padding:16px;margin-bottom:16px">
+                    <h4 style="margin:0 0 4px;font-size:14px">Client authentication</h4>
+                    <p style="color:#888;font-size:11px;margin:0 0 8px">How this application may prove itself at the token, revocation and introspection endpoints.<?php if ($policy['methods_default']): ?> This application follows the server's defaults; saving a different selection gives it its own.<?php endif; ?></p>
+                    <?php foreach (($this->authMethods ?? []) as $choice): $choiceId = 'auth_methods-' . $choice['method']; ?>
+                    <div style="margin-bottom:4px"><input type="checkbox" name="auth_methods[]" id="<?php echo htmlspecialchars($choiceId); ?>" value="<?php echo htmlspecialchars($choice['method']); ?>"  <?php echo in_array($choice['method'], $policy['methods'], true) ? 'checked' : ''; ?>> <label for="<?php echo htmlspecialchars($choiceId); ?>"><strong><?php echo htmlspecialchars($choice['name']); ?></strong> — <?php echo htmlspecialchars($choice['description']); ?></label></div>
+                    <?php endforeach; ?>
+                </div>
+                <div class="card" style="border:1px solid #ddd;border-radius:4px;padding:16px;margin-bottom:16px">
+                    <h4 style="margin:0 0 4px;font-size:14px">Rate limit</h4>
+                    <p style="color:#888;font-size:11px;margin:0 0 8px">A burst of requests at once, then a steady rate. A request over the limit is answered <code>429</code> with <code>Retry-After</code>.</p>
+                    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
+                    <div>
+                        <label style="display:block;font-weight:600;margin-bottom:4px;font-size:13px" for="rate_limit_requests">Requests per window</label>
+                        <input type="number" min="1" name="rate_limit_requests" id="rate_limit_requests" style="<?php echo $inp; ?>" value="<?php echo (int) $limits['rate_limit_requests']; ?>">
+                    </div>
+                    <div>
+                        <label style="display:block;font-weight:600;margin-bottom:4px;font-size:13px" for="rate_limit_window_seconds">Window (seconds)</label>
+                        <input type="number" min="1" name="rate_limit_window_seconds" id="rate_limit_window_seconds" style="<?php echo $inp; ?>" value="<?php echo (int) $limits['rate_limit_window_seconds']; ?>">
+                    </div>
+                    <div>
+                        <label style="display:block;font-weight:600;margin-bottom:4px;font-size:13px" for="rate_limit_burst">Burst</label>
+                        <input type="number" min="0" name="rate_limit_burst" id="rate_limit_burst" style="<?php echo $inp; ?>" value="<?php echo (int) $limits['rate_limit_burst']; ?>">
+                    </div>
+                    </div>
+                </div>
+                <div class="card" style="border:1px solid #ddd;border-radius:4px;padding:16px;margin-bottom:16px">
+                    <h4 style="margin:0 0 4px;font-size:14px">Pagination</h4>
+                    <p style="color:#888;font-size:11px;margin:0 0 8px">For the API's list endpoints. Enforced, a request for every row gets the first page at the default size; no page is ever larger than the maximum.</p>
+                    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
+                    <div style="grid-column:span 3"><div style="margin-bottom:4px"><input type="checkbox" name="enforce_pagination" id="enforce_pagination" value="1"  <?php echo $limits['enforce_pagination'] ? 'checked' : ''; ?>> <label for="enforce_pagination">Enforce pagination</label></div></div>
+                    <div>
+                        <label style="display:block;font-weight:600;margin-bottom:4px;font-size:13px" for="default_page_size">Default page size</label>
+                        <input type="number" min="1" name="default_page_size" id="default_page_size" style="<?php echo $inp; ?>" value="<?php echo (int) $limits['default_page_size']; ?>">
+                    </div>
+                    <div>
+                        <label style="display:block;font-weight:600;margin-bottom:4px;font-size:13px" for="max_page_size">Maximum page size</label>
+                        <input type="number" min="1" name="max_page_size" id="max_page_size" style="<?php echo $inp; ?>" value="<?php echo (int) $limits['max_page_size']; ?>">
+                    </div>
+                    </div>
+                </div>
+                <div class="card" style="border:1px solid #ddd;border-radius:4px;padding:16px;margin-bottom:16px">
+                    <h4 style="margin:0 0 4px;font-size:14px">Network</h4>
+                    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
+                    <div style="grid-column:span 3"><div style="margin-bottom:4px"><input type="checkbox" name="require_https" id="require_https" value="1"  <?php echo $limits['require_https'] ? 'checked' : ''; ?>> <label for="require_https">Require HTTPS (requests from this machine are exempt)</label></div></div>
+                    <div style="grid-column:span 3"><div style="margin-bottom:4px"><input type="checkbox" name="ip_lock_enabled" id="ip_lock_enabled" value="1"  <?php echo $limits['ip_lock_enabled'] ? 'checked' : ''; ?>> <label for="ip_lock_enabled">Accept requests only from the allowed addresses</label></div></div>
+                    <div style="grid-column:span 3">
+                        <label style="display:block;font-weight:600;margin-bottom:4px;font-size:13px" for="allowed_ips">Allowed addresses</label>
+                        <textarea name="allowed_ips" id="allowed_ips" rows="3" style="<?php echo $inp; ?>;font-family:monospace" placeholder="203.0.113.10&#10;10.0.0.0/8"><?php echo htmlspecialchars(implode("\n", $limits['allowed_ips'])); ?></textarea>
+                        <p style="color:#888;font-size:11px;margin:0 0 8px">One address or range per line. Used when the lock above is on.</p>
+                    </div>
+                    <div style="grid-column:span 3">
+                        <label style="display:block;font-weight:600;margin-bottom:4px;font-size:13px" for="blocked_ips">Blocked addresses</label>
+                        <textarea name="blocked_ips" id="blocked_ips" rows="3" style="<?php echo $inp; ?>;font-family:monospace" placeholder="198.51.100.0/24"><?php echo htmlspecialchars(implode("\n", $limits['blocked_ips'])); ?></textarea>
+                        <p style="color:#888;font-size:11px;margin:0 0 8px">Always refused, lock or not.</p>
+                    </div>
+                    </div>
+                </div>
+                <div class="card" style="border:1px solid #ddd;border-radius:4px;padding:16px;margin-bottom:16px">
+                    <h4 style="margin:0 0 4px;font-size:14px">Browser origins (CORS)</h4>
+                    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
+                    <div style="grid-column:span 3"><div style="margin-bottom:4px"><input type="checkbox" name="cors_enabled" id="cors_enabled" value="1"  <?php echo $limits['cors_enabled'] ? 'checked' : ''; ?>> <label for="cors_enabled">Accept browser requests only from these origins</label></div></div>
+                    <div style="grid-column:span 3">
+                        <label style="display:block;font-weight:600;margin-bottom:4px;font-size:13px" for="cors_origins">Allowed origins</label>
+                        <textarea name="cors_origins" id="cors_origins" rows="3" style="<?php echo $inp; ?>;font-family:monospace" placeholder="https://app.example"><?php echo htmlspecialchars(implode("\n", $limits['cors_origins'])); ?></textarea>
+                        <p style="color:#888;font-size:11px;margin:0 0 8px">One per line, such as https://app.example. A request with no Origin — a server — is not affected.</p>
+                    </div>
+                    </div>
+                </div>
+            </div>
+            <?php endif; ?>
 
         <!-- Legal -->
         <div id="app-plain-legal" class="app-plain-pane" style="display:none">

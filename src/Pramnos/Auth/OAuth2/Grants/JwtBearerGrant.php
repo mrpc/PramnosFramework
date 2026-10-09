@@ -30,11 +30,6 @@ class JwtBearerGrant extends AbstractGrant
         return 'urn:ietf:params:oauth:grant-type:jwt-bearer';
     }
 
-    protected function policyName(): string
-    {
-        return 'jwt_bearer';
-    }
-
     /**
      * {@inheritdoc}
      */

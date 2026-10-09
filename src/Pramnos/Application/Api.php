@@ -362,6 +362,8 @@ class Api extends Application
             // with the 401 that tells the client where to get a token.
             publicPaths:   [...$this->publicApiPaths(), '/' . static::version() . '/mcp'],
         ));
+        // The calling application's limits, now that its key has named it.
+        $pipeline->pipe(new \Pramnos\Http\Middleware\ApplicationPolicyMiddleware(fn () => $this->apiKey));
 
         $request   = \Pramnos\Framework\Factory::getRequest();
         $startTime = microtime(true);

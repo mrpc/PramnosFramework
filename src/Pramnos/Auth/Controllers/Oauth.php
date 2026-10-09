@@ -275,6 +275,13 @@ class Oauth extends Controller
      */
     public function token(): mixed
     {
+        // What the client's application allows: this grant, this way of authenticating, from
+        // this address, over this transport. Before any grant runs, so it holds for all of them.
+        $refused = $this->clientPolicyRefusal(is_string($_POST['grant_type'] ?? null) ? $_POST['grant_type'] : '');
+        if ($refused !== null) {
+            return $refused->withHeader('Cache-Control', 'no-store');
+        }
+
         // JWT client assertion (RFC 7523) for client_credentials is handled manually
         // because League oauth2-server does not natively support private_key_jwt
         // client authentication.  The bypass also manages the per-application system
@@ -536,6 +543,10 @@ class Oauth extends Controller
             return $this->respondJson(['error' => 'invalid_client'], 401, ['endpoint' => 'revoke'])
                 ->withHeader('WWW-Authenticate', 'Basic realm="OAuth2"');
         }
+        $refused = $this->clientPolicyRefusal(null);
+        if ($refused !== null) {
+            return $refused;
+        }
 
         $token = $_POST['token'] ?? '';
         if (!is_string($token) || $token === '') {
@@ -564,6 +575,38 @@ class Oauth extends Controller
         }
 
         return $this->respondJson(['success' => true]);
+    }
+
+    /**
+     * The refusal for a request its client's application does not allow, or null.
+     *
+     * {@see \Pramnos\Auth\OAuth2\ClientPolicy}: the grant (null outside the token endpoint),
+     * the authentication method, the IP lock and `require_https`. A request that names no
+     * client is left to the authentication that follows.
+     */
+    protected function clientPolicyRefusal(?string $grant): ?\Pramnos\Http\Response
+    {
+        $clientId = is_string($_POST['client_id'] ?? null) ? $_POST['client_id'] : '';
+        if ($clientId === '') {
+            $clientId = (string) ($this->extractClientCredentials()['client_id'] ?? '');
+        }
+        if ($clientId === '') {
+            return null;
+        }
+
+        $refusal = \Pramnos\Auth\OAuth2\ClientPolicy::refusal(
+            $clientId,
+            $grant === '' ? null : $grant,
+            \Pramnos\Auth\OAuth2\ClientPolicy::methodOf($_POST, $_SERVER),
+            \Pramnos\Http\Request::clientIp(''),
+            $_SERVER
+        );
+
+        return $refusal === null ? null : $this->respondJson(
+            ['error' => $refusal['error'], 'error_description' => $refusal['error_description']],
+            $refusal['status'],
+            ['endpoint' => 'token', 'client_id' => $clientId, 'grant_type' => (string) $grant]
+        );
     }
 
     /**
@@ -610,6 +653,10 @@ class Oauth extends Controller
         if ($credentials === null || !$this->validateClientCredentials($credentials)) {
             return $this->respondJson(['error' => 'invalid_client'], 401)
                 ->withHeader('WWW-Authenticate', 'Basic realm="OAuth2"');
+        }
+        $refused = $this->clientPolicyRefusal(null);
+        if ($refused !== null) {
+            return $refused;
         }
 
         $token = $_POST['token'] ?? '';

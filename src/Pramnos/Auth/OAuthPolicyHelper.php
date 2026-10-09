@@ -16,7 +16,9 @@ namespace Pramnos\Auth;
  * default auth methods — it must be opted in explicitly per client because it
  * removes all client authentication.
  *
- * 'password' grant is excluded (deprecated by RFC 9126 / OAuth 2.1).
+ * 'password' grant is a default, so an application that signs users in with it keeps working
+ * without a policy row; an application with rows uses it only with one. It is deprecated by
+ * OAuth 2.1, and a new application should use the authorization code flow instead.
  *
  */
 class OAuthPolicyHelper
@@ -52,6 +54,7 @@ class OAuthPolicyHelper
             'authorization_code',
             'client_credentials',
             'device_code',
+            'password',
             'refresh_token',
             'exchange_token',
         ];

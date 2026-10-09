@@ -6,6 +6,8 @@
  *   $this->application — app row array (null when creating)
  *   $this->message     — success flash (string)
  *   $this->error       — error flash (string)
+ *   $this->policy      — what the application may do and how much: ApplicationService::policy()
+ *   $this->grantTypes, $this->authMethods — the choices: OAuthPolicyHelper
  */
 $app   = $this->application ?? [];
 $isNew = empty($app['appid']);
@@ -71,6 +73,7 @@ $card = 'bg-base-100 rounded-xl shadow-xs border border-base-300 p-5 mb-4';
             <button type="button" class="app-tab-btn px-4 py-2 text-sm font-medium rounded-t border border-b-0 border-base-300 bg-base-100 text-primary" data-tab="app-tab-basic">Basic</button>
             <button type="button" class="app-tab-btn px-4 py-2 text-sm font-medium rounded-t border border-b-0 border-transparent text-base-content/80 hover:text-primary" data-tab="app-tab-org">Organisation</button>
             <button type="button" class="app-tab-btn px-4 py-2 text-sm font-medium rounded-t border border-b-0 border-transparent text-base-content/80 hover:text-primary" data-tab="app-tab-oauth">OAuth2 / API</button>
+            <?php if (!$isNew): ?><button type="button" class="app-tab-btn px-4 py-2 text-sm font-medium rounded-t border border-b-0 border-transparent text-base-content/80 hover:text-primary" data-tab="app-tab-access">Access &amp; limits</button><?php endif; ?>
             <button type="button" class="app-tab-btn px-4 py-2 text-sm font-medium rounded-t border border-b-0 border-transparent text-base-content/80 hover:text-primary" data-tab="app-tab-legal">Legal</button>
         </div>
 
@@ -169,6 +172,88 @@ $card = 'bg-base-100 rounded-xl shadow-xs border border-base-300 p-5 mb-4';
                 </div>
             </div>
         </div>
+
+            <!-- Access & limits: what the application may do, and how much -->
+            <?php if (!$isNew): $policy = $this->policy ?? ['grants' => [], 'grants_default' => true, 'methods' => [], 'methods_default' => true, 'settings' => \Pramnos\Auth\ApplicationSettings::DEFAULTS]; $limits = $policy['settings']; ?>
+        <div id="app-tab-access" class="app-tab-pane hidden">
+                <input type="hidden" name="policy_submitted" value="1">
+                <div class="<?php echo $card; ?>">
+                    <h3 class="font-semibold mb-1">Grant types</h3>
+                    <p class="text-xs text-base-content/60 mb-2">How this application may obtain tokens. Refused at the token endpoint with <code>unauthorized_client</code> otherwise.<?php if ($policy['grants_default']): ?> This application follows the server's defaults; saving a different selection gives it its own.<?php endif; ?></p>
+                    <?php foreach (($this->grantTypes ?? []) as $choice): $choiceId = 'grants-' . $choice['method']; ?>
+                    <div class="flex items-start gap-2 mb-1"><input type="checkbox" name="grants[]" id="<?php echo htmlspecialchars($choiceId); ?>" value="<?php echo htmlspecialchars($choice['method']); ?>" class="w-4 h-4 mt-1" <?php echo in_array($choice['method'], $policy['grants'], true) ? 'checked' : ''; ?>> <label for="<?php echo htmlspecialchars($choiceId); ?>"><strong><?php echo htmlspecialchars($choice['name']); ?></strong> — <?php echo htmlspecialchars($choice['description']); ?></label></div>
+                    <?php endforeach; ?>
+                </div>
+                <div class="<?php echo $card; ?>">
+                    <h3 class="font-semibold mb-1">Client authentication</h3>
+                    <p class="text-xs text-base-content/60 mb-2">How this application may prove itself at the token, revocation and introspection endpoints.<?php if ($policy['methods_default']): ?> This application follows the server's defaults; saving a different selection gives it its own.<?php endif; ?></p>
+                    <?php foreach (($this->authMethods ?? []) as $choice): $choiceId = 'auth_methods-' . $choice['method']; ?>
+                    <div class="flex items-start gap-2 mb-1"><input type="checkbox" name="auth_methods[]" id="<?php echo htmlspecialchars($choiceId); ?>" value="<?php echo htmlspecialchars($choice['method']); ?>" class="w-4 h-4 mt-1" <?php echo in_array($choice['method'], $policy['methods'], true) ? 'checked' : ''; ?>> <label for="<?php echo htmlspecialchars($choiceId); ?>"><strong><?php echo htmlspecialchars($choice['name']); ?></strong> — <?php echo htmlspecialchars($choice['description']); ?></label></div>
+                    <?php endforeach; ?>
+                </div>
+                <div class="<?php echo $card; ?>">
+                    <h3 class="font-semibold mb-1">Rate limit</h3>
+                    <p class="text-xs text-base-content/60 mb-2">A burst of requests at once, then a steady rate. A request over the limit is answered <code>429</code> with <code>Retry-After</code>.</p>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                        <label class="<?php echo $lbl; ?>" for="rate_limit_requests">Requests per window</label>
+                        <input type="number" min="1" name="rate_limit_requests" id="rate_limit_requests" class="<?php echo $inp; ?>" value="<?php echo (int) $limits['rate_limit_requests']; ?>">
+                    </div>
+                    <div>
+                        <label class="<?php echo $lbl; ?>" for="rate_limit_window_seconds">Window (seconds)</label>
+                        <input type="number" min="1" name="rate_limit_window_seconds" id="rate_limit_window_seconds" class="<?php echo $inp; ?>" value="<?php echo (int) $limits['rate_limit_window_seconds']; ?>">
+                    </div>
+                    <div>
+                        <label class="<?php echo $lbl; ?>" for="rate_limit_burst">Burst</label>
+                        <input type="number" min="0" name="rate_limit_burst" id="rate_limit_burst" class="<?php echo $inp; ?>" value="<?php echo (int) $limits['rate_limit_burst']; ?>">
+                    </div>
+                    </div>
+                </div>
+                <div class="<?php echo $card; ?>">
+                    <h3 class="font-semibold mb-1">Pagination</h3>
+                    <p class="text-xs text-base-content/60 mb-2">For the API's list endpoints. Enforced, a request for every row gets the first page at the default size; no page is ever larger than the maximum.</p>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div class="md:col-span-3"><div class="flex items-start gap-2 mb-1"><input type="checkbox" name="enforce_pagination" id="enforce_pagination" value="1" class="w-4 h-4 mt-1" <?php echo $limits['enforce_pagination'] ? 'checked' : ''; ?>> <label for="enforce_pagination">Enforce pagination</label></div></div>
+                    <div>
+                        <label class="<?php echo $lbl; ?>" for="default_page_size">Default page size</label>
+                        <input type="number" min="1" name="default_page_size" id="default_page_size" class="<?php echo $inp; ?>" value="<?php echo (int) $limits['default_page_size']; ?>">
+                    </div>
+                    <div>
+                        <label class="<?php echo $lbl; ?>" for="max_page_size">Maximum page size</label>
+                        <input type="number" min="1" name="max_page_size" id="max_page_size" class="<?php echo $inp; ?>" value="<?php echo (int) $limits['max_page_size']; ?>">
+                    </div>
+                    </div>
+                </div>
+                <div class="<?php echo $card; ?>">
+                    <h3 class="font-semibold mb-1">Network</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div class="md:col-span-3"><div class="flex items-start gap-2 mb-1"><input type="checkbox" name="require_https" id="require_https" value="1" class="w-4 h-4 mt-1" <?php echo $limits['require_https'] ? 'checked' : ''; ?>> <label for="require_https">Require HTTPS (requests from this machine are exempt)</label></div></div>
+                    <div class="md:col-span-3"><div class="flex items-start gap-2 mb-1"><input type="checkbox" name="ip_lock_enabled" id="ip_lock_enabled" value="1" class="w-4 h-4 mt-1" <?php echo $limits['ip_lock_enabled'] ? 'checked' : ''; ?>> <label for="ip_lock_enabled">Accept requests only from the allowed addresses</label></div></div>
+                    <div class="md:col-span-3">
+                        <label class="<?php echo $lbl; ?>" for="allowed_ips">Allowed addresses</label>
+                        <textarea name="allowed_ips" id="allowed_ips" rows="3" class="<?php echo $inp; ?> font-mono" placeholder="203.0.113.10&#10;10.0.0.0/8"><?php echo htmlspecialchars(implode("\n", $limits['allowed_ips'])); ?></textarea>
+                        <p class="text-xs text-base-content/60 mb-2">One address or range per line. Used when the lock above is on.</p>
+                    </div>
+                    <div class="md:col-span-3">
+                        <label class="<?php echo $lbl; ?>" for="blocked_ips">Blocked addresses</label>
+                        <textarea name="blocked_ips" id="blocked_ips" rows="3" class="<?php echo $inp; ?> font-mono" placeholder="198.51.100.0/24"><?php echo htmlspecialchars(implode("\n", $limits['blocked_ips'])); ?></textarea>
+                        <p class="text-xs text-base-content/60 mb-2">Always refused, lock or not.</p>
+                    </div>
+                    </div>
+                </div>
+                <div class="<?php echo $card; ?>">
+                    <h3 class="font-semibold mb-1">Browser origins (CORS)</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div class="md:col-span-3"><div class="flex items-start gap-2 mb-1"><input type="checkbox" name="cors_enabled" id="cors_enabled" value="1" class="w-4 h-4 mt-1" <?php echo $limits['cors_enabled'] ? 'checked' : ''; ?>> <label for="cors_enabled">Accept browser requests only from these origins</label></div></div>
+                    <div class="md:col-span-3">
+                        <label class="<?php echo $lbl; ?>" for="cors_origins">Allowed origins</label>
+                        <textarea name="cors_origins" id="cors_origins" rows="3" class="<?php echo $inp; ?> font-mono" placeholder="https://app.example"><?php echo htmlspecialchars(implode("\n", $limits['cors_origins'])); ?></textarea>
+                        <p class="text-xs text-base-content/60 mb-2">One per line, such as https://app.example. A request with no Origin — a server — is not affected.</p>
+                    </div>
+                    </div>
+                </div>
+            </div>
+            <?php endif; ?>
 
         <div id="app-tab-legal" class="app-tab-pane hidden">
             <div class="<?php echo $card; ?>">

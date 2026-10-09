@@ -256,6 +256,44 @@ class JwtAssertionTest extends BaseTestCase
     }
 
     /**
+     * A jwks_uri on a private address is not fetched: the server will not be a probe into its own network.
+     */
+    public function testAJwksOnAPrivateAddressIsNotFetched(): void
+    {
+        // Arrange — the real fetcher, which refuses private addresses
+        $client = $this->client('svc-client', '', 'http://127.0.0.1:1/jwks.json');
+
+        // Act
+        $refusal = $this->refusal($this->assertion(), $client, new JwtAssertion($this->db));
+
+        // Assert
+        $this->assertStringContainsString('no public key or JWKS', (string) $refusal);
+    }
+
+    /**
+     * An EC key published in the JWKS verifies an ES256 assertion; a malformed key is passed over.
+     */
+    public function testAnEcKeyFromTheJwksIsUsed(): void
+    {
+        // Arrange
+        $key = openssl_pkey_new(['private_key_type' => OPENSSL_KEYTYPE_EC, 'curve_name' => 'prime256v1']);
+        openssl_pkey_export($key, $private);
+        $ec  = openssl_pkey_get_details($key)['ec'];
+        $b64 = static fn (string $bytes): string => rtrim(strtr(base64_encode($bytes), '+/', '-_'), '=');
+        $jwks = json_encode(['keys' => [
+            ['kid' => 'broken', 'kty' => 'RSA', 'n' => '!!', 'e' => '!!'],
+            ['kid' => 'ec1', 'kty' => 'EC', 'crv' => 'P-256', 'x' => $b64($ec['x']), 'y' => $b64($ec['y'])],
+        ]]);
+        $client = $this->client('svc-client', '', 'https://client.example/jwks.json');
+
+        // Act
+        $refusal = $this->refusal($this->assertion([], $private, 'ES256', 'ec1'), $client, $this->verifier($jwks));
+
+        // Assert
+        $this->assertNull($refusal);
+    }
+
+    /**
      * A client with neither a key nor a JWKS cannot sign anything.
      */
     public function testAClientWithoutAKeyIsRefused(): void

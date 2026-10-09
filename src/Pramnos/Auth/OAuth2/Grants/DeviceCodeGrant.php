@@ -45,11 +45,6 @@ class DeviceCodeGrant extends AbstractGrant
         return [$this->getIdentifier(), 'device_code'];
     }
 
-    protected function policyName(): string
-    {
-        return 'device_code';
-    }
-
     /**
      * {@inheritdoc}
      */

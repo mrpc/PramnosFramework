@@ -287,7 +287,11 @@ class ApplicationsController extends Controller
             }
 
             $view->application = $result->fields;
+            // What it may do and how much — the "Access & limits" tab.
+            $view->policy      = $this->applicationService()->policy($id);
         }
+        $view->grantTypes  = \Pramnos\Auth\OAuthPolicyHelper::getGrantTypes();
+        $view->authMethods = \Pramnos\Auth\OAuthPolicyHelper::getAuthenticationMethods();
 
         return $view->display('edit');
     }
@@ -314,6 +318,17 @@ class ApplicationsController extends Controller
                     $this->addError('That record no longer exists.');
                     $this->redirect(adminUrl('applications'));
                     return;
+                }
+                // Only when the form carried the tab: an application's older copy of the form
+                // must not reset a policy it cannot see.
+                if (isset($_POST['policy_submitted'])) {
+                    $refused = $service->updatePolicy($id, $_POST);
+                    if ($refused !== []) {
+                        // Not escaped here: the form escapes the flash when it prints it.
+                        $this->addError('The application was saved; its access and limits were not. ' . implode(' ', $refused));
+                        $this->redirect(adminUrl('applications/edit/') . $id);
+                        return;
+                    }
                 }
                 $this->addMessage('Saved.');
             } else {

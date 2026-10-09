@@ -464,6 +464,51 @@ an access token lasts a minute to a day, a refresh token a minute to a year, a c
 minutes. The lifetime is the same in the JWT's `exp`, the response's `expires_in` and the stored
 token — `Pramnos\Auth\OAuth2\TokenLifetimes` is the rule, applied as each token is persisted.
 
+### Access and limits
+
+The **Access & limits** tab of an application's edit screen sets what it may do and how much.
+Every setting is enforced; none is only for show.
+
+| Setting | Default | Where it is applied | Refusal |
+| --- | --- | --- | --- |
+| Grant types | `authorization_code`, `client_credentials`, `device_code`, `password`, `refresh_token`, `exchange_token` | `/oauth/token`, every grant | `400 unauthorized_client` |
+| Client authentication | `client_secret_basic`, `client_secret_post`, `private_key_jwt`; and `none` for a client with no secret | `/oauth/token`, `/oauth/revoke`, `/oauth/introspect` | `400 unauthorized_client` |
+| Rate limit | 1000 requests per 3600 s, burst 100 | the API, per application | `429 TooManyRequests`, `Retry-After` |
+| Pagination | not enforced until saved; then default 20, maximum 100 | every list endpoint of the API | the page is resized, not refused |
+| Require HTTPS | on | the API and the OAuth endpoints | `403 HTTPSRequired` / `400 invalid_request` |
+| IP lock: allowed / blocked addresses | off / none | the API and the OAuth endpoints | `403 AddressNotAllowed` / `400 unauthorized_client` |
+| Browser origins (CORS) | not restricted | the API | `403 OriginNotAllowed` |
+
+An application whose settings were never saved has these defaults. Its grant types and
+authentication methods are the defaults until a different selection is saved: a selection equal
+to the defaults stores nothing, so it follows them when they change, and an empty one means none.
+
+**The rate limit is a token bucket.** A full bucket holds *burst* requests and refills at
+*requests per window*: a client that has been quiet may send the burst at once, and one that keeps
+sending is held to the rate. A burst of 0 is a bucket of one — the rate, and nothing at once.
+Every API answer to an application carries `X-RateLimit-Limit` (requests per window) and
+`X-RateLimit-Remaining`; a refusal carries `Retry-After` in seconds. On Redis the bucket is one
+atomic script; on any other cache two requests racing for the last token can both get through.
+
+**HTTPS** is HTTPS on the server, or a proxy's `X-Forwarded-Proto: https`. A request from the
+server's own loopback address is exempt — a developer's machine has no certificate.
+
+**The IP lock.** A blocked address or range (`198.51.100.0/24`, IPv6 too) is always refused. With
+the lock on and allowed addresses listed, only those are accepted. The address is the one
+`Request::clientIp()` resolves, which honours the trusted proxies.
+
+**Browser origins** apply to a request that carries an `Origin` header: with the restriction on,
+an origin not listed (`https://app.example`, no path) is refused. A server calling the API sends no
+`Origin` and is not affected.
+
+**Pagination** takes effect in `ApiListQuery`, so every list endpoint built on it follows the
+calling application: enforced, a request for every row (`page=0`) gets the first page at the
+default size, and no page exceeds the maximum, enforced or not.
+
+For an application's own screens, `ApplicationService::policy($appId)` reads all of it and
+`updatePolicy($appId, $form)` saves it; underneath are `GrantPolicy`, `ClientPolicy` and
+`ApplicationSettings`.
+
 ### Allowed Scopes
 
 An application's **Allowed Scopes** (`applications.scope`, space-separated, on the OAuth2 tab of

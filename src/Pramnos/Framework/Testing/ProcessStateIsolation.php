@@ -206,6 +206,7 @@ final class ProcessStateIsolation implements Extension, StartedSubscriber
         \Pramnos\Debug\DebugBar::reset();
         \Pramnos\Debug\DebugAccess::reset();
         \Pramnos\User\Token::forgetSchemaCache();
+        \Pramnos\Auth\ApplicationSettings::reset();
         \Pramnos\Queue\QueueManager::forgetSchemaCache();
         \Pramnos\Application\Model::$columnCache = [];
         \Pramnos\User\User::clearUserCache();

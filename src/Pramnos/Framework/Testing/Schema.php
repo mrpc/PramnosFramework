@@ -144,6 +144,13 @@ final class Schema
             \Pramnos\Framework\Migrations\AuthServer\CreateOauth2ApplicationGrantsTable::class,
             \Pramnos\Framework\Migrations\AuthServer\AllowJwtBearerInOauth2ApplicationGrants::class,
         ],
+        // An application's limits, and how its client may authenticate.
+        'applications.application_settings' => [
+            \Pramnos\Framework\Migrations\Applications\CreateApplicationSettingsTable::class,
+        ],
+        'applications.oauth2_client_auth_methods' => [
+            \Pramnos\Framework\Migrations\AuthServer\CreateOauth2ClientAuthMethodsTable::class,
+        ],
         // Every JWT assertion's jti, so one is accepted once.
         'authserver.jwt_replay_prevention' => [
             \Pramnos\Framework\Migrations\AuthServer\CreateJwtReplayPreventionTable::class,
@@ -327,7 +334,10 @@ final class Schema
         'usertokens'  => ['users', 'applications'],
         'userdetails' => ['users'],
         'mediause'    => ['media'],
-        'applications.oauth2_application_grants' => ['applications'],
+        // Its migration also builds views over the token and user tables.
+        'applications.oauth2_application_grants'  => ['applications', 'users', 'usertokens'],
+        'applications.application_settings'       => ['applications'],
+        'applications.oauth2_client_auth_methods' => ['applications'],
     ];
 
     /**
