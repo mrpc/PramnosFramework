@@ -448,6 +448,9 @@ class InitCommandUnitTest extends TestCase
         $this->assertStringContainsString("\$r->get('/permissions'", $routes);
         $this->assertStringContainsString('TestApp\Api\Controllers\InternalPermissions', $routes);
         $this->assertStringNotContainsString('/capabilities/sync', $routes, 'a second, unpublished sync path');
+        // Open to the calling application's client credentials, without an API key header.
+        $appConfig = require $this->tmpDir . '/app/app.php';
+        $this->assertSame(['/internal/clients/*/capabilities', '/internal/permissions'], $appConfig['public_api_paths'] ?? null);
         $this->assertStringContainsString('class InternalPermissions extends \Pramnos\Auth\Controllers\InternalPermissions',
             file_get_contents("$ctrlDir/InternalPermissions.php"));
         $this->assertStringContainsString('TestApp\Api\Controllers\Me', $routes,

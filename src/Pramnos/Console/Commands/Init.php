@@ -1265,6 +1265,12 @@ class Init extends Command
             ? "    'api_version' => '1.0',\n"
               . "    'api' => [\n        'prefix'       => '$apiPrefix',\n        'cors_origins' => ['*'],\n        'version'      => '1.0',\n    ],\n"
             : '';
+        // The internal endpoints authenticate the calling application by its own client
+        // credentials, as the integration guide publishes them; without this the API key check
+        // in front of them answered 403 APIKeyMissing to a client that followed the guide.
+        if ($withApi && in_array('authserver', $features, true)) {
+            $apiSection .= "    'public_api_paths' => ['/internal/clients/*/capabilities', '/internal/permissions'],\n";
+        }
 
         // When the auth feature is enabled, register only the auth addon.
         //

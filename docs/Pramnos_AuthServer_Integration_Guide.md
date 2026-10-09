@@ -1121,6 +1121,17 @@ $router->group(['prefix' => '/internal'], function (\Pramnos\Routing\Router $r):
 });
 ```
 
+The API layer asks every request for an `apikey` header unless its path is declared open, and
+these two authenticate the calling application by its own client credentials instead — so the
+scaffold declares them in `app/app.php`:
+
+```php
+'public_api_paths' => ['/internal/clients/*/capabilities', '/internal/permissions'],
+```
+
+Without that line, a client that sends only its credentials gets `403 APIKeyMissing`, and has
+to send its client id as `apikey: <client_id>` beside them.
+
 A project without that group — `routes.php` is the project's own file and is not regenerated —
 adds it by hand, with an `InternalPermissions` wrapper beside `Capabilities` in
 `src/Api/Controllers/`. A route at `/api/<version>/capabilities/sync` is not one this guide
