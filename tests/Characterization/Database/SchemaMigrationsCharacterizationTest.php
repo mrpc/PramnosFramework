@@ -94,6 +94,10 @@ class SchemaMigrationsCharacterizationTest extends TestCase
                 'CREATE TABLE IF NOT EXISTS public.urls '
                 . '(urlid SERIAL PRIMARY KEY, url TEXT)'
             );
+            // Dropped first: this class owns the stub and drops it in tearDown(), and a class
+            // that left the real table — a hypertable with columnstore — made the stub's
+            // `ADD COLUMN … DEFAULT NOW()` fail, which no hypertable with compression allows.
+            $this->db->statement('DROP TABLE IF EXISTS public.tokenactions CASCADE');
             $this->db->statement(
                 'CREATE TABLE IF NOT EXISTS public.tokenactions '
                 . '(actionid SERIAL PRIMARY KEY, tokenid INTEGER, urlid INTEGER)'

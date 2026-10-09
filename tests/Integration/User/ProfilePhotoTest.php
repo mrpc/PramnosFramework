@@ -49,6 +49,8 @@ class ProfilePhotoTest extends BaseTestCase
         Schema::table('users', $db);
         Schema::table('userdetails', $db);
         Schema::table('mediause', $db);
+        // The Gravatar and adoption switches are settings, written and deleted here.
+        Schema::table('settings', $db);
         ProfilePhoto::reset();
 
         $this->user = new User($this->createTestUser());

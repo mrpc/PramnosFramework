@@ -181,17 +181,10 @@ class OauthCoverageTest extends TestCase
                 PRIMARY KEY (`id`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         ');
-        $this->db->query('
-            CREATE TABLE IF NOT EXISTS `authserver_oauth2_device_codes` (
-                `device_code` varchar(255) NOT NULL,
-                `user_code`   varchar(50) NOT NULL,
-                `client_id`   varchar(255) NOT NULL,
-                `scope`       text,
-                `expires_at`  bigint(20) NOT NULL,
-                `status`      varchar(50) NOT NULL,
-                PRIMARY KEY (`device_code`)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-        ');
+        // The canonical device-code table, from its migrations. A smaller copy built here became
+        // the table for the classes after this one, and the device grant's writes then named
+        // columns it did not have.
+        Schema::table('authserver.oauth2_device_codes', $this->db);
     }
 
     private function cleanDb(): void

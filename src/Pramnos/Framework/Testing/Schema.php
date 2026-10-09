@@ -342,6 +342,8 @@ final class Schema
         'settings'     => 'setting',
         // A column the stubs left out and every write sets.
         'authserver.permissions' => 'granted_by',
+        // The user who approved: what a stub without the approval step leaves out.
+        'authserver.oauth2_device_codes' => 'user_id',
     ];
 
     /**
