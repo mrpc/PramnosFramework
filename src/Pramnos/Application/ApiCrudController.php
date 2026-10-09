@@ -523,19 +523,21 @@ class ApiCrudController extends Controller
      * user was refused every action, and a fresh project's admin screen told its
      * own administrator they had no permission.
      *
-     * Cached per request: the answer cannot change mid-request.
+     * Cached per request: the answer cannot change mid-request. Keyed by connection and table,
+     * because a method's static is shared by every subclass — one controller's answer about one
+     * table was every controller's answer, whichever table or database it asked about.
      */
     protected function legacyAclExists(): bool
     {
-        static $exists = null;
-
-        if ($exists !== null) {
-            return $exists;
-        }
+        static $answers = [];
 
         try {
             $database = $this->db();
             $table    = $this->legacyAclTable();
+            $key      = spl_object_id($database) . '|' . $table;
+            if (isset($answers[$key])) {
+                return $answers[$key];
+            }
             // Asked through the schema builder, not with a `SELECT ... FROM` against the
             // table. A select against a table that is not there is an *error* on the way
             // to being an answer: PostgreSQL raises `relation "permissions" does not
@@ -547,12 +549,10 @@ class ApiCrudController extends Controller
             //
             // `hasTable()` also resolves `#PREFIX#` and the schema/prefix difference
             // between drivers, which the raw name did not.
-            $exists = $database->schema()->hasTable((string) $table);
+            return $answers[$key] = $database->schema()->hasTable((string) $table);
         } catch (\Throwable) {
-            $exists = false;
+            return false;
         }
-
-        return $exists;
     }
 
     /**

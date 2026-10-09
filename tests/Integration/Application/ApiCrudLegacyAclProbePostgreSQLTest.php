@@ -79,6 +79,31 @@ class ApiCrudLegacyAclProbePostgreSQLTest extends TestCase
     }
 
     /**
+     * One controller's answer about one table is not another's about another.
+     *
+     * The answer was a static inside the method, which PHP shares with every subclass: once any
+     * controller had asked about a table that exists, every controller was told its table
+     * existed too. Asked here in the order that went wrong.
+     */
+    public function testAnAnswerAboutAnotherTableIsNotReused(): void
+    {
+        // Arrange — a table that does exist, asked about first
+        $this->db->statement('CREATE TABLE IF NOT EXISTS public.legacy_acl_probe_present (id INT)');
+
+        try {
+            // Act
+            $present = (new PresentLegacyAclProbe($this->db))->probe();
+            $missing = (new LegacyAclProbe($this->db))->probe();
+        } finally {
+            $this->db->statement('DROP TABLE IF EXISTS public.legacy_acl_probe_present');
+        }
+
+        // Assert
+        $this->assertTrue($present);
+        $this->assertFalse($missing, 'the first answer was handed to a controller asking about another table');
+    }
+
+    /**
      * And the reason the old form could not be kept: on this driver it does log.
      *
      * Asserted rather than described, because it is the whole argument for the change. If
@@ -137,5 +162,16 @@ class LegacyAclProbe extends ApiCrudController
     public function probe(): bool
     {
         return $this->legacyAclExists();
+    }
+}
+
+/**
+ * The probe, pointed at a table that exists.
+ */
+class PresentLegacyAclProbe extends LegacyAclProbe
+{
+    protected function legacyAclTable(): string
+    {
+        return 'legacy_acl_probe_present';
     }
 }
