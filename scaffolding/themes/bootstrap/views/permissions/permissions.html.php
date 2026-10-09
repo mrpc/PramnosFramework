@@ -4,6 +4,7 @@
  *
  * Variables:
  *   $this->permissions — iterable rows
+ *   $this->problems    — permissionid => why that grant no longer matches what its application declares
  *   $this->page        — current page
  *   $this->total       — total count
  */
@@ -27,7 +28,7 @@
                             <span class="badge bg-secondary"><?php echo htmlspecialchars($p['subject_type'] ?? ''); ?></span>
                             #<?php echo htmlspecialchars((string)($p['subject_id'] ?? '')); ?>
                         </td>
-                        <td><?php echo htmlspecialchars($p['object_type'] ?? ''); ?></td>
+                        <td><?php echo htmlspecialchars($p['object_type'] ?? ''); ?><?php if (isset($this->problems[(int) $p['permissionid']])): ?><span class="d-block small text-danger">&#9888; <?php echo htmlspecialchars($this->problems[(int) $p['permissionid']], ENT_QUOTES, 'UTF-8'); ?></span><?php endif; ?></td>
                         <td><code><?php echo htmlspecialchars($p['action'] ?? ''); ?></code></td>
                         <td>
                             <?php echo ($p['grant_type'] ?? 'allow') === 'allow'

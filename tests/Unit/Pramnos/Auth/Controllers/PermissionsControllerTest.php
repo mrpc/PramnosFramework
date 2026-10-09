@@ -31,6 +31,8 @@ class TestablePermissionsController extends PermissionsController
             public mixed $permission;
             public mixed $total;
             public mixed $page;
+            public mixed $problems;
+            public mixed $vocabulary;
             
             public function display($view = '') {
                 return 'mock html view for ' . $view;

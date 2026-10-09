@@ -208,6 +208,11 @@ class RolesController extends Controller
         $view->role         = $role;
         $view->organisation = $this->organizationLabel($role);
         $view->permissions  = $this->permissionsOfRole($roleId);
+        // permissionid => why the grant can no longer match what its application declares.
+        $view->problems     = \Pramnos\Auth\CapabilitiesSyncService::problemsIn(
+            $this->capabilities(),
+            $view->permissions
+        );
         $view->holders      = $this->holderRows($role);
         $view->adminScreens = $this->adminScreensFor($roleId);
 
@@ -518,9 +523,13 @@ class RolesController extends Controller
             return [];
         }
 
+        $columns = ['permissionid', 'object_type', 'object_id', 'action', 'grant_type', 'is_active'];
+        if ($db->schema()->hasColumn('authserver.permissions', 'app_id')) {
+            $columns[] = 'app_id';
+        }
         $result = $db->queryBuilder()
             ->table('authserver.permissions')
-            ->select(['permissionid', 'object_type', 'object_id', 'action', 'grant_type', 'is_active'])
+            ->select($columns)
             ->where('subject_type', 'role')
             ->where('subject_id', $roleId)
             ->orderBy('object_type')
@@ -532,6 +541,22 @@ class RolesController extends Controller
         }
 
         return $rows;
+    }
+
+    /**
+     * Every application's declared vocabulary — {@see \Pramnos\Auth\CapabilitiesSyncService::catalog()}.
+     *
+     * Empty when it cannot be read, so a missing table never takes the screen down.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    protected function capabilities(): array
+    {
+        try {
+            return (new \Pramnos\Auth\CapabilitiesSyncService(\Pramnos\Framework\Factory::getDatabase()))->catalog();
+        } catch (\Throwable) {
+            return [];
+        }
     }
 
     /**

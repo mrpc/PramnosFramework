@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Pramnos\Auth\Controllers;
 
 use Pramnos\Application\Controller;
+use Pramnos\Auth\CapabilitiesSyncService;
 use Pramnos\Auth\WebhookService;
 
 /**
@@ -17,6 +18,8 @@ use Pramnos\Auth\WebhookService;
  * Subject types: 'user', 'role' — the two the resolver reads; anything else is refused.
  * Object types: any resource identifier (e.g. 'reports', 'users', 'settings').
  * Actions: any verb (e.g. 'view', 'edit', 'delete', '*').
+ * A grant for an application that declared its capabilities must use that application's active
+ * resources and scopes; the list marks grants that no longer do.
  * Grant types: 'allow' | 'deny' — the higher priority wins, and a deny wins a tie.
  *
  * Actions:
@@ -65,12 +68,16 @@ class PermissionsController extends Controller
         $db   = \Pramnos\Framework\Factory::getDatabase();
         $page = max(1, (int) ($_GET['page'] ?? 1));
 
+        $columns = [
+            'permissionid', 'subject_type', 'subject_id', 'object_type',
+            'object_id', 'action', 'grant_type', 'priority', 'granted_at',
+        ];
+        if ($db->schema()->hasColumn('authserver.permissions', 'app_id')) {
+            $columns[] = 'app_id';
+        }
         $qb = $db->queryBuilder()
             ->table('authserver.permissions')
-            ->select([
-                'permissionid', 'subject_type', 'subject_id', 'object_type',
-                'object_id', 'action', 'grant_type', 'priority', 'granted_at',
-            ]);
+            ->select($columns);
 
         $this->applyDisplayFilters($qb);
 
@@ -78,6 +85,8 @@ class PermissionsController extends Controller
         $view->permissions = $qb->orderBy('subject_type')->orderBy('subject_id')->forPage($page, 50)->getAll();
         $view->total       = (clone $qb)->count();
         $view->page        = $page;
+        // permissionid => why the grant can no longer match what its application declares.
+        $view->problems    = CapabilitiesSyncService::problemsIn($this->capabilities(), $view->permissions);
 
         return $view->display();
     }
@@ -97,6 +106,8 @@ class PermissionsController extends Controller
 
         $view            = $this->getView('permissions');
         $view->permission = null;
+        // What each application declares: the form offers it once an Application ID is entered.
+        $view->vocabulary = CapabilitiesSyncService::vocabulary($this->capabilities());
 
         if ($id > 0) {
             $db     = \Pramnos\Framework\Factory::getDatabase();
@@ -152,6 +163,16 @@ class PermissionsController extends Controller
         }
         if ($conditions !== '' && !is_array(json_decode($conditions, true))) {
             $this->addError('Conditions must be a JSON object, such as {"location_id": [1, 2]}.');
+            $this->redirect(adminUrl('permissions/edit/') . $id);
+            return;
+        }
+        // A grant for an application that declared its vocabulary must use it: a typo would be
+        // stored and never match anything. No application, or one that declared nothing: free text.
+        $problem = array_key_exists('app_id', $_POST)
+            ? CapabilitiesSyncService::problemWith($this->capabilities(), $appId, $objectType, $action)
+            : null;
+        if ($problem !== null) {
+            $this->addError($problem);
             $this->redirect(adminUrl('permissions/edit/') . $id);
             return;
         }
@@ -276,6 +297,22 @@ class PermissionsController extends Controller
             $this->webhookService()->queuePermissionsChanged($subjectType, $subjectId, $context);
         } catch (\Throwable) {
             // Non-fatal: invalidation is best-effort.
+        }
+    }
+
+    /**
+     * Every application's declared vocabulary — {@see CapabilitiesSyncService::catalog()}.
+     *
+     * Empty when it cannot be read, so a missing table never takes the screen down.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    protected function capabilities(): array
+    {
+        try {
+            return (new CapabilitiesSyncService(\Pramnos\Framework\Factory::getDatabase()))->catalog();
+        } catch (\Throwable) {
+            return [];
         }
     }
 

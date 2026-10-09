@@ -915,7 +915,7 @@ understands, push a **capabilities manifest** (typically from CI/CD):
 
 ```
 PUT /api/internal/clients/{client_id}/capabilities
-Authorization: Bearer {client_credentials_access_token}
+Authorization: Basic base64(client_id:client_secret)
 Content-Type: application/json
 
 {
@@ -949,21 +949,10 @@ The response reports what it did, and the counts are worth checking in CI:
 {"status":"synced","resources":1,"scopes":2,"conditions":1,"deactivated":0}
 ```
 
-> **A manifest that synced zero was possible before 2026-08-26, and reported
-> success.** The normaliser dropped the map keys, so every entry arrived unnamed
-> and every loop skipped it — `200 {"status":"synced","resources":0,…}`. Scopes were
-> worse: `{"read": "View invoices"}` was read as a scope *named* "View invoices",
-> so the server stored a permission keyed on prose and a client asking for `read`
-> matched nothing. Both shapes are accepted now — the keyed map above, and a list
-> whose entries carry their own `name` / `key`.
->
-> **And Basic auth was refused where Apache runs as a module.** It decodes the
-> header into `PHP_AUTH_USER` and does not pass the raw one on, so the extractor
-> found nothing and answered `invalid_client` — which reads as a wrong secret. If
-> you worked around it by moving to form fields, Basic works now.
->
-> If your pipeline has been reporting success, check the counts: a manifest may
-> have been accepted and stored as nothing.
+Both scope shapes are accepted: the keyed map above, and a list whose entries carry their own
+`name` (and conditions their own `key`). A map's value is the description, never the name, so
+`{"read": "View invoices"}` declares a scope called `read`. If CI reports `"resources":0` for a
+manifest that has resources, the server did not read them — check the shape.
 
 ### Seeing what a client declared
 
@@ -971,21 +960,35 @@ An administrator opens the client's own page — `/admin/Applications/view/{appi
 and reads its declared resources, the scopes on each, and the condition keys, with
 the manifest's hash and when it last arrived.
 
-That page is the answer to the question a grant raises: a permission names a
-resource, so "which names does this client actually publish" has to be visible
-before anybody can write one. It was not, until 2026-08-26 — the write side existed
-alone, so a server accepted manifests and could show nobody what was in them.
+That page is the answer to the question a grant raises: a permission names a resource, so
+"which names does this client actually publish" has to be visible before anybody writes one.
 
-Anything the client has stopped declaring is listed struck through rather than
-removed. A grant may still refer to it, and that is exactly what somebody is
-looking for when a permission has quietly stopped working.
+Anything the client has stopped declaring is listed struck through rather than removed. A grant
+may still refer to it, and that is exactly what somebody is looking for when a permission has
+quietly stopped working.
 
-A project that published the `applications` views before that date needs to
-republish `applications/view` to get the section:
+The declaration also shapes the permission form: with the client's id as *Application ID*, a
+grant can only name a resource and an action the client declares, and grants that point at a
+withdrawn one are marked — see [The Permissions screen](Pramnos_Authorization_Guide.md#the-permissions-screen).
 
-```bash
-php bin/pramnos project:publish-views --group=applications --force
+### Routing the internal endpoints
+
+A project scaffolded with the `authserver` feature routes both internal endpoints in
+`src/Api/routes.php`, outside the version prefix — they are server-to-server plumbing, not the
+public API, and are left out of the OpenAPI document:
+
+```php
+$router->group(['prefix' => '/internal'], function (\Pramnos\Routing\Router $r): void {
+    $r->put('/clients/{clientId}/capabilities', fn ($clientId) => (new Api\Controllers\Capabilities($this))->sync($clientId));
+    $r->post('/clients/{clientId}/capabilities', fn ($clientId) => (new Api\Controllers\Capabilities($this))->sync($clientId));
+    $r->get('/permissions', fn () => (new Api\Controllers\InternalPermissions($this))->index());
+});
 ```
+
+A project without that group — `routes.php` is the project's own file and is not regenerated —
+adds it by hand, with an `InternalPermissions` wrapper beside `Capabilities` in
+`src/Api/Controllers/`. A route at `/api/<version>/capabilities/sync` is not one this guide
+publishes; once the clients use the internal path it can go.
 
 ---
 

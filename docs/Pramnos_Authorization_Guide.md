@@ -292,6 +292,22 @@ helpers that read it all apply this one rule.
 | Expires | when the grant stops counting; blank for permanent |
 | Conditions | a JSON object passed with the grant to the application, which evaluates it; blank for unconditional |
 
+**An application's grant uses that application's vocabulary.** Once an application has declared
+its capabilities ([AuthServer Integration Guide §5](Pramnos_AuthServer_Integration_Guide.md#5-declaring-your-capabilities-manifest)),
+entering its id in *Application ID* turns *Object type* into a list of its active resources,
+*Action* into the chosen resource's active scopes plus `*`, and lists under *Conditions* the
+condition keys it evaluates, each with its value type. Saving an object type or action it does
+not declare is refused with the reason — a typo such as `invoice` for `invoices` would otherwise be
+stored and never match anything. A grant with no application, or for an application that has
+declared nothing, stays free text.
+
+The permissions list and a role's page mark a grant whose resource or scope its application no
+longer declares (or never did), with the reason under the object type. The grant is still
+stored and still sent; the mark is why it has stopped having any effect in the application.
+
+`CapabilitiesSyncService::catalog()` is the data behind both, and `problemWith($catalog, $appId,
+$objectType, $action)` the check — an application's own writer of grants can call it too.
+
 ### Telling applications that something changed
 
 Every write that changes what somebody may do queues a `permissions_changed` webhook: a row on

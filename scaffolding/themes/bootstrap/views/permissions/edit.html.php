@@ -4,6 +4,7 @@
  *
  * Variables:
  *   $this->permission — permission row array (null when creating)
+ *   $this->vocabulary — appid => the resources, actions and condition keys it declares
  */
 $p = $this->permission ?? [];
 $isNew = empty($p['permissionid']);
@@ -31,7 +32,7 @@ $isNew = empty($p['permissionid']);
                     </div>
                     <div class="col-md-6">
                         <label class="form-label">Object Type</label>
-                        <input type="text" name="object_type" class="form-control" value="<?php echo htmlspecialchars($p['object_type'] ?? ''); ?>" placeholder="e.g. resource">
+                        <input type="text" name="object_type" list="pm-objects" autocomplete="off" class="form-control" value="<?php echo htmlspecialchars($p['object_type'] ?? ''); ?>" placeholder="e.g. resource">
                     </div>
                     <div class="col-md-6">
                         <label class="form-label">Object ID</label>
@@ -39,7 +40,7 @@ $isNew = empty($p['permissionid']);
                     </div>
                     <div class="col-md-6">
                         <label class="form-label">Action</label>
-                        <input type="text" name="action" class="form-control" required value="<?php echo htmlspecialchars($p['action'] ?? ''); ?>" placeholder="e.g. read, write, *">
+                        <input type="text" name="action" list="pm-actions" autocomplete="off" class="form-control" required value="<?php echo htmlspecialchars($p['action'] ?? ''); ?>" placeholder="e.g. read, write, *">
                     </div>
                     <div class="col-md-6">
                         <label class="form-label">Grant Type</label>
@@ -66,6 +67,7 @@ $isNew = empty($p['permissionid']);
                         <label class="form-label">Conditions (JSON)</label>
                         <textarea name="conditions" rows="3" class="form-control" placeholder='{"location_id": [1, 2]}'><?php echo htmlspecialchars((string)($p['conditions'] ?? '')); ?></textarea>
                         <div class="form-text">Passed to the application with the grant, which evaluates it. Leave blank for an unconditional grant.</div>
+                        <div id="pm-conditions" class="form-text"></div>
                     </div>
                 </div>
                 <div class="mt-3 d-flex gap-2">
@@ -76,3 +78,37 @@ $isNew = empty($p['permissionid']);
         </div>
     </div>
 </div>
+<datalist id="pm-objects"></datalist>
+<datalist id="pm-actions"></datalist>
+<script>
+/*
+ * The vocabulary the entered application declares: its resources for Object Type, the chosen
+ * resource's actions (and *) for Action, its condition keys under Conditions. No application, or
+ * one that declared nothing, leaves both fields free text. The save checks the names either way.
+ */
+(function () {
+    var vocabulary = <?php echo json_encode((object) ($this->vocabulary ?? []), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
+    var app = document.querySelector('[name=app_id]');
+    var object = document.querySelector('[name=object_type]');
+    var hint = document.getElementById('pm-conditions');
+    function fill(id, names) {
+        document.getElementById(id).replaceChildren.apply(document.getElementById(id), names.map(function (name) {
+            var option = document.createElement('option');
+            option.value = name;
+            return option;
+        }));
+    }
+    function update() {
+        var declared = vocabulary[app.value];
+        var resources = declared ? declared.resources : {};
+        var conditions = declared ? declared.conditions : {};
+        fill('pm-objects', Object.keys(resources));
+        fill('pm-actions', resources[object.value] ? resources[object.value].concat('*') : []);
+        hint.textContent = Object.keys(conditions).length === 0 ? '' : 'Condition keys this application evaluates: '
+            + Object.keys(conditions).map(function (key) { return key + ' (' + conditions[key] + ')'; }).join(', ');
+    }
+    app.addEventListener('input', update);
+    object.addEventListener('input', update);
+    update();
+})();
+</script>

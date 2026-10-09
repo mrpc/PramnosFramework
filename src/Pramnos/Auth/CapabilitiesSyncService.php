@@ -422,6 +422,147 @@ class CapabilitiesSyncService
         ];
     }
 
+    /**
+     * Every application's declared vocabulary, for a permission form to offer and a save to check.
+     *
+     * Keyed by `applications.appid`, and only for applications that declared at least one
+     * resource: one that declared nothing keeps free-text grants. Inactive names stay in, flagged,
+     * so a grant that points at one can be told apart from a grant that points at a typo.
+     *
+     * @return array<int, array{
+     *     resources: array<string, array{active: bool, scopes: array<string, bool>}>,
+     *     conditions: array<string, array{value_type: string, active: bool}>
+     * }>
+     */
+    public function catalog(): array
+    {
+        // An installation without the capabilities migration has nothing declared.
+        if (!$this->database->schema()->hasTable(self::T_RESOURCES)) {
+            return [];
+        }
+
+        $catalog = [];
+        $byId    = [];
+        foreach ($this->database->queryBuilder()->table(self::T_RESOURCES)->orderBy('resource_name')->getAll() as $row) {
+            $appId = (int) $row['applicationid'];
+            $name  = (string) $row['resource_name'];
+            $catalog[$appId]['resources'][$name] = ['active' => (bool) $row['is_active'], 'scopes' => []];
+            $catalog[$appId]['conditions'] ??= [];
+            $byId[(int) $row['id']] = [$appId, $name];
+        }
+        if ($catalog === []) {
+            return [];
+        }
+
+        foreach ($this->database->queryBuilder()->table(self::T_SCOPES)->orderBy('scope_name')->getAll() as $row) {
+            if (isset($byId[(int) $row['resource_id']])) {
+                [$appId, $name] = $byId[(int) $row['resource_id']];
+                $catalog[$appId]['resources'][$name]['scopes'][(string) $row['scope_name']] = (bool) $row['is_active'];
+            }
+        }
+
+        foreach ($this->database->queryBuilder()->table(self::T_CONDITIONS)->orderBy('condition_key')->getAll() as $row) {
+            $appId = (int) $row['applicationid'];
+            if (isset($catalog[$appId])) {
+                $catalog[$appId]['conditions'][(string) $row['condition_key']] = [
+                    'value_type' => (string) ($row['value_type'] ?? 'string'),
+                    'active'     => (bool) $row['is_active'],
+                ];
+            }
+        }
+
+        return $catalog;
+    }
+
+    /**
+     * Why a grant would never match what its application declared, or null when it would.
+     *
+     * A grant with no application, or for one that declared nothing, is not checked: the names
+     * are the application's own business until it publishes them. `*` is every action.
+     *
+     * @param array<int, array<string, mixed>> $catalog    {@see catalog()}
+     * @param int                              $appId      The grant's `app_id`; 0 for every application
+     * @param string                           $objectType The grant's resource
+     * @param string                           $action     The grant's action
+     */
+    public static function problemWith(array $catalog, int $appId, string $objectType, string $action): ?string
+    {
+        $resources = $catalog[$appId]['resources'] ?? null;
+        if ($appId <= 0 || $resources === null) {
+            return null;
+        }
+        if (!isset($resources[$objectType])) {
+            return "Application #{$appId} declares no resource \"{$objectType}\".";
+        }
+        if (!$resources[$objectType]['active']) {
+            return "Application #{$appId} no longer declares the resource \"{$objectType}\".";
+        }
+        if ($action === '*') {
+            return null;
+        }
+        $scopes = $resources[$objectType]['scopes'];
+        if (!isset($scopes[$action])) {
+            return "\"{$action}\" is not an action application #{$appId} declares on \"{$objectType}\".";
+        }
+
+        return $scopes[$action] ? null
+            : "Application #{$appId} no longer declares the action \"{$action}\" on \"{$objectType}\".";
+    }
+
+    /**
+     * The active part of a {@see catalog()}, in the shape a form's script reads.
+     *
+     * @param array<int, array<string, mixed>> $catalog {@see catalog()}
+     * @return array<int, array{resources: array<string, list<string>>, conditions: array<string, string>}>
+     *         appid => resource => its active scopes, and condition key => value type
+     */
+    public static function vocabulary(array $catalog): array
+    {
+        $vocabulary = [];
+        foreach ($catalog as $appId => $declared) {
+            $resources = [];
+            foreach ($declared['resources'] as $name => $resource) {
+                if ($resource['active']) {
+                    $resources[$name] = array_keys(array_filter($resource['scopes']));
+                }
+            }
+            $conditions = [];
+            foreach ($declared['conditions'] as $key => $condition) {
+                if ($condition['active']) {
+                    $conditions[$key] = $condition['value_type'];
+                }
+            }
+            $vocabulary[$appId] = ['resources' => $resources, 'conditions' => $conditions];
+        }
+
+        return $vocabulary;
+    }
+
+    /**
+     * {@see problemWith()} for a list of permission rows, keyed by `permissionid`.
+     *
+     * @param array<int, array<string, mixed>>  $catalog {@see catalog()}
+     * @param iterable<array<string, mixed>>    $rows    Rows with permissionid, app_id, object_type, action
+     * @return array<int, string> Only the rows with a problem
+     */
+    public static function problemsIn(array $catalog, iterable $rows): array
+    {
+        $problems = [];
+        foreach ($rows as $row) {
+            $problem = self::problemWith(
+                $catalog,
+                (int) ($row['app_id'] ?? 0),
+                (string) ($row['object_type'] ?? ''),
+                (string) ($row['action'] ?? '')
+            );
+            if ($problem !== null) {
+                $problems[(int) $row['permissionid']] = $problem;
+            }
+        }
+
+        return $problems;
+    }
+
     /** Insert or update the stored manifest hash for $applicationId. */
     private function storeHash(int $applicationId, string $hash, ?int $syncedBy): void
     {

@@ -6,6 +6,7 @@
  *   $this->role         — \Pramnos\Auth\Role
  *   $this->organisation — "System-wide" or the organisation's name
  *   $this->permissions  — permission rows granted to this role
+ *   $this->problems     — permissionid => why that grant no longer matches what its application declares
  *   $this->holders      — [userid, username, email, granted_at]
  *
  * The permissions are here because a role is otherwise an opaque name: "operator"
@@ -43,7 +44,7 @@ $role = $this->role;
                 <tbody>
                 <?php foreach (($this->permissions ?? []) as $p): ?>
                     <tr>
-                        <td><?php echo htmlspecialchars((string) $p['object_type'], ENT_QUOTES, 'UTF-8'); ?></td>
+                        <td><?php echo htmlspecialchars((string) $p['object_type'], ENT_QUOTES, 'UTF-8'); ?><?php if (isset($this->problems[(int) $p['permissionid']])): ?><span class="block text-xs text-error">&#9888; <?php echo htmlspecialchars($this->problems[(int) $p['permissionid']], ENT_QUOTES, 'UTF-8'); ?></span><?php endif; ?></td>
                         <td><?php echo $p['object_id'] === null || $p['object_id'] === ''
                             ? '<em>all</em>'
                             : htmlspecialchars((string) $p['object_id'], ENT_QUOTES, 'UTF-8'); ?></td>
