@@ -232,8 +232,79 @@ publishes — and introspects and revokes like any other. A server with no signi
 application endpoint that accepts client assertions of its own.
 
 If you need a token that acts *as* a particular person without that person signing
-in, that is the JWT bearer grant (RFC 7523 §2.1) rather than this one — it must be
-enabled per client, because its holder can obtain a token for any user.
+in, that is the JWT bearer grant below rather than this one.
+
+### Grants beyond the authorization code
+
+The token endpoint also answers three grants for situations the authorization code does not fit.
+Each authenticates the client as the others do — its secret, a client assertion, or for a public
+client its `client_id` alone — and each is subject to the application's grant policy.
+
+**Grant policy.** `applications.oauth2_application_grants` lists the grants an application may
+use. With no rows, it may use the defaults (`authorization_code`, `client_credentials`,
+`device_code`, `refresh_token`, `exchange_token`) — the three grants below are checked against
+it; the four League grants are not. With rows, exactly the enabled ones:
+
+```php
+use Pramnos\Auth\OAuth2\GrantPolicy;
+
+GrantPolicy::enable($appId, 'jwt_bearer');   // the defaults no longer apply to this app:
+GrantPolicy::enable($appId, 'device_code');  // enable each grant it uses
+GrantPolicy::disable($appId, 'jwt_bearer');  // the row stays, disabled
+```
+
+A grant the application is not allowed answers `400 unauthorized_client`.
+
+**Device authorization (RFC 8628)** — for a TV, a CLI, anything without a browser of its own.
+
+```
+POST /oauth/deviceauthorization     client_id=…&scope=openid profile
+→ { "device_code": "…", "user_code": "WDJB-MJHT", "verification_uri": "https://<server>/device",
+    "verification_uri_complete": "…?user_code=WDJB-MJHT", "expires_in": 600, "interval": 5 }
+```
+
+The device shows the code, the user approves it at `/device`, and meanwhile the device polls:
+
+```
+POST /oauth/token   grant_type=urn:ietf:params:oauth:grant-type:device_code&device_code=…&client_id=…
+```
+
+| Answer | Meaning |
+| --- | --- |
+| `400 authorization_pending` | The user has not answered; poll again after `interval` seconds. |
+| `400 slow_down` | Polled sooner than `interval` after the last poll; wait longer. |
+| `400 access_denied` | The user refused. |
+| `400 expired_token` | Ten minutes passed; start again. |
+| `200` | The access and refresh tokens. A `device_code` is good for one set of tokens; after that it is `invalid_grant`. |
+
+`grant_type=device_code` is accepted as well.
+
+**JWT bearer (RFC 7523 §2.1)** — a trusted service acting for one of its users without that
+user signing in. Its holder can obtain a token for any user, so it is never a default: the
+application needs `GrantPolicy::enable($appId, 'jwt_bearer')`.
+
+```
+POST /oauth/token
+grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=<JWT>&scope=profile
+```
+
+The assertion is signed with the client's own key and makes every check a client assertion
+makes (`iss` the client id, `aud` the token endpoint, at most five minutes, a fresh `jti`);
+its `sub` names the user by email or username. The answer is an access token for that user and
+no refresh token — the service asserts again when it needs another.
+
+**Token exchange (RFC 8693)** — a short-lived access token for a sixty-day one.
+
+```
+POST /oauth/token
+grant_type=urn:ietf:params:oauth:grant-type:token-exchange
+&subject_token=<an access token issued to this client>
+&subject_token_type=urn:ietf:params:oauth:token-type:access_token
+```
+
+The answer is an access token for the same user and scopes, lasting sixty days, with no
+refresh token; the token presented is revoked. `grant_type=exchange_token` is accepted as the
+older name, and `subject_token_type` may be left out.
 
 ### Signing out
 

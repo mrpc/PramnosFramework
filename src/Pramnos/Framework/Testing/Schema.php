@@ -134,6 +134,16 @@ final class Schema
             \Pramnos\Framework\Migrations\Core\CreateSessionsTable::class,
             \Pramnos\Framework\Migrations\Core\WidenSessionUrlAndAgent::class,
         ],
+        // The device authorization grant's requests, polled by the device.
+        'authserver.oauth2_device_codes' => [
+            \Pramnos\Framework\Migrations\AuthServer\CreateOauth2DeviceCodesTable::class,
+            \Pramnos\Framework\Migrations\AuthServer\AddLastPolledAtToOauth2DeviceCodes::class,
+        ],
+        // Which grants an application may use.
+        'applications.oauth2_application_grants' => [
+            \Pramnos\Framework\Migrations\AuthServer\CreateOauth2ApplicationGrantsTable::class,
+            \Pramnos\Framework\Migrations\AuthServer\AllowJwtBearerInOauth2ApplicationGrants::class,
+        ],
         // Every JWT assertion's jti, so one is accepted once.
         'authserver.jwt_replay_prevention' => [
             \Pramnos\Framework\Migrations\AuthServer\CreateJwtReplayPreventionTable::class,
@@ -317,6 +327,7 @@ final class Schema
         'usertokens'  => ['users', 'applications'],
         'userdetails' => ['users'],
         'mediause'    => ['media'],
+        'applications.oauth2_application_grants' => ['applications'],
     ];
 
     /**

@@ -271,8 +271,7 @@ class Oauth extends Controller
      * Token endpoint — RFC 6749 §3.2.
      *
      * All grant-type dispatch is handled by the League authorization server.
-     * Supported grant types: authorization_code, client_credentials,
-     * password, refresh_token.
+     * Supported grant types: {@see \Pramnos\Auth\OAuth2\OAuth2ServerFactory::GRANT_TYPES}.
      */
     public function token(): mixed
     {
@@ -1141,7 +1140,7 @@ class Oauth extends Controller
                 'verification_uri'         => $verificationUri,
                 'verification_uri_complete' => $verificationUri . '?user_code=' . $userCode,
                 'expires_in'               => $expiresIn,
-                'interval'                 => 5,
+                'interval'                 => \Pramnos\Auth\OAuth2\Grants\DeviceCodeGrant::INTERVAL,
             ]);
         } catch (\Exception $ex) {
             return $this->respondJson([

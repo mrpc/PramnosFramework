@@ -59,6 +59,22 @@ class OAuth2ServerFactory
      *
      * `ROOT` is a runtime constant, so these cannot be class constants.
      */
+    /**
+     * The grant types {@see createAuthorizationServer()} enables, as discovery names them.
+     *
+     * One list, so the metadata documents cannot advertise a grant the token endpoint refuses.
+     * Whether a given application may use one is {@see GrantPolicy}'s answer.
+     */
+    public const GRANT_TYPES = [
+        'authorization_code',
+        'client_credentials',
+        'password',
+        'refresh_token',
+        'urn:ietf:params:oauth:grant-type:device_code',
+        'urn:ietf:params:oauth:grant-type:jwt-bearer',
+        'urn:ietf:params:oauth:grant-type:token-exchange',
+    ];
+
     public static function defaultPrivateKeyPath(): string
     {
         return ROOT . '/app/keys/private.key';
@@ -127,6 +143,13 @@ class OAuth2ServerFactory
         $refreshTokenGrant = new RefreshTokenGrant($refreshTokenRepo);
         $refreshTokenGrant->setRefreshTokenTTL($refresh);
         $server->enableGrantType($refreshTokenGrant, $access);
+
+        // This framework's own: League 8 has none of the three.
+        $deviceGrant = new \Pramnos\Auth\OAuth2\Grants\DeviceCodeGrant($refreshTokenRepo);
+        $deviceGrant->setRefreshTokenTTL($refresh);
+        $server->enableGrantType($deviceGrant, $access);
+        $server->enableGrantType(new \Pramnos\Auth\OAuth2\Grants\JwtBearerGrant(), $access);
+        $server->enableGrantType(new \Pramnos\Auth\OAuth2\Grants\TokenExchangeGrant(), $access);
 
         return $server;
     }

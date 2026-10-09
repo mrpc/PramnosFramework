@@ -52,9 +52,7 @@ class Discovery extends Controller
             // were listed and every one of them was refused.
             'response_types_supported' => ['code'],
             'response_modes_supported' => ['query'],
-            'grant_types_supported'    => [
-                'authorization_code', 'client_credentials', 'password', 'refresh_token',
-            ],
+            'grant_types_supported'    => \Pramnos\Auth\OAuth2\OAuth2ServerFactory::GRANT_TYPES,
             'scopes_supported'                          => array_keys(Scopes::getScopeDescriptions()),
             'token_endpoint_auth_methods_supported'     => [
                 'client_secret_basic', 'client_secret_post',
@@ -250,10 +248,7 @@ class Discovery extends Controller
             'token_endpoint'                        => sURL . 'oauth/token',
             'scopes_supported'                      => array_keys(Scopes::getScopeDescriptions()),
             'response_types_supported'              => ['code', 'token'],
-            'grant_types_supported'                 => [
-                'authorization_code', 'client_credentials',
-                'password', 'refresh_token',
-            ],
+            'grant_types_supported'                 => \Pramnos\Auth\OAuth2\OAuth2ServerFactory::GRANT_TYPES,
             // `none` is a public client — a desktop or browser assistant that cannot keep a
             // secret and proves itself with PKCE instead. An MCP client reads this list and
             // the next one before it will start, and gives up if either says no.
@@ -507,13 +502,7 @@ class Discovery extends Controller
                 'discovery'            => sURL . '.well-known/openid-configuration',
                 'jwks'                 => sURL . '.well-known/jwks.json',
             ],
-            'supported_grants' => [
-                'authorization_code',
-                'client_credentials',
-                'password',
-                'refresh_token',
-                'urn:ietf:params:oauth:grant-type:device_code',
-            ],
+            'supported_grants' => \Pramnos\Auth\OAuth2\OAuth2ServerFactory::GRANT_TYPES,
             'supported_scopes' => array_keys(Scopes::getScopeDescriptions()),
             'features' => [
                 'single_sign_on'             => true,
