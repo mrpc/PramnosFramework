@@ -359,7 +359,7 @@ class DiscoveryControllerTest extends TestCase
             'session_heartbeat_endpoint'           => sURL . 'session/heartbeat',
             'device_authorization_endpoint'        => sURL . 'oauth/deviceauthorization',
             'jwks_uri'                             => sURL . '.well-known/jwks.json',
-            'end_session_endpoint'                 => sURL . 'logout',
+            'end_session_endpoint'                 => sURL . 'login/logout',
             'response_types_supported' => [
                 'code', 'token', 'id_token',
                 'code id_token', 'code token',

@@ -404,13 +404,42 @@ class Account extends Controller
     }
 
     /**
-     * Log out: drop any pending step-up, tear the session down, back to login.
+     * Log out: drop any pending step-up, tear the session down, and go where the request asks.
+     *
+     * This is also the OpenID Connect end-session endpoint (RP-Initiated Logout): with
+     * `id_token_hint`, `client_id`, `post_logout_redirect_uri`, `state` and `local` it signs the
+     * user out of an application and sends the browser back to it — see
+     * {@see \Pramnos\Auth\OAuth2\EndSession}. A registered address only; anything else ends on
+     * the sign-in page. A site-relative `redirect_uri` is where the next sign-in continues, which
+     * is how "use a different account" returns to the consent screen it left.
      */
     public function logout(): void
     {
+        $userId = $this->currentUserId();
+        $params = $_POST + $_GET;
+        $end    = $this->endSession();
+        $answer = $end->resolve($params, $userId);
+        if ($answer['refused'] !== null) {
+            \Pramnos\Logs\Logger::log('Logout: ' . $answer['refused'], 'oauth');
+        }
+        if ($answer['revoke'] && $userId !== null) {
+            $end->revoke($userId, $answer['appid']);
+        }
+
         $this->flow()->cancel();
         $this->authService()->logout();
-        $this->redirect(sURL . 'login');
+
+        $next = $this->sanitizeReturnUrl(trim((string) ($params['redirect_uri'] ?? '')));
+        $this->redirect($answer['redirect'] ?? (sURL . 'login' . ($next !== '' ? '?return=' . rawurlencode($next) : '')));
+    }
+
+    /** The end-session decisions (seam so tests can give it their own key). */
+    protected function endSession(): \Pramnos\Auth\OAuth2\EndSession
+    {
+        return new \Pramnos\Auth\OAuth2\EndSession(
+            \Pramnos\Framework\Factory::getDatabase(),
+            \Pramnos\Auth\OAuth2\OAuth2ServerFactory::defaultPublicKeyPath()
+        );
     }
 
     /**

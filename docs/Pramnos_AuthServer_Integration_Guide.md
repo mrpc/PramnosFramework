@@ -287,10 +287,32 @@ revoked one; a request without client authentication answers `401 invalid_client
 issued to another client `400 unauthorized_client`. `/oauth/introspect` finds refresh tokens
 the same way and reports them `active` until they expire or are revoked.
 
-**`/login/logout`** is for a browser. It reads the session cookie, needs no
-header, and redirects afterwards. `?local=1` clears the session and leaves the
-tokens valid — for "sign out of this browser" without breaking a running mobile
-app.
+**`/login/logout`** is for a browser. It reads the session cookie, needs no header, and
+redirects afterwards. It is also the OpenID Connect end-session endpoint (RP-Initiated
+Logout 1.0) — the discovery document's `end_session_endpoint` — so an application can sign
+its user out here and have the browser sent back:
+
+```
+GET /login/logout?id_token_hint=<the user's ID token>
+                 &post_logout_redirect_uri=https://app.example/signed-out
+                 &state=<opaque>
+```
+
+| Parameter | |
+| --- | --- |
+| `id_token_hint` | An ID token this server issued to the user. It may have expired; it must be validly signed, about the user signed in here, and name the client. |
+| `client_id` | The client, when there is no hint. With a hint it must be among the hint's `aud`. |
+| `post_logout_redirect_uri` | Where to go afterwards. Matched **exactly** against the client's registered redirect URIs and its homepage (`url`). |
+| `state` | Appended to that redirect. |
+| `local=1` | End this browser session and leave the client's tokens valid. |
+
+With a valid hint and without `local=1`, the user's access and refresh tokens for that
+client are revoked as well; other clients' tokens and the user's other browsers are left alone.
+A bare `client_id` can return the browser to a registered address but revokes nothing, since
+such a link can sit on any page. Anything that does not check out — a forged or foreign hint,
+an unregistered address — still signs the browser out, ends on the sign-in page, and is
+logged with the reason. A site-relative `redirect_uri` is carried to the next sign-in as its
+return address instead.
 
 ### Is the server up?
 

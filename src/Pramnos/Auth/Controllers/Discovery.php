@@ -44,7 +44,8 @@ class Discovery extends Controller
             'session_heartbeat_endpoint'           => sURL . 'session/heartbeat',
             'device_authorization_endpoint'        => sURL . 'oauth/deviceauthorization',
             'jwks_uri'                             => sURL . '.well-known/jwks.json',
-            'end_session_endpoint'                 => sURL . 'logout',
+            // OpenID Connect RP-Initiated Logout: Account::logout(), which the sign-in page owns.
+            'end_session_endpoint'                 => sURL . 'login/logout',
 
             // What the endpoints actually do: the authorization-code flow, answered in the query,
             // with the ID token from the token endpoint. The implicit and hybrid response types

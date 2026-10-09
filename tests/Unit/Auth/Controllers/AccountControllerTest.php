@@ -351,6 +351,67 @@ class AccountControllerTest extends TestCase
         $this->assertSame([sURL . 'login'], $this->c->redirects);
     }
 
+    /**
+     * An end-session request the decision allows goes back to the application, and revokes as decided.
+     */
+    public function testLogoutReturnsToTheApplicationAndRevokes(): void
+    {
+        // Arrange
+        $this->c->userId = 42;
+        $this->c->end    = new FakeEndSession(['redirect' => 'https://app.example/bye?state=s', 'appid' => 7, 'revoke' => true, 'refused' => null]);
+
+        // Act
+        $this->c->logout();
+
+        // Assert
+        $this->assertTrue($this->c->auth->loggedOut);
+        $this->assertSame(['https://app.example/bye?state=s'], $this->c->redirects);
+        $this->assertSame([[42, 7]], $this->c->end->revoked);
+        $this->assertSame(42, $this->c->end->askedFor, 'decided with the user signed in before the sign-out');
+    }
+
+    /**
+     * A refused end-session request still signs out, without revoking, and ends on the sign-in page.
+     */
+    public function testARefusedEndSessionStillSignsOut(): void
+    {
+        // Arrange
+        $this->c->userId = 42;
+        $this->c->end    = new FakeEndSession(['redirect' => null, 'appid' => 7, 'revoke' => false, 'refused' => 'not registered']);
+
+        // Act
+        $this->c->logout();
+
+        // Assert
+        $this->assertTrue($this->c->auth->loggedOut);
+        $this->assertSame([sURL . 'login'], $this->c->redirects);
+        $this->assertSame([], $this->c->end->revoked);
+    }
+
+    /**
+     * A site-relative redirect_uri is where the next sign-in continues; an off-site one is dropped.
+     *
+     * The consent screen's "use a different account" link sends its own address, and the user
+     * used to land on a bare sign-in page with the authorization request lost.
+     */
+    public function testARelativeRedirectUriBecomesTheNextSignInsReturn(): void
+    {
+        // Arrange
+        $_GET['redirect_uri'] = '/oauth/authorize?client_id=a&state=x';
+
+        // Act
+        $this->c->logout();
+        $_GET['redirect_uri'] = 'https://evil.example/';
+        $this->c->logout();
+        unset($_GET['redirect_uri']);
+
+        // Assert
+        $this->assertSame([
+            sURL . 'login?return=' . rawurlencode('/oauth/authorize?client_id=a&state=x'),
+            sURL . 'login',
+        ], $this->c->redirects);
+    }
+
     // ── return-url sanitisation (open-redirect guard) ────────────────────────────
 
     /** A same-origin absolute return is honoured; everything hostile is dropped. */
@@ -607,6 +668,8 @@ class TestableAccount extends Account
     protected function checkCsrf(): bool { return $this->csrf; }
     protected function baseUrl(): string { return $this->base; }
     protected function brand(): array { return $this->brandData; }
+    public FakeEndSession $end;
+    protected function endSession(): \Pramnos\Auth\OAuth2\EndSession { return $this->end ??= new FakeEndSession(['redirect' => null, 'appid' => 0, 'revoke' => false, 'refused' => null]); }
 
     // View boundary — return the stub so the real render seams run end-to-end.
     public function &getView($name = '', $type = '', $args = array())
@@ -658,4 +721,32 @@ class BrandAccount extends Account
     public function brandPublic(): array { return $this->brand(); }
 
     protected function setting(string $key): string { return $this->settings[$key] ?? ''; }
+}
+
+/** An end-session decision fixed in advance, recording what was revoked. */
+class FakeEndSession extends \Pramnos\Auth\OAuth2\EndSession
+{
+    /** @var list<array{int, int}> */
+    public array $revoked = [];
+
+    public ?int $askedFor = null;
+
+    /** @param array{redirect: ?string, appid: int, revoke: bool, refused: ?string} $answer */
+    public function __construct(private array $answer)
+    {
+    }
+
+    public function resolve(array $params, ?int $userId): array
+    {
+        $this->askedFor = $userId;
+
+        return $this->answer;
+    }
+
+    public function revoke(int $userId, int $appId): int
+    {
+        $this->revoked[] = [$userId, $appId];
+
+        return 1;
+    }
 }
