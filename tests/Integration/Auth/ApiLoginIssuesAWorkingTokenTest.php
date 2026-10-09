@@ -82,6 +82,10 @@ class ApiLoginIssuesAWorkingTokenTest extends BaseTestCase
         ], $this->db);
 
         User::clearUserCache();
+        // Every test in a run signs in from the same empty address, so the failed sign-ins of
+        // other classes count against this one's: after enough of them the per-address limit
+        // answered `too_many_attempts` where this class asserts `invalid_credentials`.
+        $this->db->queryBuilder()->table('authserver.loginlockouts')->delete();
         $_POST = [];
         $_SERVER['REQUEST_METHOD'] = 'POST';
 

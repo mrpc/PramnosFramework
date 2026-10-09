@@ -212,6 +212,10 @@ class SessionExchangeMintTest extends TestCase
         // table outlived the class whenever it reached an empty database first.
         \Pramnos\Framework\Testing\Schema::table('users', $this->db);
         \Pramnos\Framework\Testing\Schema::table('usertokens', $this->db);
+        // Read by every `new User($id)`, which the exchange does to re-read the account. Assumed
+        // rather than built, this class passed only after one that happened to leave it behind,
+        // and every exchange failed on the query after one that dropped it.
+        \Pramnos\Framework\Testing\Schema::table('userdetails', $this->db);
         $this->db->query('SET FOREIGN_KEY_CHECKS = 1');
     }
 
