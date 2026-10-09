@@ -134,6 +134,10 @@ final class Schema
             \Pramnos\Framework\Migrations\Core\CreateSessionsTable::class,
             \Pramnos\Framework\Migrations\Core\WidenSessionUrlAndAgent::class,
         ],
+        // Every JWT assertion's jti, so one is accepted once.
+        'authserver.jwt_replay_prevention' => [
+            \Pramnos\Framework\Migrations\AuthServer\CreateJwtReplayPreventionTable::class,
+        ],
         'settings' => [
             \Pramnos\Framework\Migrations\Core\CreateSettingsTable::class,
             \Pramnos\Framework\Migrations\Core\AddUniqueConstraintToSettingsTable::class,

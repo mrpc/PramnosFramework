@@ -1893,12 +1893,12 @@ class Oauth extends Controller
 
         // Validate assertion — returns a fully-hydrated Application object so we
         // already have systemuser without a second SELECT (regression fix UW-461).
-        $app = $this->validateJwtClientAssertion($assertion, $clientId);
+        $app = $this->validateJwtClientAssertion((string) $assertion, (string) $clientId, $reason);
         if ($app === null) {
             return $this->respondJson([
                 'error'             => 'invalid_client',
-                'error_description' => 'JWT client assertion validation failed',
-            ], 401);
+                'error_description' => 'JWT client assertion validation failed: ' . $reason,
+            ], 401, ['endpoint' => 'token', 'client_id' => (string) $clientId]);
         }
 
         // The same two checks every other grant makes: scopes the server knows, and within
@@ -1969,7 +1969,9 @@ class Oauth extends Controller
             ->insert([
                 'userid'        => $systemUserId,
                 'tokentype'     => 'access_token',
-                'token'         => $token,
+                // The lookup too: introspect() and revoke() find a token by it, and without it
+                // this one was invisible to both.
+                ...\Pramnos\User\Token::storageFor($token),
                 'created'       => $now,
                 'status'        => 1,
                 'applicationid' => $app->appid,
@@ -1994,50 +1996,46 @@ class Oauth extends Controller
     }
 
     /**
-     * Validate a JWT client assertion (RFC 7523 §2.2).
-     *
-     * Verifies the assertion's RS256/RS384/RS512 signature against the
-     * application's registered public key and checks the mandatory claims
-     * (sub = client_id, exp in the future).
+     * Validate a JWT client assertion (RFC 7523 §2.2): {@see \Pramnos\Auth\OAuth2\JwtAssertion},
+     * with the client itself as the subject.
      *
      * Returns the fully-hydrated Application model on success so the caller
      * can access systemuser and other fields without an additional SELECT.
      *
-     * @param string $assertion Raw JWT string from the request
-     * @param string $clientId  The client_id claim to verify
+     * @param string      $assertion Raw JWT string from the request
+     * @param string      $clientId  The client the assertion must be from and about
+     * @param string|null $reason    Filled with why it was refused
      * @return \Pramnos\Auth\Application|null  Hydrated Application on success, null on failure
      */
-    private function validateJwtClientAssertion(string $assertion, string $clientId): ?\Pramnos\Auth\Application
+    private function validateJwtClientAssertion(string $assertion, string $clientId, ?string &$reason = null): ?\Pramnos\Auth\Application
     {
         $app = new \Pramnos\Auth\Application($this);
-        $loaded = $app->loadByApiKey($clientId);
+        if ($app->loadByApiKey($clientId) === false) {
+            $reason = 'Unknown client.';
 
-        if ($loaded === false) {
-            return null;
-        }
-
-        $publicKey = $app->public_key;
-        if (empty($publicKey)) {
             return null;
         }
 
         try {
-            $payload = \Pramnos\Auth\JWT::decode($assertion, $publicKey, ['RS256', 'RS384', 'RS512']);
-        } catch (\Exception $e) {
+            $claims = $this->assertions()->verify($assertion, $app);
+        } catch (\UnexpectedValueException $e) {
+            $reason = $e->getMessage();
+
             return null;
         }
+        if (($claims->sub ?? null) !== $clientId) {
+            $reason = 'The assertion\'s sub must be the client_id.';
 
-        // sub claim must equal the client_id being authenticated
-        if (!isset($payload->sub) || $payload->sub !== $clientId) {
-            return null;
-        }
-
-        // exp must be in the future (JWT::decode also checks this, but be explicit)
-        if (!isset($payload->exp) || (int) $payload->exp < time()) {
             return null;
         }
 
         return $app;
+    }
+
+    /** The assertion verifier (seam so tests can give it a JWKS fetcher). */
+    protected function assertions(): \Pramnos\Auth\OAuth2\JwtAssertion
+    {
+        return new \Pramnos\Auth\OAuth2\JwtAssertion(\Pramnos\Framework\Factory::getDatabase());
     }
 
     // ── Device-code helpers ───────────────────────────────────────────────────

@@ -168,6 +168,8 @@ class OauthCoverageTest extends TestCase
         // The canonical `usertokens`, from the migrations that build it in
         // production — see Testing\Schema for why a hand-rolled copy is a trap.
         Schema::table('usertokens', $this->db);
+        // Every client assertion's jti is remembered here.
+        Schema::table('authserver.jwt_replay_prevention', $this->db);
         $this->db->query('
             CREATE TABLE IF NOT EXISTS `authserver_oauth2_user_consents` (
                 `id`           int(11) NOT NULL AUTO_INCREMENT,
@@ -989,7 +991,8 @@ class OauthCoverageTest extends TestCase
         $assertion = JWT::encode([
             'iss' => 'basic_jwt_client',
             'sub' => 'basic_jwt_client',
-            'aud' => 'https://localhost',
+            'aud' => \Pramnos\Auth\OAuth2\JwtAssertion::audiences()[0],
+            'jti' => bin2hex(random_bytes(8)),
             'exp' => time() + 60,
             'iat' => time(),
         ], $privateKey, 'RS256');
@@ -1051,7 +1054,8 @@ class OauthCoverageTest extends TestCase
         $assertion = JWT::encode([
             'iss' => 'reuse_jwt_client',
             'sub' => 'reuse_jwt_client',
-            'aud' => 'https://localhost',
+            'aud' => \Pramnos\Auth\OAuth2\JwtAssertion::audiences()[0],
+            'jti' => bin2hex(random_bytes(8)),
             'exp' => time() + 60,
             'iat' => time(),
         ], $privateKey, 'RS256');
@@ -1120,7 +1124,8 @@ class OauthCoverageTest extends TestCase
         $assertion = JWT::encode([
             'iss' => 'sub_mismatch_client',
             'sub' => 'wrong_client',            // ← mismatch
-            'aud' => 'https://localhost',
+            'aud' => \Pramnos\Auth\OAuth2\JwtAssertion::audiences()[0],
+            'jti' => bin2hex(random_bytes(8)),
             'exp' => time() + 60,
             'iat' => time(),
         ], $privateKey, 'RS256');
@@ -1159,7 +1164,8 @@ class OauthCoverageTest extends TestCase
         $assertion = JWT::encode([
             'iss' => 'exp_check_client',
             'sub' => 'exp_check_client',
-            'aud' => 'https://localhost',
+            'aud' => \Pramnos\Auth\OAuth2\JwtAssertion::audiences()[0],
+            'jti' => bin2hex(random_bytes(8)),
             'exp' => time() - 3600,             // ← already expired
             'iat' => time() - 7200,
         ], $privateKey, 'RS256');
@@ -1824,7 +1830,8 @@ class OauthCoverageTest extends TestCase
         $assertion = JWT::encode([
             'iss' => 'sym_client',
             'sub' => 'sym_client',
-            'aud' => 'https://localhost',
+            'aud' => \Pramnos\Auth\OAuth2\JwtAssertion::audiences()[0],
+            'jti' => bin2hex(random_bytes(8)),
             'exp' => time() + 60,
             'iat' => time(),
         ], $privateKey, 'RS256');

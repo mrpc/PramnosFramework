@@ -124,6 +124,8 @@ class OauthTest extends TestCase
         // The canonical `usertokens`, from the migrations that build it in
         // production — see Testing\Schema for why a hand-rolled copy is a trap.
         Schema::table('usertokens', $this->db);
+        // Every client assertion's jti is remembered here.
+        Schema::table('authserver.jwt_replay_prevention', $this->db);
         $this->db->query('
             CREATE TABLE IF NOT EXISTS `authserver_oauth2_user_consents` (
                 `id` int(11) NOT NULL AUTO_INCREMENT,
@@ -972,7 +974,7 @@ class OauthTest extends TestCase
         $this->assertEquals(401, $response->getStatusCode());
         $data = json_decode($response->getBody(), true);
         $this->assertEquals('invalid_client', $data['error']);
-        $this->assertEquals('JWT client assertion validation failed', $data['error_description']);
+        $this->assertStringStartsWith('JWT client assertion validation failed', $data['error_description']);
     }
 
     public function testJwtClientCredentialsValidCreatesSystemUserAndToken(): void
@@ -993,7 +995,8 @@ class OauthTest extends TestCase
         $payload = [
             'iss' => 'jwt_client',
             'sub' => 'jwt_client',
-            'aud' => 'https://localhost', // or whatever
+            'aud' => \Pramnos\Auth\OAuth2\JwtAssertion::audiences()[0],
+            'jti' => bin2hex(random_bytes(8)),
             'exp' => time() + 60,
             'iat' => time()
         ];
@@ -1026,6 +1029,13 @@ class OauthTest extends TestCase
         $token = $this->db->queryBuilder()->table('usertokens')->where('applicationid', 2)->first();
         $this->assertNotEmpty($token);
         $this->assertEquals('profile', $token->fields['scope']);
+        // Stored with its lookup, which is how introspect() and revoke() find it.
+        $this->assertSame(\Pramnos\User\Token::lookup($data['access_token']), $token->fields['token_lookup']);
+
+        // And the same assertion again is a replay.
+        $replayed = $this->controller->token();
+        $this->assertSame(401, $replayed->getStatusCode());
+        $this->assertStringContainsString('used before', json_decode((string) $replayed->getBody(), true)['error_description']);
     }
 
     /**
@@ -1047,7 +1057,7 @@ class OauthTest extends TestCase
         $_POST = [
             'grant_type'            => 'client_credentials',
             'client_assertion'      => \Pramnos\Auth\JWT::encode(['iss' => 'keyless_client', 'sub' => 'keyless_client',
-                'aud' => 'https://localhost', 'exp' => time() + 60, 'iat' => time()], $privateKey, 'RS256'),
+                'aud' => \Pramnos\Auth\OAuth2\JwtAssertion::audiences()[0], 'jti' => bin2hex(random_bytes(8)), 'exp' => time() + 60, 'iat' => time()], $privateKey, 'RS256'),
             'client_assertion_type' => 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer',
             'client_id'             => 'keyless_client',
         ];

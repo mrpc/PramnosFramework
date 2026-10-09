@@ -203,11 +203,33 @@ answers with a server error rather than a token, this is one of the things to ch
 the log carries `Could not create a system user for application <id>` or `Could not
 resolve a system user for client <id>`.
 
-A client with a registered `public_key` can authenticate its `client_credentials` request with
-a signed assertion instead of a secret (`client_assertion_type =
-urn:ietf:params:oauth:client-assertion-type:jwt-bearer`, RFC 7523 §2.2). The token it receives
-is signed RS256 with the server's own key — the one `jwks_uri` publishes. A server with no
-signing key answers `server_error` and issues nothing.
+A client with a registered `public_key`, or a `jwks_uri` publishing its keys, can authenticate
+its `client_credentials` request with a signed assertion instead of a secret
+(`client_assertion_type = urn:ietf:params:oauth:client-assertion-type:jwt-bearer`, RFC 7523
+§2.2). The assertion must carry:
+
+| Claim | Value |
+| --- | --- |
+| `iss`, `sub` | the client id |
+| `aud` | the token endpoint, `https://<server>/oauth/token` — or the issuer, `https://<server>` |
+| `iat`, `exp` | both; `exp - iat` at most 300 seconds |
+| `jti` | unique per assertion; a `jti` this client has presented before is refused until the first one's `exp` |
+
+It is signed RS256/384/512 or ES256/384/512. With a `jwks_uri`, the header's `kid` chooses the
+key; a JWKS with a single key needs none. A refused assertion answers `401 invalid_client`
+with the reason in `error_description` — which claim is wrong, or that the `jti` is a replay.
+
+```php
+$assertion = \Pramnos\Auth\JWT::encode([
+    'iss' => $clientId, 'sub' => $clientId, 'aud' => 'https://auth.example.com/oauth/token',
+    'iat' => time(), 'exp' => time() + 60, 'jti' => bin2hex(random_bytes(16)),
+], $privateKeyPem, 'RS256');
+```
+
+The token it receives is signed RS256 with the server's own key — the one the server's JWKS
+publishes — and introspects and revokes like any other. A server with no signing key answers
+`server_error` and issues nothing. `Pramnos\Auth\OAuth2\JwtAssertion` makes the check, for an
+application endpoint that accepts client assertions of its own.
 
 If you need a token that acts *as* a particular person without that person signing
 in, that is the JWT bearer grant (RFC 7523 §2.1) rather than this one — it must be
