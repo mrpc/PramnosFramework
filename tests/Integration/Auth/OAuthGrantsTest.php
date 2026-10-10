@@ -241,12 +241,12 @@ class OAuthGrantsTest extends BaseTestCase
     }
 
     /**
-     * An application with a grant policy that leaves out the device grant cannot use it.
+     * An application whose policy disables the device grant cannot use it.
      */
     public function testThePolicyCanWithholdTheDeviceGrant(): void
     {
         // Arrange
-        GrantPolicy::enable(self::APP, 'authorization_code');
+        GrantPolicy::disable(self::APP, 'device_code');
         $deviceCode = $this->startDevice();
         $this->answer($deviceCode, 'authorized');
 
@@ -420,7 +420,30 @@ class OAuthGrantsTest extends BaseTestCase
 
         // Act + Assert
         $this->assertFalse(GrantPolicy::allows(self::APP, 'jwt_bearer'));
-        $this->assertFalse(GrantPolicy::allows(self::APP, 'device_code'), 'rows exist, so the defaults no longer apply');
         $this->assertTrue(GrantPolicy::allows(self::OTHER_APP, 'device_code'), 'no rows: the defaults');
+    }
+
+    /**
+     * A row overrides its one grant and leaves the others to the defaults: enabling jwt_bearer
+     * must not silently take authorization_code away, and disabling password must take only
+     * password.
+     */
+    public function testARowOverridesOnlyItsOwnGrant(): void
+    {
+        // Arrange
+        GrantPolicy::enable(self::APP, 'jwt_bearer');
+        GrantPolicy::disable(self::APP, 'password');
+
+        // Act
+        $effective = GrantPolicy::effective(self::APP);
+
+        // Assert
+        $this->assertTrue(GrantPolicy::allows(self::APP, 'jwt_bearer'));
+        $this->assertFalse(GrantPolicy::allows(self::APP, 'password'));
+        $this->assertTrue(GrantPolicy::allows(self::APP, 'authorization_code'), 'no row: the default still applies');
+        $this->assertTrue(GrantPolicy::allows(self::APP, 'refresh_token'));
+        $this->assertContains('jwt_bearer', $effective);
+        $this->assertNotContains('password', $effective);
+        $this->assertContains('client_credentials', $effective);
     }
 }

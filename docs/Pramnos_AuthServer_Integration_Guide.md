@@ -240,17 +240,16 @@ The token endpoint also answers three grants for situations the authorization co
 Each authenticates the client as the others do — its secret, a client assertion, or for a public
 client its `client_id` alone — and each is subject to the application's grant policy.
 
-**Grant policy.** `applications.oauth2_application_grants` lists the grants an application may
-use. With no rows, it may use the defaults (`authorization_code`, `client_credentials`,
-`device_code`, `refresh_token`, `exchange_token`) — the three grants below are checked against
-it; the four League grants are not. With rows, exactly the enabled ones:
+**Grant policy.** Every grant at `/oauth/token` is checked against
+`applications.oauth2_application_grants`. A row decides its one grant; a grant without a row
+follows the defaults (`authorization_code`, `client_credentials`, `password`, `refresh_token`,
+`device_code`, `exchange_token`). `jwt_bearer` is never a default:
 
 ```php
 use Pramnos\Auth\OAuth2\GrantPolicy;
 
-GrantPolicy::enable($appId, 'jwt_bearer');   // the defaults no longer apply to this app:
-GrantPolicy::enable($appId, 'device_code');  // enable each grant it uses
-GrantPolicy::disable($appId, 'jwt_bearer');  // the row stays, disabled
+GrantPolicy::enable($appId, 'jwt_bearer');   // adds jwt_bearer; the defaults still apply
+GrantPolicy::disable($appId, 'password');    // removes password only
 ```
 
 A grant the application is not allowed answers `400 unauthorized_client`.

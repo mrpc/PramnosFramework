@@ -12,17 +12,15 @@ use Pramnos\Auth\OAuthPolicyHelper;
  * A policy table that cannot be read is an error, not the defaults: a server must not grant
  * more than it was told because it could not read what it was told.
  *
- * An application with no rows there may use the defaults,
- * {@see OAuthPolicyHelper::getDefaultAllowedGrantTypes()}. One with rows may use exactly the
- * grants it has an enabled row for. `jwt_bearer` is never a default — its holder obtains a token
- * for any user the assertion names — so an application uses it only with a row:
+ * Each row overrides the default for its one grant: a grant with a row is allowed when the row is
+ * enabled, and a grant without one follows {@see OAuthPolicyHelper::getDefaultAllowedGrantTypes()}.
+ * `jwt_bearer` is never a default — its holder obtains a token for any user the assertion names —
+ * so an application uses it only with an enabled row:
  *
  * ```php
- * GrantPolicy::enable($appId, 'jwt_bearer');
+ * GrantPolicy::enable($appId, 'jwt_bearer');   // adds jwt_bearer; the defaults still apply
+ * GrantPolicy::disable($appId, 'password');    // removes password only
  * ```
- *
- * Enabling one grant on an application that had no rows replaces the defaults with that one; enable
- * the others it uses beside it.
  */
 final class GrantPolicy
 {
@@ -36,21 +34,7 @@ final class GrantPolicy
      */
     public static function allows(int $appId, string $grant): bool
     {
-        $db   = \Pramnos\Framework\Factory::getDatabase();
-        $rows = $db->schema()->hasTable(self::TABLE)
-            ? $db->queryBuilder()->table(self::TABLE)->where('appid', $appId)->getAll()
-            : [];
-
-        if ($rows === []) {
-            return in_array($grant, OAuthPolicyHelper::getDefaultAllowedGrantTypes(), true);
-        }
-        foreach ($rows as $row) {
-            if ($row['grant_type'] === $grant && (bool) $row['is_enabled'] && $row['is_enabled'] !== 'f') {
-                return true;
-            }
-        }
-
-        return false;
+        return self::overrides($appId)[$grant] ?? in_array($grant, OAuthPolicyHelper::getDefaultAllowedGrantTypes(), true);
     }
 
     /**
@@ -72,17 +56,38 @@ final class GrantPolicy
     }
 
     /**
-     * The grants an application may use now: its rows, or the defaults when it has none.
+     * The grants an application may use now: the defaults, with its rows applied over them.
      *
      * @return list<string>
      */
     public static function effective(int $appId): array
     {
-        if (!self::hasRows($appId)) {
-            return OAuthPolicyHelper::getDefaultAllowedGrantTypes();
+        $allowed = array_fill_keys(OAuthPolicyHelper::getDefaultAllowedGrantTypes(), true);
+        foreach (self::overrides($appId) as $grant => $enabled) {
+            $allowed[$grant] = $enabled;
         }
 
-        return self::grants($appId);
+        return array_keys(array_filter($allowed));
+    }
+
+    /**
+     * An application's rows, as grant => enabled.
+     *
+     * @return array<string, bool>
+     */
+    private static function overrides(int $appId): array
+    {
+        $db   = \Pramnos\Framework\Factory::getDatabase();
+        $rows = $db->schema()->hasTable(self::TABLE)
+            ? $db->queryBuilder()->table(self::TABLE)->where('appid', $appId)->getAll()
+            : [];
+
+        $overrides = [];
+        foreach ($rows as $row) {
+            $overrides[(string) $row['grant_type']] = (bool) $row['is_enabled'] && $row['is_enabled'] !== 'f';
+        }
+
+        return $overrides;
     }
 
     /**
@@ -129,7 +134,7 @@ final class GrantPolicy
     }
 
     /**
-     * Let an application use a grant.
+     * Let an application use a grant, whatever the defaults say.
      */
     public static function enable(int $appId, string $grant): void
     {
@@ -137,7 +142,7 @@ final class GrantPolicy
     }
 
     /**
-     * Stop an application using a grant, keeping the row so the policy stays explicit.
+     * Stop an application using a grant, whatever the defaults say.
      */
     public static function disable(int $appId, string $grant): void
     {
