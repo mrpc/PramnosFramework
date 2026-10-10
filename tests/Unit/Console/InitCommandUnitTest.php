@@ -451,6 +451,9 @@ class InitCommandUnitTest extends TestCase
         // Open to the calling application's client credentials, without an API key header.
         $appConfig = require $this->tmpDir . '/app/app.php';
         $this->assertSame(['/internal/clients/*/capabilities', '/internal/permissions'], $appConfig['public_api_paths'] ?? null);
+        // The policy defaults are written out, equal to the built-in ones, so they can be changed there.
+        $this->assertSame(\Pramnos\Auth\OAuthPolicyHelper::getDefaultAllowedGrantTypes(), $appConfig['authserver']['default_grants'] ?? null);
+        $this->assertSame(\Pramnos\Auth\OAuthPolicyHelper::getDefaultAllowedAuthMethods(), $appConfig['authserver']['default_auth_methods'] ?? null);
         $this->assertStringContainsString('class InternalPermissions extends \Pramnos\Auth\Controllers\InternalPermissions',
             file_get_contents("$ctrlDir/InternalPermissions.php"));
         $this->assertStringContainsString('TestApp\Api\Controllers\Me', $routes,

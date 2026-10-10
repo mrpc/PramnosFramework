@@ -17,9 +17,21 @@ namespace Pramnos\Auth;
  * removes all client authentication.
  *
  * 'password' grant is a default, so an application that signs users in with it keeps working
- * without a policy row; an application with rows uses it only with one. It is deprecated by
- * OAuth 2.1, and a new application should use the authorization code flow instead.
+ * without a policy row. It is deprecated by OAuth 2.1, and a new application should use the
+ * authorization code flow instead.
  *
+ * An installation sets its own defaults in `app.php`:
+ *
+ * ```php
+ * 'authserver' => [
+ *     'default_grants'       => ['authorization_code', 'client_credentials', 'refresh_token'],
+ *     'default_auth_methods' => ['client_secret_basic', 'private_key_jwt'],
+ * ],
+ * ```
+ *
+ * `jwt_bearer` and `none` are never defaults, from config either: the first gives its holder a
+ * token for any user, the second removes client authentication. Listed there, they are dropped
+ * with a warning.
  */
 class OAuthPolicyHelper
 {
@@ -33,7 +45,7 @@ class OAuthPolicyHelper
      */
     public static function getDefaultAllowedAuthMethods(): array
     {
-        return [
+        return self::configured('default_auth_methods', 'none') ?? [
             'client_secret_basic',
             'client_secret_post',
             'private_key_jwt',
@@ -50,7 +62,7 @@ class OAuthPolicyHelper
      */
     public static function getDefaultAllowedGrantTypes(): array
     {
-        return [
+        return self::configured('default_grants', 'jwt_bearer') ?? [
             'authorization_code',
             'client_credentials',
             'device_code',
@@ -58,6 +70,26 @@ class OAuthPolicyHelper
             'refresh_token',
             'exchange_token',
         ];
+    }
+
+    /**
+     * A default list from the application's `authserver` config; null when it sets none.
+     *
+     * @param string $key       `default_grants` or `default_auth_methods`
+     * @param string $forbidden The one value that may never be a default
+     * @return list<string>|null
+     */
+    private static function configured(string $key, string $forbidden): ?array
+    {
+        $list = \Pramnos\Application\Application::currentInstance()?->applicationInfo['authserver'][$key] ?? null;
+        if (!is_array($list)) {
+            return null;
+        }
+        if (in_array($forbidden, $list, true)) {
+            trigger_error("authserver.{$key} lists '{$forbidden}', which is never a default; it is ignored.", E_USER_WARNING);
+        }
+
+        return array_values(array_filter($list, static fn ($value): bool => $value !== $forbidden));
     }
 
     /**

@@ -254,6 +254,19 @@ GrantPolicy::disable($appId, 'password');    // removes password only
 
 A grant the application is not allowed answers `400 unauthorized_client`.
 
+The defaults are the installation's, in `app.php` (`init` writes them out):
+
+```php
+'authserver' => [
+    'default_grants'       => ['authorization_code', 'client_credentials', 'device_code', 'password', 'refresh_token', 'exchange_token'],
+    'default_auth_methods' => ['client_secret_basic', 'client_secret_post', 'private_key_jwt'],
+],
+```
+
+Without a key, these built-in lists apply. `jwt_bearer` and `none` are never defaults: listed
+there, they are dropped with a warning, since the first gives its holder a token for any user and
+the second removes client authentication. An application gets them only from its own policy.
+
 **Device authorization (RFC 8628)** — for a TV, a CLI, anything without a browser of its own.
 
 ```

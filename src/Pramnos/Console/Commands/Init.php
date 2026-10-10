@@ -1271,6 +1271,14 @@ class Init extends Command
         if ($withApi && in_array('authserver', $features, true)) {
             $apiSection .= "    'public_api_paths' => ['/internal/clients/*/capabilities', '/internal/permissions'],\n";
         }
+        // The grants and client authentication methods an application without a policy of its
+        // own may use; written out so they can be changed here rather than per application.
+        if (in_array('authserver', $features, true)) {
+            $apiSection .= "    'authserver' => [\n"
+                . "        'default_grants'       => ['authorization_code', 'client_credentials', 'device_code', 'password', 'refresh_token', 'exchange_token'],\n"
+                . "        'default_auth_methods' => ['client_secret_basic', 'client_secret_post', 'private_key_jwt'],\n"
+                . "    ],\n";
+        }
 
         // When the auth feature is enabled, register only the auth addon.
         //
