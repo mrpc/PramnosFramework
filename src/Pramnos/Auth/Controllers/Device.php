@@ -174,17 +174,28 @@ class Device extends Controller
                 'authorized_at' => time(),
             ]);
 
-        $this->webhookService->queueEvent(
+        $this->webhookService->queueEventForApplications(
             'device_authorized',
             (int) $user['userid'],
             [
-                'device_code' => $deviceAuth['device_code'],
-                'user_code'   => $deviceAuth['user_code'],
-                'client_id'   => $deviceAuth['client_id'],
-                'scope'       => $deviceAuth['scope'] ?? '',
+                'user_code' => $deviceAuth['user_code'],
+                'client_id' => $deviceAuth['client_id'],
+                'scope'     => $deviceAuth['scope'] ?? '',
             ],
-            $deviceAuth['device_code']
+            [$this->applicationIdOf($db, (string) $deviceAuth['client_id'])]
         );
+    }
+
+    /**
+     * The application a device flow belongs to: its events go to that application's endpoints
+     * only. Another application learns nothing of it — and never the device_code, which is
+     * enough to collect the tokens it was approved for.
+     */
+    private function applicationIdOf(\Pramnos\Database\Database $db, string $clientId): int
+    {
+        $row = $db->queryBuilder()->table('#PREFIX#applications')->select(['appid'])->where('apikey', $clientId)->first();
+
+        return $row && $row->numRows > 0 ? (int) ($row->fields['appid'] ?? 0) : 0;
     }
 
     /**
@@ -202,16 +213,15 @@ class Device extends Controller
                 'authorized_at' => time(),
             ]);
 
-        $this->webhookService->queueEvent(
+        $this->webhookService->queueEventForApplications(
             'device_deauthorized',
             0,
             [
-                'device_code' => $deviceAuth['device_code'],
-                'user_code'   => $deviceAuth['user_code'],
-                'client_id'   => $deviceAuth['client_id'],
-                'reason'      => 'user_denied',
+                'user_code' => $deviceAuth['user_code'],
+                'client_id' => $deviceAuth['client_id'],
+                'reason'    => 'user_denied',
             ],
-            $deviceAuth['device_code']
+            [$this->applicationIdOf($db, (string) $deviceAuth['client_id'])]
         );
     }
 

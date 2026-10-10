@@ -9,6 +9,7 @@ use Pramnos\Application\Application;
 use Pramnos\Application\Settings;
 use Pramnos\Auth\Controllers\Webhook;
 use Pramnos\Framework\Factory;
+use Pramnos\Framework\Testing\Schema;
 use Pramnos\Framework\Testing\BaseTestCase;
 
 /**
@@ -110,6 +111,44 @@ class WebhookStorageTest extends BaseTestCase
     }
 
     // ── What the tables end up holding ────────────────────────────────────────
+
+    /**
+     * A device approval reaches the device's own application only, and without the device_code.
+     *
+     * The event used to go to every endpoint subscribed to its type, whatever application owned
+     * it, with the device_code in the payload — enough for another application to poll the token
+     * endpoint and collect the tokens the user had just approved for this one.
+     */
+    public function testADeviceApprovalReachesOnlyItsOwnApplication(): void
+    {
+        // Arrange — both applications subscribe; the device belongs to the first
+        Schema::table('authserver.oauth2_device_codes', $this->db);
+        $this->db->queryBuilder()->table('applications')->where('appid', $this->appId)->update(['apikey' => 'device-owner']);
+        foreach ([$this->appId, $this->otherAppId] as $appid) {
+            $this->db->queryBuilder()->table('applications.oauth2_webhook_endpoints')->insert([
+                'appid' => $appid, 'endpoint_url' => 'https://example.com/' . $appid,
+                'webhook_type' => 'device_authorized', 'secret_key' => 'x',
+            ]);
+        }
+        $device = new \Pramnos\Auth\Controllers\Device(Application::getInstance());
+        $approve = new \ReflectionMethod($device, 'approveDevice');
+
+        // Act
+        $approve->invoke($device, $this->db, [
+            'device_code' => 'secret-device-code', 'user_code' => 'ABCD-EFGH',
+            'client_id' => 'device-owner', 'scope' => 'openid',
+        ], ['userid' => 1]);
+
+        // Assert
+        $events = $this->db->queryBuilder()->table('applications.oauth2_webhook_events e')
+            ->join('applications.oauth2_webhook_endpoints w', 'w.webhook_id = e.webhook_id')
+            ->select(['w.appid', 'e.payload'])->where('e.event_type', 'device_authorized')
+            ->whereIn('w.appid', [$this->appId, $this->otherAppId])->getAll();
+        $this->assertCount(1, $events);
+        $this->assertSame($this->appId, (int) $events[0]['appid']);
+        $this->assertStringNotContainsString('secret-device-code', (string) $events[0]['payload']);
+    }
+
 
     /**
      * The secret goes into the table and never comes back out of the listing.

@@ -42,6 +42,7 @@ class WebhookService
         'token_revoked',
         'gdpr_request',
         'user_profile_changed',
+        'device_authorized',
         'device_deauthorized',
         'account_deleted',
         'scope_changed',

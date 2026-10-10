@@ -1261,8 +1261,14 @@ plaintext on the internet both are readable by anything on the path, which makes
 signature decorative.
 
 Event types: `user_deauthorized`, `token_revoked`, `gdpr_request`,
-`user_profile_changed`, `device_deauthorized`, `account_deleted`, `scope_changed`,
-`permissions_changed` — plus any the server application registered as its own (below).
+`user_profile_changed`, `device_authorized`, `device_deauthorized`, `account_deleted`,
+`scope_changed`, `permissions_changed` — plus any the server application registered as its own
+(below).
+
+`device_authorized` (payload `user_code`, `client_id`, `scope`) and a refused device sign-in
+(`device_deauthorized`, `reason: user_denied`) go only to the application that started the device
+flow, and never carry the `device_code`: with it, anybody could collect the tokens the user just
+approved.
 `GET /Webhook/list` returns the full set as `supported_types`. One endpoint per type per
 application.
 

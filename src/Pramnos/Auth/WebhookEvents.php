@@ -123,6 +123,7 @@ final class WebhookEvents
             'token_revoked'        => ['title' => 'A token was revoked', 'payload' => []],
             'gdpr_request'         => ['title' => 'A user asked for their data or its erasure', 'payload' => []],
             'user_profile_changed' => ['title' => 'A user changed their profile', 'payload' => []],
+            'device_authorized'    => ['title' => 'A user approved a device sign-in', 'payload' => ['user_code', 'client_id', 'scope']],
             'device_deauthorized'  => ['title' => 'A device was signed out', 'payload' => []],
             'account_deleted'      => ['title' => 'An account was deleted', 'payload' => []],
             'scope_changed'        => ['title' => 'The scopes granted to this application changed', 'payload' => []],

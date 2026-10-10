@@ -62,9 +62,9 @@ class DeviceTest extends TestCase
         // need a live DB just to call queueEvent().
         $webhookMock = $this->getMockBuilder(\Pramnos\Auth\WebhookService::class)
             ->disableOriginalConstructor()
-            ->onlyMethods(['queueEvent'])
+            ->onlyMethods(['queueEventForApplications'])
             ->getMock();
-        $webhookMock->method('queueEvent')->willReturn(0);
+        $webhookMock->method('queueEventForApplications')->willReturn(0);
 
         $rfWebhook = new \ReflectionProperty(Device::class, 'webhookService');
         $rfWebhook->setValue($this->device, $webhookMock);
@@ -106,6 +106,7 @@ class DeviceTest extends TestCase
 
         $qbMock = $this->createMock(QueryBuilder::class);
         $qbMock->method('table')->willReturnSelf();
+        $qbMock->method('select')->willReturnSelf();
         $qbMock->method('where')->willReturnSelf();
         $qbMock->method('first')->willReturn($firstResult ?? $emptyResult);
         $qbMock->method('update')->willReturn(true);
@@ -511,6 +512,7 @@ class DeviceTest extends TestCase
         // queryBuilder for device code lookup also returns no rows
         $qbMock = $this->createMock(QueryBuilder::class);
         $qbMock->method('table')->willReturnSelf();
+        $qbMock->method('select')->willReturnSelf();
         $qbMock->method('where')->willReturnSelf();
         $qbMock->method('first')->willReturn($emptyResult);
         $dbMock->method('queryBuilder')->willReturn($qbMock);
@@ -555,6 +557,7 @@ class DeviceTest extends TestCase
 
         $qbMock = $this->createMock(QueryBuilder::class);
         $qbMock->method('table')->willReturnSelf();
+        $qbMock->method('select')->willReturnSelf();
         $qbMock->method('where')->willReturnSelf();
         $qbMock->method('first')->willReturn($emptyResult);
 
@@ -609,6 +612,7 @@ class DeviceTest extends TestCase
 
         $qbMock = $this->createMock(QueryBuilder::class);
         $qbMock->method('table')->willReturnSelf();
+        $qbMock->method('select')->willReturnSelf();
         $qbMock->method('where')->willReturnSelf();
         $qbMock->method('first')->willReturn($deviceRow);
         $qbMock->method('update')->willReturn(true);
@@ -667,6 +671,7 @@ class DeviceTest extends TestCase
 
         $qbMock = $this->createMock(QueryBuilder::class);
         $qbMock->method('table')->willReturnSelf();
+        $qbMock->method('select')->willReturnSelf();
         $qbMock->method('where')->willReturnSelf();
         $qbMock->method('first')->willReturn($deviceRow);
         $qbMock->method('update')->willReturn(true);
@@ -753,11 +758,11 @@ class DeviceTest extends TestCase
         // The approve path must queue exactly one event for userid=5
         $webhookMock = $this->getMockBuilder(\Pramnos\Auth\WebhookService::class)
             ->disableOriginalConstructor()
-            ->onlyMethods(['queueEvent'])
+            ->onlyMethods(['queueEventForApplications'])
             ->getMock();
         $webhookMock->expects($this->once())
-            ->method('queueEvent')
-            ->with('device_authorized', 5, $this->anything(), 'dev-real-001');
+            ->method('queueEventForApplications')
+            ->with('device_authorized', 5, $this->anything(), $this->anything());
         (new \ReflectionProperty(Device::class, 'webhookService'))
             ->setValue($this->device, $webhookMock);
 
@@ -809,11 +814,11 @@ class DeviceTest extends TestCase
 
         $webhookMock = $this->getMockBuilder(\Pramnos\Auth\WebhookService::class)
             ->disableOriginalConstructor()
-            ->onlyMethods(['queueEvent'])
+            ->onlyMethods(['queueEventForApplications'])
             ->getMock();
         $webhookMock->expects($this->once())
-            ->method('queueEvent')
-            ->with('device_deauthorized', 0, $this->anything(), 'dev-real-002');
+            ->method('queueEventForApplications')
+            ->with('device_deauthorized', 0, $this->anything(), $this->anything());
         (new \ReflectionProperty(Device::class, 'webhookService'))
             ->setValue($this->device, $webhookMock);
 
@@ -978,6 +983,7 @@ class DeviceTest extends TestCase
 
         $qbMock = $this->createMock(QueryBuilder::class);
         $qbMock->method('table')->willReturnSelf();
+        $qbMock->method('select')->willReturnSelf();
         $qbMock->method('where')->willReturnSelf();
         $qbMock->method('update')->willReturnCallback(function () use (&$updateCount) {
             $updateCount++;
@@ -990,11 +996,12 @@ class DeviceTest extends TestCase
         // Track queueEvent on webhook mock — expects exactly one 'device_authorized' call
         $webhookMock = $this->getMockBuilder(\Pramnos\Auth\WebhookService::class)
             ->disableOriginalConstructor()
-            ->onlyMethods(['queueEvent'])
+            ->onlyMethods(['queueEventForApplications'])
             ->getMock();
         $webhookMock->expects($this->once())
-            ->method('queueEvent')
-            ->with('device_authorized', 42, $this->anything(), 'device-code-abc');
+            ->method('queueEventForApplications')
+            // To the device's own application only, and never with the device_code in it.
+            ->with('device_authorized', 42, $this->callback(static fn (array $p): bool => !isset($p['device_code'])), [0]);
 
         $rfWebhook = new \ReflectionProperty(Device::class, 'webhookService');
         $rfWebhook->setValue($this->device, $webhookMock);
@@ -1029,6 +1036,7 @@ class DeviceTest extends TestCase
 
         $qbMock = $this->createMock(QueryBuilder::class);
         $qbMock->method('table')->willReturnSelf();
+        $qbMock->method('select')->willReturnSelf();
         $qbMock->method('where')->willReturnSelf();
         $qbMock->method('update')->willReturnCallback(function () use (&$updateCount) {
             $updateCount++;
@@ -1041,11 +1049,12 @@ class DeviceTest extends TestCase
         // Track queueEvent — expects exactly one 'device_deauthorized' call
         $webhookMock = $this->getMockBuilder(\Pramnos\Auth\WebhookService::class)
             ->disableOriginalConstructor()
-            ->onlyMethods(['queueEvent'])
+            ->onlyMethods(['queueEventForApplications'])
             ->getMock();
         $webhookMock->expects($this->once())
-            ->method('queueEvent')
-            ->with('device_deauthorized', 0, $this->anything(), 'dev-code-xyz');
+            ->method('queueEventForApplications')
+            // To the device's own application only, and never with the device_code in it.
+            ->with('device_deauthorized', 0, $this->callback(static fn (array $p): bool => !isset($p['device_code'])), [0]);
 
         $rfWebhook = new \ReflectionProperty(Device::class, 'webhookService');
         $rfWebhook->setValue($this->device, $webhookMock);
