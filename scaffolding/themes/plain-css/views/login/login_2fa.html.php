@@ -26,6 +26,7 @@ $errorMessages = [
     'missing_code'  => 'Please enter your verification code.',
     'invalid_code'  => 'Invalid or expired code. Please try again.',
     'email_code_failed' => 'We could not send a code to your email address.',
+    'email_code_wait'   => 'We have already sent you a code. You can ask for another one in %d seconds.',
     'auth_link_failed'  => 'We could not email you a sign-in link.',
     'authlink_invalid'  => 'That sign-in link has been used or has expired. Please sign in again.',
     'push_failed'       => 'We could not send a notification to your phone just now. Use another way below.',
@@ -33,6 +34,10 @@ $errorMessages = [
 ];
 $errorKey  = (string) ($this->error ?? '');
 $errorText = $errorMessages[$errorKey] ?? $errorKey;
+// The wait message carries a number, so it is the one error that is formatted.
+if ($errorKey === 'email_code_wait') {
+    $errorText = sprintf($errorText, max(1, (int) ($this->resendIn ?? 0)));
+}
 /*
  * The error box's id, and the attributes that point the first field at it.
  *

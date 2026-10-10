@@ -33,25 +33,28 @@ class ScaffoldSignInKeepsReturnTest extends TestCase
     /**
      * Render a view with a return address and nothing else the page could want.
      */
-    private function render(string $theme, string $relative, string $return): string
+    private function render(string $theme, string $relative, string $return, array $properties = []): string
     {
         $path = dirname(__DIR__, 3) . '/scaffolding/themes/' . $theme . '/views/' . $relative;
-        $view = new class ($return) {
-            /** @param string $returnUrl The sanitised return address */
-            public function __construct(public string $returnUrl)
+        $view = new class ($return, $properties) {
+            /**
+             * @param string               $returnUrl  The sanitised return address
+             * @param array<string, mixed> $properties Any other view property the test sets
+             */
+            public function __construct(public string $returnUrl, private array $properties)
             {
             }
 
-            /** Any other view property: absent. */
+            /** Any other view property: the test's, or absent. */
             public function __get(string $name): mixed
             {
-                return null;
+                return $this->properties[$name] ?? null;
             }
 
-            /** Any other view property: absent. */
+            /** Any other view property: the test's, or absent. */
             public function __isset(string $name): bool
             {
-                return false;
+                return isset($this->properties[$name]);
             }
 
             /** Any view helper (`hasMessages()` and the like): nothing to show. */
@@ -104,5 +107,26 @@ class ScaffoldSignInKeepsReturnTest extends TestCase
 
         // Assert
         $this->assertStringNotContainsString('?return=', $html);
+    }
+
+    /** @return array<string, array{string}> */
+    public static function themes(): array
+    {
+        return ['tailwind' => ['tailwind'], 'bootstrap' => ['bootstrap'], 'plain-css' => ['plain-css']];
+    }
+
+    /**
+     * Asking for another emailed code too soon says how many seconds are left — the real number,
+     * not the error key and not "1" for a wait read before it was set.
+     */
+    #[DataProvider('themes')]
+    public function testTheWaitMessageSaysHowLong(string $theme): void
+    {
+        // Act
+        $html = $this->render($theme, 'login/login_2fa.html.php', '', ['error' => 'email_code_wait', 'resendIn' => 42]);
+
+        // Assert
+        $this->assertStringContainsString('another one in 42 seconds', $html);
+        $this->assertStringNotContainsString('email_code_wait', $html);
     }
 }

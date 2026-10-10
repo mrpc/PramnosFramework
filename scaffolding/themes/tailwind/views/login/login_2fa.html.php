@@ -49,7 +49,7 @@ $errorFieldAttributes = $errorText !== ''
 
 // The wait message carries a number, so it is the one error that is formatted.
 if ($errorKey === 'email_code_wait') {
-    $errorText = sprintf($errorText, max(1, $resendIn));
+    $errorText = sprintf($errorText, max(1, (int) ($this->resendIn ?? 0)));
 }
 $offerPasskey = in_array('passkey', (array) ($this->methods ?? []), true);
 
