@@ -53,6 +53,7 @@ class OAuthPolicyConfiguredDefaultsTest extends TestCase
         $this->assertContains('password', $grants);
         $this->assertNotContains('jwt_bearer', $grants);
         $this->assertSame(['client_secret_basic', 'client_secret_post', 'private_key_jwt'], $methods);
+        $this->assertSame([], OAuthPolicyHelper::getDefaultAllowedScopes(), 'no default scopes unless configured');
     }
 
     /**
@@ -104,5 +105,33 @@ class OAuthPolicyConfiguredDefaultsTest extends TestCase
         $this->assertCount(2, $warnings);
         $this->assertStringContainsString("'jwt_bearer'", $warnings[0]);
         $this->assertStringContainsString("'none'", $warnings[1]);
+    }
+
+    /**
+     * A `system:` scope is never a default scope: every client could then ask for administrative
+     * access. Listed in config, it is dropped with a warning; the others are kept.
+     */
+    public function testASystemScopeIsNeverADefaultScope(): void
+    {
+        // Arrange
+        Application::getInstance()->applicationInfo['authserver'] = ['default_scopes' => ['profile', 'system:admin', 'user']];
+        $warnings = [];
+        set_error_handler(static function (int $no, string $message) use (&$warnings): bool {
+            $warnings[] = $message;
+
+            return true;
+        }, E_USER_WARNING);
+
+        // Act
+        try {
+            $scopes = OAuthPolicyHelper::getDefaultAllowedScopes();
+        } finally {
+            restore_error_handler();
+        }
+
+        // Assert
+        $this->assertSame(['profile', 'user'], $scopes);
+        $this->assertCount(1, $warnings);
+        $this->assertStringContainsString("'system:admin'", $warnings[0]);
     }
 }

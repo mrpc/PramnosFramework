@@ -1277,6 +1277,7 @@ class Init extends Command
             $apiSection .= "    'authserver' => [\n"
                 . "        'default_grants'       => ['authorization_code', 'client_credentials', 'device_code', 'password', 'refresh_token', 'exchange_token'],\n"
                 . "        'default_auth_methods' => ['client_secret_basic', 'client_secret_post', 'private_key_jwt'],\n"
+                . "        'default_scopes'       => [],\n"
                 . "    ],\n";
         }
 

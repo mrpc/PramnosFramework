@@ -454,6 +454,7 @@ class InitCommandUnitTest extends TestCase
         // The policy defaults are written out, equal to the built-in ones, so they can be changed there.
         $this->assertSame(\Pramnos\Auth\OAuthPolicyHelper::getDefaultAllowedGrantTypes(), $appConfig['authserver']['default_grants'] ?? null);
         $this->assertSame(\Pramnos\Auth\OAuthPolicyHelper::getDefaultAllowedAuthMethods(), $appConfig['authserver']['default_auth_methods'] ?? null);
+        $this->assertSame([], $appConfig['authserver']['default_scopes'] ?? null);
         $this->assertStringContainsString('class InternalPermissions extends \Pramnos\Auth\Controllers\InternalPermissions',
             file_get_contents("$ctrlDir/InternalPermissions.php"));
         $this->assertStringContainsString('TestApp\Api\Controllers\Me', $routes,

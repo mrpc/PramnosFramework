@@ -563,4 +563,36 @@ class OAuthGrantsTest extends BaseTestCase
         $this->assertSame(401, $confidentialBare);
         $this->assertSame(200, $publicBare);
     }
+
+    // ── Default scopes ───────────────────────────────────────────────────────
+
+    /**
+     * `authserver.default_scopes` lets every client request those scopes beside its own Allowed
+     * Scopes; without the key a client is held to its own list, as before.
+     */
+    public function testDefaultScopesAreAllowedToEveryClient(): void
+    {
+        // Arrange — the app allows 'openid profile email'; 'user' is outside it
+        $request = ['grant_type' => 'password', 'username' => 'grantee', 'password' => 'right-password', 'scope' => 'profile user'];
+        $app     = Application::getInstance();
+        $had     = $app->applicationInfo['authserver'] ?? null;
+
+        try {
+            // Act
+            unset($app->applicationInfo['authserver']);
+            $without = $this->token($request)[1]['error'] ?? null;
+            $app->applicationInfo['authserver'] = ['default_scopes' => ['user']];
+            [$status, $body] = $this->token($request);
+        } finally {
+            if ($had === null) {
+                unset($app->applicationInfo['authserver']);
+            } else {
+                $app->applicationInfo['authserver'] = $had;
+            }
+        }
+
+        // Assert
+        $this->assertSame('invalid_scope', $without);
+        $this->assertSame(200, $status, json_encode($body));
+    }
 }

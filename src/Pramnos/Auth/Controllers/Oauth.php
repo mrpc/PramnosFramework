@@ -122,7 +122,7 @@ class Oauth extends Controller
 
             // The client's Allowed Scopes, before anybody is asked to consent to one it may
             // not have. An empty list is no restriction.
-            $beyond = \Pramnos\Auth\Application::scopesBeyond($client['scope'] ?? null, $params['scope']);
+            $beyond = \Pramnos\Auth\Application::scopesBeyondClient($client['scope'] ?? null, $params['scope']);
             if ($beyond !== []) {
                 throw OAuthServerException::invalidScope(implode(' ', $beyond));
             }
@@ -2028,7 +2028,7 @@ class Oauth extends Controller
         // the client's Allowed Scopes.
         if ($scope !== '') {
             [$hasInvalid, $invalid] = Scopes::hasInvalidScopes($scope);
-            $beyond = $hasInvalid ? $invalid : \Pramnos\Auth\Application::scopesBeyond($app->scope ?? null, $scope);
+            $beyond = $hasInvalid ? $invalid : \Pramnos\Auth\Application::scopesBeyondClient($app->scope ?? null, $scope);
             if ($beyond !== []) {
                 return $this->respondJson([
                     'error'             => 'invalid_scope',

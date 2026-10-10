@@ -152,7 +152,7 @@ class ScopeRepository implements ScopeRepositoryInterface
             return;
         }
 
-        $beyond = \Pramnos\Auth\Application::scopesBeyond(
+        $beyond = \Pramnos\Auth\Application::scopesBeyondClient(
             $clientEntity->getAllowedScopes(),
             array_map(static fn (ScopeEntityInterface $s): string => $s->getIdentifier(), $scopes)
         );

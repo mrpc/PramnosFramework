@@ -32,6 +32,9 @@ namespace Pramnos\Auth;
  * `jwt_bearer` and `none` are never defaults, from config either: the first gives its holder a
  * token for any user, the second removes client authentication. Listed there, they are dropped
  * with a warning.
+ *
+ * `default_scopes` lists scopes every client may request beside its own Allowed Scopes. It has
+ * no built-in value. A `system:` scope is never one: listed there, it is dropped with a warning.
  */
 class OAuthPolicyHelper
 {
@@ -45,7 +48,7 @@ class OAuthPolicyHelper
      */
     public static function getDefaultAllowedAuthMethods(): array
     {
-        return self::configured('default_auth_methods', 'none') ?? [
+        return self::configured('default_auth_methods', static fn (string $v): bool => $v === 'none') ?? [
             'client_secret_basic',
             'client_secret_post',
             'private_key_jwt',
@@ -62,7 +65,7 @@ class OAuthPolicyHelper
      */
     public static function getDefaultAllowedGrantTypes(): array
     {
-        return self::configured('default_grants', 'jwt_bearer') ?? [
+        return self::configured('default_grants', static fn (string $v): bool => $v === 'jwt_bearer') ?? [
             'authorization_code',
             'client_credentials',
             'device_code',
@@ -73,23 +76,39 @@ class OAuthPolicyHelper
     }
 
     /**
+     * Scopes every client may request beside its own Allowed Scopes: `authserver.default_scopes`,
+     * none when it is not set.
+     *
+     * @return list<string>
+     */
+    public static function getDefaultAllowedScopes(): array
+    {
+        return self::configured('default_scopes', static fn (string $v): bool => str_starts_with($v, 'system:')) ?? [];
+    }
+
+    /**
      * A default list from the application's `authserver` config; null when it sets none.
      *
-     * @param string $key       `default_grants` or `default_auth_methods`
-     * @param string $forbidden The one value that may never be a default
+     * @param string                 $key       `default_grants`, `default_auth_methods` or `default_scopes`
+     * @param callable(string): bool $forbidden What may never be a default
      * @return list<string>|null
      */
-    private static function configured(string $key, string $forbidden): ?array
+    private static function configured(string $key, callable $forbidden): ?array
     {
         $list = \Pramnos\Application\Application::currentInstance()?->applicationInfo['authserver'][$key] ?? null;
         if (!is_array($list)) {
             return null;
         }
-        if (in_array($forbidden, $list, true)) {
-            trigger_error("authserver.{$key} lists '{$forbidden}', which is never a default; it is ignored.", E_USER_WARNING);
+        $kept = [];
+        foreach ($list as $value) {
+            if ($forbidden((string) $value)) {
+                trigger_error("authserver.{$key} lists '{$value}', which is never a default; it is ignored.", E_USER_WARNING);
+                continue;
+            }
+            $kept[] = (string) $value;
         }
 
-        return array_values(array_filter($list, static fn ($value): bool => $value !== $forbidden));
+        return $kept;
     }
 
     /**

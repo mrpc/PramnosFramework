@@ -663,6 +663,27 @@ class Application extends \Pramnos\Application\Model
         return array_values(array_diff(\Pramnos\User\Token::parseScopes($requested), $allowed));
     }
 
+    /**
+     * The requested scopes a client may not have: {@see scopesBeyond()}, with the installation's
+     * default scopes ({@see \Pramnos\Auth\OAuthPolicyHelper::getDefaultAllowedScopes()})
+     * allowed to every client beside its own list.
+     *
+     * The rule for what a client may request — the authorization endpoint, the token endpoint
+     * and the grants. `scopesBeyond()` alone is the bare comparison, for a list that is not a
+     * client's, such as an API key's granted scopes.
+     *
+     * @param string|array<int, string>|null $allowed   The `applications.scope` value
+     * @param string|array<int, string>      $requested The scopes asked for
+     * @return list<string> Empty when every requested scope is allowed
+     */
+    public static function scopesBeyondClient(string|array|null $allowed, string|array $requested): array
+    {
+        return array_values(array_diff(
+            self::scopesBeyond($allowed, $requested),
+            \Pramnos\Auth\OAuthPolicyHelper::getDefaultAllowedScopes()
+        ));
+    }
+
     /** Check whether a given scope is allowed for this client. */
     public function hasScope(string $scope): bool
     {

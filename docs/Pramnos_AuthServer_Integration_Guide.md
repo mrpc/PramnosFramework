@@ -260,10 +260,13 @@ The defaults are the installation's, in `app.php` (`init` writes them out):
 'authserver' => [
     'default_grants'       => ['authorization_code', 'client_credentials', 'device_code', 'password', 'refresh_token', 'exchange_token'],
     'default_auth_methods' => ['client_secret_basic', 'client_secret_post', 'private_key_jwt'],
+    'default_scopes'       => [],   // e.g. ['profile', 'email', 'user']
 ],
 ```
 
-Without a key, these built-in lists apply. `jwt_bearer` and `none` are never defaults: listed
+`default_scopes` are scopes every client may request beside its own **Allowed Scopes**
+(`applications.scope`); a `system:` scope listed there is dropped with a warning. Without a key,
+these built-in lists apply, and no default scopes. `jwt_bearer` and `none` are never defaults: listed
 there, they are dropped with a warning, since the first gives its holder a token for any user and
 the second removes client authentication. An application gets them only from its own policy.
 
