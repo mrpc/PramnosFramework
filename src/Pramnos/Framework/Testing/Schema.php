@@ -155,6 +155,10 @@ final class Schema
         'authserver.jwt_replay_prevention' => [
             \Pramnos\Framework\Migrations\AuthServer\CreateJwtReplayPreventionTable::class,
         ],
+        // Failed sign-ins per identifier and address, shared by the login form and the password grant.
+        'authserver.loginlockouts' => [
+            \Pramnos\Framework\Migrations\Auth\CreateLoginlockoutTable::class,
+        ],
         'settings' => [
             \Pramnos\Framework\Migrations\Core\CreateSettingsTable::class,
             \Pramnos\Framework\Migrations\Core\AddUniqueConstraintToSettingsTable::class,

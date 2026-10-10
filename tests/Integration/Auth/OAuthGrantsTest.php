@@ -77,7 +77,8 @@ class OAuthGrantsTest extends BaseTestCase
         $singleton      = $this->db;
 
         foreach (['users', 'applications', 'usertokens', 'authserver.oauth2_device_codes',
-                  'applications.oauth2_application_grants', 'authserver.jwt_replay_prevention'] as $table) {
+                  'applications.oauth2_application_grants', 'authserver.jwt_replay_prevention',
+                  'authserver.loginlockouts'] as $table) {
             Schema::table($table, $this->db);
         }
         $this->cleanUp();
@@ -90,6 +91,7 @@ class OAuthGrantsTest extends BaseTestCase
 
         $this->db->queryBuilder()->table('users')->insert([
             'userid' => self::USER, 'username' => 'grantee', 'email' => 'grantee@example.com', 'active' => 1,
+            'password' => \Pramnos\Auth\PasswordHash::make('right-password'),
             'usertype' => 0, 'sex' => 0, 'birthdate' => 0, 'modified' => 0,
         ]);
         foreach ([[self::APP, 'grants-app'], [self::OTHER_APP, 'other-app']] as [$appId, $clientId]) {
@@ -123,6 +125,7 @@ class OAuthGrantsTest extends BaseTestCase
         $this->db->queryBuilder()->table('usertokens')->whereIn('applicationid', [self::APP, self::OTHER_APP])->delete();
         $this->db->queryBuilder()->table('applications')->whereIn('appid', [self::APP, self::OTHER_APP])->delete();
         $this->db->queryBuilder()->table('users')->where('userid', self::USER)->delete();
+        $this->db->queryBuilder()->table('authserver.loginlockouts')->where('lookupvalue', 'grantee')->delete();
     }
 
     /**
@@ -445,5 +448,56 @@ class OAuthGrantsTest extends BaseTestCase
         $this->assertContains('jwt_bearer', $effective);
         $this->assertNotContains('password', $effective);
         $this->assertContains('client_credentials', $effective);
+    }
+
+    // ── Password grant and the account lockout ───────────────────────────────
+
+    /**
+     * The password grant shares the login form's lockout. Before, a failure at /oauth/token was
+     * never counted and a locked account was never refused there, so the token endpoint was an
+     * unlimited password-guessing oracle beside a form that locked after three tries.
+     */
+    public function testThePasswordGrantCountsTowardAndHonoursTheLockout(): void
+    {
+        // Arrange — three wrong passwords lock the account (Loginlockout::DEFAULT_STEPS)
+        $params = ['grant_type' => 'password', 'username' => 'grantee', 'scope' => 'profile'];
+        for ($i = 0; $i < 3; $i++) {
+            [$status, $body] = $this->token($params + ['password' => 'wrong']);
+            $this->assertSame([400, 'invalid_grant'], [$status, $body['error']]);
+        }
+
+        // Act — now the right password
+        $_POST    = $params + ['password' => 'right-password', 'client_id' => 'grants-app', 'client_secret' => 'secret'];
+        $response = $this->controller->token();
+        $body     = json_decode((string) $response->getBody(), true);
+
+        // Assert — refused while locked, and told when to try again
+        $this->assertSame(400, $response->getStatusCode());
+        $this->assertSame('invalid_grant', $body['error']);
+        $this->assertStringContainsString('locked', $body['error_description']);
+        $retryAfter = (int) $response->getHeaderLine('Retry-After');
+        $this->assertGreaterThan(0, $retryAfter);
+        $this->assertLessThanOrEqual(60, $retryAfter);
+    }
+
+    /**
+     * A successful password grant clears the failures before it, as a successful sign-in does:
+     * two mistakes and a success leave no count for the next mistake to add to.
+     */
+    public function testASuccessfulPasswordGrantClearsTheFailures(): void
+    {
+        // Arrange
+        $params = ['grant_type' => 'password', 'username' => 'grantee', 'scope' => 'profile'];
+        $this->token($params + ['password' => 'wrong']);
+        $this->token($params + ['password' => 'wrong']);
+
+        // Act
+        [$status, $body] = $this->token($params + ['password' => 'right-password']);
+
+        // Assert
+        $this->assertSame(200, $status, json_encode($body));
+        $this->assertArrayHasKey('access_token', $body);
+        // No failure count left behind.
+        $this->assertSame(0, $this->db->queryBuilder()->table('authserver.loginlockouts')->where('lookupvalue', 'grantee')->count());
     }
 }

@@ -56,7 +56,7 @@ class UserRepositoryTest extends TestCase
         $dbRef = $db;
 
         $client = $this->createMock(ClientEntityInterface::class);
-        $repo = new UserRepository();
+        $repo = $this->repository();
 
         // Act
         $entity = $repo->getUserEntityByUserCredentials('wronguser', 'wrongpass', 'password', $client);
@@ -98,7 +98,7 @@ class UserRepositoryTest extends TestCase
         $dbRef = $db;
 
         $client = $this->createMock(ClientEntityInterface::class);
-        $repo = new UserRepository();
+        $repo = $this->repository();
 
         // Act
         $entity = $repo->getUserEntityByUserCredentials('testuser', 'correctpass', 'password', $client);
@@ -108,5 +108,27 @@ class UserRepositoryTest extends TestCase
         $this->assertInstanceOf(UserEntityInterface::class, $entity);
         $this->assertInstanceOf(UserEntity::class, $entity);
         $this->assertSame(42, $entity->getIdentifier());
+    }
+
+    /**
+     * A repository whose lockout store never locks, so these tests reach the credential check.
+     */
+    private function repository(): UserRepository
+    {
+        $lockout = $this->createMock(\Pramnos\Auth\Loginlockout::class);
+        $lockout->method('getLockoutStatus')->willReturn(['locked' => false, 'remaining' => 0]);
+
+        return new class ($lockout) extends UserRepository {
+            /** @param \Pramnos\Auth\Loginlockout $store The stand-in store */
+            public function __construct(private \Pramnos\Auth\Loginlockout $store)
+            {
+            }
+
+            /** The stand-in store. */
+            protected function lockout(): \Pramnos\Auth\Loginlockout
+            {
+                return $this->store;
+            }
+        };
     }
 }

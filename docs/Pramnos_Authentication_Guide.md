@@ -2410,6 +2410,11 @@ Tracks failed login attempts per scope+identifier pair. Three scopes are support
 
 A **sliding window** of 900 seconds applies: if the gap between the previous failure and the current attempt exceeds the window, the counter resets to 1. This prevents indefinite accumulation from past brute-force campaigns.
 
+The OAuth password grant shares the `'identifier'` counter with the login form: a wrong
+password at `/oauth/token` counts toward it, a success clears it, and a locked account is
+refused before its password is checked — `400 invalid_grant` with a `Retry-After` header in
+seconds. Otherwise the token endpoint would be a way round the form's lockout.
+
 #### Configuring the ladder
 
 Two application settings, both editable from the settings screen:
