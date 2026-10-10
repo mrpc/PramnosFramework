@@ -1226,6 +1226,13 @@ Two more rules go with it, both of which the DevPanel's Back button follows:
   there that was once ours and no longer is.
 - **escape it.** It arrived in a header and it is going into an `href`.
 
+A *path* is the other shape a return address takes, and it has its own traps: `//host/x` is
+protocol-relative, `/\host/x` is read the same way by browsers, and `javascript:…`, `data:…` or
+`/javascript:…` carry a scheme. `DevPanelController::isReturnable($url, $base)` accepts a URL on
+this site or a path with exactly one leading slash and no scheme, and refuses the rest. The sign-in
+screens' `?return=` goes through it (`Account::sanitizeReturnUrl()`), as does every redirect after
+login, two-factor, passkey, registration or a new-device link.
+
 ## Fetching a URL somebody else chose
 
 A URL a visitor typed is not a URL the server may request, and the gap between those two is where

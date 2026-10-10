@@ -855,28 +855,22 @@ class Account extends Controller
     }
 
     /**
-     * Reject cross-origin / protocol-relative / control-character return URLs so
-     * a crafted `?return=` cannot bounce a freshly-authenticated user off-site.
-     * Same-origin absolute URLs (starting with sURL) and site-relative paths pass.
+     * The return address, if it stays on this site; '' otherwise, so a crafted `?return=`
+     * cannot send a freshly signed-in user somewhere else.
+     *
+     * A same-origin absolute URL (under sURL) or a path with one leading slash passes. Refused:
+     * `//host` and `/\host` (browsers read both as another host), anything with a scheme —
+     * `javascript:`, `data:`, another site's `https://` — and control characters.
      */
     protected function sanitizeReturnUrl(string $return): string
     {
-        if ($return === '') {
+        if ($return === '' || preg_match('/[\x00-\x1f\x7f]/', $return)) {
             return '';
         }
-        // Control chars (incl. embedded newlines) are never valid in a URL here.
-        if (preg_match('/[\x00-\x1f]/', $return)) {
-            return '';
-        }
-        // Protocol-relative //host bypasses the scheme check below.
-        if (str_starts_with($return, '//')) {
-            return '';
-        }
-        if (preg_match('#^https?://#i', $return)) {
-            $base = $this->baseUrl();
-            return ($base !== '' && str_starts_with($return, $base)) ? $return : '';
-        }
-        return $return;
+
+        return \Pramnos\DevPanel\DevPanelController::isReturnable($return, rtrim($this->baseUrl(), '/'))
+            ? $return
+            : '';
     }
 
     /** The application base URL used to whitelist same-origin absolute returns. */

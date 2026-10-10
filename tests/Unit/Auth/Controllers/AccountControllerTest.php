@@ -422,6 +422,11 @@ class AccountControllerTest extends TestCase
         $this->assertSame('', $this->c->exposeSanitize('//evil.example'), 'protocol-relative rejected');
         $this->assertSame('', $this->c->exposeSanitize("/ok\r\nSet-Cookie: x"), 'control chars rejected');
         $this->assertSame('', $this->c->exposeSanitize(''), 'empty stays empty');
+        // Browsers read /\\ as //, so this is another host behind a leading slash.
+        $this->assertSame('', $this->c->exposeSanitize('/\\evil.example/'), 'backslash-relative rejected');
+        $this->assertSame('', $this->c->exposeSanitize('javascript:alert(1)'), 'javascript: rejected');
+        $this->assertSame('', $this->c->exposeSanitize('data:text/html,x'), 'data: rejected');
+        $this->assertSame('', $this->c->exposeSanitize('/javascript:alert(1)'), 'a scheme behind a slash rejected');
 
         // Same-origin absolute (base seam returns a real host here).
         $this->c->base = 'https://auth.example.com/';
@@ -430,6 +435,8 @@ class AccountControllerTest extends TestCase
             $this->c->exposeSanitize('https://auth.example.com/Account'),
             'same-origin absolute allowed'
         );
+        // A host that merely begins with this one's name is another site.
+        $this->assertSame('', $this->c->exposeSanitize('https://auth.example.com.evil.example/'), 'look-alike host rejected');
     }
 
     /** A validated return url wins over the dashboard fallback after login. */
