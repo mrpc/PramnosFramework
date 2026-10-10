@@ -435,6 +435,10 @@ class AccountControllerTest extends TestCase
             $this->c->exposeSanitize('https://auth.example.com/Account'),
             'same-origin absolute allowed'
         );
+        // A site-relative path — what a protected action sends a guest to sign in with — lands
+        // under this site; one with a scheme is still refused.
+        $this->assertSame('https://auth.example.com/account/security', $this->c->exposeSanitize('account/security'));
+        $this->assertSame('', $this->c->exposeSanitize('javascript:alert(1)'));
         // A host that merely begins with this one's name is another site.
         $this->assertSame('', $this->c->exposeSanitize('https://auth.example.com.evil.example/'), 'look-alike host rejected');
     }
@@ -449,6 +453,29 @@ class AccountControllerTest extends TestCase
         $this->c->login();
 
         $this->assertSame(['/Account/security'], $this->c->redirects);
+    }
+
+    /**
+     * A guest sent to sign in from a protected action comes back to it.
+     *
+     * `Controller::_throwAuthFailure()` names the page as `?return=account/security` — the
+     * request path, with no leading slash. The open-redirect fix refused that shape, so every
+     * protected page lost its destination and signing in landed on the site root.
+     */
+    public function testAGuestReturnsToTheProtectedPageAfterSigningIn(): void
+    {
+        // Arrange — the return as the auth failure builds it
+        $this->c->base = 'https://auth.example.com/';
+        parse_str((string) parse_url(sURL . 'login?return=' . urlencode('account/security'), PHP_URL_QUERY), $query);
+        $_SERVER['REQUEST_METHOD'] = 'POST';
+        $_POST = ['username' => 'alice', 'password' => 'secret', 'return' => $query['return']];
+        $this->c->flow->attemptResult = LoginFlowResult::success(7);
+
+        // Act
+        $this->c->login();
+
+        // Assert
+        $this->assertSame(['https://auth.example.com/account/security'], $this->c->redirects);
     }
 
     // ── default seams / wiring ────────────────────────────────────────────────

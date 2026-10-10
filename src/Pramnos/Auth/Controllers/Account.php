@@ -858,7 +858,8 @@ class Account extends Controller
      * The return address, if it stays on this site; '' otherwise, so a crafted `?return=`
      * cannot send a freshly signed-in user somewhere else.
      *
-     * A same-origin absolute URL (under sURL) or a path with one leading slash passes. Refused:
+     * A same-origin absolute URL (under sURL) or a path with one leading slash passes, and a
+     * relative path is made absolute under sURL. Refused:
      * `//host` and `/\host` (browsers read both as another host), anything with a scheme —
      * `javascript:`, `data:`, another site's `https://` — and control characters.
      */
@@ -868,7 +869,16 @@ class Account extends Controller
             return '';
         }
 
-        return \Pramnos\DevPanel\DevPanelController::isReturnable($return, rtrim($this->baseUrl(), '/'))
+        // A path relative to the site — `account/security`, which is what a protected action
+        // sends a guest to sign in with — is made absolute under sURL, so it lands where it did
+        // when the browser resolved it, subfolder installs included. One that starts with a
+        // slash or a backslash, or carries a scheme (`javascript:`), is not relative.
+        $base = $this->baseUrl();
+        if ($base !== '' && !preg_match('~^[/\\\\]|^[^/?#]*:~', $return)) {
+            return rtrim($base, '/') . '/' . $return;
+        }
+
+        return \Pramnos\DevPanel\DevPanelController::isReturnable($return, rtrim($base, '/'))
             ? $return
             : '';
     }

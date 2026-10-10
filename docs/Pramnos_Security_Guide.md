@@ -1230,7 +1230,8 @@ A *path* is the other shape a return address takes, and it has its own traps: `/
 protocol-relative, `/\host/x` is read the same way by browsers, and `javascript:…`, `data:…` or
 `/javascript:…` carry a scheme. `DevPanelController::isReturnable($url, $base)` accepts a URL on
 this site or a path with exactly one leading slash and no scheme, and refuses the rest. The sign-in
-screens' `?return=` goes through it (`Account::sanitizeReturnUrl()`), as does every redirect after
+screens' `?return=` goes through it (`Account::sanitizeReturnUrl()`, which first makes a relative
+path such as `account/security` absolute under `sURL`), as does every redirect after
 login, two-factor, passkey, registration or a new-device link.
 
 ## Fetching a URL somebody else chose
