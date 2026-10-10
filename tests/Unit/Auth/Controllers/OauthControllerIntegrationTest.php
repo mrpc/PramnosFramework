@@ -255,6 +255,38 @@ class OauthControllerIntegrationTest extends TestCase
         $this->assertStringContainsString('state=abc', (string) $result['redirect']);
     }
 
+    /**
+     * A public client (is_confidential = 0) gets no code without PKCE: it redeems the code with
+     * no secret, so the code challenge is the only thing tying the code to whoever asked.
+     */
+    public function testAuthorizeRequiresPkceFromAPublicClient()
+    {
+        // Arrange
+        $_GET = ['client_id' => '123', 'response_type' => 'code', 'redirect_uri' => 'http://localhost/callback',
+                 'state' => 'abc', 'scope' => 'profile'];
+        $mockClient = new \stdClass();
+        $mockClient->numRows = 1;
+        $mockClient->fields = ['appid' => 123, 'name' => 'App 1', 'callback' => 'http://localhost/callback',
+                               'scope' => 'profile', 'apisecret' => 'shipped-in-the-app', 'is_confidential' => 0];
+        $this->queryBuilderMock->method('first')->willReturn($mockClient);
+        $user = $this->createMock(\Pramnos\User\User::class);
+        $user->userid = 10;
+        $this->controller->loggedInUser = $user;
+
+        // Act
+        $without = $this->runAuthorize();
+        $page    = (string) \Pramnos\Framework\Factory::getDocument('html')->render();
+        $status  = http_response_code();
+        $_GET['code_challenge']        = str_repeat('a', 43);
+        $_GET['code_challenge_method'] = 'S256';
+        $with = $this->runAuthorize();
+
+        // Assert — the refusal is the error page; the same request with a challenge gets a code
+        $this->assertStringContainsString('must use PKCE', $page);
+        $this->assertSame(400, $status);
+        $this->assertStringStartsWith('http://localhost/callback?code=', (string) $with['redirect']);
+    }
+
     public function testAuthorizeTrustedClientSkipsConsent()
     {
         // Arrange — a logged-in user and a GET authorize request.

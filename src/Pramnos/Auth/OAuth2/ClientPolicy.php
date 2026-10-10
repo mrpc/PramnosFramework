@@ -55,7 +55,7 @@ final class ClientPolicy
     public static function refusal(string $clientId, ?string $grant, string $method, string $address, array $server): ?array
     {
         $result = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('#PREFIX#applications')
-            ->select(['appid', 'apisecret'])->where('apikey', $clientId)->where('status', 1)->first();
+            ->select(['appid', 'apisecret', 'is_confidential'])->where('apikey', $clientId)->where('status', 1)->first();
         $appId = ($result && $result->numRows > 0) ? (int) ($result->fields['appid'] ?? 0) : 0;
         if ($appId <= 0) {
             return null;
@@ -74,7 +74,7 @@ final class ClientPolicy
                 return self::refuse('unauthorized_client', "This client is not allowed the {$name} grant.");
             }
         }
-        $public = trim((string) ($result->fields['apisecret'] ?? '')) === '';
+        $public = \Pramnos\Auth\Application::cannotKeepASecret((array) $result->fields);
         if (!self::allowsMethod($appId, $method, $public)) {
             return self::refuse('unauthorized_client', "This client may not authenticate with {$method}.");
         }

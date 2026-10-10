@@ -260,12 +260,13 @@ class ApplicationService
         return [];
     }
 
-    /** Whether an application has no secret — a public client. */
+    /** Whether an application is a public client: marked so, or with no secret. */
     private function isPublic(int $appId): bool
     {
-        $secret = $this->db()->queryBuilder()->table('#PREFIX#applications')->where('appid', $appId)->value('apisecret');
+        $row = $this->db()->queryBuilder()->table('#PREFIX#applications')
+            ->select(['apisecret', 'is_confidential'])->where('appid', $appId)->first();
 
-        return trim((string) $secret) === '';
+        return \Pramnos\Auth\Application::cannotKeepASecret($row && $row->numRows > 0 ? (array) $row->fields : []);
     }
 
     /**

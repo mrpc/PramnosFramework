@@ -68,6 +68,11 @@ trait ClientCredentialsAuthTrait
      */
     protected function authenticateClient(string $clientId, string $clientSecret): ?int
     {
+        // These endpoints act for an application, so they take its secret — never a bare
+        // client_id, which a public client may otherwise present at the token endpoint.
+        if ($clientSecret === '') {
+            return null;
+        }
         $app    = new Application($this);
         $loaded = $app->loadByApiKey($clientId);
         if ($loaded === false) {

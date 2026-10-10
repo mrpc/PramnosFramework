@@ -367,8 +367,9 @@ An access token is revoked alone. A refresh token is revoked with the access tok
 it, since both belong to one grant. `token_type_hint` is used to look in the likelier place
 first and is otherwise only a hint. An unknown or already revoked token answers `200` like a
 revoked one; a request without client authentication answers `401 invalid_client`, and a token
-issued to another client `400 unauthorized_client`. `/oauth/introspect` finds refresh tokens
-the same way and reports them `active` until they expire or are revoked.
+issued to another client `400 unauthorized_client`. `/oauth/introspect` authenticates the
+client the same way — its application's authentication methods apply to both — finds refresh
+tokens the same way, and reports them `active` until they expire or are revoked.
 
 **`/login/logout`** is for a browser. It reads the session cookie, needs no header, and
 redirects afterwards. It is also the OpenID Connect end-session endpoint (RP-Initiated
@@ -561,7 +562,8 @@ records one fact: *can this client keep a secret?*
 | Where the client's code runs | A server you control | The user's device: a browser (SPA), a phone, a desktop |
 | Who can read its client secret | Only you | Every user of the app — it is inside what you shipped |
 | What the secret proves at `/oauth/token` | That the caller is the real client | Nothing: anybody who unpacked the app has it |
-| What ties an authorization code to the client | The secret | The registered redirect URI, and PKCE |
+| What ties an authorization code to the client | The secret | The registered redirect URI, and PKCE (required) |
+| Client secret at `/oauth/token`, `/oauth/revoke`, `/oauth/introspect` | Required | Optional; checked when sent |
 | `client_credentials` grant | Allowed | Refused by the token endpoint |
 | Registered redirect URI | Optional, recommended | **Required** |
 
@@ -573,9 +575,10 @@ user holds, the client is public, whatever else is true of it.
 Two conditions, and either is enough:
 
 1. **Client Type is public** (`is_confidential = 0`). The admin screen still issues such a
-   client a secret when it is created, and the token endpoint still asks for it — but a
-   secret shipped inside an app is known to everybody who has the app, so it protects nothing
-   and the server does not count it.
+   client a secret when it is created, but a secret shipped inside an app is known to
+   everybody who has the app, so it protects nothing: the token, revocation and introspection
+   endpoints accept the client's `client_id` alone, and check a secret only if one is sent.
+   The authorization endpoint requires PKCE from it.
 2. **No secret is stored** (`apisecret` empty or NULL). The token endpoint then accepts a
    request that presents no secret at all, whatever Client Type says. Clients created through
    [dynamic client registration](#dynamic-client-registration-rfc-7591) are like this, and so
@@ -953,12 +956,12 @@ binary, where whatever you ship inside it every user of it has. Register it with
 **Client Type** unticked, and **register its redirect URI** — without one it cannot sign
 anyone in; [When a redirect URI is required](#when-a-redirect-uri-is-required) explains why.
 
-The admin screen issues every new client a secret, public or not, and the token endpoint asks
-for whatever secret is stored. A client that must authenticate with no secret at all is one
-whose `apisecret` is empty — which is what dynamic registration creates.
+The admin screen issues every new client a secret, public or not; a public client need not
+send it, and a secret it does send is checked. A client whose `apisecret` is empty — which is
+what dynamic registration creates — has none to send.
 
-A public client authenticates its authorization code with **PKCE** instead, which is
-why the `code_challenge` above is not optional advice. It cannot use
+A public client authenticates its authorization code with **PKCE** instead: `/oauth/authorize`
+refuses a public client's request without a `code_challenge`. It cannot use
 `client_credentials`, which authenticates the application itself and has nothing
 but a secret to do it with — the token endpoint refuses that combination.
 

@@ -206,8 +206,12 @@ class Application extends \Pramnos\Application\Model
             return $clientSecret === null || $clientSecret === '';
         }
 
+        // A public client (`is_confidential = 0`) may present no secret even with one on
+        // file: every copy of the app has it, so it proves nothing, and such clients were
+        // registered with secrets they never send. One it does present is still checked.
+        // `client_credentials` stays closed to it — League refuses a public client there.
         if ($clientSecret === null || $clientSecret === '') {
-            return false;
+            return (int) ($result->fields['is_confidential'] ?? 1) === 0;
         }
 
         // Hashed, the way a password is: the server only ever verifies this value,
@@ -599,7 +603,8 @@ class Application extends \Pramnos\Application\Model
      *   secret it ships with, every user of it has, so the token endpoint asking for it does
      *   not tell the real client from anybody who unpacked it.
      * - **No secret stored** (`apisecret` empty): the token endpoint accepts a request with no
-     *   secret at all ({@see validateCredentials()}), whatever `is_confidential` says. A
+     *   secret at all ({@see validateCredentials()}), whatever `is_confidential` says — as it
+     *   does for a public client with one stored. A
      *   client registered through dynamic registration is one, and so is an old row written
      *   before secrets existed.
      *

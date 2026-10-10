@@ -133,6 +133,12 @@ class Oauth extends Controller
             // has been issued.
             $this->redirectUriIsRegistered($client, $params['redirect_uri']);
 
+            // A public client redeems its code with no secret, so PKCE is the only thing tying
+            // the code to whoever asked for it (OAuth 2.1, RFC 7636).
+            if ($params['code_challenge'] === '' && (int) ($client['is_confidential'] ?? 1) === 0) {
+                throw new \InvalidArgumentException('This client must use PKCE: send a code_challenge.');
+            }
+
             /*
              * **Then widen the policy to what the request named — unconditionally.**
              *
@@ -610,10 +616,10 @@ class Oauth extends Controller
     }
 
     /**
-     * The client a revoke request authenticates as, or null.
+     * The client a revoke or introspect request authenticates as, or null.
      *
      * A secret in the Basic header or the body, a client assertion (RFC 7523), or — for a public
-     * client, which has no secret to give — its `client_id` alone.
+     * client ({@see \Pramnos\Auth\Application::cannotKeepASecret()}) — its `client_id` alone.
      */
     protected function authenticatedClient(): ?string
     {
@@ -641,7 +647,7 @@ class Oauth extends Controller
      * Token introspection endpoint — RFC 7662.
      *
      * POST /oauth/introspect
-     * Requires client authentication (Basic or POST body).
+     * Requires client authentication, as revoke does ({@see authenticatedClient()}).
      */
     public function introspect(): mixed
     {
@@ -649,9 +655,8 @@ class Oauth extends Controller
             return $this->respondJson(['error' => 'method_not_allowed'], 405);
         }
 
-        $credentials = $this->extractClientCredentials();
-        if ($credentials === null || !$this->validateClientCredentials($credentials)) {
-            return $this->respondJson(['error' => 'invalid_client'], 401)
+        if ($this->authenticatedClient() === null) {
+            return $this->respondJson(['error' => 'invalid_client'], 401, ['endpoint' => 'introspect'])
                 ->withHeader('WWW-Authenticate', 'Basic realm="OAuth2"');
         }
         $refused = $this->clientPolicyRefusal(null);

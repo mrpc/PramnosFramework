@@ -500,4 +500,67 @@ class OAuthGrantsTest extends BaseTestCase
         // No failure count left behind.
         $this->assertSame(0, $this->db->queryBuilder()->table('authserver.loginlockouts')->where('lookupvalue', 'grantee')->count());
     }
+
+    // ── Public clients and introspection ─────────────────────────────────────
+
+    /** POST to the introspection endpoint. */
+    private function introspect(array $params): array
+    {
+        $_POST    = $params;
+        $response = $this->controller->introspect();
+
+        return [$response->getStatusCode(), json_decode((string) $response->getBody(), true) ?? []];
+    }
+
+    /**
+     * A public client (is_confidential = 0) need not send the secret it has on file — every copy
+     * of the app holds it — but one it sends is still checked, a confidential client still has
+     * to send its own, and client_credentials stays closed to a public client.
+     */
+    public function testAPublicClientNeedNotSendTheSecretItHas(): void
+    {
+        // Arrange
+        $this->db->queryBuilder()->table('applications')->where('appid', self::OTHER_APP)->update(['is_confidential' => 0]);
+        $password = ['grant_type' => 'password', 'username' => 'grantee', 'password' => 'right-password', 'scope' => 'profile'];
+
+        // Act
+        [$publicBare, $body] = $this->token($password, 'other-app', null);
+        $publicWrong       = $this->token($password, 'other-app', 'wrong')[1]['error'] ?? null;
+        $confidentialBare  = $this->token($password, 'grants-app', null)[1]['error'] ?? null;
+        [$clientCredentials] = $this->token(['grant_type' => 'client_credentials'], 'other-app', null);
+
+        // Assert
+        $this->assertSame(200, $publicBare, json_encode($body));
+        $this->assertSame('invalid_client', $publicWrong, 'a secret it does send is checked');
+        // Refused by its authentication-method policy before credentials are looked at: a
+        // confidential client may not authenticate with `none`.
+        $this->assertSame('unauthorized_client', $confidentialBare);
+        $this->assertNotSame(200, $clientCredentials, 'client_credentials authenticates the application itself');
+    }
+
+    /**
+     * Introspection authenticates the client as revocation does: a client assertion is accepted,
+     * a bare client_id only from a public client.
+     */
+    public function testIntrospectionAuthenticatesTheClientAsRevocationDoes(): void
+    {
+        // Arrange
+        $token = $this->userToken();
+        $this->db->queryBuilder()->table('applications')->where('appid', self::OTHER_APP)->update(['is_confidential' => 0]);
+
+        // Act
+        [$byAssertion, $body] = $this->introspect([
+            'token' => $token, 'client_id' => 'grants-app',
+            'client_assertion' => $this->assertion(['sub' => 'grants-app']),
+            'client_assertion_type' => 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer',
+        ]);
+        [$confidentialBare] = $this->introspect(['token' => $token, 'client_id' => 'grants-app']);
+        [$publicBare]       = $this->introspect(['token' => $token, 'client_id' => 'other-app']);
+
+        // Assert
+        $this->assertSame(200, $byAssertion);
+        $this->assertTrue($body['active']);
+        $this->assertSame(401, $confidentialBare);
+        $this->assertSame(200, $publicBare);
+    }
 }
