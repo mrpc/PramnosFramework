@@ -1234,6 +1234,10 @@ screens' `?return=` goes through it (`Account::sanitizeReturnUrl()`, which first
 path such as `account/security` absolute under `sURL`), as does every redirect after
 login, two-factor, passkey, registration or a new-device link.
 
+The scaffolded sign-in and two-step forms put `?return=` in their own `action` as well as in a
+hidden field, so the address bar after a failed attempt still names the destination: a refresh,
+a restored tab or a bookmark signs in to where the user was going, not to the dashboard.
+
 ## Fetching a URL somebody else chose
 
 A URL a visitor typed is not a URL the server may request, and the gap between those two is where

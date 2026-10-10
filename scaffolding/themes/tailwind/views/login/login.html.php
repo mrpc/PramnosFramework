@@ -11,6 +11,10 @@
 $brand   = $this->brand ?? [];
 $primary = htmlspecialchars((string) ($brand['primary_color'] ?? '#2563eb'), ENT_QUOTES);
 $base    = sURL . rawurlencode((string) ($this->routeBase ?? 'Account'));
+// The return address in the form's own URL too, so a refresh after a failed attempt keeps it.
+$returnQuery = (string) ($this->returnUrl ?? '') !== ''
+    ? '?return=' . htmlspecialchars(rawurlencode((string) $this->returnUrl))
+    : '';
 
 $errorMessages = [
     'human_check'       => 'The security check did not complete. Reload the page and try again — it needs a modern browser with JavaScript enabled.',
@@ -78,7 +82,7 @@ $errorFieldAttributes = $errorText !== ''
         </script>
         <?php endif; ?>
 
-        <form data-pf-progress method="POST" action="<?php echo $base; ?>/login" class="space-y-4">
+        <form data-pf-progress method="POST" action="<?php echo $base; ?>/login<?php echo $returnQuery; ?>" class="space-y-4">
             <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
             <?php /* The human check's fields, when the application asks for one. Renders
                      nothing otherwise, so the insert is unconditional. */ ?>

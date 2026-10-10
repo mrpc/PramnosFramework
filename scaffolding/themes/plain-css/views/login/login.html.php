@@ -15,6 +15,10 @@
 $brand   = $this->brand ?? [];
 $primary = htmlspecialchars((string) ($brand['primary_color'] ?? '#2563eb'), ENT_QUOTES);
 $base    = sURL . rawurlencode((string) ($this->routeBase ?? 'Account'));
+// The return address in the form's own URL too, so a refresh after a failed attempt keeps it.
+$returnQuery = (string) ($this->returnUrl ?? '') !== ''
+    ? '?return=' . htmlspecialchars(rawurlencode((string) $this->returnUrl))
+    : '';
 
 $errorMessages = [
     'invalid_token'       => 'Your session expired. Please try again.',
@@ -82,7 +86,7 @@ $errorFieldAttributes = $errorText !== ''
             </script>
             <?php endif; ?>
 
-            <form data-pf-progress method="POST" action="<?php echo $base; ?>/login">
+            <form data-pf-progress method="POST" action="<?php echo $base; ?>/login<?php echo $returnQuery; ?>">
                 <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
                 <?php if (!empty($this->returnUrl)): ?>
                     <input type="hidden" name="return" value="<?php echo htmlspecialchars((string) $this->returnUrl); ?>">

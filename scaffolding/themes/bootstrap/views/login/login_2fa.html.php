@@ -12,6 +12,10 @@
 $brand   = $this->brand ?? [];
 $primary = htmlspecialchars((string) ($brand['primary_color'] ?? '#2563eb'), ENT_QUOTES);
 $base    = sURL . rawurlencode((string) ($this->routeBase ?? 'Account'));
+// The return address in the form's own URL too, so a refresh after a failed attempt keeps it.
+$returnQuery = (string) ($this->returnUrl ?? '') !== ''
+    ? '?return=' . htmlspecialchars(rawurlencode((string) $this->returnUrl))
+    : '';
 
 $errorMessages = [
     'invalid_token' => 'Your session expired. Please try again.',
@@ -103,7 +107,7 @@ $intro = $pushFirst
                              source is how somebody concludes the mail never arrived. */ ?>
                     <?php if ($authLink): ?>
                     <p class="text-muted small">Open the link within 15 minutes. It works once, and only for this sign-in.</p>
-                    <form data-pf-progress method="POST" action="<?php echo $base; ?>/verify">
+                    <form data-pf-progress method="POST" action="<?php echo $base; ?>/verify<?php echo $returnQuery; ?>">
                         <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
                         <input type="hidden" name="send_auth_link" value="1">
                         <button type="submit" class="btn btn-secondary w-100">Email the link again</button>
@@ -127,7 +131,7 @@ $intro = $pushFirst
                                 ? 'The notification could not be sent or has expired. Send it again, or use another way.'
                                 : 'Sent. Waiting for your phone…'; ?>
                         </p>
-                        <form data-pf-progress method="POST" action="<?php echo $base; ?>/verify" data-pf-push-finish>
+                        <form data-pf-progress method="POST" action="<?php echo $base; ?>/verify<?php echo $returnQuery; ?>" data-pf-push-finish>
                             <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
                             <?php if (!empty($this->returnUrl)): ?>
                                 <input type="hidden" name="return" value="<?php echo htmlspecialchars((string) $this->returnUrl); ?>">
@@ -135,7 +139,7 @@ $intro = $pushFirst
                             <input type="hidden" name="method" value="push">
                             <noscript><button type="submit" class="btn btn-primary w-100">I approved it on my phone</button></noscript>
                         </form>
-                        <form data-pf-progress method="POST" action="<?php echo $base; ?>/verify" data-pf-push-resend
+                        <form data-pf-progress method="POST" action="<?php echo $base; ?>/verify<?php echo $returnQuery; ?>" data-pf-push-resend
                               class="<?php echo $pushStuck ? '' : 'd-none'; ?>">
                             <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
                             <input type="hidden" name="send_factor" value="push">
@@ -151,7 +155,7 @@ $intro = $pushFirst
                     <?php endif; ?>
 
                     <?php if (!$pushFirst || $hasTotp || $emailFirst): ?>
-                    <form data-pf-progress method="POST" action="<?php echo $base; ?>/verify">
+                    <form data-pf-progress method="POST" action="<?php echo $base; ?>/verify<?php echo $returnQuery; ?>">
                         <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
                         <?php if (!empty($this->returnUrl)): ?>
                             <input type="hidden" name="return" value="<?php echo htmlspecialchars((string) $this->returnUrl); ?>">
@@ -173,7 +177,7 @@ $intro = $pushFirst
                     <?php if ($hasEmail && $hasTotp): ?>
                     <div class="text-center text-muted small my-3">or</div>
                     <?php if ($codePending): ?>
-                    <form data-pf-progress method="POST" action="<?php echo $base; ?>/verify" class="mb-2">
+                    <form data-pf-progress method="POST" action="<?php echo $base; ?>/verify<?php echo $returnQuery; ?>" class="mb-2">
                         <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
                         <input type="hidden" name="method" value="email">
                         <label for="email-code" class="form-label">Code sent to your email</label>
@@ -182,7 +186,7 @@ $intro = $pushFirst
                         <button type="submit" class="btn btn-secondary w-100">Use the emailed code</button>
                     </form>
                     <?php endif; ?>
-                    <form data-pf-progress method="POST" action="<?php echo $base; ?>/verify">
+                    <form data-pf-progress method="POST" action="<?php echo $base; ?>/verify<?php echo $returnQuery; ?>">
                         <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
                         <input type="hidden" name="send_email_code" value="1">
                         <button type="submit" class="btn btn-link btn-sm w-100">
@@ -192,7 +196,7 @@ $intro = $pushFirst
                     <?php endif; ?>
 
                     <?php if ($emailFirst): ?>
-                    <form data-pf-progress method="POST" action="<?php echo $base; ?>/verify">
+                    <form data-pf-progress method="POST" action="<?php echo $base; ?>/verify<?php echo $returnQuery; ?>">
                         <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
                         <input type="hidden" name="send_email_code" value="1">
                         <button type="submit" class="btn btn-link btn-sm w-100">Send another code</button>
@@ -216,7 +220,7 @@ $intro = $pushFirst
                     <?php if ($hasTotp): ?>
                     <details class="mt-3">
                         <summary class="small text-muted" style="cursor:pointer">Use a backup code instead</summary>
-                        <form data-pf-progress method="POST" action="<?php echo $base; ?>/verify" class="mt-2">
+                        <form data-pf-progress method="POST" action="<?php echo $base; ?>/verify<?php echo $returnQuery; ?>" class="mt-2">
                             <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
                             <?php if (!empty($this->returnUrl)): ?>
                                 <input type="hidden" name="return" value="<?php echo htmlspecialchars((string) $this->returnUrl); ?>">
