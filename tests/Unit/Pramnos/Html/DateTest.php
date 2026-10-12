@@ -151,6 +151,28 @@ class DateTest extends TestCase
     }
 
     /**
+     * A null date is "no date", as 0 is — not today.
+     *
+     * `date()` reads null as now on PHP 8, so a widget built from a property nobody set
+     * (`new Date('from', $this->datefrom)`) used to answer getDate() with today's midnight
+     * when the request carried no value. A list that treats a small result as "no filter"
+     * then quietly showed one day of rows.
+     */
+    public function testANullDateReadsBackAsNoDate(): void
+    {
+        // Arrange — nothing posted for the field
+        $_REQUEST = [];
+
+        // Act
+        $fromNull = (new Date('from', null))->getDate();
+        $fromZero = (new Date('from', 0))->getDate();
+
+        // Assert
+        $this->assertSame($fromZero, $fromNull, 'null must behave exactly as 0');
+        $this->assertLessThan(10000, $fromNull, 'and must not read as a date — today is far above 10000');
+    }
+
+    /**
      * Default property values must match documented contract so that callers
      * relying on them do not need to set every field explicitly.
      */

@@ -653,6 +653,10 @@ One `dd/mm/yyyy` text field with a datepicker attached. `getDate()` reads it bac
 the wire format is deliberately not `type="date"`, because a native date input posts
 `YYYY-MM-DD` and every receiving end already parses the other one.
 
+The second argument is a Unix timestamp, and `0` — or `null`, which is read as `0` — means no
+date: with nothing in the request, `getDate()` answers `2`, so a filter can test `< 10000` for
+"not set".
+
 ### A time beside the date
 
 ```php

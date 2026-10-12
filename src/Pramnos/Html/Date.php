@@ -347,13 +347,13 @@ class Date extends Html
     /**
      * Html date field
      * @param string $name Field name
-     * @param int $date Unix timestamp
+     * @param int $date Unix timestamp; null is 0, "no date" — `date()` reads null as now
      */
     public function __construct($name = '', $date = 0)
     {
         parent::__construct();
         $this->name = str_replace(" ", "", $name);
-        $this->date = $date;
+        $this->date = (int) $date;
     }
 
     /**
