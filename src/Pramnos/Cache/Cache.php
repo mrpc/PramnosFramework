@@ -732,6 +732,11 @@ class Cache extends \Pramnos\Framework\Base
      * looked in one called `schema_columns_things` — a flush that matched
      * nothing and said nothing.
      *
+     * The prefix is handed over without underscores, as the key names are built with it. Doing
+     * that only when a key was named meant `clear()`, which names none, asked the adapter for
+     * `nk_` while `save()` had written under `nk`: on any installation with an underscored
+     * prefix, clearing a category removed nothing.
+     *
      * @return void
      */
     protected function syncAdapter()
@@ -740,6 +745,7 @@ class Cache extends \Pramnos\Framework\Base
             return;
         }
 
+        $this->prefix = str_replace('_', '', (string) $this->prefix);
         $this->adapter->setPrefix($this->prefix);
         $this->adapter->setCategory((string) $this->category);
     }
