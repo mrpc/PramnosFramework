@@ -389,7 +389,7 @@ class DebugGrantController extends Controller
          */
         return \Pramnos\DevPanel\DevPanelController::returnUrlExcluding(
             'debugbar',
-            array((defined('sURL') ? rtrim((string) sURL, '/') : '') . '/debugbar')
+            array(\Pramnos\Http\AdminArea::servingUrl() . '/debugbar')
         );
     }
 
@@ -503,6 +503,6 @@ class DebugGrantController extends Controller
 
     private function baseUrl(): string
     {
-        return defined('sURL') ? rtrim((string) sURL, '/') : '';
+        return \Pramnos\Http\AdminArea::servingUrl();
     }
 }

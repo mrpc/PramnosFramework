@@ -16,6 +16,11 @@ deliberately independent of the application's theme and document system: it emit
 self-contained HTML page, so it looks and behaves the same in every project and keeps
 working when the thing you are debugging is the theme.
 
+Served from an administration area or a secondary application — `/admin/devpanel`,
+`/admin/adminer` — every link the panel, Adminer and the toolbar grant build stays there:
+tabs, Adminer's stylesheet and scripts, the toolbar switch. They take their base from
+`AdminArea::servingUrl()` (see the Routing Guide), not from `sURL`.
+
 It answers questions about **this installation, right now** — what the database holds, what
 is in the cache, who is signed in, what is queued, what has not migrated. For per-request
 timing and queries, use the [debug toolbar](Pramnos_Debug_Toolbar_Usage.md) instead; the two

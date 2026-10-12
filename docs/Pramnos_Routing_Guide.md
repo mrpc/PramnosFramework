@@ -1082,7 +1082,14 @@ are plain application URLs, as before. The underlying calls:
 adminUrl('Users');                       // the helper the views use
 \Pramnos\Http\AdminArea::url('Users');   // what it delegates to
 \Pramnos\Http\AdminArea::isActive();     // is this request inside the area?
+\Pramnos\Http\AdminArea::servingUrl();  // the base of whatever is serving this request
 ```
+
+`servingUrl()` is for a page reachable both at the site root and inside an area — the
+DevPanel, Adminer and the debug-toolbar grant build their links from it. Inside the area it is
+the area's URL, outside it `sURL`; with no area configured it is `URL`, which an application
+mounted as a secondary application defines as its own URL. No trailing slash. `URL` alone
+cannot answer this, because it is the area's URL on every request, inside the area or not.
 
 ### One thing to know
 

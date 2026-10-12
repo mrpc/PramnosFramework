@@ -171,7 +171,7 @@ class DebugBar
 
         $devPanelUrl = null;
         if (defined('sURL')) {
-            $devPanelUrl = rtrim((string) sURL, '/') . '/devpanel';
+            $devPanelUrl = \Pramnos\Http\AdminArea::servingUrl() . '/devpanel';
         } elseif (defined('SITE_URL')) {
             $devPanelUrl = rtrim((string) SITE_URL, '/') . '/devpanel';
         }

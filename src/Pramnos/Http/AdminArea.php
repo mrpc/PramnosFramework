@@ -151,6 +151,30 @@ final class AdminArea
     }
 
     /**
+     * The base URL of the application serving this request, without a trailing slash.
+     *
+     * Where a developer page — the DevPanel, Adminer, the debug-toolbar grant — builds its own
+     * links. It is reachable both at the site root and inside an area, and links built from
+     * `sURL` alone sent a page served at `/admin/devpanel` to `/devpanel` for its tabs and
+     * `/adminer` for its stylesheet.
+     *
+     * With an area configured, the area's URL when the request is inside it and `sURL` when it
+     * is not — `URL` cannot tell the two apart, since it is the area's URL on every request.
+     * Without one, `URL`: an application mounted as a secondary application defines it as its
+     * own URL, and the main application as `sURL`.
+     */
+    public static function servingUrl(): string
+    {
+        if (self::$prefix !== '') {
+            $base = self::$active ? self::url() : (defined('sURL') ? (string) \sURL : '');
+        } else {
+            $base = defined('URL') ? (string) \URL : (defined('sURL') ? (string) \sURL : '');
+        }
+
+        return rtrim($base, '/');
+    }
+
+    /**
      * Forget the detected state.
      *
      * For test isolation: the class is static because the answer is a property of

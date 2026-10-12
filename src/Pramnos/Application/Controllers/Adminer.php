@@ -619,7 +619,7 @@ class Adminer extends \Pramnos\Application\Controller
      */
     protected function routePath(): string
     {
-        $base = defined('sURL') ? (string) sURL : '/';
+        $base = \Pramnos\Http\AdminArea::servingUrl() . '/';
         $path = parse_url($base, PHP_URL_PATH);
 
         return rtrim(is_string($path) ? $path : '/', '/') . '/adminer';
@@ -846,9 +846,7 @@ class Adminer extends \Pramnos\Application\Controller
      */
     protected function routeUrl(): string
     {
-        $base = defined('sURL') ? rtrim((string) sURL, '/') : '';
-
-        return $base . '/adminer';
+        return \Pramnos\Http\AdminArea::servingUrl() . '/adminer';
     }
 
     /**

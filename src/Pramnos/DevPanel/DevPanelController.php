@@ -468,7 +468,7 @@ class DevPanelController extends Controller
     /** Where this panel serves the viewer's `raw` endpoint from. */
     protected function logsBase(): string
     {
-        $base = defined('sURL') ? rtrim((string) sURL, '/') : '';
+        $base = \Pramnos\Http\AdminArea::servingUrl();
 
         return $base . '/' . trim((string) static::config('mount', 'devpanel'), '/');
     }
@@ -2963,7 +2963,7 @@ class DevPanelController extends Controller
         $nonce = \Pramnos\Application\Application::currentInstance()?->cspNonce ?? '';
         $na    = $nonce !== '' ? ' nonce="' . htmlspecialchars($nonce, ENT_QUOTES) . '"' : '';
         $url   = htmlspecialchars(
-            (defined('sURL') ? rtrim((string) sURL, '/') : '')
+            \Pramnos\Http\AdminArea::servingUrl()
                 . '/' . (string) static::config('mount', 'devpanel') . '/mcp',
             ENT_QUOTES
         );
@@ -3171,9 +3171,7 @@ class DevPanelController extends Controller
             return null;
         }
 
-        $base = defined('sURL') ? rtrim((string) sURL, '/') : '';
-
-        return $base . '/adminer';
+        return \Pramnos\Http\AdminArea::servingUrl() . '/adminer';
     }
 
     /**
@@ -3188,7 +3186,7 @@ class DevPanelController extends Controller
      */
     public static function tabStrip(string $activeTab): string
     {
-        $base       = defined('sURL') ? rtrim((string) sURL, '/') : '';
+        $base       = \Pramnos\Http\AdminArea::servingUrl();
         $mountPoint = (string) static::config('mount', 'devpanel');
 
         $html = '';
@@ -3322,10 +3320,10 @@ class DevPanelController extends Controller
          * That is a page which `echo`es its own HTML and therefore never carries the
          * toolbar, so turning the toolbar on appeared to do nothing at all.
          */
-        $excluded = array_merge(
-            array($base . '/' . $mount, $base . '/adminer', $base . '/' . (string) static::config('mount', 'devpanel')),
-            $alsoExclude
-        );
+        $excluded = $alsoExclude;
+        foreach (array_unique(array($base, \Pramnos\Http\AdminArea::servingUrl())) as $root) {
+            array_push($excluded, $root . '/' . $mount, $root . '/adminer', $root . '/' . (string) static::config('mount', 'devpanel'));
+        }
 
         $fromElsewhere = $referrer !== '' && $base !== '' && static::isOnThisSite($referrer, $base);
 
@@ -3382,19 +3380,23 @@ class DevPanelController extends Controller
     protected function rememberedReturnUrl(string $baseUrl, string $mountPoint): string
     {
         $referrer = (string) ($_SERVER['HTTP_REFERER'] ?? '');
-        $panelUrl = rtrim($baseUrl, '/') . '/' . $mountPoint;
 
         // Adminer counts as this panel, not as somewhere the visitor came from. It is one of
         // the tabs now, so recording it sent Back from the panel *into* Adminer — the two
         // bouncing off each other, with the screen the person actually came from lost.
-        $adminerUrl = rtrim($baseUrl, '/') . '/adminer';
+        // Both at the site root and where this request is served, which differ inside an area.
+        $ownPages = array();
+        foreach (array_unique(array(rtrim($baseUrl, '/'), \Pramnos\Http\AdminArea::servingUrl())) as $root) {
+            $ownPages[] = $root . '/' . $mountPoint;
+            $ownPages[] = $root . '/adminer';
+        }
 
-        if ($referrer !== ''
-            && $baseUrl !== ''
-            && static::isOnThisSite($referrer, $baseUrl)
-            && !static::isOnThisSite($referrer, $panelUrl)
-            && !static::isOnThisSite($referrer, $adminerUrl)
-        ) {
+        $fromElsewhere = $referrer !== '' && $baseUrl !== '' && static::isOnThisSite($referrer, $baseUrl);
+        foreach ($ownPages as $ownPage) {
+            $fromElsewhere = $fromElsewhere && !static::isOnThisSite($referrer, $ownPage);
+        }
+
+        if ($fromElsewhere) {
             $_SESSION[static::RETURN_KEY] = $referrer;
         }
 
@@ -3553,10 +3555,11 @@ class DevPanelController extends Controller
     protected function renderLayout(string $activeTab, string $content): void
     {
         $title    = 'DevPanel — ' . ucfirst($activeTab);
-        $baseUrl  = defined('sURL') ? rtrim((string) sURL, '/') : '';
+        $siteUrl  = defined('sURL') ? rtrim((string) sURL, '/') : '';
+        $baseUrl  = \Pramnos\Http\AdminArea::servingUrl();
         $mountPoint = (string) static::config('mount', 'devpanel');
 
-        $returnUrl = $this->rememberedReturnUrl($baseUrl, $mountPoint);
+        $returnUrl = $this->rememberedReturnUrl($siteUrl, $mountPoint);
 
         /*
          * The tabs come from `tabs()` — including Adminer, which is a full page of its own
