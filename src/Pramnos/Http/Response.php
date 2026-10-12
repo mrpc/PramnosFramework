@@ -199,7 +199,11 @@ class Response
     public function send(): static
     {
         if (!headers_sent()) {
-            http_response_code($this->statusCode);
+            // Not again when it is already this: PHP 8.5 warns about http_response_code() after
+            // a header('HTTP/…') status line, which legacy controllers still write.
+            if (http_response_code() !== $this->statusCode) {
+                http_response_code($this->statusCode);
+            }
             foreach ($this->headers as $name => $values) {
                 $first = true;
                 foreach ($values as $value) {

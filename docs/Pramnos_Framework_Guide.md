@@ -1580,7 +1580,11 @@ class AddSecurityHeadersMiddleware implements MiddlewareInterface
 - `hasHeader(string $name): bool`, `getHeaders(): array`
 
 **Emission:**
-- `send(): static` — emits status code, headers, and body.
+- `send(): static` — emits status code, headers, and body. A status already in effect — set with
+  `http_response_code()` or a `header('HTTP/1.1 404 Not Found')` line — is not set again, since
+  PHP 8.5 warns when `http_response_code()` follows such a line. `make($body)` still means 200:
+  a front controller wrapping a page whose controller chose its own status passes it on,
+  `Response::make($body, http_response_code() ?: 200)`.
 
 ---
 
