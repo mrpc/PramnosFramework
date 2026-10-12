@@ -250,7 +250,7 @@ class DatasourceTest extends TestCase
         $result = $ds->render('ds_items', null, false, '', '', false);
 
         // Assert — the one row whose price is 9.99, and no text matches
-        $this->assertSame(1, $result['recordsFiltered'],
+        $this->assertSame(1, $result['iTotalDisplayRecords'],
             'a numeric term must be answered by the numeric column alone');
     }
 
@@ -278,7 +278,7 @@ class DatasourceTest extends TestCase
         $result = $ds->render('ds_items', null, false, '', '', false);
 
         // Assert — id 1, not every id containing a 1
-        $this->assertSame(1, $result['recordsFiltered'],
+        $this->assertSame(1, $result['iTotalDisplayRecords'],
             'a numeric column must compare equal, not LIKE');
     }
 
@@ -307,7 +307,7 @@ class DatasourceTest extends TestCase
 
         // Assert — nothing was searched, so nothing was filtered out either:
         // every row is returned, which is what "no clause applied" means
-        $this->assertSame(4, $result['recordsFiltered'],
+        $this->assertSame(4, $result['iTotalDisplayRecords'],
             'a term outside the declared range must not produce a clause');
     }
 
@@ -331,7 +331,7 @@ class DatasourceTest extends TestCase
         $result = $ds->render('ds_items', null, false, '', '', false);
 
         // Assert — no clause, so no filtering
-        $this->assertSame(4, $result['recordsFiltered'],
+        $this->assertSame(4, $result['iTotalDisplayRecords'],
             'a non-address term must not be searched against an email column');
     }
 
@@ -360,7 +360,7 @@ class DatasourceTest extends TestCase
         $result = $anchored->render('ds_items', null, false, '', '', false);
 
         // Assert — anchored at the start, so nothing matches
-        $this->assertSame(0, $result['recordsFiltered'],
+        $this->assertSame(0, $result['iTotalDisplayRecords'],
             'startWildcard=false must anchor the match at the beginning');
     }
 
@@ -390,9 +390,9 @@ class DatasourceTest extends TestCase
         );
 
         // Assert — two groups, counted as two and returned as two
-        $this->assertCount(2, $result['data'],
+        $this->assertCount(2, $result['aaData'],
             'the grouped query must return one row per group');
-        $this->assertSame(2, $result['recordsTotal'],
+        $this->assertSame(2, $result['iTotalRecords'],
             'and the count must be the number of groups, not the size of one');
     }
 
@@ -569,8 +569,8 @@ class DatasourceTest extends TestCase
         ]);
         $ds = new Datasource();
 
-        // Act
-        $result = $ds->render('ds_items', ['id', 'name'], false, '', '', false);
+        // Act — the encoded response is the one the framework builds in the 1.10 shape
+        $result = json_decode($ds->render('ds_items', ['id', 'name'], true, '', '', false), true);
 
         // Assert — modern response shape returned
         $this->assertIsArray($result);
@@ -620,7 +620,7 @@ class DatasourceTest extends TestCase
         $result = $ds->render('ds_items', ['id', 'name'], false, '', '', false);
 
         // Assert — all rows, not capped at maxlimit.
-        $this->assertCount(4, $result['data'],
+        $this->assertCount(4, $result['aaData'],
             'modern length=-1 must return all rows, not maxlimit');
     }
 
@@ -646,7 +646,7 @@ class DatasourceTest extends TestCase
         $result = $ds->render('ds_items', ['id', 'name'], false, '', '', false);
 
         // Assert — legacy iDisplayLength=-1 honoured → all rows.
-        $this->assertCount(4, $result['data'],
+        $this->assertCount(4, $result['aaData'],
             'modern path must fall back to legacy iDisplayLength=-1 → all rows');
     }
 
@@ -670,7 +670,7 @@ class DatasourceTest extends TestCase
         $result = $ds->render('ds_items', ['id', 'name'], false, '', '', false);
 
         // Assert — capped at maxlimit.
-        $this->assertCount(2, $result['data'],
+        $this->assertCount(2, $result['aaData'],
             'modern request without a length must fall back to maxlimit');
     }
 
@@ -704,6 +704,36 @@ class DatasourceTest extends TestCase
     }
 
     /**
+     * A DataTables 1.10 request with $encode=false answers in the 1.9 shape.
+     *
+     * A caller that asks for the array post-processes the rows before encoding them, and code
+     * written for 1.9 looks for `aaData`. Answering `data` made it skip its own processing and
+     * send the raw rows. The client reads the 1.9 names natively; `sEcho` must carry the draw
+     * counter, or the client drops the response as older than its last.
+     */
+    public function testAModernRequestAnswersAnArrayCallerInTheLegacyShape(): void
+    {
+        // Arrange
+        $this->setPost([
+            'draw'   => '4',
+            'start'  => '0',
+            'length' => '10',
+            'search' => ['value' => ''],
+        ]);
+        $ds = new Datasource();
+
+        // Act
+        $result = $ds->render('ds_items', ['id', 'name'], false, '', '', false);
+
+        // Assert — the 1.9 shape only, so the rows are not sent twice
+        $this->assertSame(4, $result['sEcho'], 'sEcho is the draw counter');
+        $this->assertSame(4, $result['iTotalRecords']);
+        $this->assertCount(4, $result['aaData']);
+        $this->assertArrayNotHasKey('data', $result);
+        $this->assertArrayNotHasKey('draw', $result);
+    }
+
+    /**
      * render() with modern DT ordering parameters must apply ORDER BY correctly.
      *
      * DataTables 1.10+ sends order[] with column index and direction. This
@@ -732,8 +762,8 @@ class DatasourceTest extends TestCase
         $result = $ds->render('ds_items', ['id', 'name', 'price'], false, '', '', false);
 
         // Assert — rows returned in descending price order (Gadget 99.99 first)
-        $this->assertCount(4, $result['data']);
-        $this->assertSame('Gadget', $result['data'][0][1],
+        $this->assertCount(4, $result['aaData']);
+        $this->assertSame('Gadget', $result['aaData'][0][1],
             'render() must honor modern DT ordering: price desc → Gadget first');
     }
 
@@ -764,7 +794,7 @@ class DatasourceTest extends TestCase
         $result = $ds->render('ds_items', ['id', 'name', 'price'], false, '', '', false);
 
         // Assert — only Widget rows returned (2 in the seed)
-        $this->assertSame(2, $result['recordsFiltered'],
+        $this->assertSame(2, $result['iTotalDisplayRecords'],
             'render() modern DT global search must filter to matching rows only');
     }
 
@@ -798,9 +828,9 @@ class DatasourceTest extends TestCase
         $result = $ds->render('ds_items', ['id', 'name', 'price'], false, '', '', false);
 
         // Assert — only 'Widget A' and 'Widget B' match '%Wid%'
-        $this->assertSame(2, $result['recordsFiltered'],
+        $this->assertSame(2, $result['iTotalDisplayRecords'],
             'render() modern DT per-column search must filter to matching rows');
-        $this->assertCount(2, $result['data'],
+        $this->assertCount(2, $result['aaData'],
             'render() modern DT per-column search must return only matching rows');
     }
 
@@ -831,7 +861,7 @@ class DatasourceTest extends TestCase
         $result = $ds->render('ds_items', ['id', 'name', 'price'], false, '', '', false);
 
         // Assert — the filter was not applied, all 4 seeded rows come back
-        $this->assertSame(4, $result['recordsFiltered'],
+        $this->assertSame(4, $result['iTotalDisplayRecords'],
             'a non-searchable column must not filter the query');
     }
 
@@ -865,7 +895,7 @@ class DatasourceTest extends TestCase
         $result = $ds->render('ds_items', ['id', 'name', 'price'], false, '', '', false);
 
         // Assert — the pre-set filter applied, not the client's empty value
-        $this->assertSame(1, $result['recordsFiltered'],
+        $this->assertSame(1, $result['iTotalDisplayRecords'],
             'a pre-set sSearch_N must survive the modern DT translation');
     }
 
@@ -893,8 +923,8 @@ class DatasourceTest extends TestCase
         ]);
 
         // Act — two independent Datasource instances, one request
-        $first  = (new Datasource())->render('ds_items', ['id', 'name'], false, '', '', false);
-        $second = (new Datasource())->render('ds_items', ['id', 'name'], false, '', '', false);
+        $first  = json_decode((new Datasource())->render('ds_items', ['id', 'name'], true, '', '', false), true);
+        $second = json_decode((new Datasource())->render('ds_items', ['id', 'name'], true, '', '', false), true);
 
         // Assert — both responses use the modern shape
         $this->assertArrayHasKey('data', $first,
@@ -1634,11 +1664,11 @@ class DatasourceTest extends TestCase
         // Act — render must translate the array search to sSearch (line 149)
         $result = $ds->render('ds_items', ['a.id', 'a.name'], false, '', '', false);
 
-        // Assert — modern DT format response uses 'recordsFiltered' (not 'iTotalDisplayRecords')
-        // and the search term 'Widget' must filter the result set.
-        $this->assertArrayHasKey('recordsFiltered', $result,
-            'render() in modern DT mode must return recordsFiltered key');
-        $this->assertSame(2, $result['recordsFiltered'],
+        // Assert — an array caller gets the 1.9 names, and the search term 'Widget' must
+        // filter the result set.
+        $this->assertArrayHasKey('iTotalDisplayRecords', $result,
+            'render() answers an array caller in the 1.9 shape');
+        $this->assertSame(2, $result['iTotalDisplayRecords'],
             'render() must extract search value from array (line 149) in modern DT format');
     }
 
@@ -1812,9 +1842,9 @@ class DatasourceTest extends TestCase
         $anywhere = $ds->render('ds_items', null, false, '', '', false);
 
         // Assert
-        $this->assertSame(0, $prefixOnly['recordsFiltered'],
+        $this->assertSame(0, $prefixOnly['iTotalDisplayRecords'],
             'a mid-word term must not match by default');
-        $this->assertSame(1, $anywhere['recordsFiltered'],
+        $this->assertSame(1, $anywhere['iTotalDisplayRecords'],
             'and must match when the column asks for a leading wildcard');
     }
 }

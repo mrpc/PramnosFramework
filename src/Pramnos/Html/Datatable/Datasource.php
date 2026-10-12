@@ -581,15 +581,21 @@ class Datasource extends Base
             $return['aaData'] = array();
         }
 
-        // Return DataTables 1.10+ format when the request used modern params.
+        // A caller that asked for the array ($encode = false) post-processes the rows and encodes
+        // them itself, so it gets the 1.9 shape it was written for — DataTables 1.10 reads
+        // sEcho/iTotalRecords/aaData natively. `sEcho` is the draw counter here: the client reads
+        // it before `draw` and drops a response older than its last. Only the response built
+        // here, $encode = true, uses the 1.10 names.
         if ($isModernDT) {
-            $modernReturn = [
-                'draw'            => (int)($_POST['draw'] ?? 1),
-                'recordsTotal'    => $total,
-                'recordsFiltered' => $totalDisplay,
-                'data'            => $return['aaData'],
-            ];
-            return $encode ? json_encode($modernReturn) : $modernReturn;
+            $return['sEcho'] = (int)($_POST['draw'] ?? 1);
+            if ($encode) {
+                return json_encode([
+                    'draw'            => $return['sEcho'],
+                    'recordsTotal'    => $total,
+                    'recordsFiltered' => $totalDisplay,
+                    'data'            => $return['aaData'],
+                ]);
+            }
         }
 
         if ($encode === true) {

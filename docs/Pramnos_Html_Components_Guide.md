@@ -699,6 +699,24 @@ set `$calendar` says to expect.
 `Datatable` renders the table and its JavaScript; `Datatable\Datasource` answers the AJAX
 requests DataTables makes. This section covers what a caller configures, not a full tour.
 
+### Post-processing the rows
+
+`Datasource::getList($table, $fields, false)` returns the array instead of the JSON, for a caller
+that decorates rows before encoding them. The array is always in the DataTables 1.9 shape —
+`sEcho`, `iTotalRecords`, `iTotalDisplayRecords`, `aaData` — whichever version made the request;
+DataTables 1.10 reads those names, and `sEcho` carries its draw counter. Only `$encode = true`,
+where the Datasource builds the response itself, answers a 1.10 request with
+`draw`/`recordsTotal`/`recordsFiltered`/`data`.
+
+```php
+$result = \Pramnos\Html\Datatable\Datasource::getList('items', ['id', 'name'], false);
+foreach ($result['aaData'] as &$row) {
+    $row[1] = htmlspecialchars((string) $row[1], ENT_QUOTES, 'UTF-8');
+}
+unset($row);
+echo json_encode($result);
+```
+
 ### Waiting before searching
 
 ```php
