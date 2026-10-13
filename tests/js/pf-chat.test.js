@@ -78,8 +78,8 @@ function find(root, selector) {
  *
  * @param {{waiting?: string, answers: Array<object>}} options
  */
-function run({ waiting, answers }) {
-    const page = element('div', { 'data-pf-chat': '', 'data-asked': '/chat/asked/' });
+function run({ waiting, answers, attributes = {} }) {
+    const page = element('div', { 'data-pf-chat': '', 'data-asked': '/chat/asked/', ...attributes });
     const messages = page.appendChild(element('div', { class: 'pf-chat-messages' }));
     if (waiting) {
         messages.appendChild(element('p', { 'data-pf-chat-waiting': waiting }));
@@ -173,6 +173,22 @@ test('answered in the request, and a network failure falls back to posting', asy
     assert.equal(direct.window.location.href, '/chat?c=3');
     assert.equal(offline.form.submitted, 1);
     assert.equal(lost.messages.children[0].textContent, 'There is no such question.');
+});
+
+test('a page at its own address opens the conversation there', async () => {
+    // Arrange — the analyst: its page is not /chat, and its follow address is not /chat/asked
+    const ui = run({
+        attributes: { 'data-page': '/admin/Ai/analyst', 'data-asked': '/admin/Ai/analystAsked/' },
+        answers: [{ status: 202, data: { ask_id: 4 } }, { data: { status: 'answered', conversation_id: 6 } }],
+    });
+
+    // Act
+    ui.form.dispatch('submit');
+    await settle();
+
+    // Assert
+    assert.equal(ui.requests[1].url, '/admin/Ai/analystAsked/4');
+    assert.equal(ui.window.location.href, '/admin/Ai/analyst?c=6');
 });
 
 test('Enter sends, Shift+Enter is a new line', () => {

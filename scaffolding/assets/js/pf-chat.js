@@ -6,7 +6,8 @@
  * once, the queued question is followed, and the conversation opens when it is answered.
  *
  * Attributes handled:
- *   data-pf-chat                 — the page; data-asked is the address a question is followed at
+ *   data-pf-chat                 — the page; data-asked is the address a question is followed at,
+ *                                  data-page the page's own (the conversation opens there)
  *   data-pf-chat-form            — the question form
  *   data-pf-chat-waiting="id"    — a question already waiting when the page was drawn
  *
@@ -26,7 +27,7 @@
 
     /** Open the conversation an answer went into. */
     function open(conversationId) {
-        var base = asked.replace(/chat\/asked\/?$/, 'chat');
+        var base = page.getAttribute('data-page') || asked.replace(/chat\/asked\/?$/, 'chat');
         window.location.href = base + (conversationId ? '?c=' + conversationId : '');
     }
 

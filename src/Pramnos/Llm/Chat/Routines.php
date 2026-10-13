@@ -188,7 +188,7 @@ class Routines
      */
     public function run(array $routine, int $now): array
     {
-        $scope     = new Scope((int) $routine['userid'], $routine['organization_id']);
+        $scope     = new Scope((int) $routine['userid'], $routine['organization_id'], (string) ($routine['space'] ?? Scope::CHAT));
         $assistant = $this->chat->assistant();
         $chat      = $this->chat->as($scope, true);
         $question  = 'Scheduled task "' . $routine['title'] . '", run on ' . gmdate('l j F Y', $now) . ": \n\n" . $routine['prompt'];
@@ -373,6 +373,7 @@ class Routines
             'routine_id'      => (int) $f['routine_id'],
             'organization_id' => $f['organization_id'] === null ? null : (int) $f['organization_id'],
             'userid'          => (int) $f['userid'],
+            'space'           => (string) ($f['space'] ?? Scope::CHAT),
             'title'           => (string) $f['title'],
             'prompt'          => (string) $f['prompt'],
             'template'        => $f['template'] === null ? null : (string) $f['template'],

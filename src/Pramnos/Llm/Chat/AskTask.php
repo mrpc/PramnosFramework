@@ -19,7 +19,9 @@ class AskTask extends AbstractTask
 
     public function execute(QueueItem $queueItem): mixed
     {
-        $result = (new Asks(new Conversations(Chat::assistant())))->run((array) json_decode((string) $queueItem->payload, true));
+        $job = (array) json_decode((string) $queueItem->payload, true);
+        // An analyst's question is answered by the analyst, not by the application's Ask AI.
+        $result = (new Asks(new Conversations(Chat::assistant((string) ($job['space'] ?? Scope::CHAT)))))->run($job);
 
         return $result['ok'] ? true : ['warning' => (string) ($result['says'] ?? '')];
     }

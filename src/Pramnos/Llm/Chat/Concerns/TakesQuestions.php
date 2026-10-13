@@ -119,6 +119,36 @@ trait TakesQuestions
         return ['status' => 202, 'data' => ['ask_id' => $askId, 'conversation_id' => $conversationId > 0 ? $conversationId : null]];
     }
 
+    /**
+     * The provider a question here goes to, whether it asks for agreement, and whether this
+     * person gave it — for a page to say so.
+     *
+     * @return array{provider: string, label: string, place: string, required: bool, given: bool}
+     */
+    protected function consentState(Scope $scope): array
+    {
+        $provider = $this->conversations()->connection()->provider();
+        $config   = \Pramnos\Llm\Providers::config($provider);
+
+        return [
+            'provider' => $provider,
+            'label'    => (string) $config['label'],
+            'place'    => (string) ($config['place'] ?? ''),
+            'required' => \Pramnos\Llm\Policy\StoredConsent::required($provider) && Llm::consent() instanceof \Pramnos\Llm\Policy\StoredConsent,
+            'given'    => Llm::consent()->refusal($scope->context(), $provider) === null,
+        ];
+    }
+
+    /** Agree to the provider a question here goes to, or withdraw. */
+    protected function recordConsent(Scope $scope, bool $give): void
+    {
+        $provider = $this->conversations()->connection()->provider();
+        $store    = new \Pramnos\Llm\Policy\StoredConsent();
+        $give
+            ? $store->give($scope->organizationId, $scope->userId, $provider)
+            : $store->withdraw($scope->organizationId, $scope->userId, $provider);
+    }
+
     /** The HTTP status of a conversation's refusal. */
     private static function statusFor(string $why): int
     {

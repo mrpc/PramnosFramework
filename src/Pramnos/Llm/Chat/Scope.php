@@ -14,11 +14,29 @@ namespace Pramnos\Llm\Chat;
  * Inside an organisation only that organisation's rows are seen, and outside one only the rows
  * that have none: a row written without an organisation never shows inside one, nor one
  * organisation's in another.
+ *
+ * And within one **space**: `chat`, a person's own Ask AI, or `admin`, an administrator's
+ * analyst. The two share the tables and never each other's rows.
  */
 final class Scope
 {
-    public function __construct(public readonly int $userId, public readonly ?int $organizationId = null)
+    /** A person's own conversations. */
+    public const CHAT = 'chat';
+
+    /** An administrator's analyst, over the whole installation. */
+    public const ADMIN = 'admin';
+
+    public function __construct(
+        public readonly int $userId,
+        public readonly ?int $organizationId = null,
+        public readonly string $space = self::CHAT,
+    ) {
+    }
+
+    /** What a call in this space is for, as the router and the call log read it. */
+    public function purpose(): string
     {
+        return $this->space === self::ADMIN ? 'analyst' : $this->space;
     }
 
     /**
@@ -43,6 +61,7 @@ final class Scope
         $this->organizationId === null
             ? $query->whereNull('organization_id')
             : $query->where('organization_id', $this->organizationId);
+        $query->where('space', $this->space);
 
         return $byUser ? $query->where('userid', $this->userId) : $query;
     }
@@ -50,11 +69,11 @@ final class Scope
     /**
      * The columns a row written in this scope carries.
      *
-     * @return array{organization_id: int|null, userid: int}
+     * @return array{organization_id: int|null, userid: int, space: string}
      */
     public function columns(): array
     {
-        return ['organization_id' => $this->organizationId, 'userid' => $this->userId];
+        return ['organization_id' => $this->organizationId, 'userid' => $this->userId, 'space' => $this->space];
     }
 
     /**

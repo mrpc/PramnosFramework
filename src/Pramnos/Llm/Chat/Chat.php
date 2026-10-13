@@ -20,8 +20,12 @@ namespace Pramnos\Llm\Chat;
 final class Chat
 {
     /** The configured assistant, built once per call. */
-    public static function assistant(): Assistant
+    public static function assistant(string $space = Scope::CHAT): Assistant
     {
+        if ($space === Scope::ADMIN) {
+            return \Pramnos\Llm\Analyst\Analyst::assistant();
+        }
+
         $chat  = \Pramnos\Llm\Llm::config('chat', []);
         $class = is_array($chat) && is_string($chat['assistant'] ?? null) ? $chat['assistant'] : BaseAssistant::class;
 

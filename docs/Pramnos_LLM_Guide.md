@@ -10,6 +10,7 @@ use_cases:
   - Asking users' agreement before their data goes to a provider
   - Turning an attached Word, OpenDocument or email file into text for a model
   - Adding an Ask AI page, widget or SPA screen to an application
+  - Letting administrators ask questions about the installation's own figures
 ---
 
 # Language models
@@ -181,6 +182,9 @@ process) or set at runtime with `Llm::use()`:
   organisation); `route(array $context, Connection $c): Connection` may hand back another
   connection before anything is sent: an organisation's own provider or key, a cheaper project
   for material that may go to it. Extend `Policy\DefaultRouter`, which fills in the signed-in user.
+  An `organization_id` that is present and `null` means *no organisation* — the
+  [analyst](#the-administrators-analyst) says it on purpose — so fill a tenant in only when the
+  key is missing (`array_key_exists`, not `??`).
 
 `Llm::listen(callable)` is told about every call after it is logged — for what an application
 keeps per call beside the log, such as what an article cost to write. A listener that throws is
@@ -482,3 +486,69 @@ provider in use asks for it; its `consent` is bindable. `kind` names the feature
 (`chat` by default), `notice(consent)` replaces the wording and keeps the buttons. `Scheduled` lists, creates from a template
 or by hand, pauses, runs and deletes scheduled questions, and opens a routine's conversation with
 `onopen(id)`.
+
+## The administrators' analyst
+
+`/admin/Ai/analyst` answers questions about the installation itself — how many signed up last
+month, which emails were opened, what failed in the queue, what the models cost and for whom —
+from the installation's own tables. It sits behind the same usertype as the rest of `/admin/Ai`
+(`$requiredUserType` on the application's `Admin\Controllers\Ai`), and is linked from that
+screen. The page is the conversation page with the analyst's own addresses; `pf-chat.js` waits
+for an answer in place.
+
+### Kept apart
+
+An administrator's analyst conversations, what it remembers and its queued questions are in the
+`admin` **space** (`Chat\Scope`'s third argument): never in their Ask AI list, nor the other way
+round. They are outside any organisation, because the analyst reads the whole installation — the
+call goes to the router with `organization_id` **null**, purpose `analyst`. The connection is the
+`analyst` feature's when the application declares one (`'llm' => ['features' => ['analyst' =>
+…]]`), otherwise the installation's. Agreement, when the provider asks for it, is the
+administrator's own (a consent row with no organisation), asked on the page. The analyst runs no
+scheduled reports.
+
+### What it reads
+
+Every tool only reads, and answers figures over a window — `days` (30 by default, at most 366)
+or `from`/`to`, grouped by `day`, `week` or `month`:
+
+| tool | |
+|---|---|
+| `users` | accounts by type, active and validated; sign-ups and sign-ins per period; never signed in |
+| `sessions` | online now (last 15 minutes), people and guests, each hour of the last day |
+| `organizations` | by type, active, created per period; the largest by active members (name and count) |
+| `mailing_lists` | subscribers per list by status; subscriptions, confirmations and unsubscriptions per period |
+| `email` | sent, opened (proxy-only apart), clicked and their rates, by list and period; subjects sent to at least three; the most clicked links without their query strings |
+| `push` | sent, delivered and failed, by kind and status; the commonest failures |
+| `queue` | tasks by state, waiting by kind, failures by kind with their first error line, run times |
+| `llm_spend` | calls, tokens and cost by provider, model and purpose; failures; spend per organisation (id and name) |
+| `log-analytics`, `log-errors`, `status` | the MCP tools of the same names |
+| `user` | one account the administrator names: type, state, dates — its email only with `include_email` |
+
+### Personal data
+
+The provider is a third party, so nothing an aggregate answers names a person, and every
+result passes through `Analyst\Redactor` before the model reads it: email addresses become
+`a***@d***.com`; tokens, payment card numbers (Luhn-checked), phone numbers (international, or
+local with separators) and IP addresses become `[token]`, `[card]`, `[phone]`, `[ip]`. A number
+without any separator is left alone — it is as likely an order number or a Unix time. A subject
+sent to fewer than three recipients is left out, since a personalised one carries a name no mask
+can recognise. The `user` tool's answer is tagged `personal`, so a [data rule](#data-rules) can
+keep it from a provider that may not have personal data.
+
+### The application's figures
+
+```php
+'llm' => [
+    'admin_tools' => [App\Llm\PostsPublishedTool::class, new App\Llm\Credits($wallet)],
+    'analyst'     => ['assistant' => App\Llm\Analyst::class],
+],
+```
+
+`admin_tools` are `Pramnos\Mcp\McpToolInterface` — class names built with no arguments, or
+instances — beside the framework's, redacted the same way. They should only read; the framework
+cannot check that. An `Analyst\AnalystAssistant` subclass tells the model about the business
+through `about()`, or changes the tools through `tools()`. An application that charges for the
+analyst, or limits it, overrides `analystDesk()` on its `Admin\Controllers\Ai` and returns an
+`Analyst\Desk` with its own `beforeAsk()`.
+

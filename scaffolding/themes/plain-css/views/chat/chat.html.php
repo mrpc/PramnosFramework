@@ -9,6 +9,8 @@
  *   $this->memories      — what it remembers: memory_id, kind, content
  *   $this->limits        — provider, model, turns, rounds, memory
  *   $this->consent       — provider, label, place, required, given
+ *   $this->urls          — optional: page, ask, asked, consent, delete, forget (the analyst's)
+ *   $this->heading       — optional: the title when no conversation is open
  *
  * Answers are the model's words, drawn by Markdown::toHtml(), which escapes everything first.
  * A question is answered by the queue worker; pf-chat.js waits for it in place, and without
@@ -26,29 +28,34 @@ $openId  = (int) ($open['conversation_id'] ?? 0);
 $token   = static fn (): string => \Pramnos\Http\Session::getInstance()->getTokenField();
 $url     = static fn (string $path): string => sURL . $path;
 $waiting = $ask !== null && ($ask['status'] ?? '') === 'waiting';
+// Where each form goes: /chat by default, the analyst's own under /admin/Ai.
+$u       = (is_array($this->urls ?? null) ? $this->urls : []) + [
+    'page' => $url('chat'), 'ask' => $url('chat/ask'), 'asked' => $url('chat/asked/'), 'consent' => $url('chat/consent'),
+    'delete' => $url('chat/delete/'), 'forget' => $url('chat/forget/'),
+];
 ?>
 <?php if ($waiting): ?><noscript><meta http-equiv="refresh" content="4"></noscript><?php endif; ?>
-<div class="px-4 py-6" data-pf-chat data-asked="<?php echo $e($url('chat/asked/')); ?>">
+<div class="px-4 py-6" data-pf-chat data-page="<?php echo $e($u['page']); ?>" data-asked="<?php echo $e($u['asked']); ?>">
     <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start">
         <nav class="<?php echo $c['card']; ?>" style="flex:0 0 240px;padding:12px" aria-label="<?php echo $e(t('Conversations')); ?>">
-            <a href="<?php echo $e($url('chat')); ?>" class="<?php echo $c['btn']; ?>"><?php echo $e(t('New conversation')); ?></a>
+            <a href="<?php echo $e($u['page']); ?>" class="<?php echo $c['btn']; ?>"><?php echo $e(t('New conversation')); ?></a>
             <ul style="list-style:none;padding:0;margin:12px 0 0">
                 <?php if ($list === []): ?>
                     <li class="<?php echo $c['muted']; ?>"><?php echo $e(t('Nothing asked yet.')); ?></li>
                 <?php endif; ?>
                 <?php foreach ($list as $one): ?>
-                    <li><a href="<?php echo $e($url('chat?c=' . (int) $one['conversation_id'])); ?>"<?php echo (int) $one['conversation_id'] === $openId ? ' aria-current="page" style="font-weight:600"' : ''; ?>><?php echo $e($one['title']); ?></a></li>
+                    <li><a href="<?php echo $e($u['page'] . '?c=' . (int) $one['conversation_id']); ?>"<?php echo (int) $one['conversation_id'] === $openId ? ' aria-current="page" style="font-weight:600"' : ''; ?>><?php echo $e($one['title']); ?></a></li>
                 <?php endforeach; ?>
             </ul>
         </nav>
 
         <main style="flex:1 1 420px;min-width:0">
-            <h1><?php echo $e($open['title'] ?? t('Ask AI')); ?></h1>
+            <h1><?php echo $e($open['title'] ?? ($this->heading ?? t('Ask AI'))); ?></h1>
 
             <?php if (!empty($consent['required']) && empty($consent['given'])): ?>
                 <section class="<?php echo $c['card']; ?>" style="padding:12px;margin-bottom:12px">
                     <p><?php echo $e(sprintf(t('The AI features use %s%s. Nothing is sent until you agree.'), $consent['label'], ($consent['place'] ?? '') !== '' ? ', ' . t('established in') . ' ' . $consent['place'] : '')); ?></p>
-                    <form method="post" action="<?php echo $e($url('chat/consent')); ?>">
+                    <form method="post" action="<?php echo $e($u['consent']); ?>">
                         <?php echo $token(); ?>
                         <input type="hidden" name="give" value="1">
                         <input type="hidden" name="conversation_id" value="<?php echo $openId; ?>">
@@ -77,7 +84,7 @@ $waiting = $ask !== null && ($ask['status'] ?? '') === 'waiting';
                 <?php endif; ?>
             </div>
 
-            <form method="post" action="<?php echo $e($url('chat/ask')); ?>" enctype="multipart/form-data" class="<?php echo $c['card']; ?>" style="padding:12px" data-pf-chat-form>
+            <form method="post" action="<?php echo $e($u['ask']); ?>" enctype="multipart/form-data" class="<?php echo $c['card']; ?>" style="padding:12px" data-pf-chat-form>
                 <?php echo $token(); ?>
                 <input type="hidden" name="conversation_id" value="<?php echo $openId; ?>">
                 <label for="chat-ask" class="pf-sr-only"><?php echo $e(t('Your question')); ?></label>
@@ -92,7 +99,7 @@ $waiting = $ask !== null && ($ask['status'] ?? '') === 'waiting';
             </form>
 
             <?php if ($open !== null): ?>
-                <form method="post" action="<?php echo $e($url('chat/delete/' . $openId)); ?>" style="margin-top:8px">
+                <form method="post" action="<?php echo $e($u['delete'] . $openId); ?>" style="margin-top:8px">
                     <?php echo $token(); ?>
                     <button type="submit" class="<?php echo $c['btnGhost']; ?>" data-confirm="<?php echo $e(t('Delete this conversation?') . ' ' . t('Every question and answer in it goes. This cannot be undone.')); ?>"><?php echo $e(t('Delete this conversation?')); ?></button>
                 </form>
@@ -116,7 +123,7 @@ $waiting = $ask !== null && ($ask['status'] ?? '') === 'waiting';
                 <?php foreach ($memory as $one): ?>
                     <li style="margin-bottom:6px">
                         <?php echo $e($one['content']); ?> <span class="<?php echo $c['muted']; ?>"><?php echo $e(t($one['kind'])); ?></span>
-                        <form method="post" action="<?php echo $e($url('chat/forget/' . (int) $one['memory_id'])); ?>" style="display:inline">
+                        <form method="post" action="<?php echo $e($u['forget'] . (int) $one['memory_id']); ?>" style="display:inline">
                             <?php echo $token(); ?>
                             <input type="hidden" name="conversation_id" value="<?php echo $openId; ?>">
                             <button type="submit" class="<?php echo $c['btnGhost']; ?>" aria-label="<?php echo $e(t('Forget')); ?>">✕</button>
@@ -127,7 +134,7 @@ $waiting = $ask !== null && ($ask['status'] ?? '') === 'waiting';
             <?php if (!empty($consent['required']) && !empty($consent['given'])): ?>
                 <h2><?php echo $e(t('Your agreement')); ?></h2>
                 <p class="<?php echo $c['muted']; ?>"><?php echo $e(sprintf(t('You agreed to the AI features using %s.'), $consent['label'])); ?></p>
-                <form method="post" action="<?php echo $e($url('chat/consent')); ?>">
+                <form method="post" action="<?php echo $e($u['consent']); ?>">
                     <?php echo $token(); ?>
                     <button type="submit" class="<?php echo $c['btnGhost']; ?>"><?php echo $e(t('Withdraw — send nothing more')); ?></button>
                 </form>

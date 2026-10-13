@@ -51,6 +51,7 @@ class Asks
             'ask_id'          => $askId,
             'organization_id' => $scope->organizationId,
             'userid'          => $scope->userId,
+            'space'           => $scope->space,
             'conversation_id' => $conversationId,
             'question'        => $question,
             'attachment'      => $attachment,
@@ -69,7 +70,7 @@ class Asks
     public function run(array $job): array
     {
         $org   = $job['organization_id'] ?? null;
-        $scope = new Scope((int) ($job['userid'] ?? 0), $org === null ? null : (int) $org);
+        $scope = new Scope((int) ($job['userid'] ?? 0), $org === null ? null : (int) $org, (string) ($job['space'] ?? Scope::CHAT));
         $chat  = $this->chat->as($scope);
 
         try {

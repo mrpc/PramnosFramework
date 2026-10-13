@@ -42,6 +42,8 @@ $labels    = array_column($providers, 'label', 'id');
     <?php $this->activeNav = 'ai'; $this->insert('../partials/admin_breadcrumb'); ?>
 
     <h1 class="text-2xl font-semibold mb-2">AI</h1>
+
+    <p><a href="<?php echo htmlspecialchars(adminUrl('Ai/analyst'), ENT_QUOTES, 'UTF-8'); ?>" class="<?php echo $c['btn']; ?>">Ask the analyst</a> — questions about this installation, answered from its own figures.</p>
     <p class="<?php echo $c['muted']; ?>">
         The language models this installation calls, what each of its features uses, and what it has cost.
         Costs are estimates from the prices below<?php echo $openai !== null ? '; OpenAI\'s own figure is beside them' : ''; ?>.

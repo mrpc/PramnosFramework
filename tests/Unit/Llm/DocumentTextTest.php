@@ -191,7 +191,7 @@ class DocumentTextTest extends LlmTestCase
         // Act / Assert
         $scope = Scope::current();
         $this->assertSame([7, 3], [$scope->userId, $scope->organizationId]);
-        $this->assertSame(['organization_id' => 3, 'userid' => 7], $scope->columns());
+        $this->assertSame(['organization_id' => 3, 'userid' => 7, 'space' => 'chat'], $scope->columns());
         \Pramnos\Llm\Llm::use('router', new class extends \Pramnos\Llm\Policy\DefaultRouter {
             public function context(array $context): array
             {

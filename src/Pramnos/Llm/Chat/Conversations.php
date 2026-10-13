@@ -159,7 +159,7 @@ class Conversations
         $scope  = $this->scope ?? new Scope(0);
         $router = \Pramnos\Llm\Llm::router();
 
-        return $router->route($router->context(['purpose' => 'chat'] + $scope->context()), $this->assistant->connection($scope));
+        return $router->route($router->context(['purpose' => $scope->purpose()] + $scope->context()), $this->assistant->connection($scope));
     }
 
     /**
@@ -243,7 +243,7 @@ class Conversations
         // What question() kept for the answer — a draft it named — is the answer's too.
         $turn->bag = $asking->bag;
         $client = ($this->client ?? new Client($this->assistant->connection($this->scope)))
-            ->about(['purpose' => 'chat'] + $this->scope->context());
+            ->about(['purpose' => $this->scope->purpose()] + $this->scope->context());
 
         // A conversation already holding data of a kind is asked only where that kind may go.
         foreach ($held as $tag) {

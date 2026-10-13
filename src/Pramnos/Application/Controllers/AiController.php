@@ -21,6 +21,12 @@ use Pramnos\Llm\Providers;
  * sections beside them (`'llm' => ['admin_sections' => [...]]`, see `Pramnos\Llm\Admin\Section`).
  * One screen, so there is never a second copy of a setting somewhere else that disagrees.
  *
+ * ### The analyst
+ *
+ * `/admin/Ai/analyst` asks the installation's own figures — accounts, email, the queue, logs,
+ * model spend — through `Pramnos\Llm\Analyst`, behind the same usertype as the rest of this
+ * screen. An administrator's analyst conversations are their own and never in their Ask AI.
+ *
  * ### Keys are never printed back
  *
  * A key field renders empty with a placeholder saying whether one is saved; submitting it empty
@@ -40,9 +46,9 @@ class AiController extends Controller
 
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
-        $this->addAuthAction(['display', 'save', 'check', 'call']);
+        $this->addAuthAction(['display', 'save', 'check', 'call', 'analyst', 'analystAsk', 'analystAsked', 'analystDelete', 'analystForget', 'analystConsent']);
         // POST with the session's token: each of these changes what the installation spends, or spends.
-        $this->addWriteAction(['save', 'check']);
+        $this->addWriteAction(['save', 'check', 'analystAsk', 'analystDelete', 'analystForget', 'analystConsent']);
         parent::__construct($application);
     }
 
@@ -128,6 +134,145 @@ class AiController extends Controller
         }
 
         $this->redirect(adminUrl('Ai'));
+    }
+
+    /**
+     * The analyst: questions about the installation, answered from its own figures.
+     */
+    public function analyst(): mixed
+    {
+        if ($this->requireMinUserType($this->requiredUserType)) {
+            return null;
+        }
+
+        $request = new \Pramnos\Http\Request();
+        $page    = $this->analystDesk()->page((int) $request->get('c', 0, 'get', 'int'), (int) $request->get('ask', 0, 'get', 'int'));
+
+        $doc        = \Pramnos\Framework\Factory::getDocument();
+        $doc->title = 'Analyst';
+
+        $view          = $this->getView('ai');
+        $view->heading = 'Analyst';
+        $view->urls    = [
+            'page'    => adminUrl('Ai/analyst'),
+            'ask'     => adminUrl('Ai/analystAsk'),
+            'asked'   => adminUrl('Ai/analystAsked/'),
+            'consent' => adminUrl('Ai/analystConsent'),
+            'delete'  => adminUrl('Ai/analystDelete/'),
+            'forget'  => adminUrl('Ai/analystForget/'),
+        ];
+        foreach ($page as $name => $value) {
+            $view->{$name} = $value;
+        }
+
+        return $view->display('analyst');
+    }
+
+    /**
+     * Ask the analyst. A redirect to the page following the question — or JSON, for
+     * `pf-chat.js`, which sends `Accept: application/json`.
+     */
+    public function analystAsk(): mixed
+    {
+        if ($this->requireMinUserType($this->requiredUserType)) {
+            return null;
+        }
+
+        $input  = $_POST;
+        $result = $this->analystDesk()->ask($input, \Pramnos\Llm\Chat\Attachments::uploaded());
+
+        if (str_contains((string) ($_SERVER['HTTP_ACCEPT'] ?? ''), 'application/json')) {
+            return $this->analystJson($result);
+        }
+
+        $conversationId = (int) ($result['data']['conversation_id'] ?? ($input['conversation_id'] ?? 0));
+
+        if ($result['status'] >= 400) {
+            $this->addError((string) $result['error']);
+        }
+
+        $this->redirect($this->analystUrl($conversationId, (int) ($result['data']['ask_id'] ?? 0)));
+
+        return null;
+    }
+
+    /** A question the analyst is answering, for `pf-chat.js`. */
+    public function analystAsked(mixed $id = null): mixed
+    {
+        if ($this->requireMinUserType($this->requiredUserType)) {
+            return null;
+        }
+
+        $found = $this->analystDesk()->asked((int) ($id ?: \Pramnos\Http\Request::staticGetOption()));
+
+        return $this->analystJson($found === null ? ['status' => 404, 'error' => 'There is no such question.'] : ['status' => 200, 'data' => $found]);
+    }
+
+    /** Forget one analyst conversation. */
+    public function analystDelete(mixed $id = null): mixed
+    {
+        if ($this->requireMinUserType($this->requiredUserType)) {
+            return null;
+        }
+
+        $this->analystDesk()->forget((int) ($id ?: \Pramnos\Http\Request::staticGetOption()))
+            ? $this->addMessage('The conversation is forgotten.')
+            : $this->addError('There is no such conversation.');
+        $this->redirect($this->analystUrl());
+
+        return null;
+    }
+
+    /** Forget one thing the analyst remembers. */
+    public function analystForget(mixed $id = null): mixed
+    {
+        if ($this->requireMinUserType($this->requiredUserType)) {
+            return null;
+        }
+
+        $this->analystDesk()->forgetMemory((int) ($id ?: \Pramnos\Http\Request::staticGetOption()))
+            ? $this->addMessage('Forgotten.')
+            : $this->addError('There is no such memory.');
+        $this->redirect($this->analystUrl((int) ($_POST['conversation_id'] ?? 0)));
+
+        return null;
+    }
+
+    /** Agree to the analyst's provider, or withdraw — `give` in the form. */
+    public function analystConsent(): mixed
+    {
+        if ($this->requireMinUserType($this->requiredUserType)) {
+            return null;
+        }
+
+        $this->analystDesk()->consent(!empty($_POST['give']));
+        $this->redirect($this->analystUrl((int) ($_POST['conversation_id'] ?? 0)));
+
+        return null;
+    }
+
+    /** The administrator's analyst. Override to charge, limit or describe it differently. */
+    protected function analystDesk(): \Pramnos\Llm\Analyst\Desk
+    {
+        $user = \Pramnos\User\User::getCurrentUser();
+
+        return new \Pramnos\Llm\Analyst\Desk(is_object($user) ? (int) ($user->userid ?? 0) : 0);
+    }
+
+    private function analystUrl(int $conversationId = 0, int $askId = 0): string
+    {
+        $query = array_filter(['c' => $conversationId, 'ask' => $askId]);
+
+        return adminUrl('Ai/analyst') . ($query === [] ? '' : '?' . http_build_query($query));
+    }
+
+    /** JSON for `pf-chat.js`, with the answer's status as the HTTP status. */
+    protected function analystJson(array $answer): mixed
+    {
+        \Pramnos\Framework\Factory::getDocument('json');
+        http_response_code((int) ($answer['status'] ?? 200));
+
+        return json_encode($answer, JSON_UNESCAPED_UNICODE);
     }
 
     /**

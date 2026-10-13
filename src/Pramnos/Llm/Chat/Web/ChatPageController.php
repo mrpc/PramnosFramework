@@ -6,8 +6,6 @@ namespace Pramnos\Llm\Chat\Web;
 
 use Pramnos\Application\Controller;
 use Pramnos\Llm\Chat\Scope;
-use Pramnos\Llm\Llm;
-use Pramnos\Llm\Policy\StoredConsent;
 
 /**
  * `/chat` — conversations with a model, for an application without a SPA.
@@ -132,11 +130,7 @@ class ChatPageController extends Controller
         $scope = $this->scope();
 
         if ($scope !== null) {
-            $provider = $this->conversations()->connection()->provider();
-            $store    = new StoredConsent();
-            !empty($_POST['give'])
-                ? $store->give($scope->organizationId, $scope->userId, $provider)
-                : $store->withdraw($scope->organizationId, $scope->userId, $provider);
+            $this->recordConsent($scope, !empty($_POST['give']));
         }
 
         $this->redirect($this->pageUrl((int) ($_POST['conversation_id'] ?? 0)));
@@ -159,23 +153,7 @@ class ChatPageController extends Controller
      */
     protected function uploaded(): array
     {
-        $files = $_FILES['files'] ?? null;
-
-        if (!is_array($files) || !is_array($files['name'] ?? null)) {
-            return [];
-        }
-
-        $out = [];
-
-        foreach ($files['name'] as $i => $name) {
-            $path = (string) ($files['tmp_name'][$i] ?? '');
-
-            if ((int) ($files['error'][$i] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_OK && is_uploaded_file($path)) {
-                $out[] = ['name' => (string) $name, 'bytes' => (string) file_get_contents($path)];
-            }
-        }
-
-        return $out;
+        return \Pramnos\Llm\Chat\Attachments::uploaded();
     }
 
     /** Whether the caller is `pf-chat.js`, which wants JSON rather than a page. */
@@ -191,20 +169,5 @@ class ChatPageController extends Controller
         http_response_code((int) ($answer['status'] ?? 200));
 
         return json_encode($answer, JSON_UNESCAPED_UNICODE);
-    }
-
-    /** @return array{provider: string, label: string, place: string, required: bool, given: bool} */
-    private function consentState(Scope $scope): array
-    {
-        $provider = $this->conversations()->connection()->provider();
-        $config   = \Pramnos\Llm\Providers::config($provider);
-
-        return [
-            'provider' => $provider,
-            'label'    => (string) $config['label'],
-            'place'    => (string) ($config['place'] ?? ''),
-            'required' => StoredConsent::required($provider) && Llm::consent() instanceof StoredConsent,
-            'given'    => Llm::consent()->refusal($scope->context(), $provider) === null,
-        ];
     }
 }

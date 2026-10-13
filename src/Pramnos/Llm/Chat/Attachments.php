@@ -77,4 +77,31 @@ final class Attachments
                 . ($urls === [] ? '' : "\n\n" . DocumentText::PICTURES . "\n- " . implode("\n- ", array_slice($urls, 0, DocumentText::MAX_PICTURES)))),
         ];
     }
+
+    /**
+     * The files a form uploaded with a question, `files[]` — only those this request uploaded
+     * without an error.
+     *
+     * @return list<array{name: string, bytes: string}>
+     */
+    public static function uploaded(): array
+    {
+        $files = $_FILES['files'] ?? null;
+
+        if (!is_array($files) || !is_array($files['name'] ?? null)) {
+            return [];
+        }
+
+        $out = [];
+
+        foreach ($files['name'] as $i => $name) {
+            $path = (string) ($files['tmp_name'][$i] ?? '');
+
+            if ((int) ($files['error'][$i] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_OK && is_uploaded_file($path)) {
+                $out[] = ['name' => (string) $name, 'bytes' => (string) file_get_contents($path)];
+            }
+        }
+
+        return $out;
+    }
 }
