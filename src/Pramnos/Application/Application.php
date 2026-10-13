@@ -1668,6 +1668,16 @@ class Application extends Base
             ));
         }
 
+        // Language models — llm feature. Providers, keys, prices and the call log, and the
+        // application's own sections of the same screen.
+        if (in_array('llm', $features, true)) {
+            NavRegistry::register(new NavItem(
+                'admin.ai', 'AI', $admin('Ai'),
+                NavSection::Admin, 31, requireAuth: true, minUserType: $floor,
+                feature: 'llm', icon: 'sparkles', group: 'System',
+            ));
+        }
+
         // User groups — usergroups feature
         if (in_array('usergroups', $features, true)) {
             NavRegistry::register(new NavItem(

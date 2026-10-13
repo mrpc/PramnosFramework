@@ -108,6 +108,7 @@ nav:
   - APIs & Integrations:
     - API Guide: Pramnos_API_Guide.md
     - HTTP Client (outbound requests): Pramnos_Http_Client_Guide.md
+    - Language models (LLM): Pramnos_LLM_Guide.md
     - Realtime (SSE & WebSockets): Pramnos_Realtime_Guide.md
     - Model Change Feed: Pramnos_Change_Feed_Guide.md
     - Queues: Pramnos_Queue_Guide.md

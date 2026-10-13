@@ -294,6 +294,13 @@ class FeatureRegistry
                 dirname(__DIR__, 3) . '/database/migrations/framework/changelog',
             ],
         ]);
+        // Language models: providers, the tool loop, the call log and its costs.
+        static::register('llm', [
+            'description' => 'Language models — providers, tool calls, call log and costs',
+            'migrations'  => [
+                dirname(__DIR__, 3) . '/database/migrations/framework/llm',
+            ],
+        ]);
         static::register('cache', [
             'description' => 'Cache System (PSR-16, adapters: array/file/redis/memcached)',
             'provider'    => \Pramnos\Cache\CacheServiceProvider::class,

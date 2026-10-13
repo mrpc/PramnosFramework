@@ -248,6 +248,13 @@ class FrameworkSchedule
                 'description' => 'Apply the mail retention policy, if one is configured',
             ],
 
+            // The language-model call log: every call, with its prompt and reply, kept ninety
+            // days. A no-op without the `llm` feature, which has no table.
+            'llm:prune' => [
+                'cadence'     => [['daily'], ['at', '04:20']],
+                'description' => 'Drop language-model call log rows older than 90 days',
+            ],
+
             // Mass messages: the pending recipients of whatever is due. Not in the
             // request that pressed send — four thousand emails inside a POST is a
             // request that times out halfway, with nobody able to say how far it got.

@@ -738,6 +738,10 @@ class Init extends Command
             $this->scaffoldMassMessagesWiring($namespace);
         }
 
+        if (in_array('llm', $enabledFeatures, true)) {
+            $this->scaffoldLlmWiring($namespace);
+        }
+
         if (!empty($selectedLibraries)) {
             $skipDownload = (bool) $input->getOption('no-download');
             $this->scaffoldLibraries($selectedLibraries, $uiSystem, $skipDownload, $output);
@@ -9229,6 +9233,36 @@ PHP;
      * each; without this wrapper the screen has no route, and telling an application's users
      * something goes back to being a loop somebody writes inside a request.
      */
+    /**
+     * `/admin/Ai`: the wrapper that puts the framework's screen on an address in this project.
+     */
+    private function scaffoldLlmWiring(string $namespace): void
+    {
+        $this->mkdir('src/Admin/Controllers');
+
+        $controller = <<<PHP
+<?php
+
+declare(strict_types=1);
+
+namespace {$namespace}\\Admin\\Controllers;
+
+use Pramnos\\Application\\Controllers\\AiController as FrameworkAiController;
+
+/**
+ * Language-model settings, prices and call log.
+ *
+ * Delegates to the framework controller. Add this application's own settings to the same
+ * screen with `'llm' => ['admin_sections' => [...]]` in app/app.php rather than a screen beside it.
+ */
+class Ai extends FrameworkAiController
+{
+}
+PHP;
+
+        $this->writeFile('src/Admin/Controllers/Ai.php', $controller);
+    }
+
     private function scaffoldMassMessagesWiring(string $namespace): void
     {
         $this->mkdir('src/Admin/Controllers');

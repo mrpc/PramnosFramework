@@ -38,6 +38,7 @@ Commands are grouped by a `namespace:` prefix that reflects what they act on:
 | `key:` | Secret/key management | `key:generate` |
 | `push:` | Web push notifications | `push:setup`, `push:vapid-generate` |
 | `mail:` | Deliverability, the outbox, and the mail log's size | `mail:dns-check`, `mail:flush`, `mail:prune` |
+| `llm:` | The language-model call log ([guide](Pramnos_LLM_Guide.md)) | `llm:prune` |
 | `schedule:` | Task scheduler | `schedule:run`, `schedule:list` |
 | `spa:` | Front-end dev server and build (SPA projects) | `spa:dev`, `spa:build` |
 | `scaffold:` | Add a whole feature to an **existing** project | `scaffold:spa` |
