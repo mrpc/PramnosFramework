@@ -86,4 +86,29 @@ class MarkdownTest extends TestCase
         $this->assertStringContainsString('<th style="text-align:left;padding:', $html, 'a header cell has spacing of its own');
         $this->assertStringContainsString('<td style="padding:', $html, 'so does every other cell');
     }
+
+    /**
+     * A ```chart block that is a chart becomes a holder carrying its spec, with its code inside
+     * for a page without script; one that is not stays code, so nothing a model writes is lost.
+     */
+    public function testAChartBlock(): void
+    {
+        // Arrange
+        $spec = '{"type": "pie", "title": "By <town>", "labels": ["A", "B"], "series": [{"data": [1, 2.5]}]}';
+
+        // Act
+        $chart  = Markdown::toHtml("```chart\n" . $spec . "\n```");
+        $broken = Markdown::toHtml("```chart\n{\"type\": \"radar\", \"labels\": [], \"series\": [{\"data\": [1]}]}\n```");
+        $words  = Markdown::toHtml("```chart\n{\"type\": \"bar\", \"labels\": [\"a\"], \"series\": [{\"data\": [\"many\"]}]}\n```");
+        $plain  = Markdown::toHtml("```json\n" . $spec . "\n```");
+
+        // Assert
+        $this->assertStringStartsWith('<div class="pf-chart" data-pf-chart="{&quot;type&quot;:&quot;pie&quot;', $chart);
+        $this->assertStringContainsString('aria-label="By &lt;town&gt;"', $chart, 'escaped like everything else');
+        $this->assertStringContainsString('<pre><code>{&quot;type&quot;', $chart, 'the code inside, for a page without script');
+        $this->assertStringStartsWith('<pre><code>', $broken, 'a type no page draws stays code');
+        $this->assertStringStartsWith('<pre><code>', $words, 'so does a figure that is not a number');
+        $this->assertStringStartsWith('<pre><code>', $plain, 'only a block that says chart');
+        $this->assertNull(Markdown::chart('{"type": "bar", "labels": ["a"], "series": []}'), 'a chart of nothing');
+    }
 }

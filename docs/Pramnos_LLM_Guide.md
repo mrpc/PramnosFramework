@@ -447,6 +447,38 @@ Bootstrap the question's bubble also carries its colour inline, for an admin the
 Bootstrap 3, which has no `bg-body-tertiary`. A question asked in place is drawn
 the same way at once.
 
+#### Charts
+
+An answer can carry a chart: a fenced block with the info string `chart` and one JSON object.
+
+````markdown
+```chart
+{"type": "bar", "title": "Sign-ups per month", "labels": ["Jan", "Feb", "Mar"],
+ "series": [{"name": "2025", "data": [12, 19, 7]}, {"name": "2026", "data": [15, 22, 30]}],
+ "y": "people", "stacked": false}
+```
+````
+
+The fields:
+
+- `type` is `bar`, `hbar`, `line`, `area`, `pie` or `doughnut`.
+- `series` holds numbers only, one per label. A pie or doughnut takes one series.
+- `title`, `subtitle`, `x`, `y`, `stacked` and `min` are optional.
+
+How it is drawn:
+
+- `Chat\Markdown::toHtml()` turns a block that is a chart into `<div data-pf-chart="…">` with
+  the code inside it. A block that is not a chart stays code.
+- `pf-chat.js` draws it as SVG over the code: axes with round steps, a key, and each figure as
+  a shape's tooltip.
+- **Your own chart library:** set `window.PfChat = {chart: function (element, spec) { …; return
+  true; }}` before `pf-chat.js` loads. Return false to leave a chart to the built-in drawing.
+- Copy and export keep the original block.
+
+The analyst's prompt tells the model when to chart and to keep the figures as text as well —
+`Markdown::CHARTS`, through `AnalystAssistant::charts()`. Return '' from it for an analyst that
+never charts. A chat assistant of your own adds `Markdown::CHARTS` to its prompt to chart.
+
 Example questions sit above a new conversation, and a click puts one in the box, to send or to
 change first:
 

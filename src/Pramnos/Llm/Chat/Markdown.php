@@ -47,14 +47,19 @@ final class Markdown
         for ($i = 0; $i < $count; $i++) {
             $line = $lines[$i];
 
-            // A fenced block, kept as it is.
-            if (preg_match('/^\s*```/', $line) === 1) {
+            // A fenced block, kept as it is — or a chart, when it says so and is one.
+            if (preg_match('/^\s*```\s*(\w*)/', $line, $fence) === 1) {
                 $flush();
                 $code = [];
                 for ($i++; $i < $count && preg_match('/^\s*```/', $lines[$i]) !== 1; $i++) {
                     $code[] = $lines[$i];
                 }
-                $html[] = '<pre><code>' . self::escape(implode("\n", $code)) . '</code></pre>';
+                $block  = '<pre><code>' . self::escape(implode("\n", $code)) . '</code></pre>';
+                $chart  = strtolower($fence[1]) === 'chart' ? self::chart(implode("\n", $code)) : null;
+                $html[] = $chart === null
+                    ? $block
+                    : '<div class="pf-chart" data-pf-chart="' . self::escape((string) json_encode($chart, JSON_UNESCAPED_UNICODE)) . '"'
+                        . ' role="img" aria-label="' . self::escape((string) ($chart['title'] ?? 'Chart')) . '">' . $block . '</div>';
                 continue;
             }
 
@@ -135,6 +140,45 @@ final class Markdown
 
         return (string) preg_replace_callback('/\x00(\d+)\x00/', static fn (array $m): string => $codes[(int) $m[1]], $text);
     }
+
+    /**
+     * A ```chart block's spec, when it is one a page can draw; null keeps it as code.
+     *
+     * One JSON object: `type` (bar, hbar, line, area, pie, doughnut), `labels`, and `series` —
+     * each `{name, data: [numbers]}`, one for a pie — with `title`, `subtitle`, `x`, `y`,
+     * `stacked` and `min` if wanted. See {@see CHARTS}.
+     *
+     * @return array<string, mixed>|null
+     */
+    public static function chart(string $json): ?array
+    {
+        $spec = json_decode($json, true);
+
+        if (!is_array($spec) || !in_array($spec['type'] ?? null, ['bar', 'hbar', 'line', 'area', 'pie', 'doughnut'], true)
+            || !is_array($spec['labels'] ?? null) || !is_array($spec['series'] ?? null) || $spec['series'] === []) {
+            return null;
+        }
+
+        foreach ($spec['series'] as $series) {
+            if (!is_array($series) || !is_array($series['data'] ?? null)
+                || array_filter($series['data'], static fn ($v): bool => !is_int($v) && !is_float($v) && $v !== null) !== []) {
+                return null;
+            }
+        }
+
+        return $spec;
+    }
+
+    /**
+     * What a model is told so that it charts: when, and in what shape. An assistant adds it to
+     * its prompt — the analyst's does.
+     */
+    public const CHARTS = 'When figures compare categories or change over time, you may add a chart: a fenced code block '
+        . 'with the info string chart, holding one JSON object: {"type": "bar|hbar|line|area|pie|doughnut", "title": "…", '
+        . '"labels": ["…"], "series": [{"name": "…", "data": [numbers]}], "x": "axis name", "y": "axis name", "stacked": false}. '
+        . 'Use line or area for a series over time, bar or hbar to compare, pie or doughnut only for parts of one whole '
+        . '(one series, a few slices). Numbers only in data, one per label. Keep the figures in a table or the text as well, '
+        . 'so they can be read and copied.';
 
     /** @return list<string> A table row's cells */
     private static function cells(string $line): array

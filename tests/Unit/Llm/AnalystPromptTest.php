@@ -65,6 +65,7 @@ class AnalystPromptTest extends LlmTestCase
         $this->assertStringContainsString('Finding accounts by name is ordinary work here.', $theirs);
         $this->assertStringNotContainsString('Use figures, not people', $theirs, 'replaced, not added to');
         $this->assertStringContainsString('never try to recover them', $theirs, 'masking is not part of the rule');
+        $this->assertStringContainsString('info string chart', $default, 'the analyst is told how to chart');
     }
 
     /**

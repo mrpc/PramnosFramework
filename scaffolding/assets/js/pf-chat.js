@@ -20,6 +20,10 @@
  *   data-pf-chat-copy="…"        — copies the answer's Markdown, not its HTML; and over each
  *                                  table in an answer, a button copying it as tab-separated
  *                                  rows, which a spreadsheet pastes as cells
+ *   data-pf-chart="{…}"          — a chart in an answer (Markdown::toHtml() from a ```chart
+ *                                  block): drawn as SVG over the code it holds, which stays for a
+ *                                  page without script. `window.PfChat.chart = function (el, spec)`
+ *                                  draws with the application's own library instead, returning true
  *   data-question-class          — on the page: the classes of a question's bubble, and
  *   data-question-style            the inline style it falls back on
  *
@@ -37,10 +41,228 @@
     var PHRASE_MS = 4000;
     var LONG_MS = 60000;
 
-    var page = document.querySelector('[data-pf-chat]');
+    /** Series colours, in order: told apart, and readable on light and dark. */
+    var COLOURS = ['#4e79a7', '#f28e2b', '#e15759', '#59a14f', '#76b7b2', '#edc948', '#b07aa1', '#ff9da7', '#9c755f', '#bab0ac'];
+    var SVG = 'http://www.w3.org/2000/svg';
+    var W = 640;
+    var H = 320;
 
-    if (page) {
-        init(page);
+    function node(tag, attributes, parent) {
+        var el = document.createElementNS(SVG, tag);
+
+        Object.keys(attributes).forEach(function (name) { el.setAttribute(name, String(attributes[name])); });
+        if (parent) {
+            parent.appendChild(el);
+        }
+
+        return el;
+    }
+
+    /** A shape's tooltip: the label, the series and the value. */
+    function tip(shape, text) {
+        node('title', {}, shape).textContent = text;
+    }
+
+    function figure(value) {
+        return typeof value === 'number' && isFinite(value) ? value.toLocaleString() : '';
+    }
+
+    /** A round top for an axis: 1, 2 or 5 times a power of ten. */
+    function nice(value) {
+        if (!(value > 0)) {
+            return 1;
+        }
+        var power = Math.pow(10, Math.floor(Math.log(value) / Math.LN10));
+        var n = value / power;
+
+        return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10) * power;
+    }
+
+    function small(attributes) {
+        attributes['font-size'] = 11;
+        attributes.fill = 'currentColor';
+
+        return attributes;
+    }
+
+    /** Bars, horizontal bars, lines and areas: on axes. */
+    function axes(svg, spec) {
+        var labels = spec.labels;
+        var series = spec.series;
+        var horizontal = spec.type === 'hbar';
+        var lines = spec.type === 'line' || spec.type === 'area';
+        var stacked = !!spec.stacked && spec.type !== 'line';
+        var values = [0];
+        labels.forEach(function (label, at) {
+            var sum = 0;
+            series.forEach(function (one) {
+                var v = Number(one.data[at]) || 0;
+                sum += v;
+                values.push(stacked ? sum : v);
+            });
+        });
+        var low = typeof spec.min === 'number' ? spec.min : Math.min.apply(null, values);
+        // Four steps of a round size, so the figures on the axis are round too.
+        var high = low + 4 * nice((Math.max.apply(null, values.concat([low + 1])) - low) / 4);
+        var left = horizontal ? 120 : 56;
+        var top = spec.y ? 28 : 12;
+        var width = W - left - 12;
+        var height = H - top - 44;
+        var scale = function (v) { return (Math.min(high, Math.max(low, v)) - low) / (high - low); };
+        var along = function (at) { return left + (labels.length === 1 ? width / 2 : width * at / (labels.length - 1)); };
+        var step = Math.max(1, Math.ceil(labels.length / 12));
+        var band = (horizontal ? height : width) / labels.length;
+
+        // The value axis: five lines, and their figures.
+        for (var k = 0; k <= 4; k++) {
+            var tick = horizontal ? left + width * k / 4 : top + height * (1 - k / 4);
+            node('line', horizontal ? { x1: tick, x2: tick, y1: top, y2: top + height } : { x1: left, x2: left + width, y1: tick, y2: tick }, svg)
+                .setAttribute('stroke', 'rgba(128,128,128,.3)');
+            node('text', small(horizontal
+                ? { x: tick, y: top + height + 16, 'text-anchor': 'middle' }
+                : { x: left - 6, y: tick + 4, 'text-anchor': 'end' }), svg).textContent = figure(low + (high - low) * k / 4);
+        }
+
+        // The categories: at most twelve of their names, shortened.
+        labels.forEach(function (label, at) {
+            if (at % step !== 0) {
+                return;
+            }
+            var middle = (horizontal ? top : left) + band * (at + 0.5);
+            var text = String(label).length > 18 ? String(label).slice(0, 17) + '…' : String(label);
+            node('text', small(horizontal
+                ? { x: left - 6, y: middle + 4, 'text-anchor': 'end' }
+                : { x: lines ? along(at) : middle, y: top + height + 16, 'text-anchor': 'middle' }), svg).textContent = text;
+        });
+        if (spec.y) {
+            node('text', small({ x: 4, y: 12, opacity: 0.7 }), svg).textContent = String(spec.y);
+        }
+        if (spec.x) {
+            node('text', small({ x: left + width, y: H - 6, 'text-anchor': 'end', opacity: 0.7 }), svg).textContent = String(spec.x);
+        }
+
+        var below = labels.map(function () { return 0; });
+
+        if (lines) {
+            series.forEach(function (one, index) {
+                var colour = COLOURS[index % COLOURS.length];
+                var points = labels.map(function (label, at) {
+                    return [along(at), top + height * (1 - scale((Number(one.data[at]) || 0) + (stacked ? below[at] : 0)))];
+                });
+                if (spec.type === 'area') {
+                    var floor = labels.map(function (label, at) {
+                        return [along(at), top + height * (1 - scale(stacked ? below[at] : Math.max(low, 0)))];
+                    }).reverse();
+                    node('polygon', { points: points.concat(floor).map(function (p) { return p.join(','); }).join(' '), fill: colour, 'fill-opacity': 0.35 }, svg);
+                }
+                node('polyline', { points: points.map(function (p) { return p.join(','); }).join(' '), fill: 'none', stroke: colour, 'stroke-width': 2 }, svg);
+                points.forEach(function (p, at) {
+                    tip(node('circle', { cx: p[0], cy: p[1], r: 3.5, fill: colour }, svg), labels[at] + ' · ' + (one.name || '') + ': ' + figure(one.data[at]));
+                    below[at] += stacked ? Number(one.data[at]) || 0 : 0;
+                });
+            });
+
+            return;
+        }
+
+        // Bars: side by side, or one on another.
+        var thick = stacked ? band * 0.6 : band * 0.8 / series.length;
+        labels.forEach(function (label, at) {
+            series.forEach(function (one, index) {
+                var v = Number(one.data[at]) || 0;
+                var from = scale(stacked ? below[at] : Math.max(low, 0));
+                var to = scale(stacked ? below[at] + v : v);
+                var offset = band * at + (stacked ? band * 0.2 : band * 0.1 + thick * index);
+                var bar = horizontal
+                    ? { x: left + width * Math.min(from, to), y: top + offset, width: Math.abs(to - from) * width, height: thick }
+                    : { x: left + offset, y: top + height * (1 - Math.max(from, to)), width: thick, height: Math.abs(to - from) * height };
+                bar.fill = COLOURS[index % COLOURS.length];
+                tip(node('rect', bar, svg), label + ' · ' + (one.name || '') + ': ' + figure(v));
+                below[at] += v;
+            });
+        });
+    }
+
+    /** Pies and doughnuts: one series, parts of a whole. */
+    function pie(svg, spec) {
+        var data = spec.series[0].data.map(function (v) { return Math.max(0, Number(v) || 0); });
+        var total = data.reduce(function (a, b) { return a + b; }, 0) || 1;
+        var cx = W / 2;
+        var cy = H / 2;
+        var r = H / 2 - 12;
+        var inner = spec.type === 'doughnut' ? r * 0.55 : 0;
+        var angle = -Math.PI / 2;
+        var point = function (radius, a) { return (cx + radius * Math.cos(a)) + ' ' + (cy + radius * Math.sin(a)); };
+
+        data.forEach(function (v, at) {
+            var part = v / total;
+            var colour = COLOURS[at % COLOURS.length];
+            var label = spec.labels[at] + ': ' + figure(v) + ' (' + Math.round(part * 100) + '%)';
+
+            if (part >= 0.9999) {
+                // A whole circle: an arc from a point to itself draws nothing.
+                tip(node('circle', { cx: cx, cy: cy, r: inner ? (r + inner) / 2 : r / 2, fill: 'none', stroke: colour, 'stroke-width': inner ? r - inner : r }, svg), label);
+            } else if (part > 0) {
+                var end = angle + part * 2 * Math.PI;
+                var large = part > 0.5 ? 1 : 0;
+                var d = 'M ' + point(r, angle) + ' A ' + r + ' ' + r + ' 0 ' + large + ' 1 ' + point(r, end)
+                    + (inner ? ' L ' + point(inner, end) + ' A ' + inner + ' ' + inner + ' 0 ' + large + ' 0 ' + point(inner, angle) : ' L ' + cx + ' ' + cy) + ' Z';
+                tip(node('path', { d: d, fill: colour, stroke: 'Canvas', 'stroke-width': 1 }, svg), label);
+                angle = end;
+            }
+        });
+    }
+
+    /** Draw one chart over the code it holds — the application's way, or the built-in SVG. */
+    function chart(holder) {
+        var spec;
+
+        try {
+            spec = JSON.parse(holder.getAttribute('data-pf-chart') || '');
+        } catch (e) {
+            return;
+        }
+        if (!spec || !Array.isArray(spec.labels) || !Array.isArray(spec.series) || !spec.series.length) {
+            return;
+        }
+        if (typeof window.PfChat.chart === 'function' && window.PfChat.chart(holder, spec) === true) {
+            return;
+        }
+
+        holder.textContent = '';
+        holder.style.margin = '12px 0 16px';
+        [[spec.title, '600', '1'], [spec.subtitle, '400', '0.7']].forEach(function (line) {
+            if (line[0]) {
+                var div = document.createElement('div');
+                div.style.fontWeight = line[1];
+                div.style.opacity = line[2];
+                div.textContent = String(line[0]);
+                holder.appendChild(div);
+            }
+        });
+
+        var round = spec.type === 'pie' || spec.type === 'doughnut';
+        var svg = node('svg', { viewBox: '0 0 ' + W + ' ' + H, width: '100%', role: 'img', 'aria-label': spec.title || '' }, holder);
+        svg.style.maxWidth = W + 'px';
+        svg.style.height = 'auto';
+        (round ? pie : axes)(svg, spec);
+
+        // The key: each series, or each slice of a pie.
+        var names = round ? spec.labels : spec.series.map(function (one) { return one.name || ''; });
+        var key = document.createElement('div');
+        key.style.display = 'flex';
+        key.style.flexWrap = 'wrap';
+        key.style.gap = '4px 12px';
+        key.style.fontSize = '0.85em';
+        names.forEach(function (name, at) {
+            if (name !== '') {
+                var item = document.createElement('span');
+                item.textContent = '■ ' + name;
+                item.style.color = COLOURS[at % COLOURS.length];
+                key.appendChild(item);
+            }
+        });
+        holder.appendChild(key);
     }
 
     function init(root) {
@@ -212,6 +434,8 @@
             });
             holder.parentNode.insertBefore(button, holder);
         });
+
+        Array.prototype.forEach.call(root.querySelectorAll('[data-pf-chart]'), chart);
 
         var waiting = root.querySelector('[data-pf-chat-waiting]');
 
@@ -438,5 +662,14 @@
                     form.submit();
                 });
         });
+    }
+
+    // Last, once everything above is defined: a `var` is hoisted without its value.
+    var page = document.querySelector('[data-pf-chat]');
+
+    window.PfChat = window.PfChat || {};
+
+    if (page) {
+        init(page);
     }
 }());

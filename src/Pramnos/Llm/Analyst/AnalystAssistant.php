@@ -50,6 +50,7 @@ class AnalystAssistant extends BaseAssistant
             . 'Masked values ([phone], [ip], a***@…) were removed on purpose; never try to recover them.' . "\n\n"
             . 'Say which window a figure covers. If a tool says the installation keeps no such data, say '
             . 'so rather than guessing. You cannot change anything: no tool writes.'
+            . (($charts = trim($this->charts())) !== '' ? "\n\n" . $charts : '')
             . ($about !== '' ? "\n\nAbout this application: " . $about : '')
             . "\n\nAnswer in the language the question was asked in.";
     }
@@ -76,6 +77,15 @@ class AnalystAssistant extends BaseAssistant
         return 'Use figures, not people: every tool answers aggregates. Look up one account with the user '
             . 'tool only when the administrator names that person, and ask it for an email address only '
             . 'when the administrator asked for it.';
+    }
+
+    /**
+     * When and how to chart — {@see \Pramnos\Llm\Chat\Markdown::CHARTS}, which the conversation
+     * page draws. '' for an analyst that never charts.
+     */
+    protected function charts(): string
+    {
+        return \Pramnos\Llm\Chat\Markdown::CHARTS;
     }
 
     /** What the application is, for the model — a sentence or two. */

@@ -125,7 +125,7 @@ const file = (name, size = 10, type = 'text/plain') => ({ name, size, type });
  *
  * @param {{waiting?: string, answers: Array<object|string|Error>, attributes?: object, parser?: boolean, now?: () => number}} options
  */
-function run({ waiting, answers, attributes = {}, parser = true, now = () => 0, examples = [], before = [], clipboard = null }) {
+function run({ waiting, answers, attributes = {}, parser = true, now = () => 0, examples = [], before = [], clipboard = null, pfChat = undefined }) {
     const page = element('div', { 'data-pf-chat': '', 'data-asked': '/chat/asked/', 'data-question-class': 'bubble', ...attributes });
     examples.forEach((text) => page.appendChild(element('button', { type: 'button', 'data-pf-chat-suggestion': text })));
     before.forEach((one) => page.appendChild(one));
@@ -150,6 +150,7 @@ function run({ waiting, answers, attributes = {}, parser = true, now = () => 0, 
     const sent = [];
     const replaced = [];
     const window = {
+        PfChat: pfChat,
         navigator: clipboard ? { clipboard } : {},
         location: { href: '/chat' },
         setTimeout: (fn) => timers.push(fn),
@@ -168,7 +169,7 @@ function run({ waiting, answers, attributes = {}, parser = true, now = () => 0, 
         Date: class extends Date { static now() { return now(); } },
         Math,
         JSON,
-        document: { querySelector: (s) => (s === '[data-pf-chat]' ? page : null), createElement: (t) => element(t) },
+        document: { querySelector: (s) => (s === '[data-pf-chat]' ? page : null), createElement: (t) => element(t), createElementNS: (ns, t) => element(t) },
         FormData: function FormData(f) { this.form = f; this.append = (k, v, n) => { sent.push(n); }; this.delete = () => {}; },
         fetch: (url, init = {}) => {
             requests.push({ url, method: init.method || 'GET', body: init.body });
@@ -466,6 +467,59 @@ test('a question asked in place falls back on the theme\'s inline style', async 
     // Assert
     assert.equal(bubble.style['background-color'], 'rgba(128,128,128,.12)');
     assert.equal(bubble.style['border-radius'], '1rem');
+});
+
+/** A chart's holder, as Markdown::toHtml() draws one, with the code inside it. */
+function chartOf(spec) {
+    const holder = element('div', { 'data-pf-chart': typeof spec === 'string' ? spec : JSON.stringify(spec) });
+    holder.appendChild(element('pre')).textContent = 'the code';
+
+    return holder;
+}
+
+/** Every descendant with this tag name. */
+const all = (root, tag) => findAll(root, tag);
+
+test('a chart is drawn as SVG over its code: bars, a line, a pie, with a key and the figures in tooltips', () => {
+    // Arrange
+    const bars = chartOf({ type: 'bar', title: 'Sign-ups', labels: ['Jan', 'Feb', 'Mar'], series: [{ name: '2025', data: [3, 5, 2] }, { name: '2026', data: [4, 1, 6] }] });
+    const line = chartOf({ type: 'area', stacked: true, labels: ['Q1', 'Q2'], series: [{ name: 'A', data: [1, 2] }, { name: 'B', data: [3, 4] }] });
+    const round = chartOf({ type: 'doughnut', labels: ['Yes', 'No', 'None'], series: [{ data: [70, 30, 0] }] });
+    const whole = chartOf({ type: 'pie', labels: ['All'], series: [{ data: [5] }] });
+    const sideways = chartOf({ type: 'hbar', labels: ['A'], series: [{ name: 'x', data: [-2] }], x: 'count', y: 'kind' });
+
+    // Act
+    run({ answers: [], before: [bars, line, round, whole, sideways] });
+
+    // Assert
+    assert.equal(all(bars, 'pre').length, 0, 'the code is replaced');
+    assert.equal(all(bars, 'rect').length, 6, 'one bar per label and series');
+    assert.match(all(bars, 'title')[0].textContent, /^Jan · 2025: 3$/, 'each shape says its figure');
+    assert.equal(bars.children[0].textContent, 'Sign-ups', 'the title over it');
+    assert.equal(bars.children[bars.children.length - 1].children.length, 2, 'a key, one entry per series');
+    assert.equal(all(line, 'polygon').length, 2, 'two stacked areas');
+    assert.equal(all(line, 'circle').length, 4, 'a point per label and series');
+    assert.equal(all(round, 'path').length, 2, 'an empty slice draws nothing');
+    assert.match(all(round, 'title')[0].textContent, /Yes: 70 \(70%\)/);
+    assert.equal(all(whole, 'circle').length, 1, 'a whole pie is a circle: an arc to itself draws nothing');
+    assert.equal(all(sideways, 'rect').length, 1);
+});
+
+test('a chart that is not one stays as its code; the application\'s own library draws instead', () => {
+    // Arrange
+    const broken = chartOf('{not json');
+    const empty = chartOf({ type: 'bar', labels: [], series: [] });
+    const theirs = chartOf({ type: 'line', labels: ['a'], series: [{ data: [1] }] });
+    const drawn = [];
+
+    // Act
+    run({ answers: [], before: [broken, empty, theirs], pfChat: { chart: (el, spec) => { drawn.push(spec.type); return true; } } });
+
+    // Assert
+    assert.equal(all(broken, 'pre').length, 1, 'not JSON: the code stays');
+    assert.equal(all(empty, 'pre').length, 1, 'no series: the code stays');
+    assert.deepEqual(drawn, ['line'], 'handed to the application\'s library');
+    assert.equal(all(theirs, 'svg').length, 0, 'and not drawn twice');
 });
 
 test('a page without the conversation does nothing', () => {
