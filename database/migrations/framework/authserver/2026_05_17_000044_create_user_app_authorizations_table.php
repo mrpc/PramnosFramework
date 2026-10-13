@@ -49,13 +49,13 @@ class CreateUserAppAuthorizationsTable extends Migration
     private function upPostgreSQL(): void
     {
         $this->DB()->query("
-            CREATE TABLE IF NOT EXISTS authserver.user_app_authorizations (
+            CREATE TABLE IF NOT EXISTS {$this->application->database->schema()->quoteTable('authserver.user_app_authorizations')} (
                 id              BIGSERIAL       PRIMARY KEY,
                 userid          BIGINT          NOT NULL
-                                    REFERENCES public.users(userid)
+                                    REFERENCES {$this->application->database->schema()->quoteTable('users')}(userid)
                                     ON DELETE CASCADE ON UPDATE CASCADE,
                 appid           INTEGER         NOT NULL
-                                    REFERENCES public.applications(appid)
+                                    REFERENCES {$this->application->database->schema()->quoteTable('applications')}(appid)
                                     ON DELETE CASCADE ON UPDATE CASCADE,
                 scope           TEXT[],
                 status          VARCHAR(10)     NOT NULL DEFAULT 'granted'
@@ -67,7 +67,7 @@ class CreateUserAppAuthorizationsTable extends Migration
                 last_used_at    TIMESTAMP,
 
                 requested_by    BIGINT
-                                    REFERENCES public.users(userid)
+                                    REFERENCES {$this->application->database->schema()->quoteTable('users')}(userid)
                                     ON DELETE SET NULL ON UPDATE CASCADE,
                 user_agent      VARCHAR(255),
                 ip_address      VARCHAR(45),
@@ -78,19 +78,19 @@ class CreateUserAppAuthorizationsTable extends Migration
 
         $this->DB()->query(
             "CREATE INDEX IF NOT EXISTS idx_user_app_auth_appid
-             ON authserver.user_app_authorizations (appid)"
+             ON {$this->application->database->schema()->quoteTable('authserver.user_app_authorizations')} (appid)"
         );
         $this->DB()->query(
             "CREATE INDEX IF NOT EXISTS idx_user_app_auth_status
-             ON authserver.user_app_authorizations (status)"
+             ON {$this->application->database->schema()->quoteTable('authserver.user_app_authorizations')} (status)"
         );
         $this->DB()->query(
             "CREATE INDEX IF NOT EXISTS idx_user_app_auth_revoked_at
-             ON authserver.user_app_authorizations (revoked_at)"
+             ON {$this->application->database->schema()->quoteTable('authserver.user_app_authorizations')} (revoked_at)"
         );
 
         $this->DB()->query(
-            "COMMENT ON TABLE authserver.user_app_authorizations IS
+            "COMMENT ON TABLE {$this->application->database->schema()->quoteTable('authserver.user_app_authorizations')} IS
              'OAuth consent and authorization scope grants per user/application pair'"
         );
     }
@@ -102,7 +102,7 @@ class CreateUserAppAuthorizationsTable extends Migration
     private function upMySQL(): void
     {
         $this->DB()->query("
-            CREATE TABLE IF NOT EXISTS `authserver_user_app_authorizations` (
+            CREATE TABLE IF NOT EXISTS {$this->application->database->schema()->quoteTable('authserver.user_app_authorizations')} (
                 `id`            BIGINT          NOT NULL AUTO_INCREMENT PRIMARY KEY,
                 `userid`        BIGINT          NOT NULL,
                 `appid`         INT UNSIGNED    NOT NULL,
@@ -124,13 +124,13 @@ class CreateUserAppAuthorizationsTable extends Migration
                 KEY `idx_user_app_auth_status` (`status`),
                 KEY `idx_user_app_auth_revoked_at` (`revoked_at`),
                 CONSTRAINT `fk_user_app_auth_userid`
-                    FOREIGN KEY (`userid`) REFERENCES `users` (`userid`)
+                    FOREIGN KEY (`userid`) REFERENCES {$this->application->database->schema()->quoteTable('users')} (`userid`)
                     ON DELETE CASCADE ON UPDATE CASCADE,
                 CONSTRAINT `fk_user_app_auth_appid`
-                    FOREIGN KEY (`appid`) REFERENCES `applications` (`appid`)
+                    FOREIGN KEY (`appid`) REFERENCES {$this->application->database->schema()->quoteTable('applications')} (`appid`)
                     ON DELETE CASCADE ON UPDATE CASCADE,
                 CONSTRAINT `fk_user_app_auth_requested_by`
-                    FOREIGN KEY (`requested_by`) REFERENCES `users` (`userid`)
+                    FOREIGN KEY (`requested_by`) REFERENCES {$this->application->database->schema()->quoteTable('users')} (`userid`)
                     ON DELETE SET NULL ON UPDATE CASCADE
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         ");
@@ -145,11 +145,11 @@ class CreateUserAppAuthorizationsTable extends Migration
         $caps = $this->DB()->schema()->getCapabilities();
         if ($caps->isPostgreSQL()) {
             $this->DB()->query(
-                "DROP TABLE IF EXISTS authserver.user_app_authorizations"
+                "DROP TABLE IF EXISTS {$this->application->database->schema()->quoteTable('authserver.user_app_authorizations')}"
             );
         } else {
             $this->DB()->query(
-                "DROP TABLE IF EXISTS `authserver_user_app_authorizations`"
+                "DROP TABLE IF EXISTS {$this->application->database->schema()->quoteTable('authserver.user_app_authorizations')}"
             );
         }
     }

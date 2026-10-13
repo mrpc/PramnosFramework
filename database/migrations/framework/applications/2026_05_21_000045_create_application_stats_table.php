@@ -49,10 +49,10 @@ class CreateApplicationStatsTable extends Migration
     private function upPostgreSQL(object $caps): void
     {
         $this->DB()->query("
-            CREATE TABLE IF NOT EXISTS applications.application_stats (
+            CREATE TABLE IF NOT EXISTS {$this->application->database->schema()->quoteTable('applications.application_stats')} (
                 time                    TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
                 appid                   INTEGER         NOT NULL
-                                            REFERENCES public.applications(appid)
+                                            REFERENCES {$this->application->database->schema()->quoteTable('applications')}(appid)
                                             ON DELETE CASCADE ON UPDATE CASCADE,
 
                 -- Request counts
@@ -89,15 +89,15 @@ class CreateApplicationStatsTable extends Migration
 
         $this->DB()->query(
             "CREATE UNIQUE INDEX IF NOT EXISTS unique_app_stats_time_appid
-             ON applications.application_stats (time, appid)"
+             ON {$this->application->database->schema()->quoteTable('applications.application_stats')} (time, appid)"
         );
         $this->DB()->query(
             "CREATE INDEX IF NOT EXISTS idx_application_stats_appid_time
-             ON applications.application_stats (appid, time DESC)"
+             ON {$this->application->database->schema()->quoteTable('applications.application_stats')} (appid, time DESC)"
         );
         $this->DB()->query(
             "CREATE INDEX IF NOT EXISTS idx_application_stats_country_time
-             ON applications.application_stats (country_code, time DESC)"
+             ON {$this->application->database->schema()->quoteTable('applications.application_stats')} (country_code, time DESC)"
         );
 
         // Convert to hypertable on TimescaleDB. The parameters live in
@@ -118,7 +118,7 @@ class CreateApplicationStatsTable extends Migration
     private function upMySQL(): void
     {
         $this->DB()->query("
-            CREATE TABLE IF NOT EXISTS `applications_application_stats` (
+            CREATE TABLE IF NOT EXISTS {$this->application->database->schema()->quoteTable('applications.application_stats')} (
                 `time`                  DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
                 `appid`                 INT UNSIGNED    NOT NULL,
 
@@ -149,7 +149,7 @@ class CreateApplicationStatsTable extends Migration
                 KEY `idx_application_stats_appid_time` (`appid`, `time`),
                 KEY `idx_application_stats_country_time` (`country_code`, `time`),
                 CONSTRAINT `fk_appstats_appid`
-                    FOREIGN KEY (`appid`) REFERENCES `applications` (`appid`)
+                    FOREIGN KEY (`appid`) REFERENCES {$this->application->database->schema()->quoteTable('applications')} (`appid`)
                     ON DELETE CASCADE ON UPDATE CASCADE
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         ");
@@ -175,9 +175,9 @@ class CreateApplicationStatsTable extends Migration
                     )"
                 );
             }
-            $this->DB()->query("DROP TABLE IF EXISTS applications.application_stats");
+            $this->DB()->query("DROP TABLE IF EXISTS {$this->application->database->schema()->quoteTable('applications.application_stats')}");
         } else {
-            $this->DB()->query("DROP TABLE IF EXISTS `applications_application_stats`");
+            $this->DB()->query("DROP TABLE IF EXISTS {$this->application->database->schema()->quoteTable('applications.application_stats')}");
         }
     }
 }

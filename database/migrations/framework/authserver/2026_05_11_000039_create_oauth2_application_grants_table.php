@@ -2,6 +2,7 @@
 
 namespace Pramnos\Framework\Migrations\AuthServer;
 
+use Pramnos\Database\DatabaseCapabilities;
 use Pramnos\Database\Migration;
 
 /**
@@ -27,10 +28,8 @@ use Pramnos\Database\Migration;
  *   expired for more than 7 days. Designed to be called from a cron job or
  *   the Policy Engine daemon.
  *
- * On MySQL: table lives in the default database as
- *   `applications_oauth2_application_grants`, views as
- *   `applications_oauth2_application_permissions` and
- *   `applications_oauth2_active_tokens`.
+ * Built with the schema builder, so every name carries the installation's prefix, and on
+ * MySQL the `applications` schema becomes part of it: `{prefix}applications_oauth2_…`.
  *
  */
 class CreateOauth2ApplicationGrantsTable extends Migration
@@ -47,71 +46,68 @@ class CreateOauth2ApplicationGrantsTable extends Migration
 
     public function up(): void
     {
-        $db   = $this->application->database;
-        $caps = $db->schema()->getCapabilities();
+        $schema = $this->application->database->schema();
 
-        if ($caps->isPostgreSQL()) {
-            $this->upPostgreSQL($db);
-        } else {
-            $this->upMySQL($db);
+        if (!$schema->hasTable('applications.oauth2_application_grants')) {
+            $schema->createTable('applications.oauth2_application_grants', function ($table) {
+                $table->increments('grant_id');
+                $table->integer('appid')->unsigned();
+                $table->string('grant_type', 50)->check(
+                    "grant_type IN ('authorization_code', 'client_credentials', 'refresh_token', 'device_code', 'password', 'exchange_token')"
+                );
+                $table->boolean('is_enabled')->default(true);
+                $table->timestamp('created_at')->useCurrent();
+                $table->timestamp('updated_at')->useCurrent();
+                $table->unique(['appid', 'grant_type'], 'uq_oauth2_grants_app_type');
+                $table->index('appid', 'idx_oauth2_grants_appid');
+                $table->foreign('appid')->references('appid')->on('applications')->onDelete('cascade');
+                $table->comment('OAuth2 grant types enabled per application — drives authorisation server policy');
+            });
+
+            // A partial index: only PostgreSQL has them, and MySQL never had this one.
+            $schema->whenCapable(DatabaseCapabilities::ENGINE_POSTGRESQL, function ($schema) {
+                $schema->alterTable('applications.oauth2_application_grants', function ($table) {
+                    $table->index(['appid', 'grant_type'], 'idx_oauth2_grants_enabled')->where('is_enabled = TRUE');
+                });
+            });
         }
+
+        $this->createViews($schema);
     }
 
-    // ------------------------------------------------------------------ //
-    // PostgreSQL                                                           //
-    // ------------------------------------------------------------------ //
-
-    private function upPostgreSQL($db): void
+    /**
+     * The two views, per dialect: array_agg … FILTER on PostgreSQL, GROUP_CONCAT on MySQL.
+     *
+     * Raw by necessity — the builder takes a view's body as SQL — but every table in it is
+     * named through the schema builder, so the prefix and MySQL's schema-as-prefix apply.
+     */
+    private function createViews($schema): void
     {
-        // --- oauth2_application_grants ---
-        $db->query("CREATE TABLE IF NOT EXISTS applications.oauth2_application_grants (
-            grant_id    SERIAL      PRIMARY KEY,
-            appid       INTEGER     NOT NULL
-                            REFERENCES public.applications(appid) ON DELETE CASCADE,
-            grant_type  VARCHAR(50) NOT NULL
-                            CHECK (grant_type IN (
-                                'authorization_code', 'client_credentials',
-                                'refresh_token', 'device_code',
-                                'password', 'exchange_token'
-                            )),
-            is_enabled  BOOLEAN     NOT NULL DEFAULT TRUE,
-            created_at  TIMESTAMP   NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at  TIMESTAMP   NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE (appid, grant_type)
-        )");
+        $pg          = $schema->getCapabilities()->isPostgreSQL();
+        $apps        = $schema->quoteTable('applications');
+        $grants      = $schema->quoteTable('applications.oauth2_application_grants');
+        $tokens      = $schema->quoteTable('usertokens');
+        $users       = $schema->quoteTable('users');
+        $allowed     = $pg
+            ? 'array_agg(ag.grant_type ORDER BY ag.grant_type) FILTER (WHERE ag.is_enabled = TRUE)'
+            : "GROUP_CONCAT(CASE WHEN ag.is_enabled = 1 THEN ag.grant_type END ORDER BY ag.grant_type SEPARATOR ',')";
+        $now         = $pg ? 'EXTRACT(EPOCH FROM NOW())' : 'UNIX_TIMESTAMP()';
 
-        $db->query("COMMENT ON TABLE applications.oauth2_application_grants IS
-            'OAuth2 grant types enabled per application — drives authorisation server policy'");
-
-        $db->query("CREATE INDEX IF NOT EXISTS idx_oauth2_grants_appid
-            ON applications.oauth2_application_grants (appid)");
-        $db->query("CREATE INDEX IF NOT EXISTS idx_oauth2_grants_enabled
-            ON applications.oauth2_application_grants (appid, grant_type)
-            WHERE is_enabled = TRUE");
-
-        // --- oauth2_application_permissions VIEW ---
-        $db->query("CREATE OR REPLACE VIEW applications.oauth2_application_permissions AS
-            SELECT
+        $schema->createOrReplaceView('applications.oauth2_application_permissions', "SELECT
                 a.appid,
                 a.name         AS client_name,
                 a.apikey       AS client_id,
                 a.scope        AS allowed_scopes,
                 a.callback     AS redirect_uri,
                 a.accesstype,
-                array_agg(ag.grant_type ORDER BY ag.grant_type)
-                    FILTER (WHERE ag.is_enabled = TRUE) AS allowed_grants
-            FROM public.applications a
-            LEFT JOIN applications.oauth2_application_grants ag
-                   ON a.appid = ag.appid AND ag.is_enabled = TRUE
+                {$allowed} AS allowed_grants
+            FROM {$apps} a
+            LEFT JOIN {$grants} ag
+                   ON a.appid = ag.appid AND ag.is_enabled = " . ($pg ? 'TRUE' : '1') . "
             WHERE a.accesstype = 1
             GROUP BY a.appid, a.name, a.apikey, a.scope, a.callback, a.accesstype");
 
-        $db->query("COMMENT ON VIEW applications.oauth2_application_permissions IS
-            'Full OAuth2 profile for each application: scopes, redirect URI, allowed grant types'");
-
-        // --- oauth2_active_tokens VIEW ---
-        $db->query("CREATE OR REPLACE VIEW applications.oauth2_active_tokens AS
-            SELECT
+        $schema->createOrReplaceView('applications.oauth2_active_tokens', "SELECT
                 ut.tokenid,
                 ut.userid,
                 ut.tokentype,
@@ -125,17 +121,24 @@ class CreateOauth2ApplicationGrantsTable extends Migration
                 a.apikey AS client_id,
                 u.username,
                 u.email
-            FROM public.usertokens ut
-            JOIN public.applications a ON ut.applicationid = a.appid
-            LEFT JOIN public.users u ON ut.userid = u.userid
+            FROM {$tokens} ut
+            JOIN {$apps} a ON ut.applicationid = a.appid
+            LEFT JOIN {$users} u ON ut.userid = u.userid
             WHERE ut.status = 1
-              AND ut.expires > EXTRACT(EPOCH FROM NOW())
+              AND ut.expires > {$now}
               AND ut.tokentype IN ('access_token', 'refresh_token', 'auth_code')");
 
-        $db->query("COMMENT ON VIEW applications.oauth2_active_tokens IS
-            'Active OAuth2 tokens with issuing application and owner user information'");
+        if (!$pg) {
+            return;
+        }
 
-        // --- cleanup_expired_oauth2_tokens() ---
+        $db = $this->application->database;
+        // COMMENT ON VIEW and a PL/pgSQL function: PostgreSQL's own, which the builder does not model.
+        $db->query('COMMENT ON VIEW ' . $schema->quoteTable('applications.oauth2_application_permissions')
+            . " IS 'Full OAuth2 profile for each application: scopes, redirect URI, allowed grant types'");
+        $db->query('COMMENT ON VIEW ' . $schema->quoteTable('applications.oauth2_active_tokens')
+            . " IS 'Active OAuth2 tokens with issuing application and owner user information'");
+
         $db->query("CREATE OR REPLACE FUNCTION authserver.cleanup_expired_oauth2_tokens()
 RETURNS INTEGER AS \$\$
 DECLARE
@@ -144,7 +147,7 @@ BEGIN
     -- Remove tokens expired for more than 7 days to keep the table lean.
     -- Tokens within the 7-day window are kept so revocation webhooks / audits
     -- can still reference them after they expire.
-    DELETE FROM public.usertokens
+    DELETE FROM {$tokens}
     WHERE tokentype IN ('access_token', 'refresh_token', 'auth_code')
       AND expires < EXTRACT(EPOCH FROM NOW()) - (7 * 24 * 3600);
 
@@ -158,94 +161,17 @@ END;
             'Deletes OAuth2 tokens (access/refresh/auth_code) expired for more than 7 days'");
     }
 
-    // ------------------------------------------------------------------ //
-    // MySQL                                                                //
-    // ------------------------------------------------------------------ //
-
-    private function upMySQL($db): void
-    {
-        // --- applications_oauth2_application_grants ---
-        $db->query("CREATE TABLE IF NOT EXISTS `applications_oauth2_application_grants` (
-            `grant_id`    INT UNSIGNED    NOT NULL AUTO_INCREMENT PRIMARY KEY,
-            `appid`       INT UNSIGNED    NOT NULL,
-            `grant_type`  VARCHAR(50)     NOT NULL,
-            `is_enabled`  TINYINT(1)      NOT NULL DEFAULT 1,
-            `created_at`  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            `updated_at`  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            UNIQUE KEY `uq_oauth2_grants_app_type` (`appid`, `grant_type`),
-            KEY `idx_oauth2_grants_appid` (`appid`),
-            CONSTRAINT `chk_oauth2_grant_type` CHECK (`grant_type` IN (
-                'authorization_code', 'client_credentials',
-                'refresh_token', 'device_code',
-                'password', 'exchange_token'
-            )),
-            CONSTRAINT `fk_oauth2_grants_appid`
-                FOREIGN KEY (`appid`) REFERENCES `applications` (`appid`) ON DELETE CASCADE
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-          COMMENT='OAuth2 grant types enabled per application'");
-
-        // --- applications_oauth2_application_permissions VIEW ---
-        // MySQL GROUP_CONCAT replaces PostgreSQL array_agg
-        $db->query("CREATE OR REPLACE VIEW `applications_oauth2_application_permissions` AS
-            SELECT
-                a.appid,
-                a.name         AS client_name,
-                a.apikey       AS client_id,
-                a.scope        AS allowed_scopes,
-                a.callback     AS redirect_uri,
-                a.accesstype,
-                GROUP_CONCAT(
-                    CASE WHEN ag.is_enabled = 1 THEN ag.grant_type END
-                    ORDER BY ag.grant_type SEPARATOR ','
-                ) AS allowed_grants
-            FROM `applications` a
-            LEFT JOIN `applications_oauth2_application_grants` ag
-                   ON a.appid = ag.appid AND ag.is_enabled = 1
-            WHERE a.accesstype = 1
-            GROUP BY a.appid, a.name, a.apikey, a.scope, a.callback, a.accesstype");
-
-        // --- applications_oauth2_active_tokens VIEW ---
-        $db->query("CREATE OR REPLACE VIEW `applications_oauth2_active_tokens` AS
-            SELECT
-                ut.tokenid,
-                ut.userid,
-                ut.tokentype,
-                ut.token,
-                ut.created,
-                ut.expires,
-                ut.lastused,
-                ut.scope,
-                ut.ipaddress,
-                a.name   AS client_name,
-                a.apikey AS client_id,
-                u.username,
-                u.email
-            FROM `usertokens` ut
-            JOIN `applications` a ON ut.applicationid = a.appid
-            LEFT JOIN `users` u ON ut.userid = u.userid
-            WHERE ut.status = 1
-              AND ut.expires > UNIX_TIMESTAMP()
-              AND ut.tokentype IN ('access_token', 'refresh_token', 'auth_code')");
-    }
-
-    // ------------------------------------------------------------------ //
-    // down                                                                 //
-    // ------------------------------------------------------------------ //
-
     public function down(): void
     {
-        $db   = $this->application->database;
-        $caps = $db->schema()->getCapabilities();
+        $db     = $this->application->database;
+        $schema = $db->schema();
 
-        if ($caps->isPostgreSQL()) {
-            $db->query("DROP VIEW IF EXISTS applications.oauth2_active_tokens");
-            $db->query("DROP VIEW IF EXISTS applications.oauth2_application_permissions");
-            $db->query("DROP FUNCTION IF EXISTS authserver.cleanup_expired_oauth2_tokens()");
-            $db->query("DROP TABLE IF EXISTS applications.oauth2_application_grants");
-        } else {
-            $db->query("DROP VIEW IF EXISTS `applications_oauth2_active_tokens`");
-            $db->query("DROP VIEW IF EXISTS `applications_oauth2_application_permissions`");
-            $db->query("DROP TABLE IF EXISTS `applications_oauth2_application_grants`");
+        // DROP VIEW and DROP FUNCTION: no builder method; the names go through it all the same.
+        $db->query('DROP VIEW IF EXISTS ' . $schema->quoteTable('applications.oauth2_active_tokens'));
+        $db->query('DROP VIEW IF EXISTS ' . $schema->quoteTable('applications.oauth2_application_permissions'));
+        if ($schema->getCapabilities()->isPostgreSQL()) {
+            $db->query('DROP FUNCTION IF EXISTS authserver.cleanup_expired_oauth2_tokens()');
         }
+        $schema->dropTableIfExists('applications.oauth2_application_grants');
     }
 }

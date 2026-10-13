@@ -69,13 +69,13 @@ DECLARE
     app_name         VARCHAR(255);
     revoked_by_name  VARCHAR(255) DEFAULT NULL;
 BEGIN
-    SELECT name INTO app_name FROM public.applications WHERE appid = p_appid;
+    SELECT name INTO app_name FROM {$this->application->database->schema()->quoteTable('applications')} WHERE appid = p_appid;
 
     IF p_revoked_by IS NOT NULL THEN
-        SELECT username INTO revoked_by_name FROM public.users WHERE userid = p_revoked_by;
+        SELECT username INTO revoked_by_name FROM {$this->application->database->schema()->quoteTable('users')} WHERE userid = p_revoked_by;
     END IF;
 
-    UPDATE public.usertokens
+    UPDATE {$this->application->database->schema()->quoteTable('usertokens')}
        SET status = 0
      WHERE userid = p_user_id
        AND applicationid = p_appid
@@ -83,7 +83,7 @@ BEGIN
 
     GET DIAGNOSTICS tokens_revoked = ROW_COUNT;
 
-    INSERT INTO authserver.user_activity_log (userid, action, details, created_at)
+    INSERT INTO {$this->application->database->schema()->quoteTable('authserver.user_activity_log')} (userid, action, details, created_at)
     VALUES (
         p_user_id,
         'oauth_app_deauthorized',
@@ -130,14 +130,14 @@ DECLARE
     app_record   RECORD;
 BEGIN
     SELECT userid, username, email INTO user_record
-      FROM public.users
+      FROM {$this->application->database->schema()->quoteTable('users')}
      WHERE userid = p_user_id;
 
     IF NOT FOUND THEN
         RAISE EXCEPTION 'User not found: %', p_user_id;
     END IF;
 
-    INSERT INTO authserver.gdpr_requests (userid, request_type, processed_by, request_details)
+    INSERT INTO {$this->application->database->schema()->quoteTable('authserver.gdpr_requests')} (userid, request_type, processed_by, request_details)
     VALUES (p_user_id, p_request_type, p_requested_by, 'Webhook-triggered GDPR request')
     RETURNING id INTO request_id;
 
@@ -154,8 +154,8 @@ BEGIN
     -- Fire webhook for every application that currently holds tokens for the user
     FOR app_record IN
         SELECT DISTINCT a.appid, a.name
-          FROM public.applications a
-          JOIN public.usertokens ut ON a.appid = ut.applicationid
+          FROM {$this->application->database->schema()->quoteTable('applications')} a
+          JOIN {$this->application->database->schema()->quoteTable('usertokens')} ut ON a.appid = ut.applicationid
          WHERE ut.userid = p_user_id AND ut.status = 1
     LOOP
         PERFORM applications.create_webhook_event(
@@ -183,7 +183,7 @@ DECLARE
     user_record RECORD;
 BEGIN
     SELECT userid, username, email INTO user_record
-      FROM public.users
+      FROM {$this->application->database->schema()->quoteTable('users')}
      WHERE userid = p_user_id;
 
     IF NOT FOUND THEN
@@ -239,13 +239,13 @@ END;
         $db->query("COMMENT ON FUNCTION public.token_revocation_webhook() IS
             'Trigger function: fires token_revoked webhook when a usertokens row status changes 1→0'");
 
-        $db->query("DROP TRIGGER IF EXISTS trigger_token_revocation_webhook ON public.usertokens");
+        $db->query("DROP TRIGGER IF EXISTS trigger_token_revocation_webhook ON {$this->application->database->schema()->quoteTable('usertokens')}");
         $db->query("CREATE TRIGGER trigger_token_revocation_webhook
-    AFTER UPDATE ON public.usertokens
+    AFTER UPDATE ON {$this->application->database->schema()->quoteTable('usertokens')}
     FOR EACH ROW
     EXECUTE FUNCTION public.token_revocation_webhook()");
 
-        $db->query("COMMENT ON TRIGGER trigger_token_revocation_webhook ON public.usertokens IS
+        $db->query("COMMENT ON TRIGGER trigger_token_revocation_webhook ON {$this->application->database->schema()->quoteTable('usertokens')} IS
             'Fires token_revoked webhook automatically when a token status transitions active→revoked'");
 
         // --- oauth2_webhook_status VIEW ---
@@ -263,9 +263,9 @@ END;
                 COUNT(CASE WHEN we.status = 'pending' THEN 1 END)           AS pending_events,
                 MAX(we.sent_at)                                              AS last_successful_delivery,
                 AVG(CASE WHEN we.status = 'sent' THEN we.attempts END)      AS avg_attempts_for_success
-            FROM applications.oauth2_webhook_endpoints wep
-            JOIN public.applications a ON wep.appid = a.appid
-            LEFT JOIN applications.oauth2_webhook_events we ON wep.webhook_id = we.webhook_id
+            FROM {$this->application->database->schema()->quoteTable('applications.oauth2_webhook_endpoints')} wep
+            JOIN {$this->application->database->schema()->quoteTable('applications')} a ON wep.appid = a.appid
+            LEFT JOIN {$this->application->database->schema()->quoteTable('applications.oauth2_webhook_events')} we ON wep.webhook_id = we.webhook_id
             GROUP BY wep.webhook_id, wep.appid, a.name,
                      wep.webhook_type, wep.endpoint_url, wep.is_active");
 
@@ -283,7 +283,7 @@ END;
         }
 
         $db->query("DROP VIEW IF EXISTS applications.oauth2_webhook_status");
-        $db->query("DROP TRIGGER IF EXISTS trigger_token_revocation_webhook ON public.usertokens");
+        $db->query("DROP TRIGGER IF EXISTS trigger_token_revocation_webhook ON {$this->application->database->schema()->quoteTable('usertokens')}");
         $db->query("DROP FUNCTION IF EXISTS public.token_revocation_webhook()");
         $db->query("DROP FUNCTION IF EXISTS applications.notify_user_profile_changed(INTEGER, JSONB)");
         $db->query("DROP FUNCTION IF EXISTS applications.create_gdpr_request(INTEGER, VARCHAR, INTEGER)");

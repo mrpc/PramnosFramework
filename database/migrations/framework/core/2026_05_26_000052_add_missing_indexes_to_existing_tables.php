@@ -34,7 +34,7 @@ class AddMissingIndexesToExistingTables extends Migration
         $db = $this->DB();
         $isPgsql = ($db->getDriverName() === 'pgsql');
 
-        $schema = $this->schema('public');
+        $schema = $this->schema();
 
         // ===== sessions =====
         // Basic lookup indexes absent from the original sessions migration.
@@ -66,11 +66,11 @@ class AddMissingIndexesToExistingTables extends Migration
                 if ($isPgsql) {
                     $db->query(
                         'CREATE INDEX IF NOT EXISTS idx_usertokens_token'
-                        . ' ON public.usertokens (token)'
+                        . ' ON ' . $schema->quoteTable('usertokens') . ' (token)'
                     );
                 } else {
                     $db->query(
-                        'CREATE INDEX idx_usertokens_token ON usertokens (token(255))'
+                        'CREATE INDEX idx_usertokens_token ON ' . $schema->quoteTable('usertokens') . ' (token(255))'
                     );
                 }
             }
@@ -99,12 +99,12 @@ class AddMissingIndexesToExistingTables extends Migration
                 if ($isPgsql) {
                     $db->query(
                         'CREATE INDEX IF NOT EXISTS idx_tokenactions_time_method'
-                        . ' ON public.tokenactions (action_time DESC, method)'
+                        . ' ON ' . $schema->quoteTable('tokenactions') . ' (action_time DESC, method)'
                     );
                 } else {
                     $db->query(
                         'CREATE INDEX idx_tokenactions_time_method'
-                        . ' ON tokenactions (action_time DESC, method)'
+                        . ' ON ' . $schema->quoteTable('tokenactions') . ' (action_time DESC, method)'
                     );
                 }
             }
@@ -142,7 +142,7 @@ class AddMissingIndexesToExistingTables extends Migration
                 if ($isPgsql) {
                     $db->query("DROP INDEX IF EXISTS \"{$index}\"");
                 } else {
-                    $db->query("ALTER TABLE `{$table}` DROP INDEX `{$index}`");
+                    $db->query('ALTER TABLE ' . $this->schema()->quoteTable($table) . " DROP INDEX `{$index}`");
                 }
             }
         }
@@ -166,15 +166,19 @@ class AddMissingIndexesToExistingTables extends Migration
         }
 
         $db = $this->DB();
+        // Columns may arrive double-quoted (a camelCase name on PostgreSQL); MySQL quotes with backticks.
         $cols = implode(', ', $columns);
+        if ($db->getDriverName() !== 'pgsql') {
+            $cols = str_replace('"', '`', $cols);
+        }
 
         if ($db->getDriverName() === 'pgsql') {
             $db->query(
-                "CREATE INDEX IF NOT EXISTS \"{$index}\" ON public.\"{$table}\" ({$cols})"
+                "CREATE INDEX IF NOT EXISTS \"{$index}\" ON " . $this->schema()->quoteTable($table) . " ({$cols})"
             );
         } else {
             $db->query(
-                "CREATE INDEX `{$index}` ON `{$table}` ({$cols})"
+                "CREATE INDEX `{$index}` ON " . $this->schema()->quoteTable($table) . " ({$cols})"
             );
         }
     }
@@ -194,14 +198,14 @@ class AddMissingIndexesToExistingTables extends Migration
             $row = $db->selectOne(
                 'SELECT 1 FROM pg_indexes'
                 . ' WHERE tablename = ? AND indexname = ?',
-                [$table, $indexName]
+                [$this->schema()->resolveTableName($table), $indexName]
             );
         } else {
             $row = $db->selectOne(
                 'SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS'
                 . ' WHERE TABLE_SCHEMA = DATABASE()'
                 . '   AND TABLE_NAME = ? AND INDEX_NAME = ?',
-                [$table, $indexName]
+                [$this->schema()->resolveTableName($table), $indexName]
             );
         }
 

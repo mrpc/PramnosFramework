@@ -54,7 +54,7 @@ class CreateDailyActivitySummaryView extends Migration
                          COUNT(DISTINCT ip_address)        AS unique_ips,
                          MIN(created_at)                   AS first_activity,
                          MAX(created_at)                   AS last_activity
-                     FROM authserver.user_activity_log
+                     FROM {$this->application->database->schema()->quoteTable('authserver.user_activity_log')}
                      GROUP BY time_bucket('1 day', created_at), userid, action"
                 );
             },

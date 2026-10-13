@@ -77,7 +77,7 @@ class CreateAuthserverViews extends Migration
                     COUNT(*) FILTER (WHERE success = false)::NUMERIC
                     / COUNT(*)::NUMERIC * 100, 2
                 )                                           AS failure_rate_percent
-            FROM authserver.twofactor_attempts
+            FROM {$this->application->database->schema()->quoteTable('authserver.twofactor_attempts')}
             WHERE attempt_time >= CURRENT_TIMESTAMP - INTERVAL '1 hour'
             HAVING COUNT(*) > 10
                AND COUNT(*) FILTER (WHERE success = false)::NUMERIC
@@ -94,7 +94,7 @@ class CreateAuthserverViews extends Migration
                 COUNT(DISTINCT userid)                      AS unique_users,
                 COUNT(*)                                    AS total_attempts,
                 COUNT(*) FILTER (WHERE success = false)     AS failed_attempts
-            FROM authserver.twofactor_attempts
+            FROM {$this->application->database->schema()->quoteTable('authserver.twofactor_attempts')}
             WHERE attempt_time >= CURRENT_TIMESTAMP - INTERVAL '1 hour'
             GROUP BY ip_address
             HAVING COUNT(DISTINCT userid) >= 3
@@ -111,7 +111,7 @@ class CreateAuthserverViews extends Migration
                 COUNT(*)                                    AS failed_attempts,
                 MAX(attempt_time)                           AS last_attempt,
                 MIN(attempt_time)                           AS first_attempt
-            FROM authserver.twofactor_attempts
+            FROM {$this->application->database->schema()->quoteTable('authserver.twofactor_attempts')}
             WHERE success = false
               AND attempt_time >= CURRENT_TIMESTAMP - INTERVAL '1 hour'
             GROUP BY ip_address, userid
@@ -138,20 +138,20 @@ class CreateAuthserverViews extends Migration
                 COUNT(ual.id)                               AS total_activities,
                 MAX(ual.created_at)                         AS last_activity,
                 COUNT(DISTINCT uc.id)                       AS total_consents,
-                (SELECT COUNT(*) FROM authserver.user_activity_log
+                (SELECT COUNT(*) FROM {$this->application->database->schema()->quoteTable('authserver.user_activity_log')}
                   WHERE userid = u.userid
                     AND created_at >= NOW() - INTERVAL '30 days') AS recent_activity_30d,
-                (SELECT COUNT(*) FROM authserver.user_activity_log
+                (SELECT COUNT(*) FROM {$this->application->database->schema()->quoteTable('authserver.user_activity_log')}
                   WHERE userid = u.userid
                     AND created_at >= NOW() - INTERVAL '7 days')  AS recent_activity_7d
-            FROM public.users u
-            LEFT JOIN authserver.user_privacy_settings ups  ON u.userid = ups.userid
-            LEFT JOIN public.usertokens ut
+            FROM {$this->application->database->schema()->quoteTable('users')} u
+            LEFT JOIN {$this->application->database->schema()->quoteTable('authserver.user_privacy_settings')} ups  ON u.userid = ups.userid
+            LEFT JOIN {$this->application->database->schema()->quoteTable('usertokens')} ut
                    ON u.userid = ut.userid
                   AND ut.expires > EXTRACT(EPOCH FROM NOW())::INTEGER
-            LEFT JOIN public.applications a                 ON ut.applicationid = a.appid
-            LEFT JOIN authserver.user_activity_log ual      ON u.userid = ual.userid
-            LEFT JOIN authserver.user_consents uc           ON u.userid = uc.userid
+            LEFT JOIN {$this->application->database->schema()->quoteTable('applications')} a                 ON ut.applicationid = a.appid
+            LEFT JOIN {$this->application->database->schema()->quoteTable('authserver.user_activity_log')} ual      ON u.userid = ual.userid
+            LEFT JOIN {$this->application->database->schema()->quoteTable('authserver.user_consents')} uc           ON u.userid = uc.userid
             GROUP BY u.userid, u.username, u.email,
                      u.lasttermsagreed, u.validated,
                      ups.share_usage_analytics, ups.marketing_emails, ups.updated_at
@@ -176,7 +176,7 @@ class CreateAuthserverViews extends Migration
                 COUNT(DISTINCT userid)                      AS unique_users,
                 MIN(attempt_time)                           AS first_seen,
                 MAX(attempt_time)                           AS last_seen
-            FROM authserver.twofactor_attempts
+            FROM {$this->application->database->schema()->quoteTable('authserver.twofactor_attempts')}
             WHERE attempt_time >= CURRENT_TIMESTAMP - INTERVAL '7 days'
             GROUP BY SPLIT_PART(ip_address::text, '.', 1)
             ORDER BY COUNT(*) DESC
@@ -200,9 +200,9 @@ class CreateAuthserverViews extends Migration
                 a.apikey                                    AS client_id,
                 u.username,
                 u.email
-            FROM public.usertokens ut
-            JOIN public.applications a  ON ut.applicationid = a.appid
-            LEFT JOIN public.users u    ON ut.userid = u.userid
+            FROM {$this->application->database->schema()->quoteTable('usertokens')} ut
+            JOIN {$this->application->database->schema()->quoteTable('applications')} a  ON ut.applicationid = a.appid
+            LEFT JOIN {$this->application->database->schema()->quoteTable('users')} u    ON ut.userid = u.userid
             WHERE ut.status = 1
               AND ut.expires::NUMERIC > EXTRACT(EPOCH FROM NOW())
               AND ut.tokentype = ANY(ARRAY['access_token','refresh_token','auth_code'])
@@ -219,7 +219,7 @@ class CreateAuthserverViews extends Migration
                 attempt_time,
                 CASE WHEN success THEN 'SUCCESS'::TEXT ELSE 'FAILED'::TEXT END
                                                             AS status
-            FROM authserver.twofactor_attempts
+            FROM {$this->application->database->schema()->quoteTable('authserver.twofactor_attempts')}
             WHERE attempt_time >= CURRENT_TIMESTAMP - INTERVAL '24 hours'
             ORDER BY attempt_time DESC
         ");
@@ -241,7 +241,7 @@ class CreateAuthserverViews extends Migration
                          COUNT(*) FILTER (WHERE success = false)           AS failed_attempts,
                          COUNT(DISTINCT userid)                            AS unique_users,
                          COUNT(DISTINCT ip_address)                        AS unique_ips
-                     FROM authserver.twofactor_attempts
+                     FROM {$this->application->database->schema()->quoteTable('authserver.twofactor_attempts')}
                      GROUP BY time_bucket('1 day', attempt_time)"
                 );
             },
@@ -255,7 +255,7 @@ class CreateAuthserverViews extends Migration
                          COUNT(*) FILTER (WHERE success = false)           AS failed_attempts,
                          COUNT(DISTINCT userid)                            AS unique_users,
                          COUNT(DISTINCT ip_address)                        AS unique_ips
-                     FROM authserver.twofactor_attempts
+                     FROM {$this->application->database->schema()->quoteTable('authserver.twofactor_attempts')}
                      GROUP BY date_trunc('day', attempt_time)
                      WITH NO DATA"
                 );
@@ -288,7 +288,7 @@ class CreateAuthserverViews extends Migration
                                                              AS failed_attempts,
                 ROUND(SUM(CASE WHEN success = FALSE THEN 1 ELSE 0 END)
                       / COUNT(*) * 100, 2)                   AS failure_rate_percent
-            FROM `authserver_twofactor_attempts`
+            FROM {$this->application->database->schema()->quoteTable('authserver.twofactor_attempts')}
             WHERE attempt_time >= DATE_SUB(NOW(), INTERVAL 1 HOUR)
             HAVING COUNT(*) > 10
                AND SUM(CASE WHEN success = FALSE THEN 1 ELSE 0 END) / COUNT(*) > 0.2
@@ -304,7 +304,7 @@ class CreateAuthserverViews extends Migration
                 COUNT(*)                                     AS total_attempts,
                 SUM(CASE WHEN success = FALSE THEN 1 ELSE 0 END)
                                                              AS failed_attempts
-            FROM `authserver_twofactor_attempts`
+            FROM {$this->application->database->schema()->quoteTable('authserver.twofactor_attempts')}
             WHERE attempt_time >= DATE_SUB(NOW(), INTERVAL 1 HOUR)
             GROUP BY ip_address
             HAVING COUNT(DISTINCT userid) >= 3
@@ -320,7 +320,7 @@ class CreateAuthserverViews extends Migration
                 COUNT(*)                                     AS failed_attempts,
                 MAX(attempt_time)                            AS last_attempt,
                 MIN(attempt_time)                            AS first_attempt
-            FROM `authserver_twofactor_attempts`
+            FROM {$this->application->database->schema()->quoteTable('authserver.twofactor_attempts')}
             WHERE success = FALSE
               AND attempt_time >= DATE_SUB(NOW(), INTERVAL 1 HOUR)
             GROUP BY ip_address, userid
@@ -346,19 +346,19 @@ class CreateAuthserverViews extends Migration
                 COUNT(ual.id)                                AS total_activities,
                 MAX(ual.created_at)                          AS last_activity,
                 COUNT(DISTINCT uc.id)                        AS total_consents,
-                (SELECT COUNT(*) FROM `authserver_user_activity_log`
+                (SELECT COUNT(*) FROM {$this->application->database->schema()->quoteTable('authserver.user_activity_log')}
                   WHERE userid = u.userid
                     AND created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)) AS recent_activity_30d,
-                (SELECT COUNT(*) FROM `authserver_user_activity_log`
+                (SELECT COUNT(*) FROM {$this->application->database->schema()->quoteTable('authserver.user_activity_log')}
                   WHERE userid = u.userid
                     AND created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY))  AS recent_activity_7d
-            FROM `users` u
-            LEFT JOIN `authserver_user_privacy_settings` ups ON u.userid = ups.userid
-            LEFT JOIN `usertokens` ut
+            FROM {$this->application->database->schema()->quoteTable('users')} u
+            LEFT JOIN {$this->application->database->schema()->quoteTable('authserver.user_privacy_settings')} ups ON u.userid = ups.userid
+            LEFT JOIN {$this->application->database->schema()->quoteTable('usertokens')} ut
                    ON u.userid = ut.userid AND ut.expires > UNIX_TIMESTAMP()
-            LEFT JOIN `applications` a                       ON ut.applicationid = a.appid
-            LEFT JOIN `authserver_user_activity_log` ual     ON u.userid = ual.userid
-            LEFT JOIN `authserver_user_consents` uc          ON u.userid = uc.userid
+            LEFT JOIN {$this->application->database->schema()->quoteTable('applications')} a                       ON ut.applicationid = a.appid
+            LEFT JOIN {$this->application->database->schema()->quoteTable('authserver.user_activity_log')} ual     ON u.userid = ual.userid
+            LEFT JOIN {$this->application->database->schema()->quoteTable('authserver.user_consents')} uc          ON u.userid = uc.userid
             GROUP BY u.userid, u.username, u.email,
                      u.lasttermsagreed, u.validated,
                      ups.share_usage_analytics, ups.marketing_emails, ups.updated_at
@@ -376,7 +376,7 @@ class CreateAuthserverViews extends Migration
                 COUNT(DISTINCT userid)                       AS unique_users,
                 MIN(attempt_time)                            AS first_seen,
                 MAX(attempt_time)                            AS last_seen
-            FROM `authserver_twofactor_attempts`
+            FROM {$this->application->database->schema()->quoteTable('authserver.twofactor_attempts')}
             WHERE attempt_time >= DATE_SUB(NOW(), INTERVAL 7 DAY)
             GROUP BY CONCAT(SUBSTRING_INDEX(ip_address, '.', 1), '.x.x.x')
             ORDER BY COUNT(*) DESC
@@ -399,9 +399,9 @@ class CreateAuthserverViews extends Migration
                 a.apikey                                     AS client_id,
                 u.username,
                 u.email
-            FROM `usertokens` ut
-            JOIN `applications` a  ON ut.applicationid = a.appid
-            LEFT JOIN `users` u    ON ut.userid = u.userid
+            FROM {$this->application->database->schema()->quoteTable('usertokens')} ut
+            JOIN {$this->application->database->schema()->quoteTable('applications')} a  ON ut.applicationid = a.appid
+            LEFT JOIN {$this->application->database->schema()->quoteTable('users')} u    ON ut.userid = u.userid
             WHERE ut.status = 1
               AND ut.expires > UNIX_TIMESTAMP()
               AND ut.tokentype IN ('access_token', 'refresh_token', 'auth_code')
@@ -417,7 +417,7 @@ class CreateAuthserverViews extends Migration
                 attempt_time,
                 CASE WHEN success THEN 'SUCCESS' ELSE 'FAILED' END
                                                              AS status
-            FROM `authserver_twofactor_attempts`
+            FROM {$this->application->database->schema()->quoteTable('authserver.twofactor_attempts')}
             WHERE attempt_time >= DATE_SUB(NOW(), INTERVAL 1 DAY)
             ORDER BY attempt_time DESC
         ");
@@ -432,7 +432,7 @@ class CreateAuthserverViews extends Migration
                 SUM(CASE WHEN success = FALSE THEN 1 ELSE 0 END) AS failed_attempts,
                 COUNT(DISTINCT userid)                       AS unique_users,
                 COUNT(DISTINCT ip_address)                   AS unique_ips
-            FROM `authserver_twofactor_attempts`
+            FROM {$this->application->database->schema()->quoteTable('authserver.twofactor_attempts')}
             GROUP BY DATE(attempt_time)
         ");
     }

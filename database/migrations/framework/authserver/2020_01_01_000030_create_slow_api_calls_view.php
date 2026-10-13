@@ -38,9 +38,9 @@ class CreateSlowApiCallsView extends Migration
                 "CREATE OR REPLACE VIEW {$viewRef} AS
                 SELECT a.name AS app_name, ut.token, ta.method, ta.urlid,
                        ta.execution_time_ms, ta.return_status, ta.action_time, ta.params
-                  FROM public.tokenactions ta
-                  JOIN public.usertokens ut ON ut.tokenid = ta.tokenid
-                  JOIN public.applications a ON a.appid = ut.applicationid
+                  FROM {$this->application->database->schema()->quoteTable('tokenactions')} ta
+                  JOIN {$this->application->database->schema()->quoteTable('usertokens')} ut ON ut.tokenid = ta.tokenid
+                  JOIN {$this->application->database->schema()->quoteTable('applications')} a ON a.appid = ut.applicationid
                  WHERE ta.execution_time_ms > 5000
                    AND ta.action_time >= CURRENT_TIMESTAMP - INTERVAL '7 days'
                  ORDER BY ta.execution_time_ms DESC"
@@ -51,9 +51,9 @@ class CreateSlowApiCallsView extends Migration
                 "CREATE OR REPLACE VIEW {$viewRef} AS
                 SELECT a.name AS app_name, ut.token, ta.method, ta.urlid,
                        ta.execution_time_ms, ta.return_status, ta.action_time, ta.params
-                  FROM `tokenactions` ta
-                  JOIN `usertokens` ut ON ut.tokenid = ta.tokenid
-                  JOIN `applications` a ON a.appid = ut.applicationid
+                  FROM {$this->application->database->schema()->quoteTable('tokenactions')} ta
+                  JOIN {$this->application->database->schema()->quoteTable('usertokens')} ut ON ut.tokenid = ta.tokenid
+                  JOIN {$this->application->database->schema()->quoteTable('applications')} a ON a.appid = ut.applicationid
                  WHERE ta.execution_time_ms > 5000
                    AND ta.action_time >= DATE_SUB(NOW(), INTERVAL 7 DAY)
                  ORDER BY ta.execution_time_ms DESC"

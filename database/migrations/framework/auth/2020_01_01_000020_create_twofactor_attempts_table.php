@@ -84,11 +84,11 @@ class CreateTwofactorAttemptsTable extends Migration
             $db = $this->application->database;
             $db->query(
                 "CREATE INDEX IF NOT EXISTS idx_twofactor_attempts_ip_time
-                 ON authserver.twofactor_attempts (ip_address, attempt_time DESC)"
+                 ON {$this->application->database->schema()->quoteTable('authserver.twofactor_attempts')} (ip_address, attempt_time DESC)"
             );
             $db->query(
                 "CREATE INDEX IF NOT EXISTS idx_twofactor_attempts_success
-                 ON authserver.twofactor_attempts (success, attempt_time DESC)
+                 ON {$this->application->database->schema()->quoteTable('authserver.twofactor_attempts')} (success, attempt_time DESC)
                  WHERE success = false"
             );
         });

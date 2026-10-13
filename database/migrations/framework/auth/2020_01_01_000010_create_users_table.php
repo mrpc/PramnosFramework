@@ -106,14 +106,16 @@ class CreateUsersTable extends Migration
         // separately at userid=1.
         $db = $this->application->database;
 
-        $schema->ifCapable(DatabaseCapabilities::ENGINE_POSTGRESQL, function () use ($db) {
+        // Raw: sequences and AUTO_INCREMENT are nothing the builder models. The table is named
+        // through it, so the installation's prefix applies.
+        $schema->ifCapable(DatabaseCapabilities::ENGINE_POSTGRESQL, function () use ($db, $schema) {
             // setval(seq, 1, true) → current value = 1, is_called = true,
             // so the next nextval() call returns 2.
-            $db->query("SELECT setval(pg_get_serial_sequence('users', 'userid'), 1)");
+            $db->query("SELECT setval(pg_get_serial_sequence('" . $schema->resolveTableName('users') . "', 'userid'), 1)");
         });
 
-        $schema->ifCapable(DatabaseCapabilities::ENGINE_MYSQL, function () use ($db) {
-            $db->query('ALTER TABLE users AUTO_INCREMENT = 2');
+        $schema->ifCapable(DatabaseCapabilities::ENGINE_MYSQL, function () use ($db, $schema) {
+            $db->query('ALTER TABLE ' . $schema->quoteTable('users') . ' AUTO_INCREMENT = 2');
         });
     }
 

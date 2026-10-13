@@ -71,14 +71,16 @@ class CascadeUsertokensApplication extends Migration
          * one migration on a table that is not being written to by a deploy, and the constraint
          * only governs deletes of a parent row.
          */
-        $schema->table('usertokens', function ($table) {
-            $table->dropForeign('fk_usertokens_applicationid');
-        });
+        if ($this->hasForeignKey('fk_usertokens_applicationid')) {
+            $schema->table('usertokens', function ($table) {
+                $table->dropForeign('fk_usertokens_applicationid');
+            });
+        }
 
         $schema->table('usertokens', function ($table) {
             $table->foreign('applicationid')
                 ->references('appid')
-                ->on('public.applications')
+                ->on('applications')
                 ->onDelete('cascade')
                 ->onUpdate('cascade')
                 ->name('fk_usertokens_applicationid');
@@ -93,17 +95,36 @@ class CascadeUsertokensApplication extends Migration
             return;
         }
 
-        $schema->table('usertokens', function ($table) {
-            $table->dropForeign('fk_usertokens_applicationid');
-        });
+        if ($this->hasForeignKey('fk_usertokens_applicationid')) {
+            $schema->table('usertokens', function ($table) {
+                $table->dropForeign('fk_usertokens_applicationid');
+            });
+        }
 
         $schema->table('usertokens', function ($table) {
             $table->foreign('applicationid')
                 ->references('appid')
-                ->on('public.applications')
+                ->on('applications')
                 ->onDelete('set null')
                 ->onUpdate('cascade')
                 ->name('fk_usertokens_applicationid');
         });
+    }
+
+    /**
+     * Whether `usertokens` has the named foreign key — `add_missing_foreign_keys_to_existing_tables`
+     * skips it where the columns' types differ, and there is then nothing to drop.
+     */
+    private function hasForeignKey(string $name): bool
+    {
+        $db       = $this->application->database;
+        $resolved = $db->schema()->resolveTableName('usertokens');
+
+        // Introspection: the constraint catalogue is not something the query builder reaches.
+        $row = $db->getDriverName() === 'pgsql'
+            ? $db->selectOne('SELECT 1 FROM information_schema.table_constraints WHERE table_name = ? AND constraint_name = ?', [$resolved, $name])
+            : $db->selectOne('SELECT 1 FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND CONSTRAINT_NAME = ?', [$resolved, $name]);
+
+        return $row !== null;
     }
 }

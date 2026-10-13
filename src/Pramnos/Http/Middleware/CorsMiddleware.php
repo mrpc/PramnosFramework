@@ -67,7 +67,7 @@ class CorsMiddleware implements MiddlewareInterface
             return new self(['*']);
         }
         if (is_string($rawOrigins)) {
-            $rawOrigins = json_decode($rawOrigins, true) ?? [];
+            $rawOrigins = self::parseOrigins($rawOrigins);
         }
         $origins = array_values(array_filter((array) $rawOrigins));
         return new self(!empty($origins) ? $origins : ['*']);
@@ -91,32 +91,18 @@ class CorsMiddleware implements MiddlewareInterface
     ): self {
         try {
             $db       ??= \Pramnos\Framework\Factory::getDatabase();
-            $isPostgres = ($db->type === 'postgresql');
-
-            if ($isPostgres) {
-                $sql = $db->prepareQuery(
-                    "SELECT s.cors_enabled, s.cors_origins
-                     FROM applications.application_settings s
-                     JOIN public.applications a ON a.appid = s.appid
-                     WHERE a.name = %s
-                     LIMIT 1",
-                    $appName
-                );
-            } else {
-                $sql = $db->prepareQuery(
-                    "SELECT s.cors_enabled, s.cors_origins
-                     FROM `applications_application_settings` s
-                     JOIN `applications` a ON a.appid = s.appid
-                     WHERE a.name = %s
-                     LIMIT 1",
-                    $appName
-                );
-            }
-
-            $result = $db->query($sql);
+            // Through the builder, which names both tables as the installation has them: the
+            // prefix, and on MySQL the `applications` schema folded into the name.
+            $result = $db->queryBuilder()
+                ->table('applications.application_settings AS s')
+                ->select(['s.cors_enabled', 's.cors_origins'])
+                ->join('#PREFIX#applications AS a', 'a.appid', '=', 's.appid')
+                ->where('a.name', $appName)
+                ->first();
             if ($result && $result->numRows > 0) {
+                // PostgreSQL hands a boolean back as 't'/'f', and (bool) 'f' is true.
                 return static::fromCorsData(
-                    (bool) $result->fields['cors_enabled'],
+                    in_array($result->fields['cors_enabled'], [true, 1, '1', 't', 'true'], true),
                     $result->fields['cors_origins'] ?? null
                 );
             }
@@ -124,6 +110,30 @@ class CorsMiddleware implements MiddlewareInterface
             // DB unavailable, table missing, feature not enabled — fall back to wildcard.
         }
         return new self(['*']);
+    }
+
+    /**
+     * The origins as stored: JSON on MySQL (`["https://a"]`), a `TEXT[]` on PostgreSQL, which
+     * comes back as `{https://a,"https://b"}`.
+     *
+     * @return list<string>
+     */
+    private static function parseOrigins(string $raw): array
+    {
+        $raw = trim($raw);
+
+        if (str_starts_with($raw, '{') && str_ends_with($raw, '}')) {
+            $inner = substr($raw, 1, -1);
+
+            return $inner === '' ? [] : array_map(
+                static fn (string $one): string => stripcslashes(trim($one, '"')),
+                str_getcsv($inner, ',', '"', '\\')
+            );
+        }
+
+        $decoded = json_decode($raw, true);
+
+        return is_array($decoded) ? $decoded : [];
     }
 
     public function handle(Request $request, callable $next): mixed

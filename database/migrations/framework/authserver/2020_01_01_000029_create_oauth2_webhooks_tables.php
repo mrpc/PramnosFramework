@@ -46,7 +46,7 @@ class CreateOauth2WebhooksTables extends Migration
         if ($caps->isPostgreSQL()) {
             $db->query("CREATE TABLE IF NOT EXISTS {$tEndp} (
                 webhook_id       SERIAL      PRIMARY KEY,
-                appid            INTEGER     NOT NULL REFERENCES public.applications(appid) ON DELETE CASCADE,
+                appid            INTEGER     NOT NULL REFERENCES {$this->application->database->schema()->quoteTable('applications')}(appid) ON DELETE CASCADE,
                 endpoint_url     VARCHAR(512) NOT NULL,
                 webhook_type     VARCHAR(50) NOT NULL
                     CHECK (webhook_type IN (
@@ -71,7 +71,7 @@ class CreateOauth2WebhooksTables extends Migration
                 event_id        SERIAL      PRIMARY KEY,
                 webhook_id      INTEGER     NOT NULL REFERENCES {$tEndp}(webhook_id) ON DELETE CASCADE,
                 event_type      VARCHAR(50) NOT NULL,
-                user_id         INTEGER     REFERENCES public.users(userid) ON DELETE SET NULL,
+                user_id         INTEGER     REFERENCES {$this->application->database->schema()->quoteTable('users')}(userid) ON DELETE SET NULL,
                 device_code     VARCHAR(128),
                 token_id        INTEGER,
                 payload         JSONB       NOT NULL,
@@ -104,11 +104,11 @@ class CreateOauth2WebhooksTables extends Migration
                  BEGIN
                      FOR webhook_rec IN
                          SELECT webhook_id, retry_count
-                         FROM applications.oauth2_webhook_endpoints
+                         FROM {$this->application->database->schema()->quoteTable('applications.oauth2_webhook_endpoints')}
                          WHERE webhook_type = p_webhook_type
                            AND is_active = TRUE
                      LOOP
-                         INSERT INTO applications.oauth2_webhook_events (
+                         INSERT INTO {$this->application->database->schema()->quoteTable('applications.oauth2_webhook_events')} (
                              webhook_id, event_type, user_id, device_code, token_id,
                              payload, max_attempts, next_attempt_at
                          ) VALUES (

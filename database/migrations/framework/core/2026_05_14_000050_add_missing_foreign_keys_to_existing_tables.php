@@ -41,7 +41,7 @@ class AddMissingForeignKeysToExistingTables extends Migration
         // Add FK: parentToken → usertokens.tokenid (SET NULL)
         // This allows tokens to reference a parent token (e.g., refresh token chains)
         if ($this->canAddForeignKey('usertokens', 'parentToken', 'usertokens', 'tokenid', 'fk_usertokens_parenttoken')) {
-            $this->schema('public')
+            $this->schema()
                 ->table('usertokens', function ($table) {
                     $table->foreign('parentToken')
                         ->references('tokenid')
@@ -54,12 +54,12 @@ class AddMissingForeignKeysToExistingTables extends Migration
 
         // Add FK: applicationid → applications.appid (SET NULL)
         // Note: applicationid column already exists in usertokens table
-        if ($this->canAddForeignKey('usertokens', 'applicationid', 'public.applications', 'appid', 'fk_usertokens_applicationid')) {
-            $this->schema('public')
+        if ($this->canAddForeignKey('usertokens', 'applicationid', 'applications', 'appid', 'fk_usertokens_applicationid')) {
+            $this->schema()
                 ->table('usertokens', function ($table) {
                     $table->foreign('applicationid')
                         ->references('appid')
-                        ->on('public.applications')
+                        ->on('applications')
                         ->onDelete('set null')
                         ->onUpdate('cascade')
                         ->name('fk_usertokens_applicationid');
@@ -70,7 +70,7 @@ class AddMissingForeignKeysToExistingTables extends Migration
 
         // Add FK: tokenid → usertokens.tokenid (CASCADE)
         if ($this->canAddForeignKey('tokenactions', 'tokenid', 'usertokens', 'tokenid', 'fk_tokenactions_tokenid')) {
-            $this->schema('public')
+            $this->schema()
                 ->table('tokenactions', function ($table) {
                     $table->foreign('tokenid')
                         ->references('tokenid')
@@ -83,7 +83,7 @@ class AddMissingForeignKeysToExistingTables extends Migration
 
         // Add FK: urlid → urls.urlid (CASCADE)
         if ($this->canAddForeignKey('tokenactions', 'urlid', 'urls', 'urlid', 'fk_tokenactions_urlid')) {
-            $this->schema('public')
+            $this->schema()
                 ->table('tokenactions', function ($table) {
                     $table->foreign('urlid')
                         ->references('urlid')
@@ -98,7 +98,7 @@ class AddMissingForeignKeysToExistingTables extends Migration
 
         // Add FK: owner → users.userid (SET NULL)
         if ($this->canAddForeignKey('applications', 'owner', 'users', 'userid', 'fk_applications_owner')) {
-            $this->schema('public')
+            $this->schema()
                 ->table('applications', function ($table) {
                     $table->foreign('owner')
                         ->references('userid')
@@ -115,7 +115,7 @@ class AddMissingForeignKeysToExistingTables extends Migration
         // Conditional: only when the parent application has a locations table.
         // The framework does not define locations — it is an app-level concept.
         if ($this->canAddForeignKey('users', 'locationid', 'locations', 'locationid', 'fk_users_locationid')) {
-            $this->schema('public')
+            $this->schema()
                 ->table('users', function ($table) {
                     $table->foreign('locationid')
                         ->references('locationid')
@@ -130,7 +130,7 @@ class AddMissingForeignKeysToExistingTables extends Migration
 
         // user_privacy_settings.userid → users.userid (CASCADE)
         if ($this->canAddForeignKey('authserver.user_privacy_settings', 'userid', 'users', 'userid', 'fk_user_privacy_settings_userid')) {
-            $this->schema('public')
+            $this->schema()
                 ->table('authserver.user_privacy_settings', function ($table) {
                     $table->foreign('userid')
                         ->references('userid')
@@ -143,7 +143,7 @@ class AddMissingForeignKeysToExistingTables extends Migration
 
         // user_consents.userid → users.userid (CASCADE)
         if ($this->canAddForeignKey('authserver.user_consents', 'userid', 'users', 'userid', 'fk_user_consents_userid')) {
-            $this->schema('public')
+            $this->schema()
                 ->table('authserver.user_consents', function ($table) {
                     $table->foreign('userid')
                         ->references('userid')
@@ -156,7 +156,7 @@ class AddMissingForeignKeysToExistingTables extends Migration
 
         // data_processing_records.userid → users.userid (CASCADE)
         if ($this->canAddForeignKey('authserver.data_processing_records', 'userid', 'users', 'userid', 'fk_data_processing_records_userid')) {
-            $this->schema('public')
+            $this->schema()
                 ->table('authserver.data_processing_records', function ($table) {
                     $table->foreign('userid')
                         ->references('userid')
@@ -169,7 +169,7 @@ class AddMissingForeignKeysToExistingTables extends Migration
 
         // gdpr_requests.userid → users.userid (CASCADE)
         if ($this->canAddForeignKey('authserver.gdpr_requests', 'userid', 'users', 'userid', 'fk_gdpr_requests_userid')) {
-            $this->schema('public')
+            $this->schema()
                 ->table('authserver.gdpr_requests', function ($table) {
                     $table->foreign('userid')
                         ->references('userid')
@@ -183,7 +183,7 @@ class AddMissingForeignKeysToExistingTables extends Migration
         // user_activity_log.userid → users.userid (CASCADE)
         // Note: user_activity_log is a hypertable, may need different approach
         if ($this->canAddForeignKey('authserver.user_activity_log', 'userid', 'users', 'userid', 'fk_user_activity_log_userid')) {
-            $this->schema('public')
+            $this->schema()
                 ->table('authserver.user_activity_log', function ($table) {
                     $table->foreign('userid')
                         ->references('userid')
@@ -223,13 +223,13 @@ class AddMissingForeignKeysToExistingTables extends Migration
             // is exactly what up() wants (skip either way) and exactly what
             // down() must not conflate: dropping from a missing table raises and
             // aborts the rollback. Ask about the table separately.
-            if (!$this->schema('public')->hasTable($table)) {
+            if (!$this->schema()->hasTable($table)) {
                 continue;
             }
 
             foreach ($fks as $fk) {
                 if (!$this->constraintDoesNotExist($table, $fk)) {
-                    $this->schema('public')
+                    $this->schema()
                         ->table($table, function ($table) use ($fk) {
                             $table->dropForeign([$fk]);
                         });
@@ -282,7 +282,7 @@ class AddMissingForeignKeysToExistingTables extends Migration
             ? substr($references, strrpos($references, '.') + 1)
             : $references;
 
-        $schema = $this->schema('public');
+        $schema = $this->schema();
 
         if (!$schema->hasColumn($table, $column)) {
             $this->skipForeignKey($constraint, "$table has no column '$column'");
@@ -296,6 +296,17 @@ class AddMissingForeignKeysToExistingTables extends Migration
 
         if (!$schema->hasColumn($referencedTable, $onColumn)) {
             $this->skipForeignKey($constraint, "$referencedTable has no column '$onColumn'");
+            return false;
+        }
+
+        // MySQL refuses a key between columns of different types — `INT` against the
+        // `INT UNSIGNED` an `increments()` makes — and the refusal aborts the batch. Said and
+        // skipped; an installation that wants the key aligns the column first.
+        $from = $this->fullType($table, $column);
+        $to   = $this->fullType($referencedTable, $onColumn);
+        if ($from !== '' && $to !== '' && strtolower($from) !== strtolower($to)) {
+            $this->skipForeignKey($constraint, "$table.$column is $from and $referencedTable.$onColumn is $to");
+
             return false;
         }
 
@@ -357,7 +368,7 @@ class AddMissingForeignKeysToExistingTables extends Migration
             [$schema, $bare] = explode('.', $table, 2);
         }
 
-        return $this->schema('public')->hasCompressedChunks($bare, $schema);
+        return $this->schema()->hasCompressedChunks($bare, $schema);
     }
 
     /**
@@ -391,7 +402,7 @@ class AddMissingForeignKeysToExistingTables extends Migration
      */
     protected function orphanCount($table, $column, $referencedTable, $onColumn)
     {
-        $schema = $this->schema('public');
+        $schema = $this->schema();
 
         try {
             $child  = $schema->quoteTable($table);
@@ -423,6 +434,31 @@ class AddMissingForeignKeysToExistingTables extends Migration
         }
 
         return (int) $row;
+    }
+
+    /**
+     * A column's declared type with its sign — `int unsigned` — and without a display width,
+     * which MySQL 5.7 shows and 8.0 does not. `columnDetails()` keeps only the data type,
+     * `int`, which drops exactly the difference that matters here.
+     */
+    protected function fullType($table, $column)
+    {
+        try {
+            $result = $this->DB()->getColumns($this->schema()->resolveTableName($table), null, false, true);
+        } catch (\Throwable) {
+            return '';
+        }
+
+        while ($result && $result->fetch()) {
+            if (strcasecmp((string) ($result->fields['Field'] ?? ''), (string) $column) === 0) {
+                // MySQL's ColumnType carries the sign (`int unsigned`); Type alone is `int`.
+                $type = (string) ($result->fields['ColumnType'] ?? $result->fields['Type'] ?? '');
+
+                return trim((string) preg_replace('/\(\d+\)/', '', strtolower($type)));
+            }
+        }
+
+        return '';
     }
 
     /**
@@ -484,7 +520,7 @@ class AddMissingForeignKeysToExistingTables extends Migration
         // not been created yet), there is nothing to alter. Report the constraint
         // as already present so the caller SKIPS the block instead of issuing an
         // ALTER TABLE against a missing relation (which would abort the batch).
-        if (!$this->schema('public')->hasTable($table)) {
+        if (!$this->schema()->hasTable($table)) {
             return false;
         }
 
@@ -494,7 +530,8 @@ class AddMissingForeignKeysToExistingTables extends Migration
             // table_name = 'authserver.gdpr_requests' matches nothing, and
             // "nothing" reads as "the constraint is missing", which would make
             // this migration try to create it on every run.
-            [$schema, $bare] = $this->splitQualified($table);
+            // Resolved first, so an installation's prefix is part of the bare name.
+            [$schema, $bare] = $this->splitQualified($this->schema()->resolveTableName($table));
 
             $exists = $db->selectOne(
                 "SELECT 1 FROM information_schema.table_constraints
@@ -505,7 +542,7 @@ class AddMissingForeignKeysToExistingTables extends Migration
         } else {
             // MySQL has no schemas in this sense: the builder flattens
             // `authserver.x` to `authserver_x` inside the current database.
-            $resolved = $this->schema('public')->resolveTableName($table);
+            $resolved = $this->schema()->resolveTableName($table);
 
             $exists = $db->selectOne(
                 "SELECT 1 FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE

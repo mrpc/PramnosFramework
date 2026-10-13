@@ -48,10 +48,10 @@ class CreateApplicationSettingsTable extends Migration
     private function upPostgreSQL(): void
     {
         $this->DB()->query("
-            CREATE TABLE IF NOT EXISTS applications.application_settings (
+            CREATE TABLE IF NOT EXISTS {$this->application->database->schema()->quoteTable('applications.application_settings')} (
                 id                         SERIAL        PRIMARY KEY,
                 appid                      INTEGER       NOT NULL
-                                               REFERENCES public.applications(appid)
+                                               REFERENCES {$this->application->database->schema()->quoteTable('applications')}(appid)
                                                ON DELETE CASCADE ON UPDATE CASCADE,
 
                 -- Rate limiting
@@ -89,7 +89,7 @@ class CreateApplicationSettingsTable extends Migration
 
         $this->DB()->query(
             "CREATE INDEX IF NOT EXISTS idx_application_settings_updated_at
-             ON applications.application_settings (updated_at)"
+             ON {$this->application->database->schema()->quoteTable('applications.application_settings')} (updated_at)"
         );
 
         // Trigger function to keep updated_at current
@@ -105,12 +105,12 @@ class CreateApplicationSettingsTable extends Migration
 
         $this->DB()->query("
             DROP TRIGGER IF EXISTS trg_update_application_settings_timestamp
-                ON applications.application_settings
+                ON {$this->application->database->schema()->quoteTable('applications.application_settings')}
         ");
 
         $this->DB()->query("
             CREATE TRIGGER trg_update_application_settings_timestamp
-            BEFORE UPDATE ON applications.application_settings
+            BEFORE UPDATE ON {$this->application->database->schema()->quoteTable('applications.application_settings')}
             FOR EACH ROW
             EXECUTE FUNCTION applications.update_application_settings_timestamp()
         ");
@@ -123,7 +123,7 @@ class CreateApplicationSettingsTable extends Migration
     private function upMySQL(): void
     {
         $this->DB()->query("
-            CREATE TABLE IF NOT EXISTS `applications_application_settings` (
+            CREATE TABLE IF NOT EXISTS {$this->application->database->schema()->quoteTable('applications.application_settings')} (
                 `id`                        INT UNSIGNED    NOT NULL AUTO_INCREMENT PRIMARY KEY,
                 `appid`                     INT UNSIGNED    NOT NULL,
 
@@ -150,7 +150,7 @@ class CreateApplicationSettingsTable extends Migration
                 CONSTRAINT `idx_application_settings_appid` UNIQUE (`appid`),
                 KEY `idx_application_settings_updated_at` (`updated_at`),
                 CONSTRAINT `fk_appsettings_appid`
-                    FOREIGN KEY (`appid`) REFERENCES `applications` (`appid`)
+                    FOREIGN KEY (`appid`) REFERENCES {$this->application->database->schema()->quoteTable('applications')} (`appid`)
                     ON DELETE CASCADE ON UPDATE CASCADE
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         ");
@@ -166,17 +166,17 @@ class CreateApplicationSettingsTable extends Migration
         if ($caps->isPostgreSQL()) {
             $this->DB()->query(
                 "DROP TRIGGER IF EXISTS trg_update_application_settings_timestamp
-                 ON applications.application_settings"
+                 ON {$this->application->database->schema()->quoteTable('applications.application_settings')}"
             );
             $this->DB()->query(
                 "DROP FUNCTION IF EXISTS applications.update_application_settings_timestamp()"
             );
             $this->DB()->query(
-                "DROP TABLE IF EXISTS applications.application_settings"
+                "DROP TABLE IF EXISTS {$this->application->database->schema()->quoteTable('applications.application_settings')}"
             );
         } else {
             $this->DB()->query(
-                "DROP TABLE IF EXISTS `applications_application_settings`"
+                "DROP TABLE IF EXISTS {$this->application->database->schema()->quoteTable('applications.application_settings')}"
             );
         }
     }

@@ -146,6 +146,7 @@ class SchemaBuilder
     {
         $blueprint = new Blueprint($table, 'create');
         $callback($blueprint);
+        $this->resolveReferences($blueprint);
 
         $resolved = $this->resolveTable($table);
 
@@ -216,6 +217,7 @@ class SchemaBuilder
     {
         $blueprint = new Blueprint($table, 'alter');
         $callback($blueprint);
+        $this->resolveReferences($blueprint);
 
         $resolved = $this->resolveTable($table);
         foreach ($this->getGrammar()->compileAlter($blueprint, $resolved) as $sql) {
@@ -2656,6 +2658,23 @@ class SchemaBuilder
         }
 
         return $prefix . $table;
+    }
+
+    /**
+     * The tables a blueprint's foreign keys reference, named as the tables themselves are.
+     *
+     * The table being built went through {@see resolveTable()} and the one it referenced did
+     * not, so `->on('applications')` compiled to `REFERENCES applications` beside a table named
+     * `pramnos_…` — on an installation with a prefix, a reference to nothing — and
+     * `->on('authserver.users')` named a database on MySQL.
+     */
+    private function resolveReferences(Blueprint $blueprint): void
+    {
+        foreach ($blueprint->getForeignKeys() as $fk) {
+            if ($fk->referencedTable !== '') {
+                $fk->referencedTable = $this->resolveTable($fk->referencedTable);
+            }
+        }
     }
 
     /**

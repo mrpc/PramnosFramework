@@ -74,11 +74,11 @@ class CreateAuthserverRbacFunctions extends Migration
 
         $db->query(
             "DROP TRIGGER IF EXISTS trigger_set_permission_priority
-             ON authserver.permissions"
+             ON {$this->application->database->schema()->quoteTable('authserver.permissions')}"
         );
         $db->query(
             "CREATE TRIGGER trigger_set_permission_priority
-                 BEFORE INSERT OR UPDATE ON authserver.permissions
+                 BEFORE INSERT OR UPDATE ON {$this->application->database->schema()->quoteTable('authserver.permissions')}
                  FOR EACH ROW
                  EXECUTE FUNCTION authserver.set_permission_priority()"
         );
@@ -91,7 +91,7 @@ class CreateAuthserverRbacFunctions extends Migration
                  role_org_id INTEGER;
              BEGIN
                  SELECT {$orgColumn} INTO role_org_id
-                 FROM authserver.roles
+                 FROM {$this->application->database->schema()->quoteTable('authserver.roles')}
                  WHERE roleid = NEW.roleid;
 
                  IF role_org_id IS NOT NULL THEN
@@ -115,11 +115,11 @@ class CreateAuthserverRbacFunctions extends Migration
 
         $db->query(
             "DROP TRIGGER IF EXISTS trigger_check_user_org_membership
-             ON authserver.user_roles"
+             ON {$this->application->database->schema()->quoteTable('authserver.user_roles')}"
         );
         $db->query(
             "CREATE TRIGGER trigger_check_user_org_membership
-                 BEFORE INSERT OR UPDATE ON authserver.user_roles
+                 BEFORE INSERT OR UPDATE ON {$this->application->database->schema()->quoteTable('authserver.user_roles')}
                  FOR EACH ROW
                  EXECUTE FUNCTION authserver.check_user_org_membership()"
         );
@@ -139,7 +139,7 @@ class CreateAuthserverRbacFunctions extends Migration
                  created_count   INTEGER := 0;
              BEGIN
                  SELECT * INTO tmpl
-                 FROM authserver.permission_templates
+                 FROM {$this->application->database->schema()->quoteTable('authserver.permission_templates')}
                  WHERE templateid = p_templateid AND is_active = TRUE;
 
                  IF NOT FOUND THEN
@@ -151,7 +151,7 @@ class CreateAuthserverRbacFunctions extends Migration
                      resolved_obj_id := REPLACE(resolved_obj_id, '{$orgPlaceholder}', p_context_org_id::TEXT);
                  END IF;
 
-                 INSERT INTO authserver.permissions (
+                 INSERT INTO {$this->application->database->schema()->quoteTable('authserver.permissions')} (
                      subject_type, subject_id, object_type, object_id,
                      action, grant_type, priority, granted_by, description
                  ) VALUES (
@@ -185,14 +185,14 @@ class CreateAuthserverRbacFunctions extends Migration
                  tmpl_ids           TEXT[];
              BEGIN
                  SELECT * INTO tmpl
-                 FROM authserver.role_templates
+                 FROM {$this->application->database->schema()->quoteTable('authserver.role_templates')}
                  WHERE role_templateid = p_role_templateid AND is_active = TRUE;
 
                  IF NOT FOUND THEN
                      RAISE EXCEPTION 'Role template % not found or inactive', p_role_templateid;
                  END IF;
 
-                 INSERT INTO authserver.roles (role_name, description, {$orgColumn}, created_at)
+                 INSERT INTO {$this->application->database->schema()->quoteTable('authserver.roles')} (role_name, description, {$orgColumn}, created_at)
                  VALUES (
                      p_role_name,
                      'Created from template: ' || tmpl.template_name,
@@ -258,7 +258,7 @@ class CreateAuthserverRbacFunctions extends Migration
                  -- a numeric overflow to surface.
                  new_auditid BIGINT;
              BEGIN
-                 INSERT INTO authserver.audit_log (
+                 INSERT INTO {$this->application->database->schema()->quoteTable('authserver.audit_log')} (
                      event_type, actor_userid, actor_type,
                      target_type, target_id, object_type, object_id,
                      old_values, new_values, metadata, organization_context
@@ -290,7 +290,7 @@ class CreateAuthserverRbacFunctions extends Migration
              BEGIN
                  -- Direct permission check
                  SELECT effective_grant INTO direct_grant
-                 FROM authserver.effective_permissions
+                 FROM {$this->application->database->schema()->quoteTable('authserver.effective_permissions')}
                  WHERE subject_type = p_subject_type
                    AND subject_id   = p_subject_id
                    AND object_type  = p_object_type
@@ -304,13 +304,13 @@ class CreateAuthserverRbacFunctions extends Migration
                  -- Walk the inheritance graph
                  FOR parent IN
                      SELECT parent_object_type, parent_object_id, inheritance_type
-                     FROM authserver.permission_inheritance
+                     FROM {$this->application->database->schema()->quoteTable('authserver.permission_inheritance')}
                      WHERE child_object_type = p_object_type
                        AND child_object_id   = p_object_id
                        AND is_active         = TRUE
                  LOOP
                      SELECT effective_grant INTO inherited_grant
-                     FROM authserver.effective_permissions
+                     FROM {$this->application->database->schema()->quoteTable('authserver.effective_permissions')}
                      WHERE subject_type = p_subject_type
                        AND subject_id   = p_subject_id
                        AND object_type  = parent.parent_object_type
@@ -355,7 +355,7 @@ class CreateAuthserverRbacFunctions extends Migration
                          ep.object_type, ep.object_id, ep.action,
                          'direct'::TEXT                    AS permission_source,
                          ep.effective_grant
-                     FROM authserver.effective_permissions ep
+                     FROM {$this->application->database->schema()->quoteTable('authserver.effective_permissions')} ep
                      WHERE ep.subject_type = 'user'
                        AND ep.subject_id   = p_userid
 
@@ -366,10 +366,10 @@ class CreateAuthserverRbacFunctions extends Migration
                          ep.object_type, ep.object_id, ep.action,
                          ('role:' || r.role_name)::TEXT    AS permission_source,
                          ep.effective_grant
-                     FROM authserver.user_roles ur
-                     JOIN authserver.roles r
+                     FROM {$this->application->database->schema()->quoteTable('authserver.user_roles')} ur
+                     JOIN {$this->application->database->schema()->quoteTable('authserver.roles')} r
                           ON r.roleid = ur.roleid
-                     JOIN authserver.effective_permissions ep
+                     JOIN {$this->application->database->schema()->quoteTable('authserver.effective_permissions')} ep
                           ON ep.subject_type = 'role'
                          AND ep.subject_id   = r.roleid
                      WHERE ur.userid    = p_userid
@@ -405,8 +405,8 @@ class CreateAuthserverRbacFunctions extends Migration
 
         $db = $this->application->database;
 
-        $db->query('DROP TRIGGER IF EXISTS trigger_check_user_org_membership ON authserver.user_roles');
-        $db->query('DROP TRIGGER IF EXISTS trigger_set_permission_priority ON authserver.permissions');
+        $db->query('DROP TRIGGER IF EXISTS trigger_check_user_org_membership ON ' . $db->schema()->quoteTable('authserver.user_roles'));
+        $db->query('DROP TRIGGER IF EXISTS trigger_set_permission_priority ON ' . $db->schema()->quoteTable('authserver.permissions'));
 
         $db->query('DROP FUNCTION IF EXISTS authserver.get_user_effective_permissions(INTEGER, INTEGER) CASCADE');
         $db->query('DROP FUNCTION IF EXISTS authserver.check_permission_with_inheritance(VARCHAR, INTEGER, VARCHAR, VARCHAR, VARCHAR) CASCADE');

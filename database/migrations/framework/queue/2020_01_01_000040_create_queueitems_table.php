@@ -107,8 +107,9 @@ class CreateQueueitemsTable extends Migration
 
         // PostgreSQL: add CHECK constraint to enforce the ENUM type on the status column
         if ($caps->isPostgreSQL()) {
+            // Raw: a named CHECK; the table is named through the builder for the prefix.
             $this->application->database->query(
-                "ALTER TABLE \"queueitems\" ADD CONSTRAINT chk_queueitems_status
+                "ALTER TABLE " . $schema->quoteTable('queueitems') . " ADD CONSTRAINT chk_queueitems_status
                  CHECK (\"status\" IN ('pending','processing','completed','failed','warning','deleted'))"
             );
         }

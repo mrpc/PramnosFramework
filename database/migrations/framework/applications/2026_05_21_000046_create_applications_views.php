@@ -76,7 +76,7 @@ class CreateApplicationsViews extends Migration
                      )
                      ELSE 100.0
                 END                                         AS success_rate
-            FROM applications.application_stats
+            FROM {$this->application->database->schema()->quoteTable('applications.application_stats')}
             WHERE time >= NOW() - INTERVAL '24 hours'
             GROUP BY appid
         ");
@@ -116,8 +116,8 @@ class CreateApplicationsViews extends Migration
                 )                                           AS resets_at,
                 COALESCE(SUM(st.total_requests), 0) >= s.rate_limit_requests
                                                             AS is_limited
-            FROM applications.application_settings s
-            LEFT JOIN applications.application_stats st
+            FROM {$this->application->database->schema()->quoteTable('applications.application_settings')} s
+            LEFT JOIN {$this->application->database->schema()->quoteTable('applications.application_stats')} st
                    ON st.appid = s.appid
                   AND st.time  >= NOW() - (s.rate_limit_window_seconds || ' seconds')::INTERVAL
             GROUP BY s.appid, s.rate_limit_requests, s.rate_limit_window_seconds
@@ -134,7 +134,7 @@ class CreateApplicationsViews extends Migration
                 status_4xx + status_5xx AS error_count,
                 total_requests,
                 country_code
-            FROM applications.application_stats
+            FROM {$this->application->database->schema()->quoteTable('applications.application_stats')}
             WHERE avg_response_time > 5000
         ");
 
@@ -149,16 +149,16 @@ class CreateApplicationsViews extends Migration
                 MIN(st.time)           AS first_attempt,
                 MAX(st.time)           AS last_attempt,
                 'blocked'              AS status
-            FROM applications.application_stats st
-            JOIN applications.application_settings s ON s.appid = st.appid
+            FROM {$this->application->database->schema()->quoteTable('applications.application_stats')} st
+            JOIN {$this->application->database->schema()->quoteTable('applications.application_settings')} s ON s.appid = st.appid
             WHERE s.ip_lock_enabled = TRUE
             GROUP BY st.appid, st.country_code
         ");
 
         // oauth2_active_tokens — active OAuth token summary by app
-        $this->DB()->query("DROP VIEW IF EXISTS applications.oauth2_active_tokens CASCADE");
+        $this->DB()->query("DROP VIEW IF EXISTS {$this->application->database->schema()->quoteTable('applications.oauth2_active_tokens')} CASCADE");
         $this->DB()->query("
-            CREATE VIEW applications.oauth2_active_tokens AS
+            CREATE VIEW {$this->application->database->schema()->quoteTable('applications.oauth2_active_tokens')} AS
             SELECT
                 a.appid,
                 COUNT(ut.tokenid) FILTER (WHERE ut.status = 1 AND ut.expires > EXTRACT(EPOCH FROM NOW()))
@@ -171,8 +171,8 @@ class CreateApplicationsViews extends Migration
                         WHERE ut.status = 1 AND ut.expires > EXTRACT(EPOCH FROM NOW())
                     )::NUMERIC, 2
                 )                                               AS avg_expiry_days
-            FROM public.applications a
-            LEFT JOIN public.usertokens ut ON ut.applicationid = a.appid
+            FROM {$this->application->database->schema()->quoteTable('applications')} a
+            LEFT JOIN {$this->application->database->schema()->quoteTable('usertokens')} ut ON ut.applicationid = a.appid
             GROUP BY a.appid
         ");
 
@@ -193,9 +193,9 @@ class CreateApplicationsViews extends Migration
                 COUNT(CASE WHEN we.status = 'pending' THEN 1 END)              AS pending_events,
                 MAX(we.sent_at)                                                 AS last_successful_delivery,
                 AVG(CASE WHEN we.status = 'sent' THEN we.attempts END)         AS avg_attempts_for_success
-            FROM applications.oauth2_webhook_endpoints wep
-            JOIN public.applications a ON wep.appid = a.appid
-            LEFT JOIN applications.oauth2_webhook_events we ON wep.webhook_id = we.webhook_id
+            FROM {$this->application->database->schema()->quoteTable('applications.oauth2_webhook_endpoints')} wep
+            JOIN {$this->application->database->schema()->quoteTable('applications')} a ON wep.appid = a.appid
+            LEFT JOIN {$this->application->database->schema()->quoteTable('applications.oauth2_webhook_events')} we ON wep.webhook_id = we.webhook_id
             GROUP BY wep.webhook_id, wep.appid, a.name,
                      wep.webhook_type, wep.endpoint_url, wep.is_active
         ");
@@ -210,7 +210,7 @@ class CreateApplicationsViews extends Migration
                 SUM(total_requests)                                    AS total_requests,
                 SUM(successful_requests)                               AS successful_requests,
                 ROUND(AVG(avg_response_time)::NUMERIC, 3)             AS avg_response_time
-            FROM applications.application_stats
+            FROM {$this->application->database->schema()->quoteTable('applications.application_stats')}
             GROUP BY appid
         ");
 
@@ -242,7 +242,7 @@ class CreateApplicationsViews extends Migration
                          SUM(bytes_sent)                               AS bytes_sent,
                          SUM(bytes_received)                           AS bytes_received,
                          COUNT(DISTINCT country_code)                  AS countries_count
-                     FROM applications.application_stats
+                     FROM {$this->application->database->schema()->quoteTable('applications.application_stats')}
                      GROUP BY time_bucket('1 day', time), appid"
                 );
             },
@@ -267,7 +267,7 @@ class CreateApplicationsViews extends Migration
                          SUM(bytes_sent)                               AS bytes_sent,
                          SUM(bytes_received)                           AS bytes_received,
                          COUNT(DISTINCT country_code)                  AS countries_count
-                     FROM applications.application_stats
+                     FROM {$this->application->database->schema()->quoteTable('applications.application_stats')}
                      GROUP BY date_trunc('day', time), appid
                      WITH NO DATA"
                 );
@@ -313,7 +313,7 @@ class CreateApplicationsViews extends Migration
                          SUM(rate_limit_violations)                    AS rate_limit_violations,
                          SUM(bytes_sent)                               AS bytes_sent,
                          SUM(bytes_received)                           AS bytes_received
-                     FROM applications.application_stats
+                     FROM {$this->application->database->schema()->quoteTable('applications.application_stats')}
                      GROUP BY time_bucket('1 hour', time), appid"
                 );
             },
@@ -337,7 +337,7 @@ class CreateApplicationsViews extends Migration
                          SUM(rate_limit_violations)                    AS rate_limit_violations,
                          SUM(bytes_sent)                               AS bytes_sent,
                          SUM(bytes_received)                           AS bytes_received
-                     FROM applications.application_stats
+                     FROM {$this->application->database->schema()->quoteTable('applications.application_stats')}
                      GROUP BY date_trunc('hour', time), appid
                      WITH NO DATA"
                 );
@@ -417,7 +417,7 @@ class CreateApplicationsViews extends Migration
                     COUNT(DISTINCT ut.userid) FILTER (WHERE ut.lastused::NUMERIC >= EXTRACT(EPOCH FROM NOW() - INTERVAL '24 hours')) AS active_users_24h,
                     COUNT(DISTINCT ut.userid) FILTER (WHERE ut.lastused::NUMERIC >= EXTRACT(EPOCH FROM NOW() - INTERVAL '7 days'))   AS active_users_7d,
                     COUNT(DISTINCT ut.userid) FILTER (WHERE ut.lastused::NUMERIC >= EXTRACT(EPOCH FROM NOW() - INTERVAL '30 days'))  AS active_users_30d
-                FROM public.usertokens ut
+                FROM {$this->application->database->schema()->quoteTable('usertokens')} ut
                 WHERE ut.status = 1 AND ut.expires::NUMERIC > EXTRACT(EPOCH FROM NOW())
                 GROUP BY ut.applicationid
             ),
@@ -430,7 +430,7 @@ class CreateApplicationsViews extends Migration
                     COUNT(*) FILTER (WHERE ut.expires::NUMERIC <= EXTRACT(EPOCH FROM NOW()) AND ut.status IN (0, 1)) AS expired_tokens,
                     MAX(TO_TIMESTAMP(ut.lastused::DOUBLE PRECISION)) FILTER (WHERE ut.lastused > 0) AS last_token_activity,
                     AVG(CASE WHEN ut.lastused > 0 THEN ut.lastused - ut.created ELSE NULL::INTEGER END) AS avg_token_usage_duration
-                FROM public.usertokens ut
+                FROM {$this->application->database->schema()->quoteTable('usertokens')} ut
                 GROUP BY ut.applicationid
             ),
             oauth_config AS (
@@ -440,7 +440,7 @@ class CreateApplicationsViews extends Migration
                     COUNT(*) FILTER (WHERE ag.grant_type = 'authorization_code' AND ag.is_enabled = TRUE) > 0 AS supports_authorization_code,
                     COUNT(*) FILTER (WHERE ag.grant_type = 'client_credentials'  AND ag.is_enabled = TRUE) > 0 AS supports_client_credentials,
                     COUNT(*) FILTER (WHERE ag.grant_type = 'refresh_token'       AND ag.is_enabled = TRUE) > 0 AS supports_refresh_token
-                FROM applications.oauth2_application_grants ag
+                FROM {$this->application->database->schema()->quoteTable('applications.oauth2_application_grants')} ag
                 GROUP BY ag.appid
             ),
             webhook_stats AS (
@@ -448,9 +448,9 @@ class CreateApplicationsViews extends Migration
                     wep.appid,
                     COUNT(DISTINCT wep.webhook_type)                                  AS configured_webhook_types,
                     COUNT(*) FILTER (WHERE wep.is_active = TRUE)                      AS active_webhooks,
-                    COALESCE(SUM((SELECT COUNT(*) FROM applications.oauth2_webhook_events ev WHERE ev.webhook_id = wep.webhook_id)), 0) AS total_webhook_events,
-                    COALESCE(SUM((SELECT COUNT(*) FROM applications.oauth2_webhook_events ev WHERE ev.webhook_id = wep.webhook_id AND ev.status = 'sent')), 0) AS successful_webhook_events
-                FROM applications.oauth2_webhook_endpoints wep
+                    COALESCE(SUM((SELECT COUNT(*) FROM {$this->application->database->schema()->quoteTable('applications.oauth2_webhook_events')} ev WHERE ev.webhook_id = wep.webhook_id)), 0) AS total_webhook_events,
+                    COALESCE(SUM((SELECT COUNT(*) FROM {$this->application->database->schema()->quoteTable('applications.oauth2_webhook_events')} ev WHERE ev.webhook_id = wep.webhook_id AND ev.status = 'sent')), 0) AS successful_webhook_events
+                FROM {$this->application->database->schema()->quoteTable('applications.oauth2_webhook_endpoints')} wep
                 GROUP BY wep.appid
             )
             SELECT
@@ -501,7 +501,7 @@ class CreateApplicationsViews extends Migration
                 END                                                                  AS activity_level,
                 CASE WHEN a.accesstype = 1 THEN 'OAuth2 Application' ELSE 'Legacy Application' END AS application_type,
                 NOW()                                                                AS stats_updated_at
-            FROM public.applications a
+            FROM {$this->application->database->schema()->quoteTable('applications')} a
             LEFT JOIN token_stats    ts ON a.appid = ts.applicationid
             LEFT JOIN historical_stats hs ON a.appid = hs.applicationid
             LEFT JOIN oauth_config   oc ON a.appid = oc.appid
@@ -530,7 +530,7 @@ class CreateApplicationsViews extends Migration
                      THEN ROUND(SUM(successful_requests) * 100.0 / SUM(total_requests), 2)
                      ELSE 100.0
                 END AS success_rate
-            FROM `applications_application_stats`
+            FROM {$this->application->database->schema()->quoteTable('applications.application_stats')}
             WHERE `time` >= NOW() - INTERVAL 24 HOUR
             GROUP BY appid
         ");
@@ -567,8 +567,8 @@ class CreateApplicationsViews extends Migration
                                                      AS resets_at,
                 COALESCE(SUM(st.total_requests), 0) >= s.rate_limit_requests
                                                      AS is_limited
-            FROM `applications_application_settings` s
-            LEFT JOIN `applications_application_stats` st
+            FROM {$this->application->database->schema()->quoteTable('applications.application_settings')} s
+            LEFT JOIN {$this->application->database->schema()->quoteTable('applications.application_stats')} st
                    ON st.appid = s.appid
                   AND st.`time` >= DATE_SUB(NOW(), INTERVAL s.rate_limit_window_seconds SECOND)
             GROUP BY s.appid, s.rate_limit_requests, s.rate_limit_window_seconds
@@ -584,7 +584,7 @@ class CreateApplicationsViews extends Migration
                 status_4xx + status_5xx           AS error_count,
                 total_requests,
                 country_code
-            FROM `applications_application_stats`
+            FROM {$this->application->database->schema()->quoteTable('applications.application_stats')}
             WHERE avg_response_time > 5000
         ");
 
@@ -598,8 +598,8 @@ class CreateApplicationsViews extends Migration
                 MIN(st.`time`)                     AS first_attempt,
                 MAX(st.`time`)                     AS last_attempt,
                 'blocked'                          AS status
-            FROM `applications_application_stats` st
-            JOIN `applications_application_settings` s ON s.appid = st.appid
+            FROM {$this->application->database->schema()->quoteTable('applications.application_stats')} st
+            JOIN {$this->application->database->schema()->quoteTable('applications.application_settings')} s ON s.appid = st.appid
             WHERE s.ip_lock_enabled = 1
             GROUP BY st.appid, st.country_code
         ");
@@ -619,8 +619,8 @@ class CreateApplicationsViews extends Migration
                     AVG(CASE WHEN ut.status = 1 AND ut.expires > UNIX_TIMESTAMP()
                         THEN (ut.expires - UNIX_TIMESTAMP()) / 86400.0 END), 2
                 ) AS avg_expiry_days
-            FROM `applications` a
-            LEFT JOIN `usertokens` ut ON ut.applicationid = a.appid
+            FROM {$this->application->database->schema()->quoteTable('applications')} a
+            LEFT JOIN {$this->application->database->schema()->quoteTable('usertokens')} ut ON ut.applicationid = a.appid
             GROUP BY a.appid
         ");
 
@@ -640,9 +640,9 @@ class CreateApplicationsViews extends Migration
                 SUM(CASE WHEN we.status = 'pending' THEN 1 ELSE 0 END)          AS pending_events,
                 MAX(we.sent_at)                                                  AS last_successful_delivery,
                 AVG(CASE WHEN we.status = 'sent' THEN we.attempts END)          AS avg_attempts_for_success
-            FROM `applications_oauth2_webhook_endpoints` wep
-            JOIN `applications` a ON wep.appid = a.appid
-            LEFT JOIN `applications_oauth2_webhook_events` we ON wep.webhook_id = we.webhook_id
+            FROM {$this->application->database->schema()->quoteTable('applications.oauth2_webhook_endpoints')} wep
+            JOIN {$this->application->database->schema()->quoteTable('applications')} a ON wep.appid = a.appid
+            LEFT JOIN {$this->application->database->schema()->quoteTable('applications.oauth2_webhook_events')} we ON wep.webhook_id = we.webhook_id
             GROUP BY wep.webhook_id, wep.appid, a.name,
                      wep.webhook_type, wep.endpoint_url, wep.is_active
         ");
@@ -656,7 +656,7 @@ class CreateApplicationsViews extends Migration
                 SUM(total_requests)                      AS total_requests,
                 SUM(successful_requests)                 AS successful_requests,
                 ROUND(AVG(avg_response_time), 3)         AS avg_response_time
-            FROM `applications_application_stats`
+            FROM {$this->application->database->schema()->quoteTable('applications.application_stats')}
             GROUP BY appid
         ");
 
@@ -681,7 +681,7 @@ class CreateApplicationsViews extends Migration
                 SUM(bytes_sent)                           AS bytes_sent,
                 SUM(bytes_received)                       AS bytes_received,
                 COUNT(DISTINCT country_code)              AS countries_count
-            FROM `applications_application_stats`
+            FROM {$this->application->database->schema()->quoteTable('applications.application_stats')}
             GROUP BY DATE(`time`), appid
         ");
 
@@ -705,7 +705,7 @@ class CreateApplicationsViews extends Migration
                 SUM(rate_limit_violations)                 AS rate_limit_violations,
                 SUM(bytes_sent)                            AS bytes_sent,
                 SUM(bytes_received)                        AS bytes_received
-            FROM `applications_application_stats`
+            FROM {$this->application->database->schema()->quoteTable('applications.application_stats')}
             GROUP BY DATE_FORMAT(`time`, '%Y-%m-%d %H:00:00'), appid
         ");
 
@@ -729,7 +729,7 @@ class CreateApplicationsViews extends Migration
                     COUNT(DISTINCT CASE WHEN ut.lastused >= UNIX_TIMESTAMP(NOW() - INTERVAL 24 HOUR) THEN ut.userid END) AS active_users_24h,
                     COUNT(DISTINCT CASE WHEN ut.lastused >= UNIX_TIMESTAMP(NOW() - INTERVAL 7 DAY)   THEN ut.userid END) AS active_users_7d,
                     COUNT(DISTINCT CASE WHEN ut.lastused >= UNIX_TIMESTAMP(NOW() - INTERVAL 30 DAY)  THEN ut.userid END) AS active_users_30d
-                FROM `usertokens` ut
+                FROM {$this->application->database->schema()->quoteTable('usertokens')} ut
                 WHERE ut.status = 1 AND ut.expires > UNIX_TIMESTAMP()
                 GROUP BY ut.applicationid
             ),
@@ -742,7 +742,7 @@ class CreateApplicationsViews extends Migration
                     SUM(CASE WHEN ut.expires <= UNIX_TIMESTAMP() AND ut.status IN (0,1) THEN 1 ELSE 0 END) AS expired_tokens,
                     MAX(CASE WHEN ut.lastused > 0 THEN FROM_UNIXTIME(ut.lastused) END)                AS last_token_activity,
                     AVG(CASE WHEN ut.lastused > 0 THEN ut.lastused - ut.created END)                   AS avg_token_usage_duration
-                FROM `usertokens` ut
+                FROM {$this->application->database->schema()->quoteTable('usertokens')} ut
                 GROUP BY ut.applicationid
             ),
             oauth_config AS (
@@ -752,7 +752,7 @@ class CreateApplicationsViews extends Migration
                     MAX(CASE WHEN ag.grant_type = 'authorization_code' AND ag.is_enabled = 1 THEN 1 ELSE 0 END) AS supports_authorization_code,
                     MAX(CASE WHEN ag.grant_type = 'client_credentials'  AND ag.is_enabled = 1 THEN 1 ELSE 0 END) AS supports_client_credentials,
                     MAX(CASE WHEN ag.grant_type = 'refresh_token'       AND ag.is_enabled = 1 THEN 1 ELSE 0 END) AS supports_refresh_token
-                FROM `applications_oauth2_application_grants` ag
+                FROM {$this->application->database->schema()->quoteTable('applications.oauth2_application_grants')} ag
                 GROUP BY ag.appid
             ),
             webhook_stats AS (
@@ -762,12 +762,12 @@ class CreateApplicationsViews extends Migration
                     SUM(CASE WHEN wep.is_active = 1 THEN 1 ELSE 0 END)           AS active_webhooks,
                     COALESCE(SUM(ev_counts.total), 0)                             AS total_webhook_events,
                     COALESCE(SUM(ev_counts.sent),  0)                             AS successful_webhook_events
-                FROM `applications_oauth2_webhook_endpoints` wep
+                FROM {$this->application->database->schema()->quoteTable('applications.oauth2_webhook_endpoints')} wep
                 LEFT JOIN (
                     SELECT ev.webhook_id,
                            COUNT(*)                                               AS total,
                            SUM(CASE WHEN ev.status = 'sent' THEN 1 ELSE 0 END)   AS sent
-                    FROM `applications_oauth2_webhook_events` ev
+                    FROM {$this->application->database->schema()->quoteTable('applications.oauth2_webhook_events')} ev
                     GROUP BY ev.webhook_id
                 ) ev_counts ON ev_counts.webhook_id = wep.webhook_id
                 GROUP BY wep.appid
@@ -820,7 +820,7 @@ class CreateApplicationsViews extends Migration
                 END                                                               AS activity_level,
                 CASE WHEN a.accesstype = 1 THEN 'OAuth2 Application' ELSE 'Legacy Application' END AS application_type,
                 NOW()                                                             AS stats_updated_at
-            FROM `applications` a
+            FROM {$this->application->database->schema()->quoteTable('applications')} a
             LEFT JOIN token_stats     ts ON a.appid = ts.applicationid
             LEFT JOIN historical_stats hs ON a.appid = hs.applicationid
             LEFT JOIN oauth_config    oc ON a.appid = oc.appid
@@ -859,7 +859,7 @@ class CreateApplicationsViews extends Migration
             }
             $this->DB()->query("DROP VIEW IF EXISTS applications.top_applications");
             $this->DB()->query("DROP VIEW IF EXISTS applications.oauth2_webhook_status");
-            $this->DB()->query("DROP VIEW IF EXISTS applications.oauth2_active_tokens");
+            $this->DB()->query("DROP VIEW IF EXISTS {$this->application->database->schema()->quoteTable('applications.oauth2_active_tokens')}");
             $this->DB()->query("DROP VIEW IF EXISTS applications.ip_violations");
             $this->DB()->query("DROP VIEW IF EXISTS applications.slow_api_calls");
             $this->DB()->query("DROP VIEW IF EXISTS applications.rate_limit_status");

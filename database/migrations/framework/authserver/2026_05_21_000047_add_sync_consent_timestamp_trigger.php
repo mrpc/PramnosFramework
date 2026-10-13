@@ -55,12 +55,12 @@ class AddSyncConsentTimestampTrigger extends Migration
 
         $this->DB()->query("
             DROP TRIGGER IF EXISTS trg_sync_consent_timestamp
-                ON authserver.oauth2_user_consents
+                ON {$this->application->database->schema()->quoteTable('authserver.oauth2_user_consents')}
         ");
 
         $this->DB()->query("
             CREATE TRIGGER trg_sync_consent_timestamp
-            BEFORE INSERT OR UPDATE ON authserver.oauth2_user_consents
+            BEFORE INSERT OR UPDATE ON {$this->application->database->schema()->quoteTable('authserver.oauth2_user_consents')}
             FOR EACH ROW
             EXECUTE FUNCTION authserver.sync_consent_timestamp()
         ");
@@ -75,14 +75,14 @@ class AddSyncConsentTimestampTrigger extends Migration
         $this->DB()->query("DROP TRIGGER IF EXISTS `trg_sync_consent_timestamp_insert`");
         $this->DB()->query("
             CREATE TRIGGER `trg_sync_consent_timestamp_insert`
-            BEFORE INSERT ON `authserver_oauth2_user_consents`
+            BEFORE INSERT ON {$this->application->database->schema()->quoteTable('authserver.oauth2_user_consents')}
             FOR EACH ROW SET NEW.updated_at = NOW()
         ");
 
         $this->DB()->query("DROP TRIGGER IF EXISTS `trg_sync_consent_timestamp_update`");
         $this->DB()->query("
             CREATE TRIGGER `trg_sync_consent_timestamp_update`
-            BEFORE UPDATE ON `authserver_oauth2_user_consents`
+            BEFORE UPDATE ON {$this->application->database->schema()->quoteTable('authserver.oauth2_user_consents')}
             FOR EACH ROW SET NEW.updated_at = NOW()
         ");
     }
@@ -97,7 +97,7 @@ class AddSyncConsentTimestampTrigger extends Migration
         if ($caps->isPostgreSQL()) {
             $this->DB()->query(
                 "DROP TRIGGER IF EXISTS trg_sync_consent_timestamp
-                 ON authserver.oauth2_user_consents"
+                 ON {$this->application->database->schema()->quoteTable('authserver.oauth2_user_consents')}"
             );
             $this->DB()->query(
                 "DROP FUNCTION IF EXISTS authserver.sync_consent_timestamp()"

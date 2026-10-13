@@ -930,16 +930,32 @@ public function up(\Pramnos\Database\Database $db)
 
 ### Raw SQL Migrations
 
+Use the schema builder wherever it reaches — `createTable()`, `->foreign()->on()`,
+`index()->where()`, `createTrigger()`, `createOrReplaceView()` — because it names every table as
+the installation has it: with the table prefix, and on MySQL with a schema folded into the name
+(`authserver.roles` is `{prefix}authserver_roles`). That includes the table a foreign key
+references.
+
+What it does not model — a view's body, a PL/pgSQL function, a named `CHECK`, a `DESC` index —
+stays raw, and every table in it is named through the builder all the same:
+
 ```php
-public function up(\Pramnos\Database\Database $db)
+public function up(): void
 {
-    // For complex operations not covered by SchemaBuilder
-    $db->query("CREATE TRIGGER user_audit AFTER UPDATE ON users
-               BEGIN
-                 INSERT INTO audit_log VALUES (...);
-               END");
+    $schema = $this->application->database->schema();
+
+    // Raw: a view's body is SQL; the tables in it are named through the builder.
+    $schema->createOrReplaceView('authserver.active_roles', 'SELECT r.roleid, r.name FROM '
+        . $schema->quoteTable('authserver.roles') . ' r JOIN '
+        . $schema->quoteTable('users') . ' u ON u.userid = r.created_by');
 }
 ```
+
+`quoteTable()` gives the quoted reference for SQL; `resolveTableName()` gives the bare name, for
+`information_schema`, `pg_indexes` or `pg_get_serial_sequence()`. A name written out —
+`public.users`, `` `usertokens` ``, `applications.oauth2_application_grants` — is correct only on
+an installation without a prefix, and `TablePrefixInQueriesTest` refuses it in the framework's
+own migrations. Leave a one-line comment saying why a statement stays raw.
 
 ### Data Migrations
 

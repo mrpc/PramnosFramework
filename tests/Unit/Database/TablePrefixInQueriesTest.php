@@ -159,6 +159,52 @@ class TablePrefixInQueriesTest extends TestCase
     }
 
     /**
+     * No migration names one of the framework's tables in raw SQL — `public.users`,
+     * `` `usertokens` ``, `applications.oauth2_application_grants` — instead of through
+     * `$schema->quoteTable()`.
+     *
+     * A name written out is the name on an installation without a prefix, and on MySQL not
+     * even that for a schema-qualified one. Every such statement failed on the first
+     * installation with a prefix — nineteen migrations' worth. `PrefixedFrameworkMigrationsTest`
+     * runs them; this also reaches the statements a fresh run does not, `down()` and the other
+     * dialect's branch.
+     */
+    public function testNoMigrationNamesAFrameworkTableInRawSql(): void
+    {
+        // Arrange
+        $files  = glob(dirname(__DIR__, 3) . '/database/migrations/framework/*/*.php') ?: [];
+        $tables = [];
+        foreach ($files as $file) {
+            preg_match_all("/(?:createTable|quoteTable|hasTable)\\(\\s*'([a-z_][a-z0-9_.]*)'/", (string) file_get_contents($file), $m);
+            foreach ($m[1] as $name) {
+                $tables[$name] = true;
+            }
+        }
+        $plain     = array_keys(array_filter($tables, static fn (bool $t, string $n): bool => !str_contains($n, '.'), ARRAY_FILTER_USE_BOTH));
+        $qualified = array_keys(array_filter($tables, static fn (bool $t, string $n): bool => str_contains($n, '.'), ARRAY_FILTER_USE_BOTH));
+        $keyword   = '(?:FROM|JOIN|TABLE|INTO|ON|REFERENCES|UPDATE)\\s+';
+        $pattern   = '/' . $keyword . '(?:public\\.(?:' . implode('|', $plain) . ')\\b'
+            . '|`(?:' . implode('|', $plain) . ')`'
+            . '|(?:' . implode('|', array_map('preg_quote', $qualified)) . ')\\b)/i';
+        $this->assertNotEmpty($files, 'the sweep found nothing to check');
+
+        // Act
+        $offenders = [];
+        foreach ($files as $file) {
+            foreach (token_get_all((string) file_get_contents($file)) as $token) {
+                if (is_array($token) && in_array($token[0], [T_CONSTANT_ENCAPSED_STRING, T_ENCAPSED_AND_WHITESPACE], true)
+                    && preg_match($pattern, $token[1], $hit) === 1) {
+                    $offenders[] = basename($file) . ':' . $token[2] . ' → ' . trim($hit[0]);
+                }
+            }
+        }
+
+        // Assert
+        $this->assertSame([], $offenders,
+            "these name a framework table in raw SQL; use \$schema->quoteTable():\n  " . implode("\n  ", $offenders));
+    }
+
+    /**
      * The fixture prefix is empty, which is why the check above is static.
      *
      * Pinned so that nobody reads the test above and concludes the suite covers

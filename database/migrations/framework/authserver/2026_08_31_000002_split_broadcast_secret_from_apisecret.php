@@ -65,7 +65,7 @@ class SplitBroadcastSecretFromApisecret extends Migration
         }
 
         $rows = $db->queryBuilder()
-            ->table('applications')
+            ->table('#PREFIX#applications')
             ->select(['appid', 'apisecret', 'broadcast_secret'])
             ->get();
 
@@ -81,7 +81,7 @@ class SplitBroadcastSecretFromApisecret extends Migration
             }
 
             $db->queryBuilder()
-                ->table('applications')
+                ->table('#PREFIX#applications')
                 ->where('appid', (int) $rows->fields['appid'])
                 ->update([
                     'broadcast_secret' => Encrypter::isAvailable()

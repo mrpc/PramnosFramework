@@ -47,12 +47,12 @@ class UnifyAuthserverDenyRule extends Migration
         }
 
         $db = $this->application->database;
-        $db->query('DROP TRIGGER IF EXISTS trigger_set_permission_priority ON authserver.permissions');
+        $db->query('DROP TRIGGER IF EXISTS trigger_set_permission_priority ON ' . $db->schema()->quoteTable('authserver.permissions'));
         $db->query('DROP FUNCTION IF EXISTS authserver.set_permission_priority()');
 
         // An arithmetic UPDATE on PostgreSQL rows only the dropped trigger could have inflated.
         $db->query(
-            "UPDATE authserver.permissions SET priority = priority % 1000
+            "UPDATE {$this->application->database->schema()->quoteTable('authserver.permissions')} SET priority = priority % 1000
              WHERE grant_type = 'deny' AND priority >= 1000"
         );
 
@@ -79,10 +79,10 @@ class UnifyAuthserverDenyRule extends Migration
              END;
              \$\$ LANGUAGE plpgsql"
         );
-        $db->query('DROP TRIGGER IF EXISTS trigger_set_permission_priority ON authserver.permissions');
+        $db->query('DROP TRIGGER IF EXISTS trigger_set_permission_priority ON ' . $db->schema()->quoteTable('authserver.permissions'));
         $db->query(
             'CREATE TRIGGER trigger_set_permission_priority
-                 BEFORE INSERT OR UPDATE ON authserver.permissions
+                 BEFORE INSERT OR UPDATE ON ' . $db->schema()->quoteTable('authserver.permissions') . '
                  FOR EACH ROW
                  EXECUTE FUNCTION authserver.set_permission_priority()'
         );
@@ -140,7 +140,7 @@ class UnifyAuthserverDenyRule extends Migration
                  {$skip}
 
                  SELECT {$orgColumn} INTO role_org_id
-                 FROM authserver.roles
+                 FROM {$this->application->database->schema()->quoteTable('authserver.roles')}
                  WHERE roleid = NEW.roleid;
 
                  IF role_org_id IS NOT NULL THEN

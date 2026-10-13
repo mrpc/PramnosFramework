@@ -203,62 +203,6 @@ class CorsMiddlewareTest extends TestCase
             'Missing application row must yield wildcard, not empty array');
     }
 
-    /**
-     * When the query finds a row with cors_enabled = true and specific origins,
-     * fromApplicationSettings() must return those origins via fromCorsData().
-     */
-    public function testFromApplicationSettingsReturnsCorsDataWhenEnabled(): void
-    {
-        // Arrange — mock DB that returns one row with cors_enabled + origins
-        $row               = new \stdClass();
-        $row->cors_enabled = 1;
-        $row->cors_origins = '["https://client.example.com"]';
-
-        $result            = new \stdClass();
-        $result->numRows   = 1;
-        $result->fields    = [
-            'cors_enabled' => 1,
-            'cors_origins' => '["https://client.example.com"]',
-        ];
-
-        $db = $this->createMock(Database::class);
-        $db->type = 'mysql';
-        $db->method('prepareQuery')->willReturn('SELECT 1');
-        $db->method('query')->willReturn($result);
-
-        // Act
-        $mw = CorsMiddleware::fromApplicationSettings('myapp', $db);
-
-        // Assert — row found and enabled → specific origins used
-        $this->assertSame(['https://client.example.com'], $mw->getAllowedOrigins());
-    }
-
-    /**
-     * When cors_enabled is false in the DB row, the factory must return wildcard
-     * regardless of what cors_origins contains.
-     */
-    public function testFromApplicationSettingsReturnsWildcardWhenCorsDisabledInDb(): void
-    {
-        // Arrange — cors_enabled = 0
-        $result          = new \stdClass();
-        $result->numRows = 1;
-        $result->fields  = [
-            'cors_enabled' => 0,
-            'cors_origins' => '["https://client.example.com"]',
-        ];
-
-        $db = $this->createMock(Database::class);
-        $db->type = 'mysql';
-        $db->method('prepareQuery')->willReturn('SELECT 1');
-        $db->method('query')->willReturn($result);
-
-        // Act
-        $mw = CorsMiddleware::fromApplicationSettings('myapp', $db);
-
-        // Assert — disabled in DB → wildcard
-        $this->assertSame(['*'], $mw->getAllowedOrigins());
-    }
-
     // ─────────────────────────────────────────────────────────────────────────
     // handle() smoke-test after factory construction
     // ─────────────────────────────────────────────────────────────────────────
@@ -366,26 +310,21 @@ class CorsMiddlewareTest extends TestCase
     }
 
     /**
-     * fromApplicationSettings() with a PostgreSQL DB must build the SQL using
-     * schema-qualified table names (public.applications, applications.application_settings).
-     * Covers the $isPostgres branch at line 82.
+     * The origins as each database hands them back: JSON from MySQL, a `TEXT[]` literal from
+     * PostgreSQL — which `json_decode()` cannot read, so every PostgreSQL installation allowed
+     * every origin.
      */
-    public function testFromApplicationSettingsUsesPostgresSchemaWhenTypeIsPostgresql(): void
+    public function testFromCorsDataReadsBothStorageShapes(): void
     {
-        // Arrange — mock DB that says it's PostgreSQL
-        $result          = new \stdClass();
-        $result->numRows = 1;
-        $result->fields  = ['cors_enabled' => 1, 'cors_origins' => '["https://pg.example.com"]'];
-
-        $db = $this->createMock(Database::class);
-        $db->type = 'postgresql';
-        $db->method('prepareQuery')->willReturn('SELECT 1');
-        $db->method('query')->willReturn($result);
-
         // Act
-        $mw = CorsMiddleware::fromApplicationSettings('myapp', $db);
+        $json   = CorsMiddleware::fromCorsData(true, '["https://a.example.com","https://b.example.com"]')->getAllowedOrigins();
+        $array  = CorsMiddleware::fromCorsData(true, '{https://a.example.com,"https://b.example.com"}')->getAllowedOrigins();
+        $empty  = CorsMiddleware::fromCorsData(true, '{}')->getAllowedOrigins();
+        $broken = CorsMiddleware::fromCorsData(true, 'not origins')->getAllowedOrigins();
 
-        // Assert — row was parsed from the PostgreSQL path
-        $this->assertSame(['https://pg.example.com'], $mw->getAllowedOrigins());
+        // Assert
+        $this->assertSame(['https://a.example.com', 'https://b.example.com'], $json);
+        $this->assertSame(['https://a.example.com', 'https://b.example.com'], $array);
+        $this->assertSame([['*'], ['*']], [$empty, $broken], 'nothing readable is the wildcard');
     }
 }

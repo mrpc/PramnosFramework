@@ -31,9 +31,9 @@ class RepositionSlowApiCallsView extends Migration
     {
         $caps = $this->DB()->schema()->getCapabilities();
         if ($caps->isPostgreSQL()) {
-            $this->DB()->query("DROP VIEW IF EXISTS authserver.slow_api_calls");
+            $this->DB()->query("DROP VIEW IF EXISTS {$this->application->database->schema()->quoteTable('authserver.slow_api_calls')}");
         } else {
-            $this->DB()->query("DROP VIEW IF EXISTS `authserver_slow_api_calls`");
+            $this->DB()->query("DROP VIEW IF EXISTS {$this->application->database->schema()->quoteTable('authserver.slow_api_calls')}");
         }
     }
 
@@ -43,24 +43,24 @@ class RepositionSlowApiCallsView extends Migration
         $caps = $this->DB()->schema()->getCapabilities();
         if ($caps->isPostgreSQL()) {
             $this->DB()->query("
-                CREATE OR REPLACE VIEW authserver.slow_api_calls AS
+                CREATE OR REPLACE VIEW {$this->application->database->schema()->quoteTable('authserver.slow_api_calls')} AS
                 SELECT a.name AS app_name, ut.token, ta.method, ta.urlid,
                        ta.execution_time_ms, ta.return_status, ta.action_time, ta.params
-                  FROM public.tokenactions ta
-                  JOIN public.usertokens ut ON ut.tokenid = ta.tokenid
-                  JOIN public.applications a ON a.appid = ut.applicationid
+                  FROM {$this->application->database->schema()->quoteTable('tokenactions')} ta
+                  JOIN {$this->application->database->schema()->quoteTable('usertokens')} ut ON ut.tokenid = ta.tokenid
+                  JOIN {$this->application->database->schema()->quoteTable('applications')} a ON a.appid = ut.applicationid
                  WHERE ta.execution_time_ms > 5000
                    AND ta.action_time >= CURRENT_TIMESTAMP - INTERVAL '7 days'
                  ORDER BY ta.execution_time_ms DESC
             ");
         } else {
             $this->DB()->query("
-                CREATE OR REPLACE VIEW `authserver_slow_api_calls` AS
+                CREATE OR REPLACE VIEW {$this->application->database->schema()->quoteTable('authserver.slow_api_calls')} AS
                 SELECT a.name AS app_name, ut.token, ta.method, ta.urlid,
                        ta.execution_time_ms, ta.return_status, ta.action_time, ta.params
-                  FROM `tokenactions` ta
-                  JOIN `usertokens` ut ON ut.tokenid = ta.tokenid
-                  JOIN `applications` a ON a.appid = ut.applicationid
+                  FROM {$this->application->database->schema()->quoteTable('tokenactions')} ta
+                  JOIN {$this->application->database->schema()->quoteTable('usertokens')} ut ON ut.tokenid = ta.tokenid
+                  JOIN {$this->application->database->schema()->quoteTable('applications')} a ON a.appid = ut.applicationid
                  WHERE ta.execution_time_ms > 5000
                    AND ta.action_time >= DATE_SUB(NOW(), INTERVAL 7 DAY)
                  ORDER BY ta.execution_time_ms DESC

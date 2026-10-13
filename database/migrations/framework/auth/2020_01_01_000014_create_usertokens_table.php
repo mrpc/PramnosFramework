@@ -58,9 +58,9 @@ class CreateUsertokensTable extends Migration
                 ->comment('Unix timestamp of the most recent use of this token');
             $table->tinyInteger('status')
                 ->comment('Token lifecycle state: 0 = inactive, 1 = active, 2 = removed/revoked');
-            $table->integer('parentToken')->nullable()
+            $table->integer('parentToken')->unsigned()->nullable()
                 ->comment('Self-referencing FK to usertokens.tokenid — links refresh tokens to their parent access token');
-            $table->integer('applicationid')->nullable()
+            $table->integer('applicationid')->unsigned()->nullable()
                 ->comment('FK to applications.appid — the OAuth client that issued this token; NULL for non-OAuth tokens');
             $table->integer('actions')->default(0)
                 ->comment('Counter for number of API actions performed with this token');
@@ -91,25 +91,27 @@ class CreateUsertokensTable extends Migration
                 ->onDelete('CASCADE');
         });
 
-        // PKCE indexes and constraints — vary by backend
+        // PKCE indexes and constraints — vary by backend. Raw: partial and expression indexes and
+        // CHECKs with regular expressions; the table is named through the builder for the prefix.
+        $tokens = $db->schema()->quoteTable('usertokens');
         if ($caps->isPostgreSQL()) {
             // Partial indexes: only index rows that actually use PKCE / auth_code flow
             $db->query("CREATE INDEX IF NOT EXISTS idx_usertokens_code_challenge
-                ON public.usertokens (code_challenge) WHERE code_challenge IS NOT NULL");
+                ON {$tokens} (code_challenge) WHERE code_challenge IS NOT NULL");
             $db->query("CREATE UNIQUE INDEX IF NOT EXISTS idx_usertokens_auth_code_unique
-                ON public.usertokens (token, code_challenge)
+                ON {$tokens} (token, code_challenge)
                 WHERE tokentype = 'auth_code' AND code_challenge IS NOT NULL");
             $db->query("CREATE INDEX IF NOT EXISTS idx_usertokens_auth_code_pkce
-                ON public.usertokens (token, tokentype, status, expires, code_challenge)
+                ON {$tokens} (token, tokentype, status, expires, code_challenge)
                 WHERE tokentype = 'auth_code'");
 
             // Validate method is one of the two allowed values (RFC 7636 §4.3)
-            $db->query("ALTER TABLE public.usertokens
+            $db->query("ALTER TABLE {$tokens}
                 ADD CONSTRAINT chk_code_challenge_method
                 CHECK (code_challenge_method IS NULL
                     OR code_challenge_method IN ('plain', 'S256'))");
             // Validate challenge is 43–128 URL-safe BASE64 characters (RFC 7636 §4.2)
-            $db->query("ALTER TABLE public.usertokens
+            $db->query("ALTER TABLE {$tokens}
                 ADD CONSTRAINT chk_code_challenge_format
                 CHECK (code_challenge IS NULL
                     OR (length(code_challenge) >= 43
@@ -117,9 +119,9 @@ class CreateUsertokensTable extends Migration
                         AND code_challenge ~ '^[A-Za-z0-9\\-._~]+$'))");
         } else {
             // MySQL: plain index (no partial-index support); method check via CHECK
-            $db->query("ALTER TABLE `usertokens`
+            $db->query("ALTER TABLE {$tokens}
                 ADD INDEX `idx_usertokens_code_challenge` (`code_challenge`(128))");
-            $db->query("ALTER TABLE `usertokens`
+            $db->query("ALTER TABLE {$tokens}
                 ADD CONSTRAINT `chk_code_challenge_method`
                 CHECK (`code_challenge_method` IS NULL
                     OR `code_challenge_method` IN ('plain', 'S256'))");

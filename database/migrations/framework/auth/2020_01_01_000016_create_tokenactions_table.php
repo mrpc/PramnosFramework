@@ -46,9 +46,9 @@ class CreateTokenactionsTable extends Migration
 
             $table->increments('actionid')
                 ->comment('Auto-increment action identifier (part of composite PK with action_time for TimescaleDB compatibility)');
-            $table->integer('tokenid')
+            $table->integer('tokenid')->unsigned()
                 ->comment('FK to usertokens.tokenid — identifies the token used for this request');
-            $table->integer('urlid')
+            $table->integer('urlid')->unsigned()
                 ->comment('FK to urls.urlid — deduplicated URL of the endpoint that was called');
             $table->string('method', 6)
                 ->comment('HTTP method: GET | POST | PUT | PATCH | DELETE');
@@ -99,9 +99,10 @@ class CreateTokenactionsTable extends Migration
                 . "END;\n"
                 . "$$ LANGUAGE plpgsql;"
             );
+            // Raw: CREATE OR REPLACE TRIGGER; the table is named through the builder for the prefix.
             $db->query(
                 'CREATE OR REPLACE TRIGGER sync_tokenactions_time'
-                . ' BEFORE INSERT OR UPDATE ON tokenactions'
+                . ' BEFORE INSERT OR UPDATE ON ' . $db->schema()->quoteTable('tokenactions')
                 . ' FOR EACH ROW EXECUTE FUNCTION sync_tokenactions_time()'
             );
         });
@@ -113,7 +114,7 @@ class CreateTokenactionsTable extends Migration
 
         if ($caps->isPostgreSQL()) {
             $db = $this->application->database;
-            $db->query('DROP TRIGGER IF EXISTS sync_tokenactions_time ON tokenactions');
+            $db->query('DROP TRIGGER IF EXISTS sync_tokenactions_time ON ' . $db->schema()->quoteTable('tokenactions'));
             $db->query('DROP FUNCTION IF EXISTS sync_tokenactions_time()');
         }
 

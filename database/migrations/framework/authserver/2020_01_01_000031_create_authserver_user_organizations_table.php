@@ -101,18 +101,18 @@ class CreateAuthserverUserOrganizationsTable extends Migration
         ) {
             if ($caps->isPostgreSQL()) {
                 $db->query(
-                    "ALTER TABLE authserver.user_organizations
+                    "ALTER TABLE {$this->application->database->schema()->quoteTable('authserver.user_organizations')}
                      ADD CONSTRAINT fk_user_org_organization_id
                      FOREIGN KEY (organization_id)
-                     REFERENCES public.organizations(organization_id)
+                     REFERENCES {$this->application->database->schema()->quoteTable('organizations')}(organization_id)
                      ON DELETE RESTRICT"
                 );
             } else {
                 $db->query(
-                    "ALTER TABLE `authserver_user_organizations`
+                    "ALTER TABLE {$this->application->database->schema()->quoteTable('authserver.user_organizations')}
                      ADD CONSTRAINT `fk_user_org_organization_id`
                      FOREIGN KEY (`organization_id`)
-                     REFERENCES `organizations`(`organization_id`)
+                     REFERENCES {$this->application->database->schema()->quoteTable('organizations')}(`organization_id`)
                      ON DELETE RESTRICT"
                 );
             }

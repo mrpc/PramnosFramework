@@ -124,6 +124,11 @@ $table->foreign('author_id')
     ->onUpdate('CASCADE');
 ```
 
+The referenced table is named as the one being built is: `->on('users')` references the
+installation's prefixed `users`, and `->on('authserver.roles')` the `{prefix}authserver_roles` a
+MySQL database has. On MySQL the two columns must have the same type, sign included — an
+`increments()` is `INT UNSIGNED`, so the column referencing it is `->integer(…)->unsigned()`.
+
 ## Timestamps & Tracking
 
 ```php

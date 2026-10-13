@@ -42,7 +42,7 @@ class CreateUserPrivacySettingsTable extends Migration
                 updated_at            TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
                 UNIQUE (userid),
                 CONSTRAINT fk_user_privacy_userid
-                    FOREIGN KEY (userid) REFERENCES public.users(userid) ON DELETE CASCADE
+                    FOREIGN KEY (userid) REFERENCES {$this->application->database->schema()->quoteTable('users')}(userid) ON DELETE CASCADE
             )");
             $db->query("CREATE INDEX IF NOT EXISTS idx_user_privacy_userid ON {$t} (userid)");
             $db->query("COMMENT ON TABLE {$t} IS 'Per-user GDPR privacy preferences — one row per user; created on first privacy settings update'");

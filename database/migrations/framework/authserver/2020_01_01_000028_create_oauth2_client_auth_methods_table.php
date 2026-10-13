@@ -39,7 +39,7 @@ class CreateOauth2ClientAuthMethodsTable extends Migration
         if ($caps->isPostgreSQL()) {
             $db->query("CREATE TABLE IF NOT EXISTS {$t} (
                 auth_method_id SERIAL PRIMARY KEY,
-                appid          INTEGER      NOT NULL REFERENCES public.applications(appid) ON DELETE CASCADE,
+                appid          INTEGER      NOT NULL REFERENCES {$this->application->database->schema()->quoteTable('applications')}(appid) ON DELETE CASCADE,
                 auth_method    VARCHAR(50)  NOT NULL
                     CHECK (auth_method IN ('client_secret_basic','client_secret_post','private_key_jwt','none')),
                 is_primary     BOOLEAN      DEFAULT FALSE,

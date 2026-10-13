@@ -72,7 +72,7 @@ class CreateTokenactionsHourlyView extends Migration
                          COUNT(*) FILTER (WHERE return_status >= 200 AND return_status <= 299)   AS success_count,
                          COUNT(*) FILTER (WHERE return_status >= 400 AND return_status <= 499)   AS client_error_count,
                          COUNT(*) FILTER (WHERE return_status >= 500 AND return_status <= 599)   AS server_error_count
-                     FROM public.tokenactions
+                     FROM {$this->application->database->schema()->quoteTable('tokenactions')}
                      WHERE action_time IS NOT NULL
                      GROUP BY time_bucket('1 hour', action_time), tokenid, urlid, method, return_status"
                 );
@@ -96,7 +96,7 @@ class CreateTokenactionsHourlyView extends Migration
                          COUNT(*) FILTER (WHERE return_status >= 200 AND return_status <= 299) AS success_count,
                          COUNT(*) FILTER (WHERE return_status >= 400 AND return_status <= 499) AS client_error_count,
                          COUNT(*) FILTER (WHERE return_status >= 500 AND return_status <= 599) AS server_error_count
-                     FROM public.tokenactions
+                     FROM {$this->application->database->schema()->quoteTable('tokenactions')}
                      WHERE action_time IS NOT NULL
                      GROUP BY date_trunc('hour', action_time), tokenid, urlid, method, return_status
                      WITH NO DATA"
@@ -136,7 +136,7 @@ class CreateTokenactionsHourlyView extends Migration
                 SUM(CASE WHEN return_status >= 200 AND return_status <= 299 THEN 1 ELSE 0 END) AS success_count,
                 SUM(CASE WHEN return_status >= 400 AND return_status <= 499 THEN 1 ELSE 0 END) AS client_error_count,
                 SUM(CASE WHEN return_status >= 500 AND return_status <= 599 THEN 1 ELSE 0 END) AS server_error_count
-            FROM `tokenactions`
+            FROM {$this->application->database->schema()->quoteTable('tokenactions')}
             WHERE action_time IS NOT NULL
             GROUP BY DATE_FORMAT(action_time, '%Y-%m-%d %H:00:00'), tokenid, urlid, method, return_status
         ");
