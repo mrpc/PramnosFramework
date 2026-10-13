@@ -56,7 +56,7 @@ class AnalystAssistant extends BaseAssistant
 
     public function tools(Turn $turn): array
     {
-        return Analyst::tools();
+        return Analyst::tools((int) $turn->scope->userId);
     }
 
     /**

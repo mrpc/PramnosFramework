@@ -48,7 +48,7 @@ class AiController extends Controller
 
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
-        $this->addAuthAction(['display', 'settings', 'save', 'check', 'call', 'analyst', 'ask', 'asked', 'delete', 'forget', 'consent', 'api']);
+        $this->addAuthAction(['display', 'settings', 'save', 'check', 'call', 'analyst', 'ask', 'asked', 'delete', 'forget', 'consent', 'api', 'export']);
         // POST with the session's token: each of these changes what the installation spends, or spends.
         // `api` checks its own token, from the X-CSRF-Token header, since it also answers GET and DELETE.
         $this->addWriteAction(['save', 'check', 'ask', 'delete', 'forget', 'consent']);
@@ -298,6 +298,36 @@ class AiController extends Controller
     }
 
     /**
+     * A CSV the analyst wrote — `export/<name>` — to the administrator it was written for, and
+     * to nobody else: a link passed on opens nothing.
+     */
+    public function export(mixed $name = null): mixed
+    {
+        if ($this->requireMinUserType($this->requiredUserType)) {
+            return null;
+        }
+
+        $file = \Pramnos\Llm\Analyst\Exports::path((string) ($name ?: \Pramnos\Http\Request::staticGetOption()), $this->adminId());
+
+        if ($file === null) {
+            $this->addError('That file is not there any more — exports are kept ' . \Pramnos\Llm\Analyst\Exports::DAYS . ' days.');
+            $this->redirect(adminUrl('Ai'));
+
+            return null;
+        }
+
+        \Pramnos\Framework\Factory::getDocument('raw');
+        if (!headers_sent()) {
+            header('Content-Type: text/csv; charset=utf-8');
+            header('Content-Disposition: attachment; filename="export-' . date('Y-m-d-His', (int) filemtime($file)) . '.csv"');
+            header('Cache-Control: private, no-store');
+        }
+
+        // ponytail: read whole into memory — up to 100,000 rows; stream with readfile() if exports grow.
+        return (string) file_get_contents($file);
+    }
+
+    /**
      * The request's fields: a form's, or a JSON body's — the conversation API's clients send
      * JSON, which only the API's own front controller decodes into `$_POST`.
      *
@@ -317,9 +347,15 @@ class AiController extends Controller
     /** The administrator's analyst. Override to charge, limit or describe it differently. */
     protected function analystDesk(): \Pramnos\Llm\Analyst\Desk
     {
+        return new \Pramnos\Llm\Analyst\Desk($this->adminId());
+    }
+
+    /** The administrator signed in, or 0. */
+    protected function adminId(): int
+    {
         $user = \Pramnos\User\User::getCurrentUser();
 
-        return new \Pramnos\Llm\Analyst\Desk(is_object($user) ? (int) ($user->userid ?? 0) : 0);
+        return is_object($user) ? (int) ($user->userid ?? 0) : 0;
     }
 
     /**

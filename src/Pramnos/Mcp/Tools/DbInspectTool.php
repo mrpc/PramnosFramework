@@ -431,71 +431,10 @@ class DbInspectTool implements ScopedMcpTool
         return array($rows, $withheld);
     }
 
-    /**
-     * The connection to ask.
-     *
-     * A read-only account where the installation configured one, and the ordinary
-     * connection where it did not. Setting one up is real work and an
-     * installation may reasonably decide its developers are trusted; where it has
-     * been done, the boundary stops being our lexer and starts being the
-     * database, which is a much better place for it.
-     */
+    /** The connection to ask: see {@see \Pramnos\Database\ReadOnlyConnection}. */
     private function connection(): Database
     {
-        $readonly = \Pramnos\Application\Settings::getSetting('database_readonly_dsn');
-
-        if (!is_string($readonly) || trim($readonly) === '') {
-            return $this->db;
-        }
-
-        try {
-            return $this->readOnlyConnection(trim($readonly));
-        } catch (\Throwable $exception) {
-            // A misconfigured read-only account must not become a silent
-            // downgrade to the writable one — that is the failure where somebody
-            // believes they have a boundary and does not.
-            throw new \RuntimeException(
-                'A read-only database account is configured but could not be used: '
-                . $exception->getMessage()
-            );
-        }
-    }
-
-    /**
-     * Open the configured read-only connection.
-     *
-     * `user:password@host:port/database` — the same shape the rest of the
-     * settings use, kept out of `app.php` because it is a credential.
-     */
-    private function readOnlyConnection(string $dsn): Database
-    {
-        $parts = parse_url('scheme://' . ltrim($dsn, '/'));
-
-        if (!is_array($parts) || !isset($parts['host'])) {
-            throw new \RuntimeException('database_readonly_dsn is not user:pass@host:port/name');
-        }
-
-        $db           = new Database();
-        $db->type     = $this->db->type;
-        $db->server   = $parts['host'];
-        $db->port     = (int) ($parts['port'] ?? $this->db->port);
-        // Decoded on purpose: these come from `parse_url()` of a DSN, where credentials are
-        // percent-encoded so that a `@` or a `:` in a password does not end the field.
-        // Nothing here came from `$_GET`, where a second decode would be a bug.
-        $db->user     = urldecode((string) ($parts['user'] ?? ''));
-        $db->password = urldecode((string) ($parts['pass'] ?? ''));
-        $db->database = ltrim((string) ($parts['path'] ?? ''), '/') ?: $this->db->database;
-        $db->schema   = $this->db->schema;
-        // The prefix and the flavour come from the application, not the DSN:
-        // a read-only account is a second door onto the same database.
-        $db->prefix    = $this->db->prefix;
-        $db->timescale = $this->db->timescale;
-
-        if (!$db->connect(false)) {
-            throw new \RuntimeException('the connection was refused');
-        }
-
-        return $db;
+        return \Pramnos\Database\ReadOnlyConnection::for($this->db);
     }
 
     /**

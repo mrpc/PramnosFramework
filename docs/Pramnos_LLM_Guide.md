@@ -593,6 +593,46 @@ sent to fewer than three recipients is left out, since a personalised one carrie
 can recognise. The `user` tool's answer is tagged `personal`, so a [data rule](#data-rules) can
 keep it from a provider that may not have personal data.
 
+### Its own SQL, and files to download
+
+For a question no tool answers, the analyst can write SQL — when the application turns it on:
+
+```php
+'llm' => ['analyst' => [
+    'sql'         => true,   // `schema` and `sql`: one SELECT, up to 200 rows to the model
+    'export'      => true,   // `schema` and `export_csv`: up to 100,000 rows to a CSV file
+    'sql_seconds' => 30,     // how long a statement may run
+    'schema'      => [       // what the catalogue cannot say
+        'orders' => ['about' => 'One customer order.', 'columns' => ['status' => '1 open, 2 paid, 3 refunded']],
+    ],
+]],
+```
+
+`schema` lists the tables, or one table's columns with their keys, and the application's notes,
+keyed without the table prefix. `sql` answers rows; `export_csv` writes them to a file and gives
+the model only the link, the count and five rows. The file has a UTF-8 byte-order mark, so a
+spreadsheet reads non-Latin text. It is kept seven days outside the web root, in
+`var/analyst-exports/`, and downloads from `/admin/Ai/export/<name>` only for the administrator
+it was made for.
+
+A statement is guarded four times, by `Analyst\ReadOnlySql`:
+
+- it must be one SELECT or WITH with no writing keyword anywhere (`Security\ReadOnlyQuery`) —
+  which also refuses `INTO OUTFILE`, `FOR UPDATE` and `LOCK IN SHARE MODE`;
+- it may not call a function that waits, locks or reads the server's files — `SLEEP`,
+  `BENCHMARK`, `GET_LOCK`, `LOAD_FILE`, `pg_sleep`, `pg_read_file`, advisory locks, `dblink`;
+- it runs in a read-only transaction that is rolled back, so the database refuses a write the
+  lexer missed;
+- it stops after `sql_seconds` — `statement_timeout` on PostgreSQL, `max_statement_time` on
+  MariaDB, `MAX_EXECUTION_TIME` on MySQL.
+
+A statement without `LIMIT` is given one. Where the installation set `database_readonly_dsn`,
+the statement runs through that account, as `db-inspect` does. Then the database's own
+privileges are the boundary.
+
+Rows go through the redaction like every tool's answer. `sql` and `export_csv` are tagged
+`personal`, since a statement can read anybody's row.
+
 ### The application's figures
 
 ```php

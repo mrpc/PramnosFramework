@@ -108,11 +108,13 @@ final class Analyst
     }
 
     /**
-     * The framework's tools and the application's `admin_tools`.
+     * The framework's tools and the application's `admin_tools` — and, where the application
+     * turned them on, `schema` and `sql` (`'sql' => true`) and `export_csv` (`'export' => true`,
+     * for the administrator asking).
      *
      * @return list<McpToolInterface>
      */
-    public static function mcpTools(): array
+    public static function mcpTools(int $adminId = 0): array
     {
         $tools = [
             new \Pramnos\Llm\Analyst\Tools\UsersTool(),
@@ -128,6 +130,19 @@ final class Analyst
             new \Pramnos\Mcp\Tools\LogErrorsTool(),
             new \Pramnos\Mcp\Tools\StatusTool(\Pramnos\Application\Application::getInstance()),
         ];
+
+        $analyst = Llm::config('analyst', []);
+        $sql     = is_array($analyst) && !empty($analyst['sql']);
+        $export  = is_array($analyst) && !empty($analyst['export']) && $adminId > 0;
+        if ($sql || $export) {
+            $tools[] = new \Pramnos\Llm\Analyst\Tools\SchemaTool();
+        }
+        if ($sql) {
+            $tools[] = new \Pramnos\Llm\Analyst\Tools\SqlTool();
+        }
+        if ($export) {
+            $tools[] = new \Pramnos\Llm\Analyst\Tools\ExportCsvTool($adminId);
+        }
 
         foreach ((array) Llm::config('admin_tools', []) as $tool) {
             $tool = is_string($tool) && class_exists($tool) ? new $tool() : $tool;
@@ -147,9 +162,9 @@ final class Analyst
      *
      * @return array<string, array<string, mixed>>
      */
-    public static function tools(): array
+    public static function tools(int $adminId = 0): array
     {
-        $tools = Tools::fromMcp(self::mcpTools());
+        $tools = Tools::fromMcp(self::mcpTools($adminId));
 
         foreach ($tools as $name => $tool) {
             if ($name !== 'user') {
@@ -158,7 +173,10 @@ final class Analyst
             }
         }
 
-        Tools::tag($tools, 'user', 'personal');
+        // A statement of the model's own can read anybody's row.
+        foreach (['user', 'sql', 'export_csv'] as $name) {
+            Tools::tag($tools, $name, 'personal');
+        }
 
         return $tools;
     }
