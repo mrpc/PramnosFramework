@@ -83,7 +83,7 @@ class StoredConsent implements Consent
         }
 
         $stamp = CallLog::instant(time());
-        \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('ai_consents')->insert([
+        \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('#PREFIX#ai_consents')->insert([
             'organization_id' => $organizationId,
             'userid'          => $userId,
             'provider'        => $provider,
@@ -108,7 +108,7 @@ class StoredConsent implements Consent
 
     private function rows(?int $organizationId, string $provider): \Pramnos\Database\QueryBuilder
     {
-        $query = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('ai_consents')->where('provider', $provider);
+        $query = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('#PREFIX#ai_consents')->where('provider', $provider);
 
         return $organizationId === null ? $query->whereNull('organization_id') : $query->where('organization_id', $organizationId);
     }

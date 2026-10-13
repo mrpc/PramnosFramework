@@ -90,7 +90,7 @@ class Conversations
             return [];
         }
 
-        $result = $this->scope->apply($this->table('chat_conversations'))
+        $result = $this->scope->apply($this->table('#PREFIX#chat_conversations'))
             ->select(['conversation_id', 'title', 'updated_at'])
             ->orderBy('updated_at', 'desc')->orderBy('conversation_id', 'desc')
             ->limit(max(1, $limit))->get();
@@ -116,7 +116,7 @@ class Conversations
             return null;
         }
 
-        $result = $this->table('chat_messages')->where('conversation_id', $conversationId)->orderBy('message_id')->get();
+        $result = $this->table('#PREFIX#chat_messages')->where('conversation_id', $conversationId)->orderBy('message_id')->get();
         $messages = [];
 
         while (($row = $result->fetch()) !== null) {
@@ -138,8 +138,8 @@ class Conversations
             return false;
         }
 
-        $this->table('chat_messages')->where('conversation_id', $conversationId)->delete();
-        $this->scope->apply($this->table('chat_conversations'))->where('conversation_id', $conversationId)->delete();
+        $this->table('#PREFIX#chat_messages')->where('conversation_id', $conversationId)->delete();
+        $this->scope->apply($this->table('#PREFIX#chat_conversations'))->where('conversation_id', $conversationId)->delete();
 
         return true;
     }
@@ -274,7 +274,7 @@ class Conversations
         $stamp      = CallLog::instant(time());
 
         if ($conversationId === null) {
-            $this->table('chat_conversations')->insert($this->scope->columns() + [
+            $this->table('#PREFIX#chat_conversations')->insert($this->scope->columns() + [
                 'title'      => self::titleFor($asked),
                 'tags'       => $turn->tags === [] ? null : json_encode($turn->tags),
                 'created_at' => $stamp,
@@ -282,7 +282,7 @@ class Conversations
             ]);
             $conversationId = (int) \Pramnos\Framework\Factory::getDatabase()->getInsertId();
         } else {
-            $this->scope->apply($this->table('chat_conversations'))->where('conversation_id', $conversationId)
+            $this->scope->apply($this->table('#PREFIX#chat_conversations'))->where('conversation_id', $conversationId)
                 ->update(['updated_at' => $stamp, 'tags' => $turn->tags === [] ? null : json_encode($turn->tags)]);
         }
 
@@ -368,7 +368,7 @@ class Conversations
             return null;
         }
 
-        $result = $this->scope->apply($this->table('chat_conversations'))->where('conversation_id', $conversationId)->first();
+        $result = $this->scope->apply($this->table('#PREFIX#chat_conversations'))->where('conversation_id', $conversationId)->first();
 
         return $result && (int) $result->numRows > 0 ? $result->fields : null;
     }
@@ -391,7 +391,7 @@ class Conversations
             'updated_at'      => $stamp,
         ];
 
-        $this->table('chat_messages')->insert($row);
+        $this->table('#PREFIX#chat_messages')->insert($row);
 
         return self::message(['message_id' => (int) \Pramnos\Framework\Factory::getDatabase()->getInsertId()] + $row);
     }

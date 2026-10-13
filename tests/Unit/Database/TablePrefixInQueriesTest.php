@@ -107,6 +107,58 @@ class TablePrefixInQueriesTest extends TestCase
     }
 
     /**
+     * Tables a framework migration creates under a plain name — which `SchemaBuilder` prefixes —
+     * written without `#PREFIX#` in a query, or as a class's `TABLE`.
+     *
+     * The test above derives "prefixed" from names written with `#PREFIX#` somewhere, so a
+     * feature that never once wrote its tables that way was invisible to it: every `llm` table
+     * was queried bare, and `/admin/Ai` answered 500 on the first installation with a prefix.
+     * The migrations are the other source of truth, and this reads them.
+     *
+     * Only migrations after the 2020-01-01 baseline: a legacy installation skips the baseline
+     * (`migration_cutoff`) and keeps those tables under the names it already had.
+     *
+     * Known and not yet converted — enumerated, so a new table cannot join them silently:
+     * `organizations`, `notifications` and `queuestats`, whose bare names an application may
+     * also own.
+     */
+    public function testTablesTheMigrationsCreateAreQueriedWithThePrefix(): void
+    {
+        // Arrange
+        $known   = ['organizations', 'notifications', 'queuestats'];
+        $created = [];
+        foreach (glob(dirname(__DIR__, 3) . '/database/migrations/framework/*/*.php') ?: [] as $migration) {
+            if (str_starts_with(basename($migration), '2020_01_01_')) {
+                continue;
+            }
+            preg_match_all("/createTable\\(\\s*'([A-Za-z_][A-Za-z0-9_]*)'/", (string) file_get_contents($migration), $m);
+            foreach ($m[1] as $name) {
+                $created[$name] = true;
+            }
+        }
+        $names = array_diff(array_keys($created), $known);
+        $this->assertNotEmpty($names, 'the sweep found nothing to check');
+        $pattern = '/(?:->(?:table|from|join|leftJoin|rightJoin)\(\s*|const\s+TABLE\s*=\s*)[\'"]('
+            . implode('|', array_map('preg_quote', $names))
+            . ')(?:[\'"]|\s)/';
+
+        // Act
+        $offenders = [];
+        foreach ($this->frameworkSources() as $file) {
+            foreach (preg_split('/\r?\n/', (string) file_get_contents($file)) ?: [] as $number => $line) {
+                if (preg_match($pattern, $line, $hit)) {
+                    $offenders[] = basename($file) . ':' . ($number + 1) . " → '" . $hit[1] . "'";
+                }
+            }
+        }
+
+        // Assert
+        $this->assertSame([], $offenders,
+            "a migration creates these with the installation's prefix, and these read them without it:\n  "
+            . implode("\n  ", $offenders));
+    }
+
+    /**
      * The fixture prefix is empty, which is why the check above is static.
      *
      * Pinned so that nobody reads the test above and concludes the suite covers

@@ -300,7 +300,7 @@ class Routines
             return null;
         }
 
-        $result = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('chat_messages')
+        $result = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('#PREFIX#chat_messages')
             ->select(['content', 'created_at'])->where('conversation_id', $conversationId)
             ->where('role', 'assistant')->orderBy('message_id', 'desc')->first();
 
@@ -392,6 +392,6 @@ class Routines
 
     private function table(): \Pramnos\Database\QueryBuilder
     {
-        return \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('ai_routines');
+        return \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('#PREFIX#ai_routines');
     }
 }

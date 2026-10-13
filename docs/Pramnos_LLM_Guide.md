@@ -276,7 +276,8 @@ $chat->delete($id);
 ```
 
 The tables are `chat_conversations`, `chat_messages`, `chat_memory`, `chat_asks`, `ai_consents` and
-`ai_routines`. A table that already exists under its name is left as it is; `tags` and `extra` are
+`ai_routines`, with the installation's table prefix (`#PREFIX#chat_conversations` in a query of
+your own). A table that already exists under its name is left as it is; `tags` and `extra` are
 added to an existing `chat_conversations` and `chat_messages`.
 
 ### Whose conversations

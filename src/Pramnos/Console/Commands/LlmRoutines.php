@@ -27,7 +27,7 @@ class LlmRoutines extends Command
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
-        if (!\Pramnos\Framework\Factory::getDatabase()->schema()->hasTable('ai_routines')) {
+        if (!\Pramnos\Framework\Factory::getDatabase()->schema()->hasTable('#PREFIX#ai_routines')) {
             $output->writeln('No scheduled questions here.');
 
             return Command::SUCCESS;

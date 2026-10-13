@@ -28,7 +28,7 @@ use Pramnos\Application\Settings;
 class CallLog
 {
     /** The table. */
-    public const TABLE = 'llm_calls';
+    public const TABLE = '#PREFIX#llm_calls';
 
     /** Days kept before pruning: long enough to answer "what changed last month". */
     public const KEEP_DAYS = 90;

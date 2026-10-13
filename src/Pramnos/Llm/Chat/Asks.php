@@ -155,6 +155,6 @@ class Asks
 
     private function table(): \Pramnos\Database\QueryBuilder
     {
-        return \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('chat_asks');
+        return \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('#PREFIX#chat_asks');
     }
 }

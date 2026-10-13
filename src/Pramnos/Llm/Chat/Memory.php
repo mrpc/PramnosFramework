@@ -55,7 +55,7 @@ class Memory
     public function all(): array
     {
         try {
-            $result = $this->scope->apply($this->table('chat_memory'))
+            $result = $this->scope->apply($this->table('#PREFIX#chat_memory'))
                 ->select(['memory_id', 'kind', 'content', 'created_at'])->orderBy('memory_id')->get();
         } catch (\Throwable) {
             return [];
@@ -90,7 +90,7 @@ class Memory
         }
 
         $stamp = CallLog::instant(time());
-        $this->table('chat_memory')->insert($this->scope->columns() + [
+        $this->table('#PREFIX#chat_memory')->insert($this->scope->columns() + [
             'kind'       => in_array($kind, self::KINDS, true) ? $kind : 'fact',
             'content'    => mb_substr($content, 0, self::chars()),
             'created_at' => $stamp,
@@ -103,7 +103,7 @@ class Memory
     /** Forget one thing. False when there was none of this person's by that id. */
     public function forget(int $memoryId): bool
     {
-        $query = $this->scope->apply($this->table('chat_memory'))->where('memory_id', $memoryId);
+        $query = $this->scope->apply($this->table('#PREFIX#chat_memory'))->where('memory_id', $memoryId);
 
         if ((clone $query)->count() === 0) {
             return false;
@@ -142,7 +142,7 @@ class Memory
             $words
         );
 
-        $result = $this->table('chat_messages')
+        $result = $this->table('#PREFIX#chat_messages')
             ->select(['conversation_id', 'role', 'content', 'created_at'])
             ->whereIn('conversation_id', array_keys($titles))
             ->where('created_at', '>', CallLog::instant(time() - max(1, $days) * 86400))
