@@ -75,7 +75,7 @@ class ProjectResync extends Command
             ->addOption('scripts', null, InputOption::VALUE_NONE, 'Only sync the docs tooling scripts (apidoc-to-openapi.cjs, doc.sh)')
             ->addOption('debug-panel', null, InputOption::VALUE_NONE, 'Only sync the framework-owned SPA modules (lib/debug.js, lib/webauthn.js)')
             ->addOption('pwa', null, InputOption::VALUE_NONE, 'Only sync the PWA files: icons (never overwritten) and manifest.json (merged)')
-            ->addOption('spa-components', null, InputOption::VALUE_NONE, 'Only sync the shared Svelte components (DataTable, Pagination, ConfirmDialog, Field, i18n) and their tests');
+            ->addOption('spa-components', null, InputOption::VALUE_NONE, 'Only sync the shared Svelte components (DataTable, Pagination, ConfirmDialog, Field, i18n — and Chat, Scheduled, AiConsent with the llm feature) and their tests');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -614,6 +614,12 @@ class ProjectResync extends Command
 
         $files = [];
         $wanted = Init::SPA_SHARED_COMPONENTS + Init::SPA_SHARED_COMPONENT_TESTS;
+        $chat   = in_array('llm', (array) ($config['features'] ?? []), true);
+
+        if ($chat) {
+            $wanted += Init::SPA_CHAT_COMPONENTS;
+        }
+
         foreach ($wanted as $relative => $stub) {
             $path = $scaffoldingDir . '/templates/' . $stub . '.stub';
             if (!is_file($path)) {
@@ -624,6 +630,16 @@ class ProjectResync extends Command
             $files[] = [
                 'content' => $this->renderStubFile($path, $tokens),
                 'dest'    => $sourceDir . $relative,
+                'exec'    => false,
+            ];
+        }
+
+        // The conversation screens draw an answer with marked and DOMPurify.
+        if ($chat) {
+            $decoded = is_file($base . '/package.json') ? json_decode((string) file_get_contents($base . '/package.json'), true) : [];
+            $files[] = [
+                'content' => json_encode(Init::mergeChatPackageJson(is_array($decoded) ? $decoded : []), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n",
+                'dest'    => 'package.json',
                 'exec'    => false,
             ];
         }

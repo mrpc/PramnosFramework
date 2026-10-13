@@ -1,0 +1,335 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Pramnos\Tests\Integration\Llm;
+
+use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
+use Pramnos\Llm\Chat\Scope;
+use Pramnos\Llm\Chat\Web\ChatPageController;
+use Pramnos\Tests\Unit\Llm\LlmTestCase;
+
+/**
+ * `/chat`, the conversation page for an application without a SPA, on MySQL and PostgreSQL.
+ *
+ * The page is drawn through a real View in every theme — a stand-in `$this` cannot see a view
+ * variable that collides with one of View's own properties — and asking is followed both the
+ * way a browser without JavaScript does and the way `pf-chat.js` does.
+ */
+#[CoversClass(ChatPageController::class)]
+#[CoversClass(\Pramnos\Llm\Chat\Concerns\TakesQuestions::class)]
+#[CoversClass(\Pramnos\Llm\Chat\Attachments::class)]
+class ChatPageTest extends LlmTestCase
+{
+    use ChatDatabase;
+
+    private const THEMES = ['tailwind', 'bootstrap', 'plain-css'];
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $this->setting('llm_openai_api_key', 'sk-test');
+        $_POST = [];
+        $_GET  = [];
+        \Pramnos\Http\Request::resetInstance();
+    }
+
+    protected function tearDown(): void
+    {
+        $_POST = [];
+        $_GET  = [];
+        $_SERVER['HTTP_ACCEPT'] = '';
+        \Pramnos\Http\Request::resetInstance();
+        $this->disconnectDatabase();
+        parent::tearDown();
+    }
+
+    private function page(?Scope $scope = new Scope(7, null), string $theme = 'plain-css'): PageFixture
+    {
+        return new PageFixture($scope, $theme);
+    }
+
+    /**
+     * Asked without JavaScript: queued, then the page follows it and, once answered, opens the
+     * conversation — drawn through a real View in every theme.
+     */
+    #[DataProvider('databases')]
+    public function testAskedWithoutJavaScript(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        $this->configure(['chat' => []]);
+        $this->answer([[200, self::says('**Fine**, thanks.')]]);
+        $_POST = ['content' => 'How is it?'];
+
+        // Act — asked: queued, and sent to the page following it
+        $page = $this->page();
+        $page->ask();
+        preg_match('/ask=(\d+)/', $page->redirectedTo[0], $m);
+        $waiting = $this->page();
+        $_GET = ['ask' => $m[1]];
+        \Pramnos\Http\Request::resetInstance();
+        $drawnWaiting = $waiting->display();
+
+        // The worker answers it
+        (new \Pramnos\Llm\Chat\Asks($page->exposed()))->run($page->queue->tasks[0][1]);
+
+        // Assert — while waiting: a refresh for browsers without JavaScript
+        $this->assertStringContainsString('<meta http-equiv="refresh"', $drawnWaiting);
+        $this->assertStringContainsString('data-pf-chat-waiting="' . $m[1] . '"', $drawnWaiting);
+
+        foreach (self::THEMES as $theme) {
+            // Answered: the page opens the conversation it went into
+            $answered = $this->page(theme: $theme)->display();
+            $this->assertStringContainsString('<strong>Fine</strong>, thanks.', $answered, $theme);
+            $this->assertStringContainsString('How is it?', $answered, $theme);
+            $this->assertStringContainsString('No data was read for this answer', $answered, $theme);
+            $this->assertStringNotContainsString('http-equiv="refresh"', $answered, $theme);
+        }
+    }
+
+    /**
+     * Asked through pf-chat.js: JSON, with the same refusals; the question followed as JSON.
+     */
+    #[DataProvider('databases')]
+    public function testAskedThroughTheScript(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        $_SERVER['HTTP_ACCEPT'] = 'application/json';
+
+        // Act
+        $_POST  = ['content' => 'Hi'];
+        $queued = json_decode((string) $this->page()->ask(), true);
+        $_POST  = ['content' => ''];
+        $empty  = json_decode((string) $this->page()->ask(), true);
+        $asked  = json_decode((string) $this->page()->asked($queued['data']['ask_id']), true);
+        $none   = json_decode((string) $this->page()->asked(999), true);
+
+        // Assert
+        $this->assertSame(202, $queued['status']);
+        $this->assertSame([422, 'Ask it something.'], [$empty['status'], $empty['error']]);
+        $this->assertSame('waiting', $asked['data']['status']);
+        $this->assertSame(404, $none['status']);
+    }
+
+    /**
+     * A refusal goes back to the page with the reason; files uploaded with the question become
+     * its attachment.
+     */
+    #[DataProvider('databases')]
+    public function testRefusalsAndFiles(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+
+        // Act — refused
+        $_POST = ['content' => ''];
+        $refused = $this->page();
+        $refused->ask();
+
+        // Act — with a file
+        $_POST = ['content' => 'Read this', 'conversation_id' => '0'];
+        $withFile = $this->page();
+        $withFile->files = [['name' => 'brief.md', 'bytes' => 'The brief']];
+        $withFile->ask();
+
+        // Assert
+        $this->assertSame(['Ask it something.'], $refused->errors);
+        $this->assertStringEndsWith('/chat', $refused->redirectedTo[0]);
+        $this->assertSame('brief.md', $withFile->queue->tasks[0][1]['attachment']['name']);
+        $uploaded = static fn (): array => (new \ReflectionMethod(ChatPageController::class, 'uploaded'))->invoke(new ChatPageController());
+        $_FILES = [];
+        $this->assertSame([], $uploaded(), 'nothing uploaded is no files');
+        // A file that failed to upload, or one not uploaded through this request, is not read.
+        $_FILES = ['files' => ['name' => ['a.md', 'b.md'], 'tmp_name' => ['/etc/hostname', ''], 'error' => [UPLOAD_ERR_OK, UPLOAD_ERR_PARTIAL]]];
+        $this->assertSame([], $uploaded());
+        $_FILES = [];
+    }
+
+    /**
+     * Forgetting a conversation or a memory, and agreeing and withdrawing — each back to the page.
+     */
+    #[DataProvider('databases')]
+    public function testForgettingAndAgreeing(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        $this->configure(['consent' => \Pramnos\Llm\Policy\StoredConsent::class]);
+        $this->setting('llm_provider', 'deepseek');
+        $this->setting('llm_deepseek_api_key', 'sk-d');
+        $scope  = new Scope(7, null);
+        $memory = new \Pramnos\Llm\Chat\Memory($scope);
+        $memory->remember('fact', 'Likes tables');
+        $id = $memory->all()[0]['memory_id'];
+
+        // Act / Assert — consent asked on the page, then given
+        $before = $this->page()->display();
+        $this->assertStringContainsString('Nothing is sent until you agree.', $before);
+        $_POST = ['give' => '1'];
+        $this->page()->consent();
+        $after = $this->page()->display();
+        $this->assertStringContainsString('You agreed to the AI features using DeepSeek.', $after);
+        $_POST = [];
+        $this->page()->consent();
+        $this->assertStringContainsString('Nothing is sent until you agree.', $this->page()->display());
+
+        // Forgetting
+        $forgot = $this->page();
+        $forgot->forget($id);
+        $this->assertSame(['Forgotten.'], $forgot->messages);
+        $again = $this->page();
+        $again->forget($id);
+        $this->assertSame(['There is no such memory.'], $again->errors);
+        $deleted = $this->page();
+        $deleted->delete(999);
+        $this->assertSame(['There is no such conversation.'], $deleted->errors);
+    }
+
+    /**
+     * Nobody signed in is sent to sign in; the widget is drawn only for somebody signed in.
+     */
+    #[DataProvider('databases')]
+    public function testSignedOutAndTheWidget(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        $page = $this->page(null);
+
+        // Act
+        $drawn = $page->display();
+
+        // Assert
+        $this->assertNull($drawn);
+        $this->assertStringEndsWith('login?return=chat', $page->redirectedTo[0]);
+
+        foreach (self::THEMES as $theme) {
+            $file = ROOT . '/scaffolding/themes/' . $theme . '/views/partials/chat_widget.html.php';
+            \Pramnos\Llm\Llm::use('router', new SignedIn());
+            ob_start();
+            include $file;
+            $widget = (string) ob_get_clean();
+            $this->assertStringContainsString('chat/ask', $widget, $theme);
+            \Pramnos\Llm\Llm::reset();
+            ob_start();
+            include $file;
+            $this->assertSame('', (string) ob_get_clean(), $theme . ': nobody signed in, no widget');
+        }
+    }
+
+    /**
+     * The page's JSON for pf-chat.js: the status as the HTTP status, and the answer encoded
+     * with its Unicode as it is.
+     */
+    public function testTheJsonAnswer(): void
+    {
+        // Act
+        $body = (new \ReflectionMethod(ChatPageController::class, 'json'))->invoke(new ChatPageController(), ['status' => 404, 'error' => 'Δεν υπάρχει.']);
+
+        // Assert
+        $this->assertSame('{"status":404,"error":"Δεν υπάρχει."}', $body);
+        $this->assertSame(404, http_response_code());
+        http_response_code(200);
+    }
+}
+
+/** The page, with its redirects, flash, JSON, uploads and queue recorded, drawn through a real View. */
+class PageFixture extends ChatPageController
+{
+    /** @var list<string> */
+    public array $redirectedTo = [];
+
+    /** @var list<string> */
+    public array $messages = [];
+
+    /** @var list<string> */
+    public array $errors = [];
+
+    /** @var list<array{name: string, bytes: string}> */
+    public array $files = [];
+
+    public RecordingQueue $queue;
+
+    public function __construct(private ?Scope $as, private string $theme)
+    {
+        $this->queue = new RecordingQueue();
+    }
+
+    public function exposed(): \Pramnos\Llm\Chat\Conversations
+    {
+        return $this->conversations();
+    }
+
+    protected function scope(): ?Scope
+    {
+        return $this->as;
+    }
+
+    protected function asks(): \Pramnos\Llm\Chat\Asks
+    {
+        return new \Pramnos\Llm\Chat\Asks($this->conversations(), $this->queue);
+    }
+
+    protected function uploaded(): array
+    {
+        return $this->files;
+    }
+
+    public function redirect($url = null, $quit = true, $code = '302')
+    {
+        $this->redirectedTo[] = (string) $url;
+    }
+
+    protected function addMessage($message)
+    {
+        $this->messages[] = (string) $message;
+
+        return $this;
+    }
+
+    protected function addError($error)
+    {
+        $this->errors[] = (string) $error;
+
+        return $this;
+    }
+
+    protected function json(array $answer): mixed
+    {
+        return json_encode($answer);
+    }
+
+    /** The view, as View draws it, from the chosen theme's scaffolding. */
+    public function &getView($name = '', $type = '', $args = array())
+    {
+        $dir  = ROOT . '/scaffolding/themes/' . $this->theme . '/views/' . $name;
+        $view = new class (new \Pramnos\Application\Controller(), $dir, $name) extends \Pramnos\Application\View {
+            public function display($tpl = '', $render = false)
+            {
+                $file = $this->path . '/' . $this->name . '.html.php';
+                ob_start();
+                \Closure::bind(function () use ($file): void {
+                    include $file;
+                }, $this, \Pramnos\Application\View::class)();
+
+                return (string) ob_get_clean();
+            }
+
+            public function insert(string $template, array $data = []): void
+            {
+            }
+        };
+
+        return $view;
+    }
+}
+
+/** A router that says somebody is signed in. */
+final class SignedIn extends \Pramnos\Llm\Policy\DefaultRouter
+{
+    public function context(array $context): array
+    {
+        return ['userid' => 7];
+    }
+}

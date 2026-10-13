@@ -515,6 +515,39 @@ class InitSpaScaffoldingTest extends TestCase
     }
 
     /**
+     * A Svelte SPA with the `llm` feature gets the conversation screens, their tests and the two
+     * packages they draw an answer with; one without the feature gets none of it.
+     */
+    public function testTheLlmFeatureAddsTheConversationScreens(): void
+    {
+        // Act
+        $this->runInit(['--app-style' => 'spa', '--spa-stack' => 'svelte', '--features' => 'auth,llm']);
+
+        // Assert
+        $this->assertNotEmpty(Init::SPA_CHAT_COMPONENTS, 'the sweep found nothing to check');
+        foreach (array_keys(Init::SPA_CHAT_COMPONENTS) as $relative) {
+            $this->read('frontend/' . $relative);
+        }
+
+        $pkg = json_decode($this->read('package.json'), true);
+        $this->assertSame(Init::SPA_CHAT_PACKAGES['marked'], $pkg['devDependencies']['marked']);
+        $this->assertSame(Init::SPA_CHAT_PACKAGES['dompurify'], $pkg['devDependencies']['dompurify']);
+        $this->assertArrayHasKey('svelte', $pkg['devDependencies'], 'the stack\'s own packages are kept');
+        $this->assertStringContainsString("from '../lib/chat.js'", $this->read('frontend/components/Chat.svelte'));
+    }
+
+    /** Without the `llm` feature there is no conversation screen and no Markdown package. */
+    public function testNoLlmFeatureMeansNoConversationScreens(): void
+    {
+        // Act
+        $this->runInit(['--app-style' => 'spa', '--spa-stack' => 'svelte']);
+
+        // Assert
+        $this->assertFileDoesNotExist($this->tmpDir . '/frontend/components/Chat.svelte');
+        $this->assertArrayNotHasKey('marked', json_decode($this->read('package.json'), true)['devDependencies']);
+    }
+
+    /**
      * A SPA has no other way to reach its data, so the API layer is scaffolded
      * regardless of what --rest-api says.
      */

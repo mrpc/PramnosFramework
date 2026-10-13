@@ -164,6 +164,46 @@ class ResyncSpaComponentsTest extends TestCase
     }
 
     /**
+     * With the `llm` feature the conversation screens come too, with marked and DOMPurify added
+     * to package.json — and the project's own entries kept.
+     *
+     * Without the packages, Chat.svelte's import of `marked` fails the first build after the
+     * resync; without the feature, a project that never asked for a model gets three screens
+     * for an API it never mounted.
+     */
+    public function testTheLlmFeatureBringsTheConversationScreens(): void
+    {
+        // Arrange
+        file_put_contents($this->base . '/package.json', json_encode(['name' => 'mine', 'dependencies' => ['marked' => '^17.0.0']]));
+        $config = [
+            'name'           => 'Talky',
+            'app_style'      => 'spa',
+            'spa_stack'      => 'svelte',
+            'spa_source_dir' => 'frontend/',
+            'features'       => ['auth', 'llm'],
+        ];
+
+        try {
+            // Act
+            $files = $this->wouldWrite($config);
+        } finally {
+            unlink($this->base . '/package.json');
+        }
+
+        // Assert
+        $this->assertNotEmpty(Init::SPA_CHAT_COMPONENTS, 'the sweep found nothing to check');
+        foreach (array_keys(Init::SPA_CHAT_COMPONENTS) as $relative) {
+            $this->assertArrayHasKey('frontend/' . $relative, $files, $relative . ' would not be written');
+        }
+
+        $pkg = json_decode($files['package.json'], true);
+        $this->assertSame('mine', $pkg['name']);
+        // A version the project chose stays; only what is missing is added.
+        $this->assertSame(['dompurify' => Init::SPA_CHAT_PACKAGES['dompurify']], $pkg['devDependencies']);
+        $this->assertSame('^17.0.0', $pkg['dependencies']['marked']);
+    }
+
+    /**
      * The components land in the source directory the project actually uses.
      *
      * An explicit `spa_source_dir` wins, so a project whose front end lives somewhere else can be

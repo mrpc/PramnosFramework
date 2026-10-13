@@ -1,0 +1,194 @@
+<script>
+    /**
+     * Scheduled reports — questions asked on a schedule, each answer kept in its
+     * own conversation (`Pramnos\Llm\Chat\Routines`, run by `llm:routines`).
+     *
+     * A ready-made one from the application's `routine_templates`, or one's own:
+     * a title, what to ask, how often and when. Paused, resumed, run now, deleted.
+     * A pause or a new one the application refuses (a plan, a limit) is said here
+     * as the server says it.
+     */
+    import { t as translate } from '../lib/i18n.svelte.js';
+    import { failure, resolveClient } from '../lib/chat.js';
+    import ConfirmDialog from './ConfirmDialog.svelte';
+
+    let {
+        client = null,
+        api = null,
+        paths = {},
+        /** Open the conversation a routine's answers went into. */
+        onopen = null,
+        t = translate,
+    } = $props();
+
+    const chat = $derived(resolveClient(client, api, paths));
+    const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
+    let routines = $state([]);
+    let templates = $state({});
+    let cadences = $state(['daily', 'weekly', 'monthly']);
+    let loaded = $state(false);
+    let error = $state(null);
+    let busy = $state(null);
+    let deleting = $state(null);
+    let draft = $state(blank());
+
+    function blank() {
+        return { template: '', title: '', prompt: '', cadence: 'weekly', at: '08:00', day: 1 };
+    }
+
+    $effect(() => {
+        load();
+    });
+
+    async function load() {
+        try {
+            const found = (await chat.routines()).data ?? {};
+            routines = found.routines ?? [];
+            templates = found.templates ?? {};
+            cadences = found.cadences ?? cadences;
+        } catch (err) {
+            error = failure(err, t('Scheduled reports could not be read.'));
+        } finally {
+            loaded = true;
+        }
+    }
+
+    /** A template fills the form, to be changed before it is saved. */
+    function useTemplate(key) {
+        const one = templates[key] ?? {};
+        draft = { ...blank(), ...one, template: key };
+    }
+
+    /** Run one change, then say what went wrong or read the list again. */
+    async function act(id, run, fallback) {
+        busy = id;
+        error = null;
+
+        try {
+            await run();
+            await load();
+        } catch (err) {
+            error = failure(err, fallback);
+        } finally {
+            busy = null;
+        }
+    }
+
+    function create(event) {
+        event.preventDefault();
+        const body = { ...draft, day: draft.cadence === 'daily' ? null : Number(draft.day) };
+
+        return act('new', async () => {
+            await chat.createRoutine(body);
+            draft = blank();
+        }, t('It could not be saved.'));
+    }
+
+    function when(one) {
+        if (one.cadence === 'weekly') {
+            return t('Every %s at %s', t(DAYS[(one.day ?? 1) - 1]), one.at);
+        }
+
+        return one.cadence === 'monthly' ? t('Monthly on day %s at %s', one.day, one.at) : t('Every day at %s', one.at);
+    }
+</script>
+
+<section class="mx-auto flex w-full max-w-4xl flex-col gap-4">
+    <h1 class="text-2xl font-medium">{t('Scheduled reports')}</h1>
+
+    {#if error}
+        <div role="alert" class="alert alert-warning alert-soft"><span>{error}</span></div>
+    {/if}
+
+    {#if !loaded}
+        <span class="loading loading-spinner loading-md" aria-label={t('Loading')}></span>
+    {:else}
+        <ul class="space-y-2">
+            {#each routines as one (one.routine_id)}
+                <li class="rounded-box border border-base-300 bg-base-100 p-4">
+                    <div class="flex flex-wrap items-start gap-2">
+                        <div class="min-w-0 flex-1">
+                            <h2 class="font-medium">{one.title}</h2>
+                            <p class="text-sm opacity-70">{when(one)}{one.active && one.next_run_local ? ' · ' + t('next: %s', one.next_run_local) : ''}</p>
+                            {#if !one.active}<span class="badge badge-ghost badge-sm">{t('Paused')}</span>{/if}
+                            {#if one.last_error}<p class="text-sm text-error">{one.last_error}</p>{/if}
+                        </div>
+                        <div class="flex flex-wrap gap-1">
+                            {#if one.conversation_id && onopen}
+                                <button type="button" class="btn btn-ghost btn-sm" onclick={() => onopen(one.conversation_id)}>{t('Open')}</button>
+                            {/if}
+                            <button type="button" class="btn btn-ghost btn-sm" disabled={busy !== null}
+                                onclick={() => act(one.routine_id, () => chat.runRoutine(one.routine_id), t('It could not be run.'))}>{t('Run now')}</button>
+                            <button type="button" class="btn btn-ghost btn-sm" disabled={busy !== null}
+                                onclick={() => act(one.routine_id, () => chat.updateRoutine(one.routine_id, { active: !one.active }), t('It could not be changed.'))}>
+                                {one.active ? t('Pause') : t('Resume')}
+                            </button>
+                            <button type="button" class="btn btn-ghost btn-sm text-error" disabled={busy !== null}
+                                aria-label={t('Delete %s', one.title)} onclick={() => { deleting = one; }}>✕</button>
+                        </div>
+                    </div>
+                </li>
+            {:else}
+                <li class="text-sm opacity-60">{t('Nothing scheduled yet.')}</li>
+            {/each}
+        </ul>
+
+        <form class="space-y-3 rounded-box border border-base-300 bg-base-100 p-4" onsubmit={create}>
+            <h2 class="font-medium">{t('Schedule a report')}</h2>
+
+            {#if Object.keys(templates).length > 0}
+                <div class="flex flex-wrap gap-2">
+                    {#each Object.entries(templates) as [key, one] (key)}
+                        <button type="button" class="btn btn-sm {draft.template === key ? 'btn-primary' : ''}" onclick={() => useTemplate(key)}>{t(one.title)}</button>
+                    {/each}
+                </div>
+            {/if}
+
+            <label class="flex flex-col gap-1">
+                <span>{t('Title')}</span>
+                <input class="input input-bordered w-full" bind:value={draft.title} maxlength="120" required />
+            </label>
+            <label class="flex flex-col gap-1">
+                <span>{t('What to ask')}</span>
+                <textarea class="textarea textarea-bordered w-full" rows="3" bind:value={draft.prompt} required></textarea>
+            </label>
+            <div class="flex flex-wrap gap-3">
+                <label class="flex flex-col gap-1">
+                    <span>{t('How often')}</span>
+                    <select class="select select-bordered" bind:value={draft.cadence}>
+                        {#each cadences as cadence}<option value={cadence}>{t(cadence)}</option>{/each}
+                    </select>
+                </label>
+                {#if draft.cadence === 'weekly'}
+                    <label class="flex flex-col gap-1">
+                        <span>{t('Day')}</span>
+                        <select class="select select-bordered" bind:value={draft.day}>
+                            {#each DAYS as day, index}<option value={index + 1}>{t(day)}</option>{/each}
+                        </select>
+                    </label>
+                {:else if draft.cadence === 'monthly'}
+                    <label class="flex flex-col gap-1">
+                        <span>{t('Day of the month')}</span>
+                        <input class="input input-bordered w-24" type="number" min="1" max="28" bind:value={draft.day} />
+                    </label>
+                {/if}
+                <label class="flex flex-col gap-1">
+                    <span>{t('At')}</span>
+                    <input class="input input-bordered" type="time" bind:value={draft.at} required />
+                </label>
+            </div>
+            <button class="btn btn-primary btn-sm" type="submit" disabled={busy !== null}>{t('Schedule')}</button>
+        </form>
+    {/if}
+</section>
+
+<ConfirmDialog
+    open={deleting !== null}
+    title={t('Delete this scheduled report?')}
+    body={t('It stops running. The conversation with its answers stays.')}
+    confirmLabel={t('Delete')}
+    danger
+    onconfirm={() => { const id = deleting.routine_id; deleting = null; return act(id, () => chat.deleteRoutine(id), t('It could not be deleted.')); }}
+    oncancel={() => { deleting = null; }}
+/>

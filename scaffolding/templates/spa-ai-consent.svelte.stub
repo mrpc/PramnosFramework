@@ -1,0 +1,83 @@
+<script>
+    /**
+     * The agreement asked before the first question, when the provider in use
+     * needs one (`Pramnos\Llm\Policy\StoredConsent`).
+     *
+     * With a provider that needs none this draws what it wraps and asks nothing.
+     * Until the person agrees, what it wraps is not drawn — no box, no button that
+     * could send anything — and the server refuses regardless.
+     *
+     * `consent` is bindable, so the screen around it can offer to withdraw.
+     */
+    import { t as translate } from '../lib/i18n.svelte.js';
+    import { failure, resolveClient } from '../lib/chat.js';
+
+    let {
+        client = null,
+        api = null,
+        paths = {},
+        /** What this feature is, for the sentence: "Ask AI", "The assistant". */
+        feature = 'This feature',
+        /** Where the privacy policy says more, if anywhere. */
+        privacyUrl = '',
+        /** Drawn smaller, for a panel rather than a page. */
+        compact = false,
+        /** Called when somebody presses Not now; without it there is no such button. */
+        ondecline = null,
+        /** `{loaded, required, given, provider, label, place}` — read here, shared with the screen. */
+        consent = $bindable({ loaded: false, required: false, given: false, provider: '', label: '', place: '' }),
+        t = translate,
+        children,
+    } = $props();
+
+    const chat = $derived(resolveClient(client, api, paths));
+    let saving = $state(false);
+    let error = $state(null);
+
+    $effect(() => {
+        chat.consent()
+            .then((found) => { consent = { ...found.data, loaded: true }; })
+            // Unknown is not agreement: a read that fails shows the notice, and the
+            // server refuses anyway if that was wrong.
+            .catch(() => { consent = { ...consent, required: true, given: false, loaded: true }; });
+    });
+
+    async function agree() {
+        saving = true;
+        error = null;
+
+        try {
+            consent = { ...(await chat.giveConsent()).data, loaded: true };
+        } catch (err) {
+            error = failure(err, t('It could not be saved. Try again.'));
+        } finally {
+            saving = false;
+        }
+    }
+</script>
+
+{#if !consent.loaded}
+    <span class="loading loading-spinner loading-sm" aria-label={t('Loading')}></span>
+{:else if consent.required && !consent.given}
+    <div role="region" aria-label={t('AI data notice')} class="rounded-box border border-warning/40 bg-warning/10 space-y-2 {compact ? 'p-3 text-xs' : 'p-4 text-sm'}">
+        <p class="font-medium">
+            {consent.place
+                ? t('%s uses %s, an AI provider in %s.', feature, consent.label || consent.provider, consent.place)
+                : t('%s uses %s.', feature, consent.label || consent.provider)}
+        </p>
+        <p>{t('When you use it, what you ask and the data needed to answer it are sent to %s.', consent.label || consent.provider)}</p>
+        <p><strong>{t('Nothing is sent until you agree.')}</strong> {t('You can withdraw at any time.')}</p>
+        {#if privacyUrl}
+            <p><a class="link" href={privacyUrl} target="_blank" rel="noopener">{t('Privacy policy')}</a></p>
+        {/if}
+        {#if error}<p class="text-error" role="alert">{error}</p>{/if}
+        <div class="flex gap-2">
+            <button type="button" class="btn btn-primary btn-sm" onclick={agree} disabled={saving}>{t('I agree')}</button>
+            {#if ondecline}
+                <button type="button" class="btn btn-ghost btn-sm" onclick={ondecline}>{t('Not now')}</button>
+            {/if}
+        </div>
+    </div>
+{:else}
+    {@render children?.()}
+{/if}

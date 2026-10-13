@@ -1,0 +1,417 @@
+import { render, screen, fireEvent, waitFor } from '@testing-library/svelte';
+import { createRawSnippet } from 'svelte';
+import { vi } from 'vitest';
+import Chat from '../components/Chat.svelte';
+import { ApiError } from '../lib/api.js';
+import { chatClient, described, failure, parts, waitForAnswer } from '../lib/chat.js';
+
+/**
+ * Tests for the conversation screen and the API client it shares with
+ * Scheduled and AiConsent.
+ *
+ * What has to hold: a question is queued and followed until it is answered,
+ * then the conversation it went into is shown and handed to the application
+ * (`onopen`); a refusal is said, and the question goes back in the box; an
+ * answer is Markdown drawn **sanitised**, with the tools it read under it; and
+ * the extension points — `extra`, `message`, `aside`, `canAsk`, `onRefusal` —
+ * do what they promise, so an application never edits this file.
+ */
+
+const LIMITS = { provider: 'OpenAI', model: 'gpt-x', context_window: 1000, turns: 20, rounds: 8, question_chars: 4000, memory: 50 };
+const ANSWER = { message_id: 2, role: 'assistant', content: '**Fine**, see [the report](https://example.test/r)<script>window.bad = 1</script>', tools: [], context: 250 };
+
+/** A client answering from fixed data; every call recorded. */
+function fakeClient(overrides = {}) {
+    return {
+        list: vi.fn(async () => ({ data: { conversations: [{ conversation_id: 9, title: 'Earlier', updated_at: '2026-10-13' }], limits: LIMITS } })),
+        read: vi.fn(async () => ({ data: { messages: [{ message_id: 1, role: 'user', content: 'How is it?' }, ANSWER] } })),
+        forget: vi.fn(async () => ({ data: { deleted: true } })),
+        ask: vi.fn(async () => ({ data: { ask_id: 5, conversation_id: null } })),
+        asked: vi.fn(async () => ({ data: { status: 'answered', conversation_id: 9 } })),
+        memory: vi.fn(async () => ({ data: { memories: [{ memory_id: 3, content: 'Likes tables' }] } })),
+        forgetMemory: vi.fn(async () => ({ data: { deleted: true } })),
+        consent: vi.fn(async () => ({ data: { provider: 'openai', label: 'OpenAI', place: '', required: false, given: true } })),
+        giveConsent: vi.fn(async () => ({ data: { provider: 'deepseek', label: 'DeepSeek', place: 'China', required: true, given: true } })),
+        withdrawConsent: vi.fn(async () => ({ data: { provider: 'deepseek', label: 'DeepSeek', place: 'China', required: true, given: false } })),
+        ...overrides,
+    };
+}
+
+const FAST = { firstMs: 0, waitMs: 0 };
+
+describe('Chat', () => {
+    /**
+     * An open conversation is read and drawn: the question as typed, the answer
+     * as Markdown with anything executable removed, and the honest line under an
+     * answer that read nothing.
+     */
+    it('draws an open conversation, sanitised', async () => {
+        // Arrange / Act
+        const client = fakeClient();
+        const { container } = render(Chat, { client, conversationId: 9 });
+
+        // Assert
+        await screen.findByText('How is it?');
+        expect(client.read).toHaveBeenCalledWith(9);
+        expect(container.querySelector('.markdown strong').textContent).toBe('Fine');
+        // The reply was text nobody here wrote: its script never reaches the page.
+        expect(container.querySelector('.markdown script')).toBeNull();
+        // A link opens beside the conversation rather than leaving it.
+        expect(container.querySelector('.markdown a').getAttribute('target')).toBe('_blank');
+        expect(container.querySelector('.markdown a').getAttribute('rel')).toBe('noopener noreferrer');
+        expect(screen.getByText('No data was read for this answer')).toBeTruthy();
+        expect(screen.getByText('Earlier')).toBeTruthy();
+        expect(screen.getByText('250 / 1,000')).toBeTruthy();
+    });
+
+    /**
+     * Asking: sent with the application's `extra`, followed until answered,
+     * then the conversation it went into is shown and handed to the application.
+     */
+    it('asks, follows the question, and opens the conversation', async () => {
+        // Arrange
+        const client = fakeClient();
+        const onopen = vi.fn();
+        const extraUsed = vi.fn();
+        render(Chat, { client, onopen, extra: () => ({ draft: 4 }), extraUsed, timing: FAST });
+        const box = (await screen.findByLabelText('Your question'));
+
+        // Act
+        await fireEvent.input(box, { target: { value: 'How is it?' } });
+        await fireEvent.keyDown(box, { key: 'Enter' });
+
+        // Assert
+        await waitFor(() => expect(onopen).toHaveBeenCalledWith(9));
+        expect(client.ask).toHaveBeenCalledWith({ draft: 4, content: 'How is it?', conversation_id: null });
+        expect(client.asked).toHaveBeenCalledWith(5);
+        expect(extraUsed).toHaveBeenCalledTimes(1);
+        expect(box.value).toBe('');
+        await screen.findByText('Fine');
+    });
+
+    /** Shift+Enter is a new line, not a question. */
+    it('does not send on Shift+Enter', async () => {
+        // Arrange
+        const client = fakeClient();
+        render(Chat, { client });
+        const box = (await screen.findByLabelText('Your question'));
+        await fireEvent.input(box, { target: { value: 'Two\nlines' } });
+
+        // Act
+        await fireEvent.keyDown(box, { key: 'Enter', shiftKey: true });
+
+        // Assert
+        expect(client.ask).not.toHaveBeenCalled();
+    });
+
+    /** Answered in the request (`answer_in_request`): no ask_id, nothing to follow. */
+    it('takes an answer given in the request', async () => {
+        // Arrange
+        const client = fakeClient({ ask: vi.fn(async () => ({ data: { conversation_id: 9, message: ANSWER } })) });
+        const onopen = vi.fn();
+        render(Chat, { client, onopen });
+
+        // Act
+        await fireEvent.input((await screen.findByLabelText('Your question')), { target: { value: 'Hi' } });
+        await fireEvent.click(screen.getByRole('button', { name: 'Ask' }));
+
+        // Assert
+        await waitFor(() => expect(onopen).toHaveBeenCalledWith(9));
+        expect(client.asked).not.toHaveBeenCalled();
+    });
+
+    /**
+     * A refusal is said as the server says it, and the question goes back in
+     * the box so a retry is one press. A refusal for want of agreement brings the
+     * agreement up in place of the box.
+     */
+    it('says a refusal and gives the question back', async () => {
+        // Arrange
+        const refused = new ApiError('POST /chat failed (403)', 403, { error: 'Agree first.', consent_required: true });
+        const client = fakeClient({ ask: vi.fn(async () => { throw refused; }) });
+        render(Chat, { client });
+        const box = (await screen.findByLabelText('Your question'));
+
+        // Act
+        await fireEvent.input(box, { target: { value: 'Hi' } });
+        await fireEvent.click(screen.getByRole('button', { name: 'Ask' }));
+
+        // Assert
+        await screen.findByText('Agree first.');
+        expect(screen.getByRole('button', { name: 'I agree' })).toBeTruthy();
+    });
+
+    /** An application that says the refusal itself (an upgrade prompt) is not talked over. */
+    it('leaves a refusal the application handled to it', async () => {
+        // Arrange
+        const client = fakeClient({ ask: vi.fn(async () => { throw new ApiError('x', 402, { error: 'Upgrade.' }); }) });
+        const onRefusal = vi.fn(() => true);
+        render(Chat, { client, onRefusal });
+        const box = (await screen.findByLabelText('Your question'));
+
+        // Act
+        await fireEvent.input(box, { target: { value: 'Hi' } });
+        await fireEvent.click(screen.getByRole('button', { name: 'Ask' }));
+
+        // Assert
+        await waitFor(() => expect(onRefusal).toHaveBeenCalled());
+        expect(screen.queryByRole('alert')).toBeNull();
+        expect(box.value).toBe('Hi');
+    });
+
+    /** The worker failed: its reason is said; no answer in time is said differently. */
+    it('says why the worker did not answer, or that it took too long', async () => {
+        // Arrange
+        const failed = fakeClient({ asked: vi.fn(async () => ({ data: { status: 'failed', says: 'Out of credit.' } })) });
+        render(Chat, { client: failed, timing: FAST });
+
+        // Act
+        await fireEvent.input((await screen.findByLabelText('Your question')), { target: { value: 'Hi' } });
+        await fireEvent.click(screen.getByRole('button', { name: 'Ask' }));
+
+        // Assert
+        await screen.findByText('Out of credit.');
+        const slow = await waitForAnswer({ asked: async () => ({ data: { status: 'waiting' } }) }, 1, { tries: 2, ...FAST });
+        expect(slow).toEqual({ status: 'timeout' });
+    });
+
+    /** A document dropped on the box goes with the question, as base64. */
+    it('sends a dropped document with the question', async () => {
+        // Arrange
+        const client = fakeClient();
+        render(Chat, { client, timing: FAST });
+        const file = new File(['The brief'], 'brief.md', { type: 'text/markdown' });
+
+        // Act
+        await fireEvent.drop((await screen.findByLabelText('Your question')).closest('form'), { dataTransfer: { files: [file] } });
+        await screen.findByText('brief.md');
+        await fireEvent.click(screen.getByRole('button', { name: 'Ask' }));
+
+        // Assert
+        await waitFor(() => expect(client.ask).toHaveBeenCalled());
+        expect(client.ask.mock.calls[0][0].attachments).toEqual([{ name: 'brief.md', data: btoa('The brief') }]);
+    });
+
+    /** A file the server cannot read is refused before anything is sent. */
+    it('refuses a file it cannot read', async () => {
+        // Arrange
+        render(Chat, { client: fakeClient() });
+
+        // Act
+        await fireEvent.drop((await screen.findByLabelText('Your question')).closest('form'), { dataTransfer: { files: [new File(['x'], 'a.pdf')] } });
+
+        // Assert
+        expect((await screen.findByRole('alert')).textContent).toContain('Attach a picture');
+    });
+
+    /** Deleting asks first; the open conversation closes with it. */
+    it('deletes a conversation after asking', async () => {
+        // Arrange
+        const client = fakeClient();
+        const onopen = vi.fn();
+        render(Chat, { client, conversationId: 9, onopen });
+        await screen.findByText('How is it?');
+
+        // Act
+        await fireEvent.click(screen.getByRole('button', { name: 'Delete Earlier' }));
+        await fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+
+        // Assert
+        await waitFor(() => expect(client.forget).toHaveBeenCalledWith(9));
+        expect(onopen).toHaveBeenCalledWith(0);
+        expect(screen.getByText('Nothing asked yet.')).toBeTruthy();
+    });
+
+    /** What it remembers is shown and can be forgotten one by one; agreement can be withdrawn. */
+    it('forgets a memory and withdraws agreement', async () => {
+        // Arrange
+        const client = fakeClient({ consent: vi.fn(async () => ({ data: { label: 'DeepSeek', place: 'China', required: true, given: true } })) });
+        render(Chat, { client });
+        await screen.findByText('Likes tables');
+
+        // Act
+        await fireEvent.click(screen.getByRole('button', { name: 'Forget Likes tables' }));
+        await fireEvent.click(await screen.findByRole('button', { name: 'Withdraw — send nothing more' }));
+
+        // Assert
+        await waitFor(() => expect(screen.queryByText('Likes tables')).toBeNull());
+        expect(client.forgetMemory).toHaveBeenCalledWith(3);
+        await screen.findByRole('button', { name: 'I agree' });
+    });
+
+    /**
+     * The extension points: a `message` snippet under each answer, whose change
+     * is reported; an `aside` beside the conversation, closed with ✕; `canAsk`
+     * holding the Ask button.
+     */
+    it('draws the application’s snippets and honours canAsk', async () => {
+        // Arrange
+        const onmessagechange = vi.fn();
+        const message = createRawSnippet((one, change) => ({
+            render: () => `<button>Apply ${one().message_id}</button>`,
+            setup: (node) => node.addEventListener('click', () => change()({ applied: true })),
+        }));
+        const aside = createRawSnippet(() => ({ render: () => '<p>Draft preview</p>' }));
+        render(Chat, { client: fakeClient(), conversationId: 9, message, aside, asideOpen: true, onmessagechange, canAsk: false });
+
+        // Act
+        await fireEvent.click(await screen.findByRole('button', { name: 'Apply 2' }));
+        await fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+
+        // Assert
+        expect(onmessagechange).toHaveBeenCalledWith(2, { applied: true });
+        expect(screen.queryByText('Draft preview')).toBeNull();
+        expect(screen.getByRole('button', { name: 'Ask' }).disabled).toBe(true);
+    });
+
+    /**
+     * A server that fails is said, not hidden: a conversation that cannot be
+     * opened, a memory or conversation that cannot be forgotten, agreement that
+     * cannot be withdrawn. The side lists fall back to empty rather than break.
+     */
+    it('says what failed', async () => {
+        // Arrange
+        const broken = async () => { throw new ApiError('x', 500, { error: 'Down.' }); };
+        const client = fakeClient({
+            list: broken,
+            memory: broken,
+            read: broken,
+            consent: vi.fn(async () => ({ data: { label: 'DeepSeek', required: true, given: true } })),
+            withdrawConsent: broken,
+        });
+
+        // Act
+        render(Chat, { client, conversationId: 9 });
+
+        // Assert
+        expect((await screen.findByRole('alert')).textContent).toBe('Down.');
+        expect(screen.getByText('Nothing asked yet.')).toBeTruthy();
+        expect(screen.getByText('What it remembers (0)')).toBeTruthy();
+        await fireEvent.click(screen.getByRole('button', { name: 'Withdraw — send nothing more' }));
+        expect(screen.getByRole('alert').textContent).toBe('Down.');
+    });
+
+    /** A memory or a conversation that could not be forgotten stays, and says why. */
+    it('says when forgetting failed', async () => {
+        // Arrange
+        const client = fakeClient({ forgetMemory: async () => { throw new Error('offline'); }, forget: async () => { throw new Error('offline'); } });
+        render(Chat, { client });
+
+        // Act
+        await fireEvent.click(await screen.findByRole('button', { name: 'Forget Likes tables' }));
+        const memoryFailed = (await screen.findByRole('alert')).textContent;
+        await fireEvent.click(screen.getByRole('button', { name: 'Delete Earlier' }));
+        await fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+
+        // Assert
+        expect(memoryFailed).toBe('It could not be forgotten.');
+        await waitFor(() => expect(screen.getByRole('alert').textContent).toBe('It could not be deleted.'));
+        expect(screen.getByText('Likes tables')).toBeTruthy();
+    });
+
+    /**
+     * Files: picked, or a picture pasted with no name of its own (named, so two
+     * are told apart); no more than ten, and no more than 5 MB together.
+     */
+    it('takes picked and pasted files, within the limits', async () => {
+        // Arrange
+        render(Chat, { client: fakeClient() });
+        const box = await screen.findByLabelText('Your question');
+        const picker = screen.getAllByLabelText('Attach a document').find((el) => el.tagName === 'INPUT');
+        const form = box.closest('form');
+
+        // Act — a pasted picture, twice; text pasted is left to the box
+        const image = new File(['png'], 'image', { type: 'image/png' });
+        await fireEvent.paste(box, { clipboardData: { files: [image] } });
+        await fireEvent.paste(box, { clipboardData: { files: [image] } });
+        await fireEvent.paste(box, { clipboardData: { files: [] } });
+        await fireEvent.dragOver(form);
+        await fireEvent.dragLeave(form, { relatedTarget: null });
+
+        // Assert
+        expect(await screen.findByText('pasted.png')).toBeTruthy();
+        expect(await screen.findByText('pasted-2.png')).toBeTruthy();
+
+        // Act — too large, then picked up to the limit and one more
+        await fireEvent.drop(form, { dataTransfer: { files: [new File([new Uint8Array(5_000_001)], 'big.txt')] } });
+        expect(screen.getByRole('alert').textContent).toContain('too large');
+        const many = Array.from({ length: 9 }, (_, i) => new File(['x'], `n${i}.txt`));
+        Object.defineProperty(picker, 'files', { value: many, configurable: true });
+        await fireEvent.change(picker);
+        await screen.findByText('n7.txt');
+        await fireEvent.drop(form, { dataTransfer: { files: [new File(['x'], 'one-more.txt')] } });
+
+        // Assert
+        await waitFor(() => expect(screen.getByRole('alert').textContent).toBe('Up to 10 files with one question.'));
+        await fireEvent.click(screen.getByRole('button', { name: 'Remove n0.txt' }));
+        expect(screen.queryByText('n0.txt')).toBeNull();
+    });
+
+    /** A suggestion fills the box rather than asking; a new conversation is handed to the application. */
+    it('fills the box from a suggestion, and starts anew', async () => {
+        // Arrange
+        const client = fakeClient();
+        const onopen = vi.fn();
+        render(Chat, { client, onopen, suggestions: ['When is my audience online?'] });
+
+        // Act
+        await fireEvent.click(await screen.findByRole('button', { name: 'When is my audience online?' }));
+        await fireEvent.click(screen.getByRole('button', { name: 'New conversation' }));
+        await fireEvent.click(screen.getByRole('button', { name: /^Earlier/ }));
+
+        // Assert
+        expect(screen.getByLabelText('Your question').value).toBe('When is my audience online?');
+        expect(client.ask).not.toHaveBeenCalled();
+        expect(onopen.mock.calls).toEqual([[0], [9]]);
+    });
+
+    /** Every string goes through `t`, so an application's language reaches the screen. */
+    it('translates through t', async () => {
+        // Arrange / Act
+        render(Chat, { client: fakeClient(), t: (s, ...a) => `«${s}»${a.join('')}` });
+
+        // Assert
+        expect(await screen.findByRole('button', { name: '«New conversation»' })).toBeTruthy();
+    });
+});
+
+describe('lib/chat.js', () => {
+    /** The paths are the API's defaults, and an application's mount overrides them. */
+    it('calls the API at its paths', async () => {
+        // Arrange
+        const api = { get: vi.fn(async () => ({})), post: vi.fn(async () => ({})), put: vi.fn(async () => ({})), delete: vi.fn(async () => ({})) };
+        const chat = chatClient(api, { consent: '/ai/consent', routines: '/routines' });
+
+        // Act
+        await chat.read(1);
+        await chat.asked(2);
+        await chat.forgetMemory(3);
+        await chat.updateRoutine(4, { active: false });
+        await chat.runRoutine(4);
+        await chat.giveConsent();
+        await chat.withdrawConsent();
+
+        // Assert
+        expect(api.get.mock.calls.map((c) => c[0])).toEqual(['/chat/1', '/chat/asks/2']);
+        expect(api.delete.mock.calls.map((c) => c[0])).toEqual(['/chat/memory/3', '/ai/consent']);
+        expect(api.put).toHaveBeenCalledWith('/routines/4', { active: false });
+        expect(api.post.mock.calls.map((c) => c[0])).toEqual(['/routines/4/run', '/ai/consent']);
+    });
+
+    /** A question kept with its document splits into what was said, the file and its words. */
+    it('splits a question from its document', () => {
+        // Act / Assert
+        expect(parts('Read this\n---\n📎 brief.md\n\nThe brief')).toEqual({ said: 'Read this', file: 'brief.md', body: 'The brief' });
+        expect(parts('---\n📎 a.md')).toEqual({ said: '', file: 'a.md', body: '' });
+        expect(parts('Plain')).toEqual({ said: 'Plain', file: null, body: '' });
+    });
+
+    /** A tool is named with what it was asked; the server's `error` is what a failure says. */
+    it('describes a tool and a failure', () => {
+        // Act / Assert
+        expect(described({ name: 'best-posts', arguments: { days: 30, on: { a: 1 } } })).toBe('best-posts (days: 30, on: {"a":1})');
+        expect(described({ name: 'today' })).toBe('today');
+        expect(failure(new ApiError('x', 409, { error: 'Paused.' }), 'fallback')).toBe('Paused.');
+        expect(failure(new Error('network'), 'fallback')).toBe('fallback');
+    });
+});

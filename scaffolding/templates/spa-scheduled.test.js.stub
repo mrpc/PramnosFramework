@@ -1,0 +1,114 @@
+import { render, screen, fireEvent, waitFor } from '@testing-library/svelte';
+import { vi } from 'vitest';
+import Scheduled from '../components/Scheduled.svelte';
+import { ApiError } from '../lib/api.js';
+
+/**
+ * Tests for Scheduled reports.
+ *
+ * What has to hold: the routines are listed with when they run; a template
+ * fills the form rather than saving; a new one is sent with the day only when
+ * the cadence has one; pausing, running and deleting go to the API and the list
+ * is read again; and a refusal (a plan that allows no more) is said as the
+ * server says it.
+ */
+
+const WEEKLY = { routine_id: 1, title: 'Monday numbers', cadence: 'weekly', day: 1, at: '08:00', active: true, next_run_local: 'Mon 19 Oct 2026, 08:00', conversation_id: 9, last_error: null };
+const PAUSED = { routine_id: 2, title: 'Month end', cadence: 'monthly', day: 28, at: '18:00', active: false, conversation_id: null, last_error: 'Out of credit.' };
+
+function fakeClient(overrides = {}) {
+    return {
+        routines: vi.fn(async () => ({ data: {
+            routines: [WEEKLY, PAUSED],
+            templates: { weekly: { title: 'Weekly summary', prompt: 'Summarise my week', cadence: 'weekly', at: '09:00', day: 5 } },
+            cadences: ['daily', 'weekly', 'monthly'],
+        } })),
+        createRoutine: vi.fn(async () => ({ data: {} })),
+        updateRoutine: vi.fn(async () => ({ data: {} })),
+        runRoutine: vi.fn(async () => ({ data: {} })),
+        deleteRoutine: vi.fn(async () => ({ data: {} })),
+        ...overrides,
+    };
+}
+
+describe('Scheduled', () => {
+    /** Each routine says when it runs; a paused one says so, with its last error. */
+    it('lists the routines and when they run', async () => {
+        // Arrange
+        const onopen = vi.fn();
+
+        // Act
+        render(Scheduled, { client: fakeClient(), onopen });
+
+        // Assert
+        expect(await screen.findByText('Every Monday at 08:00 · next: Mon 19 Oct 2026, 08:00')).toBeTruthy();
+        expect(screen.getByText('Monthly on day 28 at 18:00')).toBeTruthy();
+        expect(screen.getByText('Paused')).toBeTruthy();
+        expect(screen.getByText('Out of credit.')).toBeTruthy();
+        await fireEvent.click(screen.getByRole('button', { name: 'Open' }));
+        expect(onopen).toHaveBeenCalledWith(9);
+    });
+
+    /** A template fills the form; the person still presses Schedule. A daily one carries no day. */
+    it('fills the form from a template, and creates', async () => {
+        // Arrange
+        const client = fakeClient();
+        render(Scheduled, { client });
+
+        // Act
+        await fireEvent.click(await screen.findByRole('button', { name: 'Weekly summary' }));
+        expect(client.createRoutine).not.toHaveBeenCalled();
+        await fireEvent.click(screen.getByRole('button', { name: 'Schedule' }));
+        await waitFor(() => expect(client.createRoutine).toHaveBeenCalledTimes(1));
+        await fireEvent.input(screen.getByLabelText('Title'), { target: { value: 'Daily' } });
+        await fireEvent.input(screen.getByLabelText('What to ask'), { target: { value: 'Anything new?' } });
+        await fireEvent.change(screen.getByLabelText('How often'), { target: { value: 'daily' } });
+        await fireEvent.click(screen.getByRole('button', { name: 'Schedule' }));
+
+        // Assert
+        await waitFor(() => expect(client.createRoutine).toHaveBeenCalledTimes(2));
+        expect(client.createRoutine.mock.calls[0][0]).toMatchObject({ template: 'weekly', title: 'Weekly summary', day: 5, at: '09:00' });
+        expect(client.createRoutine.mock.calls[1][0]).toMatchObject({ title: 'Daily', cadence: 'daily', day: null });
+        expect(client.routines).toHaveBeenCalledTimes(3);
+    });
+
+    /** Resume, run now and delete go to the API, with the routine they are about. */
+    it('resumes, runs and deletes', async () => {
+        // Arrange
+        const client = fakeClient({ updateRoutine: vi.fn(async () => { throw new ApiError('x', 409, { error: 'Your plan allows one.' }); }) });
+        render(Scheduled, { client });
+
+        // Act
+        await fireEvent.click(await screen.findByRole('button', { name: 'Resume' }));
+        await fireEvent.click(screen.getAllByRole('button', { name: 'Run now' })[0]);
+        await fireEvent.click(screen.getByRole('button', { name: 'Delete Monday numbers' }));
+        await fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+
+        // Assert
+        expect(client.updateRoutine).toHaveBeenCalledWith(2, { active: true });
+        await waitFor(() => expect(client.deleteRoutine).toHaveBeenCalledWith(1));
+        expect(client.runRoutine).toHaveBeenCalledWith(1);
+    });
+
+    /** A refusal stays on screen. */
+    it('says a refusal', async () => {
+        // Arrange
+        const client = fakeClient({ updateRoutine: vi.fn(async () => { throw new ApiError('x', 409, { error: 'Your plan allows one.' }); }) });
+        render(Scheduled, { client });
+
+        // Act
+        await fireEvent.click(await screen.findByRole('button', { name: 'Resume' }));
+
+        // Assert
+        expect((await screen.findByRole('alert')).textContent).toBe('Your plan allows one.');
+    });
+
+    /** A list that cannot be read says so instead of looking empty. */
+    it('says when the list cannot be read', async () => {
+        // Arrange / Act
+        render(Scheduled, { client: fakeClient({ routines: async () => { throw new Error('offline'); } }) });
+
+        // Assert
+        expect((await screen.findByRole('alert')).textContent).toBe('Scheduled reports could not be read.');
+    });
+});

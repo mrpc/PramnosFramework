@@ -107,6 +107,37 @@ class Init extends Command
         '__tests__/router.test.js'        => 'spa-router.test.js',
     ];
 
+    /**
+     * The conversation screens over `Pramnos\Llm\Chat\Api` — Chat, Scheduled reports and the
+     * agreement — with what they share and their tests.
+     *
+     * Only for a Svelte SPA with the `llm` feature: at init, and by
+     * `project:resync --spa-components`. Never by `create:crud`, which has nothing to do with
+     * them. They draw an answer with {@see self::SPA_CHAT_PACKAGES}.
+     *
+     * @var array<string, string>
+     */
+    public const SPA_CHAT_COMPONENTS = [
+        'components/Chat.svelte'      => 'spa-chat.svelte',
+        'components/Scheduled.svelte' => 'spa-scheduled.svelte',
+        'components/AiConsent.svelte' => 'spa-ai-consent.svelte',
+        'lib/chat.js'                 => 'spa-chat.js',
+        'lib/markdown.js'             => 'spa-markdown.js',
+        '__tests__/Chat.test.js'      => 'spa-chat.test.js',
+        '__tests__/Scheduled.test.js' => 'spa-scheduled.test.js',
+        '__tests__/AiConsent.test.js' => 'spa-ai-consent.test.js',
+    ];
+
+    /**
+     * Markdown to HTML, and the sanitiser that makes a model's HTML safe to draw.
+     *
+     * @var array<string, string>
+     */
+    public const SPA_CHAT_PACKAGES = [
+        'dompurify' => '^3.4.0',
+        'marked'    => '^18.0.0',
+    ];
+
     /** Target directory for scaffolding. */
     public string $targetBaseDir = '';
 
@@ -1735,8 +1766,54 @@ class Init extends Command
             $this->scaffoldSpaBuildlessStack($sourceDir, $tokens);
         }
 
+        if ($spaStack === 'svelte' && in_array('llm', $features, true)) {
+            $this->scaffoldSpaChat($sourceDir);
+        }
+
         $this->scaffoldSpaRouting($appStyle, $shellFile, self::mvcRoutePrefixes($features), $features);
         $this->scaffoldSpaGitignore($needsBuild);
+    }
+
+    /**
+     * The conversation screens and the two packages they need, after package.json exists.
+     *
+     * @param string $sourceDir Front-end source root, relative
+     */
+    private function scaffoldSpaChat(string $sourceDir): void
+    {
+        foreach (self::SPA_CHAT_COMPONENTS as $relative => $stub) {
+            $this->writeFile($sourceDir . '/' . $relative, $this->renderStub($stub, []));
+        }
+
+        $path = $this->targetBaseDir . '/package.json';
+
+        if (is_file($path) && !$this->skipWrite('package.json')) {
+            $pkg = json_decode((string) file_get_contents($path), true) ?: [];
+            file_put_contents($path, json_encode(self::mergeChatPackageJson($pkg), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
+        }
+    }
+
+    /**
+     * Add {@see self::SPA_CHAT_PACKAGES} to a package.json array, leaving a version the project
+     * already chose — in either list — alone.
+     *
+     * @param  array<string, mixed> $pkg
+     * @return array<string, mixed>
+     */
+    public static function mergeChatPackageJson(array $pkg): array
+    {
+        $dev = $pkg['devDependencies'] ?? [];
+
+        foreach (self::SPA_CHAT_PACKAGES as $name => $version) {
+            if (!isset($pkg['dependencies'][$name])) {
+                $dev[$name] ??= $version;
+            }
+        }
+
+        ksort($dev);
+        $pkg['devDependencies'] = $dev;
+
+        return $pkg;
     }
 
     /**
@@ -9261,6 +9338,31 @@ class Ai extends FrameworkAiController
 PHP;
 
         $this->writeFile('src/Admin/Controllers/Ai.php', $controller);
+
+        // And the conversations themselves, for the people using the application.
+        $this->mkdir('src/Controllers');
+
+        $page = <<<PHP
+<?php
+
+declare(strict_types=1);
+
+namespace {$namespace}\\Controllers;
+
+use Pramnos\\Llm\\Chat\\Web\\ChatPageController;
+
+/**
+ * Conversations with a model — `/chat`.
+ *
+ * Delegates to the framework page. Override its hooks here — beforeAsk(), storePicture(),
+ * extra() — and give the conversations an assistant with `'llm' => ['chat' => ['assistant' => …]]`.
+ */
+class Chat extends ChatPageController
+{
+}
+PHP;
+
+        $this->writeFile('src/Controllers/Chat.php', $page);
     }
 
     private function scaffoldMassMessagesWiring(string $namespace): void

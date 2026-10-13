@@ -1511,6 +1511,13 @@ class Application extends Base
             badge: static fn (int $userId): int
                 => \Pramnos\Messaging\Controllers\MessagesController::unreadCount($userId),
         ));
+
+        // Conversations with a model — llm feature.
+        NavRegistry::register(new NavItem(
+            'user.chat', 'Ask AI', $base . 'chat',
+            NavSection::User, 6, requireAuth: true, feature: 'llm', icon: 'sparkles',
+        ));
+
         NavRegistry::register(new NavItem(
             'user.logout', 'Logout', $base . 'login/logout',
             NavSection::User, 99, requireAuth: true,

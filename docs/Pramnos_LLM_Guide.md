@@ -9,6 +9,7 @@ use_cases:
   - Scheduling a question to a model every morning, as its owner
   - Asking users' agreement before their data goes to a provider
   - Turning an attached Word, OpenDocument or email file into text for a model
+  - Adding an Ask AI page, widget or SPA screen to an application
 ---
 
 # Language models
@@ -365,3 +366,106 @@ A call for a person needs that person's agreement; a background call with no per
 anybody's in the organisation; a call with neither is refused — unless
 `'consent_options' => ['allow_without_organization' => true]` says calls outside an organisation
 carry nobody's data.
+
+## Screens for conversations
+
+Three ways to put conversations in front of people, all over the same hooks.
+
+### The JSON API
+
+One line in the application's API routes mounts every endpoint:
+
+```php
+\Pramnos\Llm\Chat\Api\Routes::register($router);
+
+// An application's own controller, and paths of its own for some of them
+\Pramnos\Llm\Chat\Api\Routes::register($router, App\Api\Chat::class, [
+    'routines' => '/routines',
+    'consent'  => '/ai/consent',
+]);
+```
+
+| path (default) | |
+|---|---|
+| `GET /chat` | this person's conversations, and the limits a screen shows |
+| `POST /chat` | ask — `content`, `conversation_id`, `attachments: [{name, data}]` with the bytes in base64; 202 with `ask_id`, or 200 with the answer under `answer_in_request` |
+| `GET /chat/{id}`, `DELETE /chat/{id}` | one conversation with its messages; forget it |
+| `GET /chat/asks/{id}` | a queued question: `waiting`, `answered` with its `conversation_id`, or `failed` with `says` |
+| `GET /chat/memory`, `DELETE /chat/memory/{id}` | what it remembers; forget one |
+| `GET`/`POST /chat/routines`, `PUT`/`DELETE /chat/routines/{id}`, `POST /chat/routines/{id}/run` | scheduled questions, with the templates and cadences; `active` in a `PUT` pauses or resumes |
+| `GET`/`POST`/`DELETE /chat/consent` | the provider in use, whether it needs agreement and whether it was given; agree; withdraw |
+
+A refusal is `{status, error}`; one for want of agreement adds `consent_required` and `provider`,
+so a screen can ask on the spot. Each decision an application makes is a protected method of
+`Chat\Api\ChatController`, overridden in a subclass:
+
+| hook | |
+|---|---|
+| `refusal($action)` | called first by every action; a response stops it — a plan that does not include it |
+| `beforeAsk($scope, $input)` | after the agreement check: a limit, a charge |
+| `storePicture($path, $filename)` | keep an attached picture and answer its address; without it pictures are not kept |
+| `extra($input)` | what travels with the question to the assistant's `question()` |
+| `limits($scope)` | the limits the screen shows — add this month's use |
+| `scope()`, `conversations()`, `asks()`, `routineService()` | where everything comes from |
+
+### The page, without a SPA
+
+`init --features=…,llm` writes `src/Controllers/Chat.php`, extending
+`Chat\Web\ChatPageController`, with views in each theme under `views/chat/`. `/chat` lists the
+conversations, shows one, and asks. The question is queued and the page follows it: with
+`assets/js/pf-chat.js` it waits in place and opens the conversation once answered; without
+JavaScript the page refreshes itself until the answer is there. Answers are drawn by
+`Chat\Markdown::toHtml()`, which escapes first. The hooks are the API's — `beforeAsk()`,
+`storePicture()`, `extra()`, `scope()` — and a refusal comes back as the page's error message.
+
+A question from anywhere on the site: include the widget in the layout. It is drawn only for
+somebody signed in.
+
+```php
+<?php $this->insert('../partials/chat_widget'); ?>
+```
+
+### The SPA components
+
+A Svelte SPA with the `llm` feature gets `components/Chat.svelte`, `Scheduled.svelte` and
+`AiConsent.svelte`, with `lib/chat.js` (the API client and what the screens share),
+`lib/markdown.js` (`marked`, then DOMPurify) and their tests. An existing project takes them with
+`./pramnos project:resync --spa-components --all`, which adds `marked` and `dompurify` to
+package.json. They are the project's files from then on.
+
+```svelte
+<script>
+    import Chat from '../components/Chat.svelte';
+    import { go } from '../lib/router.js';
+
+    let { route = null } = $props();
+</script>
+
+<Chat
+    conversationId={Number(route?.query?.get('c')) || 0}
+    onopen={(id) => go('/chat', id ? { c: id } : null, { replace: true })}
+    scheduledHref="/scheduled"
+    paths={{ routines: '/routines', consent: '/ai/consent' }}
+/>
+```
+
+`Chat` keeps no address of its own: the open conversation comes in as `conversationId` and goes
+out through `onopen(id)`. Everything else an application changes without editing the file:
+
+| prop | |
+|---|---|
+| `client`, or `api` and `paths` | the API: `chatClient(api, paths)` from `lib/chat.js` by default |
+| `extra` | an object, or a function returning one, sent with each question; `extraUsed()` once it went |
+| `canAsk`, `onRefusal(err)` | hold the Ask button; take a refusal — return `true` when the application said it itself |
+| `suggestions` | questions that fill the box when pressed — they do not ask |
+| `toolLabel(tool)` | how a tool an answer read is named under it |
+| `t` | the translator — every string goes through it, `lib/i18n.svelte.js`'s by default |
+| `header` (snippet) | the title, in place of *Ask AI* |
+| `message(message, change)` (snippet) | drawn under each answer; `change(patch)` updates the message and calls `onmessagechange(id, patch)` |
+| `composer` (snippet) | beside the Ask button: a cost, what the question is about |
+| `aside` (snippet), `asideOpen` (bindable) | a panel beside the conversation from `lg`, over it below that, closed with ✕ |
+
+`AiConsent` wraps what needs agreement and draws nothing of it until agreement is given, when the
+provider in use asks for it; its `consent` is bindable. `Scheduled` lists, creates from a template
+or by hand, pauses, runs and deletes scheduled questions, and opens a routine's conversation with
+`onopen(id)`.

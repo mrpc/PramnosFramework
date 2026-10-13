@@ -1,0 +1,71 @@
+import { render, screen, fireEvent } from '@testing-library/svelte';
+import { createRawSnippet } from 'svelte';
+import { vi } from 'vitest';
+import AiConsent from '../components/AiConsent.svelte';
+import { ApiError } from '../lib/api.js';
+
+/**
+ * Tests for the agreement asked before the first question.
+ *
+ * What has to hold: with a provider that needs no agreement, what it wraps is
+ * simply drawn; with one that does, nothing it wraps is drawn until the person
+ * agrees — no box, no button that could send — and a read that fails is not
+ * taken for agreement.
+ */
+
+const children = createRawSnippet(() => ({ render: () => '<p>The box</p>' }));
+const NEEDED = { provider: 'deepseek', label: 'DeepSeek', place: 'China', required: true, given: false };
+
+describe('AiConsent', () => {
+    /** A provider that needs no agreement asks nothing. */
+    it('draws what it wraps when nothing is needed', async () => {
+        // Arrange / Act
+        render(AiConsent, { client: { consent: async () => ({ data: { ...NEEDED, required: false } }) }, children });
+
+        // Assert
+        expect(await screen.findByText('The box')).toBeTruthy();
+    });
+
+    /** Until agreed, the box is not there; agreeing brings it. */
+    it('holds what it wraps until the person agrees', async () => {
+        // Arrange
+        const client = { consent: async () => ({ data: NEEDED }), giveConsent: vi.fn(async () => ({ data: { ...NEEDED, given: true } })) };
+        const ondecline = vi.fn();
+        render(AiConsent, { client, children, ondecline, privacyUrl: '/privacy', feature: 'Ask AI' });
+
+        // Act
+        const agree = await screen.findByRole('button', { name: 'I agree' });
+        expect(screen.queryByText('The box')).toBeNull();
+        expect(screen.getByText('Ask AI uses DeepSeek, an AI provider in China.')).toBeTruthy();
+        await fireEvent.click(screen.getByRole('button', { name: 'Not now' }));
+        await fireEvent.click(agree);
+
+        // Assert
+        expect(await screen.findByText('The box')).toBeTruthy();
+        expect(ondecline).toHaveBeenCalledTimes(1);
+    });
+
+    /** Unknown is not agreement: a read that fails shows the notice. */
+    it('shows the notice when the state cannot be read', async () => {
+        // Arrange / Act
+        render(AiConsent, { client: { consent: async () => { throw new Error('offline'); } }, children });
+
+        // Assert
+        expect(await screen.findByRole('button', { name: 'I agree' })).toBeTruthy();
+        expect(screen.queryByText('The box')).toBeNull();
+    });
+
+    /** Agreement that could not be saved says so, and the box stays away. */
+    it('says when agreement could not be saved', async () => {
+        // Arrange
+        const client = { consent: async () => ({ data: { ...NEEDED, place: '' } }), giveConsent: async () => { throw new ApiError('x', 500, null); } };
+        render(AiConsent, { client, children });
+
+        // Act
+        await fireEvent.click(await screen.findByRole('button', { name: 'I agree' }));
+
+        // Assert
+        expect((await screen.findByRole('alert')).textContent).toBe('It could not be saved. Try again.');
+        expect(screen.getByText('This feature uses DeepSeek.')).toBeTruthy();
+    });
+});

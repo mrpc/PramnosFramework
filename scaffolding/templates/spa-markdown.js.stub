@@ -1,0 +1,25 @@
+/**
+ * Markdown to safe HTML, for text a model wrote.
+ *
+ * `marked` for the parsing (GitHub-flavoured: tables, lists, code) and DOMPurify
+ * for the part that matters — a model's reply is text nobody here wrote, and it
+ * is drawn with `{@html}`. Links open in a new tab, so following one does not
+ * leave the conversation.
+ */
+import { marked } from 'marked';
+import DOMPurify from 'dompurify';
+
+DOMPurify.addHook('afterSanitizeAttributes', (node) => {
+    if (node.tagName === 'A') {
+        node.setAttribute('target', '_blank');
+        node.setAttribute('rel', 'noopener noreferrer');
+    }
+});
+
+/**
+ * @param {string|null|undefined} text
+ * @returns {string} HTML, sanitised
+ */
+export function markdown(text) {
+    return DOMPurify.sanitize(marked.parse(text ?? '', { gfm: true, breaks: true, async: false }));
+}

@@ -1,0 +1,587 @@
+<script>
+    /**
+     * Conversations with a model — the screen over the conversation API
+     * (`Pramnos\Llm\Chat\Api\Routes`).
+     *
+     * The conversations down the side, one open, and a box to ask in. A question
+     * is queued and followed until the worker has answered it; an application
+     * that answers in the request (`answer_in_request`) gets the answer at once.
+     * Under each answer, which tools it read and with what — an answer that read
+     * none was written without the application's data, and says so.
+     *
+     * The open conversation is the application's to keep, usually in the address:
+     * `conversationId` in, `onopen(id)` out.
+     *
+     * Made to be extended without editing it:
+     *   - `header`   — the title and the sentence under it
+     *   - `message`  — drawn under each answer: `(message, change)`, where
+     *                  `change(patch)` updates it here and calls `onmessagechange`
+     *   - `composer` — beside Ask: a cost, the thing a question is about
+     *   - `aside`    — a panel beside the conversation (`asideOpen`, bindable):
+     *                  side by side from `lg`, over it below that, with ✕
+     *   - `extra`    — what travels with each question, an object or a function
+     *                  returning one; `extraUsed()` is called once it went
+     *   - `canAsk`, `onRefusal(err)` — a plan that says no, before and after
+     *   - `t`        — the translator; every string goes through it
+     */
+    import { untrack } from 'svelte';
+    import { t as translate } from '../lib/i18n.svelte.js';
+    import { described, failure, parts, resolveClient, waitForAnswer } from '../lib/chat.js';
+    import { markdown } from '../lib/markdown.js';
+    import AiConsent from './AiConsent.svelte';
+    import ConfirmDialog from './ConfirmDialog.svelte';
+
+    let {
+        client = null,
+        api = null,
+        paths = {},
+        conversationId = 0,
+        onopen = null,
+        /** Where Scheduled reports lives; without it there is no link. */
+        scheduledHref = '',
+        suggestions = [],
+        extra = null,
+        extraUsed = null,
+        canAsk = true,
+        /** A refusal from the server; true when the application has said it itself. */
+        onRefusal = null,
+        onmessagechange = null,
+        /** The label of a tool the answer read; `described()` by default. */
+        toolLabel = described,
+        asideOpen = $bindable(false),
+        privacyUrl = '',
+        t = translate,
+        /** Waiting, in milliseconds — for a test, which has none to spare. */
+        timing = {},
+        header = null,
+        message: messageExtra = null,
+        composer = null,
+        aside = null,
+    } = $props();
+
+    const chat = $derived(resolveClient(client, api, paths));
+
+    /** Word, OpenDocument, text, Markdown, saved email and pictures — what the server reads. */
+    const DOCUMENTS = '.docx,.odt,.txt,.md,.eml,.jpg,.jpeg,.png,.gif,.webp';
+    const FILES = 10;
+    const MAX_BYTES = 5_000_000;
+    const LONG_MS = 60000;
+
+    let conversations = $state([]);
+    let memories = $state([]);
+    let limits = $state(null);
+    let consent = $state({ loaded: false, required: false, given: false, provider: '', label: '', place: '' });
+    let messages = $state([]);
+    let question = $state('');
+    /** `{name, data}`, the bytes as base64. */
+    let attachments = $state([]);
+    let asking = $state(false);
+    let waiting = $state(false);
+    let waitedMs = $state(0);
+    let loading = $state(false);
+    let error = $state(null);
+    let forgetting = $state(null);
+    let dragging = $state(false);
+    let picker = $state(null);
+    let box = $state(null);
+    let thread = $state(null);
+    /** The conversation `messages` belongs to, so an answer does not reload what it just drew. */
+    let shown = $state(0);
+
+    $effect(() => {
+        list();
+        remembered();
+    });
+
+    $effect(() => {
+        const id = Number(conversationId) || 0;
+
+        // Only `conversationId` drives this: the screen moving on by itself (a first
+        // answer, a deletion) is reported through `onopen`, not undone here.
+        if (id !== untrack(() => shown)) {
+            open(id);
+        }
+    });
+
+    $effect(() => {
+        // Keep the latest turn in view as the conversation grows.
+        messages.length;
+        asking;
+        thread?.lastElementChild?.scrollIntoView?.({ block: 'end' });
+    });
+
+    $effect(() => {
+        if (!asking) {
+            waitedMs = 0;
+
+            return undefined;
+        }
+
+        const started = Date.now();
+        const timer = setInterval(() => (waitedMs = Date.now() - started), 1000);
+
+        return () => clearInterval(timer);
+    });
+
+    async function list() {
+        try {
+            const found = await chat.list();
+            conversations = found.data?.conversations ?? [];
+            limits = found.data?.limits ?? null;
+        } catch {
+            conversations = [];
+        }
+    }
+
+    /** What it remembers — read again after each answer, which may have added to it. */
+    async function remembered() {
+        try {
+            memories = (await chat.memory()).data?.memories ?? [];
+        } catch {
+            memories = [];
+        }
+    }
+
+    async function unremember(id) {
+        try {
+            await chat.forgetMemory(id);
+            memories = memories.filter((one) => one.memory_id !== id);
+        } catch (err) {
+            error = failure(err, t('It could not be forgotten.'));
+        }
+    }
+
+    async function open(id) {
+        shown = id;
+        error = null;
+        messages = [];
+
+        if (!id) {
+            return;
+        }
+
+        loading = true;
+
+        try {
+            messages = (await chat.read(id)).data?.messages ?? [];
+        } catch (err) {
+            error = failure(err, t('That conversation could not be opened.'));
+        } finally {
+            loading = false;
+        }
+    }
+
+    /** Show conversation `id` and tell the application, which keeps it in the address. */
+    function opened(id) {
+        shown = id;
+        onopen?.(id);
+    }
+
+    async function attach(event) {
+        const files = [...(event.currentTarget.files ?? [])];
+        event.currentTarget.value = '';
+
+        for (const file of files) {
+            await take(file);
+        }
+    }
+
+    async function dropped(event) {
+        event.preventDefault();
+        dragging = false;
+
+        for (const file of [...(event.dataTransfer?.files ?? [])]) {
+            await take(file);
+        }
+    }
+
+    /** A picture pasted into the box is attached; a copied one often has no name. */
+    async function pasted(event) {
+        const files = [...(event.clipboardData?.files ?? [])].filter((one) => one.type.startsWith('image/'));
+
+        if (files.length === 0) {
+            return;
+        }
+
+        event.preventDefault();
+
+        for (const file of files) {
+            await take(/\.(jpe?g|png|gif|webp)$/i.test(file.name) ? file : new File([file], `pasted.${file.type.split('/')[1] || 'png'}`, { type: file.type }));
+        }
+    }
+
+    async function take(file) {
+        if (!DOCUMENTS.split(',').some((type) => file.name.toLowerCase().endsWith(type))) {
+            error = t('Attach a picture, or a Word (.docx), OpenDocument (.odt), text, Markdown or saved email (.eml) file.');
+
+            return;
+        }
+
+        if (attachments.length >= FILES) {
+            error = t('Up to %s files with one question.', FILES);
+
+            return;
+        }
+
+        const held = attachments.reduce((sum, one) => sum + one.data.length * 0.75, 0);
+
+        if (held + file.size > MAX_BYTES) {
+            error = t('That is too large — up to 5 MB, all the files together.');
+
+            return;
+        }
+
+        // As a data: address, whose part after the comma is the file in base64.
+        const data = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(String(reader.result).split(',')[1] ?? '');
+            reader.onerror = () => reject(reader.error);
+            reader.readAsDataURL(file);
+        });
+
+        // Two pasted pictures are both "pasted.png": numbered, so each is its own.
+        const taken = attachments.filter((one) => one.name === file.name).length;
+        const name = taken === 0 ? file.name : file.name.replace(/(\.[^.]+)?$/, (ext) => `-${taken + 1}${ext}`);
+        attachments.push({ name, data });
+        error = null;
+    }
+
+    async function ask(what) {
+        const said = (what ?? question).trim();
+        const sent = what === undefined && attachments.length > 0 ? [...attachments] : null;
+
+        if ((said === '' && !sent) || asking || !canAsk) {
+            return;
+        }
+
+        const open = Number(conversationId) || shown || 0;
+        messages.push({ role: 'user', content: sent ? `${said}\n---\n📎 ${sent.map((one) => one.name).join(', ')}` : said });
+        question = '';
+        attachments = [];
+        asking = true;
+        error = null;
+        let outcome;
+
+        try {
+            const more = typeof extra === 'function' ? extra() : (extra ?? {});
+            const queued = await chat.ask({
+                ...more,
+                content: said,
+                conversation_id: open || null,
+                ...(sent ? { attachments: sent.map((one) => ({ name: one.name, data: one.data })) } : {}),
+            });
+            extraUsed?.();
+
+            if (queued.data?.ask_id) {
+                const done = await waitForAnswer(chat, queued.data.ask_id, { ...timing, onwaiting: (still) => (waiting = still) });
+                outcome = done.status === 'answered' ? done.conversation_id
+                    : done.status === 'failed' ? (done.says || t('The AI could not answer.'))
+                    : false;
+            } else {
+                outcome = queued.data?.conversation_id;
+            }
+
+            if (typeof outcome === 'number') {
+                messages = (await chat.read(outcome)).data?.messages ?? messages;
+
+                if (outcome !== open) {
+                    opened(outcome);
+                }
+            }
+        } catch (err) {
+            if (err?.payload?.consent_required) {
+                consent = { ...consent, required: true, given: false };
+            }
+
+            outcome = onRefusal?.(err) === true ? '' : failure(err, t('The AI could not answer.'));
+        } finally {
+            asking = false;
+            waiting = false;
+        }
+
+        if (typeof outcome === 'number') {
+            list();
+            remembered();
+
+            return;
+        }
+
+        // The question goes back in the box, so a retry is one press.
+        messages.pop();
+        question = said;
+        attachments = sent ?? [];
+        error = outcome === false ? t('It is taking longer than usual, and no answer arrived. Ask again to try once more.') : (outcome || null);
+    }
+
+    async function forget() {
+        const id = forgetting;
+
+        try {
+            await chat.forget(id);
+            conversations = conversations.filter((one) => one.conversation_id !== id);
+
+            if (id === shown) {
+                messages = [];
+                opened(0);
+            }
+        } catch (err) {
+            error = failure(err, t('It could not be deleted.'));
+        } finally {
+            forgetting = null;
+        }
+    }
+
+    async function withdraw() {
+        try {
+            consent = { ...(await chat.withdrawConsent()).data, loaded: true };
+        } catch (err) {
+            error = failure(err, t('It could not be saved. Try again.'));
+        }
+    }
+
+    /** Update one message here, and tell the application. */
+    function change(target, patch) {
+        Object.assign(target, patch);
+        onmessagechange?.(target.message_id, patch);
+    }
+
+    function keydown(event) {
+        if (event.key === 'Enter' && !event.shiftKey) {
+            event.preventDefault();
+            ask();
+        }
+    }
+
+    /** How full the model's context was on the last answer. */
+    const context = $derived(messages.findLast((one) => one.role === 'assistant' && one.context)?.context ?? 0);
+    const contextShare = $derived(limits?.context_window ? Math.min(100, Math.round((context / limits.context_window) * 100)) : 0);
+    const number = (n) => Number(n ?? 0).toLocaleString();
+</script>
+
+<section class="mx-auto flex w-full flex-col gap-4">
+    <div class="relative">
+        <!-- Out of the way on purpose: the model, the limits and the memory are worth
+             being able to see, and not worth a permanent place on screen. -->
+        <details class="dropdown dropdown-end absolute right-0 top-0">
+            <summary class="btn btn-ghost btn-sm" aria-label={t('Settings')}>⚙</summary>
+            <div class="dropdown-content z-30 mt-1 w-80 max-w-[calc(100vw-2rem)] space-y-3 rounded-box border border-base-300 bg-base-100 p-4 text-sm shadow-lg">
+                {#if limits}
+                    <div>
+                        <h2 class="font-medium">{t('Model')}</h2>
+                        <p class="opacity-70">{limits.provider} · <span class="font-mono">{limits.model}</span></p>
+                    </div>
+                    <div>
+                        <h2 class="font-medium">{t('Limits')}</h2>
+                        <ul class="list-disc pl-5 opacity-70">
+                            {#if limits.context_window}<li>{t('Context: %s tokens', number(limits.context_window))}</li>{/if}
+                            <li>{t('The last %s messages are sent with each question', limits.turns)}</li>
+                            <li>{t('Up to %s data reads per answer', limits.rounds)}</li>
+                            <li>{t('A question up to %s characters', number(limits.question_chars))}</li>
+                            <li>{t('Up to %s things remembered', limits.memory)}</li>
+                            {#if limits.month}
+                                <li>{limits.month.limit
+                                    ? t('This month: %s tokens of %s', number(limits.month.tokens), number(limits.month.limit))
+                                    : t('This month: %s tokens', number(limits.month.tokens))}</li>
+                            {/if}
+                        </ul>
+                    </div>
+                {/if}
+
+                {#if consent.required && consent.given}
+                    <div>
+                        <h2 class="font-medium">{t('Your agreement')}</h2>
+                        <p class="opacity-70">{t('You agreed to the AI features using %s.', consent.label || consent.provider)}</p>
+                        <button type="button" class="btn btn-ghost btn-xs mt-1 px-0 text-error" onclick={withdraw}>{t('Withdraw — send nothing more')}</button>
+                    </div>
+                {/if}
+
+                <div>
+                    <h2 class="font-medium">{t('What it remembers (%s)', memories.length)}</h2>
+                    {#if memories.length === 0}
+                        <p class="pt-1 text-xs opacity-60">{t('Nothing yet.')}</p>
+                    {:else}
+                        <ul class="mt-1 max-h-64 space-y-1 overflow-y-auto">
+                            {#each memories as one (one.memory_id)}
+                                <li class="flex items-start gap-1">
+                                    <span class="min-w-0 flex-1">{one.content}</span>
+                                    <button type="button" class="btn btn-ghost btn-xs btn-square opacity-60 hover:opacity-100"
+                                        aria-label={t('Forget %s', one.content)} onclick={() => unremember(one.memory_id)}>✕</button>
+                                </li>
+                            {/each}
+                        </ul>
+                    {/if}
+                </div>
+            </div>
+        </details>
+
+        {#if header}
+            {@render header()}
+        {:else}
+            <h1 class="pr-12 text-2xl font-medium">{t('Ask AI')}</h1>
+        {/if}
+    </div>
+
+    <div class="grid gap-4 {asideOpen && aside ? 'lg:grid-cols-[16rem_minmax(0,1fr)_minmax(0,32rem)]' : 'lg:grid-cols-[16rem_minmax(0,1fr)]'}">
+        <nav class="flex min-w-0 flex-col gap-2" aria-label={t('Conversations')}>
+            <button type="button" class="btn btn-sm" onclick={() => { messages = []; opened(0); }}>{t('New conversation')}</button>
+            {#if scheduledHref}
+                <a class="btn btn-ghost btn-sm" href={scheduledHref}>{t('Scheduled reports')}</a>
+            {/if}
+            <!-- Not daisyUI's `menu`: its items grow to the whole title and scroll
+                 sideways instead of truncating. -->
+            <ul class="w-full space-y-0.5 overflow-y-auto overflow-x-hidden rounded-box bg-base-100 p-1 shadow-sm max-lg:max-h-48 lg:max-h-[70vh]">
+                {#each conversations as one (one.conversation_id)}
+                    <li class="relative">
+                        <button type="button"
+                            class="block w-full rounded-field py-2 pl-3 pr-9 text-left text-sm {one.conversation_id === shown ? 'bg-neutral text-neutral-content' : 'hover:bg-base-200'}"
+                            aria-current={one.conversation_id === shown ? 'page' : undefined}
+                            onclick={() => opened(one.conversation_id)}>
+                            <span class="block truncate">{one.title}</span>
+                            <span class="block text-xs opacity-60">{one.updated_at}</span>
+                        </button>
+                        <button type="button"
+                            class="btn btn-ghost btn-xs btn-square absolute right-1 top-1/2 -translate-y-1/2 opacity-60 hover:opacity-100"
+                            aria-label={t('Delete %s', one.title)}
+                            onclick={() => { forgetting = one.conversation_id; }}>✕</button>
+                    </li>
+                {:else}
+                    <li class="px-3 py-2 text-sm opacity-60">{t('Nothing asked yet.')}</li>
+                {/each}
+            </ul>
+        </nav>
+
+        <div class="flex min-w-0 flex-col gap-4">
+            <!-- Outside the agreement: a refusal for want of it brings the notice up in
+                 place of the box, and must still be read. -->
+            {#if error}
+                <div role="alert" class="alert alert-warning alert-soft"><span>{error}</span></div>
+            {/if}
+
+            <AiConsent {client} {api} {paths} {t} {privacyUrl} feature={t('Ask AI')} bind:consent>
+                {#if messages.length === 0 && !loading && !shown && suggestions.length > 0}
+                    <div class="flex flex-wrap gap-2">
+                        {#each suggestions as suggestion}
+                            <!-- Fills the box rather than asking: a starting point to edit. -->
+                            <button type="button" class="btn btn-sm" onclick={() => { question = suggestion; box?.focus(); }}>{suggestion}</button>
+                        {/each}
+                    </div>
+                {/if}
+
+                {#if loading}
+                    <span class="loading loading-spinner loading-md" aria-label={t('Loading')}></span>
+                {/if}
+
+                <div bind:this={thread} class="space-y-2" aria-live="polite">
+                    {#each messages as one, index (one.message_id ?? `new-${index}`)}
+                        <div class="chat {one.role === 'user' ? 'chat-end' : 'chat-start'}">
+                            {#if one.role === 'user'}
+                                {@const asked = parts(one.content)}
+                                <div class="chat-bubble chat-bubble-primary whitespace-pre-wrap text-sm">
+                                    {#if asked.said}{asked.said}{/if}
+                                    {#if asked.file}
+                                        <details class="mt-1">
+                                            <summary class="cursor-pointer">📎 {asked.file}</summary>
+                                            {#if asked.body}<div class="mt-1 max-h-60 overflow-auto text-xs opacity-90">{asked.body}</div>{/if}
+                                        </details>
+                                    {/if}
+                                </div>
+                            {:else}
+                                <div class="chat-bubble markdown max-w-full text-sm">{@html markdown(one.content)}</div>
+                                {#if messageExtra}
+                                    {@render messageExtra(one, (patch) => change(one, patch))}
+                                {/if}
+                                <div class="chat-footer mt-1 text-xs opacity-60">
+                                    {#if one.tools?.length}
+                                        <details>
+                                            <summary class="cursor-pointer">{t('Read %s times from your data', one.tools.length)}</summary>
+                                            <ul class="mt-1 list-disc pl-5">
+                                                {#each one.tools as tool}
+                                                    <li class="font-mono">{toolLabel(tool)}</li>
+                                                {/each}
+                                            </ul>
+                                        </details>
+                                    {:else}
+                                        {t('No data was read for this answer')}
+                                    {/if}
+                                </div>
+                            {/if}
+                        </div>
+                    {/each}
+                    {#if asking}
+                        <div class="chat chat-start">
+                            <div class="chat-bubble">
+                                <span class="loading loading-dots loading-sm" aria-label={t('Thinking')}></span>
+                                {#if waiting && waitedMs >= LONG_MS}
+                                    <span class="ml-2 text-sm opacity-70" role="status">{t('Still working on a long answer — it will appear here.')}</span>
+                                {/if}
+                            </div>
+                        </div>
+                    {/if}
+                </div>
+
+                <form
+                    class="rounded-box border bg-base-100 focus-within:border-primary/60 {dragging ? 'border-dashed border-primary' : 'border-base-300'}"
+                    onsubmit={(event) => { event.preventDefault(); ask(); }}
+                    ondragover={(event) => { event.preventDefault(); dragging = true; }}
+                    ondragleave={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) dragging = false; }}
+                    ondrop={dropped}
+                >
+                    <label class="sr-only" for="pf-chat-ask">{t('Your question')}</label>
+                    <textarea
+                        id="pf-chat-ask"
+                        bind:this={box}
+                        class="textarea textarea-ghost w-full resize-y border-0 bg-transparent px-4 pt-3 focus:outline-none"
+                        rows="2"
+                        bind:value={question}
+                        onkeydown={keydown}
+                        onpaste={pasted}
+                        placeholder={t('Your question')}
+                    ></textarea>
+                    <div class="flex flex-wrap items-center gap-2 px-2 pb-2">
+                        <input bind:this={picker} class="hidden" type="file" multiple accept={DOCUMENTS} aria-label={t('Attach a document')} onchange={attach} />
+                        <button class="btn btn-ghost btn-sm btn-circle" type="button" aria-label={t('Attach a document')} title={t('Attach a document')} onclick={() => picker?.click()}>📎</button>
+                        {#each attachments as one, at (one.name)}
+                            <span class="badge badge-soft badge-primary min-w-0 gap-1">
+                                <span class="truncate">{one.name}</span>
+                                <button class="cursor-pointer" type="button" aria-label={t('Remove %s', one.name)} onclick={() => { attachments.splice(at, 1); }}>✕</button>
+                            </span>
+                        {/each}
+                        {#if composer}{@render composer()}{/if}
+                        <span class="ml-auto hidden text-xs opacity-50 sm:inline">{t('Enter to send · Shift+Enter for a new line')}</span>
+                        <button class="btn btn-primary btn-sm" type="submit" disabled={asking || !canAsk || (question.trim() === '' && attachments.length === 0)}>{t('Ask')}</button>
+                    </div>
+                </form>
+
+                {#if context > 0 && limits?.context_window}
+                    <!-- How full the model's view of this conversation is. Past the window,
+                         the oldest messages stop being sent. -->
+                    <div class="flex items-center gap-2 text-xs opacity-60">
+                        <span>{t('Context')}</span>
+                        <progress class="progress w-32" value={contextShare} max="100" aria-label={t('Context')}></progress>
+                        <span>{number(context)} / {number(limits.context_window)}</span>
+                    </div>
+                {/if}
+            </AiConsent>
+        </div>
+
+        {#if asideOpen && aside}
+            <!-- Beside the conversation from lg; over it below that, closed with ✕. -->
+            <div class="max-lg:fixed max-lg:inset-0 max-lg:z-40 max-lg:overflow-y-auto max-lg:bg-base-100 max-lg:p-4">
+                <div class="flex justify-end">
+                    <button type="button" class="btn btn-ghost btn-sm btn-square" aria-label={t('Close')} onclick={() => { asideOpen = false; }}>✕</button>
+                </div>
+                {@render aside()}
+            </div>
+        {/if}
+    </div>
+</section>
+
+<ConfirmDialog
+    open={forgetting !== null}
+    title={t('Delete this conversation?')}
+    body={t('Every question and answer in it goes. This cannot be undone.')}
+    confirmLabel={t('Delete')}
+    danger
+    onconfirm={forget}
+    oncancel={() => { forgetting = null; }}
+/>

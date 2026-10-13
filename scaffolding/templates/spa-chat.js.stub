@@ -1,0 +1,118 @@
+/**
+ * The conversation API (`Pramnos\Llm\Chat\Api\Routes`), and what the chat
+ * screens share about it.
+ *
+ * The paths are the framework's defaults; an application that mounted the API
+ * elsewhere (`Routes::register($r, …, ['consent' => '/ai/consent'])`) passes the
+ * same overrides here.
+ */
+import { api as defaultApi, ApiError } from './api.js';
+
+export const PATHS = {
+    chat: '/chat',
+    asks: '/chat/asks',
+    memory: '/chat/memory',
+    routines: '/chat/routines',
+    consent: '/chat/consent',
+};
+
+/**
+ * Every call the screens make, bound to an API client and the paths.
+ *
+ * @param {object} [api]   `lib/api.js`'s `api`, or anything with get/post/put/delete
+ * @param {object} [paths] Overrides for {@link PATHS}
+ */
+export function chatClient(api = defaultApi, paths = {}) {
+    const p = { ...PATHS, ...paths };
+
+    return {
+        list: () => api.get(p.chat),
+        read: (id) => api.get(`${p.chat}/${id}`),
+        forget: (id) => api.delete(`${p.chat}/${id}`),
+        ask: (body) => api.post(p.chat, body),
+        asked: (id) => api.get(`${p.asks}/${id}`),
+        memory: () => api.get(p.memory),
+        forgetMemory: (id) => api.delete(`${p.memory}/${id}`),
+        routines: () => api.get(p.routines),
+        createRoutine: (body) => api.post(p.routines, body),
+        updateRoutine: (id, body) => api.put(`${p.routines}/${id}`, body),
+        deleteRoutine: (id) => api.delete(`${p.routines}/${id}`),
+        runRoutine: (id) => api.post(`${p.routines}/${id}/run`, {}),
+        consent: () => api.get(p.consent),
+        giveConsent: () => api.post(p.consent, {}),
+        withdrawConsent: () => api.delete(p.consent),
+    };
+}
+
+/** The client a component was given, or one made from its `api` and `paths`. */
+export function resolveClient(client, api, paths) {
+    return client ?? chatClient(api ?? defaultApi, paths ?? {});
+}
+
+/**
+ * What the server said went wrong — the API's `error`, which `ApiError`'s own
+ * message does not carry — or `fallback`.
+ */
+export function failure(err, fallback) {
+    if (err instanceof ApiError || err?.payload) {
+        return err.payload?.error || err.payload?.message || fallback;
+    }
+
+    return fallback;
+}
+
+const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Follow a queued question until the worker has answered it.
+ *
+ * The first look comes soon, for a short answer; then every few seconds, for
+ * ten minutes. A look that fails is a look that found nothing — the next one
+ * tries again.
+ *
+ * @returns {Promise<{status: 'answered', conversation_id: number}|{status: 'failed', says: string}|{status: 'timeout'}>}
+ */
+export async function waitForAnswer(client, askId, { tries = 120, firstMs = 300, waitMs = 5000, sleep = pause, onwaiting = null } = {}) {
+    for (let tick = 0; tick < tries; tick++) {
+        onwaiting?.(tick > 0);
+        await sleep(tick === 0 ? firstMs : waitMs);
+        const asked = (await client.asked(askId).catch(() => null))?.data;
+
+        if (asked?.status === 'failed') {
+            return { status: 'failed', says: asked.says || '' };
+        }
+
+        if (asked?.status === 'answered') {
+            return { status: 'answered', conversation_id: asked.conversation_id };
+        }
+    }
+
+    return { status: 'timeout' };
+}
+
+/**
+ * A question kept with its document: what was asked, and the document by name
+ * and words — the server stores it after `---` and `📎 name`.
+ */
+export function parts(content) {
+    const text = String(content ?? '');
+    const mark = '---\n📎 ';
+    const at = text.startsWith(mark) ? 0 : text.indexOf(`\n${mark}`) + 1;
+
+    if (at <= 0 && !text.startsWith(mark)) {
+        return { said: text, file: null, body: '' };
+    }
+
+    const rest = text.slice(at + mark.length);
+    const end = rest.indexOf('\n\n');
+
+    return { said: text.slice(0, at).trim(), file: end < 0 ? rest : rest.slice(0, end), body: end < 0 ? '' : rest.slice(end + 2) };
+}
+
+/** `best-posts (days: 30)` — a tool the answer read, and with what. */
+export function described(tool) {
+    const args = Object.entries(tool?.arguments ?? {}).map(([key, value]) => `${key}: ${typeof value === 'object' ? JSON.stringify(value) : value}`);
+    const name = String(tool?.name ?? '');
+
+    return args.length ? `${name} (${args.join(', ')})` : name;
+}
