@@ -29,7 +29,7 @@ function element(tag, attributes = {}) {
         children: [],
         listeners: {},
         parentNode: null,
-        style: {},
+        style: { setProperty(name, value) { this[name] = value; } },
         className: '',
         value: '',
         disabled: false,
@@ -39,6 +39,7 @@ function element(tag, attributes = {}) {
         getAttribute(name) { return name in this.attributes ? this.attributes[name] : null; },
         setAttribute(name, value) { this.attributes[name] = String(value); },
         appendChild(child) { child.parentNode = this; this.children.push(child); this._text = undefined; return child; },
+        insertBefore(child, before) { child.parentNode = this; this.children.splice(this.children.indexOf(before), 0, child); return child; },
         removeChild(child) { this.children.splice(this.children.indexOf(child), 1); child.parentNode = null; return child; },
         addEventListener(type, handler) { (this.listeners[type] ||= []).push(handler); },
         click() { this.clicked++; this.dispatch('click'); },
@@ -75,11 +76,44 @@ function find(root, selector) {
     return null;
 }
 
-/** Every descendant carrying `[attr]`. */
-function findAll(root, selector) {
-    const attr = selector.match(/^\[([\w-]+)\]$/)[1];
+/** Whether an element is `[attr]`, `.class` or `tag`. */
+function simple(el, selector) {
+    const attr = selector.match(/^\[([\w-]+)\]$/);
+    if (attr) {
+        return attr[1] in el.attributes;
+    }
+    if (selector.startsWith('.')) {
+        return el.className.split(' ').includes(selector.slice(1));
+    }
 
-    return root.children.flatMap((child) => (attr in child.attributes ? [child] : []).concat(findAll(child, selector)));
+    return el.tagName === selector.toUpperCase();
+}
+
+/** Whether an element matches `a, b` or `ancestor descendant`, of simple selectors. */
+function matches(el, selector) {
+    return selector.split(',').some((one) => {
+        const parts = one.trim().split(/\s+/);
+        if (!simple(el, parts[parts.length - 1])) {
+            return false;
+        }
+        let up = el.parentNode;
+        for (let i = parts.length - 2; i >= 0; i--) {
+            while (up && !simple(up, parts[i])) {
+                up = up.parentNode;
+            }
+            if (!up) {
+                return false;
+            }
+            up = up.parentNode;
+        }
+
+        return true;
+    });
+}
+
+/** Every descendant matching, in document order. */
+function findAll(root, selector) {
+    return root.children.flatMap((child) => (matches(child, selector) ? [child] : []).concat(findAll(child, selector)));
 }
 
 /** A file as the browser hands it over. */
@@ -392,6 +426,46 @@ test('copy puts the answer\'s Markdown on the clipboard, and says so', async () 
     assert.deepEqual(copied, ['**Total**: 12'], 'the Markdown, not the HTML');
     assert.equal(said, '✓ Copied');
     assert.equal(copy.textContent, 'Copy', 'and back after a moment');
+});
+
+test('a table in an answer is copied as tab-separated rows, which a spreadsheet pastes as cells', async () => {
+    // Arrange
+    const copied = [];
+    const answer = element('div');
+    answer.className = 'pf-chat-answer';
+    const wrapper = answer.appendChild(element('div'));
+    const table = wrapper.appendChild(element('table'));
+    [['Name', 'Town'], ['Μαρία', 'Athens\nnorth'], ['Nikos', 'Patras']].forEach((cells, at) => {
+        const row = table.appendChild(element('tr'));
+        cells.forEach((text) => { row.appendChild(element(at === 0 ? 'th' : 'td')).textContent = text; });
+    });
+    const ui = run({ answers: [], before: [answer], clipboard: { writeText: (text) => { copied.push(text); return Promise.resolve(); } } });
+    const button = answer.children[0];
+
+    // Act
+    button.click();
+    await settle();
+
+    // Assert
+    assert.equal(button.className, 'pf-chat-copy-table', 'a button over the table');
+    assert.equal(answer.children[1], wrapper, 'placed before the table\'s own scroll');
+    assert.deepEqual(copied, ['Name\tTown\nΜαρία\tAthens north\nNikos\tPatras'], 'a line break in a cell does not split the row');
+    assert.equal(ui.timers.length, 1, 'and says so for a moment');
+});
+
+test('a question asked in place falls back on the theme\'s inline style', async () => {
+    // Arrange
+    const ui = run({ answers: [{ status: 202, data: { ask_id: 5 } }], attributes: { 'data-question-style': 'background-color:rgba(128,128,128,.12);border-radius:1rem' } });
+    ui.box.value = 'Hi';
+
+    // Act
+    ui.form.dispatch('submit');
+    await settle();
+    const bubble = ui.messages.children[0].children[1];
+
+    // Assert
+    assert.equal(bubble.style['background-color'], 'rgba(128,128,128,.12)');
+    assert.equal(bubble.style['border-radius'], '1rem');
 });
 
 test('a page without the conversation does nothing', () => {

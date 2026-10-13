@@ -36,7 +36,7 @@ $say     = [
     'long' => t('Still working on a long answer — it will appear here.'), 'remove' => t('Remove'),
     'unsupported' => t('Attach a picture, or a Word (.docx), OpenDocument (.odt), text, Markdown or saved email (.eml) file.'),
     'too-many' => t('Up to 10 files with one question.'), 'too-large' => t('That is too large — up to 5 MB, all the files together.'),
-    'you' => t('You'), 'today' => t('today'), 'copied' => t('Copied'),
+    'you' => t('You'), 'today' => t('today'), 'copied' => t('Copied'), 'copy-table' => t('Copy table'),
 ];
 $name    = (string) ($this->assistantName ?? '') !== '' ? (string) $this->assistantName : t('Assistant');
 $sayAttr = '';

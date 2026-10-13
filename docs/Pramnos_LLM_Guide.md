@@ -441,7 +441,10 @@ answer is there.
 A question is a bubble on the right and an answer is text on the left, each under a line with
 whose it is — "You", or the assistant's name (`'chat' => ['name' => …]`, `'analyst' => ['name' =>
 …]`) — and when, in the reader's own zone: "today 22:50", or the date for another day. Under each
-answer, ⧉ Copy puts its Markdown on the clipboard, not its HTML. A question asked in place is drawn
+answer, ⧉ Copy puts its Markdown on the clipboard, not its HTML. Over each table in an answer,
+⧉ Copy table puts its rows on the clipboard tab-separated, which a spreadsheet pastes as cells. On
+Bootstrap the question's bubble also carries its colour inline, for an admin theme still on
+Bootstrap 3, which has no `bg-body-tertiary`. A question asked in place is drawn
 the same way at once.
 
 Example questions sit above a new conversation, and a click puts one in the box, to send or to
@@ -615,8 +618,11 @@ For a question no tool answers, the analyst can write SQL — when the applicati
 ```
 
 `schema` lists the tables, or one table's columns with their keys, and the application's notes,
-keyed without the table prefix. `sql` answers rows; `export_csv` writes them to a file and gives
-the model only the link, the count and five rows. The file has a UTF-8 byte-order mark, so a
+keyed without the table prefix. `sql` answers rows. `export_csv` writes them to a file. A list of
+up to `export_inline` rows (100 by default) also comes back whole, and the model is told to show
+it as a table beside the link. A longer one gives the model only the link, the count and five
+rows. An optional `title` names the file, in Latin letters when it was written in Greek:
+`7-energa-meli-2a91…`, saved as `energa-meli-<date>.csv`. The file has a UTF-8 byte-order mark, so a
 spreadsheet reads non-Latin text. It is kept seven days outside the web root, in
 `var/analyst-exports/`, and downloads from `/admin/Ai/export/<name>` only for the administrator
 it was made for.

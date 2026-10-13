@@ -259,7 +259,9 @@ class AnalystSqlTest extends LlmTestCase
 
         // Assert
         $this->assertSame(3, $made['rows']);
-        $this->assertCount(3, $made['sample']);
+        $this->assertCount(3, $made['rows_inline'], 'a short list comes back whole, to show');
+        $this->assertStringContainsString('Markdown table', $made['show']);
+        $this->assertArrayNotHasKey('sample', $made);
         $this->assertMatchesRegularExpression('#(^|/)Ai/export/7-[a-f0-9]{16}$#', $made['link'], 'no .csv, and short enough to survive redaction');
         $this->assertSame($made['link'], \Pramnos\Llm\Analyst\Redactor::clean($made['link']));
         $this->assertNotNull($file);
@@ -267,6 +269,30 @@ class AnalystSqlTest extends LlmTestCase
         $this->assertSame("\xEF\xBB\xBFuserid,lastname\n7,Γλάρου\n8,Glaros\n9,Glaros\n", (string) file_get_contents((string) $file));
         $this->assertSame(file_get_contents((string) $file), $page, 'downloaded as written');
         $this->assertSame([adminUrl('Ai')], $other->redirectedTo, 'sent back to Ask');
+    }
+
+    /**
+     * A list longer than the answer shows is the link and five rows; a title names the file, in
+     * Latin letters when it was written in Greek, and the download is saved under it.
+     */
+    #[DataProvider('databases')]
+    public function testALongListAndATitle(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->boot($type, $host, $port, $user);
+        $this->configure(['analyst' => ['export_inline' => 2]]);
+
+        // Act
+        $made = (new ExportCsvTool(7))->execute(['sql' => 'SELECT userid FROM users ORDER BY userid', 'title' => 'Ενεργά μέλη 2026']);
+        $name = basename((string) parse_url($made['link'], PHP_URL_PATH));
+
+        // Assert
+        $this->assertArrayNotHasKey('rows_inline', $made, 'three rows are more than two');
+        $this->assertCount(3, $made['sample']);
+        $this->assertMatchesRegularExpression('/^7-energa-meli-2026-[a-f0-9]{16}$/', $name);
+        $this->assertNotNull(Exports::path($name, 7));
+        $this->assertSame('energa-meli-2026-2026-10-13-120000.csv', Exports::filename($name, mktime(12, 0, 0, 10, 13, 2026)));
+        $this->assertSame('export-2026-10-13-120000.csv', Exports::filename('7-0123456789abcdef', mktime(12, 0, 0, 10, 13, 2026)), 'untitled');
     }
 
     /** A refused or failing export leaves no file, and one made for nobody is not made. */

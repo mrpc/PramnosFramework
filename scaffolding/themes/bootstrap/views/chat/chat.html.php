@@ -36,7 +36,7 @@ $say     = [
     'long' => t('Still working on a long answer — it will appear here.'), 'remove' => t('Remove'),
     'unsupported' => t('Attach a picture, or a Word (.docx), OpenDocument (.odt), text, Markdown or saved email (.eml) file.'),
     'too-many' => t('Up to 10 files with one question.'), 'too-large' => t('That is too large — up to 5 MB, all the files together.'),
-    'you' => t('You'), 'today' => t('today'), 'copied' => t('Copied'),
+    'you' => t('You'), 'today' => t('today'), 'copied' => t('Copied'), 'copy-table' => t('Copy table'),
 ];
 $name    = (string) ($this->assistantName ?? '') !== '' ? (string) $this->assistantName : t('Assistant');
 $sayAttr = '';
@@ -59,7 +59,7 @@ $u       = (is_array($this->urls ?? null) ? $this->urls : []) + [
 ];
 ?>
 <?php if ($waiting): ?><noscript><meta http-equiv="refresh" content="4"></noscript><?php endif; ?>
-<div class="container-fluid py-3" data-pf-chat data-page="<?php echo $e($u['page']); ?>" data-asked="<?php echo $e($u['asked']); ?>"<?php echo $sayAttr; ?> data-waiting-lines="<?php echo $e(json_encode($lines, JSON_UNESCAPED_UNICODE)); ?>" data-question-class="<?php echo $e($c['question']); ?>">
+<div class="container-fluid py-3" data-pf-chat data-page="<?php echo $e($u['page']); ?>" data-asked="<?php echo $e($u['asked']); ?>"<?php echo $sayAttr; ?> data-waiting-lines="<?php echo $e(json_encode($lines, JSON_UNESCAPED_UNICODE)); ?>" data-question-class="<?php echo $e($c['question']); ?>" data-question-style="background-color:rgba(128,128,128,.12);border-radius:1rem">
     <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start">
         <nav class="<?php echo $c['card']; ?>" style="flex:0 0 240px;padding:12px" aria-label="<?php echo $e(t('Conversations')); ?>">
             <a href="<?php echo $e($u['page']); ?>" class="<?php echo $c['btn']; ?>"><?php echo $e(t('New conversation')); ?></a>
@@ -108,7 +108,7 @@ $u       = (is_array($this->urls ?? null) ? $this->urls : []) + [
                     <?php $mine = $m['role'] === 'user'; $at = \Pramnos\Llm\Chat\Web\Stamp::iso((string) ($m['created_at'] ?? '')); ?>
                     <article class="pf-chat-message" data-pf-chat-role="<?php echo $mine ? 'user' : 'assistant'; ?>" style="display:flex;flex-direction:column;align-items:<?php echo $mine ? 'flex-end' : 'flex-start'; ?>;margin-bottom:16px">
                         <header class="<?php echo $c['muted']; ?>" style="margin-bottom:4px"><strong><?php echo $e($mine ? t('You') : $name); ?></strong><?php if ($at !== ''): ?> · <time datetime="<?php echo $e($at); ?>" data-pf-chat-time><?php echo $e(\Pramnos\Llm\Chat\Web\Stamp::text($at)); ?></time><?php endif; ?></header>
-                        <div class="<?php echo $mine ? $c['question'] : $c['answer']; ?>" style="<?php echo $mine ? 'padding:10px 14px;max-width:80%' : 'width:100%'; ?>">
+                        <div class="<?php echo $mine ? $c['question'] : $c['answer']; ?>" style="<?php echo $mine ? 'padding:10px 14px;max-width:80%;background-color:rgba(128,128,128,.12);border-radius:1rem' : 'width:100%'; ?>">
                         <?php if ($mine): ?>
                             <?php $doc = preg_match('/^(.*?)\n*---\n📎 ([^\n]+)(?:\n\n(.*))?$/su', (string) $m['content'], $d) === 1 ? $d : null; ?>
                             <div style="white-space:pre-wrap"><?php echo $e($doc === null ? $m['content'] : $doc[1]); ?></div>

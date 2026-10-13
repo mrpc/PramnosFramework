@@ -17,8 +17,11 @@
  *   data-pf-chat-waiting="id"    — a question already waiting when the page was drawn
  *   data-pf-chat-suggestion="…"  — an example question: a click puts it in the box
  *   data-pf-chat-time            — a <time datetime="…Z">, shown in the reader's zone
- *   data-pf-chat-copy="…"        — copies the answer's Markdown, not its HTML
- *   data-question-class          — on the page: the classes of a question's bubble
+ *   data-pf-chat-copy="…"        — copies the answer's Markdown, not its HTML; and over each
+ *                                  table in an answer, a button copying it as tab-separated
+ *                                  rows, which a spreadsheet pastes as cells
+ *   data-question-class          — on the page: the classes of a question's bubble, and
+ *   data-question-style            the inline style it falls back on
  *
  * Enter sends, Shift+Enter is a new line. No inline handlers: the framework's CSP blocks them.
  */
@@ -175,19 +178,39 @@
             }
         });
 
-        Array.prototype.forEach.call(root.querySelectorAll('[data-pf-chat-copy]'), function (button) {
-            button.addEventListener('click', function () {
-                var clipboard = window.navigator && window.navigator.clipboard;
+        /** Put text on the clipboard, and say so on the button for a moment. */
+        function copy(button, text) {
+            var clipboard = window.navigator && window.navigator.clipboard;
 
-                if (!clipboard) {
-                    return;
-                }
-                clipboard.writeText(button.getAttribute('data-pf-chat-copy') || '').then(function () {
-                    var was = button.textContent;
-                    button.textContent = '✓ ' + words('copied', 'Copied');
-                    window.setTimeout(function () { button.textContent = was; }, 2000);
-                });
+            if (!clipboard) {
+                return;
+            }
+            clipboard.writeText(text).then(function () {
+                var was = button.textContent;
+                button.textContent = '✓ ' + words('copied', 'Copied');
+                window.setTimeout(function () { button.textContent = was; }, 2000);
             });
+        }
+
+        Array.prototype.forEach.call(root.querySelectorAll('[data-pf-chat-copy]'), function (button) {
+            button.addEventListener('click', function () { copy(button, button.getAttribute('data-pf-chat-copy') || ''); });
+        });
+
+        // Over each table in an answer: its cells, tab-separated, which a spreadsheet pastes as cells.
+        Array.prototype.forEach.call(root.querySelectorAll('.pf-chat-answer table'), function (table) {
+            var button = document.createElement('button');
+            var holder = table.parentNode;
+            button.setAttribute('type', 'button');
+            button.className = 'pf-chat-copy-table';
+            button.textContent = '⧉ ' + words('copy-table', 'Copy table');
+            button.addEventListener('click', function () {
+                copy(button, Array.prototype.map.call(table.querySelectorAll('tr'), function (row) {
+                    return Array.prototype.map.call(row.querySelectorAll('th, td'), function (cell) {
+                        return String(cell.textContent).replace(/[\t\r\n]+/g, ' ').trim();
+                    }).join('\t');
+                }).join('\n'));
+            });
+            holder.parentNode.insertBefore(button, holder);
         });
 
         var waiting = root.querySelector('[data-pf-chat-waiting]');
@@ -348,6 +371,14 @@
             head.appendChild(name);
             head.appendChild(stamp);
             bubble.className = root.getAttribute('data-question-class') || '';
+            // A theme whose classes may not exist (Bootstrap 3 under Bootstrap 5 names) gives a fallback.
+            (root.getAttribute('data-question-style') || '').split(';').forEach(function (rule) {
+                var at = rule.indexOf(':');
+
+                if (at > 0 && typeof bubble.style.setProperty === 'function') {
+                    bubble.style.setProperty(rule.slice(0, at).trim(), rule.slice(at + 1).trim());
+                }
+            });
             bubble.style.whiteSpace = 'pre-wrap';
             bubble.style.padding = '10px 14px';
             bubble.style.maxWidth = '80%';

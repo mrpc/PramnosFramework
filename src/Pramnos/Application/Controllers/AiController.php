@@ -320,7 +320,7 @@ class AiController extends Controller
         \Pramnos\Framework\Factory::getDocument('raw');
         if (!headers_sent()) {
             header('Content-Type: text/csv; charset=utf-8');
-            header('Content-Disposition: attachment; filename="export-' . date('Y-m-d-His', (int) filemtime($file)) . '.csv"');
+            header('Content-Disposition: attachment; filename="' . \Pramnos\Llm\Analyst\Exports::filename(basename($file, '.csv'), (int) filemtime($file)) . '"');
             header('Cache-Control: private, no-store');
         }
 
