@@ -45,7 +45,7 @@ class ConversationsTest extends LlmTestCase
     }
 
     /** Conversations with a recording assistant, as a scope. */
-    private function chat(Scope $scope, ?RecordingAssistant $assistant = null, bool $scheduled = false): Conversations
+    private function chat(Scope $scope, ?BaseAssistant $assistant = null, bool $scheduled = false): Conversations
     {
         return (new Conversations($assistant ?? new RecordingAssistant()))->as($scope, $scheduled);
     }
@@ -95,6 +95,30 @@ class ConversationsTest extends LlmTestCase
         $this->assertContains('lookup', $names);
         $this->assertContains('remember', $names, 'the memory tools are always there');
         $this->assertContains('schedule_task', $names, 'and the schedule tools for a person asking');
+    }
+
+    /**
+     * What question() keeps in the turn's bag reaches the tools and answered(), and the schedule
+     * tool is told the assistant's clock.
+     */
+    #[DataProvider('databases')]
+    public function testTheBagAndTheClockReachTheAnswer(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        $this->answer([
+            [200, self::calls([['schedule_task', ['title' => 'Daily', 'prompt' => 'p', 'cadence' => 'daily', 'at' => '08:00']]])],
+            [200, self::says('done')],
+        ]);
+        $assistant = new BaggingAssistant();
+
+        // Act
+        $answer = $this->chat(new Scope(7, null), $assistant)->ask(null, 'Every morning');
+
+        // Assert
+        $this->assertSame(['in tools' => 'draft 9', 'in answered' => 'draft 9'], $assistant->seen);
+        $this->assertSame('Pacific/Auckland', $this->rows('ai_routines')[0]['timezone']);
+        $this->assertSame('draft 9', $answer['message']['bagged']);
     }
 
     /**
@@ -435,5 +459,38 @@ final class AcceptsNothing implements Policy\DataRule
     public function refusalResult(): string
     {
         return 'no';
+    }
+}
+
+/** An assistant that keeps something in the bag at question() and reads it later, on its own clock. */
+final class BaggingAssistant extends BaseAssistant
+{
+    /** @var array<string, mixed> */
+    public array $seen = [];
+
+    public function question(Turn $turn, string $question): string
+    {
+        $turn->bag['draft'] = 'draft 9';
+
+        return $question;
+    }
+
+    public function tools(Turn $turn): array
+    {
+        $this->seen['in tools'] = $turn->bag['draft'] ?? null;
+
+        return [];
+    }
+
+    public function answered(Turn $turn, array $message): array
+    {
+        $this->seen['in answered'] = $turn->bag['draft'] ?? null;
+
+        return $message + ['bagged' => $turn->bag['draft'] ?? null];
+    }
+
+    public function timezone(Scope $scope): string
+    {
+        return 'Pacific/Auckland';
     }
 }

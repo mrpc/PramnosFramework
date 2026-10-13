@@ -149,6 +149,31 @@ class RoutinesAsksConsentTest extends LlmTestCase
     }
 
     /**
+     * A limit on active routines stops adding one — created or resumed — and never a run or
+     * the tools.
+     */
+    #[DataProvider('databases')]
+    public function testALimitStopsOnlyAdding(string $type, string $host, int $port): void
+    {
+        // Arrange — one routine, made while there was room, now paused
+        $this->connectDatabase($type, $host, $port);
+        $this->answer([[200, self::says('ran')]]);
+        $scope = new Scope(7, null);
+        $made  = $this->routines()->create($scope, ['title' => 'Daily', 'prompt' => 'p', 'cadence' => 'daily', 'at' => '08:00']);
+        $full  = $this->routines(new NoRoomForMore());
+        $full->setActive($scope, $made['routine_id'], false);
+
+        // Act / Assert
+        $this->assertSame('No room for another.', $full->create($scope, ['title' => 'x', 'prompt' => 'p', 'cadence' => 'daily', 'at' => '08:00']));
+        $this->assertFalse($full->setActive($scope, $made['routine_id'], true), 'resuming is adding');
+        $this->assertFalse($full->find($scope, $made['routine_id'])['active']);
+        $this->assertTrue($full->setActive($scope, $made['routine_id'], false), 'pausing is never refused');
+        $this->assertTrue($full->run($full->find($scope, $made['routine_id']), time())['ok'], 'a run is not adding');
+        $this->assertArrayHasKey('schedule_task', $full->tools($scope, 'UTC'), 'the tool stays, and says why when used');
+        $this->assertSame('Error: No room for another.', ($full->tools($scope, 'UTC')['schedule_task']['run'])(['title' => 'x', 'prompt' => 'p', 'cadence' => 'daily', 'at' => '08:00']));
+    }
+
+    /**
      * The model schedules, lists and cancels through its tools; without routines, there are none.
      */
     #[DataProvider('databases')]
@@ -405,9 +430,18 @@ final class CapturedNotice implements \Pramnos\Notification\NotificationInterfac
 /** An assistant whose plan has no routines. */
 final class NoRoutines extends BaseAssistant
 {
-    public function routineRefusal(Scope $scope): ?string
+    public function routineRefusal(Scope $scope, bool $adding = false): ?string
     {
         return 'Not on this plan.';
+    }
+}
+
+/** An assistant whose plan allows routines but no more active ones. */
+final class NoRoomForMore extends BaseAssistant
+{
+    public function routineRefusal(Scope $scope, bool $adding = false): ?string
+    {
+        return $adding ? 'No room for another.' : null;
     }
 }
 

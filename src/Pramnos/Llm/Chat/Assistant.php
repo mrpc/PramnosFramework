@@ -85,11 +85,21 @@ interface Assistant
     /** Said when a conversation holds data of a tag that nowhere available may take. */
     public function heldRefusal(string $tag): string;
 
-    /** Why this person may not have scheduled questions, or null. */
-    public function routineRefusal(Scope $scope): ?string;
+    /**
+     * Why this person may not have scheduled questions, or null.
+     *
+     * Asked to offer the schedule tools and before every run (`$adding` false), and again with
+     * `$adding` true when one more becomes active — created, or resumed — which is where a limit
+     * on how many may be active belongs. A limit checked on every run would stop all of them
+     * the moment the last one was added.
+     */
+    public function routineRefusal(Scope $scope, bool $adding = false): ?string;
 
     /** Where a conversation is read, for a notification to link to. */
     public function conversationUrl(?int $conversationId): string;
+
+    /** The clock a schedule said in words is meant on — "every morning at 8" is 8 here. */
+    public function timezone(Scope $scope): string;
 
     /** Tool rounds before the model must answer with what it has. */
     public function rounds(): int;

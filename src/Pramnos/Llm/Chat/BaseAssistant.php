@@ -77,7 +77,7 @@ class BaseAssistant implements Assistant
             : 'This conversation holds data that no available AI provider may be sent. Start a new conversation.';
     }
 
-    public function routineRefusal(Scope $scope): ?string
+    public function routineRefusal(Scope $scope, bool $adding = false): ?string
     {
         return null;
     }
@@ -85,6 +85,14 @@ class BaseAssistant implements Assistant
     public function conversationUrl(?int $conversationId): string
     {
         return \Pramnos\Http\SiteUrl::to('chat' . ($conversationId ? '?c=' . $conversationId : ''));
+    }
+
+    /** The server's zone, when it is a real one; UTC otherwise. */
+    public function timezone(Scope $scope): string
+    {
+        $zone = date_default_timezone_get();
+
+        return in_array($zone, \DateTimeZone::listIdentifiers(), true) ? $zone : 'UTC';
     }
 
     public function rounds(): int

@@ -298,13 +298,14 @@ Extend `Chat\BaseAssistant`, which answers every hook with a default:
 | `present(Scope, $messages)` | stored messages, decorated for the screen |
 | `acting(Scope, $run)` | a queued or scheduled answer, run inside whatever the application's tools need set up |
 | `heldRefusal($tag)` | said when a conversation holds data of a tag nowhere available may take |
-| `routineRefusal(Scope)` | why this person may not schedule questions, or null |
+| `routineRefusal(Scope, $adding)` | why this person may not have scheduled questions, or null — `$adding` true when one more becomes active (created or resumed), where a limit on active ones belongs |
+| `timezone(Scope)` | the clock "every morning at 8" is meant on — the server's by default |
 | `conversationUrl($id)` | where a conversation is read, for a notification |
 | `rounds()`, `turns()` | tool rounds per answer (16), turns sent back (30) |
 
 A `Chat\Turn` carries the scope, the conversation, whether it is a scheduled run, the messages,
 the documents attached in the conversation, the caller's `extra`, and `bag` — the application's,
-for the length of the turn, for what its tools wrote.
+for the length of the turn: what `question()` puts in it reaches `tools()` and `answered()`.
 
 A turn sends back the last `turns()` turns, never starting on an answer, each earlier answer
 followed by a note of the tools that wrote in it; without the note, a later answer sees no result

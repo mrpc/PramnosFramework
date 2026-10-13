@@ -217,8 +217,8 @@ class Conversations
         // The title is the person's own words, not what the assistant adds to them.
         $asked   = $question;
         $preview = [...$history, ['role' => 'user', 'content' => $question]];
-        $turn    = new Turn($this->scope, $conversationId, $this->scheduled, $preview, self::documents($preview), $extra, $this);
-        $question = $this->assistant->question($turn, $question);
+        $asking  = new Turn($this->scope, $conversationId, $this->scheduled, $preview, self::documents($preview), $extra, $this);
+        $question = $this->assistant->question($asking, $question);
 
         $messages = array_slice([...$history, ['role' => 'user', 'content' => $question]], -max(1, $this->assistant->turns()));
 
@@ -228,6 +228,8 @@ class Conversations
         }
 
         $turn   = new Turn($this->scope, $conversationId, $this->scheduled, $messages, self::documents($messages), $extra, $this);
+        // What question() kept for the answer — a draft it named — is the answer's too.
+        $turn->bag = $asking->bag;
         $client = ($this->client ?? new Client($this->assistant->connection($this->scope)))
             ->about(['purpose' => 'chat'] + $this->scope->context());
 
@@ -241,7 +243,7 @@ class Conversations
         $memory = new Memory($this->scope);
         $tools  = $this->assistant->tools($turn) + $memory->tools($this, $conversationId)
             // Not from a scheduled run: a task that schedules tasks has no end.
-            + ($this->scheduled ? [] : (new Routines($this))->tools($this->scope, $this->timezone()));
+            + ($this->scheduled ? [] : (new Routines($this))->tools($this->scope, $this->assistant->timezone($this->scope)));
 
         $answer = $client->askWithTools(
             $this->assistant->systemPrompt($turn) . "\n\n" . $this->context($turn, $memory),
@@ -327,14 +329,6 @@ class Conversations
     public static function withoutMark(string $reply): string
     {
         return trim((string) preg_replace('/\s*⟦[^⟧]*⟧/u', '', $reply));
-    }
-
-    /** The time zone schedules said in words are meant in: the application's. */
-    protected function timezone(): string
-    {
-        $zone = date_default_timezone_get();
-
-        return in_array($zone, \DateTimeZone::listIdentifiers(), true) ? $zone : 'UTC';
     }
 
     /**

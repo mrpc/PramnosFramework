@@ -71,7 +71,7 @@ class Routines
      */
     public function create(Scope $scope, array $wanted): array|string
     {
-        if (($why = $this->chat->assistant()->routineRefusal($scope)) !== null) {
+        if (($why = $this->chat->assistant()->routineRefusal($scope, true)) !== null) {
             return $why;
         }
 
@@ -115,12 +115,17 @@ class Routines
         return $this->find($scope, (int) \Pramnos\Framework\Factory::getDatabase()->getInsertId()) ?? [];
     }
 
-    /** Pause or resume one of this person's — resumed from now, not for every day it was paused. */
+    /**
+     * Pause or resume one of this person's — resumed from now, not for every day it was paused.
+     *
+     * Resuming one adds an active routine, so it is asked as adding one; a refusal leaves it
+     * paused and answers false.
+     */
     public function setActive(Scope $scope, int $routineId, bool $active): bool
     {
         $found = $this->find($scope, $routineId);
 
-        if ($found === null) {
+        if ($found === null || ($active && !$found['active'] && $this->chat->assistant()->routineRefusal($scope, true) !== null)) {
             return false;
         }
 

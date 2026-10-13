@@ -45,6 +45,7 @@ class BaseAssistantTest extends LlmTestCase
         $this->assertSame('q', $assistant->question($turn, 'q'));
         $this->assertSame($message, $assistant->answered($turn, $message));
         $this->assertSame([$message], $assistant->present(new Scope(1), [$message]));
+        $this->assertContains($assistant->timezone(new Scope(1)), \DateTimeZone::listIdentifiers());
     }
 
     /**
