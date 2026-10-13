@@ -1420,11 +1420,19 @@ class Database extends \Pramnos\Framework\Base
         }
 
         if ($connection) {
-            if ($this->type == 'postgresql') {
-                return \pg_close($connection);
+            // Another instance may hold the same link and have closed it already — an
+            // application sharing one connection between a legacy and a modern handle does,
+            // without the clone this class knows about. Closing a closed link throws an \Error
+            // on both drivers; there is nothing left to close, so it is not one.
+            try {
+                if ($this->type == 'postgresql') {
+                    return \pg_close($connection);
+                }
+
+                return \mysqli_close($connection);
+            } catch (\Error $alreadyClosed) {
+                return false;
             }
- 
-            return \mysqli_close($connection);
         }
 
         return false;

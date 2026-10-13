@@ -445,6 +445,10 @@ handles and closes nothing, so the original stays connected; `close()` on the cl
 
 A clone that calls `connect()` opens a link of its own, owns it, and closes it as usual.
 
+A link handed to a second instance some other way — a legacy handle and a modern one over one
+connection — is owned by both. Whichever closes second, often a destructor at shutdown, finds it
+already closed; `close()` then returns `false` instead of throwing.
+
 ## Result Handling
 
 **CRITICAL**: Pramnos query results use different patterns for single vs multiple records:
