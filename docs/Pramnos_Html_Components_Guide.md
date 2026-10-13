@@ -907,6 +907,10 @@ echo $pagination->render();
 This is the presentation half of paging. [`QueryBuilder`](Pramnos_QueryBuilder_Guide.md)
 covers the query half — `forPage()`, `limit()`, `offset()`.
 
+The two numbers are read as numbers whatever their type, because the current page usually
+comes straight from the URL: `'3'` is page 3, and `/page/abc` from a crawler is page 1, clamped
+like any other out-of-range page.
+
 ### The URL is a pattern
 
 `:page` is replaced with the page number:

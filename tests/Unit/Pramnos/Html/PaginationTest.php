@@ -404,4 +404,20 @@ class PaginationTest extends TestCase
         // Act & Assert
         $this->assertSame($pagination->render(), (string) $pagination);
     }
+
+    /**
+     * A page number from a URL is read as a number: digits are the page, anything else page 1.
+     */
+    public function testAPageNumberFromTheUrlIsReadWhateverItIs(): void
+    {
+        // Act
+        $fromDigits  = new Pagination('5', '3', '/list/:page');
+        $fromGarbage = new Pagination(5, 'abc', '/list/:page');
+        $fromNull    = new Pagination(null, null, '/list/:page');
+
+        // Assert
+        $this->assertSame([5, 3], [$fromDigits->pages, $fromDigits->page]);
+        $this->assertSame(1, $fromGarbage->page, '/page/abc from a crawler is page 1, not a TypeError');
+        $this->assertSame([1, 1], [$fromNull->pages, $fromNull->page]);
+    }
 }

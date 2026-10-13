@@ -170,11 +170,14 @@ class Pagination extends \Pramnos\Framework\Base
     public string $firstPageUrl = '';
 
     /**
-     * @param int    $pages Total pages
-     * @param int    $page  Current page, 1-based
-     * @param string $url   Pattern containing `:page`
+     * Numbers are read as numbers whatever their type: the current page usually comes straight
+     * from the URL, and `/page/abc` from a crawler is page 1, not a TypeError.
+     *
+     * @param int|string $pages Total pages
+     * @param int|string $page  Current page, 1-based
+     * @param string     $url   Pattern containing `:page`
      */
-    public function __construct(int $pages = 1, int $page = 1, string $url = '')
+    public function __construct(int|string|null $pages = 1, int|string|null $page = 1, string $url = '')
     {
         // Seeded from the project's configuration; see Html\ComponentClasses. A caller setting
         // these afterwards still wins — this decides the default, not the outcome.
@@ -183,8 +186,8 @@ class Pagination extends \Pramnos\Framework\Base
 
         parent::__construct();
 
-        $this->pages = max(1, $pages);
-        $this->page  = min(max(1, $page), $this->pages);
+        $this->pages = max(1, (int) $pages);
+        $this->page  = min(max(1, (int) $page), $this->pages);
         $this->url   = $url;
     }
 
