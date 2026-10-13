@@ -151,6 +151,39 @@ class DateTest extends TestCase
     }
 
     /**
+     * The field is ten characters wide, and its `form-control` is the project's to drop.
+     *
+     * Bootstrap's `.form-control` is `display:block; width:100%`, so outside a grid column the
+     * field spanned the page. `size="10"` sizes it when nothing else does, and
+     * `component_classes.date` = `''` leaves the class off for an application that lays its
+     * fields out inline.
+     */
+    public function testTheFieldIsSizedAndItsClassIsConfigurable(): void
+    {
+        // Arrange
+        $app      = \Pramnos\Application\Application::getInstance();
+        $original = $app->applicationInfo['component_classes'] ?? null;
+
+        try {
+            // Act — the default, then a project that wants no class
+            $default = (new Date('from'))->render();
+            $app->applicationInfo['component_classes'] = ['date' => ''];
+            $inline = (new Date('from'))->render();
+        } finally {
+            if ($original === null) {
+                unset($app->applicationInfo['component_classes']);
+            } else {
+                $app->applicationInfo['component_classes'] = $original;
+            }
+        }
+
+        // Assert
+        $this->assertMatchesRegularExpression('/<input[^>]*size="10"[^>]*class="form-control"/', $default);
+        $this->assertMatchesRegularExpression('/<input[^>]*id="from_datepicker"(?![^>]*class=)[^>]*>/', $inline,
+            'an empty configured class leaves no class attribute');
+    }
+
+    /**
      * A null date is "no date", as 0 is — not today.
      *
      * `date()` reads null as now on PHP 8, so a widget built from a property nobody set

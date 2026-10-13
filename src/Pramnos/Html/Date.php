@@ -502,14 +502,15 @@ class Date extends Html
         $title = $lang->_('Invalid Format') . ' (dd/mm/yyyy, '
             . (int) $this->minyear . '-' . (int) $this->maxyear . ')';
 
-        $return .= '<input type="text" maxlength="10" name="'
+        // `size` for a field outside a grid column: ten characters, not the whole line.
+        $class = trim(ComponentClasses::get('date') . ' ' . $this->class);
+        $return .= '<input type="text" maxlength="10" size="10" name="'
             . $name
             . '" id="'
             . $this->name
             . $unique . '_datepicker'
-            . '" class="form-control '
-            . $this->class
-            . '" data-inputmask="\'alias\': \'dd/mm/yyyy\'" data-mask value="'
+            . '"' . ($class !== '' ? ' class="' . htmlspecialchars($class, ENT_QUOTES, 'UTF-8') . '"' : '')
+            . ' data-inputmask="\'alias\': \'dd/mm/yyyy\'" data-mask value="'
             . $value
             . '" pattern="' . $pattern . '"'
             . ' title="' . htmlspecialchars($title, ENT_QUOTES, 'UTF-8') . '"'

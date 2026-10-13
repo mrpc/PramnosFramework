@@ -65,6 +65,8 @@ class ComponentClasses
         'omnibox'            => 'pf-omnibox',
         'stat_tile'          => 'pf-stat-tile',
         'stat_grid'          => 'pf-stat-grid',
+        // Bootstrap's, not a pf- hook: the field has always carried it. `''` for an inline field.
+        'date'               => 'form-control',
     ];
 
     /**
