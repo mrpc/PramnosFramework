@@ -43,6 +43,19 @@ services:
     ports:
       - "3306"
 
+  # MariaDB, for the dialect differences MySQL does not show — `DROP CHECK`, a column's CHECK.
+  # Not part of the main suite: started only by `./dockertest --mariadb`, which runs the tests
+  # in the `mariadb` group against it. Profile-gated, so `docker-compose up -d` leaves it off.
+  mariadb:
+    image: mariadb:10.11
+    container_name: pramnos_mariadb
+    profiles: ["mariadb"]
+    tmpfs:
+      - /var/lib/mysql:size=1g
+    environment:
+      - MARIADB_ROOT_PASSWORD=secret
+      - MARIADB_DATABASE=pramnos_test
+
   timescaledb:
     # Pinned to the oldest TimescaleDB the framework claims to support, not `latest`.
     #

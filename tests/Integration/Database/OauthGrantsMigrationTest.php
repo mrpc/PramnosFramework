@@ -133,4 +133,61 @@ class OauthGrantsMigrationTest extends TestCase
             $admin->close();
         }
     }
+
+    /**
+     * An installation whose grants table carries the CHECK on the column — what MariaDB keeps
+     * from the earlier version of the create migration — takes `jwt_bearer`: on MariaDB the
+     * column is redefined without its CHECK, which `DROP CONSTRAINT` cannot reach, and the new
+     * CHECK still refuses a grant type nobody declared.
+     */
+    #[DataProvider('installations')]
+    public function testAnOlderColumnCheckIsReplaced(string $type, string $host, int $port, string $user, string $prefix): void
+    {
+        // Arrange — the table as an earlier version made it, CHECK on the column
+        $admin = self::connection($type, $host, $port, $user, TEST_DATABASE, $prefix);
+        try {
+            if (!$admin->connect(false)) {
+                $this->markTestSkipped($host . ' not reachable');
+            }
+        } catch (\Throwable $e) {
+            $this->markTestSkipped($host . ' not reachable: ' . $e->getMessage());
+        }
+        $admin->query('DROP DATABASE IF EXISTS ' . self::PROBE);
+        $admin->query('CREATE DATABASE ' . self::PROBE);
+        $db = self::connection($type, $host, $port, $user, self::PROBE, $prefix);
+        $db->connect(false);
+        $this->previous = Factory::getDatabase();
+        $singleton      = &Factory::getDatabase();
+        $singleton      = $db;
+
+        try {
+            Schema::ensure([\Pramnos\Framework\Migrations\AuthServer\CreateApplicationsSchema::class], $db);
+            $schema = $db->schema();
+            $schema->createTable('applications.oauth2_application_grants', function ($table) {
+                $table->increments('grant_id');
+                $table->integer('appid')->unsigned();
+                $table->string('grant_type', 50)->check("grant_type IN ('authorization_code', 'client_credentials')")->comment('The grant');
+            });
+            $application           = (new \ReflectionClass(\Pramnos\Application\Application::class))->newInstanceWithoutConstructor();
+            $application->database = $db;
+
+            // Act
+            (new \Pramnos\Framework\Migrations\AuthServer\AllowJwtBearerInOauth2ApplicationGrants($application))->up();
+            $db->queryBuilder()->table('applications.oauth2_application_grants')->insert(['appid' => 1, 'grant_type' => 'jwt_bearer']);
+            $refused = false;
+            try {
+                $db->queryBuilder()->table('applications.oauth2_application_grants')->insert(['appid' => 1, 'grant_type' => 'made_up']);
+            } catch (\Throwable) {
+                $refused = true;
+            }
+
+            // Assert
+            $this->assertSame(1, $db->queryBuilder()->table('applications.oauth2_application_grants')->count(), 'jwt_bearer is taken');
+            $this->assertTrue($refused, 'and an undeclared grant type is still refused');
+        } finally {
+            $db->close();
+            $admin->query('DROP DATABASE IF EXISTS ' . self::PROBE);
+            $admin->close();
+        }
+    }
 }

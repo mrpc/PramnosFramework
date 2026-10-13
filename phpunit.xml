@@ -20,6 +20,16 @@
         filtered to one class (2.7 s against 1.6 s without it), and it is paid on every
         run, filtered or not. A test that needs #[Depends] must turn this back on.
     -->
+    <!--
+        The `mariadb` group needs the MariaDB service, which only dockertest with its mariadb flag starts;
+        it runs that group alone. Kept out of every other run so the main suite does not wait on
+        a third database.
+    -->
+    <groups>
+        <exclude>
+            <group>mariadb</group>
+        </exclude>
+    </groups>
     <extensions>
         <!--
             Request-scoped state is process-wide in a test run. Without this,

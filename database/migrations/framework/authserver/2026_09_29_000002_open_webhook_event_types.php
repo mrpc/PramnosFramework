@@ -54,7 +54,8 @@ class OpenWebhookEventTypes extends Migration
 
         $table = $schema->quoteTable(self::TABLE);
         foreach ($this->typeChecks() as $name) {
-            $db->query("ALTER TABLE {$table} DROP CONSTRAINT " . $this->quoteName($name));
+            // DROP CONSTRAINT, or on MariaDB the column redefined: see SchemaBuilder::dropCheck().
+            $schema->dropCheck(self::TABLE, $name);
         }
     }
 

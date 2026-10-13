@@ -16,6 +16,7 @@ testdox=false
 resetdb=false
 force=false
 parallel=0
+mariadb=false
 passthrough=()
 for arg in "$@"; do
     if [[ "$arg" == "--nobrowser" ]]; then
@@ -34,6 +35,10 @@ for arg in "$@"; do
         resetdb=true
     elif [[ "$arg" == "--force" ]]; then
         force=true
+    elif [[ "$arg" == "--mariadb" ]]; then
+        # The MariaDB-only tests, against the profile-gated MariaDB service. Not part of a
+        # normal run: see the `mariadb` group excluded in phpunit.xml.
+        mariadb=true
     elif [[ "$arg" == "--parallel" ]]; then
         parallel=4
     elif [[ "$arg" == --parallel=* ]]; then
@@ -280,9 +285,24 @@ if [[ $dep_rc -ne 0 ]]; then
     docker-compose exec -T php-apache-environment composer install </dev/null
 fi
 
+# --mariadb: start the profile-gated MariaDB service, wait until it answers, and run only the
+# `mariadb` group. Left running afterwards, like the other databases.
+if [[ "$mariadb" == true ]]; then
+    echo "Starting MariaDB..."
+    if ! timeout -k 10 300 docker-compose --profile mariadb up -d mariadb; then
+        echo "ERROR: could not start the MariaDB service." >&2
+        exit 1
+    fi
+    for _ in $(seq 1 60); do
+        docker-compose --profile mariadb exec -T mariadb mariadb -uroot -psecret -e 'SELECT 1' </dev/null >/dev/null 2>&1 && break
+        sleep 2
+    done
+fi
+
 # Run tests
 echo -e "\e[32mRunning PHPUnit tests...\e[0m"
 extra_flags="--configuration phpunit.xml --display-deprecations --display-warnings --display-incomplete --display-skipped --display-phpunit-deprecations"
+[[ "$mariadb" == true ]] && extra_flags="$extra_flags --group mariadb"
 [[ "$testdox" == true ]] && extra_flags="$extra_flags --testdox"
 
 # `set -e` is not in force here, so the exit status is captured explicitly and

@@ -314,6 +314,18 @@ $schema->alterTable('#PREFIX#users', function ($table) {
 | PostgreSQL | Up to 3 separate `ALTER COLUMN` statements: `TYPE`, `SET/DROP NOT NULL`, `SET/DROP DEFAULT` |
 | TimescaleDB | Same as PostgreSQL |
 
+### Dropping a CHECK constraint
+
+```php
+$schema->dropCheck('applications.oauth2_application_grants', 'chk_oauth2_grant_type');
+```
+
+`DROP CONSTRAINT`, which PostgreSQL, MySQL 8.0.19+ and MariaDB share — `DROP CHECK` is MySQL's
+alone. On MariaDB a CHECK written on a column belongs to the column and is named after it; no
+`DROP CONSTRAINT` reaches it, so the column is redefined without it, keeping its type,
+nullability, default and comment. A CHECK a later migration may need to drop is better named and
+table-level from the start.
+
 ### Moving a table into a schema
 
 ```php

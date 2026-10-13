@@ -412,12 +412,13 @@ abstract class SchemaGrammar implements SchemaGrammarInterface
             $sql .= ' DEFAULT ' . $this->compileDefaultValue($col->get('default'));
         }
 
-        if ($check = $col->get('check')) {
-            $sql .= " CHECK ({$check})";
-        }
-
+        // COMMENT before CHECK: MariaDB takes a column's CHECK only last, MySQL either way.
         if ($comment = $col->get('comment')) {
             $sql .= $this->compileColumnComment($comment);
+        }
+
+        if ($check = $col->get('check')) {
+            $sql .= " CHECK ({$check})";
         }
 
         return $sql;

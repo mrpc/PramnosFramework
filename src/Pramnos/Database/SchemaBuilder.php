@@ -2661,6 +2661,52 @@ class SchemaBuilder
     }
 
     /**
+     * Drop a CHECK constraint, whichever database it is on.
+     *
+     * `DROP CONSTRAINT` is what PostgreSQL, MySQL 8.0.19+ and MariaDB share — `DROP CHECK` is
+     * MySQL's alone, and MariaDB refuses it. And MariaDB keeps a CHECK written on a column as
+     * part of the column, named after it, which no `DROP CONSTRAINT` reaches: the column is
+     * redefined without it — its type, nullability, default and comment read back first, so
+     * only the CHECK goes.
+     *
+     * @param string $table Table name, `#PREFIX#`, schema and all
+     * @param string $name  The constraint, as the catalogue names it
+     */
+    public function dropCheck(string $table, string $name): void
+    {
+        $quoted = $this->quoteTable($table);
+
+        if ($this->capabilities->isPostgreSQL()) {
+            $this->db->query('ALTER TABLE ' . $quoted . ' DROP CONSTRAINT "' . str_replace('"', '""', $name) . '"');
+
+            return;
+        }
+
+        if ($this->capabilities->isMariaDB()) {
+            // Introspection: a column's full definition is in the catalogue, not the builder.
+            $column = $this->db->query($this->db->prepareQuery(
+                'SELECT COLUMN_TYPE AS type, IS_NULLABLE AS nullable, COLUMN_DEFAULT AS dflt, COLUMN_COMMENT AS note'
+                . ' FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND COLUMN_NAME = %s',
+                $this->resolveTable($table),
+                $name
+            ));
+
+            if ($column && (int) $column->numRows > 0) {
+                $f   = $column->fields;
+                $sql = 'ALTER TABLE ' . $quoted . ' MODIFY `' . str_replace('`', '``', $name) . '` ' . $f['type']
+                    . ($f['nullable'] === 'YES' ? ' NULL' : ' NOT NULL')
+                    . ($f['dflt'] !== null ? ' DEFAULT ' . $f['dflt'] : '')
+                    . ((string) $f['note'] !== '' ? " COMMENT '" . str_replace("'", "''", (string) $f['note']) . "'" : '');
+                $this->db->query($sql);
+
+                return;
+            }
+        }
+
+        $this->db->query('ALTER TABLE ' . $quoted . ' DROP CONSTRAINT `' . str_replace('`', '``', $name) . '`');
+    }
+
+    /**
      * The tables a blueprint's foreign keys reference, named as the tables themselves are.
      *
      * The table being built went through {@see resolveTable()} and the one it referenced did

@@ -52,9 +52,7 @@ class CreateOauth2ApplicationGrantsTable extends Migration
             $schema->createTable('applications.oauth2_application_grants', function ($table) {
                 $table->increments('grant_id');
                 $table->integer('appid')->unsigned();
-                $table->string('grant_type', 50)->check(
-                    "grant_type IN ('authorization_code', 'client_credentials', 'refresh_token', 'device_code', 'password', 'exchange_token')"
-                );
+                $table->string('grant_type', 50);
                 $table->boolean('is_enabled')->default(true);
                 $table->timestamp('created_at')->useCurrent();
                 $table->timestamp('updated_at')->useCurrent();
@@ -63,6 +61,16 @@ class CreateOauth2ApplicationGrantsTable extends Migration
                 $table->foreign('appid')->references('appid')->on('applications')->onDelete('cascade');
                 $table->comment('OAuth2 grant types enabled per application — drives authorisation server policy');
             });
+
+            // Raw: a named, table-level CHECK, which the builder does not model. Named, and not on the
+            // column, so a later migration can drop it everywhere — MariaDB keeps a column's CHECK
+            // as part of the column, beyond DROP CONSTRAINT.
+            $quote = $schema->getCapabilities()->isPostgreSQL() ? '"' : '`';
+            $this->application->database->query(
+                'ALTER TABLE ' . $schema->quoteTable('applications.oauth2_application_grants')
+                . ' ADD CONSTRAINT ' . $quote . 'chk_oauth2_grant_type' . $quote
+                . " CHECK (grant_type IN ('authorization_code', 'client_credentials', 'refresh_token', 'device_code', 'password', 'exchange_token'))"
+            );
 
             // A partial index: only PostgreSQL has them, and MySQL never had this one.
             $schema->whenCapable(DatabaseCapabilities::ENGINE_POSTGRESQL, function ($schema) {

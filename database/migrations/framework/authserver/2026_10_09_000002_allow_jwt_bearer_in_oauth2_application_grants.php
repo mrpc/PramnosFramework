@@ -47,7 +47,8 @@ class AllowJwtBearerInOauth2ApplicationGrants extends Migration
 
         $table = $schema->quoteTable(self::TABLE);
         foreach ($this->grantTypeChecks() as $name) {
-            $db->query("ALTER TABLE {$table} DROP " . ($this->isPostgreSQL() ? 'CONSTRAINT ' : 'CHECK ') . $this->quoteName($name));
+            // DROP CONSTRAINT, or on MariaDB the column redefined: see SchemaBuilder::dropCheck().
+            $schema->dropCheck(self::TABLE, $name);
         }
         $db->query(
             "ALTER TABLE {$table} ADD CONSTRAINT " . $this->quoteName('chk_oauth2_grant_type')

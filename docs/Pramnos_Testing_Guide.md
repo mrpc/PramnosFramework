@@ -831,6 +831,23 @@ Everything else follows the rules below: schema and expensive fixtures once per 
 per test. An RSA key pair for an OAuth2 server costs a few hundred milliseconds and is
 read-only once generated, so it belongs in `setUpBeforeClass()` like any other.
 
+## MariaDB, when a change is dialect-sensitive
+
+```bash
+./dockertest --nocoverage --mariadb
+```
+
+Starts the profile-gated `mariadb` service (MariaDB 10.11) and runs only the tests in the
+`mariadb` group against it. It is **not** part of a normal run: `phpunit.xml` excludes the group,
+and `docker-compose up -d` leaves the service off, so the main suite never waits on a third
+database.
+
+Run it after touching DDL — a migration, the schema grammar, a `CHECK` — because MariaDB differs
+from MySQL where MySQL shows nothing: it refuses `DROP CHECK`, keeps a CHECK written on a column
+as part of the column, and takes a column's CHECK only after its COMMENT. A test joins the group
+by extending the MySQL one with `#[Group('mariadb')]` and a data provider that points at host
+`mariadb` — see `MariaDbOauthGrantsMigrationTest`.
+
 ## Running the framework's suite in parallel
 
 ```bash
