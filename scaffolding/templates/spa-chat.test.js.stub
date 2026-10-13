@@ -365,6 +365,56 @@ describe('Chat', () => {
         expect(onopen.mock.calls).toEqual([[0], [9]]);
     });
 
+    /**
+     * What an application tunes without editing the file: a box filled from elsewhere, its own
+     * placeholder, a line while waiting, word of each answer read back, its own dates and
+     * figures, links for the conversations, and a remembered preference marked as one.
+     */
+    it('takes the application’s wording, formats and hooks', async () => {
+        // Arrange
+        let calls = 0;
+        const client = fakeClient({
+            asked: vi.fn(async () => ({ data: calls++ === 0 ? { status: 'waiting' } : { status: 'answered', conversation_id: 9 } })),
+            memory: vi.fn(async () => ({ data: { memories: [{ memory_id: 3, content: 'Short answers', kind: 'preference' }] } })),
+        });
+        const onanswer = vi.fn();
+        const { container } = render(Chat, {
+            client,
+            question: 'Prepared elsewhere',
+            placeholder: 'Ask about your numbers…',
+            onanswer,
+            waitingLine: () => 'Counting the clicks…',
+            formatDate: () => '13 Oct',
+            numberFormat: (n) => `${n / 1000}K`,
+            conversationHref: (id) => `/chat?c=${id}`,
+            timing: { firstMs: 0, waitMs: 30 },
+        });
+
+        // Act
+        const box = await screen.findByLabelText('Your question');
+        await fireEvent.click(screen.getByRole('button', { name: 'Ask' }));
+
+        // Assert
+        expect(box.getAttribute('placeholder')).toBe('Ask about your numbers…');
+        expect(await screen.findByText('Counting the clicks…')).toBeTruthy();
+        await waitFor(() => expect(onanswer).toHaveBeenCalled());
+        expect(onanswer.mock.calls[0][0].at(-1).message_id).toBe(2);
+        expect(client.ask.mock.calls[0][0].content).toBe('Prepared elsewhere');
+        expect(screen.getByText('13 Oct')).toBeTruthy();
+        expect(screen.getByText('Context: 1K tokens')).toBeTruthy();
+        expect(container.querySelector('a[href="/chat?c=9"]')).not.toBeNull();
+        expect(screen.getByText('preference')).toBeTruthy();
+    });
+
+    /** Nothing remembered has its own sentence, so an application can say what is worth telling it. */
+    it('says nothing is remembered in its own words', async () => {
+        // Arrange / Act
+        render(Chat, { client: fakeClient({ memory: vi.fn(async () => ({ data: { memories: [] } })) }) });
+
+        // Assert
+        expect(await screen.findByText('Nothing remembered yet.')).toBeTruthy();
+    });
+
     /** Every string goes through `t`, so an application's language reaches the screen. */
     it('translates through t', async () => {
         // Arrange / Act

@@ -467,6 +467,11 @@ out through `onopen(id)`. Everything else an application changes without editing
 | `toolLabel(tool)` | how a tool an answer read is named under it |
 | `t` | the translator — every string goes through it, `lib/i18n.svelte.js`'s by default |
 | `consentNotice(consent)` (snippet) | the agreement's wording — legal text the application owns |
+| `question` (bindable), `placeholder` | what is in the box — a prompt another screen prepared — and its placeholder |
+| `waitingLine(ms)` | a line under *Thinking*, asked each second of waiting; `null` shows nothing. By default a sentence after a minute |
+| `onanswer(messages)` | told the conversation each time an answer has been read back — open what it produced |
+| `formatDate`, `numberFormat` | how a conversation's date and the limits' figures are shown |
+| `conversationHref(id)` | the conversations become links the application's router follows, and open in a new tab |
 | `header` (snippet) | the title, in place of *Ask AI* |
 | `message(message, change)` (snippet) | drawn under each answer; `change(patch)` updates the message and calls `onmessagechange(id, patch)` |
 | `composer` (snippet) | beside the Ask button: a cost, what the question is about |

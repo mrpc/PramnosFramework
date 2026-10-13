@@ -23,6 +23,8 @@
      *                  returning one; `extraUsed()` is called once it went
      *   - `canAsk`, `onRefusal(err)` — a plan that says no, before and after
      *   - `consentNotice` — the agreement's wording, the application's own
+     *   - `question` (bindable), `placeholder`, `waitingLine(ms)`, `onanswer(messages)`,
+     *     `formatDate`, `numberFormat`, `conversationHref(id)` — wording, formats, links
      *   - `t`        — the translator; every string goes through it
      */
     import { untrack } from 'svelte';
@@ -60,6 +62,20 @@
         aside = null,
         /** The agreement notice's text, `(consent)` — see AiConsent. */
         consentNotice = null,
+        /** What is in the box; bindable, so another screen's prompt can be put there. */
+        question = $bindable(''),
+        /** The box's placeholder; the label stays "Your question". */
+        placeholder = null,
+        /** Told the conversation's messages each time an answer has been read back. */
+        onanswer = null,
+        /** A line under "thinking", asked each second of waiting: `(ms) => string|null`. */
+        waitingLine = null,
+        /** How a conversation's `updated_at` is shown. */
+        formatDate = (value) => value,
+        /** How a figure in the limits is shown. */
+        numberFormat = (n) => Number(n ?? 0).toLocaleString(),
+        /** A conversation's address: with it the list is links, so one opens in a new tab. */
+        conversationHref = null,
     } = $props();
 
     const chat = $derived(resolveClient(client, api, paths));
@@ -75,7 +91,6 @@
     let limits = $state(null);
     let consent = $state({ loaded: false, required: false, given: false, provider: '', label: '', place: '' });
     let messages = $state([]);
-    let question = $state('');
     /** `{name, data}`, the bytes as base64. */
     let attachments = $state([]);
     let asking = $state(false);
@@ -286,6 +301,7 @@
 
             if (typeof outcome === 'number') {
                 messages = (await chat.read(outcome)).data?.messages ?? messages;
+                onanswer?.(messages);
 
                 if (outcome !== open) {
                     opened(outcome);
@@ -358,7 +374,8 @@
     /** How full the model's context was on the last answer. */
     const context = $derived(messages.findLast((one) => one.role === 'assistant' && one.context)?.context ?? 0);
     const contextShare = $derived(limits?.context_window ? Math.min(100, Math.round((context / limits.context_window) * 100)) : 0);
-    const number = (n) => Number(n ?? 0).toLocaleString();
+    const number = (n) => numberFormat(n);
+    const line = $derived(waiting ? (waitingLine ?? ((ms) => (ms >= LONG_MS ? t('Still working on a long answer — it will appear here.') : null)))(waitedMs) : null);
 </script>
 
 <section class="mx-auto flex w-full flex-col gap-4">
@@ -401,12 +418,15 @@
                 <div>
                     <h2 class="font-medium">{t('What it remembers (%s)', memories.length)}</h2>
                     {#if memories.length === 0}
-                        <p class="pt-1 text-xs opacity-60">{t('Nothing yet.')}</p>
+                        <p class="pt-1 text-xs opacity-60">{t('Nothing remembered yet.')}</p>
                     {:else}
                         <ul class="mt-1 max-h-64 space-y-1 overflow-y-auto">
                             {#each memories as one (one.memory_id)}
                                 <li class="flex items-start gap-1">
-                                    <span class="min-w-0 flex-1">{one.content}</span>
+                                    <span class="min-w-0 flex-1">
+                                        {one.content}
+                                        {#if one.kind === 'preference'}<span class="badge badge-ghost badge-xs">{t('preference')}</span>{/if}
+                                    </span>
                                     <button type="button" class="btn btn-ghost btn-xs btn-square opacity-60 hover:opacity-100"
                                         aria-label={t('Forget %s', one.content)} onclick={() => unremember(one.memory_id)}>✕</button>
                                 </li>
@@ -435,13 +455,22 @@
             <ul class="w-full space-y-0.5 overflow-y-auto overflow-x-hidden rounded-box bg-base-100 p-1 shadow-sm max-lg:max-h-48 lg:max-h-[70vh]">
                 {#each conversations as one (one.conversation_id)}
                     <li class="relative">
-                        <button type="button"
-                            class="block w-full rounded-field py-2 pl-3 pr-9 text-left text-sm {one.conversation_id === shown ? 'bg-neutral text-neutral-content' : 'hover:bg-base-200'}"
-                            aria-current={one.conversation_id === shown ? 'page' : undefined}
-                            onclick={() => opened(one.conversation_id)}>
+                        <!-- A link when the application gives addresses — its router opens it,
+                             and it opens in a new tab — a button otherwise. -->
+                        {#snippet entry()}
                             <span class="block truncate">{one.title}</span>
-                            <span class="block text-xs opacity-60">{one.updated_at}</span>
-                        </button>
+                            <span class="block text-xs opacity-60">{formatDate(one.updated_at)}</span>
+                        {/snippet}
+                        {#if conversationHref}
+                            <a href={conversationHref(one.conversation_id)}
+                                class="block w-full rounded-field py-2 pl-3 pr-9 text-sm {one.conversation_id === shown ? 'bg-neutral text-neutral-content' : 'hover:bg-base-200'}"
+                                aria-current={one.conversation_id === shown ? 'page' : undefined}>{@render entry()}</a>
+                        {:else}
+                            <button type="button"
+                                class="block w-full rounded-field py-2 pl-3 pr-9 text-left text-sm {one.conversation_id === shown ? 'bg-neutral text-neutral-content' : 'hover:bg-base-200'}"
+                                aria-current={one.conversation_id === shown ? 'page' : undefined}
+                                onclick={() => opened(one.conversation_id)}>{@render entry()}</button>
+                        {/if}
                         <button type="button"
                             class="btn btn-ghost btn-xs btn-square absolute right-1 top-1/2 -translate-y-1/2 opacity-60 hover:opacity-100"
                             aria-label={t('Delete %s', one.title)}
@@ -514,8 +543,8 @@
                         <div class="chat chat-start">
                             <div class="chat-bubble">
                                 <span class="loading loading-dots loading-sm" aria-label={t('Thinking')}></span>
-                                {#if waiting && waitedMs >= LONG_MS}
-                                    <span class="ml-2 text-sm opacity-70" role="status">{t('Still working on a long answer — it will appear here.')}</span>
+                                {#if line}
+                                    <span class="ml-2 text-sm opacity-70" role="status">{line}</span>
                                 {/if}
                             </div>
                         </div>
@@ -538,7 +567,7 @@
                         bind:value={question}
                         onkeydown={keydown}
                         onpaste={pasted}
-                        placeholder={t('Your question')}
+                        placeholder={placeholder ?? t('Your question')}
                     ></textarea>
                     <div class="flex flex-wrap items-center gap-2 px-2 pb-2">
                         <input bind:this={picker} class="hidden" type="file" multiple accept={DOCUMENTS} aria-label={t('Attach a document')} onchange={attach} />
