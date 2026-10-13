@@ -151,13 +151,25 @@ class Conversations
     }
 
     /**
+     * The connection a question here goes out on, as the router sends it — an organisation's own
+     * provider or key — so what is checked before asking is what the answer will use.
+     */
+    public function connection(): \Pramnos\Llm\Connection
+    {
+        $scope  = $this->scope ?? new Scope(0);
+        $router = \Pramnos\Llm\Llm::router();
+
+        return $router->route($router->context(['purpose' => 'chat'] + $scope->context()), $this->assistant->connection($scope));
+    }
+
+    /**
      * What a conversation here is allowed, for the screen to say out loud.
      *
      * @return array<string, mixed>
      */
     public function limits(): array
     {
-        $connection = $this->assistant->connection($this->scope ?? new Scope(0));
+        $connection = $this->connection();
 
         return [
             'provider'       => $connection->label(),

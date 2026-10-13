@@ -1,9 +1,9 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/svelte';
 import { createRawSnippet } from 'svelte';
 import { vi } from 'vitest';
-import Chat from '../components/Chat.svelte';
-import { ApiError } from '../lib/api.js';
-import { chatClient, described, failure, parts, waitForAnswer } from '../lib/chat.js';
+import Chat from '../../components/llm/Chat.svelte';
+import { ApiError } from '../../lib/api.js';
+import { chatClient, described, failure, parts, waitForAnswer } from '../../lib/llm/chat.js';
 
 /**
  * Tests for the conversation screen and the API client it shares with
@@ -396,6 +396,10 @@ describe('lib/chat.js', () => {
         expect(api.delete.mock.calls.map((c) => c[0])).toEqual(['/chat/memory/3', '/ai/consent']);
         expect(api.put).toHaveBeenCalledWith('/routines/4', { active: false });
         expect(api.post.mock.calls.map((c) => c[0])).toEqual(['/routines/4/run', '/ai/consent']);
+        // Agreement is per feature: chat unless another is named.
+        expect(api.post.mock.calls[1][2]).toEqual({ query: { feature: 'chat' } });
+        await chat.consent('editorial');
+        expect(api.get).toHaveBeenLastCalledWith('/ai/consent', { feature: 'editorial' });
     });
 
     /** A question kept with its document splits into what was said, the file and its words. */

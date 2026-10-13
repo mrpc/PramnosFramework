@@ -137,6 +137,8 @@ class MakeCrudSpaTest extends TestCase
         // A buildless project keeps its screens under the web root, so a test that
         // generated one there leaves the framework's own www/ dirty otherwise.
         $this->rmdir(ROOT . '/www/assets/js/screens');
+        // The record of what create:crud wrote, so a resync can tell its copy from the project's.
+        @unlink(ROOT . '/' . \Pramnos\Console\ShippedFiles::PATH);
     }
 
     /**
@@ -231,6 +233,8 @@ class MakeCrudSpaTest extends TestCase
             $path = ROOT . '/frontend/' . $relative;
             $this->created[] = $path;
             $this->assertFileExists($path, $relative . ' must ship with the screen');
+            // Recorded as written: a later resync replaces it only while it is still this.
+            $this->assertTrue(\Pramnos\Console\ShippedFiles::untouched(ROOT, 'frontend/' . $relative, (string) file_get_contents($path)), $relative . ' was not recorded');
         }
 
         // ...and the registry points at it

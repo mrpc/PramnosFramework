@@ -1,7 +1,7 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/svelte';
 import { vi } from 'vitest';
-import Scheduled from '../components/Scheduled.svelte';
-import { ApiError } from '../lib/api.js';
+import Scheduled from '../../components/llm/Scheduled.svelte';
+import { ApiError } from '../../lib/api.js';
 
 /**
  * Tests for Scheduled reports.

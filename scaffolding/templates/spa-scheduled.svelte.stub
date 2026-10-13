@@ -8,9 +8,9 @@
      * A pause or a new one the application refuses (a plan, a limit) is said here
      * as the server says it.
      */
-    import { t as translate } from '../lib/i18n.svelte.js';
-    import { failure, resolveClient } from '../lib/chat.js';
-    import ConfirmDialog from './ConfirmDialog.svelte';
+    import { t as translate } from '../../lib/i18n.svelte.js';
+    import { failure, resolveClient } from '../../lib/llm/chat.js';
+    import ConfirmDialog from '../ConfirmDialog.svelte';
 
     let {
         client = null,

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Pramnos\Llm\Chat\Api;
 
 use Pramnos\Llm\Chat\Routines;
+use Pramnos\Llm\Connection;
 use Pramnos\Llm\Chat\Scope;
 use Pramnos\Llm\Llm;
 use Pramnos\Llm\Policy\StoredConsent;
@@ -23,6 +24,7 @@ use Pramnos\Llm\Providers;
  * | `storePicture($path, $filename)` | keep an attached picture and answer its address; none by default |
  * | `extra($input)` | what travels with the question to the assistant |
  * | `limits($scope)` | the limits a screen shows, decorated |
+ * | `routinesAnswer($scope, $answer)` | the scheduled-questions list, decorated — a plan's limit |
  * | `scope()`, `conversations()`, `asks()`, `routineService()` | where everything comes from |
  *
  * Answers are `['status' => …, 'data' => …]` or `['status' => …, 'error' => …]`.
@@ -146,11 +148,11 @@ class ChatController extends \Pramnos\Application\ApiCrudController
 
         $scope = $this->scope();
 
-        return ['status' => 200, 'data' => [
+        return ['status' => 200, 'data' => $this->routinesAnswer($scope, [
             'routines'  => $scope === null ? [] : $this->routineService()->mine($scope),
             'templates' => Routines::templates(),
             'cadences'  => Routines::CADENCES,
-        ]];
+        ])];
     }
 
     /** Schedule a question. */
@@ -228,7 +230,10 @@ class ChatController extends \Pramnos\Application\ApiCrudController
         return $ran['ok'] ? ['status' => 200, 'data' => $ran] : ['status' => 409, 'error' => $ran['says'], 'data' => $ran];
     }
 
-    /** Whether the provider in use asks for agreement, and whether this person gave it. */
+    /**
+     * Whether the provider a feature uses asks for agreement, and whether this person gave it —
+     * `feature` in the query, `chat` by default: each feature can go to its own provider.
+     */
     public function consent(): array
     {
         if (($stop = $this->refusal('consent')) !== null) {
@@ -236,10 +241,17 @@ class ChatController extends \Pramnos\Application\ApiCrudController
         }
 
         $scope    = $this->scope();
-        $provider = $this->provider($scope);
-        $config   = Providers::config($provider);
+        $feature  = $this->feature();
+        $provider = $this->provider($scope, $feature);
+
+        if ($provider === null) {
+            return self::error(422, 'There is no such feature.');
+        }
+
+        $config = Providers::config($provider);
 
         return ['status' => 200, 'data' => [
+            'feature'  => $feature,
             'provider' => $provider,
             'label'    => (string) $config['label'],
             'place'    => (string) ($config['place'] ?? ''),
@@ -282,6 +294,17 @@ class ChatController extends \Pramnos\Application\ApiCrudController
         return new Routines($this->conversations());
     }
 
+    /**
+     * The scheduled-questions answer, decorated — the plan's limit on active ones, say.
+     *
+     * @param array{routines: list<array<string, mixed>>, templates: array<string, mixed>, cadences: list<string>} $answer
+     * @return array<string, mixed>
+     */
+    protected function routinesAnswer(?Scope $scope, array $answer): array
+    {
+        return $answer;
+    }
+
     /** @return array<string, mixed> The request's fields */
     protected function input(): array
     {
@@ -302,19 +325,44 @@ class ChatController extends \Pramnos\Application\ApiCrudController
             return self::error(403, 'This needs somebody signed in.');
         }
 
-        $store    = new StoredConsent();
-        $provider = $this->provider($scope);
+        $provider = $this->provider($scope, $this->feature());
+
+        if ($provider === null) {
+            return self::error(422, 'There is no such feature.');
+        }
+
+        $store = new StoredConsent();
         $give ? $store->give($scope->organizationId, $scope->userId, $provider) : $store->withdraw($scope->organizationId, $scope->userId, $provider);
 
         return $this->consent();
     }
 
-    /** The provider a conversation here goes to. */
-    private function provider(?Scope $scope): string
+    /** The feature agreement is asked about: `feature` in the query or body, `chat` by default. */
+    private function feature(): string
     {
-        $assistant = $this->conversations()->assistant();
+        $feature = trim((string) ($_GET['feature'] ?? $this->input()['feature'] ?? ''));
 
-        return $assistant->connection($scope ?? new Scope(0))->provider();
+        return $feature === '' ? 'chat' : $feature;
+    }
+
+    /**
+     * The provider a feature's calls go to, as the router sends them for this person — null for
+     * a feature the application does not have.
+     */
+    private function provider(?Scope $scope, string $feature): ?string
+    {
+        if ($feature === 'chat') {
+            return $this->conversations()->connection()->provider();
+        }
+
+        if (!isset(Connection::features()[$feature])) {
+            return null;
+        }
+
+        $router = Llm::router();
+        $scope ??= new Scope(0);
+
+        return $router->route($router->context(['purpose' => $feature] + $scope->context()), new Connection(null, $feature))->provider();
     }
 
     /** @return array{status: int, error: string} */

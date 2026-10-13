@@ -113,19 +113,20 @@ class Init extends Command
      *
      * Only for a Svelte SPA with the `llm` feature: at init, and by
      * `project:resync --spa-components`. Never by `create:crud`, which has nothing to do with
-     * them. They draw an answer with {@see self::SPA_CHAT_PACKAGES}.
+     * them. They draw an answer with {@see self::SPA_CHAT_PACKAGES}. Under `llm/`, so they
+     * cannot land on an application's own Chat screen, its tests or its markdown helper.
      *
      * @var array<string, string>
      */
     public const SPA_CHAT_COMPONENTS = [
-        'components/Chat.svelte'      => 'spa-chat.svelte',
-        'components/Scheduled.svelte' => 'spa-scheduled.svelte',
-        'components/AiConsent.svelte' => 'spa-ai-consent.svelte',
-        'lib/chat.js'                 => 'spa-chat.js',
-        'lib/markdown.js'             => 'spa-markdown.js',
-        '__tests__/Chat.test.js'      => 'spa-chat.test.js',
-        '__tests__/Scheduled.test.js' => 'spa-scheduled.test.js',
-        '__tests__/AiConsent.test.js' => 'spa-ai-consent.test.js',
+        'components/llm/Chat.svelte'      => 'spa-chat.svelte',
+        'components/llm/Scheduled.svelte' => 'spa-scheduled.svelte',
+        'components/llm/AiConsent.svelte' => 'spa-ai-consent.svelte',
+        'lib/llm/chat.js'                 => 'spa-chat.js',
+        'lib/llm/markdown.js'             => 'spa-markdown.js',
+        '__tests__/llm/Chat.test.js'      => 'spa-chat.test.js',
+        '__tests__/llm/Scheduled.test.js' => 'spa-scheduled.test.js',
+        '__tests__/llm/AiConsent.test.js' => 'spa-ai-consent.test.js',
     ];
 
     /**
@@ -1782,7 +1783,7 @@ class Init extends Command
     private function scaffoldSpaChat(string $sourceDir): void
     {
         foreach (self::SPA_CHAT_COMPONENTS as $relative => $stub) {
-            $this->writeFile($sourceDir . '/' . $relative, $this->renderStub($stub, []));
+            $this->writeShipped($sourceDir . '/' . $relative, $this->renderStub($stub, []));
         }
 
         $path = $this->targetBaseDir . '/package.json';
@@ -2001,14 +2002,14 @@ class Init extends Command
         $this->mkdir($sourceDir . '/__tests__');
 
         foreach (self::SPA_SHARED_COMPONENTS as $relative => $stub) {
-            $this->writeFile(
+            $this->writeShipped(
                 $sourceDir . '/' . $relative,
                 $this->renderStub($stub, $tokens)
             );
         }
 
         foreach (self::SPA_SHARED_COMPONENT_TESTS as $relative => $stub) {
-            $this->writeFile(
+            $this->writeShipped(
                 $sourceDir . '/' . $relative,
                 $this->renderStub($stub, $tokens)
             );
@@ -8134,6 +8135,19 @@ PHP;
         $fullPath = $this->targetBaseDir . '/' . $path;
         if (!is_dir($fullPath)) {
             @mkdir($fullPath, 0777, true);
+        }
+    }
+
+    /**
+     * Write a file the project is expected to change, and record what was written, so a later
+     * `project:resync` can tell the framework's copy from the project's ({@see ShippedFiles}).
+     */
+    private function writeShipped(string $path, string $content): void
+    {
+        $this->writeFile($path, $content);
+
+        if (!$this->dryRun && isset($this->writtenFiles[$path])) {
+            \Pramnos\Console\ShippedFiles::record($this->targetBaseDir, $path, $content);
         }
     }
 

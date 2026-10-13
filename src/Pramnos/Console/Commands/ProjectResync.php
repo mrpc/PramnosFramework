@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Pramnos\Console\Commands;
 
 use Pramnos\Application\ScaffoldingHelper;
+use Pramnos\Console\ShippedFiles;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
@@ -71,6 +72,7 @@ class ProjectResync extends Command
             ->setDescription('Re-copy framework-owned scaffolded files (pf-*.js UI hooks, docs tooling, SPA debug panel) into an existing project')
             ->addOption('dry-run', null, InputOption::VALUE_NONE, 'Show what would change without writing any files')
             ->addOption('all', null, InputOption::VALUE_NONE, 'Also copy framework files that are not present in the project yet')
+            ->addOption('overwrite', null, InputOption::VALUE_NONE, 'Replace shared components the project changed, or that the framework has no record of writing')
             ->addOption('js', null, InputOption::VALUE_NONE, 'Only sync the pf-*.js UI hook scripts')
             ->addOption('scripts', null, InputOption::VALUE_NONE, 'Only sync the docs tooling scripts (apidoc-to-openapi.cjs, doc.sh)')
             ->addOption('debug-panel', null, InputOption::VALUE_NONE, 'Only sync the framework-owned SPA modules (lib/debug.js, lib/webauthn.js)')
@@ -108,6 +110,7 @@ class ProjectResync extends Command
 
         $dryRun  = (bool) $input->getOption('dry-run');
         $copyAll = (bool) $input->getOption('all');
+        $overwrite = (bool) $input->getOption('overwrite');
         $onlyJs  = (bool) $input->getOption('js');
         $onlyScr = (bool) $input->getOption('scripts');
         $onlyPanel = (bool) $input->getOption('debug-panel');
@@ -164,10 +167,12 @@ class ProjectResync extends Command
         $tally = ['created' => 0, 'updated' => 0, 'unchanged' => 0, 'kept' => 0, 'skipped' => 0, 'failed' => 0];
 
         foreach ($files as $file) {
-            $action = $this->applyFile(
-                $base, $file['dest'], $file['content'], $file['exec'], $dryRun, $copyAll,
-                $output, $file['onlyIfMissing'] ?? false
-            );
+            $action = ($file['protect'] ?? false)
+                ? $this->applyProjectFile($base, $file['dest'], $file['content'], $dryRun, $copyAll, $overwrite, $output)
+                : $this->applyFile(
+                    $base, $file['dest'], $file['content'], $file['exec'], $dryRun, $copyAll,
+                    $output, $file['onlyIfMissing'] ?? false
+                );
             $tally[$action]++;
         }
 
@@ -219,6 +224,9 @@ class ProjectResync extends Command
         }
         if ($tally['skipped'] > 0 && !$copyAll) {
             $output->writeln('<comment>Some framework files are not present in this project. Re-run with --all to add them.</comment>');
+        }
+        if ($tally['kept'] > 0 && !$overwrite) {
+            $output->writeln('<comment>Files marked "kept" are the project\'s now. --overwrite replaces them with the framework\'s.</comment>');
         }
 
         // Non-zero when anything could not be written. A caller that checks the exit
@@ -354,6 +362,36 @@ class ProjectResync extends Command
         }
 
         return $exists ? 'updated' : 'created';
+    }
+
+    /**
+     * Write one shared component, unless the project has made it its own.
+     *
+     * Replaced only while it is still what the framework last wrote ({@see ShippedFiles});
+     * changed since, or never recorded, it is kept and said so — `--overwrite` takes the
+     * framework's anyway. Every write is recorded, and so is a file already identical.
+     *
+     * @return string One of: created, updated, unchanged, kept, skipped, failed.
+     */
+    private function applyProjectFile(string $base, string $rel, string $content, bool $dryRun, bool $copyAll, bool $overwrite, OutputInterface $output): string
+    {
+        $abs     = $base . '/' . $rel;
+        $current = is_file($abs) ? (string) file_get_contents($abs) : null;
+
+        if ($current !== null && $current !== $content && !$overwrite && !ShippedFiles::untouched($base, $rel, $current)) {
+            $why = ShippedFiles::recorded($base, $rel) === null ? 'not written by the framework' : 'locally changed';
+            $output->writeln("  kept       {$rel} ({$why})");
+
+            return 'kept';
+        }
+
+        $action = $this->applyFile($base, $rel, $content, false, $dryRun, $copyAll, $output);
+
+        if (!$dryRun && in_array($action, ['created', 'updated', 'unchanged'], true)) {
+            ShippedFiles::record($base, $rel, $content);
+        }
+
+        return $action;
     }
 
     /**
@@ -631,6 +669,8 @@ class ProjectResync extends Command
                 'content' => $this->renderStubFile($path, $tokens),
                 'dest'    => $sourceDir . $relative,
                 'exec'    => false,
+                // The project's file once it exists: kept when it was changed.
+                'protect' => true,
             ];
         }
 

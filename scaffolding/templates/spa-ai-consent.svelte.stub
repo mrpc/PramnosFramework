@@ -8,9 +8,13 @@
      * could send anything — and the server refuses regardless.
      *
      * `consent` is bindable, so the screen around it can offer to withdraw.
+     *
+     * What the notice says is the application's — it is legal wording, and only the
+     * application knows what its features send. `notice(consent)` replaces the text;
+     * the buttons stay. `kind` is the feature whose provider is asked about.
      */
-    import { t as translate } from '../lib/i18n.svelte.js';
-    import { failure, resolveClient } from '../lib/chat.js';
+    import { t as translate } from '../../lib/i18n.svelte.js';
+    import { failure, resolveClient } from '../../lib/llm/chat.js';
 
     let {
         client = null,
@@ -18,6 +22,10 @@
         paths = {},
         /** What this feature is, for the sentence: "Ask AI", "The assistant". */
         feature = 'This feature',
+        /** Which feature's provider: `chat` unless the application has several. */
+        kind = 'chat',
+        /** The notice's text, `(consent)` — the application's own wording. */
+        notice = null,
         /** Where the privacy policy says more, if anywhere. */
         privacyUrl = '',
         /** Drawn smaller, for a panel rather than a page. */
@@ -35,7 +43,7 @@
     let error = $state(null);
 
     $effect(() => {
-        chat.consent()
+        chat.consent(kind)
             .then((found) => { consent = { ...found.data, loaded: true }; })
             // Unknown is not agreement: a read that fails shows the notice, and the
             // server refuses anyway if that was wrong.
@@ -47,7 +55,7 @@
         error = null;
 
         try {
-            consent = { ...(await chat.giveConsent()).data, loaded: true };
+            consent = { ...(await chat.giveConsent(kind)).data, loaded: true };
         } catch (err) {
             error = failure(err, t('It could not be saved. Try again.'));
         } finally {
@@ -60,15 +68,19 @@
     <span class="loading loading-spinner loading-sm" aria-label={t('Loading')}></span>
 {:else if consent.required && !consent.given}
     <div role="region" aria-label={t('AI data notice')} class="rounded-box border border-warning/40 bg-warning/10 space-y-2 {compact ? 'p-3 text-xs' : 'p-4 text-sm'}">
-        <p class="font-medium">
-            {consent.place
-                ? t('%s uses %s, an AI provider in %s.', feature, consent.label || consent.provider, consent.place)
-                : t('%s uses %s.', feature, consent.label || consent.provider)}
-        </p>
-        <p>{t('When you use it, what you ask and the data needed to answer it are sent to %s.', consent.label || consent.provider)}</p>
-        <p><strong>{t('Nothing is sent until you agree.')}</strong> {t('You can withdraw at any time.')}</p>
-        {#if privacyUrl}
-            <p><a class="link" href={privacyUrl} target="_blank" rel="noopener">{t('Privacy policy')}</a></p>
+        {#if notice}
+            {@render notice(consent)}
+        {:else}
+            <p class="font-medium">
+                {consent.place
+                    ? t('%s uses %s, an AI provider in %s.', feature, consent.label || consent.provider, consent.place)
+                    : t('%s uses %s.', feature, consent.label || consent.provider)}
+            </p>
+            <p>{t('When you use it, what you ask and the data needed to answer it are sent to %s.', consent.label || consent.provider)}</p>
+            <p><strong>{t('Nothing is sent until you agree.')}</strong> {t('You can withdraw at any time.')}</p>
+            {#if privacyUrl}
+                <p><a class="link" href={privacyUrl} target="_blank" rel="noopener">{t('Privacy policy')}</a></p>
+            {/if}
         {/if}
         {#if error}<p class="text-error" role="alert">{error}</p>{/if}
         <div class="flex gap-2">

@@ -22,14 +22,15 @@
      *   - `extra`    — what travels with each question, an object or a function
      *                  returning one; `extraUsed()` is called once it went
      *   - `canAsk`, `onRefusal(err)` — a plan that says no, before and after
+     *   - `consentNotice` — the agreement's wording, the application's own
      *   - `t`        — the translator; every string goes through it
      */
     import { untrack } from 'svelte';
-    import { t as translate } from '../lib/i18n.svelte.js';
-    import { described, failure, parts, resolveClient, waitForAnswer } from '../lib/chat.js';
-    import { markdown } from '../lib/markdown.js';
+    import { t as translate } from '../../lib/i18n.svelte.js';
+    import { described, failure, parts, resolveClient, waitForAnswer } from '../../lib/llm/chat.js';
+    import { markdown } from '../../lib/llm/markdown.js';
     import AiConsent from './AiConsent.svelte';
-    import ConfirmDialog from './ConfirmDialog.svelte';
+    import ConfirmDialog from '../ConfirmDialog.svelte';
 
     let {
         client = null,
@@ -57,6 +58,8 @@
         message: messageExtra = null,
         composer = null,
         aside = null,
+        /** The agreement notice's text, `(consent)` — see AiConsent. */
+        consentNotice = null,
     } = $props();
 
     const chat = $derived(resolveClient(client, api, paths));
@@ -333,7 +336,7 @@
 
     async function withdraw() {
         try {
-            consent = { ...(await chat.withdrawConsent()).data, loaded: true };
+            consent = { ...(await chat.withdrawConsent('chat')).data, loaded: true };
         } catch (err) {
             error = failure(err, t('It could not be saved. Try again.'));
         }
@@ -457,7 +460,7 @@
                 <div role="alert" class="alert alert-warning alert-soft"><span>{error}</span></div>
             {/if}
 
-            <AiConsent {client} {api} {paths} {t} {privacyUrl} feature={t('Ask AI')} bind:consent>
+            <AiConsent {client} {api} {paths} {t} {privacyUrl} feature={t('Ask AI')} notice={consentNotice} bind:consent>
                 {#if messages.length === 0 && !loading && !shown && suggestions.length > 0}
                     <div class="flex flex-wrap gap-2">
                         {#each suggestions as suggestion}

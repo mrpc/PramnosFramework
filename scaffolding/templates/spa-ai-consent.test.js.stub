@@ -1,8 +1,8 @@
 import { render, screen, fireEvent } from '@testing-library/svelte';
 import { createRawSnippet } from 'svelte';
 import { vi } from 'vitest';
-import AiConsent from '../components/AiConsent.svelte';
-import { ApiError } from '../lib/api.js';
+import AiConsent from '../../components/llm/AiConsent.svelte';
+import { ApiError } from '../../lib/api.js';
 
 /**
  * Tests for the agreement asked before the first question.
@@ -43,6 +43,26 @@ describe('AiConsent', () => {
         // Assert
         expect(await screen.findByText('The box')).toBeTruthy();
         expect(ondecline).toHaveBeenCalledTimes(1);
+    });
+
+    /**
+     * The notice's wording is the application's: its snippet replaces the text and the
+     * buttons stay. The feature asked about is the one named in `kind`.
+     */
+    it('draws the application’s notice, for its feature', async () => {
+        // Arrange
+        const client = { consent: vi.fn(async () => ({ data: NEEDED })), giveConsent: vi.fn(async () => ({ data: { ...NEEDED, given: true } })) };
+        const notice = createRawSnippet((consent) => ({ render: () => `<p>Our wording about ${consent().label}.</p>` }));
+
+        // Act
+        render(AiConsent, { client, children, notice, kind: 'editorial' });
+        await fireEvent.click(await screen.findByRole('button', { name: 'I agree' }));
+
+        // Assert
+        expect(screen.queryByText(/an AI provider in/)).toBeNull();
+        expect(client.consent).toHaveBeenCalledWith('editorial');
+        expect(client.giveConsent).toHaveBeenCalledWith('editorial');
+        expect(await screen.findByText('The box')).toBeTruthy();
     });
 
     /** Unknown is not agreement: a read that fails shows the notice. */

@@ -71,7 +71,7 @@ trait TakesQuestions
             return ['status' => 403, 'error' => 'This needs somebody signed in.'];
         }
 
-        $connection = $this->conversations()->assistant()->connection($scope);
+        $connection = $this->conversations()->connection();
 
         if (!$connection->isConfigured()) {
             return ['status' => 503, 'error' => 'The AI is not connected yet. An administrator sets it up in Administration → AI.'];

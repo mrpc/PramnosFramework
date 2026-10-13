@@ -393,10 +393,13 @@ One line in the application's API routes mounts every endpoint:
 | `GET /chat/asks/{id}` | a queued question: `waiting`, `answered` with its `conversation_id`, or `failed` with `says` |
 | `GET /chat/memory`, `DELETE /chat/memory/{id}` | what it remembers; forget one |
 | `GET`/`POST /chat/routines`, `PUT`/`DELETE /chat/routines/{id}`, `POST /chat/routines/{id}/run` | scheduled questions, with the templates and cadences; `active` in a `PUT` pauses or resumes |
-| `GET`/`POST`/`DELETE /chat/consent` | the provider in use, whether it needs agreement and whether it was given; agree; withdraw |
+| `GET`/`POST`/`DELETE /chat/consent?feature=` | a feature's provider (`chat` by default), whether it needs agreement and whether it was given; agree; withdraw |
 
 A refusal is `{status, error}`; one for want of agreement adds `consent_required` and `provider`,
-so a screen can ask on the spot. Each decision an application makes is a protected method of
+so a screen can ask on the spot. The provider checked — whether it is set up, whether it needs
+agreement — is the one the router sends this person to (`purpose` `chat`, or the feature's name),
+so an organisation on its own provider or its own key is asked about that one.
+`Conversations::connection()` answers it. Each decision an application makes is a protected method of
 `Chat\Api\ChatController`, overridden in a subclass:
 
 | hook | |
@@ -406,6 +409,7 @@ so a screen can ask on the spot. Each decision an application makes is a protect
 | `storePicture($path, $filename)` | keep an attached picture and answer its address; without it pictures are not kept |
 | `extra($input)` | what travels with the question to the assistant's `question()` |
 | `limits($scope)` | the limits the screen shows — add this month's use |
+| `routinesAnswer($scope, $answer)` | the scheduled-questions list — add a plan's limit on active ones |
 | `scope()`, `conversations()`, `asks()`, `routineService()` | where everything comes from |
 
 ### The page, without a SPA
@@ -427,15 +431,17 @@ somebody signed in.
 
 ### The SPA components
 
-A Svelte SPA with the `llm` feature gets `components/Chat.svelte`, `Scheduled.svelte` and
-`AiConsent.svelte`, with `lib/chat.js` (the API client and what the screens share),
-`lib/markdown.js` (`marked`, then DOMPurify) and their tests. An existing project takes them with
-`./pramnos project:resync --spa-components --all`, which adds `marked` and `dompurify` to
-package.json. They are the project's files from then on.
+A Svelte SPA with the `llm` feature gets `components/llm/Chat.svelte`, `Scheduled.svelte` and
+`AiConsent.svelte`, with `lib/llm/chat.js` (the API client and what the screens share),
+`lib/llm/markdown.js` (`marked`, then DOMPurify) and their tests under `__tests__/llm/` — a
+directory of their own, so they cannot land on an application's own chat screen or its tests.
+An existing project takes them with `./pramnos project:resync --spa-components --all`, which adds
+`marked` and `dompurify` to package.json and leaves every component the project changed as it is
+(see the [Console Guide](Pramnos_Console_Guide.md)). They are the project's files from then on.
 
 ```svelte
 <script>
-    import Chat from '../components/Chat.svelte';
+    import Chat from '../components/llm/Chat.svelte';
     import { go } from '../lib/router.js';
 
     let { route = null } = $props();
@@ -460,12 +466,14 @@ out through `onopen(id)`. Everything else an application changes without editing
 | `suggestions` | questions that fill the box when pressed — they do not ask |
 | `toolLabel(tool)` | how a tool an answer read is named under it |
 | `t` | the translator — every string goes through it, `lib/i18n.svelte.js`'s by default |
+| `consentNotice(consent)` (snippet) | the agreement's wording — legal text the application owns |
 | `header` (snippet) | the title, in place of *Ask AI* |
 | `message(message, change)` (snippet) | drawn under each answer; `change(patch)` updates the message and calls `onmessagechange(id, patch)` |
 | `composer` (snippet) | beside the Ask button: a cost, what the question is about |
 | `aside` (snippet), `asideOpen` (bindable) | a panel beside the conversation from `lg`, over it below that, closed with ✕ |
 
 `AiConsent` wraps what needs agreement and draws nothing of it until agreement is given, when the
-provider in use asks for it; its `consent` is bindable. `Scheduled` lists, creates from a template
+provider in use asks for it; its `consent` is bindable. `kind` names the feature asked about
+(`chat` by default), `notice(consent)` replaces the wording and keeps the buttons. `Scheduled` lists, creates from a template
 or by hand, pauses, runs and deletes scheduled questions, and opens a routine's conversation with
 `onopen(id)`.

@@ -21,6 +21,7 @@ use Pramnos\Tests\Unit\Llm\LlmTestCase;
  */
 #[CoversClass(ChatController::class)]
 #[CoversClass(Routes::class)]
+#[CoversClass(\Pramnos\Llm\Chat\Conversations::class)]
 #[CoversClass(\Pramnos\Llm\Chat\Concerns\TakesQuestions::class)]
 class ChatApiTest extends LlmTestCase
 {
@@ -235,6 +236,58 @@ class ChatApiTest extends LlmTestCase
     }
 
     /**
+     * What is checked before asking is the connection the router sends this organisation to —
+     * its own provider and key — not the installation's: an organisation with only its own key
+     * may ask, and agreement is asked for its provider. Agreement is per feature, each on the
+     * provider that feature uses; a feature the application does not have is a 422.
+     */
+    #[DataProvider('databases')]
+    public function testTheRoutedProviderAndEachFeature(string $type, string $host, int $port): void
+    {
+        // Arrange — no installation key; organisation 3 is sent to DeepSeek on its own key
+        $this->connectDatabase($type, $host, $port);
+        $this->setting('llm_openai_api_key', '');
+        $this->setting('llm_feature_editorial_provider', 'mistral');
+        $this->configure(['features' => ['chat' => 'Ask AI', 'editorial' => 'Editorial'], 'consent' => \Pramnos\Llm\Policy\StoredConsent::class]);
+        \Pramnos\Llm\Llm::use('router', new OwnKeyRouter());
+
+        // Act
+        $chat      = $this->call('GET', '/chat/consent');
+        $asked     = $this->call('POST', '/chat', ['content' => 'Hi']);
+        $given     = $this->call('POST', '/chat/consent', ['feature' => 'chat']);
+        $queued    = $this->call('POST', '/chat', ['content' => 'Hi']);
+        $editorial = $this->call('GET', '/chat/consent', ['feature' => 'editorial']);
+        $unknown   = $this->call('GET', '/chat/consent', ['feature' => 'nothing']);
+        $refused   = $this->call('DELETE', '/chat/consent', ['feature' => 'nothing']);
+        $limits    = $this->call('GET', '/chat')['data']['limits'];
+
+        // Assert — the organisation's provider, not the installation's
+        $this->assertSame(['chat', 'deepseek', true, false], [$chat['data']['feature'], $chat['data']['provider'], $chat['data']['required'], $chat['data']['given']]);
+        // Configured through its own key, so it is asked for agreement rather than told nothing is set up
+        $this->assertSame([403, true], [$asked['status'], $asked['consent_required']]);
+        $this->assertTrue($given['data']['given']);
+        $this->assertSame(202, $queued['status']);
+        $this->assertSame(['editorial', 'mistral'], [$editorial['data']['feature'], $editorial['data']['provider']]);
+        $this->assertSame([422, 422], [$unknown['status'], $refused['status']]);
+        $this->assertSame('DeepSeek', $limits['provider']);
+    }
+
+    /** The scheduled-questions answer passes through the application's hook — a plan's limit. */
+    #[DataProvider('databases')]
+    public function testTheRoutinesAnswerIsDecorated(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+
+        // Act
+        $answer = $this->call('GET', '/chat/routines');
+
+        // Assert
+        $this->assertSame(3, $answer['data']['limit']);
+        $this->assertSame([], $answer['data']['routines']);
+    }
+
+    /**
      * Without an application's hook, the framework's guard decides: nobody signed in is a 401.
      */
     public function testTheDefaultGuard(): void
@@ -365,6 +418,11 @@ class ApiFixture extends ChatController
         return parent::limits($scope) + ['month' => 'ours'];
     }
 
+    protected function routinesAnswer(?Scope $scope, array $answer): array
+    {
+        return parent::routinesAnswer($scope, $answer) + ['limit' => 3];
+    }
+
     protected function asks(): \Pramnos\Llm\Chat\Asks
     {
         self::$queue ??= new RecordingQueue();
@@ -379,5 +437,16 @@ final class FullAssistant extends \Pramnos\Llm\Chat\BaseAssistant
     public function routineRefusal(Scope $scope, bool $adding = false): ?string
     {
         return 'No room.';
+    }
+}
+
+/** Organisation 3 chose DeepSeek and brings its own key. */
+final class OwnKeyRouter extends \Pramnos\Llm\Policy\DefaultRouter
+{
+    public function route(array $context, \Pramnos\Llm\Connection $connection): \Pramnos\Llm\Connection
+    {
+        return ($context['purpose'] ?? '') === 'chat' && (int) ($context['organization_id'] ?? 0) === 3
+            ? $connection->onProvider('deepseek')->with(['api_key' => 'sk-own', 'own' => true])
+            : $connection;
     }
 }

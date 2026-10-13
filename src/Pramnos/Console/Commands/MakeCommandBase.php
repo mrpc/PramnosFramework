@@ -1953,7 +1953,12 @@ abstract class MakeCommandBase extends Command
                 mkdir(dirname($path), 0777, true);
             }
 
-            file_put_contents($path, $this->renderStub($stub, $tokens));
+            $content = $this->renderStub($stub, $tokens);
+            file_put_contents($path, $content);
+            // Recorded, so project:resync can tell this copy from one the project changed.
+            if (defined('ROOT') && str_starts_with($path, ROOT . '/')) {
+                \Pramnos\Console\ShippedFiles::record(ROOT, substr($path, strlen(ROOT) + 1), $content);
+            }
             $written++;
         }
 

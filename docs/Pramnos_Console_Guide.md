@@ -1327,13 +1327,21 @@ Two details in those files look like slips and are not:
   component's own `focusable()`; if you change one, change both.
 
 They stop being the framework's files the moment they exist, because the whole
-value of shipping a `DataTable` is that a project extends it. To take a newer
-version deliberately:
+value of shipping a `DataTable` is that a project extends it. So what was written
+is recorded by hash in `app/shipped-files.json` — commit it — and a resync replaces
+a component only while it is still exactly that:
 
 ```bash
-php bin/pramnos project:resync --spa-components          # report what differs
-php bin/pramnos project:resync --spa-components --all    # overwrite local edits
+php bin/pramnos project:resync --spa-components                # newer copies of untouched files
+php bin/pramnos project:resync --spa-components --all          # …and add the ones not there yet
+php bin/pramnos project:resync --spa-components --overwrite    # replace changed files too
 ```
+
+A file the project changed is reported `kept (locally changed)`; one the framework
+has no record of writing — a project from before the record, or the project's own
+file at the same path — is `kept (not written by the framework)`. Both stay as they
+are unless `--overwrite` is given. A file identical to the framework's is recorded
+as it passes, so an older project gains its record on the first resync.
 
 It is **not** included in a plain `project:resync`, for the same reason.
 

@@ -6,7 +6,7 @@
  * elsewhere (`Routes::register($r, …, ['consent' => '/ai/consent'])`) passes the
  * same overrides here.
  */
-import { api as defaultApi, ApiError } from './api.js';
+import { api as defaultApi, ApiError } from '../api.js';
 
 export const PATHS = {
     chat: '/chat',
@@ -38,9 +38,10 @@ export function chatClient(api = defaultApi, paths = {}) {
         updateRoutine: (id, body) => api.put(`${p.routines}/${id}`, body),
         deleteRoutine: (id) => api.delete(`${p.routines}/${id}`),
         runRoutine: (id) => api.post(`${p.routines}/${id}/run`, {}),
-        consent: () => api.get(p.consent),
-        giveConsent: () => api.post(p.consent, {}),
-        withdrawConsent: () => api.delete(p.consent),
+        // Per feature: each can go to its own provider, and agreement is to a provider.
+        consent: (feature = 'chat') => api.get(p.consent, { feature }),
+        giveConsent: (feature = 'chat') => api.post(p.consent, {}, { query: { feature } }),
+        withdrawConsent: (feature = 'chat') => api.delete(p.consent, { query: { feature } }),
     };
 }
 

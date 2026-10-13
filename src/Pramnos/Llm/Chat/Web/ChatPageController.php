@@ -132,7 +132,7 @@ class ChatPageController extends Controller
         $scope = $this->scope();
 
         if ($scope !== null) {
-            $provider = $this->conversations()->assistant()->connection($scope)->provider();
+            $provider = $this->conversations()->connection()->provider();
             $store    = new StoredConsent();
             !empty($_POST['give'])
                 ? $store->give($scope->organizationId, $scope->userId, $provider)
@@ -196,7 +196,7 @@ class ChatPageController extends Controller
     /** @return array{provider: string, label: string, place: string, required: bool, given: bool} */
     private function consentState(Scope $scope): array
     {
-        $provider = $this->conversations()->assistant()->connection($scope)->provider();
+        $provider = $this->conversations()->connection()->provider();
         $config   = \Pramnos\Llm\Providers::config($provider);
 
         return [

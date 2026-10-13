@@ -544,8 +544,8 @@ Two more doors on the front end, the counterparts of `create:view` and
 The screen imports five shared components — `DataTable`, `Pagination`,
 `ConfirmDialog`, `Field` and `lib/i18n.svelte.js` — written once per project and
 never overwritten afterwards, because the value of shipping a `DataTable` is
-that you extend it. `project:resync --spa-components` takes a newer version when
-you want one. See the [Console
+that you extend it. `project:resync --spa-components` takes a newer version of
+those you have not changed, and keeps the rest. See the [Console
 Guide](Pramnos_Console_Guide.md#front-end-generation-spa-projects) for the
 control-per-type table and the components' contracts.
 

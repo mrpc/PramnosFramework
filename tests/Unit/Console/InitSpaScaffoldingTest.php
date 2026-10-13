@@ -533,7 +533,11 @@ class InitSpaScaffoldingTest extends TestCase
         $this->assertSame(Init::SPA_CHAT_PACKAGES['marked'], $pkg['devDependencies']['marked']);
         $this->assertSame(Init::SPA_CHAT_PACKAGES['dompurify'], $pkg['devDependencies']['dompurify']);
         $this->assertArrayHasKey('svelte', $pkg['devDependencies'], 'the stack\'s own packages are kept');
-        $this->assertStringContainsString("from '../lib/chat.js'", $this->read('frontend/components/Chat.svelte'));
+        $this->assertStringContainsString("from '../../lib/llm/chat.js'", $this->read('frontend/components/llm/Chat.svelte'));
+        // Recorded as written, so a later resync can tell the framework's copy from the project's.
+        $shipped = json_decode($this->read(\Pramnos\Console\ShippedFiles::PATH), true);
+        $this->assertArrayHasKey('frontend/components/llm/Chat.svelte', $shipped);
+        $this->assertArrayHasKey('frontend/components/DataTable.svelte', $shipped);
     }
 
     /** Without the `llm` feature there is no conversation screen and no Markdown package. */
@@ -543,7 +547,7 @@ class InitSpaScaffoldingTest extends TestCase
         $this->runInit(['--app-style' => 'spa', '--spa-stack' => 'svelte']);
 
         // Assert
-        $this->assertFileDoesNotExist($this->tmpDir . '/frontend/components/Chat.svelte');
+        $this->assertFileDoesNotExist($this->tmpDir . '/frontend/components/llm/Chat.svelte');
         $this->assertArrayNotHasKey('marked', json_decode($this->read('package.json'), true)['devDependencies']);
     }
 
