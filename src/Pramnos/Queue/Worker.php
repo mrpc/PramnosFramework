@@ -45,7 +45,7 @@ class Worker
      * Populated via registerTaskHandler(). Applications override this property
      * or call registerTaskHandler() to wire up their task types.
      *
-     * Framework default is empty — no tasks are registered out of the box.
+     * The framework's own task types are answered without it: see FRAMEWORK_HANDLERS.
      *
      * @var array<string, string>
      */
@@ -300,8 +300,18 @@ class Worker
      */
     protected function getTaskHandler(string $taskType): ?string
     {
-        return $this->taskHandlers[$taskType] ?? null;
+        return $this->taskHandlers[$taskType] ?? self::FRAMEWORK_HANDLERS[$taskType] ?? null;
     }
+
+    /**
+     * The framework's own task types, answered without being registered.
+     *
+     * A feature that queues work and leaves the application to register its handler has added
+     * an obligation, not a feature; an application registering the same type wins.
+     */
+    public const FRAMEWORK_HANDLERS = [
+        \Pramnos\Llm\Chat\Asks::TASK => \Pramnos\Llm\Chat\AskTask::class,
+    ];
 
     // ── Factory hook ──────────────────────────────────────────────────────────
 

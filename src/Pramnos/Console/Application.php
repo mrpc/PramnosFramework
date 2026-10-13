@@ -210,6 +210,7 @@ class Application extends \Symfony\Component\Console\Application
         // stores the rendered body — most of the bytes, and the part nobody reads back.
         $this->add(new \Pramnos\Console\Commands\MailPrune());
         $this->add(new \Pramnos\Console\Commands\LlmPrune());
+        $this->add(new \Pramnos\Console\Commands\LlmRoutines());
         // The other half of the same table: `Email::queue()` writes a message there instead of
         // opening an SMTP connection in somebody's request, and this is what delivers it.
         $this->add(new \Pramnos\Console\Commands\MailFlush());

@@ -255,6 +255,13 @@ class FrameworkSchedule
                 'description' => 'Drop language-model call log rows older than 90 days',
             ],
 
+            // Scheduled questions to a language model, as their owners. Every minute: a routine
+            // is set for a time on somebody's clock. A no-op without the `llm` feature's table.
+            'llm:routines' => [
+                'cadence'     => [['everyMinute']],
+                'description' => 'Ask the scheduled AI questions that are due',
+            ],
+
             // Mass messages: the pending recipients of whatever is due. Not in the
             // request that pressed send — four thousand emails inside a POST is a
             // request that times out halfway, with nobody able to say how far it got.

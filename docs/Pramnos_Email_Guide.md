@@ -2026,6 +2026,18 @@ The debug lines go to the framework log: the SMTP host, user and port, the schem
 the port, and whether a password is set. Nothing about the password itself is written, neither
 characters nor length, because that log is the one people paste into tickets.
 
+## Reading an email
+
+`Pramnos\Email\MailMessage::parse($raw)` reads a saved or received email — `.eml`, or a message
+fetched from a mailbox — with the standard library: its `subject`, `from`, `reply_to`,
+`message_id`, `references`, `date`, `to` (every address it was sent to), `text` and `attachments`
+(name, type and bytes each). Multipart parts are walked at any depth, base64 and quoted-printable
+decoded, charsets and encoded-word headers turned to UTF-8; the plain-text part wins, and HTML is
+read as its words when it is all there is. `original` is the email it forwards, when it forwards
+one — from an attached message or the block a mail program writes above it — so the first sender
+is known. `cleanSubject()` drops `Fwd:` and its kin; `looksLikeOne()` says whether bytes are an
+email at all. It is not a full RFC 5322 reader: no S/MIME, no TNEF.
+
 ## Error Handling
 
 ### Checking for Errors

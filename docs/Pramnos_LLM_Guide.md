@@ -5,6 +5,10 @@ use_cases:
   - Keeping data of one kind away from a provider that may not have it
   - Plugging an application's plans, quotas or consent into model calls
   - Working out what model calls cost, which failed, and why
+  - Giving users conversations with a model that remember them
+  - Scheduling a question to a model every morning, as its owner
+  - Asking users' agreement before their data goes to a provider
+  - Turning an attached Word, OpenDocument or email file into text for a model
 ---
 
 # Language models
@@ -233,3 +237,130 @@ A `Pramnos\Llm\Admin\Section` has a `key()` and a `title()`, `render()`s its fie
 no `<form>` and no button — the screen adds both, with the session's token), and `save(array
 $input): ?string` stores what was posted, answering what is wrong or `null`. A section whose
 `render()` throws shows the error in its card instead of taking the screen down.
+
+## Conversations
+
+`Pramnos\Llm\Chat` keeps conversations: what was asked, what the model answered, the tools each
+answer called and what it cost, what it remembers about each person, questions waiting in the
+queue, and questions asked again on a schedule. What a conversation is *about* — its prompt, its
+tools, what an answer must have done — is the application's, in an **assistant**:
+
+```php
+// app/app.php
+'llm' => ['chat' => [
+    'assistant' => App\Llm\Analyst::class,   // Pramnos\Llm\Chat\Assistant
+    'memory'    => ['max' => 40, 'chars' => 300],
+]],
+```
+
+```php
+use Pramnos\Llm\Chat\Chat;
+
+$chat   = Chat::conversations();               // the configured assistant, as the person signed in
+$answer = $chat->ask(null, 'How did last week go?');
+
+if ($answer['ok']) {
+    $id = $answer['conversation_id'];          // continue it with $chat->ask($id, '…')
+} else {
+    echo $answer['says'];                      // why: scope, empty, missing, tags, consent, limit, provider
+}
+
+$chat->list();          // this person's conversations, latest first
+$chat->find($id);       // one, with its messages, as the assistant presents them
+$chat->delete($id);
+```
+
+The tables are `chat_conversations`, `chat_messages`, `chat_memory`, `chat_asks`, `ai_consents` and
+`ai_routines`. A table that already exists under its name is left as it is; `tags` and `extra` are
+added to an existing `chat_conversations` and `chat_messages`.
+
+### Whose conversations
+
+A `Chat\Scope` is one person and, for an application that has them, the organisation they act
+in. `Scope::current()` reads the request through the router's `context()`; a queued or scheduled
+run builds it from its row. Inside an organisation only that organisation's rows are seen, and
+outside one only the rows without one — a conversation written outside an organisation never
+shows inside one.
+
+### The assistant
+
+Extend `Chat\BaseAssistant`, which answers every hook with a default:
+
+| hook | |
+|---|---|
+| `connection(Scope)` | the connection answers go out on — the `chat` feature's by default |
+| `systemPrompt(Turn)`, `context(Turn)` | the instructions, and what the model is told about the person; what it remembers is added after |
+| `tools(Turn)` | this answer's tools; the memory's and the schedule's are added by the framework |
+| `due(Turn)`, `verify(Turn)` | what an answer must end with, and what it is checked against — see `askWithTools()` |
+| `writes()` | the tools that change something: a later answer is told which an earlier one called |
+| `question(Turn, $q)` | the question as the model reads it, with what the caller passed in `extra` worked in |
+| `answered(Turn, $message)` | after it is stored: attach what the answer produced, and decorate the message |
+| `present(Scope, $messages)` | stored messages, decorated for the screen |
+| `acting(Scope, $run)` | a queued or scheduled answer, run inside whatever the application's tools need set up |
+| `heldRefusal($tag)` | said when a conversation holds data of a tag nowhere available may take |
+| `routineRefusal(Scope)` | why this person may not schedule questions, or null |
+| `conversationUrl($id)` | where a conversation is read, for a notification |
+| `rounds()`, `turns()` | tool rounds per answer (16), turns sent back (30) |
+
+A `Chat\Turn` carries the scope, the conversation, whether it is a scheduled run, the messages,
+the documents attached in the conversation, the caller's `extra`, and `bag` — the application's,
+for the length of the turn, for what its tools wrote.
+
+A turn sends back the last `turns()` turns, never starting on an answer, each earlier answer
+followed by a note of the tools that wrote in it; without the note, a later answer sees no result
+for a change it made and says it changed nothing. A note the model copies into its reply is taken
+out. A conversation whose earlier answers carried data of a tag (`tags`, see
+[Data rules](#data-rules)) is moved to a connection that may take it before anything is asked,
+or refused with `heldRefusal()`. Only an answered turn is stored — question and answer together.
+
+An attachment is a document's words: `ask(…, attachment: ['name' => 'release.docx', 'text' => …])`.
+`Pramnos\Llm\DocumentText::from($name, $bytes)` reads `.docx`, `.odt`, `.txt`, `.md` and `.eml`
+(the email's subject, sender and words, and the documents it carries); `pictures()` takes a
+document's photos, and `keepPictures($name, $bytes, $store)` keeps them through
+`$store(string $path, string $filename): ?string` — the application's media library — and lists
+their addresses after the words.
+
+### Memory
+
+The model is given `remember`, `forget`, `search_conversations` and `read_conversation`, and told
+what it remembers in every prompt. It remembers only when asked to by the conversation — nothing
+extracts memories behind the person's back — and at most `memory.max` entries of `memory.chars`
+characters. `Chat\Memory` lists and forgets them for a screen. Searching is case-insensitive; on
+MySQL it also ignores accents, as its collation does, and on PostgreSQL it does not.
+
+### Asking in the background
+
+An answer with tools can take a minute. `Chat\Asks::start($scope, $conversationId, $question,
+$attachment, $extra)` writes a waiting row and queues a `chat_ask` task, which the queue worker
+answers without being registered — as its author, through `acting()` — and marks answered or
+failed. The screen follows it with `find($scope, $askId)`. `Asks::onAnswered(callable)` is told
+each answer with the job, `extra` included — where else the answer should go.
+
+### Questions on a schedule
+
+`Chat\Routines` keeps questions asked again daily, weekly or monthly, at a time on the owner's
+clock: `create($scope, ['title', 'prompt', 'cadence', 'at', 'day', 'timezone'])` or from a
+template in `chat.routine_templates`, `mine()`, `setActive()`, `delete()`. The model can schedule
+one itself (`schedule_task`), except from a scheduled run. `llm:routines`, every minute, asks
+what is due as its owner into the routine's own conversation, moves its next run on whether it
+worked or not, and tells the owner with `Chat\RoutineReady` — or the class
+`chat.routine_notification` names, constructed with the title, whether it worked, why not, and
+the link.
+
+### Agreement to a provider
+
+`Policy\StoredConsent` keeps who agreed to their data going to which provider, and checks it only
+for a provider whose entry says `requires_consent`:
+
+```php
+'llm' => ['consent' => \Pramnos\Llm\Policy\StoredConsent::class],
+
+$consent = new \Pramnos\Llm\Policy\StoredConsent();
+$consent->give($orgId, $userId, 'deepseek');      // $orgId null in an application without organisations
+$consent->withdraw($orgId, $userId, 'deepseek');
+```
+
+A call for a person needs that person's agreement; a background call with no person needs
+anybody's in the organisation; a call with neither is refused — unless
+`'consent_options' => ['allow_without_organization' => true]` says calls outside an organisation
+carry nobody's data.
