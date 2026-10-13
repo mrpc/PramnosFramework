@@ -75,7 +75,7 @@ class AiController extends Controller
         $view->calls     = $log->recent(25, $problems);
         $view->problems  = $problems;
         $view->openai    = $this->openAiCosts();
-        $view->sections  = $this->sections();
+        $view->appSections = $this->sections();
         $view->canEncrypt = \Pramnos\Security\Encrypter::isAvailable();
 
         return $view->display();

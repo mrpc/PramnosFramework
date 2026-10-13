@@ -87,8 +87,8 @@ class AiScreenTest extends LlmTestCase
         $this->assertTrue($view->problems);
         $this->assertSame([true], $controller->log->askedProblems);
         $this->assertJson($view->prices);
-        $this->assertSame('plans', $view->sections[0]['key']);
-        $this->assertStringContainsString('This section failed: render broke', $view->sections[1]['html'], 'one broken section does not take the screen');
+        $this->assertSame('plans', $view->appSections[0]['key']);
+        $this->assertStringContainsString('This section failed: render broke', $view->appSections[1]['html'], 'one broken section does not take the screen');
         $_GET = [];
     }
 
@@ -361,7 +361,7 @@ class AiScreenTest extends LlmTestCase
             'calls' => [['call_id' => 9, 'created_at' => 'now', 'purpose' => 'chat', 'provider' => 'deepseek', 'model' => 'm',
                 'tokens' => 30, 'cost' => null, 'error' => 'refused <the> key', 'http_status' => 401, 'finish_reason' => null]],
             'problems' => false, 'openai' => ['ok' => true, 'month_usd' => 1.5, 'meter_month_usd' => 1.4, 'balance_usd' => 10.0],
-            'sections' => [['key' => 'plans', 'title' => 'Plans', 'html' => '<input name="tokens">']], 'canEncrypt' => false,
+            'appSections' => [['key' => 'plans', 'title' => 'Plans', 'html' => '<input name="tokens">']], 'canEncrypt' => false,
         ];
         $call = ['call' => ['call_id' => 9, 'model' => 'm', 'error' => 'x', 'messages' => [['role' => 'user', 'content' => '<b>hi</b>']],
             'usage' => ['total_tokens' => 3], 'tokens' => 3, 'cost' => 0.1, 'system_prompt' => 'S', 'reply' => 'R']];
@@ -379,6 +379,43 @@ class AiScreenTest extends LlmTestCase
             $this->assertStringContainsString('1 not priced, not in the total', $page, $theme);
             $this->assertStringContainsString('&lt;b&gt;hi&lt;/b&gt;', $one, $theme);
         }
+    }
+
+    /**
+     * The application's sections are drawn through a real View.
+     *
+     * The variable was `sections`, which is also View's own protected property: assigned from
+     * the controller it went through `__set`, and the template — running in View's scope — read
+     * the real, empty property. Every section saved and none was ever shown. A stand-in `$this`
+     * cannot see that; only View can.
+     */
+    public function testTheSectionsAreDrawnThroughARealView(): void
+    {
+        // Arrange — the controller's own assignments, onto a real View
+        $this->configure(['admin_sections' => [PlanSection::class]]);
+        $controller = $this->controller();
+        $controller->display();
+        $fed  = $controller->view;
+        $dir  = dirname(__DIR__, 3) . '/scaffolding/themes/plain-css/views/ai';
+        $view = new \Pramnos\Application\View(new \Pramnos\Application\Controller(), $dir, 'ai');
+        $assigned = get_object_vars($fed);
+        $this->assertNotEmpty($assigned, 'the sweep found nothing to check');
+        foreach ($assigned as $name => $value) {
+            if (!in_array($name, ['name', 'shown'], true)) {
+                $view->$name = $value;
+            }
+        }
+
+        // Act — the template, in View's scope, as display() runs it
+        ob_start();
+        \Closure::bind(function () use ($dir): void {
+            include $dir . '/ai.html.php';
+        }, $view, \Pramnos\Application\View::class)();
+        $html = (string) ob_get_clean();
+
+        // Assert
+        $this->assertStringContainsString('Plan limits', $html);
+        $this->assertStringContainsString('name="section" value="plans"', $html);
     }
 
     /**

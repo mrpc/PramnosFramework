@@ -15,7 +15,8 @@
  *   $this->calls      — the most recent calls, or the problems only
  *   $this->problems   — whether only the problems are shown
  *   $this->openai     — OpenAI's billed costs, or null without an Admin key
- *   $this->sections   — the application's own sections: key, title, html
+ *   $this->appSections — the application's own sections: key, title, html (not
+ *                       `sections`: that is View's own property, and the template would read it)
  *   $this->canEncrypt — whether keys are stored encrypted
  *
  * A key is never printed back: its field is empty with a placeholder saying whether one is
@@ -29,7 +30,7 @@ $providers = is_array($this->providers ?? null) ? $this->providers : [];
 $features  = is_array($this->features ?? null) ? $this->features : [];
 $calls     = is_array($this->calls ?? null) ? $this->calls : [];
 $byModel   = is_array($this->byModel ?? null) ? $this->byModel : [];
-$sections  = is_array($this->sections ?? null) ? $this->sections : [];
+$sections  = is_array($this->appSections ?? null) ? $this->appSections : [];
 $day       = is_array($this->day ?? null) ? $this->day : [];
 $month     = is_array($this->month ?? null) ? $this->month : [];
 $openai    = is_array($this->openai ?? null) ? $this->openai : null;
