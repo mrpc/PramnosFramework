@@ -38,6 +38,49 @@ final class Analyst
         return is_a($class, AnalystAssistant::class, true) ? new $class() : new AnalystAssistant();
     }
 
+    /**
+     * The "Ask" link for the admin header, beside the search — empty for anybody who may not
+     * open the page, and when the `llm` feature is off.
+     *
+     * ```php
+     * <?php echo \Pramnos\Llm\Analyst\Analyst::headerButton(); ?>
+     * ```
+     */
+    public static function headerButton(string $before = '', string $after = ''): string
+    {
+        $user = \Pramnos\User\User::getCurrentUser();
+
+        if (!\Pramnos\Application\FeatureRegistry::isEnabled('llm')
+            || !\Pramnos\Auth\AdminAccess::allows(is_object($user) ? $user : null, 'admin.ai', self::floor())) {
+            return '';
+        }
+
+        return $before . '<a class="pf-ask" href="' . htmlspecialchars(adminUrl('Ai'), ENT_QUOTES, 'UTF-8') . '">'
+            . htmlspecialchars((string) (function_exists('t') ? t('Ask') : 'Ask'), ENT_QUOTES, 'UTF-8') . '</a>' . $after;
+    }
+
+    /**
+     * The usertype that opens Ask: the application's `Admin\Controllers\Ai::$requiredUserType`
+     * when it declares one — the same floor its controller applies — or the area's.
+     */
+    public static function floor(): int
+    {
+        $app       = \Pramnos\Application\Application::getInstance();
+        $namespace = trim((string) ($app->applicationInfo['namespace'] ?? ''), '\\');
+        $class     = $namespace . '\\Admin\\Controllers\\Ai';
+
+        if ($namespace !== '' && class_exists($class)) {
+            $defaults = (new \ReflectionClass($class))->getDefaultProperties();
+            $declared = (new \ReflectionProperty($class, 'requiredUserType'))->getDeclaringClass()->getName();
+
+            if ($declared !== \Pramnos\Application\Controllers\AiController::class && isset($defaults['requiredUserType'])) {
+                return (int) $defaults['requiredUserType'];
+            }
+        }
+
+        return \Pramnos\Auth\AdminAccess::defaultUsertype();
+    }
+
     /** An administrator's analyst: their own, in the `admin` space, outside any organisation. */
     public static function scope(int $adminId): Scope
     {

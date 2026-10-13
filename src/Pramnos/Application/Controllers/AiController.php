@@ -14,18 +14,20 @@ use Pramnos\Llm\Pricing;
 use Pramnos\Llm\Providers;
 
 /**
- * `/admin/Ai` — every language-model setting of the installation, in one place.
+ * `/admin/Ai` — Ask, the administrators' analyst; `/admin/Ai/settings` — every language-model
+ * setting of the installation, in one place.
  *
  * Providers and their keys, the provider each of the application's features uses, the unit
  * prices calls are costed at, what was spent and what failed — and the application's own
  * sections beside them (`'llm' => ['admin_sections' => [...]]`, see `Pramnos\Llm\Admin\Section`).
  * One screen, so there is never a second copy of a setting somewhere else that disagrees.
  *
- * ### The analyst
+ * ### Ask
  *
- * `/admin/Ai/analyst` asks the installation's own figures — accounts, email, the queue, logs,
- * model spend — through `Pramnos\Llm\Analyst`, behind the same usertype as the rest of this
- * screen. An administrator's analyst conversations are their own and never in their Ask AI.
+ * `/admin/Ai` asks the installation's own figures — accounts, email, the queue, logs, model
+ * spend — through `Pramnos\Llm\Analyst`, behind the same usertype as the settings. An
+ * administrator's analyst conversations are their own and never in their Ask AI. The same, as
+ * JSON in the conversation API's shape, is under `/admin/Ai/api/…`.
  *
  * ### Keys are never printed back
  *
@@ -46,14 +48,16 @@ class AiController extends Controller
 
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
-        $this->addAuthAction(['display', 'save', 'check', 'call', 'analyst', 'analystAsk', 'analystAsked', 'analystDelete', 'analystForget', 'analystConsent']);
+        $this->addAuthAction(['display', 'settings', 'save', 'check', 'call', 'analyst', 'ask', 'asked', 'delete', 'forget', 'consent', 'api']);
         // POST with the session's token: each of these changes what the installation spends, or spends.
-        $this->addWriteAction(['save', 'check', 'analystAsk', 'analystDelete', 'analystForget', 'analystConsent']);
+        // `api` checks its own token, from the X-CSRF-Token header, since it also answers GET and DELETE.
+        $this->addWriteAction(['save', 'check', 'ask', 'delete', 'forget', 'consent']);
         parent::__construct($application);
     }
 
     /**
-     * The screen.
+     * Ask: the administrator's conversation with the analyst, about the installation's figures.
+     * `?show=problems`, the settings' old address for failed calls, goes to the settings.
      */
     public function display(): mixed
     {
@@ -61,8 +65,50 @@ class AiController extends Controller
             return null;
         }
 
+        $request = new \Pramnos\Http\Request();
+
+        if ((string) $request->get('show', '', 'get') !== '') {
+            $this->redirect(adminUrl('Ai/settings') . '?show=' . rawurlencode((string) $request->get('show', '', 'get')));
+
+            return null;
+        }
+
+        $page = $this->analystDesk()->page((int) $request->get('c', 0, 'get', 'int'), (int) $request->get('ask', 0, 'get', 'int'));
+
         $doc        = \Pramnos\Framework\Factory::getDocument();
-        $doc->title = 'AI';
+        $doc->title = 'Ask';
+
+        $view              = $this->getView('ai');
+        $view->heading     = 'Ask';
+        $view->settingsUrl = adminUrl('Ai/settings');
+        $analyst           = Llm::config('analyst', []);
+        $view->waitingLines = is_array($analyst['waiting_lines'] ?? null) ? $analyst['waiting_lines'] : [];
+        $view->urls        = [
+            'page'    => adminUrl('Ai'),
+            'ask'     => adminUrl('Ai/ask'),
+            'asked'   => adminUrl('Ai/asked/'),
+            'consent' => adminUrl('Ai/consent'),
+            'delete'  => adminUrl('Ai/delete/'),
+            'forget'  => adminUrl('Ai/forget/'),
+        ];
+        foreach ($page as $name => $value) {
+            $view->{$name} = $value;
+        }
+
+        return $view->display('ask');
+    }
+
+    /**
+     * The settings: providers and keys, features, prices, what was spent and what failed.
+     */
+    public function settings(): mixed
+    {
+        if ($this->requireMinUserType($this->requiredUserType)) {
+            return null;
+        }
+
+        $doc        = \Pramnos\Framework\Factory::getDocument();
+        $doc->title = 'AI settings';
 
         $request  = new \Pramnos\Http\Request();
         $problems = (string) $request->get('show', '', 'get') === 'problems';
@@ -112,7 +158,7 @@ class AiController extends Controller
         OpenAiCosts::forget();
 
         $error === null ? $this->addMessage('Saved.') : $this->addError($error);
-        $this->redirect(adminUrl('Ai'));
+        $this->redirect(adminUrl('Ai/settings'));
     }
 
     /**
@@ -133,46 +179,23 @@ class AiController extends Controller
             $result['ok'] ? $this->addMessage($result['says']) : $this->addError($result['says']);
         }
 
-        $this->redirect(adminUrl('Ai'));
+        $this->redirect(adminUrl('Ai/settings'));
     }
 
-    /**
-     * The analyst: questions about the installation, answered from its own figures.
-     */
+    /** The analyst's first address: the Ask page now. */
     public function analyst(): mixed
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
-            return null;
-        }
+        $query = array_filter(['c' => (int) ($_GET['c'] ?? 0), 'ask' => (int) ($_GET['ask'] ?? 0)]);
+        $this->redirect(adminUrl('Ai') . ($query === [] ? '' : '?' . http_build_query($query)), true, '301');
 
-        $request = new \Pramnos\Http\Request();
-        $page    = $this->analystDesk()->page((int) $request->get('c', 0, 'get', 'int'), (int) $request->get('ask', 0, 'get', 'int'));
-
-        $doc        = \Pramnos\Framework\Factory::getDocument();
-        $doc->title = 'Analyst';
-
-        $view          = $this->getView('ai');
-        $view->heading = 'Analyst';
-        $view->urls    = [
-            'page'    => adminUrl('Ai/analyst'),
-            'ask'     => adminUrl('Ai/analystAsk'),
-            'asked'   => adminUrl('Ai/analystAsked/'),
-            'consent' => adminUrl('Ai/analystConsent'),
-            'delete'  => adminUrl('Ai/analystDelete/'),
-            'forget'  => adminUrl('Ai/analystForget/'),
-        ];
-        foreach ($page as $name => $value) {
-            $view->{$name} = $value;
-        }
-
-        return $view->display('analyst');
+        return null;
     }
 
     /**
      * Ask the analyst. A redirect to the page following the question — or JSON, for
      * `pf-chat.js`, which sends `Accept: application/json`.
      */
-    public function analystAsk(): mixed
+    public function ask(): mixed
     {
         if ($this->requireMinUserType($this->requiredUserType)) {
             return null;
@@ -197,7 +220,7 @@ class AiController extends Controller
     }
 
     /** A question the analyst is answering, for `pf-chat.js`. */
-    public function analystAsked(mixed $id = null): mixed
+    public function asked(mixed $id = null): mixed
     {
         if ($this->requireMinUserType($this->requiredUserType)) {
             return null;
@@ -209,7 +232,7 @@ class AiController extends Controller
     }
 
     /** Forget one analyst conversation. */
-    public function analystDelete(mixed $id = null): mixed
+    public function delete(mixed $id = null): mixed
     {
         if ($this->requireMinUserType($this->requiredUserType)) {
             return null;
@@ -224,7 +247,7 @@ class AiController extends Controller
     }
 
     /** Forget one thing the analyst remembers. */
-    public function analystForget(mixed $id = null): mixed
+    public function forget(mixed $id = null): mixed
     {
         if ($this->requireMinUserType($this->requiredUserType)) {
             return null;
@@ -239,7 +262,7 @@ class AiController extends Controller
     }
 
     /** Agree to the analyst's provider, or withdraw — `give` in the form. */
-    public function analystConsent(): mixed
+    public function consent(): mixed
     {
         if ($this->requireMinUserType($this->requiredUserType)) {
             return null;
@@ -251,6 +274,45 @@ class AiController extends Controller
         return null;
     }
 
+    /**
+     * The analyst as JSON, in the conversation API's shape — for a screen of the application's
+     * own, such as the SPA's `components/llm/Chat.svelte` with
+     * `chatClient(api, {chat: '/admin/Ai/api/chat', asks: '/admin/Ai/api/asks', memory: '/admin/Ai/api/memory', consent: '/admin/Ai/api/consent'})`.
+     *
+     * Anything but GET needs the session's token in the `X-CSRF-Token` header.
+     */
+    public function api(): mixed
+    {
+        if ($this->requireMinUserType($this->requiredUserType)) {
+            return null;
+        }
+
+        $method = strtoupper((string) ($_SERVER['REQUEST_METHOD'] ?? 'GET'));
+
+        if ($method !== 'GET' && !$this->apiTokenGiven()) {
+            return $this->analystJson(['status' => 403, 'error' => 'The session\'s token is missing; send it in X-CSRF-Token.']);
+        }
+
+        return $this->analystJson($this->analystDesk()->api($method, $this->apiPath(), $this->apiInput()));
+    }
+
+    /**
+     * The request's fields: a form's, or a JSON body's — the conversation API's clients send
+     * JSON, which only the API's own front controller decodes into `$_POST`.
+     *
+     * @return array<string, mixed>
+     */
+    protected function apiInput(): array
+    {
+        if ($_POST !== []) {
+            return $_POST;
+        }
+
+        $decoded = json_decode(\Pramnos\Http\Request::rawBody(), true);
+
+        return is_array($decoded) ? $decoded : [];
+    }
+
     /** The administrator's analyst. Override to charge, limit or describe it differently. */
     protected function analystDesk(): \Pramnos\Llm\Analyst\Desk
     {
@@ -259,14 +321,42 @@ class AiController extends Controller
         return new \Pramnos\Llm\Analyst\Desk(is_object($user) ? (int) ($user->userid ?? 0) : 0);
     }
 
+    /**
+     * What follows `api/` in the address: `['chat', '5']`.
+     *
+     * @return list<string>
+     */
+    protected function apiPath(): array
+    {
+        $path  = (string) parse_url(\Pramnos\Http\Request::currentUri(), PHP_URL_PATH);
+        $parts = array_values(array_filter(explode('/', $path), static fn (string $p): bool => $p !== ''));
+        $at    = array_search('api', $parts, true);
+
+        return $at === false ? [] : array_slice($parts, (int) $at + 1);
+    }
+
+    /** Whether a write to the API carries the session's token. */
+    protected function apiTokenGiven(): bool
+    {
+        $session = \Pramnos\Http\Session::getInstance();
+
+        foreach ([$_SERVER['HTTP_X_CSRF_TOKEN'] ?? '', $_POST['_csrf_token'] ?? ''] as $candidate) {
+            if (is_string($candidate) && $candidate !== '' && $session->verifyCsrfToken($candidate)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private function analystUrl(int $conversationId = 0, int $askId = 0): string
     {
         $query = array_filter(['c' => $conversationId, 'ask' => $askId]);
 
-        return adminUrl('Ai/analyst') . ($query === [] ? '' : '?' . http_build_query($query));
+        return adminUrl('Ai') . ($query === [] ? '' : '?' . http_build_query($query));
     }
 
-    /** JSON for `pf-chat.js`, with the answer's status as the HTTP status. */
+    /** JSON, with the answer's status as the HTTP status. */
     protected function analystJson(array $answer): mixed
     {
         \Pramnos\Framework\Factory::getDocument('json');
@@ -289,7 +379,7 @@ class AiController extends Controller
 
         if ($row === null) {
             $this->addError('That call is not in the log.');
-            $this->redirect(adminUrl('Ai'));
+            $this->redirect(adminUrl('Ai/settings'));
 
             return null;
         }

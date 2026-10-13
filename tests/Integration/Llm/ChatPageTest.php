@@ -90,6 +90,45 @@ class ChatPageTest extends LlmTestCase
     }
 
     /**
+     * What the page draws for pf-chat.js and for the eye, in every theme: the question with its
+     * document folded away, which tools an answer read and with what, the context bar, the ⚙
+     * with model, limits and memory, a ✕ per conversation, the file chips, and the script's words
+     * and waiting lines.
+     */
+    #[DataProvider('databases')]
+    public function testWhatThePageDraws(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        $this->configure(['chat' => ['waiting_lines' => ['Counting the clicks…']]]);
+        $stamp = \Pramnos\Llm\CallLog::instant(time());
+        $qb    = fn (string $t) => $this->db->queryBuilder()->table($t);
+        $qb('chat_conversations')->insert(['organization_id' => null, 'userid' => 7, 'title' => 'Spend', 'space' => 'chat', 'created_at' => $stamp, 'updated_at' => $stamp]);
+        $id = (int) $qb('chat_conversations')->first()->fields['conversation_id'];
+        $qb('chat_messages')->insert(['conversation_id' => $id, 'role' => 'user', 'content' => "Read this\n\n---\n📎 brief.md\n\nThe brief", 'created_at' => $stamp, 'updated_at' => $stamp]);
+        $qb('chat_messages')->insert(['conversation_id' => $id, 'role' => 'assistant', 'content' => 'Done.', 'tools' => json_encode([['name' => 'best-posts', 'arguments' => ['days' => 30]]]), 'context_tokens' => 64000, 'created_at' => $stamp, 'updated_at' => $stamp]);
+        $_GET = ['c' => (string) $id];
+        \Pramnos\Http\Request::resetInstance();
+
+        foreach (self::THEMES as $theme) {
+            // Act
+            $page = (string) $this->page(theme: $theme)->display();
+
+            // Assert
+            $this->assertStringContainsString('<summary>📎 brief.md</summary>', $page, $theme . ': the document folded away');
+            $this->assertStringContainsString('Read 1 times from your data', $page, $theme);
+            $this->assertStringContainsString('best-posts (days: 30)', $page, $theme);
+            $this->assertStringContainsString('<progress value="50" max="100"', $page, $theme . ': half the context');
+            $this->assertStringContainsString('Model, limits and memory', $page, $theme);
+            $this->assertStringContainsString('chat/delete/' . $id, $page, $theme . ': a ✕ for the conversation');
+            $this->assertStringContainsString('data-pf-chat-chips', $page, $theme);
+            $this->assertStringContainsString('data-pf-chat-files', $page, $theme);
+            $this->assertStringContainsString('data-say-too-large=', $page, $theme);
+            $this->assertStringContainsString('data-waiting-lines="[&quot;Counting the clicks…&quot;]"', $page, $theme);
+        }
+    }
+
+    /**
      * Asked through pf-chat.js: JSON, with the same refusals; the question followed as JSON.
      */
     #[DataProvider('databases')]

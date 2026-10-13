@@ -16,7 +16,7 @@ use_cases:
 # Language models
 
 `Pramnos\Llm` calls a language model, lets it use tools, logs every call with what it cost, and
-gives an administrator one screen — `/admin/Ai` — for keys, models, prices and the log. What the
+gives an administrator one screen — `/admin/Ai/settings` — for keys, models, prices and the log. What the
 framework cannot decide for an application (who pays, who agreed, where data may go) is a policy
 the application supplies.
 
@@ -73,7 +73,7 @@ this*), `userid` (the signed-in user when not given), `organization_id`, and any
 Four are built in, all through the OpenAI-compatible `/chat/completions`: `openai`, `deepseek`,
 `gemini` and `mistral`. Each keeps its own settings, so several stay configured at once:
 `llm_<provider>_api_key`, `_base_url`, `_model`, `_temperature`, `_max_tokens`, `_reasoning`.
-`llm_provider` chooses the one in use. Everything is edited on `/admin/Ai`; keys are stored
+`llm_provider` chooses the one in use. Everything is edited on `/admin/Ai/settings`; keys are stored
 encrypted (they need `APP_KEY`) and never printed back.
 
 An application adds providers, overrides fields of the built-in ones, and names its default:
@@ -114,7 +114,7 @@ $theirs = (new Connection('openai'))->with(['api_key' => $key, 'own' => true]);
 ### Features
 
 An application names its uses of a model, and each can have its own provider, model, temperature,
-budget and reasoning switch, set on `/admin/Ai`:
+budget and reasoning switch, set on `/admin/Ai/settings`:
 
 ```php
 'llm' => [
@@ -221,7 +221,7 @@ logging; `llm:prune` keeps 90 days. `created_at` is written and compared in UTC 
 
 Prices are USD per million tokens in three buckets — `cache_hit`, `cache_miss`, `output` —
 because a cached token can cost a fiftieth of an uncached one; an entry may add `off_peak` with
-`peak_utc` hours. They are a setting (`llm_prices`), edited on `/admin/Ai` and seeded from
+`peak_utc` hours. They are a setting (`llm_prices`), edited on `/admin/Ai/settings` and seeded from
 `Pricing::SEED`. Costs are estimates and the screen says so; `Billing\OpenAiCosts` reads what
 OpenAI actually billed, by project, with an Admin key, and works out the balance from the top-ups
 recorded beside it (`new OpenAiCosts(projects: ['llm_openai_other_project'])` reports more
@@ -229,7 +229,7 @@ projects).
 
 ## The administration screen
 
-`/admin/Ai` (ability `admin.ai`, usertype 90) is the one place these settings live: the provider
+`/admin/Ai/settings` (ability `admin.ai`, usertype 90) is the one place these settings live: the provider
 in use, each provider's key, model and parameters, a key test, the features, the prices, OpenAI
 billing, and the call log with the problems on their own. An application puts its own settings
 on the same screen rather than a second one beside it:
@@ -420,10 +420,18 @@ so an organisation on its own provider or its own key is asked about that one.
 
 `init --features=…,llm` writes `src/Controllers/Chat.php`, extending
 `Chat\Web\ChatPageController`, with views in each theme under `views/chat/`. `/chat` lists the
-conversations, shows one, and asks. The question is queued and the page follows it: with
-`assets/js/pf-chat.js` it waits in place and opens the conversation once answered; without
-JavaScript the page refreshes itself until the answer is there. Answers are drawn by
-`Chat\Markdown::toHtml()`, which escapes first. The hooks are the API's — `beforeAsk()`,
+conversations, shows one, and asks. Answers are drawn by `Chat\Markdown::toHtml()`, which escapes
+first; under each, which tools it read and with what. The ⚙ holds the model, the limits, what it
+remembers and the agreement; a bar shows how much of the model's context the last answer used.
+
+With `assets/js/pf-chat.js` the page asks in place: Enter sends and Shift+Enter is a new line;
+files are picked with 📎, dropped on the box or pasted, and held as chips (ten at most, 5 MB
+together, of the kinds the server reads); the question shows at once with a thinking line —
+the application's own lines after a few seconds, `'llm' => ['chat' => ['waiting_lines' =>
+[…]]]`, and a promise after a minute — and when the answer is there the page's own HTML is
+fetched and swapped in, without a reload. Every word the script says comes from the page, so it
+is translated with the rest. Without JavaScript the page posts and refreshes itself until the
+answer is there. The hooks are the API's — `beforeAsk()`,
 `storePicture()`, `extra()`, `scope()` — and a refusal comes back as the page's error message.
 
 A question from anywhere on the site: include the widget in the layout. It is drawn only for
@@ -489,12 +497,38 @@ or by hand, pauses, runs and deletes scheduled questions, and opens a routine's 
 
 ## The administrators' analyst
 
-`/admin/Ai/analyst` answers questions about the installation itself — how many signed up last
-month, which emails were opened, what failed in the queue, what the models cost and for whom —
-from the installation's own tables. It sits behind the same usertype as the rest of `/admin/Ai`
-(`$requiredUserType` on the application's `Admin\Controllers\Ai`), and is linked from that
-screen. The page is the conversation page with the analyst's own addresses; `pf-chat.js` waits
-for an answer in place.
+`/admin/Ai` — *Ask*, the AI item in the admin menu — answers questions about the installation
+itself — how many signed up last month, which emails were opened, what failed in the queue, what
+the models cost and for whom — from the installation's own tables. The settings are a link away,
+at `/admin/Ai/settings`. Both sit behind one gate: the ability `admin.ai` and the usertype in the
+application's `Admin\Controllers\Ai::$requiredUserType`. The page is the conversation page at
+the analyst's own addresses, with everything `pf-chat.js` does there; its waiting lines are
+`'llm' => ['analyst' => ['waiting_lines' => […]]]`.
+
+An *Ask* link for the admin header, beside the search, drawn only for somebody who may open the
+page:
+
+```php
+<?php echo \Pramnos\Llm\Analyst\Analyst::headerButton(); ?>
+```
+
+A new project's layouts have it; a project's own header takes that line.
+
+### As JSON
+
+The same analyst answers in the conversation API's shape under `/admin/Ai/api/` — `chat`,
+`chat/{id}`, `asks/{id}`, `memory`, `memory/{id}`, `consent` — for a screen of the application's
+own, such as the SPA's `components/llm/Chat.svelte`:
+
+```js
+const client = chatClient(adminApi, {
+    chat: '/admin/Ai/api/chat', asks: '/admin/Ai/api/asks',
+    memory: '/admin/Ai/api/memory', consent: '/admin/Ai/api/consent',
+});
+```
+
+It is the admin area, so it goes with the session's cookie; anything but GET needs the session's
+token in the `X-CSRF-Token` header. A JSON body and a form are both read.
 
 ### Kept apart
 

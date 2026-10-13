@@ -18,7 +18,7 @@ $json = static fn ($v): string => htmlspecialchars((string) json_encode($v, JSON
     <?php $this->activeNav = 'ai_call'; $this->insert('../partials/admin_breadcrumb'); ?>
 
     <h1 class="h3">AI call #<?php echo (int) ($row['call_id'] ?? 0); ?></h1>
-    <p><a href="<?php echo $e(adminUrl('Ai')); ?>">← All calls</a></p>
+    <p><a href="<?php echo $e(adminUrl('Ai/settings')); ?>">← All calls</a></p>
 
     <table class="<?php echo $c['table']; ?>">
         <tbody>

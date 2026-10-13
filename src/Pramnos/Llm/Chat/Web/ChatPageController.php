@@ -6,6 +6,7 @@ namespace Pramnos\Llm\Chat\Web;
 
 use Pramnos\Application\Controller;
 use Pramnos\Llm\Chat\Scope;
+use Pramnos\Llm\Llm;
 
 /**
  * `/chat` — conversations with a model, for an application without a SPA.
@@ -63,6 +64,8 @@ class ChatPageController extends Controller
         $view->memories      = $chat->memory()?->all() ?? [];
         $view->limits        = $chat->limits();
         $view->consent       = $this->consentState($scope);
+        $chat                = Llm::config('chat', []);
+        $view->waitingLines  = is_array($chat['waiting_lines'] ?? null) ? $chat['waiting_lines'] : [];
 
         return $view->display();
     }

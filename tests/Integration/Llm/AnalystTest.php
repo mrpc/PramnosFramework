@@ -34,6 +34,7 @@ use Pramnos\Tests\Unit\Llm\LlmTestCase;
 #[CoversClass(\Pramnos\Llm\Analyst\Tools\QueueTool::class)]
 #[CoversClass(\Pramnos\Llm\Analyst\Tools\LlmSpendTool::class)]
 #[CoversClass(Scope::class)]
+#[CoversClass(\Pramnos\Llm\Chat\Attachments::class)]
 #[CoversClass(\Pramnos\Llm\Analyst\Tools\Window::class)]
 #[CoversClass(\Pramnos\Llm\Chat\Chat::class)]
 #[CoversClass(\Pramnos\Llm\Analyst\Desk::class)]
@@ -398,33 +399,34 @@ class AnalystTest extends LlmTestCase
 
         try {
             // Act / Assert — agreement asked, then given, on the analyst's page
-            $this->assertStringContainsString('Nothing is sent until you agree.', (string) (new AnalystScreen())->analyst());
+            $this->assertStringContainsString('Nothing is sent until you agree.', (string) (new AnalystScreen())->display());
             $_POST = ['give' => '1'];
             $agreed = new AnalystScreen();
-            $agreed->analystConsent();
-            $this->assertStringEndsWith('Ai/analyst', $agreed->redirectedTo[0]);
+            $agreed->consent();
+            $this->assertStringEndsWith('Ai', $agreed->redirectedTo[0]);
 
             // Asked without JavaScript, then as pf-chat.js does
             $_POST = ['content' => 'How many accounts?'];
             $asked = new AnalystScreen();
-            $asked->analystAsk();
-            $this->assertMatchesRegularExpression('/Ai\/analyst\?ask=\d+$/', $asked->redirectedTo[0]);
+            $asked->ask();
+            $this->assertMatchesRegularExpression('/Ai\?ask=\d+$/', $asked->redirectedTo[0]);
             $_SERVER['HTTP_ACCEPT'] = 'application/json';
-            $json = json_decode((string) (new AnalystScreen())->analystAsk(), true);
+            $json = json_decode((string) (new AnalystScreen())->ask(), true);
             $_SERVER['HTTP_ACCEPT'] = '';
             $this->assertSame(202, $json['status']);
-            $this->assertSame('waiting', json_decode((string) (new AnalystScreen())->analystAsked($json['data']['ask_id']), true)['data']['status']);
-            $this->assertSame(404, json_decode((string) (new AnalystScreen())->analystAsked(999), true)['status']);
+            $this->assertSame('waiting', json_decode((string) (new AnalystScreen())->asked($json['data']['ask_id']), true)['data']['status']);
+            $this->assertSame(404, json_decode((string) (new AnalystScreen())->asked(999), true)['status']);
             $_POST = ['content' => ''];
             $empty = new AnalystScreen();
-            $empty->analystAsk();
+            $empty->ask();
             $this->assertSame(['Ask it something.'], $empty->errors);
 
             // Drawn in every theme, at the analyst's addresses
             foreach (['tailwind', 'bootstrap', 'plain-css'] as $theme) {
-                $page = (string) (new AnalystScreen($theme))->analyst();
-                $this->assertStringContainsString('Analyst', $page, $theme);
-                $this->assertStringContainsString('Ai/analystAsk', $page, $theme);
+                $page = (string) (new AnalystScreen($theme))->display();
+                $this->assertStringContainsString('Ask', $page, $theme);
+                $this->assertStringContainsString('Ai/settings', $page, $theme . ': the settings are a link away');
+                $this->assertStringContainsString('Ai/ask', $page, $theme);
                 $this->assertStringContainsString('data-page="', $page, $theme);
                 $this->assertStringContainsString('You agreed to the AI features using DeepSeek.', $page, $theme);
             }
@@ -433,19 +435,19 @@ class AnalystTest extends LlmTestCase
             $stamp = \Pramnos\Llm\CallLog::instant(time());
             $this->insert('chat_conversations', ['organization_id' => null, 'userid' => 7, 'title' => 'Spend', 'space' => Scope::ADMIN, 'created_at' => $stamp, 'updated_at' => $stamp]);
             $deleted = new AnalystScreen();
-            $deleted->analystDelete((int) Analyst::conversations(7)->list()[0]['conversation_id']);
+            $deleted->delete((int) Analyst::conversations(7)->list()[0]['conversation_id']);
             $this->assertSame(['The conversation is forgotten.'], $deleted->messages);
             $missing = new AnalystScreen();
-            $missing->analystDelete(999);
-            $missing->analystForget(999);
+            $missing->delete(999);
+            $missing->forget(999);
             $this->assertSame(['There is no such conversation.', 'There is no such memory.'], $missing->errors);
             (new \Pramnos\Llm\Chat\Memory(Analyst::scope(7)))->remember('fact', 'Org 5 is a test');
             $forgot = new AnalystScreen();
-            $forgot->analystForget((int) (new \Pramnos\Llm\Chat\Memory(Analyst::scope(7)))->all()[0]['memory_id']);
+            $forgot->forget((int) (new \Pramnos\Llm\Chat\Memory(Analyst::scope(7)))->all()[0]['memory_id']);
             $this->assertSame(['Forgotten.'], $forgot->messages);
             $_POST = [];
-            (new AnalystScreen())->analystConsent();
-            $this->assertStringContainsString('Nothing is sent until you agree.', (string) (new AnalystScreen())->analyst());
+            (new AnalystScreen())->consent();
+            $this->assertStringContainsString('Nothing is sent until you agree.', (string) (new AnalystScreen())->display());
         } finally {
             $_POST = [];
             $_SERVER['HTTP_ACCEPT'] = '';
@@ -473,6 +475,112 @@ class AnalystTest extends LlmTestCase
         http_response_code(200);
     }
 
+    /** One call to `/admin/Ai/api/…` as administrator 7, with the session's token or without. */
+    private function api(string $method, string $path, array $body = [], bool $token = true): array
+    {
+        $_SERVER['REQUEST_METHOD'] = $method;
+        $_SERVER['REQUEST_URI']    = '/admin/Ai/api/' . $path;
+        $_SERVER['HTTP_X_CSRF_TOKEN'] = $token ? \Pramnos\Http\Session::getInstance()->getCsrfToken() : '';
+        $_POST = [];
+        \Pramnos\Http\Request::setRawInput($body === [] ? '' : json_encode($body));
+
+        try {
+            return (array) json_decode((string) (new AnalystScreen())->api(), true);
+        } finally {
+            $_SERVER['REQUEST_METHOD'] = 'GET';
+            unset($_SERVER['REQUEST_URI'], $_SERVER['HTTP_X_CSRF_TOKEN']);
+            \Pramnos\Http\Request::setRawInput(null);
+        }
+    }
+
+    /**
+     * The analyst as JSON in the conversation API's shape, for a screen of the application's
+     * own: every address, a JSON body, and the token any write needs.
+     */
+    #[DataProvider('databases')]
+    public function testTheJsonSurface(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->boot($type, $host, $port, $user);
+        $this->setting('llm_openai_api_key', 'sk-test');
+        $stamp = \Pramnos\Llm\CallLog::instant(time());
+        $this->insert('chat_conversations', ['organization_id' => null, 'userid' => 7, 'title' => 'Spend', 'space' => Scope::ADMIN, 'created_at' => $stamp, 'updated_at' => $stamp]);
+        $id = (int) Analyst::conversations(7)->list()[0]['conversation_id'];
+        (new \Pramnos\Llm\Chat\Memory(Analyst::scope(7)))->remember('fact', 'Org 5 is a test');
+        $memoryId = (int) (new \Pramnos\Llm\Chat\Memory(Analyst::scope(7)))->all()[0]['memory_id'];
+
+        // Act / Assert — reading
+        $list = $this->api('GET', 'chat');
+        $this->assertSame([200, ['Spend']], [$list['status'], array_column($list['data']['conversations'], 'title')]);
+        $this->assertArrayHasKey('limits', $list['data']);
+        $this->assertSame('Spend', $this->api('GET', 'chat/' . $id)['data']['title']);
+        $this->assertSame(404, $this->api('GET', 'chat/999')['status']);
+        $this->assertSame(['Org 5 is a test'], array_column($this->api('GET', 'memory')['data']['memories'], 'content'));
+        $this->assertArrayHasKey('given', $this->api('GET', 'consent')['data']);
+        $this->assertSame([404, 404], [$this->api('GET', 'nothing')['status'], $this->api('GET', '')['status']]);
+
+        // Writing: refused without the token, then asked from a JSON body
+        $this->assertSame(403, $this->api('POST', 'chat', ['content' => 'How many?'], token: false)['status']);
+        $asked = $this->api('POST', 'chat', ['content' => 'How many?']);
+        $this->assertSame(202, $asked['status']);
+        $this->assertSame('waiting', $this->api('GET', 'asks/' . $asked['data']['ask_id'])['data']['status']);
+        $this->assertSame(404, $this->api('GET', 'asks/999')['status']);
+        $this->assertTrue($this->api('POST', 'consent')['data']['given']);
+        $this->assertArrayHasKey('given', $this->api('DELETE', 'consent')['data']);
+        $this->assertSame([200, 404], [$this->api('DELETE', 'memory/' . $memoryId)['status'], $this->api('DELETE', 'memory/' . $memoryId)['status']]);
+        $this->assertSame([200, 404], [$this->api('DELETE', 'chat/' . $id)['status'], $this->api('DELETE', 'chat/' . $id)['status']]);
+    }
+
+    /**
+     * The analyst's first address and the settings' old ones lead where they went; the header's
+     * Ask link is drawn only for somebody who may open the page, at the application's floor.
+     */
+    #[DataProvider('databases')]
+    public function testAddressesAndTheHeaderButton(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->boot($type, $host, $port, $user);
+        $moved    = new AnalystScreen();
+        $problems = new AnalystScreen();
+
+        // Act
+        $_GET = ['c' => '4', 'ask' => '9'];
+        $moved->analyst();
+        $_GET = ['show' => 'problems'];
+        \Pramnos\Http\Request::resetInstance();
+        $problems->display();
+        $_GET = [];
+        \Pramnos\Http\Request::resetInstance();
+
+        // Assert
+        $this->assertStringEndsWith('Ai?c=4&ask=9', $moved->redirectedTo[0]);
+        $this->assertStringEndsWith('Ai/settings?show=problems', $problems->redirectedTo[0]);
+        $this->assertSame(\Pramnos\Auth\AdminAccess::defaultUsertype(), Analyst::floor(), 'no wrapper here: the area\'s floor');
+        $this->assertSame('', Analyst::headerButton(), 'nobody signed in');
+        $enabled = new \ReflectionProperty(\Pramnos\Application\FeatureRegistry::class, 'enabled');
+        $saved   = $enabled->getValue();
+        \Pramnos\Application\FeatureRegistry::loadFromConfig(['llm']);
+        try {
+            \Pramnos\Http\RequestIdentity::seal((object) ['userid' => 7, 'usertype' => 99]);
+            $button = Analyst::headerButton('<li>', '</li>');
+            \Pramnos\Http\RequestIdentity::seal((object) ['userid' => 8, 'usertype' => 1]);
+            $member = Analyst::headerButton();
+        } finally {
+            \Pramnos\Http\RequestIdentity::reset();
+            $enabled->setValue(null, $saved);
+        }
+        $this->assertMatchesRegularExpression('#^<li><a class="pf-ask" href="[^"]*Ai">Ask</a></li>$#', $button, 'an administrator sees it');
+        $this->assertSame('', $member, 'below the floor, no button');
+        $app = \Pramnos\Application\Application::getInstance();
+        $was = $app->applicationInfo['namespace'] ?? null;
+        $app->applicationInfo['namespace'] = 'Pramnos\\Tests\\Integration\\Llm\\Fixture';
+        try {
+            $this->assertSame(98, Analyst::floor(), 'the application\'s Admin\\Controllers\\Ai says');
+        } finally {
+            $app->applicationInfo['namespace'] = $was;
+        }
+    }
+
     /** Below the screen's usertype nothing happens, whatever is asked. */
     #[DataProvider('databases')]
     public function testBelowTheFloorNothingHappens(string $type, string $host, int $port, string $user): void
@@ -483,11 +591,11 @@ class AnalystTest extends LlmTestCase
         $screen = new AnalystScreen(refused: true);
 
         // Act
-        $answers = [$screen->analyst(), $screen->analystAsk(), $screen->analystAsked(1), $screen->analystDelete(1), $screen->analystForget(1), $screen->analystConsent()];
+        $answers = [$screen->display(), $screen->ask(), $screen->asked(1), $screen->delete(1), $screen->forget(1), $screen->consent(), $screen->api()];
         $_POST   = [];
 
         // Assert
-        $this->assertSame([null, null, null, null, null, null], $answers);
+        $this->assertSame([null, null, null, null, null, null, null], $answers);
         $this->assertSame([], $screen->queue->tasks);
         $this->assertSame([], $screen->redirectedTo);
     }

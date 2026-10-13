@@ -92,16 +92,8 @@ class ChatController extends \Pramnos\Application\ApiCrudController
         }
 
         $input = $this->input();
-        $sent  = is_array($input['attachments'] ?? null) ? array_values($input['attachments']) : [$input['attachment'] ?? null];
-        $files = [];
 
-        foreach ($sent as $file) {
-            if (is_array($file) && (string) ($file['data'] ?? '') !== '') {
-                $files[] = ['name' => (string) ($file['name'] ?? 'document'), 'bytes' => (string) base64_decode((string) $file['data'], true)];
-            }
-        }
-
-        return $this->takeQuestion($input, $files);
+        return $this->takeQuestion($input, \Pramnos\Llm\Chat\Attachments::fromJson($input));
     }
 
     /** A question while the worker answers it: waiting, answered with its conversation, or failed and why. */

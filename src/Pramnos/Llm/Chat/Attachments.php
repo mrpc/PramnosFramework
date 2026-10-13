@@ -104,4 +104,25 @@ final class Attachments
 
         return $out;
     }
+
+    /**
+     * The files a JSON body carries: `attachments: [{name, data}]` with the bytes in base64, or
+     * one `attachment`.
+     *
+     * @param array<string, mixed> $input
+     * @return list<array{name: string, bytes: string}>
+     */
+    public static function fromJson(array $input): array
+    {
+        $sent  = is_array($input['attachments'] ?? null) ? array_values($input['attachments']) : [$input['attachment'] ?? null];
+        $files = [];
+
+        foreach ($sent as $file) {
+            if (is_array($file) && (string) ($file['data'] ?? '') !== '') {
+                $files[] = ['name' => (string) ($file['name'] ?? 'document'), 'bytes' => (string) base64_decode((string) $file['data'], true)];
+            }
+        }
+
+        return $files;
+    }
 }

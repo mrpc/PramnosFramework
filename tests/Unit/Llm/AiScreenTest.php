@@ -10,7 +10,7 @@ use Pramnos\Llm\CallLog;
 use Pramnos\Llm\Llm;
 
 /**
- * `/admin/Ai`: the one place an installation's language-model settings live.
+ * `/admin/Ai/settings`: the one place an installation's language-model settings live.
  *
  * What has to hold: every theme has the screen and something links to it; a key is never put
  * back on the page and an empty field keeps it; each form saves only its own part; and an
@@ -74,7 +74,7 @@ class AiScreenTest extends LlmTestCase
         $controller = $this->controller();
 
         // Act
-        $controller->display();
+        $controller->settings();
         $view = $controller->view;
 
         // Assert
@@ -107,7 +107,8 @@ class AiScreenTest extends LlmTestCase
         // Assert — an unchecked box is logging off
         $this->assertSame(['llm_provider' => 'mistral', 'llm_timeout' => '300', 'llm_log' => '0'], $controller->stored);
         $this->assertSame(['Saved.'], $controller->messages);
-        $this->assertSame(['ok'], array_keys(array_filter(['ok' => $controller->redirectedTo !== []])));
+        // Back to the settings, which are no longer the screen's first page.
+        $this->assertStringEndsWith('Ai/settings', $controller->redirectedTo[0]);
 
         // An unknown provider is refused
         $_POST = ['section' => 'general', 'provider' => 'nope'];
@@ -327,7 +328,7 @@ class AiScreenTest extends LlmTestCase
         $controller = $this->controller(refused: true);
 
         // Act
-        $shown = $controller->display();
+        $shown = $controller->settings();
         $controller->save();
         $controller->check();
         $call = $controller->call();
@@ -394,7 +395,7 @@ class AiScreenTest extends LlmTestCase
         // Arrange — the controller's own assignments, onto a real View
         $this->configure(['admin_sections' => [PlanSection::class]]);
         $controller = $this->controller();
-        $controller->display();
+        $controller->settings();
         $fed  = $controller->view;
         $dir  = dirname(__DIR__, 3) . '/scaffolding/themes/plain-css/views/ai';
         $view = new \Pramnos\Application\View(new \Pramnos\Application\Controller(), $dir, 'ai');

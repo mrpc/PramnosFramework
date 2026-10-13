@@ -41,9 +41,9 @@ $labels    = array_column($providers, 'label', 'id');
 <div class="px-4 py-6">
     <?php $this->activeNav = 'ai'; $this->insert('../partials/admin_breadcrumb'); ?>
 
-    <h1>AI</h1>
+    <h1>AI settings</h1>
 
-    <p><a href="<?php echo htmlspecialchars(adminUrl('Ai/analyst'), ENT_QUOTES, 'UTF-8'); ?>" class="<?php echo $c['btn']; ?>">Ask the analyst</a> — questions about this installation, answered from its own figures.</p>
+    <p><a href="<?php echo $e(adminUrl('Ai')); ?>">← Ask</a></p>
     <p class="<?php echo $c['muted']; ?>">
         The language models this installation calls, what each of its features uses, and what it has cost.
         Costs are estimates from the prices below<?php echo $openai !== null ? '; OpenAI\'s own figure is beside them' : ''; ?>.
@@ -265,8 +265,8 @@ $labels    = array_column($providers, 'label', 'id');
     <section class="<?php echo $c['card']; ?>" style="padding:14px;margin-bottom:16px">
         <h2>Calls</h2>
         <p>
-            <a href="<?php echo $e(adminUrl('Ai')); ?>" class="<?php echo empty($this->problems) ? $c['btn'] : $c['btnOutline']; ?>">Recent</a>
-            <a href="<?php echo $e(adminUrl('Ai') . '?show=problems'); ?>" class="<?php echo !empty($this->problems) ? $c['btn'] : $c['btnOutline']; ?>">Problems only</a>
+            <a href="<?php echo $e(adminUrl('Ai/settings')); ?>" class="<?php echo empty($this->problems) ? $c['btn'] : $c['btnOutline']; ?>">Recent</a>
+            <a href="<?php echo $e(adminUrl('Ai/settings') . '?show=problems'); ?>" class="<?php echo !empty($this->problems) ? $c['btn'] : $c['btnOutline']; ?>">Problems only</a>
         </p>
         <?php if ($byModel !== []): ?>
             <table class="<?php echo $c['table']; ?>">

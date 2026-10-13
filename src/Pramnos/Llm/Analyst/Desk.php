@@ -96,4 +96,47 @@ class Desk
             $this->recordConsent($scope, $give);
         }
     }
+
+    /**
+     * The analyst as JSON, in the conversation API's shape: `chat`, `chat/{id}`, `asks/{id}`,
+     * `memory`, `memory/{id}`, `consent`.
+     *
+     * @param list<string>         $path   What follows `api/`
+     * @param array<string, mixed> $input  The request's body
+     * @return array{status: int, data?: mixed, error?: string}
+     */
+    public function api(string $method, array $path, array $input): array
+    {
+        $scope = $this->scope();
+
+        if ($scope === null) {
+            return ['status' => 403, 'error' => 'This needs somebody signed in.'];
+        }
+
+        $resource = $path[0] ?? '';
+        $id       = (int) ($path[1] ?? 0);
+        $chat     = $this->conversations();
+        $missing  = static fn (string $what): array => ['status' => 404, 'error' => 'There is no such ' . $what . '.'];
+
+        return match (true) {
+            $resource === 'chat' && $method === 'GET' && $id === 0     => ['status' => 200, 'data' => ['conversations' => $chat->list(), 'limits' => $chat->limits()]],
+            $resource === 'chat' && $method === 'GET'                  => ($found = $chat->find($id)) === null ? $missing('conversation') : ['status' => 200, 'data' => $found],
+            $resource === 'chat' && $method === 'POST'                 => $this->takeQuestion($input, \Pramnos\Llm\Chat\Attachments::fromJson($input)),
+            $resource === 'chat' && $method === 'DELETE'               => $this->forget($id) ? ['status' => 200, 'data' => ['deleted' => true]] : $missing('conversation'),
+            $resource === 'asks' && $method === 'GET'                  => ($ask = $this->asked($id)) === null ? $missing('question') : ['status' => 200, 'data' => $ask],
+            $resource === 'memory' && $method === 'GET'                => ['status' => 200, 'data' => ['memories' => $chat->memory()?->all() ?? []]],
+            $resource === 'memory' && $method === 'DELETE'             => $this->forgetMemory($id) ? ['status' => 200, 'data' => ['deleted' => true]] : $missing('memory'),
+            $resource === 'consent' && $method === 'GET'               => ['status' => 200, 'data' => $this->consentState($scope)],
+            $resource === 'consent' && in_array($method, ['POST', 'DELETE'], true) => $this->changed($scope, $method === 'POST'),
+            default                                                    => ['status' => 404, 'error' => 'There is no such address.'],
+        };
+    }
+
+    /** @return array{status: int, data: array<string, mixed>} */
+    private function changed(Scope $scope, bool $give): array
+    {
+        $this->recordConsent($scope, $give);
+
+        return ['status' => 200, 'data' => $this->consentState($scope)];
+    }
 }

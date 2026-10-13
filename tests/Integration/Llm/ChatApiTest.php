@@ -21,6 +21,7 @@ use Pramnos\Tests\Unit\Llm\LlmTestCase;
  */
 #[CoversClass(ChatController::class)]
 #[CoversClass(Routes::class)]
+#[CoversClass(\Pramnos\Llm\Chat\Attachments::class)]
 #[CoversClass(\Pramnos\Llm\Chat\Conversations::class)]
 #[CoversClass(\Pramnos\Llm\Chat\Concerns\TakesQuestions::class)]
 class ChatApiTest extends LlmTestCase
