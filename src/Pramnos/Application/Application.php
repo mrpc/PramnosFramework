@@ -1387,7 +1387,7 @@ class Application extends Base
 
         if (!$this->adminAreaUserIsSignedIn()) {
             $this->setRedirect(
-                sURL . 'login?return=' . urlencode((string) ($_SERVER['REQUEST_URI'] ?? '/'))
+                \Pramnos\Http\AdminArea::loginRedirect((string) ($_SERVER['REQUEST_URI'] ?? '/'))
             );
             return false;
         }

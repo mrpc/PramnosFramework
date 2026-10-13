@@ -53,6 +53,9 @@ final class AdminArea
     /** Minimum usertype for the area, or 0 when unrestricted. */
     private static int $minUserType = 0;
 
+    /** Where a guest signs in for this area; the site's login when empty. */
+    private static string $loginUrl = '';
+
     /**
      * Decide whether this request is inside the area, and strip the prefix.
      *
@@ -180,10 +183,42 @@ final class AdminArea
      * For test isolation: the class is static because the answer is a property of
      * the request, and a suite runs many requests in one process.
      */
+    /**
+     * The area's own sign-in page, for an application whose administration signs in somewhere
+     * other than the site's `login` — called once, beside {@see detect()}.
+     */
+    public static function useLogin(string $url): void
+    {
+        self::$loginUrl = $url;
+    }
+
+    /** Where a guest in this area signs in: the area's own page, or the site's `login`. */
+    public static function loginUrl(): string
+    {
+        return self::$loginUrl !== '' ? self::$loginUrl : (defined('sURL') ? \sURL : '/') . 'login';
+    }
+
+    /**
+     * The sign-in address that brings a guest back to where they were — the whole path, area
+     * prefix and all, so they come back into the area rather than to the site's page of the
+     * same name.
+     */
+    public static function loginRedirect(string $requestUri): string
+    {
+        $login = self::loginUrl();
+
+        if ($requestUri === '' || $requestUri === '/') {
+            return $login;
+        }
+
+        return $login . (str_contains($login, '?') ? '&' : '?') . 'return=' . urlencode($requestUri);
+    }
+
     public static function reset(): void
     {
         self::$active      = false;
         self::$prefix      = '';
         self::$minUserType = 0;
+        self::$loginUrl    = '';
     }
 }

@@ -510,6 +510,15 @@ class Controller extends \Pramnos\Framework\Base
     {
         $session = \Pramnos\Http\Session::getInstance();
         if (!$session->isLogged() && defined('sURL')) {
+            // Inside an administration area: the area's sign-in, and back to the whole path —
+            // `Request::$requestUri` has the area's prefix taken off, so it would return the
+            // guest to the site's page of the same name.
+            if (\Pramnos\Http\AdminArea::isActive()) {
+                throw new \Pramnos\Http\RedirectException(
+                    \Pramnos\Http\AdminArea::loginRedirect((string) ($_SERVER['REQUEST_URI'] ?? ''))
+                );
+            }
+
             $loginUrl = sURL . 'login';
             $current  = \Pramnos\Http\Request::$requestUri ?? '';
             if ($current !== '' && $current !== '/') {

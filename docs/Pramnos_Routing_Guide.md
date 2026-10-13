@@ -1029,6 +1029,15 @@ going. A signed-in user below the floor is sent to the site root instead —
 showing them a login form they are already past reads as a broken session, and
 they retype their password rather than understanding they lack the privilege.
 
+The `return=` is the **whole path, prefix included** — `/admin/Users`, not `Users`, which
+would land the guest on the site's page of that name. The same holds for a controller's own
+`addAuthAction()` refusal inside the area. The sign-in page is the site's `login` unless the
+area has its own:
+
+```php
+\Pramnos\Http\AdminArea::useLogin(sURL . 'admin/login');   // e.g. in Application::init()
+```
+
 ### Links inside the area
 
 A view inside the area **cannot** link with a bare `sURL`:

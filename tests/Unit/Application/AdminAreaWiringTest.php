@@ -210,6 +210,29 @@ class AdminAreaWiringTest extends TestCase
     }
 
     /**
+     * An area with a sign-in page of its own sends its guests there, carrying the whole path —
+     * and a login address that already has a query string gets `&return=`.
+     */
+    public function testAnAreasOwnSignInIsUsed(): void
+    {
+        // Arrange
+        $_GET['r'] = 'admin/Users';
+        $app = new InspectableAdminApplication(['admin' => ['prefix' => 'admin', 'min_usertype' => 80]]);
+        $app->enterArea();
+        $app->user = null;
+        AdminArea::useLogin(\sURL . 'admin/signin?via=area');
+
+        // Act
+        $app->allow();
+
+        // Assert
+        $this->assertSame([\sURL . 'admin/signin?via=area&return=' . urlencode('/admin/Users')], $app->redirects);
+        $this->assertSame(\sURL . 'admin/signin?via=area', AdminArea::loginRedirect('/'), 'nowhere to return to');
+        AdminArea::reset();
+        $this->assertSame(\sURL . 'login', AdminArea::loginUrl(), 'reset forgets it');
+    }
+
+    /**
      * A signed-in user below the floor is sent to the site root, not to login.
      *
      * They are already authenticated; a login form would tell them their session
