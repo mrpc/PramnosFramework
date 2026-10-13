@@ -15,6 +15,7 @@
  *   data-pf-chat-form            — the question form; data-pf-chat-files its file input,
  *                                  data-pf-chat-attach the 📎, data-pf-chat-chips the files held
  *   data-pf-chat-waiting="id"    — a question already waiting when the page was drawn
+ *   data-pf-chat-suggestion="…"  — an example question: a click puts it in the box
  *
  * Enter sends, Shift+Enter is a new line. No inline handlers: the framework's CSP blocks them.
  */
@@ -165,6 +166,16 @@
         }
 
         var box = form.querySelector('textarea');
+
+        // An example question fills the box, ready to send or to change first.
+        Array.prototype.forEach.call(root.querySelectorAll('[data-pf-chat-suggestion]'), function (example) {
+            example.addEventListener('click', function () {
+                if (box) {
+                    box.value = example.getAttribute('data-pf-chat-suggestion') || '';
+                    box.focus();
+                }
+            });
+        });
         var picker = form.querySelector('[data-pf-chat-files]');
         var attach = form.querySelector('[data-pf-chat-attach]');
         var chips = form.querySelector('[data-pf-chat-chips]');

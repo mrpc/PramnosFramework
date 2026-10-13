@@ -100,7 +100,7 @@ class ChatPageTest extends LlmTestCase
     {
         // Arrange
         $this->connectDatabase($type, $host, $port);
-        $this->configure(['chat' => ['waiting_lines' => ['Counting the clicks…']]]);
+        $this->configure(['chat' => ['waiting_lines' => ['Counting the clicks…'], 'suggestions' => ['What did we spend this week?']]]);
         $stamp = \Pramnos\Llm\CallLog::instant(time());
         $qb    = fn (string $t) => $this->db->queryBuilder()->table($t);
         $qb('chat_conversations')->insert(['organization_id' => null, 'userid' => 7, 'title' => 'Spend', 'space' => 'chat', 'created_at' => $stamp, 'updated_at' => $stamp]);
@@ -125,6 +125,15 @@ class ChatPageTest extends LlmTestCase
             $this->assertStringContainsString('data-pf-chat-files', $page, $theme);
             $this->assertStringContainsString('data-say-too-large=', $page, $theme);
             $this->assertStringContainsString('data-waiting-lines="[&quot;Counting the clicks…&quot;]"', $page, $theme);
+            $this->assertStringNotContainsString('data-pf-chat-suggestion', $page, $theme . ': no examples over a conversation');
+        }
+
+        // A new conversation: the examples, each filling the box from its attribute
+        $_GET = [];
+        \Pramnos\Http\Request::resetInstance();
+        foreach (self::THEMES as $theme) {
+            $page = (string) $this->page(theme: $theme)->display();
+            $this->assertStringContainsString('data-pf-chat-suggestion="What did we spend this week?"', $page, $theme);
         }
     }
 

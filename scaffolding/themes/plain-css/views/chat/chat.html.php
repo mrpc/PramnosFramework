@@ -11,6 +11,7 @@
  *   $this->consent       — provider, label, place, required, given
  *   $this->urls          — optional: page, ask, asked, consent, delete, forget (the analyst's)
  *   $this->heading       — optional: the title when no conversation is open
+ *   $this->suggestions   — optional: example questions, shown while no conversation is open
  *
  * Answers are the model's words, drawn by Markdown::toHtml(), which escapes everything first.
  * A question is answered by the queue worker; pf-chat.js waits for it in place, and without
@@ -91,6 +92,14 @@ $u       = (is_array($this->urls ?? null) ? $this->urls : []) + [
                 </section>
             <?php endif; ?>
 
+            <?php $examples = $open === null ? array_values(array_filter(is_array($this->suggestions ?? null) ? $this->suggestions : [], 'is_string')) : []; ?>
+            <?php if ($examples !== []): ?>
+                <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px" aria-label="<?php echo $e(t('Example questions')); ?>">
+                    <?php foreach ($examples as $example): ?>
+                        <button type="button" class="btn" data-pf-chat-suggestion="<?php echo $e($example); ?>"><?php echo $e($example); ?></button>
+                    <?php endforeach; ?>
+                </div>
+            <?php endif; ?>
             <div class="pf-chat-messages" data-pf-chat-messages>
                 <?php foreach ($open['messages'] ?? [] as $m): ?>
                     <article class="<?php echo $m['role'] === 'user' ? $c['question'] : $c['answer']; ?>" style="padding:10px 14px;margin-bottom:10px">

@@ -48,6 +48,8 @@ function element(tag, attributes = {}) {
             return e;
         },
         querySelector(selector) { return find(this, selector); },
+        querySelectorAll(selector) { return findAll(this, selector); },
+        focus() { this.focused = true; },
     };
 
     return el;
@@ -73,6 +75,13 @@ function find(root, selector) {
     return null;
 }
 
+/** Every descendant carrying `[attr]`. */
+function findAll(root, selector) {
+    const attr = selector.match(/^\[([\w-]+)\]$/)[1];
+
+    return root.children.flatMap((child) => (attr in child.attributes ? [child] : []).concat(findAll(child, selector)));
+}
+
 /** A file as the browser hands it over. */
 const file = (name, size = 10, type = 'text/plain') => ({ name, size, type });
 
@@ -82,8 +91,9 @@ const file = (name, size = 10, type = 'text/plain') => ({ name, size, type });
  *
  * @param {{waiting?: string, answers: Array<object|string|Error>, attributes?: object, parser?: boolean, now?: () => number}} options
  */
-function run({ waiting, answers, attributes = {}, parser = true, now = () => 0 }) {
+function run({ waiting, answers, attributes = {}, parser = true, now = () => 0, examples = [] }) {
     const page = element('div', { 'data-pf-chat': '', 'data-asked': '/chat/asked/', ...attributes });
+    examples.forEach((text) => page.appendChild(element('button', { type: 'button', 'data-pf-chat-suggestion': text })));
     const messages = page.appendChild(element('div', { 'data-pf-chat-messages': '' }));
     if (waiting) {
         messages.appendChild(element('p', { 'data-pf-chat-waiting': waiting }));
@@ -135,7 +145,9 @@ function run({ waiting, answers, attributes = {}, parser = true, now = () => 0 }
     };
     vm.runInNewContext(SOURCE, context);
 
-    return { page, messages, form, box, picker, attach, chips, button, requests, timers, intervals, window, sent, replaced };
+    const suggestions = page.querySelectorAll('[data-pf-chat-suggestion]');
+
+    return { page, messages, form, box, picker, attach, chips, button, requests, timers, intervals, window, sent, replaced, suggestions };
 }
 
 /** Let every pending promise settle: a few turns, for a fetch that leads to another. */
@@ -326,6 +338,19 @@ test('Enter sends, Shift+Enter is a new line', () => {
     assert.equal(newLine.prevented, undefined);
     assert.equal(sent.prevented, true);
     assert.equal(ui.requests.length, 1);
+});
+
+test('an example question fills the box, ready to send or to change first', () => {
+    // Arrange
+    const ui = run({ answers: [], examples: ['How many signed up this week?', 'What failed in the queue?'] });
+
+    // Act
+    ui.suggestions[1].click();
+
+    // Assert
+    assert.equal(ui.box.value, 'What failed in the queue?');
+    assert.equal(ui.box.focused, true, 'the cursor is in the box');
+    assert.equal(ui.requests.length, 0, 'nothing is sent until asked');
 });
 
 test('a page without the conversation does nothing', () => {

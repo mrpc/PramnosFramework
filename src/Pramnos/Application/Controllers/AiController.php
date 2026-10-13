@@ -83,6 +83,7 @@ class AiController extends Controller
         $view->settingsUrl = adminUrl('Ai/settings');
         $analyst           = Llm::config('analyst', []);
         $view->waitingLines = is_array($analyst['waiting_lines'] ?? null) ? $analyst['waiting_lines'] : [];
+        $view->suggestions  = is_array($analyst['suggestions'] ?? null) ? $analyst['suggestions'] : [];
         $view->urls        = [
             'page'    => adminUrl('Ai'),
             'ask'     => adminUrl('Ai/ask'),

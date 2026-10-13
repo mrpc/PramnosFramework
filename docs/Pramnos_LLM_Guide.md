@@ -438,6 +438,16 @@ fetched and swapped in, without a reload. Every word the script says comes from 
 is translated with the rest. Without JavaScript the page posts and refreshes itself until the
 answer is there.
 
+Example questions sit above a new conversation, and a click puts one in the box, to send or to
+change first:
+
+```php
+'llm' => [
+    'chat'    => ['suggestions' => ['Which posts did best this month?', 'Draft a reply to this email']],
+    'analyst' => ['suggestions' => ['Who signed up this week?', 'What failed in the queue today?']],
+],
+```
+
 `pf-chat.js` is one of the framework's page scripts, which `composer update` does not place in
 the web root: `php bin/pramnos project:resync --js --all` does, after an upgrade that brings a
 page using a new one. Until then the page works as a plain form; the `framework_scripts` health

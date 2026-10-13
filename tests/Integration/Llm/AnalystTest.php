@@ -392,7 +392,7 @@ class AnalystTest extends LlmTestCase
         $this->setting('llm_openai_api_key', 'sk-test');
         $this->setting('llm_provider', 'deepseek');
         $this->setting('llm_deepseek_api_key', 'sk-d');
-        $this->configure(['consent' => \Pramnos\Llm\Policy\StoredConsent::class]);
+        $this->configure(['consent' => \Pramnos\Llm\Policy\StoredConsent::class, 'analyst' => ['suggestions' => ['Who signed up today?']]]);
         $_POST = [];
         $_GET  = [];
         \Pramnos\Http\Request::resetInstance();
@@ -429,6 +429,7 @@ class AnalystTest extends LlmTestCase
                 $this->assertStringContainsString('Ai/ask', $page, $theme);
                 $this->assertStringContainsString('data-page="', $page, $theme);
                 $this->assertStringContainsString('You agreed to the AI features using DeepSeek.', $page, $theme);
+                $this->assertStringContainsString('data-pf-chat-suggestion="Who signed up today?"', $page, $theme . ': the analyst\'s own examples');
             }
 
             // Forgetting, and withdrawing
