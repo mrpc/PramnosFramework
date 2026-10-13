@@ -142,6 +142,9 @@ back**: the field renders empty, submitting it empty means "keep what is stored"
 placeholder is what tells you whether there is one. To clear it, write an empty value
 through `Settings::setSetting()`.
 
+With no `smtp_host` every send fails, with `getLastError()` reading *SMTP not configured:
+smtp_host is empty.* `Email::isConfigured()` asks the same question before a send.
+
 ```php
 Settings::setSetting('admin_replymail', 'support@yoursite.com');
 ```
@@ -1678,6 +1681,18 @@ will not let you, but the reasoning is worth carrying into whatever you build be
 module, date, status — with the full body and a resend. Tracked messages show their figures in an
 **Opens** column, with prefetches marked apart. A message that was not tracked shows a dash, which
 is the honest rendering of "nobody measured this".
+
+Every `send()` writes that row, sent or failed. An application that already keeps its own row
+for each message in the same table gets two; it turns the framework's off for every send,
+including `Email::sendMail()`:
+
+```php
+// app/app.php
+'mail' => ['record' => false],
+```
+
+or for one message with `$email->recordToMails = false`. With recording off, `queue()` has no
+outbox row to write and sends at once.
 
 ---
 

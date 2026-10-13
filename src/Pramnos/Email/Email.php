@@ -190,7 +190,8 @@ class Email extends \Pramnos\Framework\Base
     /**
      * Whether send() records the outbound email in the `mails` table.
      * On by default so the table is a complete delivery log; set false to
-     * suppress recording for a specific send.
+     * suppress recording for a specific send, or `'mail' => ['record' => false]` in
+     * `app/app.php` for every send — for an application that writes its own row.
      * @var bool
      */
     public $recordToMails = true;
@@ -248,6 +249,8 @@ class Email extends \Pramnos\Framework\Base
     function __construct()
     {
         parent::__construct();
+        $this->recordToMails = (bool) (\Pramnos\Application\Application::currentInstance()
+            ?->applicationInfo['mail']['record'] ?? true);
     }
 
     public static function &getInstance()
@@ -1366,6 +1369,12 @@ class Email extends \Pramnos\Framework\Base
             // and four characters — or the length — of a credential is part of the credential.
             $this->debugLog("- SMTP Password: " . ($pass !== '' ? 'set' : 'not set'));
             $this->debugLog("Sending mail via SMTP: {$host}:{$port}, User: {$user}, TLS: " . ($useTls ? 'yes' : 'no'));
+
+            // Said plainly: a DSN built from an empty host is "smtp://user:pass@:0", which
+            // Symfony refuses as "The mailer DSN is invalid." — read as a credentials problem.
+            if (trim($host) === '') {
+                throw new \RuntimeException('SMTP not configured: smtp_host is empty.');
+            }
 
             $transport = $this->smtpTransport($host, $port, $user, $pass, $useTls);
         }
