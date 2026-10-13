@@ -59,6 +59,17 @@ abstract class Grammar implements GrammarInterface
      */
     protected function quoteIfCaseSensitive(string $column): string
     {
+        // `c.usage` and `usage AS u`: a reserved word among the names is quoted. Only a reserved
+        // word — quoting a mixed-case alias would change the key a row comes back under on
+        // PostgreSQL. Anything else that is not a bare name — an expression, `t.*`,
+        // `#PREFIX#users.userid` — is left as written.
+        if (preg_match('/^(.+?)\s+as\s+([A-Za-z_][A-Za-z0-9_]*)$/i', $column, $m) === 1) {
+            return $this->quoteIfCaseSensitive($m[1]) . ' AS ' . $this->quoteIfReserved($m[2]);
+        }
+        if (preg_match('/^([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)$/', $column, $m) === 1) {
+            return $this->quoteIfReserved($m[1]) . '.' . $this->quoteIfReserved($m[2]);
+        }
+
         if (preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $column) !== 1) {
             return $column;
         }
@@ -70,6 +81,12 @@ abstract class Grammar implements GrammarInterface
         return isset(static::RESERVED_COLUMN_NAMES[$column])
             ? $this->quoteColumn($column)
             : $column;
+    }
+
+    /** A name quoted only when it is a reserved word. */
+    protected function quoteIfReserved(string $name): string
+    {
+        return isset(static::RESERVED_COLUMN_NAMES[strtolower($name)]) ? $this->quoteColumn($name) : $name;
     }
 
     /**
@@ -114,6 +131,16 @@ abstract class Grammar implements GrammarInterface
         'binary' => true, 'collate' => true, 'concurrently' => true, 'freeze' => true,
         'ilike' => true, 'isnull' => true, 'notnull' => true, 'offset' => true, 'placing' => true,
         'similar' => true, 'symmetric' => true, 'variadic' => true, 'verbose' => true,
+        // Reserved by MySQL alone, and found as column names: `llm_calls.usage` failed there.
+        'usage' => true, 'condition' => true, 'describe' => true, 'explain' => true,
+        'fulltext' => true, 'keys' => true, 'lines' => true, 'load' => true, 'lock' => true,
+        'match' => true, 'option' => true, 'read' => true, 'release' => true, 'rename' => true,
+        'repeat' => true, 'replace' => true, 'require' => true, 'return' => true, 'schema' => true,
+        'show' => true, 'signal' => true, 'spatial' => true, 'trigger' => true, 'undo' => true,
+        'unlock' => true, 'write' => true, 'rank' => true, 'row' => true, 'groups' => true,
+        'lead' => true, 'lag' => true, 'system' => true, 'change' => true, 'virtual' => true,
+        'stored' => true, 'generated' => true, 'force' => true, 'ignore' => true, 'leave' => true,
+        'loop' => true, 'iterate' => true, 'precision' => true, 'separator' => true,
     ];
 
     /**
@@ -204,7 +231,8 @@ abstract class Grammar implements GrammarInterface
         }
         $sql .= implode(
             ', ',
-            array_map(fn ($column) => $this->quoteIfCaseSensitive((string) $column), $qb->getColumns())
+            // A raw expression is the caller's SQL, exactly as written.
+            array_map(fn ($column) => $column instanceof \Pramnos\Database\Expression ? (string) $column : $this->quoteIfCaseSensitive((string) $column), $qb->getColumns())
         );
         $sql .= ' FROM ' . $qb->getFrom();
 

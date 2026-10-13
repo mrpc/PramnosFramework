@@ -6,6 +6,7 @@ use_cases:
   - Processing a large result set in batches
   - Inspecting the SQL a builder chain produces
   - Reading a column whose name has upper-case letters, such as parentToken
+  - Selecting or filtering on a column named after a reserved word, such as order or usage
 ---
 
 # Pramnos QueryBuilder Guide
@@ -1029,6 +1030,23 @@ Only a **bare identifier** is quoted, and only when it has an upper-case letter:
 | `MAX(ut.lastused) AS x` | unchanged | An expression, not an identifier |
 | `*`, `ut.*` | unchanged | Not a name |
 | `"parentToken"` | unchanged | Already quoted |
+
+### Reserved words
+
+A column named after a reserved word — `order`, `key`, `usage`, `rank`, … — is quoted wherever
+the builder names a column (`select`, `where`, `groupBy`, `orderBy`, `having`), bare or
+qualified, and so is an alias that is one:
+
+| Written | MySQL | PostgreSQL |
+|---|---|---|
+| `usage` | `` `usage` `` | `"usage"` |
+| `c.usage` | `` c.`usage` `` | `c."usage"` |
+| `tokens AS order` | ``tokens AS `order` `` | `tokens AS "order"` |
+| `SUM(cost) AS Total` | unchanged | unchanged — the row keeps its `total` key |
+| `$qb->raw('…')` | unchanged | unchanged — raw SQL is the caller's |
+
+The list is the words that turn up as column names, from both dialects — `usage`, for one, is
+reserved by MySQL alone. A word missing from it, quote yourself.
 
 A **qualified** camelCase column — `ut.parentToken` in a join — is not quoted for
 you, because the builder cannot tell a table alias from a schema without parsing
