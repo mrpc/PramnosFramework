@@ -439,7 +439,34 @@ class DatatableTest extends TestCase
         $this->assertStringContainsString('value="searchme"', $html);
         $this->assertStringContainsString('mySearchTable.fnFilter( \'searchme\', 0 )', $html);
         $this->assertStringContainsString('jQuery(\'#emailsearch\').change', $html);
-        $this->assertStringContainsString('$("tfoot input").keyup(', $html);
+        $this->assertStringContainsString('jQuery(document.getElementById("mySearchTable")).find("tfoot input").keyup(', $html);
+    }
+
+    /**
+     * The footer search binds to its own table's boxes and reads nothing undeclared.
+     *
+     * Its blur handler restored `asInitVals[…]`, which nothing declared — a ReferenceError each
+     * time an empty box lost focus — and `$("tfoot input")` bound every footer box on the page,
+     * so with two tables, typing under one filtered both.
+     */
+    public function testTheFooterSearchStaysWithinItsTable(): void
+    {
+        // Arrange
+        $dt = new Datatable('first');
+        $dt->addColumn('Name', true, true, true, '', '', true, 'left', true);
+        $singleton = &\Pramnos\Framework\Factory::getDocument('html');
+        $singleton = new class {
+            public function enqueueStyle(string $style): void {}
+            public function enqueueScript(string $script): void {}
+        };
+
+        // Act
+        $html = $dt->render();
+
+        // Assert
+        $this->assertStringNotContainsString('asInitVals', $html, 'nothing reads an undeclared variable');
+        $this->assertStringNotContainsString('$("tfoot input")', $html, 'no page-wide selector');
+        $this->assertStringContainsString('jQuery(document.getElementById("first")).find("tfoot input")', $html);
     }
 
     public function testRenderJsServerSideAndEditable(): void

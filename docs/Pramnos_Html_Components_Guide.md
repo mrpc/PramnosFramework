@@ -783,6 +783,10 @@ placeholder. **The class is not decoration**: a bare `<input>` under a modern CS
 no border, no padding and no background, so the filter row was there and invisible — every
 bundled theme styles it, and a theme of your own should too.
 
+The boxes filter their own table only, so two tables on one page do not filter each other, and
+the placeholder is a real `placeholder` attribute — nothing writes the label into the value or
+restores it on blur.
+
 ### Row actions, as icons
 
 ```php

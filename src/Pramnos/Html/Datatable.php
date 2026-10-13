@@ -514,8 +514,18 @@ embed;
         }
 
         if ($this->footerTextSearch == true) {
+            /*
+             * This table's footer only: a page with two tables bound every footer box to both,
+             * so typing under one filtered the other too. By element rather than by selector,
+             * since the table's name is not escaped for CSS.
+             *
+             * No focus/blur pair: the boxes carry a `placeholder`, which is what that pair
+             * imitated by writing the label into the value — and its blur read an `asInitVals`
+             * nothing declared, a ReferenceError on every empty box left.
+             */
+            $tableId = json_encode((string) $this->name, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP);
             $this->codeEmbed.=<<<embed
-   $("tfoot input").keyup( DataTableDelay( function () {
+   jQuery(document.getElementById({$tableId})).find("tfoot input").keyup( DataTableDelay( function () {
         /* Filter on the column (the index) of this element */
 
         /*
@@ -527,29 +537,8 @@ embed;
             return;
         }
 
-        {$jsVar}.fnFilter( this.value, $(this).attr('name') );
+        {$jsVar}.fnFilter( this.value, jQuery(this).attr('name') );
     } ) );
-    /*
-     * Support functions to provide a little bit of
-     * 'user friendlyness' to the textboxes in
-     * the footer
-     */
-
-    $("tfoot input").focus( function () {
-        if ( this.className == "search_init" )
-        {
-            this.className = "";
-            this.value = "";
-        }
-    } );
-
-    $("tfoot input").blur( function (i) {
-        if ( this.value == "" )
-        {
-            this.className = "search_init";
-            this.value = asInitVals[$("tfoot input").index(this)];
-        }
-    } );
 embed;
         }
     }
