@@ -796,7 +796,9 @@ $rows   = Datasource::getList('orders', $fields, false, $where);
 
 `Datasource::columnSearch($i)` reads without taking. Both read DataTables 1.10's
 `columns[N][search][value]` and 1.9's `sSearch_N` alike, so the code does not depend on which
-version of the client made the request.
+version of the client made the request. A multiple select's choice — an array, since its
+`.val()` is one — reads as its non-empty values joined with commas, `'3,7'`, as 1.9 sent it;
+`explode(',', …)` it, and take it, since left to `render()` it is a `LIKE` on that string.
 
 The generated box carries `class="pf-footsearch"` and the column's label as its
 placeholder. **The class is not decoration**: a bare `<input>` under a modern CSS reset has

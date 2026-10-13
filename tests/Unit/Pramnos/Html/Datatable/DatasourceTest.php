@@ -855,9 +855,33 @@ class DatasourceTest extends TestCase
         $this->setPost(['sEcho' => '1', 'sSearch_2' => 'Gad']);
         $this->assertSame('Gad', Datasource::columnSearch(2));
 
-        // An array where a value belongs is no value
-        $this->setPost(['sSearch_0' => ['x']]);
+        // A nested array where a value belongs is no value
+        $this->setPost(['sSearch_0' => [['x']]]);
         $this->assertSame('', Datasource::columnSearch(0));
+    }
+
+    /**
+     * A multiple choice reads as its values joined with commas, as 1.9 sent it.
+     *
+     * A `<select multiple>` filters with `fnFilter(jQuery(this).val(), N)`, and its value is an
+     * array: `columns[N][search][value][]=a&…[]=b`. It read as `''`, losing the filter, and the
+     * translation cast it to the word `Array`, which became `LIKE '%Array%'`.
+     */
+    public function testAMultipleChoiceReadsAsItsValuesJoined(): void
+    {
+        // Arrange — two areas chosen, plus the empty option a select can carry
+        $this->setPost(['draw' => '1', 'columns' => [
+            ['search' => ['value' => '']],
+            ['searchable' => 'true', 'search' => ['value' => ['3', '', '7']]],
+        ]]);
+
+        // Act
+        $read = Datasource::columnSearch(1);
+        (new Datasource())->render('ds_items', ['id', 'name'], false, '', '', false);
+
+        // Assert — the same string for the application and for render()
+        $this->assertSame('3,7', $read);
+        $this->assertSame('3,7', $_POST['sSearch_1'], 'never the word Array');
     }
 
     /**

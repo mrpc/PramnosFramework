@@ -114,7 +114,8 @@ class Datasource extends Base
     }
 
     /**
-     * What a column's own search box holds for this request, in either protocol.
+     * What a column's own search box holds for this request, in either protocol. A multiple
+     * choice is its values joined with commas.
      *
      * DataTables 1.10 sends it as `columns[N][search][value]`, 1.9 as `sSearch_N`, and
      * `render()` translates the first into the second only when it runs. An application that
@@ -134,6 +135,31 @@ class Datasource extends Base
             ?? $_POST['columns'][$column]['search']['value']
             ?? $_POST['columns'][$column]['search']
             ?? '';
+
+        return self::searchValue($value);
+    }
+
+    /**
+     * A posted search value as one string.
+     *
+     * A multiple select filters with `fnFilter(jQuery(this).val(), N)`, and `.val()` of one is
+     * an array, which arrives as `columns[N][search][value][]=a&…[]=b`. Its non-empty values
+     * are joined with commas, the form a 1.9 client sent the same choice in. Anything else
+     * that is not a string — a nested array — is no value; cast, it was the word `Array`, and
+     * that word went into a `LIKE`.
+     *
+     * @param mixed $value
+     */
+    private static function searchValue($value): string
+    {
+        if (is_array($value)) {
+            $values = array_filter(
+                $value,
+                static fn ($one): bool => is_scalar($one) && (string) $one !== ''
+            );
+
+            return implode(',', array_map('strval', $values));
+        }
 
         return is_scalar($value) ? (string) $value : '';
     }
@@ -327,9 +353,11 @@ class Datasource extends Base
                     // Never overwrite a value the caller pre-set in $_POST: that
                     // is how applications inject their own server-side filters.
                     if (!isset($_POST['sSearch_' . $i])) {
-                        $_POST['sSearch_' . $i] = is_array($col['search'] ?? null)
-                            ? (string)($col['search']['value'] ?? '')
-                            : (string)($col['search'] ?? '');
+                        $_POST['sSearch_' . $i] = self::searchValue(
+                            is_array($col['search'] ?? null)
+                                ? ($col['search']['value'] ?? '')
+                                : ($col['search'] ?? '')
+                        );
                     }
                 }
             }
