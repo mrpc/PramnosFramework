@@ -4676,6 +4676,10 @@ class Application extends Base
         // the page then runs as a plain form with nothing saying why. Reads the disk only.
         $registry::register(new \Pramnos\Health\Checks\FrameworkScriptsCheck());
 
+        // Whether an application's own conversation tables, which the framework's migrations
+        // leave as they are, take what the framework writes: `space`, and a null organisation.
+        $registry::register(new \Pramnos\Health\Checks\LlmTablesCheck());
+
         // Where PHP keeps sessions. `files` is right on one machine and the quietest
         // failure in a deployment on two: a visitor whose next request lands on the other
         // node has no session, and being signed out at random reads as an expiry rather

@@ -277,8 +277,11 @@ $chat->delete($id);
 
 The tables are `chat_conversations`, `chat_messages`, `chat_memory`, `chat_asks`, `ai_consents` and
 `ai_routines`, with the installation's table prefix (`#PREFIX#chat_conversations` in a query of
-your own). A table that already exists under its name is left as it is; `tags` and `extra` are
-added to an existing `chat_conversations` and `chat_messages`.
+your own). A table that already exists under its name is left as it is, except
+for what the framework needs to write to it: `tags`, `extra` and `space` are added, and an
+`organization_id` that refuses a null is made to take one — a conversation outside any
+organisation, the analyst's always, is written with none. The `llm_tables` health check says
+when an application's own tables still differ. 
 
 ### Whose conversations
 
