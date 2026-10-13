@@ -77,7 +77,7 @@ class CreateTokenactionsTable extends Migration
         // The parameters live in HypertableRegistry, which this and
         // timescale:ensure both read — see that class for why they are not
         // written out here.
-        $schema->ifCapable(DatabaseCapabilities::TIMESCALEDB, function ($schema) {
+        $schema->whenCapable(DatabaseCapabilities::TIMESCALEDB, function ($schema) {
             HypertableRegistry::apply($schema, 'tokenactions');
         });
 

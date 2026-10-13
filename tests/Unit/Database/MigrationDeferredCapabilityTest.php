@@ -108,6 +108,74 @@ class MigrationDeferredCapabilityTest extends TestCase
     }
 
     /**
+     * A guard for one engine's DDL is not work left undone: PostgreSQL-only indexes skipped on
+     * MariaDB must not decline the migration, since MariaDB will never become PostgreSQL. Measured
+     * on an installation where five `auth` migrations created their tables and were then
+     * reported "nothing was applied".
+     */
+    public function testAnEngineGuardIsNotADeferral(): void
+    {
+        // Arrange
+        $ran = 0;
+
+        // Act
+        foreach ([DatabaseCapabilities::ENGINE_POSTGRESQL, DatabaseCapabilities::ENGINE_MYSQL, DatabaseCapabilities::ENGINE_MARIADB] as $engine) {
+            $this->schemaWithout($engine)->ifCapable($engine, static function () use (&$ran) {
+                $ran++;
+            });
+        }
+
+        // Assert
+        $this->assertSame(0, $ran);
+        $this->assertSame([], SchemaBuilder::deferredCapabilities());
+    }
+
+    /**
+     * An optional extra — a table's hypertable conversion, which `timescale:ensure` reapplies —
+     * runs when the capability is there and holds nothing back when it is not.
+     */
+    public function testAnOptionalExtraNeitherRunsNorDefersWithoutItsCapability(): void
+    {
+        // Arrange
+        $ran = 0;
+        $run = static function () use (&$ran) {
+            $ran++;
+
+            return 'converted';
+        };
+
+        // Act
+        $without = $this->schemaWithout(DatabaseCapabilities::TIMESCALEDB)->whenCapable(DatabaseCapabilities::TIMESCALEDB, $run);
+        $with    = $this->schemaWith(DatabaseCapabilities::TIMESCALEDB)->whenCapable(DatabaseCapabilities::TIMESCALEDB, $run);
+
+        // Assert
+        $this->assertNull($without);
+        $this->assertSame('converted', $with);
+        $this->assertSame(1, $ran, 'only where the capability is');
+        $this->assertSame([], SchemaBuilder::deferredCapabilities(), 'and the migration is not held back');
+    }
+
+    /** The table migrations whose hypertable is an extra use whenCapable(), not ifCapable(). */
+    public function testTableMigrationsTreatTheirHypertableAsAnExtra(): void
+    {
+        // Arrange
+        $migrations = glob(ROOT . '/database/migrations/framework/*/*.php') ?: [];
+
+        // Act
+        $held = [];
+        foreach ($migrations as $file) {
+            $source = (string) file_get_contents($file);
+            if (str_contains($source, 'createTable(') && preg_match('/ifCapable\(\s*DatabaseCapabilities::TIMESCALEDB,\s*function[^{]*\{\s*HypertableRegistry::apply/', $source) === 1) {
+                $held[] = basename($file);
+            }
+        }
+
+        // Assert
+        $this->assertNotEmpty($migrations, 'the sweep found nothing to check');
+        $this->assertSame([], $held, 'these decline a migration that created its table');
+    }
+
+    /**
      * The message a declined migration carries says what to do about it.
      *
      * A result nobody can act on is a result nobody reads. This one names the capability

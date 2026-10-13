@@ -2311,9 +2311,34 @@ class SchemaBuilder
          * the migration runner is what records results — and because every existing call
          * site keeps working unchanged, which a new parameter would not allow.
          */
-        self::$deferredCapabilities[$capability] = true;
+        // An engine is not a capability that arrives later: a guard for PostgreSQL-only DDL on
+        // MySQL is the migration choosing its dialect, not work left undone.
+        if (!in_array($capability, [DatabaseCapabilities::ENGINE_MYSQL, DatabaseCapabilities::ENGINE_POSTGRESQL, DatabaseCapabilities::ENGINE_MARIADB], true)) {
+            self::$deferredCapabilities[$capability] = true;
+        }
 
         return null;
+    }
+
+    /**
+     * Execute $callback when the database supports $capability; otherwise do nothing, and do
+     * not hold the migration back for it.
+     *
+     * For an optional extra on work the migration has already done, which something else
+     * repairs when the capability arrives — a table's hypertable conversion, which
+     * `HypertableRegistry` declares and `timescale:ensure` and the `hypertables` health check
+     * reapply. {@see ifCapable()} records the absence and the migration is declined, which is
+     * right when the capability *is* the work; here it reported "nothing was applied" for a
+     * migration that had just created its table, and the next run, finding the table, recorded
+     * it as applied without ever converting it.
+     *
+     * @param  string   $capability A DatabaseCapabilities constant.
+     * @param  callable $callback   function(SchemaBuilder $schema): void
+     * @return mixed
+     */
+    public function whenCapable(string $capability, callable $callback)
+    {
+        return $this->capabilities->has($capability) ? $callback($this) : null;
     }
 
     /**

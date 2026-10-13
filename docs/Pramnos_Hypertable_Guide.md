@@ -25,13 +25,16 @@ database that gained TimescaleDB *after* the migrations had already run.
 A migration creates its table and then converts it:
 
 ```php
-$schema->ifCapable(DatabaseCapabilities::TIMESCALEDB, function () use ($schema) {
+$schema->whenCapable(DatabaseCapabilities::TIMESCALEDB, function () use ($schema) {
     HypertableRegistry::apply($schema, 'authserver.user_activity_log');
 });
 ```
 
-`ifCapable()` is the right tool for *creating* a hypertable on a fresh install,
-and the wrong one for its lifecycle. A database that ran that migration before
+`whenCapable()` converts it where TimescaleDB is, and leaves the migration applied where it is
+not — the table is the migration's work, and the conversion is what the registry repairs later.
+(`ifCapable()` would decline the whole migration for want of the extra, as if the table had not
+been made.) It is the right tool for *creating* a hypertable on a fresh install, and the wrong
+one for its lifecycle. A database that ran that migration before
 TimescaleDB was installed keeps a plain table **for ever**: the migration is
 recorded as applied, so it never runs again.
 

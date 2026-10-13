@@ -557,6 +557,27 @@ $schema->ifCapable(
 **API:** `ifCapable(string $capability, callable $callback, ?callable $fallback = null): mixed`  
 The `$callback` receives `SchemaBuilder $schema` (not `Database`).
 
+### `ifCapable()` or `whenCapable()`
+
+Inside a migration the two differ in what happens when the capability is absent:
+
+| | Absent, no fallback | Use when |
+|---|---|---|
+| `ifCapable()` | The migration is **declined** — recorded, reported, retried by the next `migrate` | The capability *is* the work: a continuous aggregate, a conversion that is all the migration does |
+| `whenCapable()` | Nothing, and the migration is applied | An extra on work already done that something else repairs later — a table's hypertable, which `HypertableRegistry` declares and `timescale:ensure` reapplies |
+
+A guard on an engine — `ENGINE_POSTGRESQL`, `ENGINE_MYSQL`, `ENGINE_MARIADB` — never declines:
+the migration is choosing its dialect, and a MariaDB will not become PostgreSQL.
+
+```php
+$schema->createTable('authserver.twofactor_attempts', function ($table) { /* … */ });
+
+// The table is the work; the hypertable is an extra.
+$schema->whenCapable(DatabaseCapabilities::TIMESCALEDB, function () use ($schema) {
+    HypertableRegistry::apply($schema, 'authserver.twofactor_attempts');
+});
+```
+
 ### DatabaseCapabilities Constants
 
 | Constant | True when |

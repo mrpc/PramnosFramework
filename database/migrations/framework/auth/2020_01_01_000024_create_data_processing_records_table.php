@@ -70,7 +70,7 @@ class CreateDataProcessingRecordsTable extends Migration
         // The parameters live in HypertableRegistry, which this and
         // timescale:ensure both read — see that class for why they are not
         // written out here.
-        $schema->ifCapable(
+        $schema->whenCapable(
             DatabaseCapabilities::TIMESCALEDB,
             function () use ($schema) {
                 HypertableRegistry::apply($schema, 'authserver.data_processing_records');
