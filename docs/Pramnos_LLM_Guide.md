@@ -555,7 +555,9 @@ scheduled reports.
 ### What it reads
 
 Every tool only reads, and answers figures over a window — `days` (30 by default, at most 366)
-or `from`/`to`, grouped by `day`, `week` or `month`:
+or `from`/`to`, grouped by `day`, `week` or `month`. A day is a day in the analyst's zone:
+`'llm' => ['analyst' => ['timezone' => 'Europe/Athens']]`, or the application's default zone. The
+prompt names it, and each answer's window says which it used.
 
 | tool | |
 |---|---|
@@ -593,7 +595,21 @@ keep it from a provider that may not have personal data.
 `admin_tools` are `Pramnos\Mcp\McpToolInterface` — class names built with no arguments, or
 instances — beside the framework's, redacted the same way. They should only read; the framework
 cannot check that. An `Analyst\AnalystAssistant` subclass tells the model about the business
-through `about()`, or changes the tools through `tools()`. An application that charges for the
+through `about()`, or changes the tools through `tools()`.
+
+Whether it looks people up is `peoplePolicy()`. The framework's rule keeps to figures and opens
+one account only when the administrator names it. Where finding and counting people by name is
+ordinary administration, replace the rule rather than contradicting it in `about()`, so the model
+gets one rule and not two that disagree:
+
+```php
+protected function peoplePolicy(): string
+{
+    return 'Finding and counting accounts by name is ordinary administration here; do it when asked.';
+}
+```
+
+An application that charges for the
 analyst, or limits it, overrides `analystDesk()` on its `Admin\Controllers\Ai` and returns an
 `Analyst\Desk` with its own `beforeAsk()`.
 

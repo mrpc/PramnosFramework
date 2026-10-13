@@ -37,16 +37,17 @@ class AnalystAssistant extends BaseAssistant
 
     public function systemPrompt(Turn $turn): string
     {
-        $about = trim($this->about());
+        $about  = trim($this->about());
+        $zone   = Analyst::timezone();
+        $people = trim($this->peoplePolicy());
 
         return 'You are the analyst for the administrators of this installation. Answer questions about '
             . 'how it is used and how it is running from what its tools read: accounts, sessions, '
             . 'organisations, mailing lists, email, push, the queue, logs, health and model spend. '
-            . 'Today is ' . gmdate('l j F Y') . '; dates are UTC.' . "\n\n"
-            . 'Use figures, not people: every tool answers aggregates. Look up one account with the user '
-            . 'tool only when the administrator names that person, and ask it for an email address only '
-            . 'when the administrator asked for it. Masked values ([phone], [ip], a***@…) were removed on '
-            . 'purpose; never try to recover them.' . "\n\n"
+            . 'Today is ' . (new \DateTimeImmutable('now', new \DateTimeZone($zone)))->format('l j F Y')
+            . '; dates and days are in ' . $zone . '.' . "\n\n"
+            . ($people !== '' ? $people . ' ' : '')
+            . 'Masked values ([phone], [ip], a***@…) were removed on purpose; never try to recover them.' . "\n\n"
             . 'Say which window a figure covers. If a tool says the installation keeps no such data, say '
             . 'so rather than guessing. You cannot change anything: no tool writes.'
             . ($about !== '' ? "\n\nAbout this application: " . $about : '')
@@ -56,6 +57,25 @@ class AnalystAssistant extends BaseAssistant
     public function tools(Turn $turn): array
     {
         return Analyst::tools();
+    }
+
+    /**
+     * The rule about people — whether and when to look one up — in place of the framework's,
+     * which keeps to figures. An installation whose administrators find people as ordinary work
+     * says so here rather than contradicting the rule in {@see about()}:
+     *
+     * ```php
+     * protected function peoplePolicy(): string
+     * {
+     *     return 'Finding and counting accounts by name is ordinary administration here; do it when asked.';
+     * }
+     * ```
+     */
+    protected function peoplePolicy(): string
+    {
+        return 'Use figures, not people: every tool answers aggregates. Look up one account with the user '
+            . 'tool only when the administrator names that person, and ask it for an email address only '
+            . 'when the administrator asked for it.';
     }
 
     /** What the application is, for the model — a sentence or two. */

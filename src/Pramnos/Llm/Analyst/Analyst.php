@@ -81,6 +81,20 @@ final class Analyst
         return \Pramnos\Auth\AdminAccess::defaultUsertype();
     }
 
+    /**
+     * The zone the analyst counts days in: `'llm' => ['analyst' => ['timezone' => 'Europe/Athens']]`,
+     * or the application's — PHP's default zone, which the application sets. An unknown name is UTC.
+     */
+    public static function timezone(): string
+    {
+        $config = Llm::config('analyst', []);
+        $zone   = is_array($config) && is_string($config['timezone'] ?? null) && $config['timezone'] !== ''
+            ? $config['timezone']
+            : date_default_timezone_get();
+
+        return in_array($zone, \DateTimeZone::listIdentifiers(), true) || $zone === 'UTC' ? $zone : 'UTC';
+    }
+
     /** An administrator's analyst: their own, in the `admin` space, outside any organisation. */
     public static function scope(int $adminId): Scope
     {

@@ -7,7 +7,10 @@ namespace Pramnos\Llm\Analyst\Tools;
 use Pramnos\Database\QueryBuilder;
 
 /**
- * The dates a question is about, and the periods its series are counted in — UTC.
+ * The dates a question is about, and the periods its series are counted in — in the analyst's
+ * time zone, {@see \Pramnos\Llm\Analyst\Analyst::timezone()}: "yesterday" and "per day" are the
+ * administrator's days. The window's ends are moments, so a Unix column compares as it is and a
+ * timestamp column is compared in UTC.
  */
 final class Window
 {
@@ -15,6 +18,7 @@ final class Window
         public readonly int $from,
         public readonly int $to,
         public readonly string $group,
+        private readonly \DateTimeZone $zone = new \DateTimeZone('UTC'),
     ) {
     }
 
@@ -24,13 +28,14 @@ final class Window
      *
      * @param array<string, mixed> $input
      */
-    public static function from(array $input, ?int $now = null): self
+    public static function from(array $input, ?int $now = null, ?\DateTimeZone $zone = null): self
     {
-        $now = $now ?? time();
-        $to  = isset($input['to']) && $input['to'] !== '' ? self::date((string) $input['to']) + 86399 : $now;
+        $zone = $zone ?? new \DateTimeZone(\Pramnos\Llm\Analyst\Analyst::timezone());
+        $now  = $now ?? time();
+        $to   = isset($input['to']) && $input['to'] !== '' ? self::date((string) $input['to'], $zone, true) : $now;
 
         if (isset($input['from']) && $input['from'] !== '') {
-            $from = self::date((string) $input['from']);
+            $from = self::date((string) $input['from'], $zone, false);
         } else {
             $days = max(1, min(AdminTool::MAX_DAYS, (int) ($input['days'] ?? 30)));
             $from = $to - $days * 86400;
@@ -48,13 +53,13 @@ final class Window
             ? (string) $input['group']
             : ($days <= 31 ? 'day' : ($days <= 180 ? 'week' : 'month'));
 
-        return new self($from, $to, $group);
+        return new self($from, $to, $group, $zone);
     }
 
     /** The window as the tool reports it. @return array{from: string, to: string, group: string} */
     public function describe(): array
     {
-        return ['from' => gmdate('Y-m-d', $this->from), 'to' => gmdate('Y-m-d', $this->to), 'group' => $this->group];
+        return ['from' => $this->format('Y-m-d', $this->from), 'to' => $this->format('Y-m-d', $this->to), 'group' => $this->group, 'timezone' => $this->zone->getName()];
     }
 
     /** Limit a query to rows whose time column falls in the window. */
@@ -84,21 +89,27 @@ final class Window
             return null;
         }
 
-        return gmdate(match ($this->group) {
+        return $this->format(match ($this->group) {
             'week'  => 'o-\WW',
             'month' => 'Y-m',
             default => 'Y-m-d',
         }, $at);
     }
 
-    private static function date(string $value): int
+    private function format(string $format, int $at): string
     {
-        $at = \DateTimeImmutable::createFromFormat('!Y-m-d', $value, new \DateTimeZone('UTC'));
+        return (new \DateTimeImmutable('@' . $at))->setTimezone($this->zone)->format($format);
+    }
+
+    /** A day's first moment, or its last, in the zone. */
+    private static function date(string $value, \DateTimeZone $zone, bool $end): int
+    {
+        $at = \DateTimeImmutable::createFromFormat('!Y-m-d', $value, $zone);
 
         if ($at === false) {
             throw new \InvalidArgumentException('a date is YYYY-MM-DD: "' . $value . '" is not.');
         }
 
-        return $at->getTimestamp();
+        return $end ? $at->modify('+1 day')->getTimestamp() - 1 : $at->getTimestamp();
     }
 }

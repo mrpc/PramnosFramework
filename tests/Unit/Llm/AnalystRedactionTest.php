@@ -100,7 +100,7 @@ class AnalystRedactionTest extends TestCase
         $longTo = Window::from(['from' => '2020-01-01', 'to' => '2026-01-01'], $now);
 
         // Assert
-        $this->assertSame(['from' => '2026-09-13', 'to' => '2026-10-13', 'group' => 'day'], $month->describe());
+        $this->assertSame(['from' => '2026-09-13', 'to' => '2026-10-13', 'group' => 'day', 'timezone' => 'UTC'], $month->describe());
         $this->assertSame('week', $span->group);
         $this->assertSame('2026-W01', $span->label(gmmktime(0, 0, 0, 1, 1, 2026)));
         $this->assertNull($span->label($now), 'after the window');
