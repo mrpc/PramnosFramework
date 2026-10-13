@@ -425,7 +425,8 @@ so an organisation on its own provider or its own key is asked about that one.
 `init --features=…,llm` writes `src/Controllers/Chat.php`, extending
 `Chat\Web\ChatPageController`, with views in each theme under `views/chat/`. `/chat` lists the
 conversations, shows one, and asks. Answers are drawn by `Chat\Markdown::toHtml()`, which escapes
-first; under each, which tools it read and with what. The ⚙ holds the model, the limits, what it
+first; a table it draws carries `table table-sm` for Bootstrap and daisyUI and its spacing and
+rules inline for any other theme, and scrolls on its own when wider than the answer. Under each, which tools it read and with what. The ⚙ holds the model, the limits, what it
 remembers and the agreement; a bar shows how much of the model's context the last answer used.
 
 With `assets/js/pf-chat.js` the page asks in place: Enter sends and Shift+Enter is a new line;

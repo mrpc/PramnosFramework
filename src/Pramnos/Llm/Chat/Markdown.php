@@ -18,6 +18,18 @@ namespace Pramnos\Llm\Chat;
  */
 final class Markdown
 {
+    /**
+     * A table is styled where it is drawn: `table table-sm` for Bootstrap and daisyUI, and the
+     * spacing and rules inline for a theme with no such class — the conversation views are the
+     * project's copies, so a fix here reaches them without a resync. Inline styles are allowed by
+     * the framework's CSP (`style-src-attr`); a `<style>` element would need the page's nonce.
+     */
+    private const TABLE = '<div style="overflow-x:auto;margin:.5rem 0"><table class="table table-sm" style="border-collapse:collapse;width:auto">';
+
+    private const TH = '<th style="text-align:left;padding:.25rem .75rem;border-bottom:1px solid currentColor">';
+
+    private const TD = '<td style="padding:.25rem .75rem;border-bottom:1px solid rgba(128,128,128,.35)">';
+
     public static function toHtml(string $text): string
     {
         $lines = explode("\n", str_replace(["\r\n", "\r"], "\n", $text));
@@ -67,11 +79,11 @@ final class Markdown
                 }
                 $i--;
                 $head   = array_shift($rows);
-                $table  = '<table><thead><tr>' . implode('', array_map(static fn (string $c): string => '<th>' . self::inline($c) . '</th>', $head)) . '</tr></thead><tbody>';
+                $table  = self::TABLE . '<thead><tr>' . implode('', array_map(static fn (string $c): string => self::TH . self::inline($c) . '</th>', $head)) . '</tr></thead><tbody>';
                 foreach ($rows as $row) {
-                    $table .= '<tr>' . implode('', array_map(static fn (string $c): string => '<td>' . self::inline($c) . '</td>', $row)) . '</tr>';
+                    $table .= '<tr>' . implode('', array_map(static fn (string $c): string => self::TD . self::inline($c) . '</td>', $row)) . '</tr>';
                 }
-                $html[] = $table . '</tbody></table>';
+                $html[] = $table . '</tbody></table></div>';
                 continue;
             }
 

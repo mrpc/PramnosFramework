@@ -55,7 +55,7 @@ class MarkdownTest extends TestCase
         $this->assertStringContainsString('<a href="https://x.example/p" target="_blank" rel="noopener noreferrer">https://x.example/p</a>.', $html);
         $this->assertStringContainsString('<ol><li>one</li><li>two</li></ol>', $html);
         $this->assertStringContainsString('<ul><li>a</li><li>b</li></ul>', $html);
-        $this->assertStringContainsString('<thead><tr><th>Week</th><th>Visits</th></tr></thead><tbody><tr><td>1</td><td><strong>5</strong></td></tr></tbody>', $html);
+        $this->assertMatchesRegularExpression('#<thead><tr><th[^>]*>Week</th><th[^>]*>Visits</th></tr></thead><tbody><tr><td[^>]*>1</td><td[^>]*><strong>5</strong></td></tr></tbody></table></div>#', $html);
         $this->assertStringContainsString("<pre><code>if (a &lt; b) {}</code></pre>", $html);
         $this->assertSame('', Markdown::toHtml(''));
     }
@@ -68,5 +68,22 @@ class MarkdownTest extends TestCase
         // Assert
         $this->assertSame('<pre><code>open</code></pre>', Markdown::toHtml("```\nopen"));
         $this->assertSame('<p>my_var_name and 2*3*4</p>', Markdown::toHtml('my_var_name and 2*3*4'));
+    }
+
+    /**
+     * A table is readable in every theme: Bootstrap's and daisyUI's table class, cell spacing
+     * and rules inline for a theme without one, and a scroll of its own when it is wider than
+     * the answer — columns that ran together were the report.
+     */
+    public function testATableIsStyledWhereItIsDrawn(): void
+    {
+        // Act
+        $html = Markdown::toHtml("| a | b |\n|---|---|\n| 1 | 2 |");
+
+        // Assert
+        $this->assertStringStartsWith('<div style="overflow-x:auto', $html, 'a wide table scrolls by itself');
+        $this->assertStringContainsString('<table class="table table-sm"', $html);
+        $this->assertStringContainsString('<th style="text-align:left;padding:', $html, 'a header cell has spacing of its own');
+        $this->assertStringContainsString('<td style="padding:', $html, 'so does every other cell');
     }
 }
