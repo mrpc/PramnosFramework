@@ -430,6 +430,7 @@ class AnalystTest extends LlmTestCase
                 $this->assertStringContainsString('data-page="', $page, $theme);
                 $this->assertStringContainsString('You agreed to the AI features using DeepSeek.', $page, $theme);
                 $this->assertStringContainsString('data-pf-chat-suggestion="Who signed up today?"', $page, $theme . ': the analyst\'s own examples');
+                $this->assertStringContainsString('data-question-class=', $page, $theme . ': a question asked in place takes the theme\'s bubble');
             }
 
             // Forgetting, and withdrawing

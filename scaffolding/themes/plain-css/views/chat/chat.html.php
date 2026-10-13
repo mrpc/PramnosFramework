@@ -12,12 +12,13 @@
  *   $this->urls          — optional: page, ask, asked, consent, delete, forget (the analyst's)
  *   $this->heading       — optional: the title when no conversation is open
  *   $this->suggestions   — optional: example questions, shown while no conversation is open
+ *   $this->assistantName — optional: the name over an answer, "Assistant" by default
  *
  * Answers are the model's words, drawn by Markdown::toHtml(), which escapes everything first.
  * A question is answered by the queue worker; pf-chat.js waits for it in place, and without
  * JavaScript the page refreshes itself until it is answered.
  */
-$c       = ['card' => 'pf-card', 'muted' => 'pf-muted', 'bad' => 'pf-bad', 'btn' => 'btn', 'btnGhost' => 'btn', 'input' => '', 'question' => 'pf-card', 'answer' => 'pf-card'];
+$c       = ['card' => 'pf-card', 'muted' => 'pf-muted', 'bad' => 'pf-bad', 'btn' => 'btn', 'btnGhost' => 'btn', 'input' => '', 'question' => 'pf-card', 'answer' => ''];
 $e       = static fn ($v): string => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
 $list    = is_array($this->conversations ?? null) ? $this->conversations : [];
 $open    = is_array($this->conversation ?? null) ? $this->conversation : null;
@@ -35,7 +36,9 @@ $say     = [
     'long' => t('Still working on a long answer — it will appear here.'), 'remove' => t('Remove'),
     'unsupported' => t('Attach a picture, or a Word (.docx), OpenDocument (.odt), text, Markdown or saved email (.eml) file.'),
     'too-many' => t('Up to 10 files with one question.'), 'too-large' => t('That is too large — up to 5 MB, all the files together.'),
+    'you' => t('You'), 'today' => t('today'), 'copied' => t('Copied'),
 ];
+$name    = (string) ($this->assistantName ?? '') !== '' ? (string) $this->assistantName : t('Assistant');
 $sayAttr = '';
 foreach ($say as $key => $words) {
     $sayAttr .= ' data-say-' . $key . '="' . $e($words) . '"';
@@ -56,7 +59,7 @@ $u       = (is_array($this->urls ?? null) ? $this->urls : []) + [
 ];
 ?>
 <?php if ($waiting): ?><noscript><meta http-equiv="refresh" content="4"></noscript><?php endif; ?>
-<div class="px-4 py-6" data-pf-chat data-page="<?php echo $e($u['page']); ?>" data-asked="<?php echo $e($u['asked']); ?>"<?php echo $sayAttr; ?> data-waiting-lines="<?php echo $e(json_encode($lines, JSON_UNESCAPED_UNICODE)); ?>">
+<div class="px-4 py-6" data-pf-chat data-page="<?php echo $e($u['page']); ?>" data-asked="<?php echo $e($u['asked']); ?>"<?php echo $sayAttr; ?> data-waiting-lines="<?php echo $e(json_encode($lines, JSON_UNESCAPED_UNICODE)); ?>" data-question-class="<?php echo $e($c['question']); ?>">
     <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start">
         <nav class="<?php echo $c['card']; ?>" style="flex:0 0 240px;padding:12px" aria-label="<?php echo $e(t('Conversations')); ?>">
             <a href="<?php echo $e($u['page']); ?>" class="<?php echo $c['btn']; ?>"><?php echo $e(t('New conversation')); ?></a>
@@ -102,8 +105,11 @@ $u       = (is_array($this->urls ?? null) ? $this->urls : []) + [
             <?php endif; ?>
             <div class="pf-chat-messages" data-pf-chat-messages>
                 <?php foreach ($open['messages'] ?? [] as $m): ?>
-                    <article class="<?php echo $m['role'] === 'user' ? $c['question'] : $c['answer']; ?>" style="padding:10px 14px;margin-bottom:10px">
-                        <?php if ($m['role'] === 'user'): ?>
+                    <?php $mine = $m['role'] === 'user'; $at = \Pramnos\Llm\Chat\Web\Stamp::iso((string) ($m['created_at'] ?? '')); ?>
+                    <article class="pf-chat-message" data-pf-chat-role="<?php echo $mine ? 'user' : 'assistant'; ?>" style="display:flex;flex-direction:column;align-items:<?php echo $mine ? 'flex-end' : 'flex-start'; ?>;margin-bottom:16px">
+                        <header class="<?php echo $c['muted']; ?>" style="margin-bottom:4px"><strong><?php echo $e($mine ? t('You') : $name); ?></strong><?php if ($at !== ''): ?> · <time datetime="<?php echo $e($at); ?>" data-pf-chat-time><?php echo $e(\Pramnos\Llm\Chat\Web\Stamp::text($at)); ?></time><?php endif; ?></header>
+                        <div class="<?php echo $mine ? $c['question'] : $c['answer']; ?>" style="<?php echo $mine ? 'padding:10px 14px;max-width:80%' : 'width:100%'; ?>">
+                        <?php if ($mine): ?>
                             <?php $doc = preg_match('/^(.*?)\n*---\n📎 ([^\n]+)(?:\n\n(.*))?$/su', (string) $m['content'], $d) === 1 ? $d : null; ?>
                             <div style="white-space:pre-wrap"><?php echo $e($doc === null ? $m['content'] : $doc[1]); ?></div>
                             <?php if ($doc !== null): ?>
@@ -125,6 +131,10 @@ $u       = (is_array($this->urls ?? null) ? $this->urls : []) + [
                                     </ul>
                                 </details>
                             <?php endif; ?>
+                        <?php endif; ?>
+                        </div>
+                        <?php if (!$mine): ?>
+                            <button type="button" class="<?php echo $c['btnGhost']; ?>" data-pf-chat-copy="<?php echo $e($m['content']); ?>" aria-label="<?php echo $e(t('Copy the answer')); ?>">⧉ <?php echo $e(t('Copy')); ?></button>
                         <?php endif; ?>
                     </article>
                 <?php endforeach; ?>

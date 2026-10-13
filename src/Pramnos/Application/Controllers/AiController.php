@@ -84,6 +84,7 @@ class AiController extends Controller
         $analyst           = Llm::config('analyst', []);
         $view->waitingLines = is_array($analyst['waiting_lines'] ?? null) ? $analyst['waiting_lines'] : [];
         $view->suggestions  = is_array($analyst['suggestions'] ?? null) ? $analyst['suggestions'] : [];
+        $view->assistantName = is_string($analyst['name'] ?? null) ? $analyst['name'] : t('Analyst');
         $view->urls        = [
             'page'    => adminUrl('Ai'),
             'ask'     => adminUrl('Ai/ask'),

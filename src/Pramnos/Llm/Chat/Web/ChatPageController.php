@@ -67,6 +67,7 @@ class ChatPageController extends Controller
         $chat                = Llm::config('chat', []);
         $view->waitingLines  = is_array($chat['waiting_lines'] ?? null) ? $chat['waiting_lines'] : [];
         $view->suggestions   = is_array($chat['suggestions'] ?? null) ? $chat['suggestions'] : [];
+        $view->assistantName = is_string($chat['name'] ?? null) ? $chat['name'] : '';
 
         return $view->display();
     }

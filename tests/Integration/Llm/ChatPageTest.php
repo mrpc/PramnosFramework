@@ -126,6 +126,11 @@ class ChatPageTest extends LlmTestCase
             $this->assertStringContainsString('data-say-too-large=', $page, $theme);
             $this->assertStringContainsString('data-waiting-lines="[&quot;Counting the clicks…&quot;]"', $page, $theme);
             $this->assertStringNotContainsString('data-pf-chat-suggestion', $page, $theme . ': no examples over a conversation');
+            $this->assertStringContainsString('<strong>You</strong>', $page, $theme . ': the question says whose it is');
+            $this->assertStringContainsString('<strong>Assistant</strong>', $page, $theme . ': and so does the answer');
+            $this->assertMatchesRegularExpression('/<time datetime="\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ" data-pf-chat-time>\d{1,2} \w{3} \d{4} \d\d:\d\d UTC<\/time>/', $page, $theme . ': a UTC instant, words for a page without script');
+            $this->assertStringContainsString('data-pf-chat-copy="Done."', $page, $theme . ': the answer\'s Markdown, to copy');
+            $this->assertStringContainsString('data-pf-chat-role="user" style="display:flex;flex-direction:column;align-items:flex-end', $page, $theme . ': the question on the right');
         }
 
         // A new conversation: the examples, each filling the box from its attribute

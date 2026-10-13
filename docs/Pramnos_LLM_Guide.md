@@ -438,6 +438,12 @@ fetched and swapped in, without a reload. Every word the script says comes from 
 is translated with the rest. Without JavaScript the page posts and refreshes itself until the
 answer is there.
 
+A question is a bubble on the right and an answer is text on the left, each under a line with
+whose it is — "You", or the assistant's name (`'chat' => ['name' => …]`, `'analyst' => ['name' =>
+…]`) — and when, in the reader's own zone: "today 22:50", or the date for another day. Under each
+answer, ⧉ Copy puts its Markdown on the clipboard, not its HTML. A question asked in place is drawn
+the same way at once.
+
 Example questions sit above a new conversation, and a click puts one in the box, to send or to
 change first:
 

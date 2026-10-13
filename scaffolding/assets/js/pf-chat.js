@@ -16,6 +16,9 @@
  *                                  data-pf-chat-attach the 📎, data-pf-chat-chips the files held
  *   data-pf-chat-waiting="id"    — a question already waiting when the page was drawn
  *   data-pf-chat-suggestion="…"  — an example question: a click puts it in the box
+ *   data-pf-chat-time            — a <time datetime="…Z">, shown in the reader's zone
+ *   data-pf-chat-copy="…"        — copies the answer's Markdown, not its HTML
+ *   data-question-class          — on the page: the classes of a question's bubble
  *
  * Enter sends, Shift+Enter is a new line. No inline handlers: the framework's CSP blocks them.
  */
@@ -154,6 +157,38 @@
                 })
                 .catch(function () { window.setTimeout(function () { follow(askId); }, 5000); });
         }
+
+        /** "today 22:50", or "13 Oct 2026 22:50", in the reader's zone. */
+        function when(at) {
+            var time = at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+            return at.toDateString() === new Date(Date.now()).toDateString()
+                ? words('today', 'today') + ' ' + time
+                : at.toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' }) + ' ' + time;
+        }
+
+        Array.prototype.forEach.call(root.querySelectorAll('[data-pf-chat-time]'), function (stamp) {
+            var at = new Date(stamp.getAttribute('datetime') || '');
+
+            if (!isNaN(at.getTime())) {
+                stamp.textContent = when(at);
+            }
+        });
+
+        Array.prototype.forEach.call(root.querySelectorAll('[data-pf-chat-copy]'), function (button) {
+            button.addEventListener('click', function () {
+                var clipboard = window.navigator && window.navigator.clipboard;
+
+                if (!clipboard) {
+                    return;
+                }
+                clipboard.writeText(button.getAttribute('data-pf-chat-copy') || '').then(function () {
+                    var was = button.textContent;
+                    button.textContent = '✓ ' + words('copied', 'Copied');
+                    window.setTimeout(function () { button.textContent = was; }, 2000);
+                });
+            });
+        });
 
         var waiting = root.querySelector('[data-pf-chat-waiting]');
 
@@ -295,11 +330,30 @@
                 body.append('files[]', one.file || one, one.name);
             });
 
-            // The question shows at once, and the files with it.
-            var mine = document.createElement('div');
-            mine.className = 'pf-chat-question';
-            mine.style.whiteSpace = 'pre-wrap';
-            mine.textContent = question + (sent.length ? '\n📎 ' + sent.map(function (one) { return one.name; }).join(', ') : '');
+            // The question shows at once, as the page draws one: "You", now, and the bubble.
+            var mine = document.createElement('article');
+            var head = document.createElement('header');
+            var name = document.createElement('strong');
+            var stamp = document.createElement('time');
+            var bubble = document.createElement('div');
+            mine.className = 'pf-chat-message pf-chat-question';
+            mine.setAttribute('data-pf-chat-role', 'user');
+            mine.style.display = 'flex';
+            mine.style.flexDirection = 'column';
+            mine.style.alignItems = 'flex-end';
+            mine.style.marginBottom = '16px';
+            name.textContent = words('you', 'You');
+            stamp.setAttribute('datetime', new Date(Date.now()).toISOString());
+            stamp.textContent = ' · ' + when(new Date(Date.now()));
+            head.appendChild(name);
+            head.appendChild(stamp);
+            bubble.className = root.getAttribute('data-question-class') || '';
+            bubble.style.whiteSpace = 'pre-wrap';
+            bubble.style.padding = '10px 14px';
+            bubble.style.maxWidth = '80%';
+            bubble.textContent = question + (sent.length ? '\n📎 ' + sent.map(function (one) { return one.name; }).join(', ') : '');
+            mine.appendChild(head);
+            mine.appendChild(bubble);
             if (messages) {
                 messages.appendChild(mine);
             }

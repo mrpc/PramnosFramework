@@ -91,9 +91,10 @@ const file = (name, size = 10, type = 'text/plain') => ({ name, size, type });
  *
  * @param {{waiting?: string, answers: Array<object|string|Error>, attributes?: object, parser?: boolean, now?: () => number}} options
  */
-function run({ waiting, answers, attributes = {}, parser = true, now = () => 0, examples = [] }) {
-    const page = element('div', { 'data-pf-chat': '', 'data-asked': '/chat/asked/', ...attributes });
+function run({ waiting, answers, attributes = {}, parser = true, now = () => 0, examples = [], before = [], clipboard = null }) {
+    const page = element('div', { 'data-pf-chat': '', 'data-asked': '/chat/asked/', 'data-question-class': 'bubble', ...attributes });
     examples.forEach((text) => page.appendChild(element('button', { type: 'button', 'data-pf-chat-suggestion': text })));
+    before.forEach((one) => page.appendChild(one));
     const messages = page.appendChild(element('div', { 'data-pf-chat-messages': '' }));
     if (waiting) {
         messages.appendChild(element('p', { 'data-pf-chat-waiting': waiting }));
@@ -115,6 +116,7 @@ function run({ waiting, answers, attributes = {}, parser = true, now = () => 0, 
     const sent = [];
     const replaced = [];
     const window = {
+        navigator: clipboard ? { clipboard } : {},
         location: { href: '/chat' },
         setTimeout: (fn) => timers.push(fn),
         setInterval: (fn) => { intervals.push(fn); return intervals.length; },
@@ -129,7 +131,7 @@ function run({ waiting, answers, attributes = {}, parser = true, now = () => 0, 
     const queue = [...answers];
     const context = {
         window,
-        Date: { now },
+        Date: class extends Date { static now() { return now(); } },
         Math,
         JSON,
         document: { querySelector: (s) => (s === '[data-pf-chat]' ? page : null), createElement: (t) => element(t) },
@@ -165,7 +167,8 @@ test('asking shows the question, follows it, and swaps the answered page in', as
     // Act
     const submitted = ui.form.dispatch('submit');
     await settle();
-    const shown = ui.messages.children[0].textContent;
+    const shown = ui.messages.children[0].children[1].textContent;
+    const said = ui.messages.children[0].children[0].textContent;
     // Still waiting: followed again a moment later
     ui.timers.shift()();
     await settle();
@@ -178,6 +181,8 @@ test('asking shows the question, follows it, and swaps the answered page in', as
     assert.equal(ui.window.location.href, '/chat', 'without a reload');
     assert.equal(ui.box.value, '', 'the question box is cleared');
     assert.equal(shown, 'How did it go?', 'the question shows at once');
+    assert.match(said, /^You · today \d{1,2}:\d\d/, 'as the page draws one: you, and now');
+    assert.equal(ui.messages.children[0].children[1].className, 'bubble', 'in the theme\'s bubble');
 });
 
 test('a page at its own address opens the conversation there; without a parser, by loading it', async () => {
@@ -351,6 +356,42 @@ test('an example question fills the box, ready to send or to change first', () =
     assert.equal(ui.box.value, 'What failed in the queue?');
     assert.equal(ui.box.focused, true, 'the cursor is in the box');
     assert.equal(ui.requests.length, 0, 'nothing is sent until asked');
+});
+
+test('a message\'s time is the reader\'s: today with the time, another day with the date', () => {
+    // Arrange
+    const now = Date.parse('2026-10-13T20:00:00Z');
+    const today = element('time', { 'data-pf-chat-time': '', datetime: '2026-10-13T19:50:00Z' });
+    const before = element('time', { 'data-pf-chat-time': '', datetime: '2026-09-01T08:00:00Z' });
+    const broken = element('time', { 'data-pf-chat-time': '', datetime: 'never' });
+    broken.textContent = '1 Sep 2026 08:00 UTC';
+
+    // Act
+    run({ answers: [], now: () => now, before: [today, before, broken] });
+
+    // Assert
+    assert.match(today.textContent, /^today \d{1,2}:\d\d/);
+    assert.match(before.textContent, /2026/, 'another day carries its date');
+    assert.equal(broken.textContent, '1 Sep 2026 08:00 UTC', 'what is not a time keeps the server\'s words');
+});
+
+test('copy puts the answer\'s Markdown on the clipboard, and says so', async () => {
+    // Arrange
+    const copied = [];
+    const copy = element('button', { 'data-pf-chat-copy': '**Total**: 12' });
+    copy.textContent = 'Copy';
+    const ui = run({ answers: [], before: [copy], clipboard: { writeText: (text) => { copied.push(text); return Promise.resolve(); } } });
+
+    // Act
+    copy.click();
+    await settle();
+    const said = copy.textContent;
+    ui.timers.shift()();
+
+    // Assert
+    assert.deepEqual(copied, ['**Total**: 12'], 'the Markdown, not the HTML');
+    assert.equal(said, '✓ Copied');
+    assert.equal(copy.textContent, 'Copy', 'and back after a moment');
 });
 
 test('a page without the conversation does nothing', () => {
