@@ -100,6 +100,9 @@ $active = (new \App\Models\User())->_getList(
 $page = (new \App\Models\User())->_getApiList();
 ```
 
+The second argument is the order. Left out — `null` — the newest come first, by primary key;
+an empty string `''` is no `ORDER BY` at all, the database's own order.
+
 `_getList()` returns models with every scope applied — a global scope registered with
 `addGlobalScope()` is merged into the filter here, which is the reason to reach for it
 rather than for the query builder.

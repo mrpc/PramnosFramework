@@ -171,6 +171,32 @@ class ModelListApiPostgreSQLCharacterizationTest extends TestCase
     // -------------------------------------------------------------------------
 
     /**
+     * No order given is newest first; an empty order is no order at all.
+     *
+     * Wrappers declared `getList($filter = '', $order = '')` pass the empty string meaning "no
+     * ORDER BY", which the framework had kept since its first version. Reading it as "newest
+     * first" turned every such list upside down.
+     */
+    public function testAnEmptyOrderIsNoOrderAndNullIsNewestFirst(): void
+    {
+        // Arrange
+        $model = $this->makeModel();
+        $list  = fn ($order): array => array_map('intval', array_column(
+            $model->_getList(null, $order, $this->table, 'id', false, '', '*', '', false, false, false, false, []),
+            'id'
+        ));
+
+        // Act
+        $unsaid = $list(null);
+        $none   = $list('');
+
+        // Assert — rows were inserted in id order, so without ORDER BY the newest is not first
+        $this->assertSame([5, 4, 3, 2, 1], $unsaid);
+        $this->assertNotSame(5, $none[0], 'an empty order adds no ORDER BY ... DESC');
+        $this->assertCount(5, $none);
+    }
+
+    /**
      * _getList() returns plain arrays when returnAsModels=false and useGetData=false.
      *
      * WHERE / ORDER BY clauses are dialect-neutral SQL — must produce the same

@@ -1229,14 +1229,16 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
                 $qb->groupByRaw($this->_stripSqlKeyword($group, 'GROUP BY'));
             }
 
-            if ($order != '') {
+            /*
+             * Newest first when the caller said nothing — `null`, the default. An empty string
+             * is the caller saying "no order", and gets none: wrappers declared
+             * `getList($filter = '', $order = '')` relied on that, and reading it as "newest
+             * first" turned every such list upside down.
+             */
+            if ($order === null) {
+                $qb->orderByRaw(($join != '' ? 'a.' : '') . $primarykey . ' DESC');
+            } elseif (trim((string) $order) !== '') {
                 $qb->orderByRaw($this->_stripSqlKeyword($order, 'ORDER BY'));
-            } else {
-                if ($join != '') {
-                    $qb->orderByRaw('a.' . $primarykey . ' DESC');
-                } else {
-                    $qb->orderByRaw($primarykey . ' DESC');
-                }
             }
 
             if ($debug == true) {
