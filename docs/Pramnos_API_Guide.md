@@ -277,7 +277,13 @@ return $response;
 
 ### `getData()` and the columns it returns
 
-A model's `getData()` is what most CRUD endpoints serialise. **Since 2026-08-16 it
+A model's `getData()` is what most CRUD endpoints serialise, and it is also what a model
+becomes inside `json_encode()`: `Model` implements `JsonSerializable` with `getData()`, so a
+response holding models one level down — a list of related records, a model in a field —
+encodes each as its columns. Encoding the public properties instead reaches `$controller`, the
+application and back to the model: *Recursion detected*, and a 500.
+
+A model's `getData()` **Since 2026-08-16 it
 returns every column** — including `NULL`, booleans and decoded JSON.
 
 It did not before. The old implementation kept only values that were `is_numeric()` or

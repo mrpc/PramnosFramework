@@ -5,7 +5,7 @@ namespace Pramnos\Application;
  * @author       Yannis - Pastis Glaros <mrpc@pramnoshosting.gr>
  * @license    MIT
  */
-class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiList\ApiListSource
+class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiList\ApiListSource, \JsonSerializable
 {
     /**
      * Model name
@@ -1723,6 +1723,25 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
      * @var bool
      */
     protected $getDataFullFidelity = true;
+
+    /**
+     * A model in JSON is its data: {@see getData()}.
+     *
+     * Without this `json_encode()` walked the public properties, and `$controller` leads to
+     * the application and back — "Recursion detected", `false`, and a 500 from any API whose
+     * response held a model one level down (a list of related records, a model in a field).
+     * A nested model now encodes as its own data.
+     *
+     * No declared return type, so that a subclass declaring `jsonSerialize()` without one
+     * still loads.
+     *
+     * @return array<string, mixed>
+     */
+    #[\ReturnTypeWillChange]
+    public function jsonSerialize()
+    {
+        return $this->getData();
+    }
 
     /**
      * Return all data as an array.
