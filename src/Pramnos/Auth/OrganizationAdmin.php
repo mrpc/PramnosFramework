@@ -71,7 +71,7 @@ class OrganizationAdmin
             return [];
         }
 
-        $result = $db->queryBuilder()->table('organizations')
+        $result = $db->queryBuilder()->table('#PREFIX#organizations')
             ->select(['organization_id', 'name'])->where('is_active', 1)->orderBy('name')->get();
         $managed = [];
         while ($result && $result->fetch()) {
@@ -89,7 +89,7 @@ class OrganizationAdmin
     /** The organisation's name, or `#id` when there is none to read. */
     public static function nameOf(int $organizationId): string
     {
-        $row = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('organizations')
+        $row = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('#PREFIX#organizations')
             ->select(['name'])->where('organization_id', $organizationId)->first();
 
         return $row && $row->numRows > 0 ? (string) $row->fields['name'] : '#' . $organizationId;

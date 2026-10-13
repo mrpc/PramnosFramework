@@ -2338,7 +2338,7 @@ class Account extends Controller
         $db     = \Pramnos\Framework\Factory::getDatabase();
         $result = $db->queryBuilder()
             ->table('usertokens ut')
-            ->join('applications a', 'ut.applicationid', '=', 'a.appid')
+            ->join('#PREFIX#applications a', 'ut.applicationid', '=', 'a.appid')
             ->select([
                 'a.appid', 'a.name', 'a.apikey', 'a.description',
                 // The SSO status page links each application, and the view was

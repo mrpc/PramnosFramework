@@ -291,11 +291,12 @@ class Session extends Controller
         }
 
         $db     = \Pramnos\Framework\Factory::getDatabase();
-        $sql    = $db->prepareQuery(
-            'SELECT userid, username, email FROM users WHERE userid = %d AND active = 1',
-            $tokenData['userid']
-        );
-        $result = $db->query($sql);
+        $result = $db->queryBuilder()
+            ->table(defined('DB_USERSTABLE') ? DB_USERSTABLE : '#PREFIX#users')
+            ->select(['userid', 'username', 'email'])
+            ->where('userid', (int) $tokenData['userid'])
+            ->where('active', 1)
+            ->first();
 
         if (!$result || $result->numRows == 0) {
             return null;
@@ -322,7 +323,7 @@ class Session extends Controller
             $result = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
                 ->table('#PREFIX#usertokens ut')
                 // A token of an application that no longer exists is not a session.
-                ->join('applications a', 'ut.applicationid', '=', 'a.appid')
+                ->join('#PREFIX#applications a', 'ut.applicationid', '=', 'a.appid')
                 ->select(['ut.*'])
                 ->where('ut.token_lookup', \Pramnos\User\Token::lookup($token))
                 ->where('ut.tokentype', 'access_token')
@@ -359,17 +360,16 @@ class Session extends Controller
     private function getActiveTokens(int $userId): array
     {
         $db  = \Pramnos\Framework\Factory::getDatabase();
-        $sql = $db->prepareQuery(
-            'SELECT ut.tokentype, ut.created, ut.expires, ut.lastused, a.name AS app_name
-               FROM usertokens ut
-               JOIN applications a ON ut.applicationid = a.appid
-              WHERE ut.userid = %d AND ut.status = 1
-                AND (ut.expires = 0 OR ut.expires > %d)',
-            $userId,
-            time()
-        );
+        $now = time();
 
-        $result = $db->query($sql);
+        $result = $db->queryBuilder()
+            ->table('#PREFIX#usertokens AS ut')
+            ->select(['ut.tokentype', 'ut.created', 'ut.expires', 'ut.lastused', 'a.name AS app_name'])
+            ->join('#PREFIX#applications AS a', 'ut.applicationid', '=', 'a.appid')
+            ->where('ut.userid', $userId)
+            ->where('ut.status', 1)
+            ->where(static fn ($q) => $q->where('ut.expires', 0)->orWhere('ut.expires', '>', $now))
+            ->get();
         $tokens = [];
 
         if ($result) {

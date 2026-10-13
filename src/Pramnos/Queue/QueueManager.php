@@ -1480,7 +1480,7 @@ class QueueManager
         $since = date('Y-m-d H:i:s', time() - (max(1, $hours) * 3600));
 
         $query = $database->queryBuilder()
-            ->table('queuestats')
+            ->table('#PREFIX#queuestats')
             ->where('bucket', '>=', $since)
             ->orderBy('bucket', 'DESC')
             ->orderBy('type', 'ASC');

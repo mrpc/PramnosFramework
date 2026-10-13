@@ -927,9 +927,14 @@ class DeviceTest extends TestCase
             'email'    => 'alice@example.com',
         ];
 
+        // The query builder, answering first() with the row the database would return
+        $qb = $this->createMock(\Pramnos\Database\QueryBuilder::class);
+        foreach (['table', 'select', 'where'] as $fluent) {
+            $qb->method($fluent)->willReturnSelf();
+        }
+        $qb->method('first')->willReturn($userRow);
         $dbMock = $this->createMock(Database::class);
-        $dbMock->method('prepareQuery')->willReturn('SELECT 1');
-        $dbMock->method('query')->willReturn($userRow);
+        $dbMock->method('queryBuilder')->willReturn($qb);
 
         $dbRef = &Database::getInstance();
         $dbRef = $dbMock;
@@ -952,10 +957,15 @@ class DeviceTest extends TestCase
      */
     public function testValidateCredentialsViaDatabaseReturnsEmptyOnNullResult(): void
     {
-        // Arrange – mock DB returning null from query()
+        // Arrange – the query answers nothing (a failed connection or driver error)
+        // The query builder, answering first() with the row the database would return
+        $qb = $this->createMock(\Pramnos\Database\QueryBuilder::class);
+        foreach (['table', 'select', 'where'] as $fluent) {
+            $qb->method($fluent)->willReturnSelf();
+        }
+        $qb->method('first')->willReturn(null);
         $dbMock = $this->createMock(Database::class);
-        $dbMock->method('prepareQuery')->willReturn('SELECT 1');
-        $dbMock->method('query')->willReturn(null);
+        $dbMock->method('queryBuilder')->willReturn($qb);
 
         $dbRef = &Database::getInstance();
         $dbRef = $dbMock;

@@ -411,7 +411,7 @@ class Role extends Model
     private static function organizationName(int $organizationId): string
     {
         try {
-            $row = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('organizations')
+            $row = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('#PREFIX#organizations')
                 ->select(['name'])->where('organization_id', $organizationId)->first();
         } catch (\Throwable) {
             $row = null;

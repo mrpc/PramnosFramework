@@ -154,9 +154,11 @@ class StatusTool implements McpToolInterface
         }
 
         try {
-            $result = $db->query(
-                'SELECT status, COUNT(*) AS total FROM queueitems GROUP BY status'
-            );
+            $qb     = $db->queryBuilder();
+            $result = $qb->table('#PREFIX#queueitems')
+                ->select(['status', $qb->raw('COUNT(*) AS total')])
+                ->groupBy('status')
+                ->get();
         } catch (\Throwable) {
             // No queue feature, or no table. Not a problem to report.
             return ['enabled' => false];

@@ -63,7 +63,7 @@ class QueueController extends Controller
         $page = max(1, (int) ($_GET['page'] ?? 1));
 
         $qb = $db->queryBuilder()
-            ->table('queueitems')
+            ->table('#PREFIX#queueitems')
             ->select(['taskid', 'type', 'status', 'priority', 'attempts', 'maxattempts', 'createdat', 'startedat', 'completedat', 'error']);
 
         $filterStatus = trim((string) ($_GET['status'] ?? ''));
@@ -104,7 +104,7 @@ class QueueController extends Controller
 
         \Pramnos\Framework\Factory::getDatabase()
             ->queryBuilder()
-            ->table('queueitems')
+            ->table('#PREFIX#queueitems')
             ->where('taskid', $taskId)
             ->where('status', 'failed')
             ->update([
@@ -130,7 +130,7 @@ class QueueController extends Controller
 
         \Pramnos\Framework\Factory::getDatabase()
             ->queryBuilder()
-            ->table('queueitems')
+            ->table('#PREFIX#queueitems')
             ->where('status', 'failed')
             ->update([
                 'status'    => 'pending',
@@ -162,7 +162,7 @@ class QueueController extends Controller
 
         \Pramnos\Framework\Factory::getDatabase()
             ->queryBuilder()
-            ->table('queueitems')
+            ->table('#PREFIX#queueitems')
             ->where('taskid', $taskId)
             ->update(['status' => 'deleted']);
 
@@ -192,7 +192,7 @@ class QueueController extends Controller
 
         \Pramnos\Framework\Factory::getDatabase()
             ->queryBuilder()
-            ->table('queueitems')
+            ->table('#PREFIX#queueitems')
             ->where('status', $targetStatus)
             ->update(['status' => 'deleted']);
 
@@ -220,7 +220,7 @@ class QueueController extends Controller
 
         foreach (['pending', 'processing', 'completed', 'failed'] as $status) {
             $counts[$status] = $db->queryBuilder()
-                ->table('queueitems')
+                ->table('#PREFIX#queueitems')
                 ->where('status', $status)
                 ->count();
         }
@@ -228,19 +228,17 @@ class QueueController extends Controller
         // Average processing time for completed jobs where both timestamps are present
         $avgResult = null;
         try {
-            if ($db->type === 'postgresql') {
-                $r = $db->query(
-                    "SELECT AVG(EXTRACT(EPOCH FROM (completedat - startedat)) * 1000) AS avg_ms
-                     FROM queueitems
-                     WHERE status = 'completed' AND startedat IS NOT NULL AND completedat IS NOT NULL"
-                );
-            } else {
-                $r = $db->query(
-                    "SELECT AVG(TIMESTAMPDIFF(SECOND, startedat, completedat) * 1000) AS avg_ms
-                     FROM queueitems
-                     WHERE status = 'completed' AND startedat IS NOT NULL AND completedat IS NOT NULL"
-                );
-            }
+            // The difference of two timestamps is dialect SQL; the rest is the builder's.
+            $qb      = $db->queryBuilder();
+            $elapsed = $db->type === 'postgresql'
+                ? 'AVG(EXTRACT(EPOCH FROM (completedat - startedat)) * 1000)'
+                : 'AVG(TIMESTAMPDIFF(SECOND, startedat, completedat) * 1000)';
+            $r = $qb->table('#PREFIX#queueitems')
+                ->select([$qb->raw($elapsed . ' AS avg_ms')])
+                ->where('status', 'completed')
+                ->whereNotNull('startedat')
+                ->whereNotNull('completedat')
+                ->first();
             if ($r && $r->numRows > 0 && $r->fields['avg_ms'] !== null) {
                 $avgResult = round((float) $r->fields['avg_ms'], 2);
             }

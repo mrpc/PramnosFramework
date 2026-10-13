@@ -345,7 +345,7 @@ class UsersController extends Controller
 
             // Which organizations the account belongs to.
             'organizations' => $rows(fn ($qb) => $qb->table('authserver.user_organizations uo')
-                ->join('organizations o', 'uo.organization_id', '=', 'o.organization_id')
+                ->join('#PREFIX#organizations o', 'uo.organization_id', '=', 'o.organization_id')
                 ->select(['o.organization_id', 'o.name', 'uo.granted_at'])
                 ->where('uo.userid', $userId)->where('uo.is_active', 1)->getAll()),
         ];

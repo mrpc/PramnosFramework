@@ -277,14 +277,20 @@ $qb->table('#PREFIX#settings')      // → prefix_settings
 $qb->table('settings')              // → settings  (no prefix, ever)
 ```
 
-Both forms appear in the framework, because a table that no installation
-prefixes reads better without the token. But if the table *is* prefixed — and
-every table a migration creates through the schema builder is — omitting
-`#PREFIX#` produces a query against a name that exists only where the prefix is
-empty. It works on the developer's machine and finds nothing on the installation
-that has one.
+A **model** is the other way round: `Model::resolveTableName()` prefixes its table
+whether it is declared `'#PREFIX#queueitems'` or `'queueitems'`. So beside a model, a
+query that names the same table without `#PREFIX#` reads a different table on an
+installation with a prefix — the model writes to `pramnos_queueitems` and the query
+counts `queueitems`.
 
-Rule of thumb: if the raw SQL you are replacing had `#PREFIX#`, keep it.
+Every table a migration creates through the schema builder is prefixed, so a query
+over one of them writes `#PREFIX#`. The bare form is for a table an application made
+itself, unprefixed, and nothing else. The framework's own queries follow that
+without exception, and `TablePrefixInQueriesTest` holds them to it — reading both
+the names written with `#PREFIX#` somewhere and the tables the migrations create.
+
+Rule of thumb: if the raw SQL you are replacing had `#PREFIX#`, keep it; if a model
+owns the table, write `#PREFIX#`.
 
 !!! danger "The suite cannot catch a missing prefix — a static check does"
     Both test fixtures declare `'prefix' => ''`, which makes `#PREFIX#users` and

@@ -70,7 +70,7 @@ final class LlmSpendTool extends AdminTool
 
         $names = [];
         if ($this->has('organizations')) {
-            $result = $this->table('organizations')->select(['organization_id', 'name'])
+            $result = $this->table('#PREFIX#organizations')->select(['organization_id', 'name'])
                 ->whereIn('organization_id', array_map('intval', array_keys($spend)))->get();
             while (($row = $result->fetch()) !== null) {
                 $names[(int) $row['organization_id']] = (string) $row['name'];

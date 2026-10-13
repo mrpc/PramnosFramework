@@ -29,7 +29,7 @@ final class OrganizationsTool extends AdminTool
             return self::absent('organisations');
         }
 
-        $orgs = fn () => $this->table('organizations');
+        $orgs = fn () => $this->table('#PREFIX#organizations');
 
         return [
             'window'   => $window->describe(),
@@ -58,7 +58,7 @@ final class OrganizationsTool extends AdminTool
         }
 
         $names  = [];
-        $result = $this->table('organizations')->select(['organization_id', 'name'])
+        $result = $this->table('#PREFIX#organizations')->select(['organization_id', 'name'])
             ->whereIn('organization_id', array_map('intval', array_keys($members)))->get();
         while (($row = $result->fetch()) !== null) {
             $names[(int) $row['organization_id']] = (string) $row['name'];

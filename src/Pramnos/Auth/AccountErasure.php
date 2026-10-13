@@ -170,7 +170,7 @@ class AccountErasure
             return;
         }
 
-        $result = $this->database->queryBuilder()->table('notifications')
+        $result = $this->database->queryBuilder()->table('#PREFIX#notifications')
             ->select('notifiable_type')->distinct()->where('notifiable_id', $userId)->get();
 
         $userTypes = [];
@@ -185,7 +185,7 @@ class AccountErasure
             return;
         }
 
-        $this->database->queryBuilder()->table('notifications')
+        $this->database->queryBuilder()->table('#PREFIX#notifications')
             ->where('notifiable_id', $userId)->whereIn('notifiable_type', $userTypes)->delete();
     }
 }

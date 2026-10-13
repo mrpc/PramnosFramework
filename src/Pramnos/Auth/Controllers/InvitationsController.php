@@ -192,7 +192,7 @@ class InvitationsController extends Controller
         }
 
         $names = [];
-        $result = $db->queryBuilder()->table('organizations')->select(['organization_id', 'name'])->orderBy('name')->get();
+        $result = $db->queryBuilder()->table('#PREFIX#organizations')->select(['organization_id', 'name'])->orderBy('name')->get();
         while ($result && $result->fetch()) {
             $names[(int) $result->fields['organization_id']] = (string) $result->fields['name'];
         }

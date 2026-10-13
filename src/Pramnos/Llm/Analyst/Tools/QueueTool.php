@@ -27,7 +27,7 @@ final class QueueTool extends AdminTool
             return self::absent('background queue');
         }
 
-        $items    = fn () => $this->table('queueitems');
+        $items    = fn () => $this->table('#PREFIX#queueitems');
         $failures = [];
         $result   = $window->apply($items()->where('status', 'failed'), 'updatedat', false)->select(['type', 'error'])->get();
         while (($row = $result->fetch()) !== null) {
@@ -45,7 +45,7 @@ final class QueueTool extends AdminTool
             'waiting'      => $this->countBy($items()->where('status', 'pending'), 'type'),
             'failed'       => array_slice($failures, 0, self::TOP, true),
             'completed'    => $window->apply($items()->where('status', 'completed'), 'completedat', false)->count(),
-            'seconds'      => ['average' => round((float) $done->avg('execution_time'), 3), 'longest' => round((float) $window->apply($this->table('queueitems')->where('status', 'completed'), 'completedat', false)->max('execution_time'), 3)],
+            'seconds'      => ['average' => round((float) $done->avg('execution_time'), 3), 'longest' => round((float) $window->apply($this->table('#PREFIX#queueitems')->where('status', 'completed'), 'completedat', false)->max('execution_time'), 3)],
         ];
     }
 }

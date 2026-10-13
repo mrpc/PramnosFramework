@@ -118,14 +118,13 @@ class TablePrefixInQueriesTest extends TestCase
      * Only migrations after the 2020-01-01 baseline: a legacy installation skips the baseline
      * (`migration_cutoff`) and keeps those tables under the names it already had.
      *
-     * Known and not yet converted — enumerated, so a new table cannot join them silently:
-     * `organizations`, `notifications` and `queuestats`, whose bare names an application may
-     * also own.
+     * None is exempt: a model names its table through `Model::resolveTableName()`, which
+     * prefixes even a bare name, so a query beside it that does not reads another table.
      */
     public function testTablesTheMigrationsCreateAreQueriedWithThePrefix(): void
     {
         // Arrange
-        $known   = ['organizations', 'notifications', 'queuestats'];
+        $known   = [];
         $created = [];
         foreach (glob(dirname(__DIR__, 3) . '/database/migrations/framework/*/*.php') ?: [] as $migration) {
             if (str_starts_with(basename($migration), '2020_01_01_')) {

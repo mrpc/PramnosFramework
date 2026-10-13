@@ -372,7 +372,7 @@ class MassMessagesController extends Controller
 
         try {
             $result = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
-                ->table('organizations')
+                ->table('#PREFIX#organizations')
                 ->select(['organization_id', 'name'])
                 ->where('is_active', 1)
                 ->orderBy('name', 'asc')

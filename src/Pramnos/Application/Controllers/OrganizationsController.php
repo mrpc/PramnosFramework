@@ -173,7 +173,7 @@ class OrganizationsController extends Controller
 
         $db     = \Pramnos\Framework\Factory::getDatabase();
         $result = $db->queryBuilder()
-            ->table('organizations')
+            ->table('#PREFIX#organizations')
             ->where('organization_id', $orgId)
             ->first();
 
@@ -231,7 +231,7 @@ class OrganizationsController extends Controller
         if ($id > 0) {
             $db     = \Pramnos\Framework\Factory::getDatabase();
             $result = $db->queryBuilder()
-                ->table('organizations')
+                ->table('#PREFIX#organizations')
                 ->where('organization_id', $id)
                 ->first();
 
@@ -300,12 +300,12 @@ class OrganizationsController extends Controller
             }
 
             $db->queryBuilder()
-                ->table('organizations')
+                ->table('#PREFIX#organizations')
                 ->where('organization_id', $id)
                 ->update($fields);
         } else {
             $db->queryBuilder()
-                ->table('organizations')
+                ->table('#PREFIX#organizations')
                 ->insert([
                     'name'        => $name,
                     'description' => $description !== '' ? $description : null,
@@ -337,7 +337,7 @@ class OrganizationsController extends Controller
 
         \Pramnos\Framework\Factory::getDatabase()
             ->queryBuilder()
-            ->table('organizations')
+            ->table('#PREFIX#organizations')
             ->where('organization_id', $id)
             ->update(['is_active' => 0]);
 
@@ -367,7 +367,7 @@ class OrganizationsController extends Controller
         $orgCol   = $this->resolveOrgColumn();
 
         $org = $db->queryBuilder()
-            ->table('organizations')
+            ->table('#PREFIX#organizations')
             ->where('organization_id', $orgId)
             ->first();
 

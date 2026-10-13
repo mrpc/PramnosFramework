@@ -79,7 +79,7 @@ class TokensController extends Controller
             ->join('#PREFIX#users u', 'ut.userid', '=', 'u.userid')
             // LEFT join: session/API tokens (web_session, apns, …) have no
             // applicationid — an inner join would hide every non-OAuth token.
-            ->leftJoin('applications a', 'ut.applicationid', '=', 'a.appid')
+            ->leftJoin('#PREFIX#applications a', 'ut.applicationid', '=', 'a.appid')
             ->select([
                 'ut.tokenid', 'u.username', 'u.email', 'a.name AS app_name',
                 'ut.tokentype', 'ut.scope', 'ut.expires', 'ut.lastused', 'ut.status',

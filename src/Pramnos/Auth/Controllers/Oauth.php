@@ -810,7 +810,7 @@ class Oauth extends Controller
              * disagreement invisible from either side.
              */
             ->leftJoin('users u', 'ut.userid = u.userid')
-            ->leftJoin('applications a', 'ut.applicationid = a.appid')
+            ->leftJoin('#PREFIX#applications a', 'ut.applicationid = a.appid')
             ->select('ut.*, u.username, u.email, a.apikey AS client_id')
             ->where('ut.token_lookup', \Pramnos\User\Token::lookup((string) $stored))
             ->first();

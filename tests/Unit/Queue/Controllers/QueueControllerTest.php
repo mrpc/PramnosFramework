@@ -79,6 +79,7 @@ class QueueControllerTest extends BaseTestCase
         $this->qbMock->method('count')->willReturn(0);
         $this->qbMock->method('getAll')->willReturn([]);
         $this->qbMock->method('update')->willReturn(1);
+        $this->qbMock->method('whereNotNull')->willReturnSelf();
 
         // Database mock returns the QB mock from queryBuilder()
         $this->dbMock = $this->getMockBuilder(Database::class)
@@ -470,9 +471,8 @@ class QueueControllerTest extends BaseTestCase
         // Arrange — mock count() to return a predictable integer
         $this->qbMock->method('count')->willReturn(5);
 
-        // Mock the raw query used for average processing time so it does not
-        // throw an unhandled exception (the stats() method catches it).
-        $this->dbMock->method('query')->willThrowException(new \Exception('no table'));
+        // The average-time query may throw; stats() catches it.
+        $this->qbMock->method('first')->willThrowException(new \Exception('no table'));
 
         // Act — capture the JSON output
         ob_start();
@@ -501,7 +501,7 @@ class QueueControllerTest extends BaseTestCase
     {
         // Arrange — all counts are 0
         $this->qbMock->method('count')->willReturn(0);
-        $this->dbMock->method('query')->willThrowException(new \Exception('no table'));
+        $this->qbMock->method('first')->willThrowException(new \Exception('no table'));
 
         // Act
         ob_start();
@@ -522,8 +522,7 @@ class QueueControllerTest extends BaseTestCase
      * stats() must include avg_processing_ms when the raw query returns a valid
      * numeric avg_ms result.
      *
-     * Covers lines 220-224 of QueueController::stats() — the success branch of the
-     * avg processing time query (numRows > 0, avg_ms != null → rounded float).
+     * The success branch of the avg processing time query (numRows > 0, avg_ms != null → rounded float).
      */
     public function testStatsIncludesAvgProcessingMsWhenQueryReturnsData(): void
     {
@@ -533,7 +532,7 @@ class QueueControllerTest extends BaseTestCase
         $mockResult->fields  = ['avg_ms' => '1234.56'];
 
         $this->qbMock->method('count')->willReturn(1);
-        $this->dbMock->method('query')->willReturn($mockResult);
+        $this->qbMock->method('first')->willReturn($mockResult);
         $this->dbMock->type = 'mysql';
 
         // Act
@@ -565,11 +564,12 @@ class QueueControllerTest extends BaseTestCase
         $mockResult->numRows = 1;
         $mockResult->fields  = ['avg_ms' => '500.00'];
 
-        // Assert — query() must be called with PostgreSQL-specific EXTRACT syntax
-        $this->dbMock->expects($this->once())
-            ->method('query')
+        // Assert — the average is PostgreSQL's EXTRACT, handed to the builder as an expression
+        $this->qbMock->expects($this->once())
+            ->method('raw')
             ->with($this->stringContains('EXTRACT'))
-            ->willReturn($mockResult);
+            ->willReturn(new \Pramnos\Database\Expression('AVG(1) AS avg_ms'));
+        $this->qbMock->method('first')->willReturn($mockResult);
 
         // Act
         ob_start();

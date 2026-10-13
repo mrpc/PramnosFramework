@@ -96,7 +96,7 @@ class TokenExchangeGrant extends AbstractGrant
         foreach ($candidates as $stored) {
             $result = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
                 ->table('usertokens ut')
-                ->join('applications a', 'ut.applicationid = a.appid')
+                ->join('#PREFIX#applications a', 'ut.applicationid = a.appid')
                 ->select('ut.tokenid, ut.userid, ut.scope, ut.expires')
                 ->where('ut.token_lookup', \Pramnos\User\Token::lookup($stored))
                 ->where('ut.tokentype', 'access_token')

@@ -322,15 +322,13 @@ class Device extends Controller
     private function validateCredentialsViaDb(string $username, string $password): array
     {
         $db  = \Pramnos\Framework\Factory::getDatabase();
-        $sql = $db->prepareQuery(
-            'SELECT userid, username, email FROM users
-              WHERE (username = %s OR email = %s)
-                AND password = %s AND active = 1',
-            $username,
-            $username,
-            hash('sha256', $password)
-        );
-        $result = $db->query($sql);
+        $result = $db->queryBuilder()
+            ->table(defined('DB_USERSTABLE') ? DB_USERSTABLE : '#PREFIX#users')
+            ->select(['userid', 'username', 'email'])
+            ->where(static fn ($q) => $q->where('username', $username)->orWhere('email', $username))
+            ->where('password', hash('sha256', $password))
+            ->where('active', 1)
+            ->first();
 
         if (!$result || $result->numRows == 0) {
             return [];

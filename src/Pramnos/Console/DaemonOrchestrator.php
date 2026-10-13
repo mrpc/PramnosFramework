@@ -340,7 +340,7 @@ abstract class DaemonOrchestrator extends CommandBase
     {
         try {
             $query = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
-                ->table('queueitems')
+                ->table('#PREFIX#queueitems')
                 ->where('status', 'pending');
             if ($types !== []) {
                 $query->whereIn('type', $types);

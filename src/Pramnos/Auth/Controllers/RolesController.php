@@ -486,7 +486,7 @@ class RolesController extends Controller
         }
 
         $result = $db->queryBuilder()
-            ->table('organizations')
+            ->table('#PREFIX#organizations')
             ->select(['organization_id', 'name'])
             ->orderBy('name')
             ->get();
