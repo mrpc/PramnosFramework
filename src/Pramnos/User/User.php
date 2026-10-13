@@ -134,7 +134,19 @@ class User extends \Pramnos\Framework\Base implements
             $this->_isnew = 1;
         }
         else {
-            return $this->load($userid);
+            /*
+             * A user that did not load is a new one.
+             *
+             * It kept `_isnew = 0` and the default `userid` of 1, so saving it ran
+             * `UPDATE users … WHERE userid = 1` — the Guest row, or nothing — and then wrote
+             * its details against that id. An application signing people up from
+             * `new User($_SESSION['uid'])` lost every account that way, silently.
+             */
+            if ($this->load($userid) === false) {
+                $this->_isnew = 1;
+            }
+
+            return;
         }
         if ($this->_userstable === null) {
             $this->_userstable = self::usersTable();
@@ -728,12 +740,27 @@ class User extends \Pramnos\Framework\Base implements
                 );
             }
         } else {
-            if (!$database->updateTableData(
+            $updated = $database->updateTableData(
                 $database->prefix . "users", $itemdata,
                 "`userid` = " . $this->userid
-            )) {
+            );
+            if (!$updated) {
                 $error = $database->getError();
                 $this->addError($error['message']);
+                return $this;
+            }
+            /*
+             * An UPDATE of nobody is not a save.
+             *
+             * Zero rows is also MySQL's answer for a row whose values did not change, so the
+             * row is looked for before anything is said. One that is not there — deleted since
+             * it loaded — gets no details written against its id either.
+             */
+            if ($updated instanceof \Pramnos\Database\Result
+                && (int) $updated->getAffectedRows() === 0
+                && $database->queryBuilder()->table(self::usersTable())->where('userid', (int) $this->userid)->count() === 0
+            ) {
+                $this->addError('There is no user ' . (int) $this->userid . ' to save: it does not exist.');
                 return $this;
             }
         }

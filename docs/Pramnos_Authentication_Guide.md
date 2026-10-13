@@ -1024,6 +1024,13 @@ if ($currentUser) {
 }
 ```
 
+#### A user that did not load is a new one
+
+`new User($id)` for an id with no row gives a **new** user: `save()` inserts it, with an id of
+its own. Check `$user->userid > 1` after constructing when the id should exist. A save that finds
+no row to update — the user was deleted after it loaded — writes nothing, details included, and
+leaves `There is no user N to save: it does not exist.` in `$user->_errors`.
+
 #### `getCurrentUser()` is a read
 
 It returns the signed-in user, or `false`, and **writes nothing**. Call it as
