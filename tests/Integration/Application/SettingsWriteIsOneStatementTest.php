@@ -626,4 +626,32 @@ class SettingsWriteIsOneStatementTest extends TestCase
         // Put the real connection back for tearDown, which has rows to remove.
         Settings::setDatabase($this->db);
     }
+
+    /**
+     * A value another process saved reaches this one after `Settings::refresh()`, and not before.
+     *
+     * What a queue worker in `--daemon` depends on: it read the settings once, an administrator
+     * changed a provider since, and the next task must use the new one. The stale read in the
+     * middle is the control — without it, a `getSetting()` that always went to the table would
+     * pass as well, and the test would not be about `refresh()` at all.
+     */
+    public function testAnotherProcesssSaveIsSeenAfterARefresh(): void
+    {
+        // Arrange — the value this process read
+        $settings = $this->db->queryBuilder()->table('#PREFIX#settings');
+        (clone $settings)->insert(['setting' => 'probe_refresh', 'value' => 'openai']);
+        $this->db->cacheflush('settings');
+        Settings::refresh();
+        $before = Settings::getSetting('probe_refresh', '');
+
+        // Act — another process saves, which evicts the shared SQL cache
+        (clone $settings)->where('setting', 'probe_refresh')->update(['value' => 'deepseek']);
+        $this->db->cacheflush('settings');
+        $stale = Settings::getSetting('probe_refresh', '');
+        Settings::refresh();
+        $after = Settings::getSetting('probe_refresh', '');
+
+        // Assert — kept until refreshed, then read again
+        $this->assertSame(['openai', 'openai', 'deepseek'], [$before, $stale, $after]);
+    }
 }

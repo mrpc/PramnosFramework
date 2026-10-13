@@ -64,6 +64,19 @@ class Worker
     // ── Processing ────────────────────────────────────────────────────────────
 
     /**
+     * Forget what this process read from the settings, and what was built from them — the
+     * language-model connections — so the task about to run sees today's values.
+     */
+    protected function freshen(): void
+    {
+        \Pramnos\Application\Settings::refresh();
+
+        if (class_exists(\Pramnos\Llm\Connection::class)) {
+            \Pramnos\Llm\Connection::forget();
+        }
+    }
+
+    /**
      * Claim the next available task and run it.
      *
      * @param  string|string[]|null $taskTypes        Restrict to these type(s)
@@ -87,6 +100,11 @@ class Worker
         if (!$task) {
             return false;
         }
+
+        // Each task starts from the installation's current settings: a worker in --daemon
+        // lives for hours, and a change an administrator saved since would otherwise never reach
+        // it. Only when there is a task, so an idle worker polling the queue reads nothing.
+        $this->freshen();
 
         $taskInfo = [
             'id'     => $task->taskid,

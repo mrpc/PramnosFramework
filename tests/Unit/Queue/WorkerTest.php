@@ -30,9 +30,51 @@ class WorkerTest extends TestCase
 {
     private object $controller;
 
+    /** @var array<string, mixed> Settings' state, which a processed task refreshes */
+    private array $settings = [];
+
     protected function setUp(): void
     {
         $this->controller = $this->buildControllerDouble();
+        foreach (['settings', 'fromFile', 'bulkLoaded'] as $name) {
+            $this->settings[$name] = (new \ReflectionProperty(\Pramnos\Application\Settings::class, $name))->getValue();
+        }
+    }
+
+    protected function tearDown(): void
+    {
+        foreach ($this->settings as $name => $value) {
+            (new \ReflectionProperty(\Pramnos\Application\Settings::class, $name))->setValue(null, $value);
+        }
+    }
+
+    /**
+     * A claimed task starts from the installation's current settings — what this process read
+     * before is forgotten — while an idle poll of an empty queue reads nothing.
+     */
+    public function testEachTaskStartsFromCurrentSettings(): void
+    {
+        // Arrange — a value this long-lived process read earlier
+        $read  = static fn (): bool => array_key_exists('worker_read_earlier', (new \ReflectionProperty(\Pramnos\Application\Settings::class, 'settings'))->getValue());
+        $task  = $this->buildQueueItem('simple_task');
+        $handler = new class($this->controller) extends AbstractTask {
+            public function validate(QueueItem $q): bool    { return true; }
+            public function execute(QueueItem $q): mixed    { return true; }
+            public function getDescription(QueueItem $q): string { return 'test'; }
+        };
+        $idle   = $this->buildWorkerWithManager(fn() => false);
+        $worker = $this->buildWorkerWithManager(fn() => $task, handler: $handler);
+        $worker->registerTaskHandler('simple_task', get_class($handler));
+        \Pramnos\Application\Settings::setSetting('worker_read_earlier', 'openai', false);
+
+        // Act
+        $idle->processNextTask();
+        $keptWhileIdle = $read();
+        $worker->processNextTask();
+
+        // Assert
+        $this->assertTrue($keptWhileIdle, 'an idle poll reads nothing');
+        $this->assertFalse($read(), 'the task was given the settings as they are now');
     }
 
     // ── processNextTask() — empty queue ───────────────────────────────────────

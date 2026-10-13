@@ -723,6 +723,13 @@ The answer is read from the catalogue **once per process**, because a settings f
 applied keeps the old answer until it restarts, or until something calls
 `Settings::forgetSchemaFacts()`.
 
+**A long-lived process sees a change with `Settings::refresh()`.** Values are read from the
+table once and kept, which is right for a request and wrong for a process that runs for
+hours: an administrator saves a new API key, and the worker goes on using the old one.
+`refresh()` drops what was read from the database — the settings file's own keys stay — so
+the next `getSetting()` reads the table again. The queue worker calls it before every task it
+claims, never while idle; a daemon of your own does the same at the top of each unit of work.
+
 !!! warning "Encrypted values"
     A setting whose name matches the framework's credential patterns is encrypted with
     `APP_KEY` before it is written. Without a key it is stored in clear and converts itself

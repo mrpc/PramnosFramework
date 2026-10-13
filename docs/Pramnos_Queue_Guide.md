@@ -545,6 +545,14 @@ is to stop cleanly.
 The check is before each claim rather than after each task, so **the task in hand always
 finishes and nothing new is taken**.
 
+### A task sees the settings as they are now
+
+A worker in `--daemon` runs for hours, and an administrator changes settings meanwhile — a
+language-model provider, an API key. Before each task it claims, the worker calls
+`Settings::refresh()` and drops the language-model connections built from the old values, so
+the task runs against what was saved last. Only when there is a task: an idle worker polling
+the queue reads nothing.
+
 ### How many workers, and elasticity
 
 `queue:process --daemon` is a complete worker: signals, lock file, cooperative stop as above.

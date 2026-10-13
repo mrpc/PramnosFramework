@@ -27,6 +27,9 @@ class Settings extends \Pramnos\Framework\Base
      */
     static protected $bulkLoaded = false;
 
+    /** @var array<string, true> The keys the settings file set, which {@see refresh()} keeps */
+    static protected $fromFile = [];
+
     /**
      * Does `settings.setting` carry its unique index? Null until asked.
      *
@@ -55,6 +58,21 @@ class Settings extends \Pramnos\Framework\Base
     static protected $database = null;
 
     /**
+     * Forget what was read from the database; keep the settings file and the connection.
+     *
+     * A process that lives for hours — a queue worker in `--daemon` — read every setting once,
+     * and an administrator's change since (a provider, a key) never reached it: the next task
+     * still used the old value, and an "API key saved" was followed by "no API key". The next
+     * read after this goes to the database again, through the shared SQL cache that a save
+     * evicts. Unlike {@see clearSettings()}, nothing has to be reloaded by hand.
+     */
+    public static function refresh(): void
+    {
+        self::$settings   = array_intersect_key(self::$settings, self::$fromFile);
+        self::$bulkLoaded = false;
+    }
+
+    /**
      * Clear all settings and reset state.
      *
      * **This drops the settings file too, and nothing reloads it.** `loadSettings()` runs from the
@@ -69,6 +87,7 @@ class Settings extends \Pramnos\Framework\Base
     public static function clearSettings()
     {
         self::$settings = array();
+        self::$fromFile = array();
         self::$loaded = false;
         self::$bulkLoaded = false;
         self::$database = null;
@@ -137,6 +156,7 @@ class Settings extends \Pramnos\Framework\Base
             self::$loaded = true;
             foreach ($settings as $key => $value){
                 self::setSetting($key, $value, false);
+                self::$fromFile[$key] = true;
             }
             return true;
         }
