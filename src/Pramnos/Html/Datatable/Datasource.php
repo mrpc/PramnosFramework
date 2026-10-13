@@ -114,6 +114,51 @@ class Datasource extends Base
     }
 
     /**
+     * What a column's own search box holds for this request, in either protocol.
+     *
+     * DataTables 1.10 sends it as `columns[N][search][value]`, 1.9 as `sSearch_N`, and
+     * `render()` translates the first into the second only when it runs. An application that
+     * builds its own condition from the value before calling `getList()` reads it here:
+     *
+     * ```php
+     * $status = Datasource::takeColumnSearch(3);   // read it, and keep render() off it
+     * $where  = $status !== '' ? 'WHERE a.status = ' . (int) $status : '';
+     * $rows   = Datasource::getList('orders', $fields, false, $where);
+     * ```
+     *
+     * @param int $column The column's index in the field list
+     */
+    public static function columnSearch(int $column): string
+    {
+        $value = $_POST['sSearch_' . $column]
+            ?? $_POST['columns'][$column]['search']['value']
+            ?? $_POST['columns'][$column]['search']
+            ?? '';
+
+        return is_scalar($value) ? (string) $value : '';
+    }
+
+    /**
+     * {@see columnSearch()}, and the value is taken: `render()` does not also apply it as a
+     * `LIKE` on the column. For a filter the application turns into a condition of its own —
+     * an exact match, a range, a join — where the `LIKE` would narrow the rows a second time,
+     * or wrongly.
+     *
+     * Once taken, `columnSearch()` answers `''` for the column.
+     *
+     * @param int $column The column's index in the field list
+     */
+    public static function takeColumnSearch(int $column): string
+    {
+        $value = static::columnSearch($column);
+        // An empty pre-set value: the 1.10 translation does not overwrite one, and the column
+        // filter skips an empty one.
+        $_POST['sSearch_' . $column] = '';
+
+        return $value;
+    }
+
+    /**
      * Automates the proccess of getting data
      * from a database table to feed a datatables object
      * @param string $table Database table

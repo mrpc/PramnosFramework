@@ -783,6 +783,21 @@ $filter->addOptions(\Pramnos\User\UserTypes::options());   // Admin (90), Manage
 The bundled Users, Applications and Organizations lists ship with these on, and
 `create:crud` generates them for every column of a new entity.
 
+A filter the Datasource should not apply as a `LIKE` — a range, a join, a value that means
+something other than itself — is read before `getList()` and taken:
+
+```php
+use Pramnos\Html\Datatable\Datasource;
+
+$status = Datasource::takeColumnSearch(3);   // the value, and render() leaves column 3 alone
+$where  = $status !== '' ? 'WHERE a.status = ' . (int) $status : '';
+$rows   = Datasource::getList('orders', $fields, false, $where);
+```
+
+`Datasource::columnSearch($i)` reads without taking. Both read DataTables 1.10's
+`columns[N][search][value]` and 1.9's `sSearch_N` alike, so the code does not depend on which
+version of the client made the request.
+
 The generated box carries `class="pf-footsearch"` and the column's label as its
 placeholder. **The class is not decoration**: a bare `<input>` under a modern CSS reset has
 no border, no padding and no background, so the filter row was there and invisible — every

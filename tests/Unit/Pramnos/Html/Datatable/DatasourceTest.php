@@ -835,6 +835,60 @@ class DatasourceTest extends TestCase
     }
 
     /**
+     * A column's search value reads the same from either protocol, before render() runs.
+     *
+     * render() translated `columns[N][search][value]` into `sSearch_N` only when it ran, so an
+     * application building its own condition beforehand found nothing.
+     */
+    public function testAColumnSearchReadsFromEitherProtocol(): void
+    {
+        // Arrange / Act / Assert — 1.10
+        $this->setPost(['draw' => '1', 'columns' => [
+            ['search' => ['value' => '']],
+            ['search' => ['value' => 'Wid']],
+        ]]);
+        $this->assertSame('Wid', Datasource::columnSearch(1));
+        $this->assertSame('', Datasource::columnSearch(0));
+        $this->assertSame('', Datasource::columnSearch(9), 'a column nobody sent');
+
+        // 1.9
+        $this->setPost(['sEcho' => '1', 'sSearch_2' => 'Gad']);
+        $this->assertSame('Gad', Datasource::columnSearch(2));
+
+        // An array where a value belongs is no value
+        $this->setPost(['sSearch_0' => ['x']]);
+        $this->assertSame('', Datasource::columnSearch(0));
+    }
+
+    /**
+     * A taken column search is the application's: render() does not apply it as a LIKE too.
+     */
+    public function testATakenColumnSearchIsNotAppliedAgain(): void
+    {
+        // Arrange — the same request that filters to two rows when left to render()
+        $this->setPost([
+            'draw'    => '1',
+            'start'   => '0',
+            'length'  => '10',
+            'search'  => ['value' => '', 'regex' => 'false'],
+            'columns' => [
+                ['searchable' => 'true', 'search' => ['value' => '']],
+                ['searchable' => 'true', 'search' => ['value' => 'Wid']],
+                ['searchable' => 'true', 'search' => ['value' => '']],
+            ],
+        ]);
+
+        // Act
+        $taken  = Datasource::takeColumnSearch(1);
+        $result = (new Datasource())->render('ds_items', ['id', 'name', 'price'], false, '', '', false);
+
+        // Assert — the value was handed over, and every row came back
+        $this->assertSame('Wid', $taken);
+        $this->assertSame(4, $result['iTotalDisplayRecords'], 'no LIKE on the taken column');
+        $this->assertSame('', Datasource::columnSearch(1), 'taken means gone');
+    }
+
+    /**
      * A per-column search in the modern DT format must be ignored when the
      * column is declared non-searchable.
      *
