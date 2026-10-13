@@ -258,7 +258,7 @@ class Log
         $empty = ['total' => 0, 'delivered' => 0, 'gone' => 0, 'refused' => 0, 'failed' => 0];
 
         try {
-            $since  = date('Y-m-d H:i:s', time() - max(1, $days) * 86400);
+            $since  = self::instant(time() - max(1, $days) * 86400);
             $result = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
                 ->table('pramnos.pushlog')
                 ->select(['status', 'endpoint_hash'])
@@ -306,7 +306,7 @@ class Log
         try {
             $result = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
                 ->table('pramnos.pushlog')
-                ->where('sent', '<', date('Y-m-d H:i:s', time() - max(1, $days) * 86400))
+                ->where('sent', '<', self::instant(time() - max(1, $days) * 86400))
                 ->delete();
 
             return $result instanceof \Pramnos\Database\Result
@@ -335,6 +335,18 @@ class Log
         return is_numeric($value) ? (int) $value : (int) strtotime($value);
     }
 
+    /**
+     * A moment as `timestamptz` takes it: UTC, with its offset said.
+     *
+     * Without the offset the database reads the string in its own session's zone, so a PHP on
+     * Europe/Athens and a database on UTC put every push three hours in the future — and the
+     * windows of stats() and prune() moved with it.
+     */
+    private static function instant(int $at): string
+    {
+        return gmdate('Y-m-d H:i:sP', $at);
+    }
+
     /** @param array<string, mixed> $row */
     private static function write(array $row): bool
     {
@@ -342,7 +354,7 @@ class Log
             // A timestamp string: `sent` is a `timestamptz` — it is the hypertable's partition
             // column, and the compression and retention policies take interval strings that only
             // mean anything against one.
-            $row['sent'] = date('Y-m-d H:i:s');
+            $row['sent'] = self::instant(time());
 
             \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
                 ->table('pramnos.pushlog')

@@ -224,6 +224,34 @@ class PushLogTest extends BaseTestCase
     }
 
     /**
+     * A push is recorded at the moment it was sent, whatever zone PHP runs in.
+     *
+     * `sent` is a `timestamptz`. A local time written without its offset is read in the
+     * database's zone, so on a PHP that is not on the database's clock every row moved by the
+     * difference — and the last day's stats counted the wrong day. +14 hours makes any such
+     * shift impossible to miss.
+     */
+    public function testTheMomentIsTheSameInEveryZone(): void
+    {
+        // Arrange
+        $zone = date_default_timezone_get();
+        date_default_timezone_set('Pacific/Kiritimati');
+
+        try {
+            // Act
+            Log::record($this->userId, str_repeat('a', 64), ['title' => 'now'], 201);
+            $row   = Log::recent(1, ['userid' => $this->userId])[0];
+            $stats = Log::stats(1);
+        } finally {
+            date_default_timezone_set($zone);
+        }
+
+        // Assert — within two minutes of now, not fourteen hours off
+        $this->assertEqualsWithDelta(time(), Log::sentAt($row), 120);
+        $this->assertGreaterThanOrEqual(1, $stats['delivered'], 'the last day counts it');
+    }
+
+    /**
      * Pruning removes what is old and keeps what is not.
      *
      * A notification is cheap to send, so applications send many, and none of it is worth a
