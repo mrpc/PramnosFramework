@@ -282,7 +282,8 @@ if (!function_exists('assetUrl')) {
      *
      * The file is looked up beside the front controller that is running, which is the
      * web root whatever it is called. A file that is not there gets no stamp rather than
-     * an error.
+     * an error — and, when it is one of the framework's `pf-*.js`, a warning in the log naming
+     * `project:resync --js --all`, which publishes it.
      *
      * @param  string      $path Path under the web root, e.g. `assets/js/pf-auth.js`
      * @param  string|null $base URL of the web root; `sURL` when omitted
@@ -293,6 +294,11 @@ if (!function_exists('assetUrl')) {
         $base ??= defined('sURL') ? (string) \sURL : '/';
         $script = (string) ($_SERVER['SCRIPT_FILENAME'] ?? '');
         $mtime  = $script !== '' ? @filemtime(dirname($script) . '/' . $path) : false;
+
+        // One of the framework's own scripts, not published to this web root: say so.
+        if ($mtime === false && $script !== '' && class_exists(\Pramnos\Application\FrameworkScripts::class)) {
+            \Pramnos\Application\FrameworkScripts::referencedButMissing($path);
+        }
 
         return $base . $path . ($mtime ? '?v=' . $mtime : '');
     }

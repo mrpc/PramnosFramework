@@ -432,7 +432,13 @@ the application's own lines after a few seconds, `'llm' => ['chat' => ['waiting_
 […]]]`, and a promise after a minute — and when the answer is there the page's own HTML is
 fetched and swapped in, without a reload. Every word the script says comes from the page, so it
 is translated with the rest. Without JavaScript the page posts and refreshes itself until the
-answer is there. The hooks are the API's — `beforeAsk()`,
+answer is there.
+
+`pf-chat.js` is one of the framework's page scripts, which `composer update` does not place in
+the web root: `php bin/pramnos project:resync --js --all` does, after an upgrade that brings a
+page using a new one. Until then the page works as a plain form; the `framework_scripts` health
+check and a warning in the log, the first time a page asks for the missing file, both name the
+command. The hooks are the API's — `beforeAsk()`,
 `storePicture()`, `extra()`, `scope()` — and a refusal comes back as the page's error message.
 
 A question from anywhere on the site: include the widget in the layout. It is drawn only for

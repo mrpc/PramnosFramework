@@ -30,6 +30,7 @@ Every application registers these during `init()`:
 | `cache` | Whether the cache is on the store it was **configured** for. `degraded` when it fell back — the application works, on the wrong store. |
 | `hypertables` | Whether a declared hypertable is one, and whether a continuous aggregate is one. `degraded` when the catalogue disagrees with the declaration. |
 | `site_url` | The site's public root, and where it came from. `degraded` while it is only being inferred from the request. |
+| `framework_scripts` | Whether the web root has every `assets/js/pf-*.js` the framework ships. `degraded`, listing them, until `project:resync --js --all` publishes them — `composer update` brings a view that loads a new one, not the script. |
 | `session_storage` | Which store PHP keeps sessions in. `ok` on one server whatever the store; `degraded` on local files when the application declares `'servers' => 2` or more. |
 
 With the `authserver` feature enabled, one more is registered by

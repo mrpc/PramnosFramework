@@ -4671,6 +4671,11 @@ class Application extends Base
         // email or a webhook instead. Reads `$_SERVER` and the environment, nothing else.
         $registry::register(new \Pramnos\Health\Checks\SiteUrlCheck());
 
+        // Whether the web root has the framework's page scripts. `composer update` brings a view
+        // that loads a new one and not the script, which `project:resync --js --all` publishes;
+        // the page then runs as a plain form with nothing saying why. Reads the disk only.
+        $registry::register(new \Pramnos\Health\Checks\FrameworkScriptsCheck());
+
         // Where PHP keeps sessions. `files` is right on one machine and the quietest
         // failure in a deployment on two: a visitor whose next request lands on the other
         // node has no session, and being signed out at random reads as an expiry rather
