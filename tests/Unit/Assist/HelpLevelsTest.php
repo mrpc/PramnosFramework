@@ -341,6 +341,55 @@ class HelpLevelsTest extends TestCase
         $this->assertStringContainsString('href="' . $root . 'Help/page?p=posts" data-pf-assist-open', $panel);
         $this->assertStringContainsString('<a href="' . $root . 'Help">All help</a>', $panel);
     }
+
+    /**
+     * The site's help button as the application says: the word by default, a muted question mark
+     * with `'icon'`, or a `HelpButton` of its own — every one carrying the attribute the script
+     * opens the panel by. An administrator's Ask is not changed by it.
+     */
+    public function testTheSitesButtonAsTheApplicationSays(): void
+    {
+        // Arrange
+        $app  = \Pramnos\Application\Application::getInstance();
+        $info = $app->applicationInfo;
+        $_SERVER['REQUEST_URI'] = '/Posts';
+        $_GET = ['r' => 'Posts'];
+        AdminArea::detect('admin');
+        (new \ReflectionProperty(Page::class, 'screen'))->setValue(null, 'posts');
+        $button = static function (mixed $setting) use ($app, $info): array {
+            $app->applicationInfo = $info;
+            $app->applicationInfo['help'] = ['site' => ['button' => $setting]];
+
+            return [Panel::render(false, ''), Panel::render(true, '/admin/Ai')];
+        };
+
+        try {
+            // Act
+            [$word]          = $button(null);
+            [$icon, $askToo] = $button('icon');
+            [$own]           = $button(OwnHelpButton::class);
+            [$wrong]         = $button(\stdClass::class);
+        } finally {
+            $app->applicationInfo = $info;
+        }
+
+        // Assert
+        $this->assertStringContainsString('<a class="pf-ask" href="#" data-pf-assist-open aria-haspopup="dialog">Help</a>', $word);
+        $this->assertStringContainsString('<a class="pf-ask pf-help-icon" href="#" data-pf-assist-open aria-haspopup="dialog" aria-label="Help" title="Help">?</a>', $icon);
+        $this->assertStringContainsString('<button class="mine" data-pf-assist-open aria-haspopup="dialog" data-page="posts">Help: Reading a post</button>', $own);
+        $this->assertStringContainsString('<template data-pf-assist>', $own, 'the panel is still the framework\'s');
+        $this->assertStringContainsString('>Help</a>', $wrong, 'not a HelpButton: the word');
+        $this->assertStringContainsString('<a class="pf-ask" href="/admin/Ai" data-pf-assist-open aria-haspopup="dialog">Ask</a>', $askToo);
+    }
+}
+
+/** An application's own site help button. */
+final class OwnHelpButton implements \Pramnos\Assist\HelpButton
+{
+    public function render(string $href, string $label, string $attributes, array $page): string
+    {
+        return '<button class="mine" ' . $attributes . ' data-page="' . $page['slug'] . '">' . $label . ': ' . $page['title'] . '</button>';
+    }
 }
 
 namespace Pramnos\Tests\Unit\Assist\Levels\Controllers;

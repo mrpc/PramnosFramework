@@ -1,5 +1,6 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/svelte';
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { createRawSnippet } from 'svelte';
 import HelpPanel from '../components/HelpPanel.svelte';
 
 /**
@@ -95,5 +96,41 @@ describe('HelpPanel', () => {
 
         // Assert
         expect(await screen.findByText('That help page could not be opened.')).toBeTruthy();
+    });
+
+    it('is a small muted question mark when compact, or carries the classes it is given', async () => {
+        // Arrange
+        answers['/help/screen:posts'] = page('posts', 'Reading a post', '<p>Pick one.</p>');
+
+        // Act
+        const compact = render(HelpPanel, { screen: 'posts', compact: true });
+        const icon    = await compact.findByRole('button', { name: 'Help' });
+        compact.unmount();
+        const classed = render(HelpPanel, { screen: 'posts', buttonClass: 'my-help' });
+        const plain   = await classed.findByRole('button', { name: 'Help' });
+
+        // Assert — named for a screen reader and on hover, though it shows no word
+        expect(icon.getAttribute('title')).toBe('Help');
+        expect(icon.className).toContain('btn-circle');
+        expect(icon.className).toContain('opacity-60');
+        expect(icon.textContent.trim()).toBe('');
+        expect(plain.className).toBe('my-help');
+    });
+
+    it('draws the application\'s own button, which opens the panel', async () => {
+        // Arrange — a snippet given open() and the page found
+        answers['/help/screen:posts'] = page('posts', 'Reading a post', '<p>Pick one.</p>');
+        const button = createRawSnippet((open, found) => ({
+            render: () => `<a href="#" class="mine">Guide: ${found().title}</a>`,
+            setup: (node) => { node.addEventListener('click', (event) => { event.preventDefault(); open()(); }); },
+        }));
+
+        // Act
+        render(HelpPanel, { screen: 'posts', button });
+        await fireEvent.click(await screen.findByText('Guide: Reading a post'));
+
+        // Assert
+        expect(screen.queryByRole('button', { name: 'Help' })).toBeNull();
+        expect(screen.getByRole('dialog', { name: 'Reading a post' })).toBeTruthy();
     });
 });

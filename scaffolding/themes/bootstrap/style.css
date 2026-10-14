@@ -102,6 +102,26 @@ main {
     letter-spacing: 0;
 }
 
+/* The site's help button as a small, muted question mark — 'help' => ['site' => ['button' => 'icon']]. */
+.pf-help-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    border-radius: 50%;
+    font-weight: 600;
+    line-height: 1;
+    text-decoration: none;
+    color: inherit;
+    opacity: .6;
+}
+
+.pf-help-icon:hover,
+.pf-help-icon:focus-visible {
+    opacity: 1;
+}
+
 .pf-omnibox-option {
     display: block;
     padding: 0.5rem 0.75rem;

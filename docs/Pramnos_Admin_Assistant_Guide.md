@@ -10,6 +10,7 @@ use_cases:
   - Showing help pages in a SPA or a mobile application
   - Hiding help pages or parts of them from customers whose plan does not include a feature
   - Letting the application's own assistant answer from the site's help pages
+  - Making the site's help button a small icon, or replacing it with the application's own
 ---
 
 # Administration help and the side panel
@@ -239,6 +240,42 @@ Help::level();                        // 'site' or 'admin'
 The static `Help::` methods (`page()`, `forScreen()`, `search()`, `url()` and the rest) are the
 administration's.
 
+### The site's help button
+
+By default the button on a site page is the word *Help*. `app.php` changes it:
+
+```php
+'help' => ['site' => ['button' => 'icon']],                     // a small, muted "?"
+'help' => ['site' => ['button' => App\Help\Button::class]],     // the application's own
+```
+
+`'icon'` is a round question mark at 60% opacity, full on hover and focus, named *Help* for a
+screen reader and as its tooltip. The scaffolded theme stylesheets style it as `.pf-help-icon`;
+a project made before copies that rule into its own stylesheet.
+
+A class of the application's own implements `Pramnos\Assist\HelpButton` and returns the markup:
+
+```php
+final class Button implements \Pramnos\Assist\HelpButton
+{
+    public function render(string $href, string $label, string $attributes, array $page): string
+    {
+        return '<a class="nav-link" href="' . $href . '" ' . $attributes . '>' . $label . '</a>';
+    }
+}
+```
+
+- `$href` and `$label` arrive escaped.
+- `$page` is the page found: `slug` and `title`, raw. Escape them if you print them.
+- **`$attributes` must stay on the element that is clicked.** `pf-assist.js` finds the button by
+  `data-pf-assist-open` and opens the panel from it, whatever its class or tag. Without the script
+  the button is the link `$href`.
+
+The panel itself stays the framework's. An administrator's *Ask*, on a site page or inside the
+administration, is not changed by this setting.
+
+In a SPA the same three choices are props of `HelpPanel.svelte`, below.
+
 ### Pages for some customers only
 
 A page, or part of one, can require something the reader's plan includes. The framework cannot
@@ -357,6 +394,21 @@ A Svelte SPA has `components/HelpPanel.svelte`. With the `help` feature, the she
 ```
 
 It shows a Help button only where the screen has a page; a 404 there is the normal answer. The
+button is the application's to change:
+
+```svelte
+<HelpPanel screen={route.name} compact />                   <!-- a small round, muted "?" -->
+<HelpPanel screen={route.name} buttonClass="btn btn-link" /> <!-- the built-in button, other classes -->
+
+<HelpPanel screen={route.name}>                              <!-- a button of the application's own -->
+    {#snippet button(open, page)}
+        <button class="btn btn-ghost btn-sm" onclick={open}>Guide: {page.title}</button>
+    {/snippet}
+</HelpPanel>
+```
+
+The snippet receives `open()`, which opens the panel, and the page found (`slug`, `title`). It
+too is drawn only where the screen has a page. The
 panel draws the page and opens `?help=` links in place. A screen's page is named after its route,
 `app/help-site/posts.md` for the `posts` screen.
 

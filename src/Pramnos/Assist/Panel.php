@@ -46,14 +46,41 @@ final class Panel
             return '';
         }
 
-        $label = $ask ? self::t('Ask') : self::t('Help');
-        $href  = $ask ? $askUrl : ($book->screen() !== '' ? $book->url((string) $help['slug']) : '#');
+        $label  = $ask ? self::t('Ask') : self::t('Help');
+        $href   = $ask ? $askUrl : ($book->screen() !== '' ? $book->url((string) $help['slug']) : '#');
+        $opener = $ask || $book->level() !== HelpBook::SITE
+            ? '<a class="pf-ask" href="' . self::e($href) . '" data-pf-assist-open aria-haspopup="dialog">' . self::e($label) . '</a>'
+            : self::siteButton(self::e($href), self::e($label), ['slug' => (string) $help['slug'], 'title' => (string) $help['title']]);
 
         return $before
-            . '<a class="pf-ask" href="' . self::e($href) . '" data-pf-assist-open aria-haspopup="dialog">' . self::e($label) . '</a>'
+            . $opener
             . '<template data-pf-assist>' . self::panel($ask, $askUrl, $help, $context, $book) . '</template>'
             . '<script src="' . self::e(function_exists('assetUrl') ? assetUrl('assets/js/pf-assist.js') : 'assets/js/pf-assist.js') . '" defer></script>'
             . $after;
+    }
+
+    /**
+     * The site's help button, as `'help' => ['site' => ['button' => …]]` says: the word, by default;
+     * `'icon'`, a small muted question mark; or a {@see HelpButton} class, the application's own.
+     * Every form keeps `data-pf-assist-open`, which is how the script finds it.
+     *
+     * @param array{slug: string, title: string} $page
+     */
+    private static function siteButton(string $href, string $label, array $page): string
+    {
+        $attributes = 'data-pf-assist-open aria-haspopup="dialog"';
+        $app        = \Pramnos\Application\Application::currentInstance();
+        $button     = is_object($app) ? ($app->applicationInfo['help']['site']['button'] ?? null) : null;
+
+        if ($button === 'icon') {
+            return '<a class="pf-ask pf-help-icon" href="' . $href . '" ' . $attributes . ' aria-label="' . $label . '" title="' . $label . '">?</a>';
+        }
+
+        if (is_string($button) && class_exists($button) && is_a($button, HelpButton::class, true)) {
+            return (new $button())->render($href, $label, $attributes, $page);
+        }
+
+        return '<a class="pf-ask" href="' . $href . '" ' . $attributes . '>' . $label . '</a>';
     }
 
     /**
