@@ -124,7 +124,8 @@ abstract class LlmTestCase extends TestCase
             $toolCalls[] = ['id' => 'call_' . $i, 'type' => 'function', 'function' => ['name' => $name, 'arguments' => json_encode($arguments)]];
         }
 
-        return ['choices' => [['message' => ['role' => 'assistant', 'content' => '', 'tool_calls' => $toolCalls] + $extra, 'finish_reason' => 'tool_calls']],
+        // `$extra` first, so it can give the turn text of its own.
+        return ['choices' => [['message' => $extra + ['role' => 'assistant', 'content' => '', 'tool_calls' => $toolCalls], 'finish_reason' => 'tool_calls']],
             'usage' => ['prompt_tokens' => 20, 'completion_tokens' => 4, 'total_tokens' => 24]];
     }
 

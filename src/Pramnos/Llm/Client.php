@@ -202,6 +202,9 @@ class Client
         $calls    = [];
         $verified = false;
         $mustCall = false;
+        // What the model wrote in rounds that also called tools. Part of the answer: a model
+        // can write the whole of it and call once more, and its last round is then a postscript.
+        $said     = [];
 
         for ($round = 1; $round <= $rounds; $round++) {
             $payload['messages'] = array_merge([['role' => 'system', 'content' => $systemPrompt]], $messages);
@@ -274,6 +277,10 @@ class Client
             $cost     += (float) $roundCost;
 
             if ($requested !== []) {
+                if ($reply !== '') {
+                    $said[] = $reply;
+                }
+
                 // The model's own turn goes back verbatim: DeepSeek's thinking mode needs its
                 // `reasoning_content` returned inside the turn.
                 $messages[] = array_filter([
@@ -312,7 +319,8 @@ class Client
                 $this->write($entry + [
                     'http_status'   => $status,
                     'finish_reason' => $finish,
-                    'reply'         => 'tool calls: ' . implode(', ', array_column(array_slice($calls, -count($requested)), 'name')),
+                    'reply'         => ($reply !== '' ? $reply . "\n\n" : '')
+                        . 'tool calls: ' . implode(', ', array_column(array_slice($calls, -count($requested)), 'name')),
                     'usage'         => $spent,
                     'duration_ms'   => $took,
                 ], $context);
@@ -337,7 +345,9 @@ class Client
 
             $this->write($entry + ['http_status' => $status, 'finish_reason' => $finish, 'reply' => $reply, 'usage' => $spent, 'duration_ms' => $took], $context);
 
-            $correction = $verify !== null && !$verified && $tools !== [] ? $verify($reply, $calls) : null;
+            $answer = implode("\n\n", [...$said, $reply]);
+
+            $correction = $verify !== null && !$verified && $tools !== [] ? $verify($answer, $calls) : null;
 
             if ($correction !== null) {
                 $verified   = true;
@@ -346,13 +356,16 @@ class Client
                 $messages[] = ['role' => 'system', 'content' => $correction];
                 // A forced call, one more to finish the work (a read, then the write), and the answer.
                 $rounds     = $round + 3;
+                // The rejected answer is not kept: it said something that was not so. The model
+                // answers again, whole.
+                $said       = [];
 
                 continue;
             }
 
             return [
                 'ok'       => true,
-                'reply'    => $reply,
+                'reply'    => $answer,
                 'says'     => '',
                 'usage'    => $usage,
                 'cost'     => $priced ? $cost : null,

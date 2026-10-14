@@ -142,7 +142,10 @@ result that is not a string is JSON-encoded; what it throws is told to the model
 rather than ending the answer. Results are cut at 20,000 characters.
 
 The loop: the model answers `tool_calls`, each is run, its result goes back, until it answers in
-words. The **last round forbids tools** and tells the model not to claim anything no tool did —
+words. **Text the model writes in a round that also calls a tool is part of the reply**: the
+reply is every such text, in order, then the last round's, a blank line apart. A model can write
+its whole answer and call a tool once more in the same turn, and its last round is then a
+postscript. The call log records that text beside the `tool calls:` line. The **last round forbids tools** and tells the model not to claim anything no tool did —
 without it a model that spent every round researching writes as if the work were done. Two more
 handles for tasks that must end in a write:
 
@@ -157,7 +160,8 @@ $client->askWithTools($prompt, $messages, $tools, 6, $due, $verify);
 
 A **due** tool is forced on the round before the last when its test holds. **verify** reads the
 answer against the calls made; once, a correction is sent back with a required call and three
-more rounds.
+more rounds. The rejected answer, and the text written before it, are dropped: the reply
+is the one written after the correction.
 
 ## Policies
 

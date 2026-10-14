@@ -283,6 +283,67 @@ class ClientTest extends LlmTestCase
     }
 
     /**
+     * Text written in a round that also calls a tool is part of the answer, in order, ahead of
+     * the last round's — and the call log shows it.
+     *
+     * A model wrote its whole answer and called the tool once more in the same turn; the last
+     * round added a chart and a summary. Returning the last round alone stored an answer that
+     * began "and here is the chart", with the answer itself gone.
+     */
+    public function testTextBesideAToolCallIsKeptInTheAnswer(): void
+    {
+        // Arrange
+        $this->answer([
+            [200, self::calls([['parents', []]])],
+            [200, self::calls([['parents', ['pillar' => 2]]], ['content' => '  212 parents search more than one pillar.  '])],
+            [200, self::says('And the chart: ...')],
+        ]);
+        $tools = ['parents' => ['description' => '', 'parameters' => [], 'run' => static fn (): string => '212']];
+        $log   = self::memoryLog();
+
+        // Act
+        $answer = (new Client(null, $log))->askWithTools('', [['role' => 'user', 'content' => 'How many?']], $tools, 4);
+
+        // Assert — both texts, in order, a blank line apart; a round with no text adds nothing
+        $this->assertTrue($answer['ok']);
+        $this->assertSame("212 parents search more than one pillar.\n\nAnd the chart: ...", $answer['reply']);
+        $this->assertSame("212 parents search more than one pillar.\n\ntool calls: parents", $log->entries[1]['reply']);
+        $this->assertSame('tool calls: parents', $log->entries[0]['reply']);
+    }
+
+    /**
+     * A rejected answer is not kept, nor is what was written before it: the corrected answer is
+     * the reply, whole.
+     */
+    public function testARejectedAnswerTakesItsEarlierTextWithIt(): void
+    {
+        // Arrange — text with a read, a false "saved", the forced call, the honest answer
+        $this->answer([
+            [200, self::calls([['read', []]], ['content' => 'Reading first.'])],
+            [200, self::says('I saved it.')],
+            [200, self::calls([['save', []]])],
+            [200, self::says('Saved, really.')],
+        ]);
+        $tools  = [
+            'read' => ['description' => '', 'parameters' => [], 'run' => static fn (): string => 'read'],
+            'save' => ['description' => '', 'parameters' => [], 'run' => static fn (): string => 'saved'],
+        ];
+        $seen   = '';
+        $verify = static function (string $reply, array $calls) use (&$seen): ?string {
+            $seen = $seen ?: $reply;
+
+            return in_array('save', array_column($calls, 'name'), true) ? null : 'Nothing was saved: call save.';
+        };
+
+        // Act
+        $answer = (new Client(null, self::memoryLog()))->askWithTools('', [['role' => 'user', 'content' => 'x']], $tools, 2, [], $verify);
+
+        // Assert
+        $this->assertSame("Reading first.\n\nI saved it.", $seen, 'the verifier reads the whole answer');
+        $this->assertSame('Saved, really.', $answer['reply']);
+    }
+
+    /**
      * A model that keeps asking for tools past the last round gets a refusal, not a loop.
      */
     public function testAModelThatNeverAnswersIsStopped(): void
