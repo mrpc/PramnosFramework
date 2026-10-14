@@ -332,7 +332,7 @@ reaching the database. That makes the list of what holds it worth reading in ful
 | | |
 | --- | --- |
 | **Who** | signed in, and usertype ≥ 99 (`Root`) — or a development environment plus the DevPanel's floor. Everybody else gets a **404**, not a 403 |
-| **Credentials** | come from the configuration (`adminer_autologin`, on by default). `$_POST['auth']` is discarded before Adminer sees the request |
+| **Credentials** | come from the configuration (`adminer_autologin`, on by default), and a posted login is discarded. With autologin off, the operator signs in with their own username and password — on the application's server and driver, whatever the form names, and never with a password kept in a cookie |
 | **Which connections** | the primary and the declared replicas (`database.read` / `database.write`). A request naming any other host, user or database gets the default rather than what it asked for |
 | **Audit** | every open **and every refusal** is logged to `auth` with the account, the address and the URL |
 | **Headers** | own CSP with `frame-ancestors 'none'`, `Referrer-Policy: no-referrer`, `X-Robots-Tag: noindex` |

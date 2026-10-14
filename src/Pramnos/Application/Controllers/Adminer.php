@@ -319,7 +319,7 @@ class Adminer extends \Pramnos\Application\Controller
          * `permanent` goes with it — a field of that array which asks Adminer to write an
          * encrypted copy of the password into a cookie.
          */
-        unset($_POST['auth'], $_POST['logout']);
+        $this->restrictPostedLogin();
 
         /*
          * Every open is recorded.
@@ -411,6 +411,37 @@ class Adminer extends \Pramnos\Application\Controller
         return;
     }
 
+    /** Whether Adminer is signed in with the application's own connection (the default). */
+    protected static function autologin(): bool
+    {
+        $enabled = \Pramnos\DevPanel\DevPanelController::config('adminer_autologin', true);
+
+        return !($enabled === false || $enabled === 'false' || $enabled === '0' || $enabled === 0);
+    }
+
+    /**
+     * What a POST may say about the connection.
+     *
+     * With autologin, nothing: the connection is the application's, and a login posted to this URL
+     * is dropped. Without it, Adminer's own form has to work — the operator's username and
+     * password — but only for the application's own server and driver: those are set here
+     * whatever was posted, so the form cannot point this Adminer at another host. `permanent`
+     * (a password kept in a cookie) never.
+     */
+    protected function restrictPostedLogin(): void
+    {
+        if (self::autologin() || !isset($_POST['auth']) || !is_array($_POST['auth'])) {
+            unset($_POST['auth'], $_POST['logout']);
+
+            return;
+        }
+
+        $connection               = \Pramnos\DevPanel\AdminerBridge::applicationConnection();
+        $_POST['auth']['driver']  = (string) ($connection['driver'] ?? ($_POST['auth']['driver'] ?? ''));
+        $_POST['auth']['server']  = (string) ($connection['server'] ?? '');
+        unset($_POST['auth']['permanent']);
+    }
+
     /**
      * Hand Adminer the connection this application is already using, unless told not to.
      *
@@ -429,9 +460,7 @@ class Adminer extends \Pramnos\Application\Controller
      */
     protected function prepareLogin(): bool
     {
-        $enabled = \Pramnos\DevPanel\DevPanelController::config('adminer_autologin', true);
-
-        if ($enabled === false || $enabled === 'false' || $enabled === '0' || $enabled === 0) {
+        if (!self::autologin()) {
             return true;
         }
 
