@@ -63,6 +63,9 @@ class AnalystRedactionTest extends TestCase
             'a number that fails Luhn' => ['ref 1234567890123'],
             'a formatted amount'     => ['amount 12.345.678 euros, 3.14'],
             'a bad IPv4'             => ['code 300.1.1.1'],
+            // An export link whose random hex held a Luhn-valid run of digits: it was cut to
+            // `7-d[card]e`, and the link opened nothing — once in a few thousand exports.
+            'digits inside a hex id' => ['/Ai/export/7-d71592725381644e'],
         ];
     }
 

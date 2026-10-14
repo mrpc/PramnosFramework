@@ -41,8 +41,10 @@ final class Redactor
         );
 
         // Cards before phones: a card written in groups of four also looks like a phone number.
+        // Not glued to a letter: a run of digits inside an id — the hex of an export's link,
+        // `7-d71592725381644e` — is part of that id, and a Luhn pass there is chance.
         $text = (string) preg_replace_callback(
-            '/(?<![\d-])(?:\d[ -]?){12,18}\d(?![\d-])/',
+            '/(?<![\w-])(?:\d[ -]?){12,18}\d(?![\w-])/',
             static fn (array $m): string => self::luhn((string) preg_replace('/\D/', '', $m[0])) ? '[card]' : $m[0],
             $text
         );

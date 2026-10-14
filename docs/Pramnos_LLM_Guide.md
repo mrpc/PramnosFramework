@@ -648,7 +648,8 @@ prompt names it, and each answer's window says which it used.
 
 The provider is a third party, so nothing an aggregate answers names a person, and every
 result passes through `Analyst\Redactor` before the model reads it: email addresses become
-`a***@d***.com`; tokens, payment card numbers (Luhn-checked), phone numbers (international, or
+`a***@d***.com`; tokens, payment card numbers (Luhn-checked, and not run into letters, as the
+digits inside an id are), phone numbers (international, or
 local with separators) and IP addresses become `[token]`, `[card]`, `[phone]`, `[ip]`. A number
 without any separator is left alone — it is as likely an order number or a Unix time. A subject
 sent to fewer than three recipients is left out, since a personalised one carries a name no mask
