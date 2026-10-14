@@ -88,6 +88,23 @@ class MarkdownTest extends TestCase
     }
 
     /**
+     * A link from the site's root opens on this host in the same tab — a file the analyst made
+     * in the queue worker, which knows no host — and `//host` is another host, left as text.
+     */
+    public function testALinkFromTheSitesRoot(): void
+    {
+        // Act
+        $own   = Markdown::toHtml('[The file](/admin/Ai/export/7-0123456789abcdef)');
+        $other = Markdown::toHtml('[Elsewhere](//evil.example/x)');
+        $slash = Markdown::toHtml('[Elsewhere](/\\evil.example/x)');
+
+        // Assert
+        $this->assertSame('<p><a href="/admin/Ai/export/7-0123456789abcdef">The file</a></p>', $own);
+        $this->assertStringNotContainsString('<a', $other);
+        $this->assertStringNotContainsString('<a', $slash, 'a backslash is read as a slash by a browser');
+    }
+
+    /**
      * A ```chart block that is a chart becomes a holder carrying its spec, with its code inside
      * for a page without script; one that is not stays code, so nothing a model writes is lost.
      */

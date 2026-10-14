@@ -44,7 +44,7 @@ class SiteUrlTest extends TestCase
         putenv('APP_URL');
         unset($_ENV['APP_URL']);
         foreach (['HTTP_HOST', 'SERVER_NAME', 'HTTPS', 'HTTP_X_FORWARDED_PROTO',
-                  'SCRIPT_NAME', 'SCRIPT_FILENAME', 'DOCUMENT_ROOT'] as $key) {
+                  'SCRIPT_NAME', 'SCRIPT_FILENAME', 'DOCUMENT_ROOT', 'PRAMNOS_CONSOLE_HOST'] as $key) {
             unset($_SERVER[$key]);
         }
         SiteUrl::reset();
@@ -186,6 +186,30 @@ class SiteUrlTest extends TestCase
         $this->assertSame('', SiteUrl::get());
         $this->assertFalse(SiteUrl::isConfigured());
         $this->assertSame('uploads/x.jpg', SiteUrl::to('uploads/x.jpg'));
+    }
+
+    /**
+     * The console's own stand-in request is no request: a queue worker started by `bin/pramnos`
+     * built links on it as `http://localhostbin/…`. A real host beside the marker still answers.
+     */
+    public function testTheConsolesStandInRequestIsNoRequest(): void
+    {
+        // Arrange — what Console\Application fills in
+        $_SERVER['HTTP_HOST']            = 'localhost';
+        $_SERVER['SERVER_NAME']          = 'localhost';
+        $_SERVER['SCRIPT_NAME']          = 'bin/pramnos';
+        $_SERVER['PRAMNOS_CONSOLE_HOST'] = 'localhost';
+        SiteUrl::reset();
+
+        // Act
+        $console = SiteUrl::get();
+        $_SERVER['HTTP_HOST'] = 'example.com';
+        SiteUrl::reset();
+        $real = SiteUrl::get();
+
+        // Assert
+        $this->assertSame('', $console);
+        $this->assertStringStartsWith('http://example.com', $real, 'a host the console did not invent');
     }
 
     /**

@@ -29,6 +29,8 @@ class Application extends \Symfony\Component\Console\Application
             $_SERVER['REMOTE_ADDR'] = '127.0.0.1';
             $_SERVER['HTTP_USER_AGENT'] = 'CLI';
             $_SERVER['REQUEST_URI'] = '/';
+            // Said to be invented, so nothing builds a public address from it: see SiteUrl.
+            $_SERVER['PRAMNOS_CONSOLE_HOST'] = 'localhost';
         }
         // Symfony's DumpCompletionCommand::configure() reads $_SERVER['PHP_SELF']
         // unguarded and passes it to basename(). PHP always populates it on the

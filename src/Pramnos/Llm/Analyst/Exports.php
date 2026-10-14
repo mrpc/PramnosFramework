@@ -71,13 +71,19 @@ final class Exports
         return is_file($file) && filemtime($file) >= time() - self::DAYS * 86400 ? $file : null;
     }
 
-    /** Where the administrator downloads it. */
+    /**
+     * Where the administrator downloads it: absolute under the site root, or — in the queue
+     * worker of an installation that never set `APP_URL` — from the server's root, which the
+     * conversation page links on its own host. That is right for a site at the root of its
+     * host; one in a subdirectory sets `APP_URL`, as the `site_url` health check says.
+     */
     public static function url(string $name): string
     {
         $app    = \Pramnos\Application\Application::currentInstance();
         $prefix = trim((string) (is_object($app) ? ($app->applicationInfo['admin']['prefix'] ?? '') : ''), '/');
+        $path   = ($prefix !== '' ? $prefix . '/' : '') . 'Ai/export/' . $name;
 
-        return \Pramnos\Http\SiteUrl::to(($prefix !== '' ? $prefix . '/' : '') . 'Ai/export/' . $name);
+        return \Pramnos\Http\SiteUrl::get() !== '' ? \Pramnos\Http\SiteUrl::to($path) : '/' . $path;
     }
 
     /** Remove the files past their days. */

@@ -659,6 +659,11 @@ spreadsheet reads non-Latin text. It is kept seven days outside the web root, in
 `var/analyst-exports/`, and downloads from `/admin/Ai/export/<name>` only for the administrator
 it was made for.
 
+The link is built in the queue worker, which has no request to take a host from. With `APP_URL`
+set it is absolute. Without it, it is from the host's root (`/admin/Ai/export/…`), which the
+conversation page opens on its own host. That is right for a site at the root of its host; a site
+in a subdirectory sets `APP_URL`, and the `site_url` health check says so while exports are on.
+
 A statement is guarded four times, by `Analyst\ReadOnlySql`:
 
 - it must be one SELECT or WITH with no writing keyword anywhere (`Security\ReadOnlyQuery`) —

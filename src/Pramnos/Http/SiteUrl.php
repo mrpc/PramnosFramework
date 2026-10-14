@@ -44,7 +44,8 @@ namespace Pramnos\Http;
  *    than of the script. Derived by taking `SCRIPT_NAME` and removing the part of
  *    `SCRIPT_FILENAME` that sits below `DOCUMENT_ROOT`, so `www/api/index.php` under
  *    `www/` answers `/` — the thing `getUrl()` gets wrong.
- * 4. `''`, in a CLI process with nothing configured. Empty rather than a guess: a caller
+ * 4. `''`, in a CLI process with nothing configured — the console's own stand-in request
+ *    included (`PRAMNOS_CONSOLE_HOST`). Empty rather than a guess: a caller
  *    can test for it, and a wrong absolute URL is the failure this class exists to stop.
  *
  * ```php
@@ -173,7 +174,10 @@ final class SiteUrl
     private static function fromRequest(): string
     {
         $host = $_SERVER['HTTP_HOST'] ?? $_SERVER['SERVER_NAME'] ?? '';
-        if ($host === '') {
+        // The console fills in a request of its own so web code can run — `localhost`, and the
+        // script's directory as the path — and an address built on it is `http://localhostbin/`.
+        // It is no request; the console says so, and this answers as for none.
+        if ($host === '' || $host === ($_SERVER['PRAMNOS_CONSOLE_HOST'] ?? null)) {
             // CLI. Nothing here can be invented: a cron job has no host, and guessing one
             // produces `http:///uploads/x.jpg`, which looks like a bug in the caller.
             return '';

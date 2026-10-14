@@ -63,7 +63,7 @@ class SiteUrlCheck implements HealthCheck
         if ($resolved === '') {
             return HealthCheckResult::degraded(
                 $this->getName(),
-                'No site root: APP_URL is unset and there is no request to infer one from',
+                'No site root: APP_URL is unset and there is no request to infer one from' . $this->affected(),
                 [
                     'url'    => '',
                     'source' => 'none',
@@ -75,12 +75,25 @@ class SiteUrlCheck implements HealthCheck
         return HealthCheckResult::degraded(
             $this->getName(),
             'Site root inferred from this request (' . $resolved . '); '
-            . 'a scheduled task has no request and would build an empty URL',
+            . 'a scheduled task has no request and would build an empty URL' . $this->affected(),
             [
                 'url'    => $resolved,
                 'source' => 'request',
                 'fix'    => "Set APP_URL in .env (or 'site_url' in app/config/app.php).",
             ]
         );
+    }
+
+    /**
+     * What else goes wrong without it, where the installation uses it: the analyst's files are
+     * linked from the queue worker, and without a root only from the host's root.
+     */
+    private function affected(): string
+    {
+        $analyst = class_exists(\Pramnos\Llm\Llm::class) ? \Pramnos\Llm\Llm::config('analyst', []) : [];
+
+        return is_array($analyst) && !empty($analyst['export'])
+            ? '. The analyst\'s export links are built in the queue worker, from the host\'s root: wrong for a site in a subdirectory'
+            : '';
     }
 }

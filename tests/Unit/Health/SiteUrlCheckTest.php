@@ -117,6 +117,18 @@ class SiteUrlCheckTest extends TestCase
         $this->assertSame('', $result->details['url']);
         $this->assertSame('none', $result->details['source']);
         $this->assertStringContainsString('APP_URL', $result->message);
+        $this->assertStringNotContainsString('export', $result->message, 'nothing said about a feature that is off');
+
+        // With the analyst's exports on, what it breaks is said too
+        $app  = \Pramnos\Application\Application::getInstance();
+        $was  = $app->applicationInfo['llm'] ?? null;
+        $app->applicationInfo['llm'] = ['analyst' => ['export' => true]];
+        try {
+            $exports = (new SiteUrlCheck())->run();
+        } finally {
+            $app->applicationInfo['llm'] = $was;
+        }
+        $this->assertStringContainsString('export links are built in the queue worker', $exports->message);
     }
 
     /**

@@ -262,7 +262,7 @@ class AnalystSqlTest extends LlmTestCase
         $this->assertCount(3, $made['rows_inline'], 'a short list comes back whole, to show');
         $this->assertStringContainsString('Markdown table', $made['show']);
         $this->assertArrayNotHasKey('sample', $made);
-        $this->assertMatchesRegularExpression('#(^|/)Ai/export/7-[a-f0-9]{16}$#', $made['link'], 'no .csv, and short enough to survive redaction');
+        $this->assertMatchesRegularExpression('#^/Ai/export/7-[a-f0-9]{16}$#', $made['link'], 'no .csv, short enough to survive redaction, and from the root with no site root to build on');
         $this->assertSame($made['link'], \Pramnos\Llm\Analyst\Redactor::clean($made['link']));
         $this->assertNotNull($file);
         $this->assertNull($theirs, 'another administrator\'s link opens nothing');

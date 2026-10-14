@@ -125,8 +125,12 @@ final class Markdown
         }, $text);
 
         $links = [];
-        $text  = (string) preg_replace_callback('/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/', static function (array $m) use (&$links): string {
-            $links[] = self::link($m[2], self::escape($m[1]));
+        // An `http(s)` address opens in a new tab; one from this site's root — a file the analyst
+        // made, say — in the same tab, on this host. `//host` is another host, and refused.
+        $text  = (string) preg_replace_callback('/\[([^\]]+)\]\((https?:\/\/[^\s)]+|\/(?![\/\\\\])[^\s)]*)\)/', static function (array $m) use (&$links): string {
+            $links[] = $m[2][0] === '/'
+                ? '<a href="' . self::escape($m[2]) . '">' . self::escape($m[1]) . '</a>'
+                : self::link($m[2], self::escape($m[1]));
 
             return "\x01" . (count($links) - 1) . "\x01";
         }, $text);
