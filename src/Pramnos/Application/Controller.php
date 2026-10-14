@@ -49,6 +49,13 @@ class Controller extends \Pramnos\Framework\Base
     protected array $adminPublicActions = [];
 
     /**
+     * What one record of this screen is — `user`, `post` — when its actions take the record's
+     * id in the address: `/admin/Users/edit/5` is user 5 to the side panel and to a question
+     * asked from it. See {@see \Pramnos\Assist\Page}.
+     */
+    protected string $assistSubject = '';
+
+    /**
      * Whether the current user may do something.
      *
      * A short form of `\Pramnos\Auth\Gate::allows()` for the place it is asked most —
@@ -412,6 +419,7 @@ class Controller extends \Pramnos\Framework\Base
         if ($action === '') {
             $action = 'display';
         }
+        \Pramnos\Assist\Page::entered($this, (string) $action, $this->assistSubject);
         // An administration screen is checked here, once, before any action runs — so an
         // action that forgets its own check is still behind the screen's ability. The floor
         // is the screen's own `$requiredUserType` where it declares one, which is what

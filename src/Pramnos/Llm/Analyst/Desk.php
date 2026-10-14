@@ -33,6 +33,17 @@ class Desk
     }
 
     /**
+     * The page a question was asked from, when the side panel sent one — what the analyst is
+     * told "this" means. Checked and trimmed by {@see \Pramnos\Assist\Page::fromInput()}.
+     */
+    protected function extra(array $input): array
+    {
+        $page = \Pramnos\Assist\Page::fromInput($input['page'] ?? null);
+
+        return $page === null ? [] : ['page' => $page];
+    }
+
+    /**
      * Everything the page draws.
      *
      * @return array{conversations: list<array<string, mixed>>, conversation: array<string, mixed>|null, ask: array<string, mixed>|null, memories: list<array<string, mixed>>, limits: array<string, mixed>, consent: array<string, mixed>}

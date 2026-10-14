@@ -745,6 +745,7 @@ class Init extends Command
         $this->scaffoldUsersWiring($namespace);
         $this->scaffoldSettingsWiring($namespace);
         $this->scaffoldDashboardWiring($namespace);
+        $this->scaffoldHelpWiring($namespace);
         $this->scaffoldServicesWiring($namespace);
         $this->scaffoldOrganizationsWiring($namespace);
         $this->scaffoldEmailsWiring($namespace);
@@ -9042,6 +9043,37 @@ class Dashboard extends FrameworkDashboardController
 PHP;
 
         $this->writeFile('src/Admin/Controllers/Dashboard.php', $dashboardController);
+    }
+
+    /**
+     * `/admin/Help`: the wrapper that puts the framework's help pages on an address here — the
+     * list and search, one page, and the pictures pages show. Pages go in `app/help/`.
+     */
+    private function scaffoldHelpWiring(string $namespace): void
+    {
+        $this->mkdir('src/Admin/Controllers');
+
+        $controller = <<<PHP
+<?php
+
+declare(strict_types=1);
+
+namespace {$namespace}\\Admin\\Controllers;
+
+use Pramnos\\Application\\Controllers\\HelpController as FrameworkHelpController;
+
+/**
+ * The help pages — `app/help/*.md`, and the framework's for its own screens.
+ *
+ * Delegates to the framework controller. A page added to app/help/ appears here, in the side
+ * panel of the screen it is named after, and to the analyst.
+ */
+class Help extends FrameworkHelpController
+{
+}
+PHP;
+
+        $this->writeFile('src/Admin/Controllers/Help.php', $controller);
     }
 
     private function scaffoldServicesWiring(string $namespace): void

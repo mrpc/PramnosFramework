@@ -33,6 +33,9 @@ class Groups extends Controller
     /** The administration ability that opens this screen — its menu item's id. */
     protected string $adminAbility = 'admin.groups';
 
+    /** One record of this screen, for the side panel: see Controller::$assistSubject. */
+    protected string $assistSubject = 'group';
+
     protected int $requiredUserType = 80;
 
     /** The SQL-cache category `User::getGroups()` reads under, flushed on every membership change. */

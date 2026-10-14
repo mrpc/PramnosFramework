@@ -30,7 +30,29 @@ final class Markdown
 
     private const TD = '<td style="padding:.25rem .75rem;border-bottom:1px solid rgba(128,128,128,.35)">';
 
-    public static function toHtml(string $text): string
+    /** @var array{link?: \Closure(string): ?string, image?: \Closure(string): ?string} What the text being drawn resolves with */
+    private static array $resolve = [];
+
+    /**
+     * @param array{link?: \Closure(string): ?string, image?: \Closure(string): ?string} $options
+     *        `link` answers the address of a target that is not `http(s)` — `help:users` — or null
+     *        to leave its words as they are; such a link opens in the same tab. `image` answers
+     *        the address of `![alt](source)`, or null for the alt text alone. Without them a
+     *        picture is its alt text and only `http(s)` links, which is all a model's reply gets.
+     */
+    public static function toHtml(string $text, array $options = []): string
+    {
+        $previous      = self::$resolve;
+        self::$resolve = $options;
+
+        try {
+            return self::render($text);
+        } finally {
+            self::$resolve = $previous;
+        }
+    }
+
+    private static function render(string $text): string
     {
         $lines = explode("\n", str_replace(["\r\n", "\r"], "\n", $text));
         $html  = [];
@@ -125,12 +147,28 @@ final class Markdown
         }, $text);
 
         $links = [];
+        // A picture, where the caller resolves it; its alt text otherwise.
+        $text = (string) preg_replace_callback('/!\[([^\]]*)\]\(([^\s)]+)\)/', static function (array $m) use (&$links): string {
+            $url     = isset(self::$resolve['image']) ? (self::$resolve['image'])($m[2]) : null;
+            $links[] = $url === null
+                ? self::escape($m[1])
+                : '<img src="' . self::escape($url) . '" alt="' . self::escape($m[1]) . '" loading="lazy" style="max-width:100%;height:auto">';
+
+            return "\x01" . (count($links) - 1) . "\x01";
+        }, $text);
         // An `http(s)` address opens in a new tab; one from this site's root — a file the analyst
-        // made, say — in the same tab, on this host. `//host` is another host, and refused.
-        $text  = (string) preg_replace_callback('/\[([^\]]+)\]\((https?:\/\/[^\s)]+|\/(?![\/\\\\])[^\s)]*)\)/', static function (array $m) use (&$links): string {
-            $links[] = $m[2][0] === '/'
-                ? '<a href="' . self::escape($m[2]) . '">' . self::escape($m[1]) . '</a>'
-                : self::link($m[2], self::escape($m[1]));
+        // made, say — in the same tab, on this host, and `//host` is another host, refused; any
+        // other target only where the caller resolves it (`help:users`).
+        $text = (string) preg_replace_callback('/\[([^\]]+)\]\(([^\s)]+)\)/', static function (array $m) use (&$links): string {
+            if (preg_match('/^https?:\/\//i', $m[2]) === 1) {
+                $links[] = self::link($m[2], self::escape($m[1]));
+            } elseif (preg_match('#^/(?![/\\\\])#', $m[2]) === 1) {
+                $links[] = '<a href="' . self::escape($m[2]) . '">' . self::escape($m[1]) . '</a>';
+            } elseif (isset(self::$resolve['link']) && ($url = (self::$resolve['link'])($m[2])) !== null) {
+                $links[] = '<a href="' . self::escape($url) . '">' . self::escape($m[1]) . '</a>';
+            } else {
+                return $m[0];
+            }
 
             return "\x01" . (count($links) - 1) . "\x01";
         }, $text);

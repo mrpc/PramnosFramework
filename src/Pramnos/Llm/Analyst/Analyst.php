@@ -39,8 +39,11 @@ final class Analyst
     }
 
     /**
-     * The "Ask" link for the admin header, beside the search — empty for anybody who may not
-     * open the page, and when the `llm` feature is off.
+     * The admin header's "Ask" — beside the search — and the side panel it opens: Ask about the
+     * page you are on, and that page's help. See {@see \Pramnos\Assist\Panel}.
+     *
+     * Without the analyst — the `llm` feature off, or below its floor — it is "Help" where the
+     * page has help, and nothing where it has none. Nothing for somebody signed out.
      *
      * ```php
      * <?php echo \Pramnos\Llm\Analyst\Analyst::headerButton(); ?>
@@ -50,13 +53,14 @@ final class Analyst
     {
         $user = \Pramnos\User\User::getCurrentUser();
 
-        if (!\Pramnos\Application\FeatureRegistry::isEnabled('llm')
-            || !\Pramnos\Auth\AdminAccess::allows(is_object($user) ? $user : null, 'admin.ai', self::floor())) {
+        if (!is_object($user) || (int) ($user->userid ?? 0) <= 1) {
             return '';
         }
 
-        return $before . '<a class="pf-ask" href="' . htmlspecialchars(adminUrl('Ai'), ENT_QUOTES, 'UTF-8') . '">'
-            . htmlspecialchars((string) (function_exists('t') ? t('Ask') : 'Ask'), ENT_QUOTES, 'UTF-8') . '</a>' . $after;
+        $ask = \Pramnos\Application\FeatureRegistry::isEnabled('llm')
+            && \Pramnos\Auth\AdminAccess::allows($user, 'admin.ai', self::floor());
+
+        return \Pramnos\Assist\Panel::render($ask, adminUrl('Ai'), $before, $after);
     }
 
     /**
@@ -126,6 +130,7 @@ final class Analyst
             new \Pramnos\Llm\Analyst\Tools\PushTool(),
             new \Pramnos\Llm\Analyst\Tools\QueueTool(),
             new \Pramnos\Llm\Analyst\Tools\LlmSpendTool(),
+            new \Pramnos\Llm\Analyst\Tools\HelpTool(),
             new \Pramnos\Mcp\Tools\LogAnalyticsTool(),
             new \Pramnos\Mcp\Tools\LogErrorsTool(),
             new \Pramnos\Mcp\Tools\StatusTool(\Pramnos\Application\Application::getInstance()),

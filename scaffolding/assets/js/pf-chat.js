@@ -26,6 +26,11 @@
  *                                  draws with the application's own library instead, returning true
  *   data-question-class          — on the page: the classes of a question's bubble, and
  *   data-question-style            the inline style it falls back on
+ *   data-pf-chat-embedded        — on the page: inside another page (the side panel), so the
+ *                                  address bar is that page's and is left alone
+ *
+ * `window.PfChat.init(element)` runs it over a conversation placed later — the side panel's
+ * `pf-assist.js` does — and each run ends with a `pf-chat:ready` event on the element.
  *
  * Enter sends, Shift+Enter is a new line. No inline handlers: the framework's CSP blocks them.
  */
@@ -265,6 +270,13 @@
         holder.appendChild(key);
     }
 
+    /** Say a conversation is drawn and running, for a page that holds it. */
+    function ready(root) {
+        if (typeof window.CustomEvent === 'function' && typeof root.dispatchEvent === 'function') {
+            root.dispatchEvent(new window.CustomEvent('pf-chat:ready', { bubbles: true }));
+        }
+    }
+
     function init(root) {
         var asked = root.getAttribute('data-asked') || '';
         var form = root.querySelector('[data-pf-chat-form]');
@@ -279,7 +291,7 @@
         function address(conversationId) {
             var base = root.getAttribute('data-page') || asked.replace(/chat\/asked\/?$/, 'chat');
 
-            return base + (conversationId ? '?c=' + conversationId : '');
+            return base + (conversationId ? (base.indexOf('?') === -1 ? '?' : '&') + 'c=' + conversationId : '');
         }
 
         /**
@@ -305,7 +317,7 @@
                     }
 
                     root.innerHTML = fresh.innerHTML;
-                    if (window.history && window.history.replaceState) {
+                    if (window.history && window.history.replaceState && root.getAttribute('data-pf-chat-embedded') === null) {
                         window.history.replaceState(null, '', url);
                     }
                     init(root);
@@ -444,6 +456,8 @@
         }
 
         if (!form) {
+            ready(root);
+
             return;
         }
 
@@ -662,12 +676,15 @@
                     form.submit();
                 });
         });
+
+        ready(root);
     }
 
     // Last, once everything above is defined: a `var` is hoisted without its value.
     var page = document.querySelector('[data-pf-chat]');
 
     window.PfChat = window.PfChat || {};
+    window.PfChat.init = init;
 
     if (page) {
         init(page);

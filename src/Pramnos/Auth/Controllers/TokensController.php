@@ -38,6 +38,9 @@ class TokensController extends Controller
     /** The administration ability that opens this screen — its menu item's id. */
     protected string $adminAbility = 'admin.tokens';
 
+    /** One record of this screen, for the side panel: see Controller::$assistSubject. */
+    protected string $assistSubject = 'token';
+
     /** Minimum usertype for the global, cross-user token views (display/revoke). */
     protected int $requiredUserType = 90;
 
@@ -262,6 +265,8 @@ class TokensController extends Controller
         if ($this->requireMinUserType($this->perUserUserType)) {
             return null;
         }
+        // The id here is a user's, not a token's.
+        \Pramnos\Assist\Page::about('user', (int) \Pramnos\Http\Request::staticGetOption());
 
         // The …/userid/<id> segment is exposed by the request as the "option".
         $userId = (int) (\Pramnos\Http\Request::staticGetOption() ?? 0);

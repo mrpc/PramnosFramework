@@ -39,6 +39,9 @@ class PermissionsController extends Controller
     /** The administration ability that opens this screen — its menu item's id. */
     protected string $adminAbility = 'admin.permissions';
 
+    /** One record of this screen, for the side panel: see Controller::$assistSubject. */
+    protected string $assistSubject = 'permission';
+
     /** Minimum usertype to access any permissions action. */
     protected int $requiredUserType = 90;
 

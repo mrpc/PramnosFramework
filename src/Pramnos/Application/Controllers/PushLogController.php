@@ -35,6 +35,9 @@ class PushLogController extends Controller
     /** The administration ability that opens this screen — its menu item's id. */
     protected string $adminAbility = 'admin.pushlog';
 
+    /** One record of this screen, for the side panel: see Controller::$assistSubject. */
+    protected string $assistSubject = 'push notification';
+
     /** Minimum usertype. The same floor as the email history it sits beside. */
     protected int $requiredUserType = 80;
 

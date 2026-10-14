@@ -682,6 +682,13 @@ privileges are the boundary.
 Rows go through the redaction like every tool's answer. `sql` and `export_csv` are tagged
 `personal`, since a statement can read anybody's row.
 
+### From any administration page
+
+The admin header's **Ask** opens the analyst in a panel beside the page, about that page. A
+question carries the screen and the record it shows, and the analyst gets the page's help as
+background. Its `help` tool answers from the installation's help pages. See
+[Administration help and the side panel](Pramnos_Admin_Assistant_Guide.md).
+
 ### The application's figures
 
 ```php

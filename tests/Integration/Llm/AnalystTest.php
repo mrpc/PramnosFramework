@@ -348,7 +348,7 @@ class AnalystTest extends LlmTestCase
         $this->assertArrayHasKey('posts', $tools);
         $this->assertArrayHasKey('posts_today', $tools);
         $this->assertSame('{"published":12,"by":"e***@e***.com"}', ($tools['posts']['run'])([]));
-        $this->assertCount(14, $tools);
+        $this->assertCount(15, $tools);
     }
 
     /**
@@ -571,8 +571,8 @@ class AnalystTest extends LlmTestCase
             \Pramnos\Http\RequestIdentity::reset();
             $enabled->setValue(null, $saved);
         }
-        $this->assertMatchesRegularExpression('#^<li><a class="pf-ask" href="[^"]*Ai">Ask</a></li>$#', $button, 'an administrator sees it');
-        $this->assertSame('', $member, 'below the floor, no button');
+        $this->assertMatchesRegularExpression('#^<li><a class="pf-ask" href="[^"]*Ai" data-pf-assist-open[^>]*>Ask</a><template data-pf-assist>.*</template><script src="[^"]*pf-assist\.js" defer></script></li>$#s', $button, 'an administrator sees it, and the panel it opens');
+        $this->assertSame('', $member, 'below the floor, and no help on this page: no button');
         $app = \Pramnos\Application\Application::getInstance();
         $was = $app->applicationInfo['namespace'] ?? null;
         $app->applicationInfo['namespace'] = 'Pramnos\\Tests\\Integration\\Llm\\Fixture';

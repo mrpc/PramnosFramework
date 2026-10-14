@@ -30,6 +30,9 @@ class EmailsController extends Controller
     /** The administration ability that opens this screen — its menu item's id. */
     protected string $adminAbility = 'admin.emails';
 
+    /** One record of this screen, for the side panel: see Controller::$assistSubject. */
+    protected string $assistSubject = 'email';
+
     /** Minimum usertype to access any emails action. */
     protected int $requiredUserType = 80;
 

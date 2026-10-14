@@ -1548,6 +1548,16 @@ class Application extends Base
             icon: 'gauge',
         ));
 
+        // The help pages, where the project has the screen — `src/Admin/Controllers/Help.php`.
+        if (\Pramnos\Assist\Help::screen() !== '') {
+            NavRegistry::register(new NavItem(
+                'admin.help', 'Help', $admin('Help'),
+                NavSection::Admin, 99, requireAuth: true,
+                minUserType: (int) ($this->applicationInfo['admin']['min_usertype'] ?? 0),
+                icon: 'question', group: 'System',
+            ));
+        }
+
         // ── People ───────────────────────────────────────────────────────────
         NavRegistry::register(new NavItem(
             'admin.users', 'Users', $admin('users'),

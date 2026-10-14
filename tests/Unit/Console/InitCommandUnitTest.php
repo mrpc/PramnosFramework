@@ -3279,6 +3279,10 @@ class InitCommandUnitTest extends TestCase
         $this->assertStringContainsString('namespace AdminApp\\Admin\\Controllers;', $dashboard);
         $this->assertStringContainsString('DashboardController', $dashboard,
             'Dashboard wrapper must extend the framework DashboardController');
+        // So is the help screen: the side panel's "All help" and the help pages need it.
+        $help = (string) file_get_contents($this->tmpDir . '/src/Admin/Controllers/Help.php');
+        $this->assertStringContainsString('namespace AdminApp\\Admin\\Controllers;', $help);
+        $this->assertStringContainsString('class Help extends FrameworkHelpController', $help);
     }
 
     /**

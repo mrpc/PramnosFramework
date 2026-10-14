@@ -40,6 +40,9 @@ class MassMessagesController extends Controller
     /** The administration ability that opens this screen — its menu item's id. */
     protected string $adminAbility = 'admin.massmessages';
 
+    /** One record of this screen, for the side panel: see Controller::$assistSubject. */
+    protected string $assistSubject = 'mass message';
+
     /** Minimum usertype. This screen mails everybody, so it is not for a junior operator. */
     protected int $requiredUserType = 90;
 

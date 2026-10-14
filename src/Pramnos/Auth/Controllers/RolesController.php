@@ -49,6 +49,9 @@ class RolesController extends Controller
     /** The administration ability that opens this screen — its menu item's id. */
     protected string $adminAbility = 'admin.roles';
 
+    /** One record of this screen, for the side panel: see Controller::$assistSubject. */
+    protected string $assistSubject = 'role';
+
     use AdminScreenGrants;
 
     /** Minimum usertype to access any roles action. */
