@@ -531,6 +531,13 @@ class MakeCommandGeneratorsTest extends TestCase
                 'Generated introspection model must be valid PHP'
             );
 
+            // Assert — and it LOADS: `php -l` checks syntax only, while a method whose signature
+            // does not match its parent's (`OrmModel::save(): static`) is a fatal at class load.
+            $loaded = shell_exec('php -d display_errors=1 -r ' . escapeshellarg(
+                'require ' . var_export(ROOT . '/vendor/autoload.php', true) . '; require ' . var_export($srcFile, true) . '; echo "LOADED";'
+            ) . ' 2>&1');
+            $this->assertStringContainsString('LOADED', (string) $loaded, 'the generated model must load: ' . trim((string) $loaded));
+
             // Assert — extends the framework ORM base, like the wizard path. `OrmModel`
             // extends `Model`, so nothing a generated model could already do stops
             // working; what it adds is that a global scope registered on it is actually

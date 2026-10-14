@@ -60,10 +60,13 @@ class {{ className }} extends \Pramnos\Application\OrmModel
      * @param boolean $debug Show debug information
      * @return $this
      */
-    public function save($autoGetValues = false, $debug = false)
+    public function save($autoGetValues = false, $debug = false): static
     {
 {{ foreignFixes }}
-        return parent::_save(null, null, $autoGetValues, $debug);
+        // `: static`, as OrmModel::save() declares: without it the class does not load.
+        parent::_save(null, null, $autoGetValues, $debug);
+
+        return $this;
     }
 
     /**
