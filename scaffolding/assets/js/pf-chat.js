@@ -30,7 +30,8 @@
  *                                  address bar is that page's and is left alone
  *
  * `window.PfChat.init(element)` runs it over a conversation placed later — the side panel's
- * `pf-assist.js` does — and each run ends with a `pf-chat:ready` event on the element.
+ * `pf-assist.js` does — and each run ends with a `pf-chat:ready` event on the element. It runs once
+ * per drawing (`data-pf-chat-ready`), so a second call is nothing.
  *
  * Enter sends, Shift+Enter is a new line. No inline handlers: the framework's CSP blocks them.
  */
@@ -278,6 +279,14 @@
     }
 
     function init(root) {
+        // Once per drawing: the page that loads this script after placing a conversation (the side
+        // panel) and this script's own start would otherwise both run it, and every button and
+        // listener would be there twice. A conversation swapped in is a new drawing: see open().
+        if (root.getAttribute('data-pf-chat-ready') !== null) {
+            return;
+        }
+        root.setAttribute('data-pf-chat-ready', '');
+
         var asked = root.getAttribute('data-asked') || '';
         var form = root.querySelector('[data-pf-chat-form]');
         var messages = root.querySelector('[data-pf-chat-messages]');
@@ -317,6 +326,7 @@
                     }
 
                     root.innerHTML = fresh.innerHTML;
+                    root.removeAttribute('data-pf-chat-ready');
                     if (window.history && window.history.replaceState && root.getAttribute('data-pf-chat-embedded') === null) {
                         window.history.replaceState(null, '', url);
                     }

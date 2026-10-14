@@ -86,6 +86,31 @@ class HelpTest extends TestCase
         $this->assertNull(Help::page('../../etc/passwd'), 'a name is only ever a name');
     }
 
+    /**
+     * The application's page for a screen wins over the framework's page for one of its actions:
+     * an application that wrote `queue.md` means it for every action, and the framework's
+     * `queue/retry.md` must not show instead.
+     */
+    public function testTheApplicationsScreenPageWinsOverTheFrameworksActionPage(): void
+    {
+        // Arrange
+        mkdir($this->framework . '/queue', 0777, true);
+        file_put_contents($this->framework . '/queue/retry.md', "# Retrying, the framework's");
+        file_put_contents($this->own . '/queue.md', "# Our queue");
+        Help::useDirectories([$this->own, $this->framework]);
+
+        // Act
+        $retry = Help::forScreen('queue', 'retry');
+        $other = Help::forScreen('users', 'view');
+
+        // Assert
+        $this->assertSame('Our queue', $retry['title'], 'the application\'s, for every action');
+        $this->assertSame('Our people', $other['title']);
+        @unlink($this->framework . '/queue/retry.md');
+        @unlink($this->own . '/queue.md');
+        @rmdir($this->framework . '/queue');
+    }
+
     /** A screen's action has its own page, or the screen's; `display` is the screen. */
     public function testAScreensPage(): void
     {

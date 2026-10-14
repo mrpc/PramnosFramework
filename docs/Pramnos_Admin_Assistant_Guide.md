@@ -51,6 +51,10 @@ app/help/images/refund.png   a picture a page shows
 `Controller`. `Admin\Controllers\Users` is `users`, and its `edit` action is `users/edit`, falling
 back to `users`. The panel finds it on its own.
 
+**The application's pages come first, whichever of the two it wrote.** An application that wrote
+`app/help/users.md` gets it on the edit form too: the framework's own `users/edit.md` is used only
+when the application has neither `users/edit.md` nor `users.md`.
+
 The framework ships a page for each of its own screens in `resources/help/`. A page of the same
 name in `app/help/` replaces it. `'help' => ['paths' => [...]]` in `app/app.php` searches other
 directories instead of `app/help`; the framework's are always searched last.

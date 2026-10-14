@@ -38,6 +38,7 @@ function element(tag, attributes = {}) {
         set textContent(value) { this._text = String(value); this.children = []; },
         getAttribute(name) { return name in this.attributes ? this.attributes[name] : null; },
         setAttribute(name, value) { this.attributes[name] = String(value); },
+        removeAttribute(name) { delete this.attributes[name]; },
         appendChild(child) { child.parentNode = this; this.children.push(child); this._text = undefined; return child; },
         insertBefore(child, before) { child.parentNode = this; this.children.splice(this.children.indexOf(before), 0, child); return child; },
         removeChild(child) { this.children.splice(this.children.indexOf(child), 1); child.parentNode = null; return child; },
@@ -538,6 +539,24 @@ test('the examples go the moment a question is sent, and come back with a refuse
     // Assert
     assert.equal(atOnce, 'none', 'hidden on Enter, before any answer — by display, which an inline display:flex cannot win over');
     assert.equal(refused.page.style.display, '', 'the question is back in the box, and so are they');
+});
+
+test('a conversation is run once however often it is asked: no button or listener twice', async () => {
+    // Arrange — a table in an answer, which gets one copy button per run
+    const answer = element('div');
+    answer.className = 'pf-chat-answer';
+    answer.appendChild(element('div')).appendChild(element('table'));
+    const ui = run({ answers: [{ status: 202, data: { ask_id: 1 } }], before: [answer] });
+
+    // Act — what the side panel does after this script's own start found the same element
+    vm.runInNewContext('window.PfChat.init(page)', { window: ui.window, page: ui.page });
+    ui.box.value = 'Hi';
+    ui.form.dispatch('submit');
+    await settle();
+
+    // Assert
+    assert.equal(answer.children.filter((c) => c.className === 'pf-chat-copy-table').length, 1, 'one copy button');
+    assert.equal(ui.requests.filter((r) => r.method === 'POST').length, 1, 'the question sent once');
 });
 
 test('a page without the conversation does nothing', () => {

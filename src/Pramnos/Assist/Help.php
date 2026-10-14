@@ -81,7 +81,9 @@ final class Help
     }
 
     /**
-     * The page of a screen's action, or of the screen.
+     * The page of a screen's action, or of the screen — the application's before the
+     * framework's, whichever of the two it wrote: an application that wrote `users.md` means it
+     * for the edit form too, and the framework's `users/edit.md` must not win over it.
      *
      * @return array<string, mixed>|null
      */
