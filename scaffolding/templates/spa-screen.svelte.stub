@@ -36,6 +36,7 @@
     import { api, ApiError } from '../lib/api.js';
     import { go, href } from '../lib/router.js';
     import { t } from '../lib/i18n.svelte.js';
+    import { ui } from '../lib/ui.js';
 
     // Prefix-free on purpose: `lib/api.js` owns the API prefix — it reads
     // `apiPrefix` from `window.__PRAMNOS__` so a deployment can move the API —
@@ -233,13 +234,13 @@
 <div class="space-y-4">
     <div class="flex flex-wrap items-center gap-3">
         <h1 class="text-2xl font-medium">{t('{{ entityLabel }}')}</h1>
-        <a class="btn btn-primary btn-sm ml-auto" href={href(`${ROUTE}/new`)}>{t('New')}</a>
+        <a class="{ui('btn.primary', 'size.sm')} ml-auto" href={href(`${ROUTE}/new`)}>{t('New')}</a>
     </div>
 
     {#if editing}
-        <form class="card bg-base-100 border border-base-content/10" onsubmit={save}>
-            <div class="card-body gap-4">
-                <h2 class="card-title text-base">
+        <form class={ui('card')} onsubmit={save}>
+            <div class="{ui('card.body')} gap-4">
+                <h2 class="{ui('card.title')} text-base">
                     {editing[KEY] ? t('Edit') : t('New')}
                 </h2>
 
@@ -256,15 +257,15 @@
                 </div>
 
                 {#if formError}
-                    <div role="alert" class="alert alert-error"><span>{formError}</span></div>
+                    <div role="alert" class={ui('alert.error')}><span>{formError}</span></div>
                 {/if}
 
                 <div class="flex gap-2">
-                    <button class="btn btn-primary" type="submit" disabled={saving}>
+                    <button class={ui('btn.primary')} type="submit" disabled={saving}>
                         {#if saving}<span class="loading loading-spinner loading-sm"></span>{/if}
                         {t('Save')}
                     </button>
-                    <a class="btn btn-ghost" href={href(ROUTE)}>{t('Cancel')}</a>
+                    <a class={ui('btn.ghost')} href={href(ROUTE)}>{t('Cancel')}</a>
                 </div>
             </div>
         </form>
@@ -321,7 +322,7 @@
 
 {#snippet actionsCell(row)}
     <div class="flex gap-2">
-        <a class="btn btn-xs" href={href(`${ROUTE}/${row[KEY]}/edit`)}>{t('Edit')}</a>
-        <button class="btn btn-xs btn-error" onclick={() => (confirming = row)}>{t('Delete')}</button>
+        <a class={ui('btn', 'size.xs')} href={href(`${ROUTE}/${row[KEY]}/edit`)}>{t('Edit')}</a>
+        <button class={ui('btn.danger', 'size.xs')} onclick={() => (confirming = row)}>{t('Delete')}</button>
     </div>
 {/snippet}

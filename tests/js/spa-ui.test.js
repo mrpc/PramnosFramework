@@ -19,6 +19,9 @@ const { pathToFileURL } = require('node:url');
 
 const TEMPLATES = path.join(__dirname, '..', '..', 'scaffolding', 'templates');
 
+/** Every Svelte stub the scaffolder writes: the shared components, the shell and the screens. */
+const SVELTE_STUBS = fs.readdirSync(TEMPLATES).filter((f) => f.endsWith('.svelte.stub'));
+
 /** The module as a project receives it. */
 async function load() {
     const dir  = fs.mkdtempSync(path.join(os.tmpdir(), 'pf-ui-'));
@@ -48,8 +51,8 @@ test('every part the components ask for is in the map', async () => {
     // Arrange
     const { MAPS } = await load();
     const asked = new Set();
-    for (const stub of ['spa-datatable', 'spa-pagination', 'spa-confirm-dialog', 'spa-field', 'spa-omnibox', 'spa-help-panel']) {
-        const source = fs.readFileSync(path.join(TEMPLATES, stub + '.svelte.stub'), 'utf8');
+    for (const stub of SVELTE_STUBS) {
+        const source = fs.readFileSync(path.join(TEMPLATES, stub), 'utf8');
         for (const m of source.matchAll(/ui\(([^)]*)\)/g)) {
             for (const name of m[1].matchAll(/'([\w.-]+)'/g)) {
                 asked.add(name[1]);
@@ -58,10 +61,39 @@ test('every part the components ask for is in the map', async () => {
     }
 
     // Assert
-    assert.ok(asked.size > 30, 'the sweep found the calls');
+    assert.ok(asked.size > 50, 'the sweep found the calls');
     for (const part of asked) {
         assert.ok(part in MAPS.tailwind, `"${part}" is asked for and is not in the map`);
     }
+});
+
+/**
+ * No component or screen writes a class Bootstrap or the plain stylesheet also defines.
+ *
+ * ui.css includes only the daisyUI components those systems have no counterpart for; a `btn` or
+ * a `card` written straight into the markup would be daisyUI's on tailwind and the other system's
+ * everywhere else — drawn twice by two stylesheets, or not at all. Such a part goes through ui().
+ */
+test('no stub writes a class two UI systems define', () => {
+    // Arrange
+    const clashing = /^(btn|card|alert|badge|input|select|textarea|table|navbar|footer|link|modal|fieldset|label|progress)(-|$)/;
+    const found = [];
+
+    // Act: the static part of every class attribute, and every class: directive
+    for (const stub of SVELTE_STUBS) {
+        const source = fs.readFileSync(path.join(TEMPLATES, stub), 'utf8');
+        for (const m of source.matchAll(/class="([^"]*)"/g)) {
+            for (const name of m[1].replace(/\{[^}]*\}/g, ' ').split(/\s+/)) {
+                if (clashing.test(name)) { found.push(`${stub}: ${name}`); }
+            }
+        }
+        for (const m of source.matchAll(/class:([\w-]+)/g)) {
+            if (clashing.test(m[1])) { found.push(`${stub}: class:${m[1]}`); }
+        }
+    }
+
+    // Assert
+    assert.deepEqual(found, []);
 });
 
 test('the system is the page\'s, and an unknown one is tailwind', async () => {

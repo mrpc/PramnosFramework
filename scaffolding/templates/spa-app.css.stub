@@ -1,10 +1,10 @@
 /**
  * Styles for the {{ appName }} SPA.
  *
- * Tailwind v4 and daisyUI v5 are both configured from CSS — there is no
- * tailwind.config.js and no PostCSS pipeline to keep in sync. `@import` pulls
- * Tailwind in, `@plugin` registers daisyUI, and `@source` tells Tailwind which
- * files to scan for class names (Svelte components included).
+ * Tailwind v4 is configured from CSS — there is no tailwind.config.js and no
+ * PostCSS pipeline to keep in sync. `@import` pulls Tailwind in, `ui.css` the
+ * project's UI system, and `@source` tells Tailwind which files to scan for
+ * class names (Svelte components included).
  */
 
 /*
@@ -33,6 +33,9 @@
    before other rules, so the file wins on specificity rather than order — see
    the note in theme.css. */
 @import "./theme.css";
-@plugin "daisyui";
+/* The UI system — daisyUI, Bootstrap or the theme's plain stylesheet — as
+   `scaffold_theme` names it. The framework writes this file, and
+   `project:switch-ui` rewrites it. */
+@import "./ui.css";
 
 @source "./**/*.{svelte,js}";

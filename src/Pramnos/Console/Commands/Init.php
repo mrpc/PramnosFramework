@@ -2130,6 +2130,7 @@ class Init extends Command
             $this->writeFile($sourceDir . '/main.js',    $this->renderStub('spa-svelte-main.js', $tokens));
             $this->writeFile($sourceDir . '/App.svelte', $this->renderStub('spa-svelte-app.svelte', $tokens));
             $this->writeFile($sourceDir . '/app.css',    $this->renderStub('spa-app.css', $tokens));
+            $this->installSpaUiCss($uiSystem, $sourceDir);
             // daisyUI's palette is derived from the server-rendered theme by
             // scripts/build-theme.mjs, which runs from prebuild/predev — off the
             // request path, and re-derived whenever the CSS is rebuilt anyway.
@@ -2429,6 +2430,9 @@ CSS;
                 'tailwindcss'                 => '^4.0.0',
                 '@tailwindcss/vite'           => '^4.0.0',
                 'daisyui'                     => '^5.0.0',
+                // For `scaffold_theme` bootstrap, which ui.css imports from npm. Always
+                // listed, so `project:switch-ui` needs no npm install to change system.
+                'bootstrap'                   => '^5.3.0',
             ]);
         }
 
@@ -4163,6 +4167,29 @@ PHP;
         if ($webRoot !== '') {
             $this->webRoot = $webRoot;
         }
+    }
+
+    /**
+     * Write a built SPA's `ui.css` — the stylesheet of the UI system it draws with — into its
+     * source directory: daisyUI for tailwind, Bootstrap and the theme's stylesheet for bootstrap,
+     * the theme's stylesheet for plain-css.
+     *
+     * Public so `project:switch-ui` rewrites it with the system it switches to.
+     *
+     * @param string $uiSystem  plain-css | bootstrap | tailwind
+     * @param string $sourceDir The SPA's sources, relative to the project: `frontend`
+     */
+    public function installSpaUiCss(string $uiSystem, string $sourceDir): void
+    {
+        if ($this->scaffoldingDir === '') {
+            $this->scaffoldingDir = $this->resolveScaffoldingDir();
+        }
+        $sourceDir = trim($sourceDir, '/');
+        // From the source directory back to the project root, then into the web root.
+        $webRootRel = str_repeat('../', substr_count($sourceDir, '/') + 1) . $this->webRoot;
+        $stub       = in_array($uiSystem, ['bootstrap', 'plain-css'], true) ? $uiSystem : 'tailwind';
+
+        $this->writeFile($sourceDir . '/ui.css', $this->renderStub('spa-ui-' . $stub . '.css', ['webRootRel' => $webRootRel]));
     }
 
     public function installUiFramework(string $uiSystem, string $appName, array $features = []): void

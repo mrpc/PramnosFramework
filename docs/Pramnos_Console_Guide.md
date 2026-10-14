@@ -893,7 +893,7 @@ php bin/pramnos logs:convert /path/to/file.log --no-backup
 | `create:seeder <Name>` | A database seeder class | — |
 | `create:api-client` | Typed endpoint functions from the OpenAPI document | `--document` (default `www/api/openapi.json`), `--output`, `--dry-run` |
 | `project:git-webhook` | Write `www/webhook.php`, a standalone git webhook receiver | `--branch` (default `main`), `--force` |
-| `project:switch-ui <framework>` | Switch the scaffolding UI framework (`plain-css`, `bootstrap`, `tailwind`) | — |
+| `project:switch-ui <framework>` | Switch the scaffolding UI framework (`plain-css`, `bootstrap`, `tailwind`); in a Svelte SPA it also rewrites `frontend/ui.css` — rebuild afterwards | — |
 
 **Migrations**
 

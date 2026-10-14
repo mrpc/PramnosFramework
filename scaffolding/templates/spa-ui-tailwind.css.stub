@@ -1,0 +1,8 @@
+/**
+ * The UI system this SPA draws with: Tailwind with daisyUI's components.
+ *
+ * Written by the framework — `init`, and `project:switch-ui` when the project changes system
+ * (the previous copy is kept under var/switch-ui/). `lib/ui.js` maps the components' parts to
+ * the same system, read from `scaffold_theme` in app/app.php when the page runs.
+ */
+@plugin "daisyui";

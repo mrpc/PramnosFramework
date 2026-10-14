@@ -20,6 +20,7 @@
     import { screens } from './screens/registry.js';
     import Omnibox from './components/Omnibox.svelte';
     import HelpPanel from './components/HelpPanel.svelte';
+    import { ui } from './lib/ui.js';
 
     const hasAuth = Boolean(window.__PRAMNOS__?.features?.auth);
     const hasHelp = Boolean(window.__PRAMNOS__?.features?.help);
@@ -230,7 +231,7 @@
             <span class="dock-label max-w-16 truncate" class:sr-only={crowded}>{label}</span>
         </a>
     {:else}
-        <a class="btn btn-ghost btn-sm" class:btn-active={here} aria-current={here ? 'page' : undefined} href={target}>{label}</a>
+        <a class={ui('nav.link', here ? 'nav.current' : '')} aria-current={here ? 'page' : undefined} href={target}>{label}</a>
     {/if}
 {/snippet}
 
@@ -249,9 +250,9 @@
 {/snippet}
 
 <div class="flex min-h-screen flex-col overflow-x-clip bg-base-200 pb-16 lg:pb-0">
-    <header class="navbar bg-base-100 shadow-sm">
+    <header class="{ui('navbar')} bg-base-100 shadow-sm">
         <div class="container mx-auto flex items-center gap-2">
-            <a class="btn btn-ghost text-xl" href={href('/')}>
+            <a class="{ui('brand')} text-xl" href={href('/')}>
                 {appName}
             </a>
 
@@ -273,9 +274,9 @@
                 {/if}
                 {#if hasAuth && user}
                     <span class="hidden text-sm opacity-70 sm:inline">{user.username ?? user.email}</span>
-                    <button class="btn btn-sm" onclick={submitLogout}>Sign out</button>
+                    <button class={ui('btn.sm')} onclick={submitLogout}>Sign out</button>
                 {:else if hasAuth}
-                    <a class="btn btn-primary btn-sm" href={href('/signin')}>
+                    <a class={ui('btn.primary', 'size.sm')} href={href('/signin')}>
                         Sign in
                     </a>
                 {/if}
@@ -285,25 +286,24 @@
 
     <main class="container mx-auto flex-1 p-4 sm:p-6">
         {#if route.name === 'signin'}
-            <div class="card mx-auto w-full max-w-sm bg-base-100 shadow">
-                <div class="card-body">
+            <div class="{ui('card.raised')} mx-auto w-full max-w-sm">
+                <div class={ui('card.body')}>
                     <!-- Two legs of one sign-in, not two screens: the password
                          form is replaced by the code form, so the person is never
                          looking at both and never has to re-enter the password
                          they have already given. -->
                     {#if twoFactor}
-                        <h2 class="card-title">One more step</h2>
+                        <h2 class={ui('card.title')}>One more step</h2>
                         <p class="text-sm opacity-70">
                             {twoFactor.methods?.includes('email')
                                 ? 'Enter the code we sent you.'
                                 : 'Enter the code from your authenticator app.'}
                         </p>
                         <form class="flex flex-col gap-3" onsubmit={submitTwoFactor}>
-                            <!-- daisyUI 5: `form-control`/`label-text` were v4 and no
-                                 longer exist, so the label and the field stopped
-                                 stacking. `fieldset` does it with no class at all. -->
-                            <fieldset class="fieldset w-full">
-                                <label class="label" for="pf-2fa-code">Code</label>
+                            <!-- `fieldset` stacks the label above the field, in
+                                 every UI system. -->
+                            <fieldset class={ui('fieldset')}>
+                                <label class={ui('label')} for="pf-2fa-code">Code</label>
                                 <!-- one-time-code is what lets a phone offer the code
                                      from the message it just received; inputmode keeps
                                      the numeric keypad for a six-digit code without
@@ -317,7 +317,7 @@
                                 <!-- svelte-ignore a11y_autofocus -->
                                 <input
                                     id="pf-2fa-code"
-                                    class="input input-bordered w-full"
+                                    class={ui('input')}
                                     bind:value={factorCode}
                                     autocomplete="one-time-code"
                                     inputmode="numeric"
@@ -327,40 +327,40 @@
                             </fieldset>
 
                             {#if authError}
-                                <div role="alert" class="alert alert-error"><span>{authError}</span></div>
+                                <div role="alert" class={ui('alert.error')}><span>{authError}</span></div>
                             {/if}
 
-                            <button class="btn btn-primary" type="submit" disabled={signingIn}>
+                            <button class={ui('btn.primary')} type="submit" disabled={signingIn}>
                                 {signingIn ? 'Checking…' : 'Continue'}
                             </button>
-                            <button class="btn btn-ghost btn-sm" type="button" onclick={cancelTwoFactor}>
+                            <button class={ui('btn.ghost.sm')} type="button" onclick={cancelTwoFactor}>
                                 Use a different account
                             </button>
                         </form>
                     {:else}
-                        <h2 class="card-title">Sign in</h2>
+                        <h2 class={ui('card.title')}>Sign in</h2>
                         <form class="flex flex-col gap-3" onsubmit={submitLogin}>
-                            <fieldset class="fieldset w-full">
-                                <label class="label" for="pf-username">Username</label>
-                                <input id="pf-username" class="input input-bordered w-full" bind:value={username} autocomplete="username" required />
+                            <fieldset class={ui('fieldset')}>
+                                <label class={ui('label')} for="pf-username">Username</label>
+                                <input id="pf-username" class={ui('input')} bind:value={username} autocomplete="username" required />
                             </fieldset>
-                            <fieldset class="fieldset w-full">
-                                <label class="label" for="pf-password">Password</label>
-                                <input id="pf-password" class="input input-bordered w-full" type="password" bind:value={password} autocomplete="current-password" required />
+                            <fieldset class={ui('fieldset')}>
+                                <label class={ui('label')} for="pf-password">Password</label>
+                                <input id="pf-password" class={ui('input')} type="password" bind:value={password} autocomplete="current-password" required />
                             </fieldset>
 
                             {#if authError}
-                                <div role="alert" class="alert alert-error"><span>{authError}</span></div>
+                                <div role="alert" class={ui('alert.error')}><span>{authError}</span></div>
                             {/if}
 
-                            <button class="btn btn-primary" type="submit" disabled={signingIn}>
+                            <button class={ui('btn.primary')} type="submit" disabled={signingIn}>
                                 {signingIn ? 'Signing in…' : 'Sign in'}
                             </button>
                         </form>
 
                         {#if canUsePasskey}
                             <div class="divider">or</div>
-                            <button class="btn btn-outline" onclick={submitPasskeyLogin} disabled={signingIn}>
+                            <button class={ui('btn.outline')} onclick={submitPasskeyLogin} disabled={signingIn}>
                                 Sign in with a passkey
                             </button>
                         {/if}
@@ -385,24 +385,24 @@
                 <Screen {route} />
 
                 {#snippet failed(err, reset)}
-                    <div role="alert" class="alert alert-error flex-col items-start gap-2">
+                    <div role="alert" class="{ui('alert.error')} flex-col items-start gap-2">
                         <span>This screen failed to render: {err?.message ?? 'unknown error'}</span>
-                        <button class="btn btn-sm" onclick={reset}>Try again</button>
+                        <button class={ui('btn.sm')} onclick={reset}>Try again</button>
                     </div>
                 {/snippet}
             </svelte:boundary>
         {:else}
             <div class="grid gap-6 md:grid-cols-2">
-                <div class="card bg-base-100 shadow">
-                    <div class="card-body">
-                        <h2 class="card-title">Backend</h2>
+                <div class={ui('card.raised')}>
+                    <div class={ui('card.body')}>
+                        <h2 class={ui('card.title')}>Backend</h2>
 
                         {#if loading}
                             <span class="loading loading-spinner loading-md"></span>
                         {:else if error}
-                            <div role="alert" class="alert alert-error"><span>{error}</span></div>
+                            <div role="alert" class={ui('alert.error')}><span>{error}</span></div>
                         {:else}
-                            <div role="alert" class="alert alert-success">
+                            <div role="alert" class={ui('alert.success')}>
                                 <span>Connected to the API.</span>
                             </div>
                             <pre class="mt-2 overflow-x-auto rounded bg-base-200 p-3 text-sm">{JSON.stringify(status, null, 2)}</pre>
@@ -414,9 +414,9 @@
                     </div>
                 </div>
 
-                <div class="card bg-base-100 shadow">
-                    <div class="card-body">
-                        <h2 class="card-title">Getting started</h2>
+                <div class={ui('card.raised')}>
+                    <div class={ui('card.body')}>
+                        <h2 class={ui('card.title')}>Getting started</h2>
                         <ul class="list-inside list-disc text-sm opacity-80">
                             <li>Edit this screen in <code>frontend/App.svelte</code>.</li>
                             <li>Add a feature with <code>./{{ cliName }} create:crud &lt;name&gt;</code> — it
@@ -431,7 +431,7 @@
         {/if}
     </main>
 
-    <footer class="footer footer-center bg-base-100 p-4 text-sm">
+    <footer class="{ui('footer')} bg-base-100 p-4 text-sm">
         <p>© {new Date().getFullYear()} {appName}. All rights reserved.</p>
     </footer>
 

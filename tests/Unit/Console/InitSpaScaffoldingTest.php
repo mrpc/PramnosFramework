@@ -125,6 +125,56 @@ class InitSpaScaffoldingTest extends TestCase
     }
 
     /**
+     * A Svelte SPA's ui.css is the stylesheet of the project's UI system: daisyUI for tailwind;
+     * Bootstrap from npm with the theme's stylesheet for bootstrap; the theme's stylesheet for
+     * plain-css — those two with only the daisyUI components neither has. Bootstrap is in
+     * package.json whatever the system, so `project:switch-ui` needs no install.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('uiSystems')]
+    public function testUiCssIsTheProjectsUiSystem(string $system, string $expected, ?string $absent): void
+    {
+        // Act
+        $this->runInit(['--app-style' => 'spa', '--spa-stack' => 'svelte', '--ui-system' => $system]);
+
+        // Assert
+        $uiCss = $this->read('frontend/ui.css');
+        $this->assertStringContainsString($expected, $uiCss);
+        if ($absent !== null) {
+            $this->assertStringNotContainsString($absent, $uiCss);
+        }
+        $package = json_decode($this->read('package.json'), true);
+        $this->assertArrayHasKey('bootstrap', $package['devDependencies']);
+    }
+
+    /**
+     * @return array<string, array{string, string, ?string}>
+     */
+    public static function uiSystems(): array
+    {
+        return [
+            'tailwind'  => ['tailwind', '@plugin "daisyui";', 'style.css'],
+            'bootstrap' => ['bootstrap', '@import "bootstrap/dist/css/bootstrap.min.css";', null],
+            // The web root's stylesheet, reached from frontend/; daisyUI's .btn and .card left out
+            'plain-css' => ['plain-css', '@import "../www/assets/css/style.css";', 'include: btn'],
+        ];
+    }
+
+    /**
+     * The shell hands the page its UI system from app/app.php when it runs, so a
+     * `project:switch-ui` reaches the components without a new shell.
+     */
+    public function testTheShellReadsTheUiSystemWhenItRuns(): void
+    {
+        // Act
+        $this->runInit(['--app-style' => 'spa', '--spa-stack' => 'svelte']);
+
+        // Assert
+        $shell = $this->read('www/spa.php');
+        $this->assertStringContainsString("'/app/app.php'", $shell);
+        $this->assertStringContainsString("\$appConfig['scaffold_theme']", $shell);
+    }
+
+    /**
      * The Svelte stack: sources under frontend/, a Vite build with Tailwind and
      * daisyUI, Vitest wiring, and the helper scripts that run them in Docker.
      */
@@ -133,17 +183,17 @@ class InitSpaScaffoldingTest extends TestCase
         // Act
         $this->runInit(['--app-style' => 'spa', '--spa-stack' => 'svelte']);
 
-        // Assert — component sources exist and use Svelte 5 runes + daisyUI
+        // Assert — component sources exist, use Svelte 5 runes, and ask lib/ui.js for their classes
         $app = $this->read('frontend/App.svelte');
         $this->assertStringContainsString('$state(', $app, 'Svelte 5 runes, not the legacy store syntax');
-        $this->assertStringContainsString('card-body', $app, 'daisyUI component classes');
-        $this->assertStringContainsString('btn btn-primary', $app, 'daisyUI button classes');
+        $this->assertStringContainsString("ui('card.body')", $app, 'parts drawn in the UI system');
+        $this->assertStringContainsString("ui('btn.primary')", $app, 'buttons drawn in the UI system');
         $this->assertStringContainsString('mount(App', $this->read('frontend/main.js'));
 
         // Tailwind v4 + daisyUI are configured from CSS — no tailwind.config.js
         $css = $this->read('frontend/app.css');
         $this->assertStringContainsString('@import "tailwindcss"', $css);
-        $this->assertStringContainsString('@plugin "daisyui"', $css);
+        $this->assertStringContainsString('@import "./ui.css"', $css, 'the UI system is ui.css');
         $this->assertFileDoesNotExist($this->tmpDir . '/tailwind.config.js');
 
         // A svelte.config.js exists so the plugin stops warning and there is a

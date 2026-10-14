@@ -304,6 +304,83 @@ class SwitchUiTest extends TestCase
         $this->assertStringContainsString('    app/themes/default/header.php', $display);
     }
 
+    /**
+     * A Svelte SPA builds its own stylesheet, so the switch rewrites its `ui.css` for the new
+     * system — keeping the previous copy like any theme file — and says what the SPA still needs:
+     * an app.css that imports ui.css, Bootstrap in package.json, and a build.
+     */
+    public function testASvelteSpaGetsTheNewSystemsUiCss(): void
+    {
+        // Arrange — a SPA from before ui.css: app.css registers daisyUI itself, no bootstrap package
+        $this->writeAppConfig("    'theme' => 'default',\n    'scaffold_theme' => 'tailwind',\n    'app_style' => 'spa',\n"
+            . "    'spa_stack' => 'svelte',\n    'csp' => [\n        'style-src'  => []\n    ],\n");
+        mkdir($this->tmpDir . '/frontend', 0777, true);
+        file_put_contents($this->tmpDir . '/frontend/app.css', "@import \"tailwindcss\";\n@plugin \"daisyui\";\n");
+        file_put_contents($this->tmpDir . '/frontend/ui.css', '/* our own */');
+        file_put_contents($this->tmpDir . '/package.json', '{"devDependencies": {"daisyui": "^5.0.0"}}');
+        [, $tester] = $this->testableTester();
+
+        // Act
+        $exit    = $tester->execute(['framework' => 'bootstrap']);
+        $display = $tester->getDisplay();
+        $backups = glob($this->tmpDir . '/var/switch-ui/*', GLOB_ONLYDIR) ?: [];
+
+        // Assert — Bootstrap's ui.css, from npm and the web root's theme stylesheet
+        $this->assertSame(Command::SUCCESS, $exit, $display);
+        $uiCss = (string) file_get_contents($this->tmpDir . '/frontend/ui.css');
+        $this->assertStringContainsString('@import "bootstrap/dist/css/bootstrap.min.css";', $uiCss);
+        $this->assertStringContainsString('@import "../www/assets/css/style.css";', $uiCss);
+        // The previous copy kept, as any file the switch writes over
+        $this->assertCount(1, $backups);
+        $this->assertSame('/* our own */', file_get_contents($backups[0] . '/frontend/ui.css'));
+        // What the project still has to do, each said once
+        $this->assertStringContainsString('frontend/ui.css rewritten', $display);
+        $this->assertStringContainsString('does not import ui.css', $display);
+        $this->assertStringContainsString('npm install -D bootstrap', $display);
+        $this->assertStringContainsString('npm run build', $display);
+    }
+
+    /**
+     * A SPA whose app.css imports ui.css and whose package.json has Bootstrap is told only to
+     * rebuild; tailwind writes daisyUI's ui.css. A project with no SPA hears none of it.
+     */
+    public function testAnUpToDateSpaIsOnlyToldToRebuild(): void
+    {
+        // Arrange
+        $this->writeAppConfig("    'theme' => 'default',\n    'scaffold_theme' => 'bootstrap',\n    'app_style' => 'spa',\n"
+            . "    'spa_stack' => 'svelte',\n    'csp' => [\n        'style-src'  => []\n    ],\n");
+        mkdir($this->tmpDir . '/frontend', 0777, true);
+        file_put_contents($this->tmpDir . '/frontend/app.css', "@import \"./ui.css\";\n");
+        file_put_contents($this->tmpDir . '/package.json', '{"devDependencies": {"bootstrap": "^5.3.0"}}');
+        [, $tester] = $this->testableTester();
+
+        // Act
+        $tester->execute(['framework' => 'tailwind']);
+        $display = $tester->getDisplay();
+
+        // Assert
+        $this->assertStringContainsString('@plugin "daisyui";', (string) file_get_contents($this->tmpDir . '/frontend/ui.css'));
+        $this->assertStringNotContainsString('does not import ui.css', $display);
+        $this->assertStringNotContainsString('npm install', $display);
+        $this->assertStringContainsString('npm run build', $display);
+    }
+
+    /** A vanilla SPA draws with the web root's stylesheet: no ui.css, and nothing said about one. */
+    public function testAVanillaSpaGetsNoUiCss(): void
+    {
+        // Arrange
+        $this->writeAppConfig("    'theme' => 'default',\n    'scaffold_theme' => 'tailwind',\n    'app_style' => 'spa',\n"
+            . "    'spa_stack' => 'vanilla-vite',\n    'csp' => [\n        'style-src'  => []\n    ],\n");
+        [, $tester] = $this->testableTester();
+
+        // Act
+        $tester->execute(['framework' => 'plain-css']);
+
+        // Assert
+        $this->assertFileDoesNotExist($this->tmpDir . '/frontend/ui.css');
+        $this->assertStringNotContainsString('ui.css', $tester->getDisplay());
+    }
+
     /** Nothing changed, nothing kept, and nothing said about it. */
     public function testNothingChangedIsNothingKept(): void
     {

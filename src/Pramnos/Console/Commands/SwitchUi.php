@@ -21,6 +21,8 @@ use Symfony\Component\Console\Output\OutputInterface;
  *   2. Re-installs the theme chrome (app/themes/default) + www/assets/css/
  *      style.css + pf-*.js and pulls the framework's CSS/JS vendor assets on
  *      the spot (delegates to Init::installUiFramework()).
+ *   3. In a project with a built SPA, rewrites its `ui.css` — the stylesheet of
+ *      the UI system the SPA draws with — for the next `npm run build`.
  *
  * The scaffolded account/auth views themselves are theme-agnostic: they are
  * resolved per-framework from the bundled scaffolding, so no view files need
@@ -83,9 +85,17 @@ class SwitchUi extends Command
         }
 
         $webRoot = basename(\Pramnos\Application\FrameworkScripts::webRoot($base));
+        // A Svelte SPA builds its own stylesheet, ui.css included; the other stacks draw with the
+        // web root's, which the theme install has just rewritten.
+        $spaDir  = is_array($config) && (string) ($config['spa_stack'] ?? '') === 'svelte'
+            ? rtrim(Init::spaSourceDirFor($config), '/')
+            : '';
         // The files the switch rewrites, as they are before it — the application may have changed
         // any of them, and the switch writes over them whatever they hold.
-        $before = $this->read($base, $this->overwritten($webRoot));
+        $before = $this->read($base, array_merge(
+            $this->overwritten($webRoot),
+            $spaDir !== '' ? [$spaDir . '/ui.css'] : []
+        ));
 
         // 1. Re-install theme chrome + assets (delegates to Init), into the web root it serves.
         $init = $this->makeInit();
@@ -93,6 +103,9 @@ class SwitchUi extends Command
         $init->useWebRoot($webRoot);
         try {
             $init->installUiFramework($ui, $appName, $features);
+            if ($spaDir !== '') {
+                $init->installSpaUiCss($ui, $spaDir);
+            }
         } catch (\Throwable $e) {
             $output->writeln('<error>Failed to install UI assets: ' . $e->getMessage() . '</error>');
             return Command::FAILURE;
@@ -133,6 +146,10 @@ class SwitchUi extends Command
                 $output->writeln('    … and ' . (count($published) - 10) . ' more');
             }
             $output->writeln("<comment>  Take the '{$ui}' copy of a group with project:publish-views --group=<name> --force, then re-apply your changes.</comment>");
+        }
+
+        if ($spaDir !== '') {
+            $this->spaNotes($output, $base, $spaDir, $ui);
         }
 
         $output->writeln('<comment>Reload the app to see the new framework.</comment>');
@@ -233,6 +250,29 @@ class SwitchUi extends Command
         sort($found);
 
         return $found;
+    }
+
+    /**
+     * What a SPA with a build needs before it draws with the new system: a stylesheet that
+     * imports ui.css, Bootstrap in its dependencies, and a build.
+     */
+    private function spaNotes(OutputInterface $output, string $base, string $spaDir, string $ui): void
+    {
+        $output->writeln("  - {$spaDir}/ui.css rewritten for '{$ui}'");
+
+        $css = $base . '/' . $spaDir . '/app.css';
+        if (is_file($css) && !str_contains((string) file_get_contents($css), './ui.css')) {
+            $output->writeln("<comment>{$spaDir}/app.css does not import ui.css, so the SPA still draws with daisyUI: "
+                . 'replace its `@plugin "daisyui";` line with `@import "./ui.css";`.</comment>');
+        }
+
+        $package = json_decode((string) @file_get_contents($base . '/package.json'), true);
+        if ($ui === 'bootstrap' && is_array($package) && !isset($package['devDependencies']['bootstrap'])
+            && !isset($package['dependencies']['bootstrap'])) {
+            $output->writeln('<comment>ui.css imports Bootstrap from npm: run `npm install -D bootstrap@^5.3.0`.</comment>');
+        }
+
+        $output->writeln('<comment>Rebuild the SPA (`npm run build`, or a running `npm run dev` picks it up) — its bundle carries the stylesheet.</comment>');
     }
 
     /** The framework's scaffolding directory. */

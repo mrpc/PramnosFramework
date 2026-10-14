@@ -1,0 +1,42 @@
+/**
+ * The UI system this SPA draws with: Bootstrap, and the server-rendered theme's stylesheet.
+ *
+ * Written by the framework — `init`, and `project:switch-ui` when the project changes system
+ * (the previous copy is kept under var/switch-ui/). `lib/ui.js` maps the components' parts to
+ * the same system, read from `scaffold_theme` in app/app.php when the page runs.
+ *
+ * Bootstrap comes from npm, so a build never depends on what was downloaded into the web root.
+ * The theme's stylesheet carries the `pf-ui-*` rules the shared components use where Bootstrap
+ * has no class of its own.
+ */
+@import "bootstrap/dist/css/bootstrap.min.css";
+@import "{{ webRootRel }}/assets/css/theme-tokens.css";
+@import "{{ webRootRel }}/assets/css/style.css";
+
+/*
+ * Only the daisyUI components Bootstrap has no counterpart for — a chat, a phone dock, figures,
+ * a joined group, a divider, tabs, a loading indicator — so no `.btn` or `.card` is styled twice.
+ */
+@plugin "daisyui" {
+    themes: false;
+    include: chat, dock, stat, loading, divider, join, tab;
+}
+
+/*
+ * The colour names the screens' utilities use (`bg-base-100`, `text-primary`, …), mapped onto
+ * Bootstrap's own variables so they follow its colour mode.
+ */
+@theme {
+    --color-base-100: var(--bs-body-bg);
+    --color-base-200: var(--bs-tertiary-bg);
+    --color-base-300: var(--bs-border-color);
+    --color-base-content: var(--bs-body-color);
+    --color-primary: var(--bs-primary);
+    --color-primary-content: #ffffff;
+    --color-neutral: var(--bs-dark);
+    --color-neutral-content: var(--bs-light);
+    --color-success: var(--bs-success);
+    --color-warning: var(--bs-warning);
+    --color-error: var(--bs-danger);
+    --color-info: var(--bs-info);
+}

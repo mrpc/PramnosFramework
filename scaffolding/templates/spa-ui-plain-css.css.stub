@@ -1,0 +1,41 @@
+/**
+ * The UI system this SPA draws with: the server-rendered theme's own stylesheet.
+ *
+ * Written by the framework — `init`, and `project:switch-ui` when the project changes system
+ * (the previous copy is kept under var/switch-ui/). `lib/ui.js` maps the components' parts to
+ * the same system, read from `scaffold_theme` in app/app.php when the page runs.
+ *
+ * The theme's stylesheet carries the `pf-ui-*` rules the shared components use.
+ */
+@import "{{ webRootRel }}/assets/css/theme-tokens.css";
+@import "{{ webRootRel }}/assets/css/style.css";
+
+/*
+ * Only the daisyUI components the stylesheet has no counterpart for — a chat, a phone dock,
+ * figures, a joined group, a divider, tabs, a loading indicator — so no `.btn` or `.card` is
+ * styled twice.
+ */
+@plugin "daisyui" {
+    themes: false;
+    include: chat, dock, stat, loading, divider, join, tab;
+}
+
+/*
+ * The colour names the screens' utilities use (`bg-base-100`, `text-primary`, …). The palette
+ * `scripts/build-theme.mjs` derives from the theme (theme.css) sets the project's values over
+ * these.
+ */
+@theme {
+    --color-base-100: #ffffff;
+    --color-base-200: #f3f4f6;
+    --color-base-300: #e5e7eb;
+    --color-base-content: #1f2937;
+    --color-primary: #2563eb;
+    --color-primary-content: #ffffff;
+    --color-neutral: #374151;
+    --color-neutral-content: #f9fafb;
+    --color-success: #16a34a;
+    --color-warning: #d97706;
+    --color-error: #dc2626;
+    --color-info: #0284c7;
+}

@@ -10,6 +10,7 @@
      * glance at the numbers — is here.
      */
     import { api, ApiError } from '../lib/api.js';
+    import { ui } from '../lib/ui.js';
 
     const TABS = [
         { id: 'summary', label: 'Overview' },
@@ -74,8 +75,8 @@
     }
 </script>
 
-<div class="card bg-base-100 shadow">
-    <div class="card-body">
+<div class={ui('card.raised')}>
+    <div class={ui('card.body')}>
         <div role="tablist" class="tabs tabs-boxed w-fit">
             {#each TABS as item}
                 <button
@@ -88,7 +89,7 @@
         </div>
 
         {#if error}
-            <div role="alert" class="alert alert-error mt-4"><span>{error}</span></div>
+            <div role="alert" class="{ui('alert.error')} mt-4"><span>{error}</span></div>
         {:else if loading}
             <span class="loading loading-spinner loading-md mt-4"></span>
         {:else if tab === 'summary'}
@@ -108,12 +109,12 @@
             </div>
         {:else if tab === 'users'}
             <form class="join mt-4" onsubmit={(e) => { e.preventDefault(); page = 1; load(); }}>
-                <input class="input input-bordered input-sm join-item" placeholder="Search users" bind:value={search} />
-                <button class="btn btn-sm join-item" type="submit">Search</button>
+                <input class="{ui('input.sm')} join-item" placeholder="Search users" bind:value={search} />
+                <button class="{ui('btn.sm')} join-item" type="submit">Search</button>
             </form>
 
             <div class="mt-3 overflow-x-auto">
-                <table class="table table-zebra">
+                <table class={ui('table.zebra')}>
                     <thead>
                         <tr><th>ID</th><th>Username</th><th>Email</th><th>Type</th><th>Active</th></tr>
                     </thead>
@@ -135,9 +136,9 @@
 
             <div class="mt-3 flex items-center gap-3">
                 <div class="join">
-                    <button class="btn btn-sm join-item" disabled={page <= 1} onclick={() => { page -= 1; load(); }}>«</button>
-                    <button class="btn btn-sm join-item">{page}</button>
-                    <button class="btn btn-sm join-item" disabled={users.length < 20} onclick={() => { page += 1; load(); }}>»</button>
+                    <button class="{ui('btn.sm')} join-item" disabled={page <= 1} onclick={() => { page -= 1; load(); }}>«</button>
+                    <button class="{ui('btn.sm')} join-item">{page}</button>
+                    <button class="{ui('btn.sm')} join-item" disabled={users.length < 20} onclick={() => { page += 1; load(); }}>»</button>
                 </div>
                 <span class="text-sm opacity-70">{total} users</span>
             </div>

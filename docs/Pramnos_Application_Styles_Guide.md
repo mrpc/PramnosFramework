@@ -409,19 +409,23 @@ server. Stop it and the shell silently goes back to the built bundle. So you edi
 a component, keep the same URL open, and get HMR against the real backend — real
 sessions, real cookies, no proxy and no CORS gymnastics in the app itself.
 
-Tailwind and daisyUI are configured from CSS alone (`@import "tailwindcss";`
-`@plugin "daisyui";`) — there is no `tailwind.config.js` to keep in sync.
+Tailwind is configured from CSS alone — there is no `tailwind.config.js` to keep in
+sync. `frontend/app.css` imports Tailwind, the palette (`theme.css`) and `ui.css`, the
+stylesheet of the project's UI system; see
+[The whole SPA follows the UI system](#the-whole-spa-follows-the-ui-system).
 
-**Form markup is daisyUI 5's**, which is not daisyUI 4's. `form-control`,
-`label-text` and `label-text-alt` were removed in 5 and style nothing, so a wrapper
+**Form markup on tailwind is daisyUI 5's**, which is not daisyUI 4's. `form-control`,
+`label-text` and `label-text-alt` do not exist in 5 and style nothing, so a wrapper
 written against them stops stacking: the label becomes an inline-flex box beside a
 field shrunk to its content, and three of them render as three ragged rows of
-different widths. `Field.svelte` and the generated screens use a `fieldset` instead:
+different widths. `Field.svelte` and the generated screens use a `fieldset` instead,
+with its parts from `lib/ui.js` (`fieldset w-full`, `label`, `input input-bordered w-full`
+on tailwind):
 
 ```svelte
-<fieldset class="fieldset w-full">
-    <label class="label" for={id}>{label}</label>
-    <input {id} class="input input-bordered w-full" />
+<fieldset class={ui('fieldset')}>
+    <label class={ui('label')} for={id}>{label}</label>
+    <input {id} class={ui('input')} />
 </fieldset>
 ```
 
@@ -429,8 +433,8 @@ Three details are deliberate. `fieldset` stacks its children with no class at al
 so the layout survives even where daisyUI is not loaded — which a `div` leaning on
 `form-control` did not. The name stays on a real `<label for>` rather than a
 `<legend>`, because a legend names a *group* and a control whose only accessible
-name comes from one has no name of its own. And inputs carry `w-full`, because in 5
-nothing stretches them any more.
+name comes from one has no name of its own. And inputs carry `w-full`, because in daisyUI 5
+nothing stretches them.
 
 Every stack ships with tests for the API client (cookie auth, Bearer auth, JSON
 encoding, `204`, error statuses) and, for Svelte, component tests for the root
@@ -716,16 +720,42 @@ stack's sections are plain modules under the web root.
 - On the server, a `TestClient` request to a deep link (`/admin/Users/edit/5`) proves the address
   is answered with the mount element inside the area.
 
-### The shared components follow the page's UI system
+### The whole SPA follows the UI system
 
-The shared components (`DataTable`, `Pagination`, `ConfirmDialog`, `Field`, `Omnibox`,
-`HelpPanel`) ask `lib/ui.js` for each part by name, `ui('btn.sm')` or `ui('card')`, instead of
-writing one framework's classes. `lib/ui.js` maps each part per UI system: daisyUI for `tailwind`,
-Bootstrap 5's own classes for `bootstrap`, and the plain stylesheet's for `plain-css`.
+Every Svelte file the scaffolder writes — the shared components (`DataTable`, `Pagination`,
+`ConfirmDialog`, `Field`, `Omnibox`, `HelpPanel`), the shell `App.svelte`, the admin, chat and
+scheduled-report screens, and the screens `create:crud` generates — asks `lib/ui.js` for each part
+by name, `ui('btn.sm')` or `ui('card')`, instead of writing one framework's classes. `lib/ui.js`
+maps each part per UI system: daisyUI for `tailwind`, Bootstrap 5's own classes for `bootstrap`,
+and the plain stylesheet's for `plain-css`. Sizes and variants combine: `ui('btn.primary', 'size.sm')`.
 
-A section takes its system from `scaffold_theme`, handed to it in `data-config`. So a section
+The system is read when the page runs, from `scaffold_theme` in app/app.php: the SPA shell
+publishes it as `window.__PRAMNOS__.ui`, and a section receives it in `data-config`. So a section
 inside a Bootstrap page draws Bootstrap's buttons, tables and modals, and follows
-`project:switch-ui` with the page. Where a system has no class for a part (a layout utility plain
+`project:switch-ui` with the page.
+
+A full SPA builds its own stylesheet, so the build has to carry the same system.
+`frontend/ui.css`, which `app.css` imports, is that system's stylesheet:
+
+| `scaffold_theme` | `frontend/ui.css` |
+|---|---|
+| `tailwind` | `@plugin "daisyui";` |
+| `bootstrap` | Bootstrap from npm, the theme's `theme-tokens.css` and `style.css` from the web root, and only the daisyUI components Bootstrap has no counterpart for |
+| `plain-css` | The theme's `theme-tokens.css` and `style.css`, and the same daisyUI components |
+
+Those daisyUI components are the chat, the phone dock, stats, joined groups, dividers, tabs
+and the loading indicator. They are written as daisyUI classes in every system. A part both
+daisyUI and the other stylesheet define (`btn`, `card`, `alert`, `badge`, form fields, `table`,
+`navbar`, `progress`, …) always goes through `ui()`, because otherwise two stylesheets would draw
+it. A framework test fails on a stub that writes one directly. `bootstrap` is in `package.json`
+whatever the system, and Tailwind's layout utilities (`flex`, `gap-2`, `lg:hidden`) compile into
+the bundle under every system. `ui.css` maps the colour names they use (`bg-base-100`,
+`text-error`) onto the system's own colours.
+
+The framework writes `ui.css`; `project:switch-ui` rewrites it, keeping the previous copy under
+`var/switch-ui/`. Then run `npm run build`, because the bundle carries the stylesheet. A project
+whose `app.css` registers daisyUI itself (`@plugin "daisyui";`) keeps drawing with daisyUI until
+that line becomes `@import "./ui.css";`, and the switch says so. Where a system has no class for a part (a layout utility plain
 CSS lacks, a modal that is not Bootstrap's script-driven one, the help side panel), the map
 uses a `pf-ui-*` hook, which the scaffolded `bootstrap` and `plain-css` stylesheets style.
 
@@ -737,7 +767,6 @@ import { ui } from '../lib/ui.js';
 A part is added to all three maps. A framework test checks that every part exists in each, and
 that every hook a map uses has a rule.
 
-## Directory layout (Services + API + SPA)
 ## Directory layout (Services + API + SPA)
 
 ```

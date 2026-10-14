@@ -15,6 +15,7 @@
      */
     import { t as translate } from '../../lib/i18n.svelte.js';
     import { failure, resolveClient } from '../../lib/llm/chat.js';
+    import { ui } from '../../lib/ui.js';
 
     let {
         client = null,
@@ -79,14 +80,14 @@
             <p>{t('When you use it, what you ask and the data needed to answer it are sent to %s.', consent.label || consent.provider)}</p>
             <p><strong>{t('Nothing is sent until you agree.')}</strong> {t('You can withdraw at any time.')}</p>
             {#if privacyUrl}
-                <p><a class="link" href={privacyUrl} target="_blank" rel="noopener">{t('Privacy policy')}</a></p>
+                <p><a class={ui('link')} href={privacyUrl} target="_blank" rel="noopener">{t('Privacy policy')}</a></p>
             {/if}
         {/if}
         {#if error}<p class="text-error" role="alert">{error}</p>{/if}
         <div class="flex gap-2">
-            <button type="button" class="btn btn-primary btn-sm" onclick={agree} disabled={saving}>{t('I agree')}</button>
+            <button type="button" class={ui('btn.primary', 'size.sm')} onclick={agree} disabled={saving}>{t('I agree')}</button>
             {#if ondecline}
-                <button type="button" class="btn btn-ghost btn-sm" onclick={ondecline}>{t('Not now')}</button>
+                <button type="button" class={ui('btn.ghost.sm')} onclick={ondecline}>{t('Not now')}</button>
             {/if}
         </div>
     </div>

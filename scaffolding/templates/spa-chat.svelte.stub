@@ -33,6 +33,7 @@
     import { markdown } from '../../lib/llm/markdown.js';
     import AiConsent from './AiConsent.svelte';
     import ConfirmDialog from '../ConfirmDialog.svelte';
+    import { ui } from '../../lib/ui.js';
 
     let {
         client = null,
@@ -382,9 +383,9 @@
     <div class="relative">
         <!-- Out of the way on purpose: the model, the limits and the memory are worth
              being able to see, and not worth a permanent place on screen. -->
-        <details class="dropdown dropdown-end absolute right-0 top-0">
-            <summary class="btn btn-ghost btn-sm" aria-label={t('Settings')}>⚙</summary>
-            <div class="dropdown-content z-30 mt-1 w-80 max-w-[calc(100vw-2rem)] space-y-3 rounded-box border border-base-300 bg-base-100 p-4 text-sm shadow-lg">
+        <details class="{ui('dropdown.end')} absolute right-0 top-0">
+            <summary class="{ui('btn.ghost.sm')} list-none" aria-label={t('Settings')}>⚙</summary>
+            <div class="dropdown-content absolute right-0 z-30 mt-1 w-80 max-w-[calc(100vw-2rem)] space-y-3 rounded-box border border-base-300 bg-base-100 p-4 text-sm shadow-lg">
                 {#if limits}
                     <div>
                         <h2 class="font-medium">{t('Model')}</h2>
@@ -411,7 +412,7 @@
                     <div>
                         <h2 class="font-medium">{t('Your agreement')}</h2>
                         <p class="opacity-70">{t('You agreed to the AI features using %s.', consent.label || consent.provider)}</p>
-                        <button type="button" class="btn btn-ghost btn-xs mt-1 px-0 text-error" onclick={withdraw}>{t('Withdraw — send nothing more')}</button>
+                        <button type="button" class="{ui('btn.ghost', 'size.xs')} mt-1 px-0 text-error" onclick={withdraw}>{t('Withdraw — send nothing more')}</button>
                     </div>
                 {/if}
 
@@ -425,9 +426,9 @@
                                 <li class="flex items-start gap-1">
                                     <span class="min-w-0 flex-1">
                                         {one.content}
-                                        {#if one.kind === 'preference'}<span class="badge badge-ghost badge-xs">{t('preference')}</span>{/if}
+                                        {#if one.kind === 'preference'}<span class={ui('badge.muted')}>{t('preference')}</span>{/if}
                                     </span>
-                                    <button type="button" class="btn btn-ghost btn-xs btn-square opacity-60 hover:opacity-100"
+                                    <button type="button" class="{ui('btn.ghost', 'size.xs', 'btn.square')} opacity-60 hover:opacity-100"
                                         aria-label={t('Forget %s', one.content)} onclick={() => unremember(one.memory_id)}>✕</button>
                                 </li>
                             {/each}
@@ -446,9 +447,9 @@
 
     <div class="grid gap-4 {asideOpen && aside ? 'lg:grid-cols-[16rem_minmax(0,1fr)_minmax(0,32rem)]' : 'lg:grid-cols-[16rem_minmax(0,1fr)]'}">
         <nav class="flex min-w-0 flex-col gap-2" aria-label={t('Conversations')}>
-            <button type="button" class="btn btn-sm" onclick={() => { messages = []; opened(0); }}>{t('New conversation')}</button>
+            <button type="button" class={ui('btn.sm')} onclick={() => { messages = []; opened(0); }}>{t('New conversation')}</button>
             {#if scheduledHref}
-                <a class="btn btn-ghost btn-sm" href={scheduledHref}>{t('Scheduled reports')}</a>
+                <a class={ui('btn.ghost.sm')} href={scheduledHref}>{t('Scheduled reports')}</a>
             {/if}
             <!-- Not daisyUI's `menu`: its items grow to the whole title and scroll
                  sideways instead of truncating. -->
@@ -472,7 +473,7 @@
                                 onclick={() => opened(one.conversation_id)}>{@render entry()}</button>
                         {/if}
                         <button type="button"
-                            class="btn btn-ghost btn-xs btn-square absolute right-1 top-1/2 -translate-y-1/2 opacity-60 hover:opacity-100"
+                            class="{ui('btn.ghost', 'size.xs', 'btn.square')} absolute right-1 top-1/2 -translate-y-1/2 opacity-60 hover:opacity-100"
                             aria-label={t('Delete %s', one.title)}
                             onclick={() => { forgetting = one.conversation_id; }}>✕</button>
                     </li>
@@ -486,7 +487,7 @@
             <!-- Outside the agreement: a refusal for want of it brings the notice up in
                  place of the box, and must still be read. -->
             {#if error}
-                <div role="alert" class="alert alert-warning alert-soft"><span>{error}</span></div>
+                <div role="alert" class={ui('alert.warning')}><span>{error}</span></div>
             {/if}
 
             <AiConsent {client} {api} {paths} {t} {privacyUrl} feature={t('Ask AI')} notice={consentNotice} bind:consent>
@@ -494,7 +495,7 @@
                     <div class="flex flex-wrap gap-2">
                         {#each suggestions as suggestion}
                             <!-- Fills the box rather than asking: a starting point to edit. -->
-                            <button type="button" class="btn btn-sm" onclick={() => { question = suggestion; box?.focus(); }}>{suggestion}</button>
+                            <button type="button" class={ui('btn.sm')} onclick={() => { question = suggestion; box?.focus(); }}>{suggestion}</button>
                         {/each}
                     </div>
                 {/if}
@@ -562,7 +563,7 @@
                     <textarea
                         id="pf-chat-ask"
                         bind:this={box}
-                        class="textarea textarea-ghost w-full resize-y border-0 bg-transparent px-4 pt-3 focus:outline-none"
+                        class="{ui('textarea.ghost')} w-full resize-y border-0 bg-transparent px-4 pt-3 focus:outline-none"
                         rows="2"
                         bind:value={question}
                         onkeydown={keydown}
@@ -571,16 +572,16 @@
                     ></textarea>
                     <div class="flex flex-wrap items-center gap-2 px-2 pb-2">
                         <input bind:this={picker} class="hidden" type="file" multiple accept={DOCUMENTS} aria-label={t('Attach a document')} onchange={attach} />
-                        <button class="btn btn-ghost btn-sm btn-circle" type="button" aria-label={t('Attach a document')} title={t('Attach a document')} onclick={() => picker?.click()}>📎</button>
+                        <button class={ui('btn.ghost.sm', 'btn.circle')} type="button" aria-label={t('Attach a document')} title={t('Attach a document')} onclick={() => picker?.click()}>📎</button>
                         {#each attachments as one, at (one.name)}
-                            <span class="badge badge-soft badge-primary min-w-0 gap-1">
+                            <span class="{ui('badge.primary')} min-w-0 gap-1">
                                 <span class="truncate">{one.name}</span>
                                 <button class="cursor-pointer" type="button" aria-label={t('Remove %s', one.name)} onclick={() => { attachments.splice(at, 1); }}>✕</button>
                             </span>
                         {/each}
                         {#if composer}{@render composer()}{/if}
                         <span class="ml-auto hidden text-xs opacity-50 sm:inline">{t('Enter to send · Shift+Enter for a new line')}</span>
-                        <button class="btn btn-primary btn-sm" type="submit" disabled={asking || !canAsk || (question.trim() === '' && attachments.length === 0)}>{t('Ask')}</button>
+                        <button class={ui('btn.primary', 'size.sm')} type="submit" disabled={asking || !canAsk || (question.trim() === '' && attachments.length === 0)}>{t('Ask')}</button>
                     </div>
                 </form>
 
@@ -589,7 +590,7 @@
                          the oldest messages stop being sent. -->
                     <div class="flex items-center gap-2 text-xs opacity-60">
                         <span>{t('Context')}</span>
-                        <progress class="progress w-32" value={contextShare} max="100" aria-label={t('Context')}></progress>
+                        <progress class="{ui('progress')} w-32" value={contextShare} max="100" aria-label={t('Context')}></progress>
                         <span>{number(context)} / {number(limits.context_window)}</span>
                     </div>
                 {/if}
@@ -600,7 +601,7 @@
             <!-- Beside the conversation from lg; over it below that, closed with ✕. -->
             <div class="max-lg:fixed max-lg:inset-0 max-lg:z-40 max-lg:overflow-y-auto max-lg:bg-base-100 max-lg:p-4">
                 <div class="flex justify-end">
-                    <button type="button" class="btn btn-ghost btn-sm btn-square" aria-label={t('Close')} onclick={() => { asideOpen = false; }}>✕</button>
+                    <button type="button" class={ui('btn.ghost.sm', 'btn.square')} aria-label={t('Close')} onclick={() => { asideOpen = false; }}>✕</button>
                 </div>
                 {@render aside()}
             </div>
