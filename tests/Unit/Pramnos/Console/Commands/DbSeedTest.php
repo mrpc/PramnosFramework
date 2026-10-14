@@ -202,6 +202,34 @@ PHP;
     /**
      * A single valid seeder is reported as seeded and returns exit code 0.
      */
+    /**
+     * A seeder declared in a namespace runs: its class is the file's name in the file's namespace —
+     * taken from the name alone it was "not found", and every namespaced seeder failed.
+     */
+    public function testANamespacedSeederRuns(): void
+    {
+        // Arrange
+        file_put_contents($this->seedsDir . '/NamespacedSeeder.php', <<<'PHP'
+<?php
+namespace App\Seeds;
+
+class NamespacedSeeder extends \Pramnos\Database\Seeder
+{
+    public function run(): void
+    {
+    }
+}
+PHP);
+        $tester = $this->makeTester();
+
+        // Act
+        $code = $tester->execute(['--path' => $this->seedsDir]);
+
+        // Assert
+        $this->assertSame(0, $code, $tester->getDisplay());
+        $this->assertStringContainsString('Seeded: App\\Seeds\\NamespacedSeeder', $tester->getDisplay());
+    }
+
     public function testRunsSingleValidSeeder(): void
     {
         // Arrange

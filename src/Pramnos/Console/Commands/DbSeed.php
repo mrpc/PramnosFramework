@@ -72,6 +72,11 @@ class DbSeed extends Command
         foreach ($seeders as $class => $file) {
             require_once $file;
 
+            // A seeder in a namespace — `namespace App\Seeds;` — is that namespace's class.
+            if (!class_exists($class) && preg_match('/^\s*namespace\s+([^;\s]+)\s*;/m', (string) file_get_contents($file), $ns) === 1) {
+                $class = $ns[1] . '\\' . $class;
+            }
+
             if (!class_exists($class)) {
                 $output->writeln('<error>Class ' . $class . ' not found in ' . $file . '</error>');
                 $failed[] = $class;

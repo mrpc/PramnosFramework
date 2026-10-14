@@ -515,8 +515,8 @@ class UsersSeeder extends Seeder
 }
 ```
 
-`db:seed` takes the class name from the file name (`UsersSeeder.php` → `UsersSeeder`), so
-a seeder in `database/seeds/` declares no namespace.
+`db:seed` takes the class name from the file name (`UsersSeeder.php` → `UsersSeeder`), in the
+file's namespace when it declares one.
 
 ### Running seeders
 
