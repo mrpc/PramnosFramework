@@ -280,8 +280,9 @@ if (!function_exists('assetUrl')) {
      * fix reaches nobody until that runs out. `?v=<mtime>` changes the URL whenever the
      * file changes, and only then.
      *
-     * The file is looked up beside the front controller that is running, which is the
-     * web root whatever it is called. A file that is not there gets no stamp rather than
+     * The file is looked up beside the front controller that is running, then in each directory
+     * above it up to the document root — an application mounted in a subdirectory serves the
+     * site's `assets/` — then in the project's web root. A file that is not there gets no stamp rather than
      * an error — and, when it is one of the framework's `pf-*.js`, a warning in the log naming
      * `project:resync --js --all`, which publishes it.
      *
@@ -293,7 +294,31 @@ if (!function_exists('assetUrl')) {
         $path   = ltrim($path, '/');
         $base ??= defined('sURL') ? (string) \sURL : '/';
         $script = (string) ($_SERVER['SCRIPT_FILENAME'] ?? '');
-        $mtime  = $script !== '' ? @filemtime(dirname($script) . '/' . $path) : false;
+        $mtime  = false;
+
+        /*
+         * Beside the front controller first; then each directory above it, up to the document
+         * root — an application mounted in a subdirectory (`www/admin/index.php`) serves the
+         * site's `assets/` from the directory above it — and last the project's web root.
+         */
+        $dirs = [];
+        if ($script !== '') {
+            $dir     = dirname($script);
+            $dirs[]  = $dir;
+            $docRoot = rtrim((string) ($_SERVER['DOCUMENT_ROOT'] ?? ''), '/');
+            while ($docRoot !== '' && str_starts_with($dir, $docRoot . '/') ) {
+                $dir    = dirname($dir);
+                $dirs[] = $dir;
+            }
+        }
+        if (defined('ROOT') && class_exists(\Pramnos\Application\FrameworkScripts::class)) {
+            $dirs[] = \Pramnos\Application\FrameworkScripts::webRoot((string) ROOT);
+        }
+        foreach (array_unique($dirs) as $dir) {
+            if (($mtime = @filemtime($dir . '/' . $path)) !== false) {
+                break;
+            }
+        }
 
         // One of the framework's own scripts, not published to this web root: say so.
         if ($mtime === false && $script !== '' && class_exists(\Pramnos\Application\FrameworkScripts::class)) {

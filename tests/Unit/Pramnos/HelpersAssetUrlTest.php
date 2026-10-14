@@ -60,6 +60,37 @@ class HelpersAssetUrlTest extends TestCase
     }
 
     /**
+     * An application mounted in a subdirectory — `www/admin/index.php` — serves the site's
+     * `assets/` from the directory above it: the file is found there and stamped, so a deployed
+     * fix is not held back by a CDN for want of a version.
+     */
+    public function testAFrontControllerInASubdirectoryFindsTheSitesAssets(): void
+    {
+        // Arrange
+        mkdir($this->webRoot . '/admin');
+        file_put_contents($this->webRoot . '/admin/index.php', '<?php');
+        $_SERVER['SCRIPT_FILENAME'] = $this->webRoot . '/admin/index.php';
+        $_SERVER['DOCUMENT_ROOT']   = $this->webRoot;
+
+        try {
+            // Act
+            $url     = assetUrl('assets/js/pf-consent.js', 'https://example.com/');
+            $outside = (function () {
+                $_SERVER['DOCUMENT_ROOT'] = $this->webRoot . '/admin';
+
+                return assetUrl('assets/js/pf-consent.js', 'https://example.com/');
+            })();
+        } finally {
+            @unlink($this->webRoot . '/admin/index.php');
+            @rmdir($this->webRoot . '/admin');
+        }
+
+        // Assert
+        $this->assertSame('https://example.com/assets/js/pf-consent.js?v=1790000000', $url);
+        $this->assertSame('https://example.com/assets/js/pf-consent.js', $outside, 'never above the document root');
+    }
+
+    /**
      * A file that is not there gets no stamp, rather than an error or `?v=0`.
      */
     public function testAMissingFileIsNotStamped(): void
