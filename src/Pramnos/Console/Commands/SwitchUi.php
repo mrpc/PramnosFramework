@@ -82,9 +82,15 @@ class SwitchUi extends Command
             $output->writeln("<comment>UI framework is already '{$ui}'. Re-installing assets…</comment>");
         }
 
-        // 1. Re-install theme chrome + assets (delegates to Init).
+        $webRoot = basename(\Pramnos\Application\FrameworkScripts::webRoot($base));
+        // The files the switch rewrites, as they are before it — the application may have changed
+        // any of them, and the switch writes over them whatever they hold.
+        $before = $this->read($base, $this->overwritten($webRoot));
+
+        // 1. Re-install theme chrome + assets (delegates to Init), into the web root it serves.
         $init = $this->makeInit();
         $init->targetBaseDir = $base;
+        $init->useWebRoot($webRoot);
         try {
             $init->installUiFramework($ui, $appName, $features);
         } catch (\Throwable $e) {
@@ -93,17 +99,146 @@ class SwitchUi extends Command
         }
 
         // 2. Patch app/app.php (scaffold_theme + CSP style-src).
-        $this->patchAppConfig($appConfigPath, $ui);
+        $cspPatched = $this->patchAppConfig($appConfigPath, $ui);
+
+        $backedUp = $this->backUp($base, $before);
 
         $output->writeln("<info>✓ Switched UI framework to '{$ui}'.</info>");
-        $output->writeln('  - app/app.php: scaffold_theme + CSP updated');
-        $output->writeln('  - app/themes/default + www/assets refreshed');
+        $output->writeln('  - app/app.php: scaffold_theme' . ($cspPatched ? ' + CSP' : '') . ' updated');
+        $output->writeln("  - app/themes/default + {$webRoot}/assets refreshed");
         if ($ui !== 'plain-css') {
-            $output->writeln("  - {$ui} vendor assets installed under www/assets/vendor/");
+            $output->writeln("  - {$ui} vendor assets installed under {$webRoot}/assets/vendor/");
         }
+
+        if ($backedUp !== []) {
+            $output->writeln('<comment>These files held something else and were replaced; the previous copies are in '
+                . $backedUp['dir'] . ' — re-apply your changes from them:</comment>');
+            foreach ($backedUp['files'] as $file) {
+                $output->writeln('    ' . $file);
+            }
+        }
+
+        if (!$cspPatched && $ui === 'tailwind') {
+            $output->writeln("<comment>app/app.php has no CSP 'style-src' to update. Tailwind's browser build injects a "
+                . "<style> element, which a strict policy blocks: add 'style-src' => [\"'unsafe-inline'\"] to the CSP block.</comment>");
+        }
+
+        $published = $current !== '' && $current !== $ui ? $this->published($base, $current) : [];
+        if ($published !== []) {
+            $output->writeln('<comment>' . count($published) . " view(s) copied with project:publish-views keep their '{$current}' markup:</comment>");
+            foreach (array_slice($published, 0, 10) as $view) {
+                $output->writeln('    ' . $view);
+            }
+            if (count($published) > 10) {
+                $output->writeln('    … and ' . (count($published) - 10) . ' more');
+            }
+            $output->writeln("<comment>  Take the '{$ui}' copy of a group with project:publish-views --group=<name> --force, then re-apply your changes.</comment>");
+        }
+
         $output->writeln('<comment>Reload the app to see the new framework.</comment>');
 
         return Command::SUCCESS;
+    }
+
+    /**
+     * The files `installUiFramework()` writes that an application may have changed, relative to the
+     * project: the default theme's layout files and the scaffolded stylesheet.
+     *
+     * @return list<string>
+     */
+    private function overwritten(string $webRoot): array
+    {
+        $files = [];
+        foreach (['theme.html.php', 'head.php', 'header.php', 'footer.php', 'login.php'] as $layout) {
+            $files[] = 'app/themes/default/' . $layout;
+        }
+        $files[] = $webRoot . '/assets/css/style.css';
+
+        return $files;
+    }
+
+    /**
+     * The files that exist, with their contents.
+     *
+     * @param list<string> $files
+     * @return array<string, string>
+     */
+    private function read(string $base, array $files): array
+    {
+        $contents = [];
+        foreach ($files as $file) {
+            if (is_file($base . '/' . $file)) {
+                $contents[$file] = (string) file_get_contents($base . '/' . $file);
+            }
+        }
+
+        return $contents;
+    }
+
+    /**
+     * Keep the previous copy of every file the switch changed, under `var/switch-ui/<time>/`.
+     *
+     * Only a file whose contents changed: one the switch rewrote with the same bytes needs no copy.
+     *
+     * @param array<string, string> $before
+     * @return array{dir?: string, files?: list<string>}
+     */
+    private function backUp(string $base, array $before): array
+    {
+        $changed = [];
+        foreach ($before as $file => $contents) {
+            if (!is_file($base . '/' . $file) || (string) file_get_contents($base . '/' . $file) !== $contents) {
+                $changed[$file] = $contents;
+            }
+        }
+        if ($changed === []) {
+            return [];
+        }
+
+        $dir = 'var/switch-ui/' . date('Ymd-His');
+        foreach ($changed as $file => $contents) {
+            $target = $base . '/' . $dir . '/' . $file;
+            if (!is_dir(dirname($target))) {
+                mkdir(dirname($target), 0775, true);
+            }
+            file_put_contents($target, $contents);
+        }
+
+        return ['dir' => $dir, 'files' => array_keys($changed)];
+    }
+
+    /**
+     * The application's views that are copies of the `$ui` system's bundled ones — what
+     * `project:publish-views` wrote — and so stay in that system's markup.
+     *
+     * @return list<string>
+     */
+    private function published(string $base, string $ui): array
+    {
+        $bundled = $this->scaffoldingDir() . '/themes/' . $ui . '/views';
+        if (!is_dir($bundled)) {
+            return [];
+        }
+
+        $found = [];
+        $files = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($bundled, \FilesystemIterator::SKIP_DOTS));
+        foreach ($files as $file) {
+            $relative = substr((string) $file->getPathname(), strlen($bundled) + 1);
+            foreach (['src/Views/', 'src/Admin/Views/'] as $views) {
+                if (is_file($base . '/' . $views . $relative)) {
+                    $found[] = $views . $relative;
+                }
+            }
+        }
+        sort($found);
+
+        return $found;
+    }
+
+    /** The framework's scaffolding directory. */
+    protected function scaffoldingDir(): string
+    {
+        return dirname(__DIR__, 4) . '/scaffolding';
     }
 
     /**
@@ -118,13 +253,14 @@ class SwitchUi extends Command
     }
 
     /**
-     * Update `scaffold_theme` and the CSP `style-src` in app/app.php in place.
+     * Update `scaffold_theme` and the CSP `style-src` in app/app.php in place; whether there was a
+     * `style-src` to update.
      *
      * Tailwind's browser build injects a <style> element at runtime, which a
      * nonce-based style-src blocks — so it needs 'unsafe-inline'. The other
      * frameworks keep the strict (empty) style-src.
      */
-    private function patchAppConfig(string $path, string $ui): void
+    private function patchAppConfig(string $path, string $ui): bool
     {
         $content  = (string) file_get_contents($path);
         $styleSrc = $ui === 'tailwind' ? "[\"'unsafe-inline'\"]" : '[]';
@@ -147,7 +283,8 @@ class SwitchUi extends Command
         }
 
         // CSP style-src — toggle for Tailwind.
-        if (preg_match("/'style-src'\s*=>\s*\[[^\]]*\]/", $content)) {
+        $csp = preg_match("/'style-src'\s*=>\s*\[[^\]]*\]/", $content) === 1;
+        if ($csp) {
             $content = preg_replace(
                 "/'style-src'\s*=>\s*\[[^\]]*\]/",
                 "'style-src'  => {$styleSrc}",
@@ -157,5 +294,7 @@ class SwitchUi extends Command
         }
 
         file_put_contents($path, $content);
+
+        return $csp;
     }
 }

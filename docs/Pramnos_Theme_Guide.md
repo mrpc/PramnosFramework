@@ -336,8 +336,13 @@ project:
 ```
 
 It rewrites `scaffold_theme` in `app/app.php`, re-installs the theme chrome into
-`app/themes/default`, writes `www/assets/css/style.css`, and vendors the framework's
-CSS/JS for that system.
+`app/themes/default`, writes `assets/css/style.css` in the web root the project serves
+(`www/`, `public/`, …), and vendors the framework's CSS/JS for that system.
+
+What it replaces, it keeps: every layout file or `style.css` whose contents the switch changed
+is copied first to `var/switch-ui/<time>/`, and the output lists them. It also names the views
+copied with `project:publish-views`, which stay in the old system's markup, and says when the
+CSP has no `style-src` for Tailwind's `'unsafe-inline'`.
 
 **It does not touch `app/themes/theme.css`.** The palette is the project's, not the
 scaffold's, and switching UI framework is not a decision about colours — it regenerates
@@ -1808,9 +1813,9 @@ what those templates contain, so it pays to know exactly where the line is.
 | Changed by `project:switch-ui <system>` | Not touched |
 |---|---|
 | `scaffold_theme` in `app/app.php` | Every template under `src/Views/` (or `src/Admin/…`): yours, and any you copied with `project:publish-views` |
-| CSP `style-src` in `app/app.php` (`'unsafe-inline'` for tailwind, empty otherwise), when the key is already present | `component_classes` in `app/app.php` |
-| `app/themes/default/` `theme.html.php`, `head.php`, `header.php`, `footer.php`, `login.php`, **overwritten** | View overrides under `app/themes/<theme>/views/` |
-| `www/assets/css/style.css`, **overwritten** | `app/themes/theme.css`, the palette (read, never rewritten) |
+| CSP `style-src` in `app/app.php` (`'unsafe-inline'` for tailwind, empty otherwise), when the key is already present; when it is not, the output says what to add | `component_classes` in `app/app.php` |
+| `app/themes/default/` `theme.html.php`, `head.php`, `header.php`, `footer.php`, `login.php`, **overwritten**; a changed one kept in `var/switch-ui/` | View overrides under `app/themes/<theme>/views/` |
+| `www/assets/css/style.css` (in the web root served), **overwritten**; a changed one kept in `var/switch-ui/` | `app/themes/theme.css`, the palette (read, never rewritten) |
 | `www/assets/js/pf-*.js`, plus the system's vendored CSS/JS | Any other stylesheet or script of your own |
 | `www/assets/css/theme-tokens.css`, regenerated from your palette | |
 
@@ -1828,12 +1833,15 @@ Two consequences follow:
   screen you maintain.
 
 !!! warning "The theme chrome and `style.css` are scaffold-owned"
-    The switch rewrites the five layout files in `app/themes/default/` and
-    `www/assets/css/style.css` unconditionally. It makes no backup and gives no warning. Put the
-    application's own rules in a stylesheet of your own, such as `www/assets/css/app.css`, and load
-    it with `assetUrl()` from a place the switch does not write (see
-    [Asset Management](#asset-management)). Keep header and footer changes in version control, so
-    that after a switch you can diff and re-apply them.
+    The switch rewrites the five layout files in `app/themes/default/` and the web root's
+    `assets/css/style.css`. A file it changed is kept under `var/switch-ui/<time>/` and named in
+    the output, so nothing is lost, but your changes are no longer in effect until you re-apply
+    them. Put the application's own rules in a stylesheet of your own, such as
+    `www/assets/css/app.css`, and load it with `assetUrl()` from a place the switch does not
+    write (see [Asset Management](#asset-management)).
+
+    The switch lists the views copied with `project:publish-views` that stay in the old
+    system's markup.
 
 ### What adapts on its own
 

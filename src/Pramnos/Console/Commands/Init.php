@@ -4146,6 +4146,18 @@ PHP;
      * @param string[] $features Enabled feature keys (nav rendering).
      * @return void
      */
+    /**
+     * The directory, relative to the project, that this project serves — `www`, `public`, … — for
+     * a command that installs into an existing project rather than scaffolding a new one.
+     */
+    public function useWebRoot(string $webRoot): void
+    {
+        $webRoot = trim($webRoot, " \t\n\r/");
+        if ($webRoot !== '') {
+            $this->webRoot = $webRoot;
+        }
+    }
+
     public function installUiFramework(string $uiSystem, string $appName, array $features = []): void
     {
         if ($this->scaffoldingDir === '') {
