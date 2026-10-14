@@ -243,9 +243,10 @@ two-character string.
 | `between:1,5` | 1 to 5 chars | Value from 1 to 5 | 1 to 5 items |
 
 #### `regex`, `starts_with` and `ends_with`
-Parameters are split on `,`, so a `regex` pattern containing a comma (`{2,4}`) is cut at the
-comma and no longer means what was written; express such a pattern as a custom rule. A
-pattern containing `|` must be given in the array form, since the string form splits on `|`. `starts_with` and `ends_with` check only the **first** listed value.
+A `regex` pattern is one parameter, commas included (`regex:/^[A-Z]{2,4}$/`). A pattern
+containing `|` must be given in the array form, since the string form splits on `|`.
+`starts_with` and `ends_with` pass when the value starts or ends with **any** of the listed
+values (`starts_with:https://,http://`).
 
 #### `csrf`
 Verifies the form token that `Session::getTokenField()` emits. That token's field **name** is

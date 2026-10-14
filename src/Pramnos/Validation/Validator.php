@@ -297,7 +297,10 @@ class Validator
         $parameters = [];
 
         if (isset($segments[1])) {
-            $parameters = array_map('trim', explode(',', $segments[1]));
+            // A pattern is one parameter: `{2,4}` and `[a,b]` hold commas that are not separators.
+            $parameters = in_array($name, ['regex', 'not_regex'], true)
+                ? [$segments[1]]
+                : array_map('trim', explode(',', $segments[1]));
         }
 
         return [$name, $parameters];
@@ -387,11 +390,12 @@ class Validator
                 $pattern = $parameters[0] ?? '';
                 return $pattern !== '' && (bool) preg_match($pattern, (string) $value);
 
+            // Any of the listed values, as the message (`:values`) says.
             case 'starts_with':
-                return isset($parameters[0]) && str_starts_with((string) $value, $parameters[0]);
+                return array_filter($parameters, static fn ($p): bool => $p !== '' && str_starts_with((string) $value, $p)) !== [];
 
             case 'ends_with':
-                return isset($parameters[0]) && str_ends_with((string) $value, $parameters[0]);
+                return array_filter($parameters, static fn ($p): bool => $p !== '' && str_ends_with((string) $value, $p)) !== [];
 
             // -----------------------------------------------------------------
             // Network / format

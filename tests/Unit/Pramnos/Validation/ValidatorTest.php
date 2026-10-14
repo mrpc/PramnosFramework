@@ -1354,4 +1354,36 @@ class ValidatorTest extends TestCase
             $this->assertStringContainsString('reserved', $e->errors()['username'][0]);
         }
     }
+
+    /**
+     * A regex's commas belong to the pattern: `{2,4}` is a quantifier, not a second parameter —
+     * split there, the pattern was cut short and matched the wrong things.
+     */
+    public function testARegexKeepsItsCommas(): void
+    {
+        // Arrange
+        $rules = ['code' => 'regex:/^[A-Z]{2,4}$/'];
+
+        // Act
+        $passed = Validator::validate(['code' => 'ABC'], $rules);
+
+        // Assert
+        $this->assertSame(['code' => 'ABC'], $passed);
+        $this->expectException(ValidationException::class);
+        Validator::validate(['code' => 'ABCDE'], $rules);
+    }
+
+    /** `starts_with` and `ends_with` accept any of the values they list, as their message says. */
+    public function testStartsAndEndsWithAcceptAnyListedValue(): void
+    {
+        // Act
+        $start = Validator::validate(['url' => 'http://x.example'], ['url' => 'starts_with:https://,http://']);
+        $end   = Validator::validate(['file' => 'a.png'], ['file' => 'ends_with:.jpg,.png']);
+
+        // Assert
+        $this->assertSame(['url' => 'http://x.example'], $start, 'the second value counts');
+        $this->assertSame(['file' => 'a.png'], $end);
+        $this->expectException(ValidationException::class);
+        Validator::validate(['file' => 'a.gif'], ['file' => 'ends_with:.jpg,.png']);
+    }
 }
