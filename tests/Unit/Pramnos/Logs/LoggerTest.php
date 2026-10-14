@@ -539,4 +539,30 @@ class LoggerTest extends TestCase
         @unlink($logPath);
         @unlink($logPath . '.1');
     }
+
+    /**
+     * A subclass that overrides `log()` is what `info()`, `error()` and the other writers reach:
+     * they call `static::log()`, so an application's logger — one that ships lines elsewhere —
+     * is not bypassed by the very helpers everybody calls.
+     */
+    public function testTheHelpersReachASubclassesLog(): void
+    {
+        // Arrange
+        $logger = new class extends \Pramnos\Logs\Logger {
+            /** @var list<string> */
+            public static array $seen = [];
+
+            public static function log(string $message, string $file = 'pramnosframework', string $ext = 'log', bool $startoffile = false, array $context = []): void
+            {
+                static::$seen[] = ($context['level'] ?? '-') . ':' . $message;
+            }
+        };
+
+        // Act
+        $logger::info('started');
+        $logger::error('failed');
+
+        // Assert
+        $this->assertSame(['info:started', 'error:failed'], $logger::$seen);
+    }
 }

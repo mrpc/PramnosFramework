@@ -417,7 +417,7 @@ class Logger
     ): void {
         // Add level to context
         $context['level'] = $level;
-        self::log($message, $file, 'log', false, $context);
+        static::log($message, $file, 'log', false, $context);
     }
 
     /**
@@ -554,7 +554,7 @@ class Logger
         string $ext = "log",
         array $context = []
     ): void {
-        self::log($message, $file, $ext, true, $context);
+        static::log($message, $file, $ext, true, $context);
     }
 
     /**
@@ -578,7 +578,7 @@ class Logger
             $context['level'] = $level;
         }
         
-        self::log($jsonString, $file, $ext, false, $context);
+        static::log($jsonString, $file, $ext, false, $context);
     }
 
     /**
@@ -611,7 +611,7 @@ class Logger
             ];
         }
 
-        self::log($message, $file, $ext, false, $context);
+        static::log($message, $file, $ext, false, $context);
     }
 
     /**
