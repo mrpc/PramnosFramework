@@ -580,4 +580,22 @@ class ApiTest extends TestCase
         $this->assertTrue(true,
             '_executeCore() must log SQL exception details (lines 240-244) and return 500 envelope');
     }
+
+    /**
+     * The origins come from the top of app.php or from its `api` block, where `init` writes them —
+     * a list there was ignored and the API answered every origin.
+     */
+    public function testTheOriginsAreReadWhereInitWritesThem(): void
+    {
+        // Arrange
+        $make = static fn (array $info) => new class ($info) extends Api {
+            public function __construct(array $info) { $this->applicationInfo = $info; }
+            public function origins(): array { return $this->corsOrigins(); }
+        };
+
+        // Act / Assert
+        $this->assertSame(['https://app.example'], $make(['api' => ['cors_origins' => ['https://app.example']]])->origins(), 'the api block');
+        $this->assertSame(['https://top.example'], $make(['cors_origins' => ['https://top.example'], 'api' => ['cors_origins' => ['x']]])->origins(), 'top level first');
+        $this->assertSame(['*'], $make([])->origins(), 'neither: every origin');
+    }
 }

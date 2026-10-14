@@ -285,6 +285,20 @@ class Api extends Application
     }
 
     /**
+     * The origins a browser may call this API from: `cors_origins` at the top of `app.php`, or
+     * in its `api` block — where `init` writes it; a list there was ignored, and the API answered
+     * every origin. `['*']` when neither says.
+     *
+     * @return list<string>
+     */
+    protected function corsOrigins(): array
+    {
+        return array_values((array) ($this->applicationInfo['cors_origins']
+            ?? $this->applicationInfo['api']['cors_origins']
+            ?? ['*']));
+    }
+
+    /**
      * Execute the API application for an HTTP request.
      *
      * The method runs a three-layer middleware pipeline before dispatching to
@@ -338,13 +352,12 @@ class Api extends Application
         \Pramnos\Debug\DebugBar::startTimer('middleware');
 
         $pipeline = new \Pramnos\Http\MiddlewarePipeline();
-        if (!empty($this->applicationInfo['cors_from_db'])) {
+        if (!empty($this->applicationInfo['cors_from_db'] ?? $this->applicationInfo['api']['cors_from_db'] ?? false)) {
             $cors = \Pramnos\Http\Middleware\CorsMiddleware::fromApplicationSettings(
                 $this->applicationInfo['name'] ?? ''
             );
         } else {
-            $allowedOrigins = (array) ($this->applicationInfo['cors_origins'] ?? ['*']);
-            $cors = new \Pramnos\Http\Middleware\CorsMiddleware($allowedOrigins);
+            $cors = new \Pramnos\Http\Middleware\CorsMiddleware($this->corsOrigins());
         }
         $pipeline->pipe($cors);
         $pipeline->pipe(new \Pramnos\Http\Middleware\JsonResponseMiddleware());
