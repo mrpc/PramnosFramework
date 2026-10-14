@@ -141,8 +141,10 @@ class Log
                  * one — three different problems with three different answers, and an operator
                  * looking for "what went wrong" wants all of them. Only a 2xx is delivery.
                  */
-                $query->where('status', '<', 200, 'and')
-                    ->orWhere('status', '>=', 300);
+                // Grouped: an OR beside the account or endpoint filter would answer for everybody.
+                $query->where(static function ($q): void {
+                    $q->where('status', '<', 200)->orWhere('status', '>=', 300);
+                });
             }
 
             $rows   = [];

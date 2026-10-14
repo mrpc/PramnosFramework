@@ -118,6 +118,27 @@ class PushLogTest extends BaseTestCase
     }
 
     /**
+     * "Failed" for one account is that account's failures only: the OR that makes "failed" is
+     * grouped, so beside the account filter it does not bring in every other account's.
+     */
+    public function testTheFailedFilterStaysWithinTheAccount(): void
+    {
+        // Arrange
+        Log::record($this->userId + 1, str_repeat('e', 64), ['title' => 'theirs'], 410);
+        Log::record($this->userId, str_repeat('f', 64), ['title' => 'mine'], 410);
+
+        try {
+            // Act
+            $failed = array_column(Log::recent(50, ['userid' => $this->userId, 'failed' => true]), 'title');
+        } finally {
+            $this->db->queryBuilder()->table('pramnos.pushlog')->where('userid', $this->userId + 1)->delete();
+        }
+
+        // Assert
+        $this->assertSame(['mine'], $failed, 'another account\'s failure is not this account\'s');
+    }
+
+    /**
      * "Failed" is every outcome that is not a delivery, and it is one filter.
      *
      * A 410 is a dead subscription, a 429 is a busy service and a 0 never reached one — three
