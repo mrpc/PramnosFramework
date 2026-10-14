@@ -1,5 +1,5 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/svelte';
-import { vi, describe, it, expect, beforeEach } from 'vitest';
+import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import HelpPanel from '../components/HelpPanel.svelte';
 
 /**
@@ -8,30 +8,35 @@ import HelpPanel from '../components/HelpPanel.svelte';
  * What matters is what it does *not* show: no button for a screen without a page — the
  * endpoint's 404 is the normal answer there, not an error — and a link between pages that
  * opens the page in place rather than navigating the application away.
+ *
+ * Through the real `lib/api.js`, with only `fetch` stubbed, answering as `HelpApi` answers:
+ * `{status, data: {…}}`. A mock of the client that resolved to the page itself hid the
+ * panel drawing an empty title over an empty page.
  */
 
-/** A page in the shape `HelpApi` answers. */
-const page = (slug, title, html) => ({ slug, title, section: '', questions: [], updated: '', html });
+/** A page in the shape `HelpApi` answers, inside its envelope. */
+const page = (slug, title, html) => ({ status: 200, data: { slug, title, section: '', questions: [], updated: '', html } });
 
 let calls;
 let answers;
-
-vi.mock('../lib/api.js', () => ({
-    api: {
-        get: (path, query) => {
-            calls.push({ path, query });
-            const answer = answers[path + ':' + (query.screen ?? query.p)];
-
-            return answer ? Promise.resolve(answer) : Promise.reject(Object.assign(new Error('404'), { status: 404 }));
-        },
-    },
-}));
 
 vi.mock('../lib/i18n.svelte.js', () => ({ t: (s) => s }));
 
 beforeEach(() => {
     calls   = [];
     answers = {};
+    vi.stubGlobal('fetch', vi.fn(async (url) => {
+        const address = new URL(url, 'http://localhost');
+        const key     = address.pathname.replace(/^.*\/help/, '/help') + ':' + (address.searchParams.get('screen') ?? address.searchParams.get('p'));
+        calls.push({ path: address.pathname, query: Object.fromEntries(address.searchParams) });
+        const body = answers[key] ?? { status: 404, error: 'This screen has no help page.' };
+
+        return { status: body.status, ok: body.status < 300, json: async () => body };
+    }));
+});
+
+afterEach(() => {
+    vi.unstubAllGlobals();
 });
 
 describe('HelpPanel', () => {
@@ -41,7 +46,8 @@ describe('HelpPanel', () => {
 
         // Assert — asked once, and the 404 leaves no button
         await waitFor(() => expect(calls).toHaveLength(1));
-        expect(calls[0]).toEqual({ path: '/help/screen', query: { screen: 'orders', action: '' } });
+        expect(calls[0].path.endsWith('/help/screen')).toBe(true);
+        expect(calls[0].query.screen).toBe('orders');
         expect(screen.queryByRole('button', { name: 'Help' })).toBeNull();
     });
 
@@ -51,8 +57,9 @@ describe('HelpPanel', () => {
         answers['/help/page:faq']     = page('faq', 'Questions', '<p>Sign up from the top right.</p>');
         render(HelpPanel, { screen: 'posts' });
 
-        // Act — open the panel, then follow the link
+        // Act — open the panel: the envelope's page, title and body
         await fireEvent.click(await screen.findByRole('button', { name: 'Help' }));
+        expect(screen.getByRole('dialog', { name: 'Reading a post' })).toBeTruthy();
         const link  = screen.getByText('the questions');
         const click = new MouseEvent('click', { bubbles: true, cancelable: true });
         link.dispatchEvent(click);
@@ -73,7 +80,7 @@ describe('HelpPanel', () => {
         await fireEvent.keyDown(window, { key: 'Escape' });
 
         // Assert
-        expect(calls[0].query).toEqual({ screen: 'users', action: '', level: 'admin' });
+        expect(calls[0].query.level).toBe('admin');
         expect(screen.queryByRole('dialog')).toBeNull();
     });
 

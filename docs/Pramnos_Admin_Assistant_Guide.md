@@ -112,8 +112,24 @@ escapes everything first, and has no HTML and no nested lists.
 
 ### Search
 
-Words are compared folded — case, accents and the final sigma — and by their first five letters,
-so `λογαριασμού` finds `λογαριασμός` and `email` finds `Email`. Words of two letters are ignored.
+Words are compared folded (case, accents and the final sigma) and by their first five letters,
+so `λογαριασμού` finds `λογαριασμός` and `email` finds `Email`. A word of four letters also meets
+a longer one it begins, so `goal` finds `goals`; one of three letters matches only exactly.
+
+Words of two letters are ignored, and so are common words of three or more: `how`, `what`, `the`
+and the like, `πώς`, `και`, `για`, `τον`, `του` and the like. They are in every question and tell
+pages apart no better than nothing.
+
+A page is scored as follows:
+
+- Its title and `questions:` count three times what its text does, each word up to three times.
+- Each word of the question is weighed by how rare it is across the pages. A word on every page
+  says little, so a long page cannot win by repeating the question's common words.
+- A question that is one of a page's `questions:` puts that page first.
+- A question whose every word appears in one of them puts the page nearly first.
+
+So listing the questions readers actually ask is the most effective thing a page can do to be
+found.
 
 ```php
 use Pramnos\Assist\Help;

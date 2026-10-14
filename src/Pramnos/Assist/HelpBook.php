@@ -149,34 +149,93 @@ final class HelpBook
     }
 
     /**
-     * The pages that answer a question, best first: its title and questions count three times
-     * what its text does. See {@see Help::words()} for how words are compared.
+     * The pages that answer a question, best first.
+     *
+     * A page's title and `questions:` count three times what its text does, each word up to three
+     * times, and each word of the question by how rare it is across the pages: a word on every
+     * page tells them apart no better than "how". A question that is one of a page's
+     * `questions:` puts it first; one whose every word is in such a question, nearly so. Words
+     * are compared as {@see Help::words()} folds them, and a four-letter one also by prefix, so
+     * `goal` finds `goals`.
      *
      * @return list<array<string, mixed>> Each page with its `score`
      */
     public function search(string $question, int $limit = 5): array
     {
-        $asked = array_unique(Help::words($question));
+        $asked = array_values(array_unique(Help::words($question)));
         if ($asked === []) {
             return [];
         }
 
+        $indexed = [];
+        foreach ($this->visible() as $slug => $page) {
+            $indexed[$slug] = [
+                'strong'    => array_count_values(Help::words($page['title'] . ' ' . implode(' ', $page['questions']))),
+                'weak'      => array_count_values(Help::words($page['body'])),
+                'questions' => array_map(static fn (string $q): array => array_values(array_unique(Help::words($q))), $page['questions']),
+            ];
+        }
+
+        // How many pages carry each word: the rarer, the more it says.
+        $total  = count($indexed);
+        $weight = [];
+        foreach ($asked as $word) {
+            $carrying = 0;
+            foreach ($indexed as $terms) {
+                $carrying += self::hits($word, $terms['strong']) + self::hits($word, $terms['weak']) > 0 ? 1 : 0;
+            }
+            $weight[$word] = log(1 + $total / max(1, $carrying));
+        }
+
         $found = [];
-        foreach ($this->visible() as $page) {
-            $strong = array_count_values(Help::words($page['title'] . ' ' . implode(' ', $page['questions'])));
-            $weak   = array_count_values(Help::words($page['body']));
-            $score  = 0;
+        foreach ($indexed as $slug => $terms) {
+            $score = 0.0;
             foreach ($asked as $word) {
-                $score += 3 * min(3, $strong[$word] ?? 0) + min(3, $weak[$word] ?? 0);
+                $score += $weight[$word] * (3 * min(3, self::hits($word, $terms['strong'])) + min(3, self::hits($word, $terms['weak'])));
             }
-            if ($score > 0) {
-                $found[] = $page + ['score' => $score];
+            if ($score <= 0) {
+                continue;
             }
+            foreach ($terms['questions'] as $listed) {
+                if ($listed === []) {
+                    continue;
+                }
+                $covered = array_filter($asked, static fn (string $w): bool => self::hits($w, array_fill_keys($listed, 1)) > 0);
+                if (count($covered) === count($asked)) {
+                    // Every word of the question is in this listed one: the same question, or nearly.
+                    $score += count($listed) === count($asked) ? 1000 : 100;
+                    break;
+                }
+            }
+            $found[] = $this->visible()[$slug] + ['score' => round($score, 3)];
         }
 
         usort($found, static fn (array $a, array $b): int => $b['score'] <=> $a['score']);
 
         return array_slice($found, 0, max(1, $limit));
+    }
+
+    /**
+     * How often a folded word occurs among counted words: exactly, or — four letters or more on
+     * the shorter side — one a prefix of the other, so `goal` meets `goals`.
+     *
+     * @param array<string, int> $counts
+     */
+    private static function hits(string $word, array $counts): int
+    {
+        if (mb_strlen($word) < 4) {
+            return $counts[$word] ?? 0;
+        }
+
+        $hits = 0;
+        foreach ($counts as $term => $count) {
+            $term = (string) $term;
+            if ($term === $word || (mb_strlen($term) >= 4 && (str_starts_with($term, $word) || str_starts_with($word, $term)))) {
+                $hits += $count;
+            }
+        }
+
+        return $hits;
     }
 
     /** The file of a picture a page shows, if it is one and lies inside one of these directories. */

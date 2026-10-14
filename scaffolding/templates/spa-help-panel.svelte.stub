@@ -21,6 +21,14 @@
     let open   = $state(false);
     let failed = $state(false);
 
+    /**
+     * The page out of the API's answer, `{status, data: {…}}`: `lib/api.js` hands the payload over
+     * as it came. Without the unwrap the panel drew an empty title over an empty page.
+     */
+    function unwrap(found) {
+        return found?.data ?? found ?? null;
+    }
+
     /** The request's query: the level only when one was asked for. */
     function query(extra) {
         return level ? { ...extra, level } : extra;
@@ -36,7 +44,7 @@
             return;
         }
         api.get('/help/screen', query({ screen: asked, action }))
-            .then((found) => { if (asked === screen) { page = found; } })
+            .then((found) => { if (asked === screen) { page = unwrap(found); } })
             .catch(() => { if (asked === screen) { page = null; } });
     });
 
@@ -44,7 +52,7 @@
     async function openPage(slug) {
         failed = false;
         try {
-            page = await api.get('/help/page', query({ p: slug }));
+            page = unwrap(await api.get('/help/page', query({ p: slug })));
         } catch {
             failed = true;
         }

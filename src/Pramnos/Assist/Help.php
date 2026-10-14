@@ -336,11 +336,33 @@ final class Help
 
         $words = preg_split('/[^\p{L}\p{N}]+/u', $text, -1, PREG_SPLIT_NO_EMPTY) ?: [];
 
+        // Function words say nothing about which page answers: "how do I" is in every question.
         return array_values(array_map(
             static fn (string $w): string => mb_substr($w, 0, 5),
-            array_filter($words, static fn (string $w): bool => mb_strlen($w) > 2)
+            array_filter($words, static fn (string $w): bool => mb_strlen($w) > 2 && !isset(self::STOP[$w]))
         ));
     }
+
+    /**
+     * Words a search ignores, folded as {@see words()} folds them: English and Greek function
+     * words of three letters or more (two-letter words are ignored anyway).
+     *
+     * @var array<string, true>
+     */
+    private const STOP = [
+        'the' => true, 'and' => true, 'how' => true, 'what' => true, 'can' => true, 'for' => true, 'with' => true,
+        'from' => true, 'this' => true, 'that' => true, 'does' => true, 'are' => true, 'you' => true, 'your' => true,
+        'who' => true, 'why' => true, 'when' => true, 'where' => true, 'which' => true, 'will' => true, 'into' => true,
+        'about' => true, 'there' => true, 'have' => true, 'has' => true, 'not' => true, 'but' => true, 'was' => true,
+        'were' => true, 'did' => true, 'should' => true, 'could' => true, 'would' => true, 'its' => true, 'our' => true,
+        'any' => true, 'all' => true, 'get' => true, 'one' => true,
+        'πωσ' => true, 'και' => true, 'για' => true, 'τον' => true, 'την' => true, 'του' => true, 'των' => true,
+        'τουσ' => true, 'τισ' => true, 'τη' => true, 'στο' => true, 'στη' => true, 'στην' => true, 'στον' => true,
+        'στα' => true, 'στουσ' => true, 'στισ' => true, 'απο' => true, 'οτι' => true, 'που' => true, 'ποιοσ' => true,
+        'ποια' => true, 'ποιο' => true, 'ειναι' => true, 'εχω' => true, 'ενα' => true, 'εναν' => true, 'ενασ' => true,
+        'μια' => true, 'μιασ' => true, 'αυτο' => true, 'αυτη' => true, 'αυτα' => true, 'μου' => true, 'σου' => true,
+        'μασ' => true, 'σασ' => true, 'τουσ' => true, 'οταν' => true, 'μπορω' => true, 'γινεται' => true, 'πρεπει' => true,
+    ];
 
     /** Forget what was read, at both levels — for a test, or a worker between requests. */
     public static function forget(): void
