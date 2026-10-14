@@ -41,8 +41,8 @@ class CreateUsersTable extends Migration
     public string $scope        = 'framework';  // 'app' or 'framework'
     public int    $priority     = 20;           // Lower runs first
     public array  $dependencies = ['create_roles_table']; // Must run before this
-    public string $description  = 'Creates the users table';
-    public bool   $autorun      = true;         // false = requires --force
+    public $description         = 'Creates the users table'; // untyped, as in the base class
+    public $autoExecute         = true;         // false = requires --force (untyped)
     public bool   $transactional = false;       // true = wrap in BEGIN/COMMIT on PostgreSQL
     public bool   $conditional   = false;       // true = creates nothing on some engines
 
@@ -73,7 +73,8 @@ class CreateUsersTable extends Migration
 | `$scope` | `string` | `'app'` | `'app'` or `'framework'`. Every migration under `database/migrations/framework/` declares `'framework'`, and a test fails if one does not |
 | `$priority` | `int` | `50` | Lower number runs first |
 | `$dependencies` | `array` | `[]` | Slugs of migrations that must run before this one |
-| `$autorun` | `bool` | `true` | `false` = requires `--force` |
+| `$description` | untyped | `''` | Human-readable description. Redeclare it **without** a type — a typed redeclaration of an untyped parent property is a fatal error |
+| `$autoExecute` | untyped | `true` | `false` = runs only with `--force`. Redeclare it without a type, for the same reason |
 | `$transactional` | `bool` | `false` | Wrap `up()` in `BEGIN`/`COMMIT`/`ROLLBACK` on PostgreSQL |
 | `$conditional` | `bool` | `false` | This migration legitimately creates nothing on some engines — see below |
 
@@ -91,8 +92,6 @@ check stops being read. So the migration says so, and
 
 It is **declared, not detected**: "does this `return` depend on the engine" is not a question to
 answer by pattern-matching somebody's source.
-
-> **Note:** `$autoExecute` is a PHP 8.4 property hook that maps to `$autorun`. Existing code using `$autoExecute` continues to work unchanged.
 
 ### Protected Helpers
 
@@ -122,7 +121,7 @@ getSlug()      → 'create_users_table'   (from filename)
 getTimestamp() → '2024_03_15_143022'    (from filename)
 ```
 
-For legacy non-timestamped files, the class name is used as before.
+For a file without a timestamp prefix, the class name is used.
 
 ## Running Migrations
 
@@ -138,8 +137,8 @@ php vendor/bin/pramnos migrate:rollback
 # Rollback all migrations
 php vendor/bin/pramnos migrate:reset
 
-# Run specific migration
-php vendor/bin/pramnos migrate --target=2026_05_29_000001_create_users_table
+# Run a single migration, by slug or class name
+php vendor/bin/pramnos migrate create_users_table
 ```
 
 ### The CLI and the request lifecycle answer the same question
@@ -153,7 +152,8 @@ apply on every one of those paths:
 - **`features`** gates the framework's per-feature migration directories. A
   feature the application has not enabled contributes no migrations.
 - **`migration_cutoff`** excludes every migration whose filename timestamp is at
-  or before it. A migration with no timestamp in its name is never excluded by a
+  or before it. In `app.php` it is a date-time string such as `'2020-01-02 00:00:00'`; a
+  value that does not parse as a date leaves no cutoff. A migration with no timestamp in its name is never excluded by a
   cutoff, on either path.
 
 This matters most on an installation whose schema predates the migration system.
@@ -289,11 +289,10 @@ and the fast path would go on answering "up to date" indefinitely.
 
 **Every `*.php` file in the scanned directories counts**, not only
 `YYYY_MM_DD_HHmmss_*.php` ones. This matters for an application on the `MigrationNNNN`
-convention: with only timestamped files counted, adding `Migration0151.php` changed nothing
-in the key, every request took the fast path, and the migration stayed pending until an
-unrelated framework migration happened to change the count. A directory holding *only*
-untimestamped migrations produced an empty set, and an empty set made the whole check return
-before it began.
+convention: counting only timestamped files, adding `Migration0151.php` would change nothing
+in the key, every request would take the fast path, and the migration would stay pending. A
+directory holding *only* untimestamped migrations would produce an empty set and skip the check
+entirely.
 
 Deciding this from filenames is the point — the check loads no PHP, which is what lets it
 run on every request. For an untimestamped file that means the slug is taken from the
@@ -352,19 +351,15 @@ the fingerprint, so a migration that fails is not attempted again on every reque
 **`migrations.framework` is not this switch**, and it is the one that looks like
 it. That key answers *which directories are in scope*, and `migrationScope()` is
 read by the CLI as well as by auto-run — so turning it off to stop the automatic
-run also empties the `pramnos migrate` it was turned off in order to perform. The
-two questions had one answer until `auto` existed.
+run also empties the `pramnos migrate` it was turned off in order to perform.
 
 ##### Where the gate goes, and why it is not inside `upgrade()`
 
 The gate sits on the automatic **call site** in `exec()`, not inside
 `upgrade()`. Putting it inside the method turns the switch into «never run», and
-that has a measured cost: an installation that gated the method rather than the
-call site took **738 test errors** in one run from a bootstrap that was calling
-`upgrade()` on purpose. `MigrationsAutoKeyTest` pins the distinction from both
-directions, and the probe deliberately does **not** override `upgrade()` — an
-earlier version of it did, and passed against a framework broken in exactly that
-way.
+that breaks every bootstrap calling `upgrade()` on purpose. `MigrationsAutoKeyTest` pins the
+distinction from both directions, and its probe deliberately does **not** override `upgrade()`,
+so it cannot pass against a framework gated in the wrong place.
 
 #### Standalone auto-migration (`Application::migrate()`)
 
@@ -460,22 +455,15 @@ DELETE FROM schemaversion a USING schemaversion b
 
 `schemaversion` is resolved through the installation's table prefix, so on a site
 configured with `pramnos_` the ledger is `pramnos_schemaversion` — the same name the
-legacy `Application::runMigration()` path has always written.
+`Application::runMigration()` path writes. Every statement the runner issues — the raw
+ones and `hasColumn()` alike — resolves the same name, so the two never address different
+tables.
 
-That is worth stating because it was not always true of the runner. Every raw statement
-in `MigrationRunner` used the name verbatim while `hasColumn()` resolved it, so a
-prefixed installation had **two** tables: a real one, and a bare one that
-`CREATE TABLE IF NOT EXISTS` made the first time `migrate:status` was run. The
-consequence was not only clutter — `hasColumn()` inspected the prefixed table, found a
-column missing, and the `ALTER` added it to the bare one, which already had it, so the
-command died with `Duplicate column name` and kept dying.
-
-**If you have a bare `schemaversion` beside a prefixed one, you do not need to do
-anything.** The first run under the fix renames a bare ledger into the prefixed name when
-there is no prefixed one yet — an installation whose history is in the bare table keeps
-it rather than replaying every migration — and leaves a real prefixed ledger untouched
-when a stray empty bare table is sitting beside it. Dropping the stray is then safe, and
-nothing will recreate it.
+**A bare `schemaversion` beside a prefixed one needs nothing from you.** The runner renames
+a bare ledger into the prefixed name when there is no prefixed one yet — an installation
+whose history is in the bare table keeps it rather than replaying every migration — and
+leaves a real prefixed ledger untouched when a stray empty bare table sits beside it.
+Dropping the stray is then safe, and nothing will recreate it.
 
 ### Coming from the legacy version ledger
 
@@ -491,18 +479,14 @@ their changes.
 filename timestamp, and a legacy `MigrationNNNN` class has none — `filterCutoff()`
 lets a migration with no timestamp through by design.
 
-**`migrate` now does this on its own, before deciding anything is pending.** You do not
-have to know the command below exists — which was the problem with it, because the person
-who needs it is the person who has just upgraded and does not yet know anything is wrong.
+**`migrate` does this on its own, before deciding anything is pending.** You do not have to
+know the command below exists — the person who needs it is the person who has just upgraded
+and does not yet know anything is wrong.
 
-One installation replayed **91 already-applied migrations against a live production
-database** in about fifty seconds, and the ledger recorded every one as a success. Most
-were harmless by accident: re-running old DDL mostly fails on arrival and `addQuery()` is
-tolerant, so the ledger filled with `23 of 80 statements failed`. The dangerous ones are
-the **idempotent** ones, because they succeed — one re-added a compression policy a later
-migration had removed with measurements behind it, and the replay stopped before reaching
-the later one. For a day the recorded state and the real state disagreed with nothing to
-indicate it.
+A replay of already-applied migrations is not harmless. Re-running old DDL mostly fails on
+arrival and is recorded as a success with failed statements; the dangerous ones are the
+**idempotent** ones, because they succeed — re-adding, say, a policy a later migration
+removed, so the recorded state and the real state disagree with nothing to indicate it.
 
 The command is still there, for looking before running:
 
@@ -599,10 +583,9 @@ cannot handle a history that is not there at all — moved to another engine, re
 dump, or never kept. So there is a net under it.
 
 **`migrate` refuses to run ten or more migrations when the ledger is empty and the database
-already has tables.** A runner that finds zero of ninety-one recorded is not looking at a
-fresh database — a fresh database has no tables either, and the one this happened on had
-407 GB of them. The cost of being wrong in that direction is a message; in the other
-direction it is 91 migrations against live data.
+already has tables.** A runner that finds none of its migrations recorded on a database that
+has tables is not looking at a fresh database. The cost of being wrong in that direction is a
+message; in the other direction it is a whole history replayed against live data.
 
 Three ways past it, in the order worth trying:
 
@@ -613,25 +596,16 @@ Three ways past it, in the order worth trying:
 | `migrate --adopt-baseline` | this database really should have every one applied | runs them |
 
 `--adopt-baseline` is its own option rather than a second meaning for `--force`, which means
-*include `autorun = false` migrations*. An operator reaching for one must not silently get
+*include `autoExecute = false` migrations*. An operator reaching for one must not silently get
 the other, least of all this one.
 
-**The same refusal applies to the automatic path**, and it has to: the second replay on that
-installation came through `Application::exec()` → `checkversion()` → `upgrade()`, in a
-single web request, two days after the first. That path keys the ledger by version, found
-eleven unrecorded migrations and ran them — one of which decompresses a 70-chunk
-hypertable, behind the maintenance mode `runMigration()` correctly raises, at a measured
-cost of thirty to sixty meter readings that were never recorded. `migrate:status` reported
-"0 pending" throughout, because it reads slugs.
-
-It also defeated a deliberate guard, which is the part worth keeping in view: the
-application had set `autoExecute = false` on its own copy of that decompression, precisely
-to keep it out of a client request. The work happened in a client request anyway, through a
-different migration, on the path that does not consult the runner at all.
-
-So `upgrade()` logs and stops rather than auto-running a history. Below the threshold it
-behaves exactly as before — deploying an application with one or two new migrations still
-needs no shell.
+**The same refusal applies to the automatic path.** `Application::exec()` → `checkversion()`
+→ `upgrade()` keys the ledger by version and runs inside a web request, where a history of
+heavy migrations — a hypertable decompression, say — would run behind maintenance mode while
+`migrate:status`, which reads slugs, reports nothing pending. `upgrade()` applies the same
+threshold (`MigrationRunner::WHOLE_HISTORY`, ten), logs, and stops rather than auto-running a
+history. Below the threshold it runs normally — deploying an application with one or two new
+migrations needs no shell.
 
 ## Check the data before you change it
 
@@ -760,19 +734,12 @@ This holds on **both** paths that run a migration: `MigrationRunner`, and
 `Application::runMigration()` — the legacy loader that `upgrade()` uses and that `exec()`
 reaches on its own when the version check fails.
 
-!!! warning "Why this is worth a section"
+!!! warning "A recorded no-op cannot be re-run"
 
-    It did not always. `executeQueries()` is `protected` and **nothing called it**, so a
-    migration that queued two `ALTER TABLE`s and returned was recorded as **Ran** and
-    changed nothing — on development, on the test database and on production at once, with
-    all three ledgers agreeing it had worked. It was found by measuring the schema
-    afterwards.
-
-    **A recorded no-op cannot be re-run.** Correcting the migration file helps nobody who
-    already has the row, so the repair is a *second* migration — one mistyped line costing
-    two migrations and a paragraph explaining why there are two. If you have a migration
-    from before this that used `addQuery()` without `executeQueries()`, check the schema
-    rather than the ledger.
+    A migration recorded as run is never run again, so correcting its file helps nobody who
+    already has the row: the repair is a *second* migration. That is why the queue is flushed
+    for you — a migration that queues statements and returns must not be recorded as applied
+    having changed nothing.
 
 ## When a statement is refused
 
@@ -783,21 +750,21 @@ deliberate and has to stay. A re-run of a migration whose
 statements after it, and installations exist with a hundred-odd numbered
 migrations relying on exactly that.
 
-What is *not* deliberate is losing the fact that it happened. `up()` returning
-was once the only thing either ledger looked at, so a migration whose **every**
-statement was rejected was indistinguishable from one that worked — recorded as
-applied, reported by `migrate:status` as `Ran`, with the only trace in
+What is *not* deliberate is losing the fact that it happened. If `up()` returning
+were the only thing the ledger looked at, a migration whose **every** statement was
+rejected would be indistinguishable from one that worked, with the only trace in
 `var/logs/upgradeerrors.log`, which nothing points at.
 
 ### The third state
 
-`MigrationRunner` records one of three results:
+`MigrationRunner` records one of these results:
 
 | Constant | `result` | Meaning |
 |---|---|---|
 | `RESULT_OK` | `1` | completed, every statement accepted |
 | `RESULT_RAN_WITH_ERRORS` | `2` | `up()` returned, but statements were rejected |
 | `RESULT_FAILED` | `0` | `up()` threw; the migration did not complete |
+| `RESULT_DECLINED` | `3` | the migration checked the data and refused with a reason; it stays pending and the next `migrate` retries it |
 
 `migrate:status` shows the middle one as `Ran with errors` and prints what was
 rejected underneath the table. `migrate` prints `Migrated*` for it and lists the
@@ -807,8 +774,8 @@ reachable from the ledger rather than from a log file.
 A migration in this state is still **recorded and still counted as run**, and
 `migrate` still exits `0`. Both are deliberate: a redundant statement must not
 make a migration re-run for ever, and must not break a deploy script that has
-been re-running the same migrations for years. The change is that the report no
-longer claims something that did not happen.
+been re-running the same migrations for years. What the report does not do is claim
+something that did not happen.
 
 ### Deciding for yourself
 
@@ -888,45 +855,33 @@ its nullability or its default.
 [Schema Builder Guide](Pramnos_Schema_Builder_Guide.md#alter-table) has the whole
 `alterTable()` vocabulary: adding, dropping and renaming columns, indexes and foreign keys.
 
-!!! tip "Why this section exists"
-
-    The capability was documented on the schema-builder page and mentioned nowhere here —
-    and this is the page somebody writing a migration reads. A project widening two columns
-    concluded there was no supported way to change one and wrote vendor-specific
-    `ALTER TABLE` by hand, three times. **A feature documented only where the reader is not
-    looking reads as absent.**
-
 ## Migration Features
 
 ### Conditional DDL (Capabilities Check)
 
 ```php
-public function up(\Pramnos\Database\Database $db)
+public function up(): void
 {
-    $caps = new \Pramnos\Database\DatabaseCapabilities($db);
-    $schema = $db->schemaBuilder();
-    
-    $caps->ifCapable(
-        DatabaseCapabilities::FEATURE_TIMESCALEDB,
-        function () use ($schema) {
-            // TimescaleDB-specific schema
-            $schema->create('metrics', function ($table) {
-                $table->timestamp('time')->index();
-                $table->float('value');
-            });
-            $schema->createHypertable('metrics', 'time');
-        },
-        function () use ($schema) {
-            // MySQL/PostgreSQL fallback
-            $schema->create('metrics', function ($table) {
-                $table->bigIncrements('id');
-                $table->timestamp('time')->index();
-                $table->float('value');
-            });
-        }
+    $schema = $this->schema();
+
+    $schema->create('metrics', function ($table) {
+        $table->bigIncrements('id');
+        $table->timestamp('time');
+        $table->float('value');
+        $table->index('time');
+    });
+
+    // The table is the work; the hypertable is an extra on TimescaleDB.
+    $schema->whenCapable(
+        \Pramnos\Database\DatabaseCapabilities::TIMESCALEDB,
+        fn(\Pramnos\Database\SchemaBuilder $s) => $s->createHypertable('metrics', 'time')
     );
 }
 ```
+
+`whenCapable()` does nothing when the capability is absent; `ifCapable()` without a fallback
+declines the migration instead — see
+[`ifCapable()` or `whenCapable()`](Pramnos_Schema_Builder_Guide.md#ifcapable-or-whencapable).
 
 ### Raw SQL Migrations
 
@@ -960,13 +915,15 @@ own migrations. Leave a one-line comment saying why a statement stays raw.
 ### Data Migrations
 
 ```php
-public function up(\Pramnos\Database\Database $db)
+public function up(): void
 {
-    // Migrate data between schemas
+    $db = $this->DB();
+
+    // Copy data in pages; chunk() is a QueryBuilder method, ordered for determinism
     $db->queryBuilder()
         ->from('old_table')
-        ->get()
-        ->chunk(100, function ($rows) use ($db) {
+        ->orderBy('old_id')
+        ->chunk(100, function (array $rows) use ($db) {
             foreach ($rows as $row) {
                 $db->queryBuilder()
                     ->table('new_table')
@@ -1066,18 +1023,24 @@ Name the file after the class, which the convention does anyway; see
 not.
 
 Framework migrations are always timestamped, and a unit test asserts it over the real
-directories — one file had a hyphen where the convention has an underscore, and nothing could
-see it until the fingerprint started counting untimestamped files.
+directories, so a file named with a hyphen where the convention has an underscore fails the
+suite.
 
 ### Framework vs Application Migrations
 
 - **Framework migrations:** `database/migrations/framework/`  
   Created by the framework for core features.
   
-- **Application migrations:** `database/migrations/app/`  
+- **Application migrations:** `app/Migrations/` (the default `--path`), plus any directory
+  listed in `app.php` under `migrations.paths`.  
   Created by you for your application schema.
 
-**Important:** Framework migrations use the `2020_01_01_*` baseline epoch. The `migration_cutoff` setting allows legacy installations to skip these.
+**Important:** the framework's *baseline* migrations carry the `2020_01_01_*` timestamp; later
+framework migrations carry their real date. An installation whose database predates the
+migration system skips the baseline with a cutoff just after it — in `app.php` as a date-time,
+`'migration_cutoff' => '2020-01-02 00:00:00'`. The setting is parsed with `new \DateTime()`, so
+the underscore form (`2020_01_02_000000`) does not parse there and leaves **no** cutoff at all;
+the underscore form is what `--cutoff` and `MigrationRunner::run(['cutoff' => …])` take.
 
 ## Batching & Rollback
 
@@ -1087,8 +1050,8 @@ Migrations are grouped into "batches." Each `migrate` run increments the batch n
 # Rollback the latest batch
 php vendor/bin/pramnos migrate:rollback
 
-# Rollback specific number of batches
-php vendor/bin/pramnos migrate:rollback --steps=3
+# Rollback one specific batch, by its number
+php vendor/bin/pramnos migrate:rollback --batch=3
 
 # Rollback all batches
 php vendor/bin/pramnos migrate:reset
@@ -1097,11 +1060,8 @@ php vendor/bin/pramnos migrate:reset
 ## Status & Information
 
 ```bash
-# Show migration status
+# Show migration status — every migration, applied or pending
 php vendor/bin/pramnos migrate:status
-
-# Show pending migrations
-php vendor/bin/pramnos migrate:pending
 ```
 
 ## MigrationRunner
@@ -1113,7 +1073,7 @@ php vendor/bin/pramnos migrate:pending
 ```php
 new MigrationRunner(
     ?Database $db = null,
-    string $historyTable = 'framework_migrations',
+    string $historyTable = 'schemaversion',
     ?Application $app = null  // enables maintenance-mode integration
 )
 ```
@@ -1125,11 +1085,12 @@ $runner = new MigrationRunner($db);
 
 // Run all pending migrations (sorted, filtered, recorded)
 $result = $runner->run($migrations);
-// $result = ['ran' => ['create_roles_table', ...], 'failed' => [...]]
+// $result = ['ran' => [...], 'failed' => [slug => error], 'warned' => [slug => rejected statements],
+//            'declined' => [slug => reason]]
 
 // With options
 $result = $runner->run($migrations, [
-    'force'  => true,                    // include autorun=false migrations
+    'force'  => true,                    // include autoExecute=false migrations
     'cutoff' => '2022_01_01_000000',     // skip migrations at or before this date
 ]);
 ```
@@ -1148,7 +1109,7 @@ exist:
 `feature`        VARCHAR(255)   NULL
 `batch`          INT            NULL
 `execution_time` DOUBLE         NULL         -- seconds
-`result`         SMALLINT       DEFAULT 1    -- 1=success, 2=ran with errors, 0=failed
+`result`         SMALLINT       DEFAULT 1    -- 1=success, 2=ran with errors, 3=declined, 0=failed
 `error_message`  TEXT           NULL
 `when`           TIMESTAMP      DEFAULT NOW()
 ```
@@ -1157,7 +1118,7 @@ The first three column names are what the legacy ledger used, and they are kept 
 this is the same table: an installation that migrated through `Application::runMigration()`
 for years has rows in it already.
 
-**The table upgrades itself.** Every column after `extra` is added on the next
+**The table upgrades itself.** Every column except `key` is added on the next
 `ensureHistoryTable()` call if it is missing — through `ADD COLUMN IF NOT EXISTS` on
 PostgreSQL and a schema lookup on MySQL, which has no such clause. No migration file adds a
 column to the migration ledger, because it has to be readable before migrations can run.
@@ -1179,7 +1140,7 @@ $sorted = $runner->sort($migrations);
 ### Filtering
 
 ```php
-// Exclude autorun=false migrations (pass force=true to include them)
+// Exclude autoExecute=false migrations (pass force=true to include them)
 $runner->filterAutorun($migrations, force: false);
 
 // Skip migrations at or before the cutoff timestamp
@@ -1257,11 +1218,10 @@ no row, and the cache is now wrong about a table nobody knows changed.
 one cache — an installation's test and dev, or two installations on one Redis — keep their
 own column lists.
 
-They did not, and the failure is the quiet kind. A model saved against a test database
-silently dropped three columns a migration had just added, because a command run against the
-dev database on the same Redis, with that migration not yet applied, had rewritten
-`schema_columns_properties` with its older list. `Model::_save()` used that list, the columns
-read back as null, and nothing refused anything.
+Without the connection in the key the failure is the quiet kind: a command run against the
+dev database, with a migration not yet applied, would rewrite the column list the test
+database's models save with, and `Model::_save()` would silently drop the columns the
+migration had added.
 
 Test and dev is both the common case and the worst one: the two are *meant* to differ while
 a migration is being written, which is exactly when somebody is reading the result and
@@ -1289,10 +1249,18 @@ $migrations = MigrationLoader::loadFromDirectory(
 $migrations = MigrationLoader::loadFromDirectories(
     [
         ROOT . '/app/Migrations',
-        ROOT . '/vendor/pramnos/framework/migrations',
+        ROOT . '/vendor/mrpc/pramnosframework/database/migrations/framework/queue',
     ],
     $app
 );
+
+// Everything in scope for this application — app directories and the enabled
+// framework feature directories, the same set `migrate` and auto-run use
+$dirs = MigrationLoader::scopeFor($app)['dirs'];
 ```
+
+A directory is not searched recursively: framework migrations live one directory per feature
+(`database/migrations/framework/<feature>/`), so name the feature directory or use
+`scopeFor()`.
 
 Files are sorted alphabetically before loading, so `YYYY_MM_DD_HHmmss_` prefixes naturally produce chronological order.

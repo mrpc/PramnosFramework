@@ -19,11 +19,12 @@ a channel, a row in a changelog, a message on a queue.
 ```php
 class Device extends \Pramnos\Application\Model
 {
-    protected bool $emitChanges = true;
+    protected $emitChanges = true;
 }
 ```
 
-That is the whole opt-in. Nothing else about the model changes, and a model that
+That is the whole opt-in. Declare it untyped, as the base class does: `Model` declares
+`protected $emitChanges = false`, and PHP refuses to load a subclass that adds a type to it. Nothing else about the model changes, and a model that
 does not set it emits nothing at all.
 
 !!! note "Local first, sockets second"
@@ -35,7 +36,7 @@ does not set it emits nothing at all.
 
 ## Turning it on
 
-Five properties, all on `Pramnos\Application\Model`, all optional but the first:
+Six properties, all on `Pramnos\Application\Model`, all optional but the first:
 
 ```php
 class Device extends \Pramnos\Application\Model
@@ -54,6 +55,9 @@ class Device extends \Pramnos\Application\Model
 
     /** Fields whose VALUES may be broadcast. null = identifiers only. */
     protected $broadcastFields = null;
+
+    /** Attach a stack trace to the changelog row. See "Traces are opt-in". */
+    protected $captureTrace = false;
 }
 ```
 
@@ -64,6 +68,7 @@ class Device extends \Pramnos\Application\Model
 | `$changeIgnoreFields` | `[]` | Dropped from both the diff **and** the record |
 | `$changeSignificantFields` | `[]` → any field | Applies to **updates only** |
 | `$broadcastFields` | `null` | See [Payloads](#payloads) |
+| `$captureTrace` | `false` | See [Traces are opt-in](#traces-are-opt-in) |
 
 ### Where it fires
 
@@ -225,6 +230,8 @@ registrations to keep in step, and one of them gets forgotten; listeners switch 
 | `at` | `int` | Unix timestamp |
 | `model` | `class-string` | The emitting class |
 | `table` | `string` | Fully-qualified table name |
+| `captureTrace` | `bool` | Whether the model asked for a trace |
+| `trace` | `?string` | The stack trace taken at the save, when `captureTrace` is on |
 
 Helpers: `has($field)`, `only($fields)`, `except($fields)`, `changesOnly($fields)`,
 `toArray()`.
@@ -428,21 +435,20 @@ compression there makes the table *larger*; see
 ### And what the drain costs, which is nothing on a backend you do not use
 
 `spool:drain` runs `everyMinute` on the framework schedule, so anything it does per pass it
-does sixty times an hour, for ever. Two things follow, and both were once wrong:
+does sixty times an hour, for ever. Two things follow:
 
 **It finds the Redis lists from a set of table names**, `spool:tables`, written when a row is
 pushed — not from `KEYS spool:*`. `KEYS` is O(the whole database) and **blocks the server**
-for its duration. Measured on an installation that had just turned the schedule on: 8.3 ms
-average, and **118 of the 128 slowest commands the server had recorded** were this one call —
-with the slowlog at its cap, so it had stopped saying anything about anything else.
+for its duration; run every minute, it dominates the slowlog and crowds out everything else
+the slowlog could have told you.
 
 `SCAN … MATCH` is not the substitute: `MATCH` filters what is returned, not what is
 traversed, so it trades one stall for a walk of the whole database. A set of names is
 O(tables).
 
-**And it does not ask Redis at all when the spool is `file`**, which is the default. That
-installation spools to files — the rows never reach Redis, and the drain was stalling the
-server for 8 ms every minute to be told so. A backend nobody enabled should cost nothing.
+**And it does not ask Redis at all when the spool is `file`**, which is the default. With file
+spooling the rows never reach Redis, so a Redis call per pass would stall the server only to be
+told there is nothing there. A backend nobody enabled should cost nothing.
 
 The check is *could rows be there*, not *is that the configured driver*: a driver changed from
 `redis` to `file` leaves whatever was already pushed, and refusing to look would strand it.

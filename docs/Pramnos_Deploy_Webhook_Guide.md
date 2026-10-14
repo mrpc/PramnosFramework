@@ -103,7 +103,7 @@ command list to the deploy, and keep the secret out of the repository.
 | Event | Header value | What happens |
 |---|---|---|
 | push | `push` | the pushed branch's commands run |
-| release (published) | `release` | the `main` mapping runs, if there is one |
+| release (published) | `release` | the mapping for the release's target branch (`target_commitish`, `main` when absent) runs |
 | workflow_run (completed, success) | `workflow_run` | the head branch's commands run |
 | anything else | — | `204`, silently ignored |
 
@@ -136,12 +136,14 @@ what each command exited with is no longer recorded anywhere.
     'secret'      => $_ENV['WEBHOOK_SECRET'] ?? '',
     'repo_dir'    => ROOT,
     'log_channel' => 'webhook',
-    'timeout'     => 120,
 ],
 ```
 
 The container then hands you a configured handler under the key `webhook`, and you
 map branches onto it as above.
+
+The constructor also takes a `timeout` (seconds, default 120), but no command is
+stopped when it passes: the commands run to completion however long they take.
 
 ## Related
 

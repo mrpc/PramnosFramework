@@ -82,18 +82,6 @@ class User extends \Pramnos\Application\OrmModel implements \Pramnos\Notificatio
 it extends that. The trait gives you `notify()` and the default routing below, which is
 what `User` needs unchanged: `mail` reads `$this->email`, `database` reads `$this->userid`.
 
-!!! note "This sentence was wrong until 23 September 2026"
-
-    `User` implemented neither the interface nor the trait, so the worked example above
-    ended in `Call to undefined method Pramnos\User\User::notify()` — the first line
-    anybody writes from this page, and the first that failed.
-
-    It went unreported because of *where* it fails. A notification is sent from a
-    scheduled pass, and a fatal in a scheduled pass is a silent nothing: the daemon logs
-    it and the next tick runs. Nobody is waiting on the response and there is no red
-    screen. If you worked around it with `(new Notifier())->sendNow($user, $notification)`,
-    that is the same path one line lower down and can go.
-
 ## `Message` — when there is no event to name
 
 A class per event is the right shape when the event is known in advance. It is the
@@ -158,7 +146,8 @@ value with none of those keys is used as the payload itself. See the
 **`push`** sends web push to every subscription the account has, and does the
 bookkeeping that goes with it — a dead endpoint is deleted, a busy service is
 retried. It needs VAPID keys and the `minishlink/web-push` library, which is
-*suggested* rather than required. Without either it logs once and does nothing.
+*suggested* rather than required. Without either it sends nothing, and on every send it
+logs why and records the refusal in the push log.
 See the [Push guide](Pramnos_Push_Guide.md).
 
 **`log`** appends one JSON line per dispatch to `LOGS/notifications.log`. For
@@ -211,16 +200,20 @@ class User extends OrmModel implements NotifiableInterface
     public function routeNotificationFor(string $channel): mixed
     {
         return match ($channel) {
-            'mail'  => $this->billingEmail ?: $this->email,
-            'push'  => $this->wantsPush ? $this->userid : null,
-            default => $this->defaultRouteFor($channel),
+            'mail'     => $this->billingEmail ?: $this->email,
+            'database' => $this->wantsFeed ? $this->userid : null,
+            default    => $this->defaultRouteFor($channel),
         };
     }
 }
 ```
 
-Returning `null` or `''` makes the channel skip. That is the clean way to turn one
-channel off for one person — it needs no change to any notification.
+For `mail` and `database`, returning `null` (or `''` for mail) makes the channel skip —
+one channel off for one person, with no change to any notification.
+
+`push` does not behave that way today: `PushChannel` reads `routeNotificationFor('push')`
+and uses it only when it is numeric, and otherwise falls back to the notifiable's `userid`
+or `id`. A `null` route for push therefore still sends to the account's subscriptions.
 
 ### A notifiable does not have to be a user
 
@@ -549,7 +542,7 @@ render:
 ```php
 $db = \Pramnos\Database\Database::getInstance();
 
-$unread = $db->table('notifications')
+$unread = $db->queryBuilder()->table('notifications')
     ->where('notifiable_id', (int) $user->userid)
     ->whereNull('read_at')
     ->orderBy('created_at', 'desc')

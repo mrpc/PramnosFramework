@@ -39,17 +39,25 @@ The Pramnos Framework includes a comprehensive caching system that supports mult
 
 ### Basic Configuration
 
+The cache reads the `cache` setting — the `'cache' => [...]` block that `init` writes into
+`app/config/settings.php`:
+
 ```php
-// app/config/cache.php
-return [
-    'method' => 'redis',        // redis, memcached, memcache, file
+// app/config/settings.php
+'cache' => [
+    'method'   => 'redis',      // redis, memcached, memcache, file
     'hostname' => 'localhost',  // Cache server hostname
-    'port' => 6379,            // Cache server port
-    'database' => 0,           // Redis database index
-    'password' => null,        // Authentication password
-    'prefix' => 'myapp_'       // Cache key prefix
-];
+    'port'     => 6379,         // Cache server port
+    'database' => 0,            // Redis database index
+    'password' => null,         // Authentication password
+    'prefix'   => 'myapp_',     // Cache key prefix
+],
 ```
+
+Only keys that name a public `Cache` property are applied (`method`, `hostname`, `port`,
+`database`, `password`, `prefix`, `category`, `extension`, `timeout`, `caching`); anything
+else in the block is ignored. The file adapter's directory is the `CACHE_PATH` constant,
+or `sys_get_temp_dir() . '/pramnos_cache'` when it is not defined.
 
 ### Turning it off
 
@@ -68,11 +76,12 @@ means *off* leaves `method` as `'none'`, no adapter built, and no connection att
 `save()` and `load()` answer `false`, which is the path every caller already takes on a
 miss, so nothing else has to change.
 
-A few notes on the edges, because each was a real bug:
+A few notes on the edges:
 
-- **`false` is not the same as *nothing*.** An empty string or `null` — what every existing
-  caller passes for "I have no opinion" — still selects the default backend. Only a value
-  that spells *off* turns it off.
+- **An empty string is *nothing*; `null` and `false` are *off*.** A `method` of `''` in the
+  settings — or a `''`/`null` method *argument* to `getInstance()` / `new Cache()` — selects
+  the configured or default backend. In the `cache` settings, `'method' => null` turns
+  caching off just as `false` does.
 - **`'0'` does not count.** It is what an unchecked checkbox posts, and a settings form
   saving `'0'` into a method field must not silently take an installation's cache away. The
   words are an enumerated list, not a falsiness test.
@@ -103,11 +112,9 @@ hostname is yours.
 'cache' => ['method' => 'redis', 'hostname' => 'cache-redis', 'port' => 6380],
 ```
 
-> **Corrected 2026-08-20.** The unconfigured default was the literal `'memcached'`, and a
-> Redis cache assumed `localhost`. In a container stack — where Redis is a service name and
-> memcached is not installed at all — an installation with a working Redis and no `cache`
-> section asked for memcached, failed, walked down to memcache, failed, and cached to disk.
-> Reported from a project doing exactly that, with Redis running beside it the whole time.
+This matters in a container stack, where Redis is a service name rather than `localhost`
+and memcached is often not installed at all: an installation with a working Redis and no
+`cache` section finds it.
 
 ### When a cache that was working stops
 
@@ -116,11 +123,10 @@ the **local file cache**, rather than to the next network technology down. Two t
 from that, both deliberate:
 
 **A cache miss is never fatal.** Every rung of the ladder constructs a class, and anything
-thrown while doing so used to escape the cache, its caller and the request. It cost a
-production installation about a hundred queue tasks: the fatal killed the worker mid-task,
-the row stayed `processing` behind a lock nobody held, and systemd restarted the worker to
-do it again. A caching layer whose fault domain is larger than the thing it accelerates is
-not a caching layer, so any failure now lands on the file adapter and writes a log line. If
+thrown while doing so would otherwise escape the cache, its caller and the request — in a
+queue worker, killing it mid-task and leaving the row `processing` behind a lock nobody
+holds. A caching layer whose fault domain is larger than the thing it accelerates is not a
+caching layer, so any failure lands on the file adapter and writes a log line. If
 the filesystem fails too, caching switches off — `load()` and `save()` return false on that,
 so callers take the path they take when nothing is cached.
 
@@ -136,10 +142,13 @@ beside it, and the only thing that says so is a log line nobody is watching at t
 cache that is *absent* is a state every caller already handles; a cache that is *someone
 else's* is not.
 
-The ladder is still available for an installation that has weighed the trade:
+The ladder is still available for an installation that has weighed the trade. The switch
+is read from **`app/app.php`** only (`applicationInfo['cache']['fallback']`) — a `fallback`
+key in the settings-file `cache` block is ignored:
 
 ```php
-'cache' => ['method' => 'redis', 'fallback' => true],   // redis → memcached → memcache → file
+// app/app.php
+'cache' => ['fallback' => true],   // redis → memcached → memcache → file
 ```
 
 Choosing a backend whose extension is missing is a configuration error rather than a
@@ -168,24 +177,21 @@ traverses**, so it costs the size of the whole database however narrow the patte
 `KEYS` is worse: same cost, and it **blocks the server** for the duration, so a cache
 dashboard on a large instance stalls everything sharing it.
 
-Both were in here. Invalidation swept a pattern on every `Model::save()`; enumeration used
-`KEYS catindex:*` on every dashboard load and every `getStats()`. The per-category set fixed
-the first; `catnames` is what the second needed and did not have.
+Invalidation runs on every `Model::save()` and enumeration on every dashboard load and every
+`getStats()`, so both have to be index reads: the per-category set serves the first,
+`catnames` the second.
 
-**And a central index has to be pruned or it becomes the problem.** The structure this
-replaced was a marker key per category-clear, with no TTL — one installation reached 275,000
-of them, each making the sweeps they existed to avoid slower.
+**And a central index has to be pruned or it becomes the problem.** An index key with no TTL
+grows without bound and makes slower the very sweeps it exists to avoid.
 
 `catnames` holds *names* rather than entities, and it goes away three ways: a cleared category
 is removed by the clear, a category whose last entry expired is removed the next time the list
 is read, and **the set itself expires** an hour past its newest member's own TTL.
 
-The expiry was added after the first version shipped without one, and the numbers are why: an
-installation reported 5,304 members after seven hours — **88% of its keyspace** — and the
-slowest single command on the server at 26.7 ms. `clearCategory()` does remove a name, so a
-category that is *cleared* leaves nothing; but the ordinary life of a cached read is to expire
-on its own TTL, and nothing clears that. A permanent index of a thing that is not itself
-bounded is the same shape as the markers, one level up.
+The expiry is what bounds it. `clearCategory()` removes a name, so a category that is
+*cleared* leaves nothing; but the ordinary life of a cached read is to expire on its own TTL,
+and nothing clears that. Without the set's own expiry it would accumulate a name for every
+category ever written and become the largest, slowest key on the server.
 
 What still walks the keyspace, deliberately:
 
@@ -213,7 +219,7 @@ class Reading extends \Pramnos\Application\Model
 `$useCacheInLists = false` is the switch, per model. Turn it off — or leave it off — on a
 **write-heavy** table: every row that changes invalidates every cached list for that table,
 because a list contains the row. Pay for the entry and throw it away before anything reads it,
-and you have added work for nothing. The cost is now proportional to what the category holds
+and you have added work for nothing. The cost is proportional to what the category holds
 rather than to the whole keyspace, but it is still a cost.
 
 A rule of thumb rather than a number: caching a listing pays when the table is read far more
@@ -237,54 +243,34 @@ That last row is the one worth knowing about: `save()` compares against what was
 returns early when nothing differs, so calling it liberally costs one comparison rather than a
 write and a flush.
 
-An update used to clear **only** the row's own key — a category nothing writes to — so the
-ordinary path of loading a row, changing a field and saving it invalidated nothing at all and a
-cached list served the old value until its TTL. That was cheap to not notice at a 60-second
-default, and it is the same shape as a settings write that saved while the screen redrew from
-before it.
+An update clears the category as well as the row's own key because a cached list contains the
+row: clearing only the key would leave every list serving the old value until its TTL.
 
-### What invalidation costs, and the shape that made it ruinous
+### What invalidation costs
 
 `cacheflush($category)` — which `Model::save()` calls, and `Settings` on every write — is
 **O(the category)**, not O(the keyspace). Redis keeps a set of the keys in each category, and
 a flush reads that set and deletes its members.
 
-That is worth stating plainly because the alternative was measured. Until this was fixed the
-adapter fell back to `SCAN … MATCH` for any category name it had no marker for, and
-**`SCAN … MATCH` filters what it returns, not what it traverses** — every call walks the
-whole database. `Model::save()` passes a per-entity *key* where a category is expected, so
-there was never a marker for that name and the fallback ran on every save. Worse, each
-fallback then wrote a permanent marker for a category with no members.
-
-On the installation that found it:
-
-```
-keys in the database          288,706
-keys with a TTL                13,792     ← 95% were markers left by sweeps that found nothing
-round trips per sweep          ~1,443     (COUNT 200)
-worker CPU                       1.6%     — in do_poll in 148 of 150 samples
-wall clock per task             0.932 s
-redis clients in SCAN               20    concurrently
-```
-
-And because the cost was per save and per worker, **adding workers made throughput worse**:
-three moved 11 tasks a second, eighteen moved 8.6. The cache was switched off there before it
-was understood.
+That is worth stating plainly because the alternative — `SCAN … MATCH` over a pattern — walks
+the whole database on every call: **`MATCH` filters what `SCAN` returns, not what it
+traverses**. On the path of every save and every worker, that cost grows with everything
+else sharing the Redis database, and adding workers makes throughput worse rather than
+better, because they all queue on the same sweeps.
 
 **If you see this shape** — workers waiting rather than computing, throughput falling as the
 pool grows — `cat /proc/<pid>/wchan` and `redis-cli client list` answer it in a minute where
 application timing cannot: the framework's `execution_time` measures wall clock around a
-handler, so a handler using 1.6% of a core and waiting on redis looks exactly like a slow
-handler. Four other explanations fitted that evidence first.
+handler, so a handler using a sliver of a core while waiting on redis looks exactly like a
+slow handler.
 
-A keyspace sweep now logs what it cost under `cache` when it takes longer than 250 ms, so the
-one place it still happens — an explicit `cache:clear` with no category — says so rather than
-being inferred.
+A keyspace sweep logs what it cost under `cache` when it takes longer than 250 ms, so the one
+place it happens — an explicit `cache:clear` with no category — says so rather than being
+inferred.
 
-**Upgrading.** Run `cache:clear` once. The `catindexed:*` markers an older build accumulated
-are dead keys that nothing reads; that clear removes them along with everything else.
-`RedisAdapter::purgeCategoryMarkers()` removes only the markers, for an installation that does
-not want to throw away a warm cache.
+**Leftover `catindexed:*` keys.** These per-category marker keys are not read by anything.
+`cache:clear` removes them along with everything else; `RedisAdapter::purgeCategoryMarkers()`
+removes only the markers, for an installation that does not want to throw away a warm cache.
 
 ### One connection, however many categories
 
@@ -292,12 +278,9 @@ not want to throw away a warm cache.
 matches something. Those instances **share one redis connection per endpoint** — the
 category is a namespace for keys, not a reason for a second socket to the same server.
 
-It has to be said because it was not true, and the bill was large. Each instance used to
-build its own `ConnectionManager` and ask for `newConnection()`, which exists for a blocking
-`SUBSCRIBE`. In a request that is invisible: the process exits. In a daemon a worker reached
-**1,016 open connections in five minutes**, against a `LimitNOFILE` of 1024 — and with no
-descriptors left, the autoloader cannot open a class file either, so PHP reports a class as
-missing that is sitting on disk.
+A socket per instance is invisible in a request — the process exits — and fatal in a daemon,
+where connections accumulate up to `LimitNOFILE`. With no descriptors left the autoloader
+cannot open a class file either, so PHP reports a class as missing that is sitting on disk.
 
 If you write a redis client of your own, take the same route:
 
@@ -351,12 +334,15 @@ $cache = \Pramnos\Cache\Cache::getInstance();
 // Get cache instance with specific category and extension
 $cache = \Pramnos\Cache\Cache::getInstance('user_data', 'user', 'redis');
 
-// Get cache instance with custom settings
+// Get cache instance with custom settings (merged over the `cache` setting)
 $cache = \Pramnos\Cache\Cache::getInstance('sessions', 'session', 'file', [
-    'cacheDir' => '/custom/cache/path',
     'prefix' => 'session_'
 ]);
 ```
+
+`getInstance()` keeps one instance per `(category, extension, method)`; the fourth argument
+is applied only when that instance is first built. For a different configuration of the same
+category, use `new \Pramnos\Cache\Cache(...)`.
 
 **Omit the method unless you mean it.** The third argument overrides the
 application's `cache.method` setting for that instance. Leave it out — or pass
@@ -365,16 +351,10 @@ almost every caller wants. Name a backend only when this particular cache must
 live somewhere other than the configured one (a file cache for something you
 want to survive a Redis flush, for example).
 
-> **Corrected 2026-08-20.** `getInstance()` declared `$method = 'memcached'`, which is
-> not a default but an answer: the constructor reads the `cache` setting first and then
-> lets a non-empty method argument overwrite it, so **every caller that did not name a
-> backend asked for memcached** — the service provider, `Factory::getCache()`, the view
-> cache, the SQL cache, the DevPanel cache screen. On an installation configured for
-> Redis with no memcached to connect to, the fallback chain walked those callers down to
-> the file adapter: the process ended up with a private on-disk cache sharing nothing
-> with the store the rest of the application used, and the one screen that exists to show
-> what the cache holds described that empty file store. Passing a method still wins, so
-> nothing that named a backend changes.
+The reason to be strict about it: the constructor reads the `cache` setting first and then
+lets a non-empty method argument overwrite it. A caller that names a backend the server
+does not have ends up — after the fallback — on a private file cache sharing nothing with
+the store the rest of the application uses.
 
 ### Basic Operations
 
@@ -420,15 +400,10 @@ $cache->load('user_' . $id);              // do
 $cache->load('user_' . md5(serialize($f))); // for a composite key, name it yourself
 ```
 
-An array used to be concatenated into the name as the literal `Array`, so *every*
-array-keyed call produced `<category>_Array.<ext>` and they all shared one entry: a `load()`
-could return whatever another caller had saved under a different array. One installation
-did this 38,081 times in a day, and the only symptom was
-`PHP Warning: Array to string conversion` naming a line inside the framework.
-
-It now hashes to a stable, distinct key instead, so such a call is at least correct — and
-the framework writes **one line per call site** to the `cache` log naming the file and line
-that passed it:
+An array or object is hashed to a stable, distinct key, so such a call is at least correct —
+concatenating it would give every array-keyed call the literal name `Array` and one shared
+entry. The framework also writes **one line per call site** to the `cache` log naming the
+file and line that passed it:
 
 ```
 Cache id is a array, not a string, from /var/www/app/Controllers/Foo.php:212 (category
@@ -437,7 +412,8 @@ after a hash of the value rather than after anything meaningful…
 ```
 
 Once per call site per process, because the point is to be read. Fix it at the caller: a
-key you chose is one you can find in `cache:list`, invalidate by name, and reason about
+key you chose is one you can find in the DevPanel cache browser (or `getAllItems()`),
+invalidate by name, and reason about
 when it goes stale.
 
 ## Advanced Usage
@@ -466,21 +442,10 @@ $userCache->clear('users');
 $cache->clear('');
 ```
 
-> **Corrected 2026-08-16.** The three instances above were, until this date, **the same
-> object**. `getInstance()` held a single `static $instance` and returned it whatever
-> category was asked for, so the first caller in the process decided the category for
-> every later one — and in an application that boots providers, the first caller is
-> `CacheServiceProvider`, which asks for none.
->
-> Since `$this->category` is what goes into the cache key, and `save()` has no category
-> parameter at all, the effect was that **categories were accepted and discarded**:
-> `View::cache()` believed it wrote under `views`, so `cache:clear --category=views`
-> never matched a view fragment, and two subsystems asking for different categories
-> shared one namespace where a key collision is possible rather than prevented.
->
-> There is now one instance per `(category, extension, method)`. Existing entries were
-> written under the wrong key and will miss once, which for a cache is the correct
-> outcome rather than a migration.
+The three instances above are distinct objects: `getInstance()` keeps one instance per
+`(category, extension, method)`. That matters because `$this->category` is what goes into
+the cache key and `save()` has no category parameter — the instance's category is the only
+thing that puts an entry in a namespace `cache:clear --category=…` can match.
 
 **Categories are a namespace, not a label.** Two entries with the same id in different
 categories are different entries, and `clear($category)` removes one category without
@@ -490,37 +455,19 @@ category deliberately rather than relying on them colliding.
 **A category may contain underscores.** `user_42`, `schema_columns_things` and
 `report_daily_sales` are all fine, and `clear()` removes exactly the one you name.
 
-> **Fixed 2026-08-24.** They were not fine. The file adapter chose the directory
-> for an entry by splitting its key on the first underscore — and the key is
-> `{category}_{id}` — so `schema_columns_things_<id>.sql` was written into a
-> directory called `schema`, while `clear('schema_columns_things')` looked for
-> one called `schema_columns_things`, found nothing, deleted nothing and
-> returned as though it had worked. **Every category with an underscore in its
-> name was permanently unclearable, silently**, and its entries went on being
-> served until they expired.
->
-> The framework's own categories are all single words, which is why it went
-> unnoticed for so long — but the *example a few sections down in this guide*
-> recommended `$cache->category = 'user_' . $userId`, which is the broken shape.
-> The adapter is now told its category rather than recovering it from the key,
-> and `clear()` also sweeps the place the old layout misfiled entries, so
-> upgrading does not leave a pile of them behind.
->
-> Entries written under the old layout are read from the old path once more only
-> if nothing clears them first; for a cache, missing and being rewritten is the
-> correct outcome rather than a migration.
->
-> The other adapters were checked, not assumed: Redis, Memcached and the array
-> store all match the category against the key with a separator anchor, so none
-> of them had this. It was the file adapter's directory derivation alone.
+The file adapter is told its category rather than recovering it from the key — the key
+is `{category}_{id}`, so splitting it on an underscore would file `schema_columns_things`
+entries under `schema`, where `clear('schema_columns_things')` would never find them.
+Redis, Memcached and the array store match the category against the key with a separator
+anchor.
 
 #### What clearing a category costs
 
 On Redis, `clear($category)` costs **the size of the category** — it reads a set
 holding that category's own keys and deletes them.
 
-It used to cost the size of the whole database, and the reason is worth knowing
-because it catches people writing their own invalidation:
+A pattern scan would cost the size of the whole database, and the reason is worth
+knowing because it catches people writing their own invalidation:
 
 ```php
 // Looks narrow. Is not.
@@ -540,20 +487,20 @@ sessions, rate limiters, another application. Measured with the category held at
 | 100,000 | 15.8 ms | 0.27 ms |
 | 500,000 | **128.7 ms** | **0.85 ms** |
 
-`Model` clears on every write, so this was on the path of every save.
+`Model` clears on every write, so this cost is on the path of every save.
 
 Two consequences to know about:
 
 - **A key written into a category's namespace by something other than the
-  adapter is no longer removed by `clear($category)`.** That is the cost of not
+  adapter is not removed by `clear($category)`.** That is the cost of not
   searching. If you write to Redis directly and want the framework to invalidate
   it, write it through the adapter — or clear it yourself.
 - **On an existing installation, the first `clear()` of each category still
   scans**, once, to catch keys written before the index existed. After that the
   category is never scanned again. Nothing to run; it happens on its own.
 
-The other adapters are unchanged: Memcached cannot enumerate keys at all, and the
-file and array stores do not scan a keyspace, so none of them had this cost.
+The other adapters do not have this cost: Memcached cannot enumerate keys at all, and
+the file and array stores do not scan a keyspace.
 
 ### Cache with Timeouts
 
@@ -572,11 +519,8 @@ $cache->save($permanentData, 'permanent_data');
 ```
 
 !!! note "`timeout = 0` means never, on every adapter"
-    Including the file adapter's garbage collector, which until 2026-08-27 read
-    `timeout = 0` as "expired one second after being written" — so the sampled sweep
-    deleted exactly the entries a caller had asked to keep. It presented as a cache
-    that intermittently did not work for permanent values, which is the hardest kind
-    to attribute.
+    Including the file adapter's garbage collector: the sampled sweep treats a
+    `timeout = 0` entry as permanent and never deletes it.
 
 ### Sweeping the expired entries on a schedule
 
@@ -617,23 +561,20 @@ The cache dashboard asks three things — the categories, the entries, and the c
 | | file | redis | memcached / memcache |
 | --- | --- | --- | --- |
 | `getCategories()` | directories under the cache root | the adapter's own category index | **`[]`** — no index exists to read |
-| `getAllItems()` | the files | the keys under its prefix | `[]` — the protocol cannot enumerate |
-| `ttl` | seconds left, `-1` for never | seconds left, `-1` for never | — |
+| `getAllItems()` | the files | the keys under its prefix | memcached: what `getAllKeys()` returns, when the server allows it, otherwise one `memcached_limitation` info row; memcache: `[]` |
+| `ttl` | seconds left, `-1` for never | seconds left, `-1` for never | memcached: always `-1` |
 | an **expired** entry | listed, marked expired, until a sweep removes it | never listed: Redis evicts it | — |
 
-Two of those were wrong until 2026-08-27, and both looked like an empty cache rather
-than a listing that could not see one:
+Two details about Redis:
 
-- **Redis reported no categories at all.** `getCategories()` and `getStats()` read a
-  `memcachedtags` JSON blob, and **nothing has ever written that key** — three adapters
-  read it, no code sets it. Meanwhile the adapter maintains a real per-category index
-  (`catindex:<category>` plus a `catindexed:<category>` marker) that `clear()` already
-  trusts. The listing now reads that, which is the same source of truth invalidation
-  uses.
-- **The Redis item count was about Redis, not about the cache.** It was `dbSize()`,
-  which counts the whole database: sessions, queue payloads, another application's keys,
-  and this adapter's own bookkeeping. It now counts the entries under the cache's own
-  prefix.
+- **Categories come from the adapter's own index** — `catindex:<category>` and
+  `catnames` — the same source of truth `clear()` uses.
+- **The item count is about the cache, not about Redis.** It counts the entries under the
+  cache's own prefix, not `dbSize()`, which would include sessions, queue payloads,
+  another application's keys and the adapter's own bookkeeping.
+
+The memcached family reads its categories from a `memcachedtags` key that no adapter
+writes, so `getCategories()` there is `[]` in practice.
 
 The memcached family genuinely cannot enumerate, and the dashboard says so rather than
 rendering an empty table — see `memcachedLimitation` in the bundled cache view.
@@ -642,8 +583,7 @@ rendering an empty table — see `memcachedLimitation` in the bundled cache view
     `Cache` falls back to files when the configured backend cannot be reached, and reports
     the fallback: the DevPanel shows *"file fell back from redis"*. That line is worth
     reading. An application configured for Redis whose PHP image has no `redis` extension
-    runs on files, passes every test, and behaves differently in production — which is
-    exactly how the two bugs above stayed invisible.
+    runs on files, passes every test, and behaves differently in production.
 
 ### What `getAllItems()` reports
 
@@ -661,13 +601,10 @@ The `key` is the **storage** key — what the entry is stored under, which is no
 logical id it was saved with once a category or prefix is in play. The cache browser
 lists these, so anything reading one back has to look it up the same way: by storage
 key, through the adapter, with the namespace the entry was listed under. Reading it as
-a logical id answered "not found" for every entry on the page.
+a logical id answers "not found" for every entry on the page.
 
 `ttl` is the seconds actually remaining — `-1` for an entry that never expires, and
-absent (null) for a file the adapter cannot read as a cache entry. It used to be `-1`
-for every live entry, which made the cache browser's TTL column read "Never" for all
-of them: the one thing that column exists to say, said wrongly, on the screen an
-operator opens to find out when a value will be dropped.
+absent (null) for a file the adapter cannot read as a cache entry.
 
 ### Conditional Caching
 
@@ -699,16 +636,13 @@ $redisCache = new \Pramnos\Cache\Cache('category', 'extension', 'redis', [
     'password' => 'secret'
 ]);
 
-// File adapter with custom directory
-$fileCache = new \Pramnos\Cache\Cache('category', 'extension', 'file', [
-    'cacheDir' => '/var/cache/myapp'
-]);
+// File adapter — the directory is the CACHE_PATH constant, not a setting
+$fileCache = new \Pramnos\Cache\Cache('category', 'extension', 'file');
 
-// Memcached with persistent connection
+// Memcached
 $memcachedCache = new \Pramnos\Cache\Cache('category', 'extension', 'memcached', [
     'hostname' => 'memcached.example.com',
     'port' => 11211,
-    'persistentId' => 'myapp'
 ]);
 ```
 
@@ -745,14 +679,16 @@ echo "Categories: " . $stats['categories'];
 
 ### Fallback Strategy
 
-The cache system automatically falls back to less optimal but available methods:
+A backend that cannot be used falls back to the **local file cache** — see
+[When a cache that was working stops](#when-a-cache-that-was-working-stops). Only with
+`'cache' => ['fallback' => true]` in `app/app.php` does it walk the full ladder:
 
 ```
 Redis → Memcached → Memcache → File
 ```
 
 ```php
-// This will try Redis first, then fall back to Memcached, then File
+// Redis; on failure, File — or Memcached, Memcache, File with fallback enabled
 $cache = \Pramnos\Cache\Cache::getInstance('data', 'app', 'redis');
 ```
 
@@ -763,7 +699,7 @@ adapter too, by the same route.
 transition:
 
 ```
-Cache: falling back from "redis" to "memcached" - could not connect to 127.0.0.1:6379.
+Cache: falling back from "redis" to "file" - could not connect to 127.0.0.1:6379 (cross-technology fallback is off; set cache.fallback to enable it).
 ```
 
 This matters more than it looks. A cache that silently changes store is a bug
@@ -795,10 +731,10 @@ You do not have to write that comparison: `Pramnos\Health\Checks\CacheBackendChe
 is registered by default and reports it as `degraded` on `/health/check`. See
 [Health checks](Pramnos_Health_Guide.md#what-you-get-without-writing-anything).
 
-**The usual cause is the PHP extension, not the server.** `pramnos init` now installs
-`redis` or `memcached` into the generated `Dockerfile` when you pick that backend — it
-used to write the compose service and the setting and leave the image without the
-client, so a brand-new project ran on files from its first request.
+**The usual cause is the PHP extension, not the server.** `pramnos init` installs
+`redis` or `memcached` into the generated `Dockerfile` when you pick that backend; an
+image built some other way needs the extension added, or the project runs on files from
+its first request.
 
 ### Cache Key Management
 
@@ -819,9 +755,8 @@ $cache->save($permissionsData, 'permissions');
 $cache->clear('user_' . $userId);
 ```
 
-> Before 2026-08-24 the `clear()` on the last line removed nothing, because the
-> category contains an underscore — see the note under
-> [Categories and Organization](#categories-and-organization).
+See [Categories and Organization](#categories-and-organization) for why an underscore in
+a category is safe.
 
 ### Batch Operations
 
@@ -948,9 +883,9 @@ atomic `add`) can; Array and File cannot, and say so rather than pretending.
 !!! danger "Do not probe with `method_exists()`"
     **Every** adapter has an `increment()` method — `AbstractAdapter` provides a
     working non-atomic default, so `method_exists($adapter, 'increment')` is
-    true for the File adapter too. Asking that question is how the first version
-    of this reported the File adapter as atomic and sent the rate limiter down
-    the "exact under concurrency" path on a backend that loses increments.
+    true for the File adapter too. Asking that question reports the File adapter
+    as atomic and sends a rate limiter down the "exact under concurrency" path on
+    a backend that loses increments.
 
     Ask `supportsAtomicCounter()`, which is `false` in `AbstractAdapter` and
     overridden to `true` only by the adapters that mean it.
@@ -1045,23 +980,19 @@ The entry's own TTL decides whether it is still valid. The reader's is an additi
 limit on top:
 
 ```php
-$cache->save('report', $rows, 86400);      // good for a day
+$adapter->save('report', $rows, 86400);    // good for a day
 
 $adapter->load('report', 0);               // whatever is stored, if it has not expired
 $adapter->load('report', 60);              // …only if it is under a minute old
 ```
 
-Both directions of that used to be wrong on the File adapter, which decided expiry
-from the reader's argument alone and ignored the TTL it had stored:
+Both limits apply on every adapter, the File adapter included. Deciding from the
+reader's argument alone would get both directions wrong: a structure saved with **no**
+expiry would vanish an hour after it was written if read with `load()`'s 3600 default,
+and a counter read with `0` would never expire, so a rate-limit window would never close.
 
-- a structure saved with **no** expiry vanished an hour after it was written, because
-  `hashGet()` and `listRange()` read with `load()`'s 3600 default and meant nothing by
-  it;
-- a counter written with a **one-second** TTL never expired, because `counter()` reads
-  with `0` and the check was `$timeout > 0` — so a rate-limit window never closed.
-
-Structured and counter reads pass `0` now: they want what is stored, and have no
-opinion about its age.
+Structured and counter reads pass `0`: they want what is stored, and have no opinion
+about its age.
 
 ### Keys become paths on the File adapter
 
@@ -1182,7 +1113,7 @@ class ProductController extends \Pramnos\Application\Controller
             $cache->save($response, $cacheKey);
         }
         
-        return $this->response($response);
+        return \Pramnos\Http\Response::json($response);
     }
 }
 ```
@@ -1331,24 +1262,19 @@ class UserController extends \Pramnos\Application\Controller
 
 ## A flush must never break the operation that triggered it
 
-`FileAdapter::listDirectoryFiles()` guarded its walk with `is_dir()`, which is a check followed
+`FileAdapter::listDirectoryFiles()` guards its walk with `is_dir()`, which is a check followed
 by a use — and the directory can go between the two. Another request flushing the same group, or
-this adapter's own `cleanEmptyDirectories()` from a concurrent call, and the iterator raises:
+this adapter's own `cleanEmptyDirectories()` from a concurrent call, and the iterator raises
+`UnexpectedValueException: … Failed to open directory`.
 
-```
-UnexpectedValueException: RecursiveDirectoryIterator::__construct(…/var/cache/userlist):
-    Failed to open directory: No such file or directory
-  FileAdapter.php → Cache.php → Database.php → User.php ← User::activate()
-```
+Left uncaught, that would not break a cache flush; it would break whatever triggered the flush —
+`User::save()` flushes the user list, so a **user activation** would fail because of housekeeping
+that had already *succeeded*: the directory being gone is the state the flush wanted.
 
-The last line is the whole lesson. The throw did not break a cache flush; it broke a **user
-activation**. `save()` flushes the user list, the flush raised, and the operation somebody asked
-for failed because of housekeeping that had already *succeeded* — the directory was gone, which
-is the state the flush wanted.
-
-Caught now, around the loop rather than the constructor alone, since a subdirectory can vanish
-mid-walk with the same result. Whatever was collected before it went is returned, because those
-files are the ones still there to delete. Six call sites in the adapter go through that one walk.
+So the exception is caught around the loop rather than the constructor alone, since a
+subdirectory can vanish mid-walk with the same result. Whatever was collected before it went is
+returned, because those files are the ones still there to delete. Every walk in the adapter goes
+through that one method.
 
 The `is_dir()` guard stays: it is the common case, and paying for an exception on every flush of
 a group nothing ever wrote to would be a cost for a condition that is normal.
@@ -1387,14 +1313,16 @@ server that went away while the application was talking to it.
 Memcached cannot enumerate its keys. So a `clear()` with no category has two very different
 behaviours, and which one you get depends on whether a prefix is configured:
 
-- **With a prefix**, the adapter clears the category indexes it maintains itself. Other tenants'
-  keys are untouched.
+- **With a prefix**, it clears each category listed by `getCategories()` and logs how many. That
+  list is read from a `memcachedtags` key no adapter writes, so in practice it is empty and
+  **nothing is removed**: entries expire on their TTL. Other tenants' keys are untouched. To empty
+  the server deliberately, call `flushEverything()`.
 - **Without one**, it calls `flush()`, which empties the entire server — every co-tenant's data
   included. It writes a line to the log saying so first, and that is the only warning there is.
 
 Which makes the prefix an isolation boundary rather than a naming convenience. **Set one on any
-server that more than one installation talks to.** Redis had the same break and was fixed the same
-way.
+server that more than one installation talks to.** Redis behaves the same way: `clear('')` deletes
+`<prefix>*`, and flushes the database only when no prefix is set.
 
 ## The Memcached counter, and why it calls the server up to three times
 
@@ -1535,14 +1463,13 @@ if ($redisCache->getAdapter() instanceof \Pramnos\Cache\Adapter\RedisAdapter) {
 }
 ```
 
-#### Memcached Connection Pooling
+#### Memcached on a dedicated server
 
 ```php
-// Use persistent connections for better performance
+// The adapter takes a host and port; there is no persistent-connection option
 $memcachedCache = new \Pramnos\Cache\Cache('sessions', 'session', 'memcached', [
     'hostname' => 'memcached.example.com',
     'port' => 11211,
-    'persistentId' => 'app_persistent_pool'
 ]);
 ```
 
@@ -1682,13 +1609,11 @@ class RobustCache
 {
     private $primaryCache;
     private $fallbackCache;
-    private $logger;
     
     public function __construct()
     {
         $this->primaryCache = \Pramnos\Cache\Cache::getInstance('primary', 'app', 'redis');
         $this->fallbackCache = \Pramnos\Cache\Cache::getInstance('fallback', 'app', 'file');
-        $this->logger = \Pramnos\Logs\Logger::getInstance();
     }
     
     public function getWithFallback($key, $dataLoader = null)
@@ -1699,7 +1624,7 @@ class RobustCache
                 return $data;
             }
         } catch (\Exception $e) {
-            $this->logger->logError('Primary cache failed: ' . $e->getMessage());
+            \Pramnos\Logs\Logger::logError('Primary cache failed: ' . $e->getMessage());
         }
         
         try {
@@ -1708,7 +1633,7 @@ class RobustCache
                 return $data;
             }
         } catch (\Exception $e) {
-            $this->logger->logError('Fallback cache failed: ' . $e->getMessage());
+            \Pramnos\Logs\Logger::logError('Fallback cache failed: ' . $e->getMessage());
         }
         
         // No cache available, load fresh data
@@ -1727,14 +1652,14 @@ class RobustCache
             $this->primaryCache->timeout = $timeout;
             $this->primaryCache->save($data, $key);
         } catch (\Exception $e) {
-            $this->logger->logError('Primary cache save failed: ' . $e->getMessage());
+            \Pramnos\Logs\Logger::logError('Primary cache save failed: ' . $e->getMessage());
         }
         
         try {
             $this->fallbackCache->timeout = $timeout;
             $this->fallbackCache->save($data, $key);
         } catch (\Exception $e) {
-            $this->logger->logError('Fallback cache save failed: ' . $e->getMessage());
+            \Pramnos\Logs\Logger::logError('Fallback cache save failed: ' . $e->getMessage());
         }
     }
 }

@@ -29,23 +29,22 @@ The framework ships an **MCP** (Model Context Protocol) server, launched with
 `php <cli> mcp:serve`. It speaks JSON-RPC 2.0 over stdio, which is what an assistant such
 as Claude Code expects, and it exposes two kinds of thing:
 
-- **tools** — callable capabilities: five introspect the application, two report what its logs
-  say, one writes the day's changelog entry, and seven answer questions about the code and the
-  project itself — where a symbol is
-  defined and who calls it, which tests cover it, what the CLI can do, what the design tokens
-  are, what the API documents, and what the framework's own guides and rules say. Only the
-  first five need an application or a database;
+- **tools** — callable capabilities. Some answer questions about the code and the project
+  itself — where a symbol is defined and who calls it, which tests cover it, what the CLI can
+  do, what the design tokens are, what the API documents, and what the framework's own guides
+  and rules say; two report what the logs say; one writes the day's changelog entry. These
+  need no application. The rest introspect the running application and its database — tables,
+  schema, migrations, routes, models, status, schema drift, a failed request — and are
+  registered only when there is an application to ask;
 - **resources** — read-only files the assistant can fetch by URI.
 
-There is no HTTP surface and no port. The client starts the process, talks to it on stdin
-and stdout, and stops it. Nothing is exposed to a network.
+`mcp:serve` has no HTTP surface and no port. The client starts the process, talks to it on
+stdin and stdout, and stops it; nothing is exposed to a network. The separate, authenticated
+HTTP endpoint is described under [Serving it over HTTP](#serving-it-over-http-to-somebody-elses-assistant).
 
 !!! note "This guide is the owner of the topic"
-    MCP shipped in v1.2 and, until this page existed, was documented **only** in
-    `1.2-new-features.md` — a frozen reference — and in a handful of dated changelog
-    posts. That is precisely the failure mode the documentation rules describe: a
-    capability that is present, documented, and not findable. The frozen page is still
-    accurate about the classes it lists; this page is the one that is kept current.
+    This page is the current reference for MCP. `1.2-new-features.md` is a frozen v1.2
+    snapshot and is not kept current.
 
 ## Enabling it
 
@@ -85,11 +84,15 @@ A project without Docker gets the plain form:
 { "mcpServers": { "myapp": { "command": "php", "args": ["myapp.php", "mcp:serve"] } } }
 ```
 
-The server reports **`app/app.php`'s `name`** as its own, so a client listing several
-projects can tell them apart. It reads the configuration file rather than a
-database-stored setting: the name is right there, no connection is involved, and a project
-whose settings failed to load would otherwise have shown the framework's generic default
-for every one of its servers.
+The server reports a name of its own, so a client listing several projects can tell them
+apart. Which name depends on where the server comes from:
+
+- **With the `mcp` feature on**, `mcp:serve` uses the container's server, which
+  `McpServiceProvider` names from the `title` setting, else the `TITLE` constant.
+- **Without it**, `mcp:serve` builds a default server named from **`app/app.php`'s `name`**,
+  falling back to the `title` setting and then `TITLE`. The configuration file is read first
+  because no database connection is involved, so a project whose settings failed to load still
+  reports its own name rather than the framework's generic default.
 
 ## What a tool must tell a client
 
@@ -99,7 +102,7 @@ call from them.
 | Method | What it decides |
 |---|---|
 | `name()` | the wire identifier — a client sends `tools/call` with it and nothing else |
-| `description()` | **whether** the tool is used, because a client chooses between fifteen of them by reading these and nothing else |
+| `description()` | **whether** the tool is used, because a client chooses between all of them by reading these and nothing else |
 | `inputSchema()` | how the call is built and validated |
 
 If you add a tool, these are the parts to get right, and the reason is that getting them wrong is
@@ -131,7 +134,7 @@ day it is registered rather than the day somebody writes a test for it. What it 
 | `model-inspect` | A model's table, primary key, columns and relations |
 | `route-list` | Every registered route, with method, URI, action and permissions |
 | `find-symbol` | **Where a symbol is defined and who calls it** — see below |
-| `console-commands` | **Every CLI command, including the twenty code generators** — see below |
+| `console-commands` | **Every CLI command, including the `create:*` code generators** — see below |
 | `theme-info` | **The design tokens, and whether the CSS was built from them** — see below |
 | `api-docs` | **What the API promises, and whether the document is current** — see below |
 | `find-tests` | **Which tests cover a class, and how to run them** — see below |
@@ -151,25 +154,26 @@ when it is most likely to be wanted.
 
 The three that read a database are offered only when `$app->database` **is** a
 `Pramnos\Database\Database`, not merely when it is non-null. An application part-way
-through migrating to this framework has its own `Database` class, and a null check handed it
-straight into constructors typed against ours — a `TypeError` that cost not those three tools
-but the whole server, because one call registers all twenty-one and the throw landed before
-anything was added. `mcp:call status`, which touches no database, exited 255 with nothing on
-stdout or stderr.
+through migrating to this framework has its own `Database` class, and handing it to
+constructors typed against ours would throw a `TypeError` — and because one call registers
+every tool, that throw would take the whole server down, not just those three.
 
 **Start with `status`.** It answers the four questions a session opens with — is the database
 up, are there migrations to run, is anything stuck, when did something last go wrong — and the
 alternative is finding out from a failure ten minutes in.
 
-The first five are **application introspection**: they answer *what exists in this
-project*. They need a database or an application to answer at all, and two of them are
-skipped when no connection is configured. The two log tools answer *what has been happening*,
+The application-introspection tools — `list-tables`, `query-schema`, `db-inspect`,
+`migration-status`, `model-inspect`, `route-list`, `schema-drift`, `status` and
+`request-debug` — answer *what exists in this project*. They are registered only when there is
+an application, and the three that read a database are skipped when no connection is
+configured. The two log tools answer *what has been happening*,
 and need only a readable log directory — so they register even when there is no application,
 which is exactly when somebody is asking why.
 
 They all come from one list, `McpServiceProvider::registerDefaults()`. `mcp:serve` calls it
-when no container has a server, which is the normal case; a second copy of that list is how
-two tools once ended up registered and unreachable at the same time.
+when no container has a server, which is the normal case. One list, because a second copy
+would drift from the first and leave tools registered in one place and unreachable through
+the other.
 
 ### `db-inspect`
 
@@ -304,12 +308,11 @@ in `vendor/pramnos/framework/docs/` of each project. That is deliberate: the doc
 should be available to whoever is working there, an AI assistant included, and the
 vendored docs always match the vendored code so there is no version to negotiate.
 
-Nothing ever **offered** them. The other five tools answer questions about the
-application; the registered resources are the application's own files. The only route to a
-guide was for an assistant to guess that it should look inside `vendor/`. That is not a
-hypothetical: it is the failure the documentation rules were written after — a feature
-documented, present in the vendored corpus, not found, and built a second time beside the
-working copy.
+Being present is not being found. The other tools answer questions about the application
+or its code, and the registered resources are the application's own files; without this tool
+the only route to a guide is for an assistant to guess that it should look inside `vendor/`.
+A feature that is documented and present in the vendored corpus, but not found, gets built a
+second time beside the working copy.
 
 This tool takes no application and needs no database. It is the same answer in every
 project.
@@ -378,9 +381,8 @@ checks is something that happened *after* the guide describing it was written.
 
 #### `since` — the option that makes it usable
 
-Run over `src/`, this tool reports 76 findings, every one of them older than whatever you are
-working on. The guide has said so from the start, and the predictable consequence was that
-nobody ran it: with 76 pre-existing findings there is no way to see your own three.
+Run over the whole of `src/`, this tool reports dozens of findings older than whatever you
+are working on, and among them there is no way to see your own three.
 
 `since` narrows to the lines the diff touched.
 
@@ -429,10 +431,9 @@ comment saying why" is that the next reader can tell a considered exception from
 A check that cries wolf gets muted, and then the real finding it makes next month is muted
 with it. So the rules match **constructions, not names**, and each one carries a negative test.
 
-That is not a stylistic preference. The first run of this tool against the framework's own
-`src/` reported 29 raw-SQL findings and **sixteen were noise**: `SELECT version()`,
-`SELECT NOW()`, `select @@global.long_query_time`, TimescaleDB catalogs, and one example
-inside a docblock — because the first version did not strip comments. Rule 12 exempts
+That is not a stylistic preference. A raw-SQL rule that matched names would flag
+`SELECT version()`, `SELECT NOW()`, `select @@global.long_query_time`, TimescaleDB catalogs
+and examples inside docblocks, so comments are stripped before matching. Rule 12 exempts
 introspection and driver-specific features in its own text; a statement with no table cannot
 be expressed by a builder at all; a fixture in test code is clearer as a literal.
 
@@ -446,13 +447,10 @@ What the rules deliberately do not report:
 - `$config->path = …` or `$this->model = …`, which are not view variables;
 - `_debug` in a project with no shipped `lib/debug.js`, which has nothing to duplicate.
 
-#### The framework does not pass its own check
+#### The framework passes its own check
 
-Run against `src/`, it reports **9 raw-SQL** findings and **67 flash-query-parameter** ones.
-Those are real, and they are the argument for the tool existing: the rules were written down,
-and the framework itself drifted from them in seventy-six places. They are recorded rather
-than quietly fixed, because rewriting seventy-six call sites is a decision about priorities
-and not a tidy-up.
+Run against `src/`, it reports no findings. A rule the framework did not meet itself would be a
+rule nobody could rely on, so a finding in `src/` is fixed rather than recorded.
 
 ### `find-symbol`
 
@@ -518,7 +516,7 @@ about.
 
 ### `console-commands`
 
-Seventy-odd commands, twenty of which generate code. The reason this is a tool is the failure
+Seventy-odd commands, a good number of which generate code. The reason this is a tool is the failure
 it fixes: an assistant working in a codebase for a whole day writes a controller by hand rather
 than running `create:controller`, because nothing told it the command exists. `--help` on
 seventy commands is not a discovery mechanism.
@@ -551,11 +549,11 @@ seventy commands is not a discovery mechanism.
 - **`class`** is there so `find-symbol` is the obvious next question when the description is not
   enough. The two are meant to be used together.
 - Read from the **live** console definition. A second catalogue kept in the tool would be a
-  second thing to forget, and this file has already been bitten by exactly that.
+  second thing to forget.
 
-Twenty generators exist: `controller`, `model`, `migration`, `crud`, `api`, `api-client`,
+The `create:*` generators: `controller`, `model`, `migration`, `crud`, `api`, `api-client`,
 `screen`, `component`, `view`, `service`, `policy`, `provider`, `middleware`, `event`,
-`listener`, `task`, `webhook`, `seeder`, `test`, `command`. Ask before writing one by hand.
+`listener`, `task`, `seeder`, `test`, `command`. Ask before writing one by hand.
 
 ### `theme-info`
 
@@ -735,7 +733,7 @@ Three findings, and they are three different problems:
 - **A migration that has not run here.** Ordinary, and listed apart so it does not drown the
   other two.
 
-Two more things it says, and both exist because the first version said them wrong:
+Two more things it says:
 
 - **A migration can declare itself conditional.** `pramnos.framework_policies` exists on MySQL
   and plain PostgreSQL and must *not* exist on TimescaleDB, which manages its own policies — so
@@ -811,8 +809,7 @@ assumption, which is to say not followed.
 }
 ```
 
-That is a real first run: the tool pointed at its own author's work, reporting 7.5%. A number
-that can fail is the point.
+A number that can fail is the point.
 
 - **It reads `coverage/clover.xml` and runs nothing.** `./dockertest --coverage` holds a lock —
   two concurrent runs corrupt the shared test databases — and it could not run from inside the
@@ -826,8 +823,8 @@ that can fail is the point.
 - **A whole file the report does not mention is a different thing, and is named.** A new class
   under a measured root is absent because *no test ever loaded it* — PHPUnit never saw a line, so
   it is not "nothing executable changed", it is 0%. Those appear under `unmeasured` and in the
-  verdict. (Skipped in silence, a change consisting entirely of new untested classes reported
-  100%, which is the worst answer a coverage gate can give.) Files outside the measured roots —
+  verdict, because skipping them would report a change made entirely of new untested classes
+  as 100% covered — the worst answer a coverage gate can give. Files outside the measured roots —
   guides, stubs, tests — are still skipped quietly, because a warning that fires on every
   markdown file is a warning nobody reads.
 - **A container's paths are joined to project-relative ones.** Clover records the path the test
@@ -1126,11 +1123,9 @@ its name; an application's tool of the same name is not added.
     `Router::loadFromDirectory()`, because attribute routes are discoverable without a
     request; that is the point of them being attributes.
 
-    Before that fix it answered `{"error": "No router available"}` on the only path that
-    can reach it. Not a defensive fallback — the whole method. A tool that returns an
-    error on every real call is indistinguishable from a working one until somebody reads
-    the output, so if yours needs something HTTP-shaped, build it rather than reporting
-    its absence.
+    A tool that returns an error on every real call is indistinguishable from a working
+    one until somebody reads the output, so if yours needs something HTTP-shaped, build it
+    rather than reporting its absence.
 
 ### A resource
 
@@ -1150,7 +1145,7 @@ resource that disappears degrades to absent instead of breaking the session.
 
 ## Serving it over HTTP, to somebody else's assistant
 
-Everything above is the **internal** server: `mcp:serve` over stdio, twenty tools that read
+Everything above is the **internal** server: `mcp:serve` over stdio, with tools that read
 coverage reports, run the style checker and query the local database, for an assistant working
 alongside you on this machine. None of it should ever answer a stranger.
 
@@ -1178,8 +1173,8 @@ feature is on — see [Connecting Claude.ai, ChatGPT or any remote MCP client](#
 
 ### `whoami`, the one tool the framework offers publicly
 
-The endpoint used to answer with an **empty** tool list until an application registered
-something, and an empty tool list is indistinguishable from a broken one: a client that
+Without it, the endpoint would answer with an **empty** tool list until an application
+registered something, and an empty tool list is indistinguishable from a broken one: a client that
 connects, authenticates and receives nothing cannot tell working wiring from a wrong token
 from scopes nobody granted.
 
@@ -1274,7 +1269,7 @@ PublicRegistry::add(ScopedTool::wrap(new FrameworkDocsTool(), 'mcp:diagnostics')
 
 Because the property that protects this endpoint is that a development tool is **not**
 publicly registrable. Adding the method to the diagnostic tools would make every one of
-them offerable from then on, and a twenty-first tool would reach the internet by being
+them offerable from then on, and every new diagnostic tool would reach the internet by being
 written rather than by being chosen.
 
 `ScopedTool` keeps the decision at the call site, where it shows up in a diff. It also

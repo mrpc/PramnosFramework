@@ -48,29 +48,31 @@ and an export filename stay ISO, and `date()` is right there.
 9. [One palette, every UI system](#one-palette-every-ui-system)
 10. [Asset Management](#asset-management)
 11. [Theme Development](#theme-development)
-12. [Advanced Features](#advanced-features)
-13. [Best Practices](#best-practices)
+12. [Best Practices](#best-practices)
 
 ## Architecture Overview
 
-The theme system is built around the `\Pramnos\Theme\Theme` class and integrates seamlessly with the document and view systems:
+The theme system is built around the `\Pramnos\Theme\Theme` class and integrates seamlessly with the document and view systems. Themes live under `app/themes/` (`APP_PATH/themes`):
 
 ```
-themes/
-├── default/                 # Default theme
-│   ├── theme.html.php      # Main template file
-│   ├── style.css           # Theme stylesheet
-│   ├── screenshot.png      # Theme preview image
-│   ├── header.php          # Header template
-│   ├── footer.php          # Footer template
-│   └── views/              # View overrides
-│       └── ControllerName/
-│           └── template.html.php
-└── custom-theme/           # Custom theme
-    ├── theme.html.php
-    ├── style.css
-    └── functions.php       # Theme customization
+app/themes/
+├── theme.css                # The project's palette (see "One palette, every UI system")
+└── default/                 # One directory per theme
+    ├── default.php          # Optional theme class: `class default_theme extends \Pramnos\Theme\Theme`
+    ├── theme.html.php       # The page layout (the body; `[MODULE]` marks the page content)
+    ├── head.php             # The document head: stylesheets, favicons, manifest link
+    ├── header.php           # The visible site header
+    ├── footer.php           # The visible site footer
+    ├── login.php            # Standalone layout for the auth screens
+    ├── style.css            # Linked automatically by displayInit()
+    ├── screenshot.png       # Theme preview image
+    └── views/               # View overrides
+        └── ControllerName/
+            └── template.html.php
 ```
+
+A theme class is optional. When `<theme>/<theme>.php` exists and defines `<theme>_theme`,
+`getTheme()` instantiates that class; otherwise it uses `\Pramnos\Theme\Theme` itself.
 
 ### Key Components
 
@@ -89,8 +91,8 @@ themes/
 // Get active theme instance
 $theme = \Pramnos\Theme\Theme::getTheme();
 
-// Get theme with specific path
-$theme = \Pramnos\Theme\Theme::getTheme('my-theme', '/custom/themes/path');
+// Get theme from another directory — the path is relative to ROOT
+$theme = \Pramnos\Theme\Theme::getTheme('my-theme', 'custom/themes');
 
 // Load theme for display
 $theme = \Pramnos\Theme\Theme::getTheme('my-theme', '', true);
@@ -99,8 +101,8 @@ $theme = \Pramnos\Theme\Theme::getTheme('my-theme', '', true);
 ### Setting Active Theme
 
 ```php
-// Set theme in application settings
-\Pramnos\Application\Settings::setSetting('theme', 'my-theme');
+// app/app.php — the theme the application loads
+'theme' => 'my-theme',
 
 // Or programmatically in controllers
 $doc = \Pramnos\Framework\Factory::getDocument();
@@ -136,8 +138,8 @@ audit. The scaffolded themes carry them; a hand-written theme has to.
 <main id="main-content">
 ```
 
-The `<main>` landmark has been in these themes all along — only the link to it was missing, so
-reaching a page's content meant tabbing through the whole navigation, on every page.
+Without the link, reaching a page's content means tabbing through the whole navigation, on every
+page.
 
 Style it **off-screen, not hidden**: `display: none` takes it out of the tab order, which removes
 the one thing it exists to provide.
@@ -147,72 +149,51 @@ the one thing it exists to provide.
 .pf-skip-link:focus { left: 0; }
 ```
 
-**And a `viewport` you do not have to remember.** It is on the `Html` document type now, so a theme
-that omits it still gets one. It used to live only here, and a theme that forgot produced a page
-Google labels not mobile-friendly with no signal anywhere that anything was missing.
+**And a `viewport` you do not have to remember.** The `Html` document type emits it, so a theme
+that omits it still gets one — without it, a page is labelled not mobile-friendly with no signal
+anywhere that anything is missing.
 
 ### Nothing about the visitor leaves the page
 
-The scaffolded consent screen used to fall back to Gravatar when an account had no avatar of its
-own:
+The scaffolded OAuth consent screen (`/oauth/authorize`) renders the account's avatar when it
+has one and omits it when it does not. It does **not** fall back to a remote avatar service: a
+URL built from `md5(email)` sends the address of the person signing in to another company, from
+the one page in the flow where they are deciding what to disclose. An md5 of an address is not
+anonymous — the set of addresses that matter is small enough to enumerate.
 
-```php
-$this->user->avatar ?? 'https://www.gravatar.com/avatar/' . md5(strtolower($this->user->email))
-```
-
-So every render of `/oauth/authorize` sent `md5(email)` of the person signing in to another
-company — from the one page in the whole flow where they are deciding what to disclose, and to a
-party they were never asked about.
-
-An md5 of an address is not anonymous. It is the address, hashed: the set of email addresses that
-matter is small enough to enumerate, and that lookup is Gravatar's entire product.
-
-The avatar renders when the account has one and is omitted when it does not. **If you write your own
-consent screen, do not reintroduce it** — nor any other third-party asset on an authentication page.
-A remote image is a request that carries a `Referer`, a timestamp and an IP to somebody else.
+**If you write your own consent screen, keep it that way** — no third-party asset on an
+authentication page. A remote image is a request that carries a `Referer`, a timestamp and an IP to
+somebody else.
 
 ### Main Template File (theme.html.php)
 
-The main template file defines the overall page structure:
+The main template file defines the page layout. It is included with `$this` bound to the
+theme object, and it writes **the body only** — the document emits `<!DOCTYPE html>`, `<html>`,
+the title and its own head around it:
 
 ```php
-<!DOCTYPE html>
-<html lang="<?php echo $lang->_('LangShort'); ?>">
 <head>
-    <meta charset="<?php echo $lang->_('CHARSET'); ?>">
-    <title><?php echo $doc->title; ?></title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <?php echo $doc->header; // Framework-generated head content ?>
+<?php $this->getElement('head'); ?>
 </head>
 <body>
-    <header>
-        <h1><?php echo \Pramnos\Application\Settings::getSetting('sitename'); ?></h1>
-        <?php 
-        // Display navigation menu
-        wp_nav_menu(['theme_location' => 'primary']); 
-        ?>
-    </header>
-    
-    <main>
-        <?php echo '[MODULE]'; // Framework content insertion point ?>
-    </main>
-    
-    <aside>
-        <?php dynamic_sidebar('sidebar-1'); // Widget area ?>
-    </aside>
-    
-    <footer>
-        <p>&copy; <?php echo date('Y'); ?> <?php echo $sitename; ?></p>
-    </footer>
+<a class="pf-skip-link" href="#main-content">Skip to content</a>
+
+<?php $this->get_header(); ?>
+<main id="main-content">
+    [MODULE]
+    <aside><?php echo $this->renderWidgetArea('sidebar-1'); ?></aside>
+</main>
+<?php $this->get_footer(); ?>
 </body>
-</html>
 ```
+
+`[MODULE]` is where the page content goes. `get_header()` / `get_footer()` include the files
+named by the `header` and `footer` elements; navigation is drawn with `$this->displayMenu()` —
+see [Menu System](#menu-system).
 
 ### How a page's content reaches `[MODULE]`
 
-`[MODULE]` is where the page goes, and the theme guide used to stop there — leaving *how
-the page gets there* undocumented. It cost a consuming project real time, so it is spelled
-out here.
+`[MODULE]` is where the page goes. How it gets there:
 
 **Set it with `setContent()` or `addContent()` on the document:**
 
@@ -229,17 +210,11 @@ a controller's view output is put there before the document renders. You need it
 when you render outside that path: a custom route, a service-layer application adding
 server-rendered pages, an error page assembled by hand.
 
-!!! note "`$document->content` also works now, and used to be a trap"
-    The property is public and looks exactly like the seam, but only `Document::render()`
-    read it — and every concrete document type (`Html`, `Amp`, `Json`, `Png`, `Raw`)
-    overrides `render()` and read a static buffer instead. So on an HTML page
-    `$document->content = $html` produced a correct header, a correct footer, and **nothing
-    between them**: the theme visibly working, the page visibly empty, and no error to look
-    up.
-
-    Since 2026-08-17 every type falls back to the property when the buffer is empty, so
-    both work. Prefer `setContent()` anyway: it is what the framework itself uses, and it
-    is the one that composes with `addContent()`.
+!!! note "`$document->content` also works"
+    The property is public, and every concrete document type (`Html`, `Amp`, `Json`, `Png`,
+    `Raw`) falls back to it when the content buffer is empty, so
+    `$document->content = $html` renders. Prefer `setContent()` anyway: it is what the
+    framework itself uses, and it is the one that composes with `addContent()`.
 
 **The buffer is `static`.** One process, one buffer, shared by every document instance. It
 matters in exactly two places: a long-running worker that renders more than one document
@@ -259,59 +234,58 @@ echo $document->render();
 Two details worth knowing:
 
 - `Document::loadtheme()` passes `$load = false` to `Theme::getTheme()`, so the object it
-  hands back has read nothing yet. Before the lazy load existed, an application that
-  assigned `themeObject` and rendered through any route other than `Html::render()` — which
-  calls `loadTheme()` itself — got an object that reported no error and produced the
-  framework's bare default, because the accessors were splitting an empty string.
+  hands back has read nothing yet; the first of those accessors reads it. That is what lets
+  an application assign `themeObject` and render through a route other than
+  `Html::render()` (which calls `loadTheme()` itself).
 - An explicit `loadtheme()` call still re-reads, every time. That is deliberate: the file it
   picks depends on the content type, so setting a content type and reloading is how you
   switch templates. And a `body` you assign yourself is never read over.
 
 ### Content Type Templates
 
-Themes can have specific templates for different content types:
+`setContentType()` picks which entry of `$this->elements` is the layout. The defaults
+include `'index' => 'theme.html.php'`, `'login' => 'login.php'`, `'head' => 'head.php'`,
+`'header' => 'header.php'`, `'footer' => 'footer.php'`, `'sidebar' => 'sidebar.php'`,
+`'style' => 'style.css'`, and WordPress-style names for the rest (`'single' => 'single.php'`,
+`'page' => 'page.php'`, `'archive' => 'archive.php'`, `'search' => 'search.php'`,
+`'404' => '404.php'`, …). A theme class overrides or adds entries:
 
 ```php
-// In theme constructor or init method
-$this->elements = [
-    'index' => 'theme.html.php',      // Default template
-    'page' => 'page.html.php',        // Page template
-    'single' => 'single.html.php',    // Single post template
-    'archive' => 'archive.html.php',  // Archive template
-    'search' => 'search.html.php',    // Search results
-    '404' => '404.html.php',          // Error page
-    'login' => 'login.php',           // Login and the rest of the auth flow
-    'header' => 'header.php',         // Header include
-    'footer' => 'footer.php',         // Footer include
-    'sidebar' => 'sidebar.php',       // Sidebar include
-    'style' => 'style.css',           // Main stylesheet
-    'dynamicStyle' => 'style.php'     // Dynamic CSS
-];
+class mytheme_theme extends \Pramnos\Theme\Theme
+{
+    public function init()
+    {
+        $this->elements['single']  = 'single.html.php';
+        $this->elements['product'] = 'product.html.php';
+        return parent::init();
+    }
+}
 ```
+
+A value ending in `.html.php` has `html` replaced by the document type (`single.json.php` for a
+JSON document); any other name is used as written.
 
 ### Where themes are looked for
 
-`getTheme()`, the constructor, `getThemes()` and `getThemeObjects()` all search
-`APP_PATH/themes` and then `ROOT/themes`, merging what they find — a project may
-legitimately have both, `app/themes/` for its own and `ROOT/themes/` inherited from an
-older layout.
+Each entry point resolves the directory its own way:
 
-They did not always agree. `getThemes()` looked **only** at `ROOT/themes`, so on the
-layout `init` creates it returned an empty array *silently* — visible as an empty theme
-picker with nothing in any log. `getThemeObjects()` was worse: it opened that directory
-with no existence check, so it warned, got `false`, and handed `false` to `readdir()` — a
-TypeError on PHP 8.
+| Method | Looks in |
+| --- | --- |
+| `getTheme($name)` | `APP_PATH/themes` only |
+| `getTheme($name, $path)` | `ROOT/<path>` |
+| `new Theme($name)` | `ROOT/themes` (pass a path to change it) |
+| `getThemes()` | `APP_PATH/themes` **and** `ROOT/themes`, merged — a project may have `app/themes/` for its own and `ROOT/themes/` from an older layout; a missing directory is skipped |
+| `getThemeObjects()` | the names `getThemes()` returns, each built with `getTheme($name, '', false)` — i.e. resolved against `APP_PATH/themes`, even when the theme was found under `ROOT/themes` |
 
-`getThemeObjects()` is now built on `getThemes()` rather than repeating the directory
-walk, which is what let the two drift in the first place.
+`getThemeObjects()` excludes `default`, which is the fallback rather than a choice.
 
 !!! note "A theme class is included once, and the check comes first"
     `getTheme()` asks `class_exists($name, false)` **before** including the theme's PHP
-    file. The check used to come after, where it could not prevent what it was there to
-    prevent: a class already defined — by another loader, by an autoloader, by a second
-    path to the same file — made the include a fatal `Cannot redeclare class`.
+    file, so a class already defined — by another loader, by an autoloader, by a second
+    path to the same file — is reused instead of being redeclared (a fatal
+    `Cannot redeclare class`).
 
-    `include_once` would not have fixed it: it keys on the *resolved path*, so two routes
+    `include_once` would not be enough: it keys on the *resolved path*, so two routes
     to one file (a symlink, or `theme.php` against `Theme.php` on a case-insensitive
     filesystem) load it twice and redeclare anyway.
 
@@ -332,12 +306,11 @@ src/Views/<view>/<tpl>.html.php                  ← the application's own
 scaffolding/themes/<scaffold_theme>/views/…      ← the bundled fallback
 ```
 
-**Per template, not per directory.** Until 2026-08-27 only `Controller::getView()`
-had a fallback, and it applied when the view *directory* could not be found — so
-an application with `src/Views/services/logs.html.php` and no `services.html.php`
-matched at the directory, failed at the template, and the services list came back
-as a page shell: 200, no panel, one line in a log nobody reads. Now each template
-resolves on its own.
+**Per template, not per directory.** Each template resolves on its own, so an
+application with `src/Views/services/logs.html.php` and no `services.html.php` still
+gets the bundled `services.html.php`. A per-directory fallback would match the
+directory, fail at the template, and return a page shell: 200, no panel, one line in a
+log nobody reads.
 
 `project:publish-views` copies a bundled view into the application when you do
 want to own one.
@@ -391,10 +364,9 @@ Tailwind's palette. Both halves matter:
 
 - **A component carries the theme; a utility carries one palette.** `bg-white` and
   `text-gray-700` are invisible or unreadable under `data-theme="dark"`, and nothing in
-  any log says so — the page renders, the text is simply not there. This theme had
-  Bootstrap classes leak into it once by the same route, so
-  `tests/Unit/Http/AdminUrlInViewsTest.php` now fails on a hardcoded palette in any
-  bundled view.
+  any log says so — the page renders, the text is simply not there.
+  `tests/Unit/Http/AdminUrlInViewsTest.php` fails on a hardcoded palette in any bundled
+  view.
 - **Light and dark both ship.** A toggle in the header stores the choice, and `head.php`
   applies it to `data-theme` before the first paint — inline and synchronous, because
   deferring it paints light and then flips.
@@ -440,10 +412,9 @@ specificity does decide — and `base` comes before `daisyui`, so a component's 
 wins as it should. Selectors scoped to this theme's own markup (`.pf-home h1`,
 `.breadcrumb`) need no layer: daisyUI has no opinion about them.
 
-This is worth knowing because reasoning about specificity does not find it. The way it
-surfaced was an application whose SPA and server-rendered halves — identical classes,
-identical components — could not be made to look the same, because only one of them loads
-this file.
+This is worth knowing because reasoning about specificity does not find it: a SPA and a
+server-rendered page with identical classes and components can still look different,
+because only the server-rendered one loads this file.
 
 **A project that wants a build step should have one.** Tailwind's browser build is a
 runtime compile and daisyUI's prebuilt CSS is the whole library, unpurged: fine for a
@@ -502,23 +473,21 @@ document can append it inside its own head. With no `<head>` tag it finds nothin
 returns an empty string, and **everything** the theme emits goes through `gethead()`
 instead — which the document writes *after* `<body>`.
 
-That was the case for every scaffolded theme, and it went unnoticed for as long as
-stylesheets were the only thing involved: a browser hoists `<link rel="stylesheet">` out
-of the body and applies it. It does **not** honour `<link rel="manifest">` there. So a
-project shipped a manifest, linked it, served it with a 200 — and devtools said *No
-manifest detected*, with the link plainly visible in the page source.
+A browser hoists a `<link rel="stylesheet">` out of the body and applies it, so the
+difference is easy to miss — but it does **not** honour `<link rel="manifest">` there: the
+link is in the page source, the file is served with a 200, and devtools says *No manifest
+detected*.
 
 The `<body>` tag matters for the other half: it is what makes `Theme::loadtheme()` set
 `$body` to the body content alone, so the split at `[MODULE]` cannot pick up the head
 assets as page content and emit them twice.
 
-**`head.php` and `header.php` are different things**, which is the distinction the old
-single file lost: `head.php` is the document head — stylesheets, the favicon set, the
+**`head.php` and `header.php` are different things**: `head.php` is the document head — stylesheets, the favicon set, the
 manifest link, `renderCss()`. `header.php` is the *visible* site header — the logo and
 the navigation. Only one of them can be moved into `<head>`.
 
-A hand-written theme with neither tag keeps working exactly as it did: assets in the
-body, hoisted by the browser, and no manifest.
+A hand-written theme with neither tag still renders: its assets end up in the body,
+hoisted by the browser, and a manifest link is ignored.
 
 ### `login.php` — the standalone layout
 
@@ -570,22 +539,19 @@ Four things about that file are deliberate:
 
 **A theme with no `login.php` is unaffected.** `loadtheme()` falls back to
 `theme.html.php` for any content type whose file is missing, so a hand-written theme
-that predates this keeps rendering exactly as it did — `Account` asks every theme and
-takes the answer it gets.
+without one renders the auth screens inside its normal layout — `Account` asks every theme
+and takes the answer it gets.
 
 !!! warning "The content type is per-request state on a cached object"
     `Theme::getTheme()` caches by name, so one theme object serves every request in the
-    process — and `setContentType()` writes to it. Nothing put it back, so in any process
-    serving more than one request, **every page after a sign-in page rendered with no
-    header and no footer**: the navigation simply absent, status 200, nothing in any log.
+    process — and `setContentType()` writes to it. In a process serving more than one
+    request, every page after a sign-in page would render with the `login` layout — no
+    header, no footer, status 200 — unless the state is reset.
 
-    One process, one request hides it completely. A worker, a daemon and every test that
-    visits `/login` and then anything else see it. `Document::reset()` now calls
-    `Theme::reset()` — a document carries a theme, so resetting documents without
-    resetting themes left half the state behind — and `TestClient` calls that per request.
-
-    If you serve several requests in one PHP lifetime by other means, call
-    `Document::reset()` between them.
+    `Document::reset()` calls `Theme::reset()` (a document carries a theme, so resetting
+    one without the other leaves half the state behind), and `TestClient` calls it per
+    request. If you serve several requests in one PHP lifetime by other means — a worker,
+    a daemon — call `Document::reset()` between them.
 
 ### Static files: `assetUrl()`
 
@@ -599,67 +565,70 @@ Load a script or stylesheet through `assetUrl()` rather than `sURL . 'assets/…
 It appends `?v=<modification time>`. A file served at a fixed URL is kept by whatever sits
 in front of it (a CDN answering `HIT` until `max-age` runs out, or a browser cache), so a
 deployed fix reaches nobody until then. The stamp changes the URL when the file changes,
-and only then. The file is looked up beside the front controller that is running, so it
-works whatever the web root is called. A file that is not there gets no stamp.
+and only then. The file is looked up beside the front controller that is running, then in each
+directory above it up to the document root (an application mounted at `www/admin/` serves the
+site's `assets/`), then in the project's web root. A file that is not there gets no stamp.
 
 Every framework asset the scaffold loads goes through it: the `pf-*.js` scripts, `push.js`,
 `style.css` and the cookie banner.
 
-### Theme Functions File
+### The theme class
 
-Create a `functions.php` file for theme customization:
+A theme customises itself in an optional class, `app/themes/<name>/<name>.php`, named
+`<name>_theme`. `getTheme()` includes the file and instantiates the class; `init()` runs from
+the constructor, `displayInit()` when the theme is loaded for display.
 
 ```php
 <?php
-// Theme functions and customization
+// app/themes/mytheme/mytheme.php
 
-// Theme setup
-add_action('after_setup_theme', 'my_theme_setup');
+class mytheme_theme extends \Pramnos\Theme\Theme
+{
+    public function init()
+    {
+        // Navigation locations
+        $this->register_nav_menu('primary', 'Primary Menu');
+        $this->register_nav_menu('footer', 'Footer Menu');
 
-function my_theme_setup() {
-    // Add theme support for various features
-    add_theme_support('post-thumbnails');
-    add_theme_support('custom-logo');
-    
-    // Register navigation menus
-    register_nav_menus([
-        'primary' => 'Primary Menu',
-        'footer' => 'Footer Menu'
-    ]);
-    
-    // Register widget areas
-    register_sidebar([
-        'name' => 'Main Sidebar',
-        'id' => 'sidebar-1',
-        'before_widget' => '<div class="widget">',
-        'after_widget' => '</div>',
-        'before_title' => '<h3 class="widget-title">',
-        'after_title' => '</h3>'
-    ]);
+        // Widget areas: name, description, id, wrapper options
+        $this->registerWidgetArea('Main Sidebar', '', 'sidebar-1', [
+            'before_widget' => '<div class="widget">',
+            'after_widget'  => '</div>',
+            'before_title'  => '<h3 class="widget-title">',
+            'after_title'   => '</h3>',
+        ]);
+
+        return parent::init();   // fires the `after_setup_theme` addon action
+    }
+
+    public function displayInit()
+    {
+        parent::displayInit();   // links the theme's style.css
+
+        $doc = \Pramnos\Framework\Factory::getDocument();
+        $doc->enqueueScript('theme-js', sURL . 'themes/' . $this->theme . '/js/theme.js');
+
+        return $this;
+    }
 }
+```
 
-// Enqueue theme assets
-add_action('wp_enqueue_scripts', 'my_theme_scripts');
+An addon can hook theme setup without subclassing, through the action `init()` fires:
 
-function my_theme_scripts() {
-    $doc = \Pramnos\Framework\Factory::getDocument();
-    
-    // Theme stylesheet
-    $doc->enqueueStyle('theme-style', get_template_directory_uri() . '/style.css');
-    
-    // Theme JavaScript
-    $doc->enqueueScript('theme-js', get_template_directory_uri() . '/js/theme.js', ['jquery']);
-}
+```php
+\Pramnos\Addon\Addon::addAction('after_setup_theme', function () {
+    // …
+});
 ```
 
 ## Template System
 
 ### View Overrides
 
-Themes can override framework views by placing template files in the `views/` directory:
+Themes can override views by placing template files in their `views/` directory:
 
 ```
-themes/my-theme/
+app/themes/my-theme/
 └── views/
     ├── User/
     │   ├── profile.html.php    # Override User/profile view
@@ -671,36 +640,40 @@ themes/my-theme/
 
 ### Template Hierarchy
 
-The framework follows this template hierarchy:
+The framework follows this template hierarchy (see
+[Inheriting a bundled view](#inheriting-a-bundled-view-one-template-at-a-time)):
 
-1. Theme-specific view override (`themes/mytheme/views/Controller/template.html.php`)
-2. Application view (`src/Views/Controller/template.html.php`)
-3. Framework default view (if applicable)
+1. Theme-specific view override (`app/themes/<theme>/views/<view>/<tpl>.html.php`)
+2. Application view (`src/Views/<view>/<tpl>.html.php`)
+3. The bundled scaffold view for the configured `scaffold_theme`
 
 ### Template Variables
 
-Templates have access to these variables:
+View templates (under `views/`) run with `$this` bound to the view and have these in scope:
 
 ```php
-// In any template file
+// In a view template
 echo $this->variableName;    // View variables
-echo $doc->title;            // Document properties
+echo $doc->title;            // The document
 echo $lang->_('STRING');     // Language translations
+echo $model->title;          // The view's default model, or false when it has none
 echo sURL;                   // Base URL constant
-echo $_url;                  // Controller URL
 ```
+
+Theme layout files (`theme.html.php`, `header.php`, …) run with `$this` bound to the theme;
+reach the document through `$this->document`.
 
 ### Including Template Parts
 
 ```php
-// In theme templates
-<?php get_header(); ?>      // Include header.php
-<?php get_footer(); ?>      // Include footer.php
-<?php get_sidebar(); ?>     // Include sidebar.php
+// In theme layout files, where $this is the theme
+<?php $this->get_header(); ?>      // Include header.php
+<?php $this->get_footer(); ?>      // Include footer.php
+<?php $this->get_sidebar(); ?>     // Include sidebar.php
+<?php $this->getElement('head'); ?> // Any entry of $this->elements
 
 // Include custom template parts
-<?php include 'template-parts/hero.php'; ?>
-<?php include 'template-parts/content-' . $post_type . '.php'; ?>
+<?php include __DIR__ . '/template-parts/hero.php'; ?>
 ```
 
 ## Widget System
@@ -708,46 +681,44 @@ echo $_url;                  // Controller URL
 ### Registering Widget Areas
 
 ```php
-// In theme functions.php or theme class
-class MyTheme extends \Pramnos\Theme\Theme
+// In the theme class
+class mytheme_theme extends \Pramnos\Theme\Theme
 {
     public function init()
     {
-        // Register widget areas (sidebars)
-        $this->addSidebar('sidebar-1', 'Main Sidebar', [
-            'description' => 'Main sidebar widget area',
-            'before_widget' => '<div class="widget %2$s">',
-            'after_widget' => '</div>',
-            'before_title' => '<h3 class="widget-title">',
-            'after_title' => '</h3>'
+        // registerWidgetArea($name, $description, $id, $options)
+        $this->registerWidgetArea('Main Sidebar', 'Main sidebar widget area', 'sidebar-1', [
+            'before_widget' => '<div class="widget">',
+            'after_widget'  => '</div>',
+            'before_title'  => '<h3 class="widget-title">',
+            'after_title'   => '</h3>',
         ]);
-        
-        $this->addSidebar('footer-1', 'Footer Widget 1', [
-            'description' => 'First footer widget area'
-        ]);
-        
-        return $this;
+
+        $this->registerWidgetArea('Footer Widget 1', 'First footer widget area', 'footer-1');
+
+        return parent::init();
     }
 }
 ```
 
+`register_sidebar(['name' => …, 'id' => …, 'before_widget' => …])` is an alias that takes the
+same values as one array.
+
 ### Displaying Widget Areas
 
 ```php
-// In theme templates
-<?php if (is_active_sidebar('sidebar-1')) : ?>
-    <div class="sidebar">
-        <?php dynamic_sidebar('sidebar-1'); ?>
-    </div>
+// In theme layout files. renderWidgetArea() returns '' for an unknown or empty area.
+<?php $sidebar = $this->renderWidgetArea('sidebar-1'); ?>
+<?php if ($sidebar !== '') : ?>
+    <div class="sidebar"><?php echo $sidebar; ?></div>
 <?php endif; ?>
 
 // Multiple footer widgets
 <div class="footer-widgets">
     <?php for ($i = 1; $i <= 3; $i++) : ?>
-        <?php if (is_active_sidebar("footer-{$i}")) : ?>
-            <div class="footer-widget-<?php echo $i; ?>">
-                <?php dynamic_sidebar("footer-{$i}"); ?>
-            </div>
+        <?php $area = $this->renderWidgetArea("footer-{$i}"); ?>
+        <?php if ($area !== '') : ?>
+            <div class="footer-widget-<?php echo $i; ?>"><?php echo $area; ?></div>
         <?php endif; ?>
     <?php endfor; ?>
 </div>
@@ -810,73 +781,53 @@ Nothing, by design and by test:
 
 There is no table and no migration — widget records live in the theme's existing settings.
 
-> Until 2026-08-14 `renderWidgetArea()` returned an **empty string always**: the render loop
-> was commented out and referred to a `pramnos_theme_widget` class from a deprecated CMS that
-> the framework does not ship. A theme could declare widget areas and nothing would ever appear
-> in them. The `Pramnos\Theme\Widget` base class this section used to document did not exist
-> either.
-
 ## Menu System
 
 ### Registering Menu Areas
 
 ```php
-// In theme class or functions.php
-class MyTheme extends \Pramnos\Theme\Theme
+// In the theme class
+class mytheme_theme extends \Pramnos\Theme\Theme
 {
     public function init()
     {
-        // Register menu locations
-        $this->addMenuArea('primary', 'Primary Navigation', [
-            'description' => 'Main site navigation'
-        ]);
-        
-        $this->addMenuArea('footer', 'Footer Navigation', [
-            'description' => 'Footer links'
-        ]);
-        
-        $this->addMenuArea('social', 'Social Links', [
-            'description' => 'Social media links'
-        ]);
-        
-        return $this;
+        // register_nav_menu($location, $description, $menuid = null)
+        $this->register_nav_menu('primary', 'Primary Navigation');
+        $this->register_nav_menu('footer', 'Footer Navigation');
+        $this->register_nav_menu('social', 'Social Links');
+
+        return parent::init();
     }
 }
-
-// Alternative registration
-register_nav_menus([
-    'primary' => 'Primary Menu',
-    'footer' => 'Footer Menu',
-    'social' => 'Social Links'
-]);
 ```
+
+`hasMenuAreas()` and `getMenuAreas()` report what was registered; `setMenu($location, $menuid)`
+assigns a menu id to a location.
 
 ### Displaying Menus
 
 ```php
-// Basic menu display
-<?php wp_nav_menu(['theme_location' => 'primary']); ?>
+// Basic menu display — echoes by default
+<?php $this->displayMenu('primary'); ?>
 
-// Advanced menu with custom options
-<?php wp_nav_menu([
-    'theme_location' => 'primary',
-    'container' => 'nav',
+// With options
+<?php $this->displayMenu('primary', [
+    'container'       => 'nav',
     'container_class' => 'main-navigation',
-    'container_id' => 'site-navigation',
-    'menu_class' => 'nav-menu',
-    'menu_id' => 'primary-menu',
-    'before' => '<li class="menu-item">',
-    'after' => '</li>',
-    'link_before' => '<span>',
-    'link_after' => '</span>',
-    'echo' => true
+    'container_id'    => 'site-navigation',
+    'menu_class'      => 'nav-menu',
+    'menu_id'         => 'primary-menu',
+    'before'          => '<li class="menu-item">',
+    'after'           => '</li>',
+    'link_before'     => '<span>',
+    'link_after'      => '</span>',
+    'echo'            => true,
 ]); ?>
 
-// Conditional menu display
-<?php if (has_nav_menu('primary')) : ?>
-    <nav class="main-navigation">
-        <?php wp_nav_menu(['theme_location' => 'primary']); ?>
-    </nav>
+// As a string, to test whether anything rendered
+<?php $menu = $this->displayMenu('primary', ['echo' => false]); ?>
+<?php if ($menu !== '') : ?>
+    <nav class="main-navigation"><?php echo $menu; ?></nav>
 <?php endif; ?>
 ```
 
@@ -933,16 +884,9 @@ $theme->setMenuWalker(new BootstrapWalker());
 The walker is a pure function of its inputs — items in, string out, no database and no
 application — so it can be unit-tested on its own.
 
-The documented `displayMenu()` arguments still work, including the legacy `[URL]`, `[TITLE]`,
+The `displayMenu()` arguments above work, including the `[URL]`, `[TITLE]`,
 `[ACTIVE]…[/ACTIVE]` and `[HASSUB]…[/HASSUB]` markers in `topmenuoption` and `before`. A theme
 that passes none of them gets sensible markup without knowing they exist.
-
-> Until 2026-08-14 `displayMenu()` instantiated `pramnoscms_menu` unconditionally — a class
-> from a deprecated CMS that the framework does not ship. Written unqualified inside the theme's
-> namespace, the name resolved to that namespace rather than the global one, so it could not be
-> satisfied even by a project that had the global class. **The method fatalled in every project
-> without it**, and the framework's own test had to `eval()` a fake one to test it at all. The `MenuWalker` this section used to document did not exist; the version described here
-> is real, and the API that section showed was WordPress's `Walker_Nav_Menu`.
 
 ## Theme Settings
 
@@ -950,22 +894,8 @@ A theme declares the settings it wants; the framework renders them, reads them b
 persists them. That is the whole contract, and it is the same shape as Django's `Form`,
 Rails' model validations and WordPress's Settings API: **you describe fields, not markup.**
 
-!!! warning "This section was wrong until 2026-08-17, and the feature did not work"
-    It documented `$this->addField(...)` on a theme. `addField()` is real, but it belongs to
-    the **form**, not the theme: the chain was `Theme::addSetting()` →
-    `pramnos_html_form::addField()`, and the guide had written the inner call as though it were
-    the theme's own. It also used a `'value,Label|value,Label'` option format the code never
-    parsed.
-
-    And it would not have mattered either way: every settings method fatalled. The form object
-    they called into was a legacy class (`pramnos_html_form`) that was never ported, and the
-    line building it arrived from the legacy framework **already commented out**, so `$_form`
-    was null from the first day of the file.
-
-    The name is kept on the new form class — `SettingsForm::addField()` — precisely so that
-    knowledge lands on the right object instead of the wrong one.
-
-    Both are fixed. The feature works, and this section describes what it does.
+The form underneath is `Pramnos\Html\Form\SettingsForm`; `Theme::addSetting()` declares a
+field on it (`SettingsForm::addField()`), so the theme never builds markup itself.
 
 ### Declaring settings
 
@@ -1041,13 +971,12 @@ $theme->saveSettings();
 
 `renderSettings()` returns **the fields only**, without a `<form>` tag, so an administration
 panel can put several themes' or addons' settings inside one submit. An empty string means the
-theme declared nothing — it is not an error, and it used to be a fatal.
+theme declared nothing — it is not an error.
 
 Three behaviours worth relying on:
 
 - **Everything is escaped.** Values, labels, descriptions and every option. A `"` in a value
-  cannot end the attribute it sits in. The class this replaced interpolated values straight
-  into `value="…"`, which on a settings page is the worst possible place for it: the values are
+  cannot end the attribute it sits in. That matters most here: settings values are
   administrator-supplied and re-rendered after every save.
 - **A checkbox can be turned off.** Browsers submit nothing for an unchecked box, so each one
   is rendered with a hidden `0` companion that the checkbox overwrites with `1`. Without it a
@@ -1080,8 +1009,7 @@ protected function loadSettings()
 ### Addons declare settings the same way
 
 `Addon::addSetting()` has the identical signature, plus a ninth argument for multilanguage
-fields, and it was non-functional for the same reason — so **no addon could have settings at
-all** until this was fixed. `Addon::getProperty($name, $language)` returns the translated
+fields, and builds on the same `SettingsForm`. `Addon::getProperty($name, $language)` returns the translated
 value when one was declared for that language and the addon's own property otherwise.
 
 Multilanguage fields are copied once per language in `ROOT/language/*.php`. An installation
@@ -1116,7 +1044,7 @@ $footerText = $theme->getSetting('footer_text');
 
 <?php if ($enableSidebar) : ?>
     <aside class="sidebar">
-        <?php dynamic_sidebar('sidebar-1'); ?>
+        <?php echo $theme->renderWidgetArea('sidebar-1'); ?>
     </aside>
 <?php endif; ?>
 
@@ -1155,8 +1083,7 @@ $this->addSetting('layout', 'Layout', 'select', [
     'fluid' => 'Fluid',
 ]);
 
-// A path or URL. `image` is the legacy name for this type and renders a text input:
-// nothing in the framework has ever drawn a picker for it.
+// A path or URL. `image` renders a plain text input — there is no picker.
 $this->addSetting('header_image', 'Header Image', 'image');
 
 // Colour, date and time map to the matching HTML input types
@@ -1174,51 +1101,44 @@ class BlogController extends \Pramnos\Application\Controller
 {
     public function display()
     {
-        // Set content type for theme template selection
+        // Selects $elements['archive'] as the layout — archive.php by default
         $this->setContentType('archive');
-        
-        // Theme will use archive.html.php if available
+
         $view = $this->getView('Blog');
         return $view->display('archive');
     }
-    
+
     public function post()
     {
-        $this->setContentType('single');
-        
+        $this->setContentType('single');   // single.php by default
+
         $view = $this->getView('Blog');
         return $view->display('post');
     }
 }
 ```
 
+`Controller::setContentType()` forwards to the document's theme object, when there is one.
+
 ### Template Selection Logic
 
-```php
-// Theme automatically selects templates based on content type
-// Priority order:
-// 1. {content-type}.{format}.php (e.g., single.html.php)
-// 2. theme.{format}.php (e.g., theme.html.php) 
-// 3. Default framework template
+`loadtheme()` picks the layout file in this order:
 
-// Custom content type handling
-class MyTheme extends \Pramnos\Theme\Theme
+1. `$elements[<content type>]` — with `.html.php` turned into `.<document type>.php`;
+2. `$elements['index']`, the same way (`theme.html.php` → `theme.json.php` for JSON);
+3. `theme.html.php`.
+
+A content type with no entry in `$elements` uses `theme.<document type>.php`. Add entries in
+the theme class:
+
+```php
+class mytheme_theme extends \Pramnos\Theme\Theme
 {
-    public function loadtheme()
+    public function init()
     {
-        $contentType = $this->getContentType();
-        
-        // Custom logic for specific content types
-        switch ($contentType) {
-            case 'product':
-                $this->elements['product'] = 'templates/product.html.php';
-                break;
-            case 'event':
-                $this->elements['event'] = 'templates/event.html.php';
-                break;
-        }
-        
-        parent::loadtheme();
+        $this->elements['product'] = 'templates/product.html.php';
+        $this->elements['event']   = 'templates/event.html.php';
+        return parent::init();
     }
 }
 ```
@@ -1320,7 +1240,7 @@ it cannot resolve — `color-mix()`, a named colour, a `var()` reference — sim
 `-rgb` alias, and Bootstrap keeps its own for that one colour. A missing triplet is a
 colour that disagrees; a guessed one is a colour nobody chose.
 
-**What this turns on.** A `prefersdark` theme now reaches the bootstrap and plain-CSS
+**What this turns on.** A `prefersdark` theme reaches the bootstrap and plain-CSS
 themes as well, through `theme-tokens.css`'s `prefers-color-scheme` block — so a project
 on either will follow the visitor's operating system unless it says otherwise. The
 controls for that are the ones that were already there: drop `prefersdark: true` from the
@@ -1396,37 +1316,35 @@ where a test has no business writing.
 
 ### What this does not do
 
-**Bootstrap's own variables are not generated.** Bootstrap 5 wants `--bs-primary` as a
-hex plus a `--bs-primary-rgb` triplet, and an `oklch()` value cannot be decomposed into
-one without a colour-space conversion this framework has no business doing at build
-time. A Bootstrap project gets the tokens and uses them directly
-(`background: var(--color-primary)`); theming Bootstrap's own components still means
-Bootstrap's own Sass.
+**Bootstrap's Sass variables are not generated.** `theme:build` reaches Bootstrap through its
+CSS custom properties (`--bs-*` and the computed `--bs-*-rgb` triplets above); anything Bootstrap
+only exposes as a Sass variable at build time still means Bootstrap's own Sass.
 
 ## Asset Management
+
+`Theme::displayInit()` links the theme's `style.css` (the `style` element) on its own, at
+`sURL . 'themes/<theme>/style.css'`. Anything else is enqueued from an override of it.
 
 ### Theme Stylesheets
 
 ```php
-// In theme class or functions.php
+// In the theme class
 public function displayInit()
 {
-    $doc = \Pramnos\Framework\Factory::getDocument();
-    
-    // Main theme stylesheet
-    $doc->enqueueStyle('theme-style', $this->getThemeUrl() . '/style.css');
-    
-    // Additional stylesheets
-    $doc->enqueueStyle('theme-layout', $this->getThemeUrl() . '/css/layout.css', ['theme-style']);
-    
-    // Conditional stylesheets
+    parent::displayInit();   // style.css
+
+    $doc  = \Pramnos\Framework\Factory::getDocument();
+    $base = sURL . 'themes/' . $this->theme;
+
+    // enqueueStyle($handle, $src, $deps = [], $version = '', $media = 'all')
+    $doc->enqueueStyle('theme-layout', $base . '/css/layout.css');
+
     if ($this->getSetting('enable_dark_mode')) {
-        $doc->enqueueStyle('theme-dark', $this->getThemeUrl() . '/css/dark.css');
+        $doc->enqueueStyle('theme-dark', $base . '/css/dark.css', ['theme-layout']);
     }
-    
-    // Responsive stylesheets
-    $doc->enqueueStyle('theme-responsive', $this->getThemeUrl() . '/css/responsive.css', [], '', 'screen and (max-width: 768px)');
-    
+
+    $doc->enqueueStyle('theme-responsive', $base . '/css/responsive.css', [], '', 'screen and (max-width: 768px)');
+
     return $this;
 }
 ```
@@ -1436,446 +1354,194 @@ public function displayInit()
 ```php
 public function displayInit()
 {
-    $doc = \Pramnos\Framework\Factory::getDocument();
-    
-    // Theme JavaScript
-    $doc->enqueueScript('theme-js', $this->getThemeUrl() . '/js/theme.js', ['jquery'], '', true);
-    
-    // Conditional scripts
+    parent::displayInit();
+
+    $doc  = \Pramnos\Framework\Factory::getDocument();
+    $base = sURL . 'themes/' . $this->theme;
+
+    // enqueueScript($handle, $src, $deps = [], $version = '', $footer = false)
+    $doc->enqueueScript('theme-js', $base . '/js/theme.js', [], '', true);
+
     if ($this->getSetting('enable_animations')) {
-        $doc->enqueueScript('theme-animations', $this->getThemeUrl() . '/js/animations.js', ['theme-js'], '', true);
+        $doc->enqueueScript('theme-animations', $base . '/js/animations.js', ['theme-js'], '', true);
     }
-    
-    // Localized scripts
-    $doc->addScriptDeclaration('
-        var themeSettings = {
-            ajaxUrl: "' . sURL . 'ajax/",
-            nonce: "' . wp_create_nonce('theme_ajax') . '",
-            colorScheme: "' . $this->getSetting('color_scheme') . '"
-        };
-    ');
-    
+
+    // Inline configuration — carries the page's CSP nonce
+    $doc->addInlineScript('var themeSettings = ' . json_encode([
+        'ajaxUrl'     => sURL . 'ajax/',
+        'colorScheme' => $this->getSetting('color_scheme'),
+    ]) . ';');
+
     return $this;
 }
 ```
 
+For a file served from the web root, prefer [`assetUrl()`](#static-files-asseturl), which adds a
+cache-busting `?v=<mtime>`.
+
 ### Dynamic CSS
 
-Create a `style.php` file for dynamic CSS generation:
+`$elements` lists a `dynamicStyle` entry (`style.php`), but the framework neither serves nor links
+it. Colours that change per installation belong in the palette —
+[One palette, every UI system](#one-palette-every-ui-system) — or in an inline style the theme
+emits from a setting:
 
 ```php
-<?php
-// style.php - Dynamic CSS based on theme settings
-header('Content-Type: text/css');
-
-$theme = \Pramnos\Theme\Theme::getTheme();
-$primaryColor = $theme->getSetting('primary_color') ?: '#007cba';
-$secondaryColor = $theme->getSetting('secondary_color') ?: '#005a87';
-$fontFamily = $theme->getSetting('font_family') ?: 'Arial, sans-serif';
-?>
-
-:root {
-    --primary-color: <?php echo $primaryColor; ?>;
-    --secondary-color: <?php echo $secondaryColor; ?>;
-    --font-family: <?php echo $fontFamily; ?>;
-}
-
-body {
-    font-family: var(--font-family);
-    color: var(--primary-color);
-}
-
-.button {
-    background-color: var(--primary-color);
-    border-color: var(--secondary-color);
-}
-
-.button:hover {
-    background-color: var(--secondary-color);
-}
-
-<?php if ($theme->getSetting('enable_shadows')) : ?>
-.card {
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-}
-<?php endif; ?>
-
-<?php if ($theme->getSetting('layout_width')) : ?>
-.container {
-    max-width: <?php echo $theme->getSetting('layout_width'); ?>px;
-}
-<?php endif; ?>
+// In a theme layout file
+<style nonce="<?php echo \Pramnos\Application\Application::getInstance()->cspNonce; ?>">
+:root { --brand: <?php echo htmlspecialchars((string) ($this->getSetting('primary_color') ?: '#007cba')); ?>; }
+</style>
 ```
 
 ## Theme Development
 
 ### Creating a New Theme
 
-1. **Create theme directory structure:**
+1. **Create the theme directory** under `app/themes/`:
 
 ```bash
-mkdir themes/my-new-theme
-cd themes/my-new-theme
+mkdir -p app/themes/my_new_theme
 ```
 
-2. **Create basic files:**
+2. **Create the layout** — `app/themes/my_new_theme/theme.html.php`:
 
 ```php
-// theme.html.php - Main template
-<!DOCTYPE html>
-<html <?php language_attributes(); ?>>
 <head>
-    <meta charset="<?php bloginfo('charset'); ?>">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title><?php echo $doc->title; ?></title>
-    <?php echo $doc->header; ?>
+<?php $this->getElement('head'); ?>
 </head>
-<body <?php body_class(); ?>>
-    <div class="site-wrapper">
-        <header class="site-header">
-            <?php get_header(); ?>
-        </header>
-        
-        <main class="site-main">
-            <?php echo '[MODULE]'; ?>
-        </main>
-        
-        <footer class="site-footer">
-            <?php get_footer(); ?>
-        </footer>
-    </div>
+<body>
+<a class="pf-skip-link" href="#main-content">Skip to content</a>
+<div class="site-wrapper">
+    <header class="site-header"><?php $this->get_header(); ?></header>
+    <main id="main-content" class="site-main">[MODULE]</main>
+    <footer class="site-footer"><?php $this->get_footer(); ?></footer>
+</div>
 </body>
-</html>
 ```
+
+with `head.php`, `header.php` and `footer.php` beside it, and a `style.css`:
 
 ```css
-/* style.css - Main stylesheet */
-/*
-Theme Name: My New Theme
-Description: A custom theme for Pramnos Framework
-Author: Your Name
-Version: 1.0
-*/
-
-/* Reset and base styles */
-* {
-    margin: 0;
-    padding: 0;
-    box-sizing: border-box;
-}
-
-body {
-    font-family: Arial, sans-serif;
-    line-height: 1.6;
-    color: #333;
-}
-
-/* Layout */
-.site-wrapper {
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-}
-
-.site-main {
-    flex: 1;
-    padding: 20px;
-}
-
-/* Header */
-.site-header {
-    background: #f8f9fa;
-    padding: 20px;
-    border-bottom: 1px solid #e9ecef;
-}
-
-/* Footer */
-.site-footer {
-    background: #343a40;
-    color: white;
-    padding: 20px;
-    text-align: center;
-}
+/* style.css */
+.site-wrapper { min-height: 100vh; display: flex; flex-direction: column; }
+.site-main    { flex: 1; padding: 20px; }
+.site-header  { padding: 20px; border-bottom: 1px solid var(--color-base-300, #e9ecef); }
+.site-footer  { padding: 20px; text-align: center; }
 ```
 
-3. **Create theme class:**
+3. **Create the theme class** — `app/themes/my_new_theme/my_new_theme.php`. The class name is the
+   directory name plus `_theme`, which is why a theme that has a class needs a directory name
+   that is a valid PHP identifier:
 
 ```php
-// functions.php or in theme directory
-class MyNewTheme extends \Pramnos\Theme\Theme
+<?php
+// app/themes/my_new_theme/my_new_theme.php
+class my_new_theme_theme extends \Pramnos\Theme\Theme
 {
     public function init()
     {
-        // Theme setup
-        $this->title = 'My New Theme';
+        $this->title  = 'My New Theme';
         $this->author = 'Your Name';
-        $this->info = 'A custom theme for Pramnos Framework';
-        
-        // Register menus
-        $this->addMenuArea('primary', 'Primary Menu');
-        $this->addMenuArea('footer', 'Footer Menu');
-        
-        // Register sidebars
-        $this->addSidebar('sidebar-main', 'Main Sidebar');
-        $this->addSidebar('footer-1', 'Footer Widget 1');
-        
-        // Add theme settings
+        $this->info   = 'A custom theme for Pramnos Framework';
+
+        $this->register_nav_menu('primary', 'Primary Menu');
+        $this->register_nav_menu('footer', 'Footer Menu');
+
+        $this->registerWidgetArea('Main Sidebar', '', 'sidebar-main');
+        $this->registerWidgetArea('Footer Widget 1', '', 'footer-1');
+
         $this->addSetting('logo', 'Site Logo', 'image');
         $this->addSetting('primary_color', 'Primary Color', 'color');
         $this->addSetting('show_sidebar', 'Show Sidebar', 'checkbox');
-        
-        return $this;
-    }
-    
-    public function displayInit()
-    {
-        parent::displayInit();
-        
-        $doc = \Pramnos\Framework\Factory::getDocument();
-        
-        // Enqueue theme assets
-        $doc->enqueueScript('theme-main', $this->getThemeUrl() . '/js/main.js', ['jquery']);
-        
-        return $this;
+
+        return parent::init();
     }
 }
 ```
+
+4. **Select it** with `'theme' => 'my_new_theme'` in `app/app.php`.
 
 ### Theme Testing
 
 ```php
-// Create test data and scenarios
-class ThemeTest
+use PHPUnit\Framework\TestCase;
+
+class ThemeTest extends TestCase
 {
-    public function testThemeLoading()
+    protected function tearDown(): void
     {
-        $theme = \Pramnos\Theme\Theme::getTheme('my-new-theme');
-        assert($theme instanceof \Pramnos\Theme\Theme);
-        assert($theme->theme === 'my-new-theme');
+        \Pramnos\Document\Document::reset();   // also resets the cached theme objects
     }
-    
-    public function testThemeSettings()
+
+    public function testThemeLoading(): void
     {
-        $theme = \Pramnos\Theme\Theme::getTheme('my-new-theme');
-        
-        // Test setting values
-        $theme->setSetting('primary_color', '#ff0000');
-        assert($theme->getSetting('primary_color') === '#ff0000');
+        $theme = \Pramnos\Theme\Theme::getTheme('my_new_theme', '', false);
+        $this->assertInstanceOf(\Pramnos\Theme\Theme::class, $theme);
+        $this->assertSame('my_new_theme', $theme->theme);
     }
-    
-    public function testWidgetAreas()
+
+    public function testWidgetAreas(): void
     {
-        $theme = \Pramnos\Theme\Theme::getTheme('my-new-theme');
-        $widgetAreas = $theme->getWidgetAreas();
-        
-        assert(isset($widgetAreas['sidebar-main']));
-        assert(isset($widgetAreas['footer-1']));
+        $theme = \Pramnos\Theme\Theme::getTheme('my_new_theme', '', false);
+        $areas = $theme->getWidgetAreas();
+
+        $this->assertArrayHasKey('sidebar-main', $areas);
+        $this->assertArrayHasKey('footer-1', $areas);
     }
 }
 ```
 
-## Advanced Features
-
-### Custom Post Types Integration
-
-```php
-// Support for custom post types
-class BlogTheme extends \Pramnos\Theme\Theme
-{
-    public function init()
-    {
-        // Define templates for custom post types
-        $this->elements['product'] = 'single-product.html.php';
-        $this->elements['event'] = 'single-event.html.php';
-        $this->elements['portfolio'] = 'archive-portfolio.html.php';
-        
-        return $this;
-    }
-    
-    public function loadtheme()
-    {
-        // Custom template selection logic
-        $contentType = $this->getContentType();
-        $postType = $this->getCurrentPostType();
-        
-        if ($postType && isset($this->elements[$postType])) {
-            $this->_contentType = $postType;
-        }
-        
-        parent::loadtheme();
-    }
-}
-```
-
-### Theme Child Support
-
-```php
-// Support for child themes
-class ChildTheme extends \Pramnos\Theme\Theme
-{
-    protected $parentTheme = 'parent-theme-name';
-    
-    public function loadtheme()
-    {
-        // Load parent theme first
-        if ($this->parentTheme) {
-            $parentPath = $this->path . DS . $this->parentTheme;
-            if (file_exists($parentPath . DS . 'theme.html.php')) {
-                // Inherit parent elements
-                $parent = new Theme($this->parentTheme, $this->path);
-                $this->elements = array_merge($parent->elements, $this->elements);
-            }
-        }
-        
-        parent::loadtheme();
-    }
-}
-```
-
-### AJAX Theme Integration
-
-```php
-// AJAX support in themes
-public function displayInit()
-{
-    $doc = \Pramnos\Framework\Factory::getDocument();
-    
-    // Add AJAX support
-    $doc->addScriptDeclaration('
-        var ajaxSettings = {
-            url: "' . sURL . 'ajax/theme",
-            nonce: "' . wp_create_nonce('theme_ajax') . '"
-        };
-    ');
-    
-    return $this;
-}
-
-// AJAX handler
-public function handleAjax($action, $data)
-{
-    switch ($action) {
-        case 'load_more_posts':
-            return $this->loadMorePosts($data);
-        case 'update_theme_setting':
-            return $this->updateThemeSetting($data);
-        default:
-            return ['error' => 'Invalid action'];
-    }
-}
-```
+There is no `setSetting()` on a theme: values are saved from a submitted form with
+`saveSettings()` and read with `getSetting()`.
 
 ## Best Practices
 
 ### Theme Performance
 
 ```php
-// Optimize theme performance
 public function displayInit()
 {
-    $doc = \Pramnos\Framework\Factory::getDocument();
-    
-    // Minify and combine assets
-    if (ENVIRONMENT === 'production') {
-        $doc->enqueueStyle('theme-combined', $this->getThemeUrl() . '/css/combined.min.css');
-        $doc->enqueueScript('theme-combined', $this->getThemeUrl() . '/js/combined.min.js');
+    parent::displayInit();
+
+    $doc  = \Pramnos\Framework\Factory::getDocument();
+    $base = sURL . 'themes/' . $this->theme;
+
+    if (\Pramnos\Application\Application::getInstance()->isDebugMode()) {
+        $doc->enqueueStyle('theme-style', $base . '/css/style.css');
+        $doc->enqueueScript('theme-script', $base . '/js/script.js');
     } else {
-        // Development assets
-        $doc->enqueueStyle('theme-style', $this->getThemeUrl() . '/css/style.css');
-        $doc->enqueueScript('theme-script', $this->getThemeUrl() . '/js/script.js');
+        $doc->enqueueStyle('theme-combined', $base . '/css/combined.min.css');
+        $doc->enqueueScript('theme-combined', $base . '/js/combined.min.js');
     }
-    
+
     return $this;
-}
-```
-
-### Responsive Design
-
-```css
-/* Mobile-first responsive design */
-.container {
-    width: 100%;
-    padding: 0 15px;
-}
-
-@media (min-width: 576px) {
-    .container {
-        max-width: 540px;
-        margin: 0 auto;
-    }
-}
-
-@media (min-width: 768px) {
-    .container {
-        max-width: 720px;
-    }
-}
-
-@media (min-width: 992px) {
-    .container {
-        max-width: 960px;
-    }
-}
-
-@media (min-width: 1200px) {
-    .container {
-        max-width: 1140px;
-    }
 }
 ```
 
 ### Accessibility
 
-```php
-// Accessibility best practices in themes
-// In template files:
-
-// Proper heading hierarchy
-<h1><?php echo $doc->title; ?></h1>
-<h2>Section Title</h2>
-<h3>Subsection Title</h3>
-
-// Alt text for images
-<img src="<?php echo $imageUrl; ?>" alt="<?php echo $imageAlt; ?>">
-
-// Skip links
-<a class="skip-link screen-reader-text" href="#main">Skip to main content</a>
-
-// ARIA labels
-<nav aria-label="Primary Navigation">
-    <?php wp_nav_menu(['theme_location' => 'primary']); ?>
-</nav>
-
-// Form labels
-<label for="search">Search:</label>
-<input type="search" id="search" name="search">
-```
+- A skip link as the first focusable element, styled off-screen rather than hidden — see
+  [Two things every theme owes its readers](#two-things-every-theme-owes-its-readers).
+- One `<main>` landmark, and a heading hierarchy that starts at `<h1>`.
+- `alt` on every image; `aria-label` on each `<nav>` when a page has more than one.
+- A `<label for>` on every form control.
 
 ### Security
 
 ```php
-// Security best practices
-// Sanitize output
-echo htmlspecialchars($userInput);
-echo esc_attr($attribute);
-echo esc_url($url);
+// Escape output — the framework ships no esc_* helpers; use PHP's
+echo htmlspecialchars($userInput, ENT_QUOTES);
+echo htmlspecialchars($url, ENT_QUOTES);
 
-// Validate input
-$color = $this->getSetting('primary_color');
+// Validate settings before using them in CSS or markup
+$color = (string) $this->getSetting('primary_color');
 if (!preg_match('/^#[a-f0-9]{6}$/i', $color)) {
-    $color = '#007cba'; // Default color
-}
-
-// Nonce verification for AJAX
-if (!wp_verify_nonce($_POST['nonce'], 'theme_ajax')) {
-    die('Security check failed');
-}
-
-// Capability checks
-if (!current_user_can('manage_options')) {
-    die('Insufficient permissions');
+    $color = '#007cba';
 }
 ```
+
+Requests that change state go through a controller, where CSRF protection and permission checks
+apply — see the [Authentication Guide](Pramnos_Authentication_Guide.md).
 
 ---
 

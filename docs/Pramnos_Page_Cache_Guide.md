@@ -157,17 +157,15 @@ state for, so **the session cookie is in `bypassCookies` by default**:
 ```
 
 Serving that visitor a page stored for somebody else, or storing their response for
-everybody, are both wrong, and the second is the dangerous direction. It used to be
-possible: `#^(auth|remember|logged)#i` never matched `PHPSESSID`, so an application
-whose signed-in state lives only in `$_SESSION` had nothing on this list to stop it
-— and a signed-in response that sets no cookie is not caught by the `Set-Cookie`
-rule either.
+everybody, are both wrong, and the second is the dangerous direction. The first
+pattern alone does not match `PHPSESSID`, so an application whose signed-in state
+lives only in `$_SESSION` would have nothing on this list to stop it — and a
+signed-in response that sets no cookie is not caught by the `Set-Cookie` rule either.
 
 What makes this a workable *default* is `'session' => 'lazy'`: with it an anonymous
 reader carries no session cookie at all, so bypassing on one costs no cache hits.
-Without lazy sessions the framework set `PHPSESSID` on every response anyway and
-`store()` already refused those, so this takes away no caching that was previously
-happening.
+Without lazy sessions the framework sets `PHPSESSID` on every response and `store()`
+refuses those anyway, so the pattern costs no caching in either mode.
 
 **If you want signed-in visitors served from cache**, drop the pattern and lean on
 `privateMarkers` or `varyBy` instead — but understand that you are then promising
@@ -181,10 +179,10 @@ inline `<script>` and `<style>` it writes. Two things follow, and the second is 
 one that decides whether your pages are cacheable at all.
 
 **A hit still gets a policy.** `sendCspHeader()` is called from
-`Application::render()`, which a hit never reaches, so a cached page used to go out
-with **no policy at all** — a page that looks perfect and whose scripts run because
-nothing is left to stop them. `PageCacheMiddleware` now builds a fresh policy and
-attaches it to the hit. Nothing to configure.
+`Application::render()`, which a hit never reaches — left alone, a cached page would
+go out with **no policy at all**: a page that looks perfect and whose scripts run
+because nothing is left to stop them. So `PageCacheMiddleware` builds a fresh policy
+and attaches it to the hit. Nothing to configure.
 
 **A page with a nonced inline script is never stored.** A stored body freezes the
 nonce it was rendered with and hands that same one to every visitor for the whole
@@ -206,14 +204,14 @@ make it silently.
 
 #### Which of your inline scripts actually needs a nonce
 
-Fewer than you would think, and the framework no longer spends one where it cannot be
+Fewer than you would think, and the framework does not spend one where it cannot be
 spent.
 
 **A `<script>` whose `type` is not JavaScript gets no nonce.** `script-src` gates script
 *execution*, and a `<script type="application/ld+json">` is a data block the browser
-never runs — there is nothing for the policy to allow, so the nonce was inert. Structured
-data has to be inline for a crawler to read it, so this was frequently the only thing
-keeping an otherwise static page out of the cache.
+never runs — there is nothing for the policy to allow, so a nonce would be inert.
+Structured data has to be inline for a crawler to read it, so a nonce there would often
+be the only thing keeping an otherwise static page out of the cache.
 
 **`importmap` and `speculationrules` do keep theirs.** They look like data and are not: an
 import map needs an inline allowance like any other script, and speculation rules are
@@ -384,9 +382,9 @@ members and deletes them — the size of the tag.
 The obvious alternative is asking the store for every key matching a pattern, and
 on Redis that is a trap: `SCAN` walks the **entire keyspace** whatever the `MATCH`
 says, because `MATCH` filters what comes back rather than what is traversed. A
-per-record purge built that way costs the size of the whole database — measured
-at 268 ms on a store that was not even large. See
-[Test Suite Performance](Pramnos_Test_Suite_Performance.md).
+per-record purge built that way costs the size of the whole database. The
+[Cache Guide](Pramnos_Cache_Guide.md#what-clearing-a-category-costs) has the
+measurements.
 
 ---
 
@@ -407,11 +405,12 @@ implement `increment()` as a load followed by a save — under concurrency every
 caller reads the same value and every caller believes it won. A stampede lock
 built on that fails at the only moment it is for.
 
-So there are two implementations:
+So there are two implementations, chosen by `supportsAtomicCounter()`:
 
 | Store | Lock |
 |---|---|
-| Redis, Memcached | `swap()` — Redis `GETSET`, one server-side operation |
+| Redis | `swap()` — Redis `GETSET`, one server-side operation |
+| Memcached | `swap()` too, because the adapter counts atomically — but `MemcachedAdapter` has no `swap()` of its own, so it runs `AbstractAdapter`'s read-then-write default, which is **not** atomic. Two concurrent requests can both take the lock and both re-render. |
 | File, Array | a `mkdir()` lock — atomic on Linux, macOS and WSL alike |
 
 Setting `lockTtl` to `0` means a lock is never honoured and every arrival
@@ -495,18 +494,17 @@ run behind it.
 is not the bootstrap this method exists to skip: what it skips is `Application::init()`
 and its database, session, language and theme.
 
-It used to *require* the config as an argument, which meant the `pagecache` block had
-to be copied by hand into `index.php` beside the one in `app.php`. Two declarations of
-the same rules, and this is the one that answers first — change `bypassCookies` in
-`app.php`, forget the copy, and the early path keeps serving a signed-in page to
-everybody from a rule set that exists nowhere else. Passing a config still works and
-still wins, for a caller that wants a different one here on purpose.
+Reading the same block is the point: a copy of the `pagecache` rules in `index.php`
+would be a second declaration, and the one that answers first — change `bypassCookies`
+in `app.php`, forget the copy, and the early path keeps serving a signed-in page to
+everybody from a rule set that exists nowhere else. Passing a config is still accepted
+and wins, for a caller that wants a different one here on purpose.
 
 `ROOT` has to be defined before the call, which every scaffolded front controller
 already does on its first line. `APP_PATH` is used instead when it is defined.
 
 **The hit carries a CSP.** Reading the file gets the `csp` block in the same breath,
-so this path is no longer the exception — see
+so this path is no exception — see
 [a cache hit and the CSP nonce](#a-cache-hit-and-the-csp-nonce). If there is no
 `app.php` to read, no policy is sent rather than a guessed one: the framework default
 is `default-src 'none'`, and sending that to an application that needed hosts in its
@@ -540,7 +538,7 @@ the cache saves tens. One consuming application measured 5.8 ms for its PHP hit
 path against 4.5 ms static — real, and much smaller than the advertising for this
 technique suggests.
 
-Three things to know:
+Four things to know:
 
 - **URLs with a query string are never written as files.** A rewrite rule cannot
   apply `ignoreQuery`, so it would serve the clean page for `?page=2`. Those
@@ -622,6 +620,7 @@ Before setting it, be sure of two things, because a CDN is not purgeable from he
 | `varyQuery` | `null` | whitelist; overrides `ignoreQuery` |
 | `varyBy` | `[]` | `name => callable` |
 | `privateMarkers` | `[]` | body substrings that prevent storing |
+| `skipWhileDebugging` | `true` | refuse to store while the debug toolbar is collecting |
 | *(not configurable)* | — | a body containing this response's CSP nonce is never stored |
 | `staleWhileRevalidate` | `30` | seconds past expiry |
 | `lockTtl` | `30` | `0` disables locking |
@@ -631,7 +630,7 @@ Before setting it, be sure of two things, because a CDN is not purgeable from he
 | `debugHeader` | `true` | `X-Pramnos-Cache` and `Age` |
 | `debugDetail` | `false` | adds the key, TTL and expiry |
 | `writer` | `'cache'` | or `'static'` |
-| `staticRoot` | `ROOT . '/www/cache'` | |
+| `staticRoot` | `''` | empty means `ROOT . '/www/cache'` |
 | `headerWhitelist` | `content-type`, `content-language`, `link`, `vary` | the only response headers replayed |
 
 `headerWhitelist` is a whitelist rather than a blacklist because the header that
@@ -690,7 +689,7 @@ Then, in order, and each is one line:
    ```
 
    Everything it lists is the application's own — the framework does not nonce data
-   blocks or its own `no-js` flip any more. See [which of your inline scripts actually
+   blocks or its own `no-js` flip. See [which of your inline scripts actually
    needs a nonce](#which-of-your-inline-scripts-actually-needs-a-nonce).
 6. Is the front controller returning a `Response`, or echoing `render()`'s string?
    A string is passed through unstored — see
@@ -704,4 +703,4 @@ Then, in order, and each is one line:
 
 - [Cache Guide](Pramnos_Cache_Guide.md) — the storage layer, adapters and categories
 - [Routing Guide](Pramnos_Routing_Guide.md) — middleware registration
-- [Test Suite Performance](Pramnos_Test_Suite_Performance.md) — the invalidation cost measurements
+- [Test Suite Performance](Pramnos_Test_Suite_Performance.md) — keeping invalidation off the hot path in tests

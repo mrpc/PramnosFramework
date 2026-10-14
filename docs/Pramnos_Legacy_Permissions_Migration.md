@@ -17,10 +17,10 @@ table years ago and still have rows in it.
 
 No migration ever created `<prefix>permissions`, and nothing in the framework
 calls `Permissions::setupDb()` — so unless an application built the table by
-hand, it does not exist. That was survivable until you notice the class reported
-a failed lookup as `false`, indistinguishable from a deny: code that trusted the
-answer refused everything. (`isAllowed(..., false)` now returns `null` when there
-is no store, which is what "cannot answer" should always have looked like.)
+hand, it does not exist. With no store at all, `isAllowed(..., false)` returns
+`null` — "cannot answer" — and the default `isAllowed()` falls back to the
+privilege's default, which is a deny unless one was set with
+`setDefaultPermission()`.
 
 `authserver.permissions` is created by the **`auth`** feature's migrations — so
 every installation with users has it, whether or not it runs an OAuth server. It
@@ -44,8 +44,9 @@ counting from that moment, and finding out through a permission that
 Reading the richer model through the older interface necessarily narrows it:
 
 - `admin` maps to the `*` action, and `*` answers any privilege.
-- A grant on one `object_id` answers only questions about that element; a grant
-  covering all objects of a type answers only the unscoped question.
+- A grant on one `object_id` answers only questions about that element. A grant
+  covering all objects of a type (`object_id` `NULL`) answers the unscoped
+  question and the question about every element.
 - **Grants carrying ABAC conditions are ignored.** The resolver hands conditions
   to the application to evaluate against its own request context, and this API
   has no way to receive one — treating a conditional grant as unconditional would
@@ -91,8 +92,11 @@ deliberately rather than let a script guess:
 ## The migration
 
 Run it inside a transaction and read the result before committing. Both
-statements are written to be re-runnable: the unique constraint on
-`authserver.permissions` makes a repeat insert a no-op.
+statements are re-runnable: each row is inserted only when an identical grant is
+not already there. The unique constraint on `authserver.permissions` cannot do
+that alone, because it includes the nullable `object_id` and a unique key treats
+`NULL`s as distinct — every "all objects of this type" row would be inserted a
+second time.
 
 ### PostgreSQL
 
@@ -117,7 +121,15 @@ SELECT
 FROM public.permissions AS p          -- add your prefix
 WHERE p.subjecttype = 'user'
   AND p.userid IS NOT NULL
-ON CONFLICT ON CONSTRAINT uq_authserver_perms_grant DO NOTHING;
+  AND NOT EXISTS (
+      SELECT 1 FROM authserver.permissions AS n
+      WHERE n.subject_type = 'user'
+        AND n.subject_id   = p.userid
+        AND n.object_type  = p.resource
+        AND n.object_id IS NOT DISTINCT FROM NULLIF(p.resourceelement, '')
+        AND n.action       = CASE WHEN p.privilege = 'admin' THEN '*' ELSE p.privilege END
+        AND n.grant_type   = CASE WHEN p.value = 1 THEN 'allow' ELSE 'deny' END
+  );
 
 -- Read this before committing: rows the script deliberately did not move.
 SELECT subjecttype, resourcetype, COUNT(*)
@@ -133,7 +145,7 @@ COMMIT;
 ```sql
 START TRANSACTION;
 
-INSERT IGNORE INTO authserver_permissions
+INSERT INTO authserver_permissions          -- add your prefix
     (subject_type, subject_id, object_type, object_id, action, grant_type,
      priority, granted_at, is_active, description)
 SELECT
@@ -149,7 +161,16 @@ SELECT
     'Migrated from the legacy permissions table'
 FROM permissions AS p                 -- add your prefix
 WHERE p.subjecttype = 'user'
-  AND p.userid IS NOT NULL;
+  AND p.userid IS NOT NULL
+  AND NOT EXISTS (
+      SELECT 1 FROM authserver_permissions AS n   -- add your prefix
+      WHERE n.subject_type = 'user'
+        AND n.subject_id   = p.userid
+        AND n.object_type  = p.resource
+        AND n.object_id <=> NULLIF(p.resourceelement, '')
+        AND n.action       = CASE WHEN p.privilege = 'admin' THEN '*' ELSE p.privilege END
+        AND n.grant_type   = CASE WHEN p.value = 1 THEN 'allow' ELSE 'deny' END
+  );
 
 SELECT subjecttype, resourcetype, COUNT(*)
 FROM permissions
@@ -159,8 +180,9 @@ GROUP BY subjecttype, resourcetype;
 COMMIT;
 ```
 
-MySQL installations may name the schema-qualified table `authserver_permissions`
-or place it in a separate database; use whichever your migrations created.
+On MySQL the query builder resolves `authserver.permissions` to
+`<prefix>authserver_permissions` in the application's database; use the name
+your migrations created.
 
 ## Verifying
 

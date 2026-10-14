@@ -103,17 +103,17 @@ Three things, and nothing else:
 | `APP_DEBUG` in the environment | this deployment is a development one |
 | the `DEVELOPMENT` constant | the same statement, made in code |
 
-**The `debug` and `development` settings do not.** They used to, and that was a hole: they are
-rows editable from `/admin/Settings`, and flipping one turned the toolbar on for every visitor
-of the site rather than for the person who flipped it — with every query, the session's keys
-and the request's authentication state in it. They still govern error display, the DevPanel and
-the debug log; `debug:status` prints all of this, including which signal is actually open.
+**The `debug` and `development` settings do not.** They are rows editable from
+`/admin/Settings`, and flipping one would turn the toolbar on for every visitor of the site
+rather than for the person who flipped it — with every query, the session's keys and the
+request's authentication state in it. They still govern error display and the debug log;
+`debug:status` prints all of this, including which signal is actually open.
 
 ### The bar remembers which tab you had open
 
-Across page changes, for the length of the browser session. Following one bug through three
-screens used to mean reopening the same tab three times — and the tab most often reopened is
-the one that explains why the page you landed on is not the page you asked for. Whether the
+Across page changes, for the length of the browser session, so following one bug through
+three screens does not mean reopening the same tab three times — and the tab most often
+reopened is the one that explains why the page you landed on is not the page you asked for. Whether the
 bar is hidden, and how tall the panel is, are remembered for longer: those are preferences,
 the open tab is "where I was a moment ago".
 
@@ -269,8 +269,9 @@ and what `GET /devpanel/logs?request=<id>` takes.
   data, no DOM, no panel.
 - **The DevPanel link** appears only when the `devpanel` feature is enabled *and* the
   signed-in user meets `devpanel.min_usertype` (default 90). Its address is resolved
-  server-side from `sURL`, or `SITE_URL` when that is what the application defines, so
-  an installation served from a subdirectory gets a link that works.
+  server-side from `AdminArea::servingUrl()`, or `SITE_URL` when that is what the
+  application defines, so an installation served from a subdirectory or an administration
+  area gets a link that works.
 
   The link is hidden rather than disabled, and hiding it is **not** what protects the
   panel: `DevPanelController` performs the same feature and usertype check on every

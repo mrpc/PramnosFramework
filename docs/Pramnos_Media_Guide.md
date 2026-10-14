@@ -99,19 +99,19 @@ website» button, a picture-by-URL field — came from outside.
 
 That matters because the server can reach places whoever supplied the address cannot: a cloud
 provider's metadata endpoint on `169.254.169.254`, an unauthenticated panel on loopback, the database
-on a private address, the rest of the subnet. So three guards run here, and each one is a fetch this
-method used to perform:
+on a private address, the rest of the subnet. So three guards run here:
 
 - **the address is checked and then dialled** through
   [`Pramnos\Security\OutboundUrl`](Pramnos_Security_Guide.md#fetching-a-url-somebody-else-chose): the host is resolved, every
   address inside this network is refused, only `http` and `https` are accepted, credentials in the URL
   are refused, and the connection is made to the address that was approved rather than resolving the
-  name a second time. Redirects are not followed — a redirect is a second address, chosen by the
-  server being fetched.
+  name a second time. Up to `$media->remoteMaxRedirects` redirects (3 by default) are followed, and
+  each hop is checked the same way before it is dialled — a redirect is a second address, chosen by
+  the server being fetched. Set it to `0` where an address is expected to be exact.
 - **the body is capped** at `$media->remoteMaxBytes` (10 MB by default), mid-stream.
-- **the type is read from the bytes**, not from the URL. The extension on disk now describes the
-  content; it used to default to `jpg` for anything the URL did not spell out, and everything under
-  `www/uploads/` is served back by the web server according to that extension.
+- **the type is read from the bytes**, not from the URL — JPEG, PNG, GIF, WebP, BMP or ICO — and the
+  extension on disk follows the content. That matters because everything under `www/uploads/` is
+  served back by the web server according to that extension.
 
 SVG is deliberately not on the accepted list for a *remote* fetch: it is markup, it can carry script,
 and served from your own origin that script is same-origin. An application that wants remote SVGs owns
@@ -181,8 +181,8 @@ if (isset($_FILES['upload'])) {
 ### Multiple File Upload
 
 ```php
-// Fix multiple file upload array structure
-\Pramnos\General\Helpers::fixFilesArray($_FILES);
+// Regroup one multi-file input into one array per file
+\Pramnos\General\Helpers::fixFilesArray($_FILES['uploads']);
 
 foreach ($_FILES['uploads'] as $file) {
     $media = new MediaObject();
@@ -235,10 +235,7 @@ $media->uploadFile($_FILES['image'], 'gallery');
 For all six of `max`, `maxHeight`, `medium`, `mediumHeight`, `thumb` and `thumbHeight`. An axis set to
 `0` is not consulted; both axes of a rendition at `0` means that rendition is not derived at all.
 
-Worth stating because four of the six used to mean the reverse. The guard was
-`$startWidth > $this->medium`, so `medium = 0` was true for every picture that has ever existed — and
-the setting that reads as «no medium rendition» produced one for every upload, at `ResizeTools`'
-120-pixel default, a width the caller never named. Only `max` read the way it looked.
+So `medium = 0` means «no medium rendition», never «a rendition at some default width».
 
 #### «Store this, derive nothing»
 
@@ -260,12 +257,9 @@ $media->max        = 0;      // do not rewrite what I store
 $media->maxRequest = 2048;   // but a get() may ask for up to 2048px
 ```
 
-Two different questions that used to share one number, and sharing it meant the answer to one broke
-the other. `get()` passed `max` down to `ResizeTools` as an upper bound on the *request*, so with
-`max = 0` every requested width was «over the ceiling» and `ResizeTools` substituted its 120-pixel
-default: a 40×40 source asked for at 512 came back 512 with the defaults and **120 with `max = 0`**,
-at any size, silently. The application that set `max = 0` to protect its originals lost sized
-renditions and was not told.
+Two different questions, so two numbers: `max` bounds what is stored, `maxRequest` bounds the size a
+`get()` may ask for. Keeping them apart is what lets an application set `max = 0` to protect its
+originals and still get sized renditions.
 
 `maxRequest` at `0` (the default) falls back to `max`, and then to `ResizeTools`' own ceiling, so
 nothing changes for a store that never sets either.
@@ -277,10 +271,9 @@ $media->get(512, 512);       // a 40x40 source answers 40x40
 $media->allowUpscale = true; // …unless you actually want invented pixels
 ```
 
-Asking for a size above the picture's own used to write that size, by stretching — 512×512 of blur on
-disk, recorded as a rendition, served as though it were real, and *larger than the original it came
-from*. Requests are clamped to the source's dimensions now, scaled by the limiting factor so the
-requested aspect survives: a 40×40 source asked for 512×256 gives 40×20, not 40×40.
+Requests are clamped to the source's dimensions, because stretching would write blur to disk, record
+it as a rendition and serve it as real — *larger than the original it came from*. The clamp scales by
+the limiting factor so the requested aspect survives: a 40×40 source asked for 512×256 gives 40×20, not 40×40.
 
 A `Thumbnail`'s `x`/`y` are also read back from the file that was written rather than left as what was
 asked for. They diverge exactly when something went wrong, which is when a recorded size is worth
@@ -295,13 +288,10 @@ $svg->isVector();            // true
 $svg->get(128, 64);          // the SVG itself, at its own dimensions
 ```
 
-An SVG is already every size, so the original *is* the rendition. What happened before is worth
-knowing, because every check downstream accepted it: GD cannot decode SVG on an ordinary build, so
-`ResizeTools` drew the source path onto a 500×100 white JPEG and *that* was stored as the rendition —
-at a URL ending `.jpg`, recorded in `thumbnails` as the size that had been requested. A logo became a
-picture of a file path, and nothing raised, because a JPEG of an error message is a valid JPEG.
+An SVG is already every size, so the original *is* the rendition. GD cannot decode SVG on an ordinary
+build, so resizing one is not attempted.
 
-The same now holds for any file GD cannot read — a truncated upload, a file whose extension lies.
+The same holds for any file GD cannot read — a truncated upload, a file whose extension lies.
 `get()` returns the original, sets `$media->error`, and records **nothing**: a row pointing at a file
 that was never created is worse than no row, because the next `get()` at that size finds it, fails the
 `file_exists()` check, deletes it and saves. One write per request, for ever.
@@ -317,9 +307,9 @@ branches do with a type they do not know.
 $media = new MediaObject();
 $media->load(123);
 
-// Process image with new settings
-$media->processImage($media->filename, dirname($media->filename));
-$media->save();
+// Ask for a rendition with the object's current settings
+$media->allowUpscale = false;
+$rendition = $media->get(800, 600, false, true);   // force: rebuild even if one exists
 ```
 
 ### Image Rotation
@@ -328,13 +318,12 @@ $media->save();
 $media = new MediaObject();
 $media->load(123);
 
-// Rotate image
-$media->rotateLeft();   // 90 degrees left
-$media->rotateRight();  // 90 degrees right
-$media->rotate(45);     // Custom angle
+// Rotate image (by 90 degrees; arbitrary angles are not public API)
+$media->rotateLeft();
+$media->rotateRight();
 ```
 
-### Transparency, and the one place it used to be lost
+### Transparency
 
 A PNG keeps its alpha through resizing **and** through cropping. Both paths prepare their
 canvases with `imagealphablending(false)` + `imagesavealpha(true)`, which is what stops GD
@@ -346,10 +335,8 @@ Two things to know when a thumbnail comes back with black where it should be see
   no alpha to keep, so transparency flattens onto black there — which is GD's behaviour, not
   a bug, and the fix is to export PNG (or WebP) for images that need it.
 - **The cropping path has an intermediate canvas.** The source is scaled onto it before it
-  reaches the thumbnail, and until this release only the thumbnail was prepared — so a
-  cropped PNG arrived with its transparent regions already black, while the same image
-  resized without cropping was fine. That asymmetry is what it looked like from outside: a
-  crop bug rather than an alpha one.
+  reaches the thumbnail, and that canvas is prepared for alpha as well — otherwise a cropped
+  PNG would arrive with its transparent regions already black.
 
 ## Thumbnails
 
@@ -377,7 +364,7 @@ $media->load(123);
 // Get predefined sizes
 $thumb = $media->getThumb();     // Standard thumbnail
 $medium = $media->getMedium();   // Medium size
-$original = $media->getOriginal(); // Original size
+$original = $media->url;         // The original file's URL
 
 // Get custom size (creates if doesn't exist)
 $custom = $media->get(300, 200, true); // 300x200, cropped
@@ -431,9 +418,8 @@ $filled->x;   // 177 — stretched to the frame
 
 The seventh argument overrides `$media->allowUpscale` for that call and leaves the
 object alone. That distinction is the point: the property also governs the
-derivatives `processImage()` generates, so turning it on for a template that wants
-its frame filled used to mean turning it on for everything, including the images
-being produced to store. Pass `null` — the default — and the object's setting
+derivatives generated at upload, so a template that wants its frame filled should not
+turn it on for the images being produced to store. Pass `null` — the default — and the object's setting
 applies, so nothing that does not pass it changes.
 
 Which to use:
@@ -564,19 +550,6 @@ if ($media->medialink > 0) {
 }
 ```
 
-### Media Linking
-
-```php
-// Get all media linked to the same original
-$media = new MediaObject();
-$media->load(123);
-
-$linkedMedia = $media->getLinkedMedia();
-foreach ($linkedMedia as $linked) {
-    echo "Linked media ID: " . $linked->mediaid;
-}
-```
-
 ### Batch Operations
 
 ```php
@@ -609,12 +582,7 @@ $userMedia = $media->getList(0, '', 123); // All types, any module, user ID 123
 which builds both tables in one `up()` because `mediause.mediaid` has a cascading foreign key onto
 `media.mediaid` and the parent has to exist first. Run `migrate` and they are there.
 
-That migration is the definition. It did not exist until 1 September 2026: `MediaObject` arrived with
-the framework's original import in 2020, and the migrations were reconstructed six years later from
-an application that does not use it — so these two tables were never in the source that
-reconstruction read. In the meantime three different shapes were written down (this guide's, the
-framework test's, and the one actually running), and they disagreed on the type of half the columns.
-Read the migration rather than any of them.
+That migration is the definition; read it rather than any copy of the schema.
 
 ### `media`
 
@@ -628,7 +596,7 @@ One row per stored file. Twenty-three columns; the ones worth knowing:
 | `medialink` | When this row is a duplicate, the `mediaid` holding the real file. **`0` means "not a duplicate"** — a sentinel, which is why there is no foreign key here. |
 | `userid` | The uploader, or **`0` for no signed-in user** — the same reason there is no key on it. |
 | `order` | Display order, for emoticon sets. A reserved word in both backends; see below. |
-| `thumbnails` | **JSON** of each thumbnail's fields. Rows written before 1 September 2026 hold PHP-serialised objects and are still read; see below. |
+| `thumbnails` | **JSON** of each thumbnail's fields. Older rows holding PHP-serialised objects are still read; see below. |
 | `otherusers`, `othermodules` | `tinyint` flags: may other users / other modules see this file. |
 
 ### `mediause`
@@ -645,10 +613,9 @@ One row per *usage*, so one file can appear in many places — `users.photo` hol
 ### `mimetype`, and why it is not `mediatype`
 
 `uploadFile()` reads the real type with `finfo` to decide whether the content matches the extension
-— the check that refuses a PHP script named `holiday.jpg`. That value used to be used and thrown
-away. Two things went with it: the security decision became unauditable, and anything serving the
-file later had to re-guess the type from the extension, which is precisely the claim the check exists
-to distrust.
+— the check that refuses a PHP script named `holiday.jpg` — and stores it. That keeps the security
+decision auditable, and lets anything serving the file later use the real type instead of re-guessing
+it from the extension, which is precisely the claim the check exists to distrust.
 
 `mediatype` is not a substitute. It is a display family — 1 image, 2 emoticon, 3 PDF, 0 other — and
 cannot tell a png from a jpeg. It is what the class branches on ten times over; `mimetype` is what
@@ -663,15 +630,13 @@ has, not one a visitor sent.
 `file_get_contents()` on a missing file returns `false`, and `md5(false)` is `md5('')` —
 `d41d8cd98f00b204e9800998ecf8427e`, **the same value for every missing file**. Since a re-upload is
 found with `where md5 = %s and medialink = 0`, every file whose bytes had gone was a duplicate of
-every other one, and the next upload could be linked to any of them.
+every other one, and the next upload could be linked to any of them. So `createMd5()` leaves the hash
+empty instead, which matches nothing — the honest answer for a file nobody can read.
 
-A production library of 4,551 files held 14 rows carrying exactly that hash. `createMd5()` now leaves
-the hash empty instead, which matches nothing — the honest answer for a file nobody can read.
-
-### `thumbnails` holds JSON, and why it stopped holding objects
+### `thumbnails` holds JSON, not serialised objects
 
 PHP's `serialize()` writes the **class name into the data**. That single fact is behind four separate
-problems, and all four are gone now that the column holds JSON of the fields:
+problems, and JSON of the fields avoids all four:
 
 - **who can read a row depended on which classes the reading process had.** This framework on its
   own, a second application on the same database, a CLI script that skips the first application's
@@ -684,43 +649,37 @@ problems, and all four are gone now that the column holds JSON of the fields:
 - **nothing outside PHP could read it.** No SQL, no `JSON_EXTRACT`, no reporting tool, and no index
   on «thumbnails wider than 500px».
 
-`Thumbnail` is eight scalar properties with no methods and no nesting, so there is nothing about it
+`Thumbnail` is a set of scalar properties with no methods and no nesting, so there is nothing about it
 JSON cannot carry.
 
 **No migration is needed.** The reader accepts both formats — a leading `[` distinguishes JSON from
 `serialize()`'s `a:` — and the writer only produces JSON, so a row converts itself the next time its
 media object is saved. Objects from a legacy row come back **as they are** rather than being recast
-into `Thumbnail`: an application with its own thumbnail class has been getting its own type from
-those rows for years, and changing that on read would alter what `getThumb()` hands its callers for
-rows nobody has touched.
+into `Thumbnail`: an application with its own thumbnail class gets its own type from those rows, and
+changing that on read would alter what `getThumb()` hands its callers for rows nobody has touched.
 
 An unencodable payload — a filename in some encoding `json_encode()` refuses — falls back to
 `serialize()` for that row and logs it. Losing the thumbnails would be worse, and the reader accepts
 both anyway.
 
-### A thumbnail the reading process cannot load is dropped, not fatal
+### A legacy thumbnail the reading process cannot load is dropped, not fatal
 
-`thumbnails` holds serialised objects, and the class name travels with them — so **who can read a row
-depends on which classes that process has**. An application with its own thumbnail class reads its own
-rows fine; the class is declared, the objects come back whole.
+A legacy serialised row carries its class name — so **who can read it depends on which classes that
+process has**. An application with its own thumbnail class reads its own rows fine.
 
-It breaks for a different reader: this framework on its own, a second application sharing the
-database, a CLI process that never boots the first application's class aliases. There `unserialize()`
-yields `__PHP_Incomplete_Class`, and `getThumb()` reads `$thumb->reason` on every entry — reading
-*any* property of an incomplete class is a fatal error rather than a missing thumbnail.
-
-Entries that cannot be read are now dropped on load and `getThumb()` falls back to an empty
-`Thumbnail`, which it already did for a file with no thumbnails. `unserialize()` is deliberately
+A different reader — this framework on its own, a second application sharing the database, a CLI
+process that never boots the first application's class aliases — gets `__PHP_Incomplete_Class` from
+`unserialize()`, and reading *any* property of one is a fatal error. So such entries are dropped on
+load, and `getThumb()` falls back to an empty `Thumbnail`, as it does for a file with no thumbnails. `unserialize()` is deliberately
 **not** restricted with `allowed_classes`: that would be better hardening and would also discard an
 application's own thumbnail class that loads perfectly well today.
 
 ### `order` and `specific` are reserved words
 
 Both are real column names here and both are reserved in MySQL and PostgreSQL. `MediaObject`'s own
-queries are hand-written SQL with the quoting already in place, but anything going through the query
-builder needs the grammar to quote them — which it now does, for these and the rest of the words that
-turn up as column names. Before that, `where('order', 5)` compiled to `WHERE order = ?`, a syntax
-error on both backends.
+queries are hand-written SQL with the quoting already in place, and the query builder's grammar quotes
+them — and the rest of the words that turn up as column names — so `where('order', 5)` is valid on both
+backends.
 
 If you are naming a column, this still argues for avoiding a reserved word. These two are kept
 because they are what is running.
@@ -744,16 +703,15 @@ nothing in the framework depends on it.
 - `addRemoteImage($url, $module)` - Download and add remote image
 
 #### Processing Methods
-- `processImage($file, $path)` - Process uploaded image
-- `rotate($degrees)` - Rotate image by degrees
 - `rotateLeft()` - Rotate 90 degrees left
 - `rotateRight()` - Rotate 90 degrees right
 
 #### Thumbnail Methods
-- `get($width, $height, $crop, $force, $debug, $resample)` - Get/create thumbnail
+- `get($width, $height, $crop = false, $force = false, $debug = false, $resample = true, $allowUpscale = null)` - Get/create a rendition
 - `getThumb()` - Get standard thumbnail
 - `getMedium()` - Get medium size image
-- `getOriginal()` - Get original size image
+- `isVector()` - Whether the file is an SVG
+- `publicUrl($reason)` / `static urlFor($mediaid, $reason)` - Address of the original or a rendition
 
 #### Database Methods
 - `load($mediaid)` - Load media by ID
@@ -791,16 +749,8 @@ image can want more memory than a constrained host allows. `ResizeTools` therefo
 `memory_limit` to **at least 256 MB** for that one call and puts the old value back.
 
 **It only ever raises it.** A host configured with 512 MB, or with no limit, is left
-alone. That is worth knowing because it used to set 256 MB unconditionally, which on such
-a host is a *reduction* — the opposite of the intent — and PHP refuses it outright once
-the process is already using more:
-
-```
-Failed to set memory limit to 268435456 bytes (Current memory usage is 279969792 bytes)
-```
-
-So on a generous host the fill silently ran with **less** memory than the request already
-had. Nothing to configure; the behaviour is simply correct now.
+alone: setting 256 MB there would be a *reduction*, and PHP refuses it outright once the
+process is already using more. Nothing to configure.
 
 If 256 MB is not enough for the images an application handles, raise the host's own
 `memory_limit` — anything at or above the floor is respected as-is.
@@ -814,6 +764,9 @@ If 256 MB is not enough for the images an application handles, raise the host's 
 - `$filesize` - File size in bytes
 - `$views` - View counter
 - `$reason` - Creation reason ('original', 'medium', 'thumb', 'custom')
+- `$createdTxt` - Creation time
+- `$requestedX`, `$requestedY` - The box that was asked for
+- `$crop`, `$resample`, `$upscaled` - The settings that produced it
 
 ## Loading a picture by its id
 
@@ -829,18 +782,7 @@ The constructor loads when given an id, and `new MediaObject()` with nothing is 
 `0`, `''` and `null` all mean "no id" rather than row zero, because callers reach this with
 an unvalidated route segment.
 
-!!! warning "This used to load nothing"
-
-    `MediaObject` declared no constructor, so it inherited `Base::__construct()`, which
-    takes no parameters — and **PHP does not complain about an argument passed to a
-    constructor that declares none**. The id went nowhere and the object stayed empty.
-
-    The failure is silent and shaped exactly like missing data. One application's
-    `GET /api/1.0/media/{id}` answered 404 for every picture that had ever existed; the
-    screen showed a caption with no thumbnail, which looks like a file somebody deleted, so
-    it was investigated three times — a broken upload, a broken `.htaccess`, a lost file —
-    while the row was in the table throughout. Nothing in a log, no status code that was
-    wrong: every caller's `empty($media->mediaid)` turned an empty object into "not found".
+`empty($media->mediaid)` after construction is therefore the "not found" test.
 
 ## Drawing a transparent image — `blend()` and `silhouette()`
 
@@ -866,9 +808,8 @@ functions divide in two:
 60%" leads straight to `imagecopymerge()`, which composites every transparent pixel as
 though it were opaque and gives you a grey rectangle with the logo faintly on it.
 
-Three bugs in one afternoon in one application, all this shape: the faded logo as a grey
-rectangle, a halo drawn as a filled rectangle behind a transparent PNG — a coloured card —
-and scratch canvases that start opaque black, so anything not overwriting every pixel gains
+The same shape produces a halo drawn as a filled rectangle behind a transparent PNG, and
+scratch canvases that start opaque black, so anything not overwriting every pixel gains
 a background. A logo is the single most likely image in a CMS to have a transparent
 background, and this is what a CMS uses for logos.
 
@@ -889,7 +830,7 @@ one.
 ### Testing something you have drawn
 
 Assert on a **corner** of the drawn box — inside the box, outside the artwork. That is
-where all three bugs showed, and it is the pixel a rectangle fills and a silhouette does
+where all three of those failures show, and it is the pixel a rectangle fills and a silhouette does
 not. A test that checks the middle passes on every one of them.
 
 
@@ -898,7 +839,7 @@ not. A test that checks the middle passes on every one of them.
 Name a storage disk `media` and uploads are published to it as well as written locally:
 
 ```php
-// app/config/app.php
+// app/app.php
 'storage' => [
     'disks' => [
         'media' => [

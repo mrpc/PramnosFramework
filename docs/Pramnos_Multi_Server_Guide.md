@@ -15,7 +15,8 @@ most installations should stay there for as long as they can.
 This page is for the day that stops being true. It is a checklist, in the order the failures
 actually arrive, and every item ends with how to verify it rather than how to hope.
 
-**Run `health:check` first and last.** Four of the six things below report themselves there,
+**Run `health:check` first and last.** Three of the six things below (sessions, cache and
+`APP_URL`) report themselves there,
 and the whole point of those checks is that the failure they describe is invisible on one
 node.
 
@@ -28,7 +29,7 @@ Worth knowing before you change anything, because it is most of the system:
 | | Why it already holds |
 |---|---|
 | **The queue** | Jobs are claimed with `FOR UPDATE SKIP LOCKED` — one statement on PostgreSQL with `RETURNING`, a guarded `UPDATE` inside its own transaction on MySQL. Two workers on two machines never take the same job. |
-| **WebSockets** | `Broadcasting\Cluster` is a Redis backplane with immediate deltas *and* a periodic full-state republish, so a node that missed a message corrects itself rather than staying wrong about who is present. |
+| **WebSockets** | `Broadcasting\Cluster\RedisClusterTransport` is a Redis backplane with immediate deltas *and* a periodic full-state republish, so a node that missed a message corrects itself rather than staying wrong about who is present. |
 | **Client IP** | `ClientIpResolver` reads the proxy chain, so a load balancer does not make every visitor share one address. |
 | **Everything in the database** | Users, tokens, lockouts, the activity log, notifications, the migration ledger. |
 
@@ -105,7 +106,7 @@ for months unnoticed.
 its own `sys_get_temp_dir()`, so each takes its own lock.
 
 ```php
-Scheduler::command('reports:nightly')->dailyAt('02:00')->onOneServer();
+Scheduler::command('reports:nightly')->daily()->at('02:00')->onOneServer();
 Scheduler::call(fn() => …)->hourly()->onOneServer(name: 'metrics:rollup');
 ```
 

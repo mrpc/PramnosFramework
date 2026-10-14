@@ -43,11 +43,21 @@ Commands are grouped by a `namespace:` prefix that reflects what they act on:
 | `spa:` | Front-end dev server and build (SPA projects) | `spa:dev`, `spa:build` |
 | `scaffold:` | Add a whole feature to an **existing** project | `scaffold:spa` |
 | `create:api-client` | Typed endpoint functions from the OpenAPI document | *(regenerated, never edited)* |
-| `health:` / `debug:` | Diagnostics | `health:check`, `debug:status` |
-| *(top-level)* | Entry-point & REPL | `init`, `serve`, `tinker` |
+| `health:` / `debug:` | Diagnostics | `health:check`, `debug:status`, `debug:token` |
+| `auth:` / `oauth:` | Login lockouts, second factors, tokens, webhooks, third-party OAuth2 tokens | `auth:unlock`, `auth:twofactor-status`, `auth:webhook-deliver`, `oauth:refresh` |
+| `messages:` | Mass-message delivery | `messages:dispatch` |
+| `mcp:` | The framework's MCP server | `mcp:serve`, `mcp:call`, `mcp:token` |
+| `api:` | API documentation | `api:docs` |
+| `theme:` | Palette tokens | `theme:build` |
+| `pagecache:` | Full-page cache | `pagecache:purge` |
+| `broadcast:` | WebSocket broadcasting server | `broadcast:serve` |
+| `timescale:` / `spool:` | Buffered writes and hypertable maintenance | `timescale:ensure`, `timescale:drain`, `spool:drain` |
+| `service:` | Framework policies (retention, aggregate refresh) | `service:policy-engine` |
+| *(top-level)* | Entry points, the REPL, the scheduler loop, migrations | `init`, `serve`, `tinker`, `work`, `migrate` |
 
-> Only genuine entry-point commands (`init`, `serve`) stay top-level; everything
-> else follows the `namespace:verb` convention.
+> Top-level commands are `init`, `serve`, `tinker`, `work` and `migrate`; the rest
+> follow the `namespace:verb` convention. A `DaemonOrchestrator` subclass registers
+> itself as `daemons:start` unless it overrides `getOrchestratorCommandName()`.
 
 Run `php bin/pramnos list` to see every command with its description.
 
@@ -112,10 +122,9 @@ Reach for it when installing is somebody else's job:
   `--no-download` skips separately;
 - **a project whose `vendor/` is committed**, where `composer update` would be an
   unwanted change;
-- **tests that scaffold**. This framework's own suite scaffolded 61 projects per run and
-  therefore ran `composer update` 61 times — [85% of that class's
-  runtime](Pramnos_Test_Suite_Performance.md), and a dependency on the network from
-  inside a unit test.
+- **tests that scaffold**, where a `composer update` per scaffolded project dominates
+  the runtime and puts the network inside a unit test — see
+  [Test suite performance](Pramnos_Test_Suite_Performance.md).
 
 With Docker (`--docker=y`), `--no-install` also skips the framework migrations that
 follow, since those run the new application's own CLI and need the autoloader that was
@@ -191,6 +200,8 @@ like a configuration mistake.
 ./pramnos project:setup --no-docker        # a host running its own stack
 ./pramnos project:setup --db-pass=…        # for CI, instead of the prompt
 ./pramnos project:setup --no-admin         # skip the account offer
+./pramnos project:setup --no-migrations    # skip the framework migrations
+./pramnos project:setup --force-env        # rewrite an existing .env
 ```
 
 **It writes no project file** — only `.env`. Not one of the steps above is a scaffolding
@@ -222,11 +233,10 @@ mistake in one is not corrected by the next deployment.
 
 ### Serving from a directory other than `www` — `--web-root`
 
-The scaffold writes its document root as `www/` by convention, and that was hardcoded in 38
-places. A consumer reported it through the one that hurt: the SPA build wrote to
-`www/assets/spa` whatever the project's real document root was, so a project served from
-anywhere else built its front end into a directory nothing serves — **and the symptom is a blank
-page, not an error**, because the manifest is simply not where the shell looks for it.
+The scaffold writes its document root as `www/` by convention. A project served from another
+directory has to say so at scaffold time: a SPA build written into a directory nothing serves
+produces **a blank page, not an error**, because the manifest is simply not where the shell looks
+for it.
 
 ```bash
 php bin/pramnos init --web-root=public
@@ -238,6 +248,9 @@ the Docker `DocumentRoot`, and the prose in generated files that names the path.
 option would be worse than none — a project that looks configured and is broken in a way the
 configuration appears to explain — so there is a test that scaffolds with a non-default root and
 asserts on the **tree**, including that nothing was left in `www/`.
+
+The development server is the exception: `serve` runs PHP's built-in server with
+`www/index.php` as its router, whatever `--web-root` was given at scaffold time.
 
 Slashes and whitespace are trimmed, so `--web-root=/public/` works. An empty value falls back to
 `www` rather than scaffolding a front controller into the repository root, which is easy to
@@ -281,7 +294,7 @@ The framework provides comprehensive code generation through the `create` comman
 php bin/pramnos create:model User
 
 # Create a controller
-php bin/pramnos create:controller UserController
+php bin/pramnos create:controller User
 
 # Create a view
 php bin/pramnos create:view User
@@ -290,10 +303,10 @@ php bin/pramnos create:view User
 php bin/pramnos create:crud User
 
 # Create API endpoint
-php bin/pramnos create:api UserAPI
+php bin/pramnos create:api User
 
 # Create database migration
-php bin/pramnos create:migration CreateUsersTable
+php bin/pramnos create:migration create_users_table
 ```
 
 #### Running `create:model` again on a model that exists
@@ -315,14 +328,6 @@ So a new column does **not** reach the model by re-running this. Write the migra
 the property — which is the trade this branch makes deliberately, because the alternative was losing
 the model's own code.
 
-> **Fixed 2026-09-02.** It was not true before. The branch set a flag and printed «left untouched», and
-> an unconditional `file_put_contents()` a few statements further down regenerated the file from the
-> schema — so every hand-written method went, while the command reported success. And that was the
-> *second* version of this path: the first called `updateModel()`, which does not exist anywhere in the
-> framework, so the same command died with a fatal error instead. Neither had ever been executed by a
-> test, because the branch turns on `class_exists()` and a generated model is not autoloadable in the
-> framework's own checkout.
-
 #### Select2 changes what a foreign-key field loads
 
 `create:crud` and `create:controller` generate an edit form whose foreign-key fields behave differently
@@ -336,7 +341,7 @@ depending on whether the project registered Select2:
 The full list is fine for a status lookup and breaks for a foreign key to a table with thousands of
 rows: a form that takes seconds to render and megabytes to send. So the Select2 form loads **only the
 currently selected row** — which it still has to, or an existing record opens with an empty field where
-its category used to be and saving clears the reference.
+its category belongs and saving clears the reference.
 
 Availability is read from the Document — `isScriptRegistered('select2')` — and not by looking for
 `www/assets/vendor/select2` on disk. A directory says a file exists; the registration says the project
@@ -398,46 +403,19 @@ exactly as written, so there is nothing to build and nothing to serve.
 These commands change an **existing** project after it was scaffolded — no need to re-run
 `init`. They are BC-safe and idempotent (re-running does nothing new).
 
-!!! warning "The supervisor decides the lock path, not the worker"
-    `DaemonOrchestrator` writes the `.stop` sentinel beside the `lockFile` declared in
-    a worker's desired-process entry, and exports that path to the child as
-    `PRAMNOS_JOB_LOCK_FILE`. `CommandBase` reads it in preference to anything the
-    command computes, so **an override cannot disagree with the supervisor.**
-
-    It used to. The worker resolved its own path through `getJobLockFilePath()`, which
-    has its own default (`ROOT/var/<job>`) and is overridable — two independent
-    computations of one path, and nothing could notice when they diverged: **a sentinel
-    read where nothing writes is indistinguishable from no sentinel.** No error, no
-    log, a worker reporting itself healthy while ignoring every stop request.
-
-    Reported by a project whose loop workers overrode the method to match their
-    supervisor and whose realtime worker did not, so adopting the WebSocket stop seam
-    landed as a no-op — the fix for a silent failure reproduced it, in the project that
-    had just filed it.
-
-    `getJobLockFilePath()` stays overridable: it is a legitimate application default,
-    and it still applies when a command is run by hand with no supervisor. What is no
-    longer overridable is the part that prefers the supervisor's answer.
-
 !!! info "`features` from `app.php` are active on the CLI too"
     A command — and any daemon it runs — sees the same feature state as the web
     application: `FeatureRegistry::isEnabled('authserver')` answers from the
-    `features` array in `app/app.php`, whichever entry point asked.
+    `features` array in `app/app.php`, whichever entry point asked. The console
+    `Application` applies the `features` list itself, because `Application::init()`
+    — where the web lifecycle does it — is not run by a console command. Feature
+    state has to mean one thing per installation, not one thing per entry point: a
+    long-running daemon deciding anything from a feature flag must reach the same
+    conclusion as the web application reading the same file.
 
-    That was not always true. `Application::getInstance()` reads `app.php` into
-    `applicationInfo`, but the call that turns its `features` list into registry
-    state lived only in `Application::init()`, which the web lifecycle runs and a
-    console command does not. So every feature read as **disabled** inside every
-    command, however `app.php` was written — and a long-running daemon deciding
-    anything from a feature flag reached the opposite conclusion from the web
-    application reading the same file, with nothing to report that the two
-    disagreed. Feature state has to mean one thing per installation, not one thing
-    per entry point.
-
-    One consequence to know about: a `features` entry naming something unregistered
-    now raises `UnknownFeatureException` on the CLI as it already did on the web,
-    rather than being silently ignored. The message names the unknown key and lists
-    the valid ones.
+    A `features` entry naming something unregistered raises
+    `UnknownFeatureException` on the CLI as it does on the web. The message names
+    the unknown key and lists the valid ones.
 
 ```bash
 # Interactive umbrella: enable features and/or add libraries
@@ -544,7 +522,9 @@ php bin/pramnos project:resync --all          # also copy files not in the proje
 
 php bin/pramnos project:resync --js           # only the pf-*.js CSP-safe UI hooks
 php bin/pramnos project:resync --scripts      # only the API-docs tooling
-php bin/pramnos project:resync --debug-panel  # only the SPA debug panel (lib/debug.js)
+php bin/pramnos project:resync --debug-panel  # only the framework-owned SPA modules (lib/debug.js, lib/webauthn.js)
+php bin/pramnos project:resync --pwa          # only the PWA icons (never overwritten) and manifest.json (merged)
+php bin/pramnos project:resync --spa-components  # only the shared Svelte components and their tests
 ```
 
 **By default it only refreshes what is already there.** A file the project never had is
@@ -559,26 +539,26 @@ explicit "yes, add it" switch.
             to write the file. Check ownership, or re-run as the user that owns the
             project.
 
-Done. 0 created, 0 updated, 0 unchanged, 0 skipped, 1 FAILED.
+Done. 0 created, 0 updated, 0 unchanged, 0 kept, 0 skipped, 1 FAILED.
 ```
 
-Until 2026-08-16 that write was unchecked: a resync that could not write still printed
-`updated`, counted the file as updated in the summary, and exited `0`. The only trace
-was a PHP warning on stderr, which a CI job or a habitual `2>/dev/null` discards — so a
-deploy script checking the exit code, which is the right way to run this, was told the
-resync had succeeded while the file on disk was still the old one.
-
-That inverts the point of the command. Run it from CI and **check the exit code**; the
+The failure count is printed only when there is one. Run it from CI and **check the exit
+code**; a warning on stderr is what a CI job or a habitual `2>/dev/null` discards, and the
 whole value of `project:resync` is being able to say a framework-owned file downstream
 *is* the framework's current one.
 
-The three groups:
+The groups:
 
 | Flag | What it owns |
 |------|--------------|
 | `--js` | `www/assets/js/pf-*.js` — the CSP-safe UI hook scripts |
 | `--scripts` | `scripts/apidoc-to-openapi.cjs`, `scripts/doc.sh`, plus the API-docs npm scripts merged into `package.json` and the framework endpoints merged into `src/Api/openapi-overrides.json` |
-| `--debug-panel` | `lib/debug.js` — the SPA debug panel, in `frontend/lib/` or `www/assets/js/lib/` depending on this project's stack (read from `app_style`/`spa_stack`, not guessed) |
+| `--debug-panel` | `lib/debug.js` (the SPA debug panel) and `lib/webauthn.js`, in `frontend/lib/` or `www/assets/js/lib/` depending on this project's stack (read from `app_style`/`spa_stack`, or `spa_source_dir` when set) |
+| `--pwa` | The PWA icons (added when missing, never overwritten) and `manifest.json` (merged) |
+| `--spa-components` | The shared Svelte components and their tests — see [The shared components](#the-shared-components). Not part of a plain `project:resync` |
+
+`--overwrite` replaces shared components the project changed, or that the framework has no
+record of writing; without it they are reported `kept`.
 
 Merges preserve what the project declared: user-added npm scripts, extra OpenAPI paths and
 schemas survive. What is **not** rewritten is `lib/api.js` — it is the project's own file and
@@ -798,9 +778,8 @@ Every scaffolded project gets two files aimed at coding assistants:
 
   The generated `CLAUDE.md` states the two consequences explicitly: the guides describe
   current state while `docs/version-history/posts/` is history, and a capability documented in
-  a guide is not to be reimplemented in the project. That instruction exists because the
-  opposite happened — the SPA debug panel was rebuilt in a project beside the framework's
-  working one, which had been documented only in changelog posts at the time.
+  a guide is not to be reimplemented in the project — an assistant that cannot find a
+  framework capability otherwise writes a second one beside the working one.
 
 - **`.mcp.json`** — registers the framework's own MCP server (`mcp:serve`), which exposes this
   application's tables, schema, migrations, models and routes to an assistant instead of
@@ -812,8 +791,19 @@ Every scaffolded project gets two files aimed at coding assistants:
   project whose settings load fails for any reason would otherwise have shown the
   framework's generic default for every one of its servers.
 
-  **The five tools, and what `route-list` can actually see.** `list-tables`,
-  `migration-status`, `model-inspect`, `query-schema` and `route-list`.
+  **The tools, and what `route-list` can actually see.** `McpServiceProvider::registerDefaults()`
+  serves:
+
+  - always: `framework-docs`, `pramnos-check`, `find-symbol`, `console-commands`, `theme-info`,
+    `api-docs`, `find-tests`, `coverage`, `changelog-add`, `log-analytics`, `log-errors`;
+  - with the application booted: `migration-status`, `model-inspect`, `route-list`,
+    `schema-drift`, `status`, `request-debug`, plus `list-tables`, `query-schema` and
+    `db-inspect` when a database is configured;
+  - the application's own tools, listed under `mcp.tools` (and the analyst's scoped
+    tools under `llm.admin_tools`) in `app/app.php`.
+
+  `mcp:call <tool>` runs one of them from the terminal and prints the result — omit the tool
+  name to list them. See the [MCP guide](Pramnos_MCP_Guide.md).
 
   `route-list` runs under the **console** kernel, which builds no router — routing is an HTTP
   concern. So it builds one and discovers `#[Route]` attributes, using the PSR-4 map in the
@@ -824,11 +814,8 @@ Every scaffolded project gets two files aimed at coding assistants:
     that file would serve a request rather than describe one, and the tool says so instead of
     returning nothing.
 
-  Until 2026-08-14 it answered `{"error": "No router available"}` on every call, and
-  `query-schema` returned PostgreSQL's `ERROR: column "conname" does not exist` — both inside
-  `content[0].text` with `isError` false, so a server advertising five working tools had two that
-  could not answer and nothing said so. Worth knowing as a shape: an MCP tool that returns an
-  error *as a result* is invisible to anything watching for failures.
+  Worth knowing as a shape: an MCP tool that returns an error *as a result* (inside
+  `content[0].text` with `isError` false) is invisible to anything watching for failures.
 
 ### Favicons & branding
 
@@ -892,6 +879,81 @@ php bin/pramnos logs:convert /path/to/file.log
 php bin/pramnos logs:convert /path/to/file.log --no-backup
 ```
 
+### Other commands, by namespace
+
+`php bin/pramnos help <command>` prints the full option list of any of these.
+
+**Code generation**
+
+| Command | Purpose | Key options |
+|---|---|---|
+| `create:service <Name>` | A service class, with a test stub | `--table`, `--schema` |
+| `create:event <Name>` / `create:listener <Name>` | An event class / an event listener class, each with a test stub | — |
+| `create:middleware <Name>` | A middleware class, with a test stub | — |
+| `create:seeder <Name>` | A database seeder class | — |
+| `create:api-client` | Typed endpoint functions from the OpenAPI document | `--document` (default `www/api/openapi.json`), `--output`, `--dry-run` |
+| `project:git-webhook` | Write `www/webhook.php`, a standalone git webhook receiver | `--branch` (default `main`), `--force` |
+| `project:switch-ui <framework>` | Switch the scaffolding UI framework (`plain-css`, `bootstrap`, `tailwind`) | — |
+
+**Migrations**
+
+| Command | Purpose | Key options |
+|---|---|---|
+| `migrate [migration]` | Run pending migrations (or one by slug/class) | `--scope=app\|framework`, `--feature`, `--force/-f` (include `autorun=false`), `--cutoff`, `--path`, `--adopt-baseline` |
+| `migrate:status` | List migrations and whether they ran | `--path` |
+| `migrate:rollback` | Roll back the last batch | `--batch`, `--path` |
+| `migrate:reset` | Roll back **all** batches | `--force/-f`, `--path` |
+| `migrate:refresh` | Roll back everything and re-run it | `--force/-f`, `--path` |
+| `migrate:adopt-legacy` | Record migrations the legacy version ledger says already ran | `--dry-run`, `--path` |
+
+**Queue, scheduler and workers**
+
+| Command | Purpose | Key options |
+|---|---|---|
+| `work` | Run the framework and application schedule continuously | `--once`, `--interval/-i`, `--max-runtime` |
+| `queue:process` | Process queued tasks (one pass, or as a daemon) | `--daemon/-d`, `--runtime/-r`, `--sleep/-s`, `--limit/-l`, `--batch/-b`, `--type/-t`, `--worker-id/-w`, `--force/-f` |
+| `queue:cleanup` | Delete old completed tasks from the queue table | `--hours`, `--[no-]include-failed`, `--include-warning`, `--limit`, `--[no-]reclaim`, `--reclaim-grace` |
+| `queue:reclaim` | Requeue or fail tasks abandoned by a worker that died holding them | `--grace`, `--type`, `--dry-run` |
+| `queue:health` | Report arrivals against completions; exits 1 when the queue is losing | `--window`, `--type`, `--per-type`, `--history`, `--json` |
+| `service:policy-engine` | Run all due framework policies (retention, aggregate refresh, …) | `--list/-l`, `--pretend` |
+| `spool:drain` | Write rows buffered out of the request path | `--status/-s`, `--max-attempts` |
+| `timescale:ensure` | Convert declared tables to hypertables and (re)apply compression | `--dry-run`, `--table/-t` |
+| `timescale:drain` | Write queued rows into their hypertables | `--table/-t`, `--status/-s`, `--retry-failed` |
+
+**Authentication**
+
+| Command | Purpose | Key options |
+|---|---|---|
+| `auth:unlock [identifier]` | Lift a login lockout for a user, identifier or IP | `--scope/-s`, `--list/-l`, `--all` |
+| `auth:twofactor-status [user]` | Show what second factor an account holds, or who holds none | `--missing/-m`, `--from` |
+| `auth:twofactor-reset <user>` | Clear an account's second-factor enrolment so it can enrol again | `--passkeys/-p`, `--dry-run` |
+| `auth:twofactor-cleanup` | Delete spent and expired second-factor codes and enrolments | — |
+| `auth:token-cleanup` | Retire session tokens that have been idle | `--days/-d` |
+| `oauth:refresh` | Refresh third-party OAuth2 tokens that are close to expiring | `--within`, `--provider`, `--dry-run` |
+
+**Site, cache and messaging**
+
+| Command | Purpose | Key options |
+|---|---|---|
+| `maintenance:on` / `maintenance:off` | Put the site down or bring it back | `--reason` / `--force/-f` |
+| `pagecache:purge [url]` | Purge cached pages by URL, by tag, or all | `--tag` (repeatable), `--all` |
+| `messages:dispatch` | Deliver pending recipients of due mass messages | `--limit/-l` |
+| `mail:flush` / `mail:prune` / `mail:dns-check [domain]` | Send the mail queued in the outbox / strip old bodies and remove old rows by policy / check SPF, DKIM, DMARC and BIMI on the sending domain | `--limit`, `--deadline`, `--dry-run` / `--strip-after`, `--delete-after`, `--recipients-after`, `--apply` |
+| `push:setup` / `push:vapid-generate` | Set up web push (migration, keys, service worker, browser script, library) / generate the VAPID key pair | `--apply`, `--no-install` / `--force` |
+| `llm:prune` / `llm:routines` | Drop language-model call log rows older than the kept window / ask the scheduled questions that are due | `--days` / — |
+| `broadcast:serve` | WebSocket broadcasting server (Pusher-compatible) | `--host` (default `0.0.0.0`), `--port/-p` (default `6001`), `--log-file`, `--app-key`, `--channels` |
+
+**Diagnostics and tooling**
+
+| Command | Purpose | Key options |
+|---|---|---|
+| `health:check` | Run all registered health checks | `--json`, `--only` |
+| `debug:status` | Show the debug configuration (APP_DEBUG, Xdebug, port 9003) | — |
+| `debug:token` | Issue a signed token that opens the debug toolbar for one browser | `--ttl`, `--url/-u` |
+| `api:docs` | Generate an OpenAPI document from `#[Route]` controllers (and RapiDoc HTML) | `--controllers`, `--namespace`, `--routes`, `--output`, `--title`, `--api-version`, `--description`, `--server` (repeatable), `--overrides`, `--allow-empty`, `--no-html` |
+| `mcp:serve` | Start an MCP server on stdio for an AI assistant | `--log` |
+| `mcp:call [tool]` | Call one MCP tool and print what it returns; omit the tool to list them | `--json`, `--raw` |
+
 ## Model Generation
 
 ### Basic Model Creation
@@ -910,11 +972,10 @@ This generates a model class with:
 ### Which column becomes the primary key
 
 From the table, when there is a table to ask. `create:model` reads the key out of the schema, so a
-legacy table keyed on `customer_id` gets a model that says `customer_id` — it used to derive the
-name by convention (singular table name plus `id`) and produce `customerid`, which is not a column:
-such a model loads nothing and inserts a new row on every save, which presents as «the edit form
-does not work». `create:api` had always read the schema, so the two generators disagreed about the
-same table.
+legacy table keyed on `customer_id` gets a model that says `customer_id`. The naming convention
+(singular table name plus `id`) would produce `customerid`, which is not a column: such a model
+loads nothing and inserts a new row on every save, which presents as «the edit form does not
+work». `create:api` reads the key the same way, so the two generators agree about a table.
 
 The convention is still the answer in the two cases where the schema cannot be asked:
 
@@ -926,6 +987,9 @@ The convention is still the answer in the two cases where the schema cannot be a
 
 ### Generated Model Structure
 
+For a `users` table with `userid`, `username`, `email`, `created_at` and `updated_at`
+(rendered from `scaffolding/templates/crud-model.stub`; docblocks shortened):
+
 ```php
 <?php
 namespace MyApp\Models;
@@ -934,26 +998,33 @@ namespace MyApp\Models;
  * User Model
  * Auto generated at: 25/12/2024 10:30
  */
-class User extends \Pramnos\Application\Model
+class User extends \Pramnos\Application\OrmModel
 {
+
     /**
-     * User ID
+     * (Primary Key)
      * @var int
      */
     public $userid;
-    
     /**
      * Username
      * @var string
      */
     public $username;
-    
     /**
      * Email address
      * @var string
      */
     public $email;
-    
+    /**
+     * @var string
+     */
+    public $created_at;
+    /**
+     * @var string
+     */
+    public $updated_at;
+
     /**
      * Primary key in database
      * @var string
@@ -968,30 +1039,28 @@ class User extends \Pramnos\Application\Model
 
     /**
      * Load from database
-     * @param int $userid ID to load
-     * @param string $key Primary key on database
-     * @param boolean $debug Show debug information
      * @return $this
      */
-    public function load($userid, $key = NULL, $debug = false)
+    public function load($userid, $key = null, $debug = false)
     {
         return parent::_load($userid, null, $key, $debug);
     }
 
     /**
      * Save to database
-     * @param boolean $autoGetValues If true, get all values from $_REQUEST
-     * @param boolean $debug Show debug information (and die)
      * @return $this
      */
-    public function save($autoGetValues = false, $debug = false)
+    public function save($autoGetValues = false, $debug = false): static
     {
-        return parent::_save(null, null, $autoGetValues, $debug);
+
+        // `: static`, as OrmModel::save() declares: without it the class does not load.
+        parent::_save(null, null, $autoGetValues, $debug);
+
+        return $this;
     }
 
     /**
      * Delete from database
-     * @param integer $userid ID to delete
      * @return $this
      */
     public function delete($userid)
@@ -1000,10 +1069,22 @@ class User extends \Pramnos\Application\Model
     }
 
     /**
-     * Get an API-formatted list with pagination, field selection, and search capabilities
+     * Return all data as array
+     * @return array
      */
-    public function getApiList($fields = array(), $search = '', 
-        $order = '', $page = 0, $itemsPerPage = 10, 
+    public function getData()
+    {
+        $data = parent::getData();
+
+        return $data;
+    }
+
+    /**
+     * Return an API-formatted list with pagination, field selection, and search
+     * @return array
+     */
+    public function getApiList($fields = [], $search = '',
+        $order = '', $page = 0, $itemsPerPage = 10,
         $debug = false, $returnAsModels = false, $useGetData = true)
     {
         return parent::_getApiList(
@@ -1013,6 +1094,21 @@ class User extends \Pramnos\Application\Model
     }
 }
 ```
+
+What varies with the table:
+
+- **Column comments** become the property docblocks.
+- **`getData()`** casts integer and float columns back to `int` / `float`, booleans to `bool`,
+  and puts JSON columns back into the array — so the API returns typed values, not strings.
+- **Timestamps.** A table with neither `created_at` nor `updated_at` gets
+  `protected bool $timestamps = false;`; a table with only one of them gets the missing one's
+  `$createdAtColumn` / `$updatedAtColumn` set to `''`.
+- **`--schema`** adds `protected $_dbschema = '<schema>';`.
+- **A foreign key declared `ON DELETE SET NULL`** makes `save()` turn a `0` in that column
+  into `null` before saving (see [Foreign keys](#foreign-key-detection)).
+- **`load()` docblock** carries the pattern for a tenant-scoped model: refuse the row *and*
+  empty the model with `forget()`, because every generated controller uses the return value
+  of `load()`.
 
 ### Model Generation Options
 
@@ -1044,9 +1140,8 @@ Generated models are automatically registered in `app/model-registry.json`:
 
 ## Controller Generation
 
-`create:controller` always generates a complete CRUD controller from the
-database table schema. (The former "simple skeleton" mode and the `--full`
-flag have been removed — the command has a single, predictable behaviour.)
+`create:controller` generates a complete CRUD controller from the database table
+schema — it has a single behaviour, with no skeleton mode.
 
 ```bash
 php bin/pramnos create:controller User
@@ -1054,17 +1149,25 @@ php bin/pramnos create:controller User
 
 The table for the entity must already exist (create it first with
 `create:migration`); the generator introspects it. If the table is missing you
-get a clear error pointing you to `create:migration`.
+get a clear error pointing you to `create:migration`. An existing controller
+file is never overwritten.
 
 This generates a complete CRUD controller with:
-- Display action (list view)
+- Display action (list view, a server-side DataTable)
 - Show action (detail view)
 - Edit action (create/update form)
 - Save action (form processing)
 - Delete action (record removal)
-- JSON data method for datatables
+- `data()` — the JSON feed for the DataTable
+- `fkOptions()` — the Select2 option feed, only when the table has foreign keys
+
+and the list / edit / show views for the project's theme. `show`, `data` (and
+`fkOptions`) are public; `edit`, `save` and `delete` require a login.
 
 ### Generated Controller Structure
+
+Rendered from `scaffolding/templates/crud-controller.stub`, for a `users` table
+with `username` and `email` (docblocks and comments shortened):
 
 ```php
 <?php
@@ -1076,128 +1179,135 @@ namespace MyApp\Controllers;
  */
 class User extends \Pramnos\Application\Controller
 {
-    /**
-     * User controller constructor
-     * @param Application $application
-     */
+
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
-        // Public reads (detail + the JSON data feed) vs. login-gated writes.
+        // Every action must be registered or Controller::exec() falls back to display().
         $this->addaction(['show', 'data']);
         $this->addAuthAction(['edit', 'save', 'delete']);
         parent::__construct($application);
     }
-    
-    /**
-     * Display a listing of the resource
-     * @return string
-     */
-    public function display()
+
+    public function display(): string
     {
-        // Server-side DataTable: the view renders the shell; rows load over
-        // AJAX from data(), so the list scales to large tables.
         $dt = new \Pramnos\Html\Datatable('dt-user');
         $dt->source = sURL . 'User/data';
-        $dt->addColumn('Username')
-           ->addColumn('Email')
+        $dt->bootstrap = false;            // true when the app's scaffold_theme is bootstrap
+        // A search box under each column, on top of the global one.
+        $dt->footerTextSearch = true;
+        $dt->addColumn('Username', true, true, true, '', '', true, 'left', true)
+           ->addColumn('Email', true, true, true, '', '', true, 'left', true)
            ->addColumn('Actions', true, false, false, 'html');
 
         $view = $this->getView('user');
         $view->datatable = $dt;
-        $this->application->addbreadcrumb('User', sURL . 'User');
         $doc = \Pramnos\Framework\Factory::getDocument();
         $doc->title = 'User';
+        $this->application->addbreadcrumb('User', sURL . 'User');
         return $view->display();
     }
 
-    /**
-     * Display the specified resource
-     * @return string
-     */
-    public function show()
+    public function show(): string
     {
-        $view = $this->getView('user');
-        $model = new \MyApp\Models\User($this);
+        $view    = $this->getView('user');
         $request = new \Pramnos\Http\Request();
-        $model->load($request->getOption());
+        // load() is used as an expression: a tenant-scoped model refuses a row by
+        // returning a different instance, and only the return value carries that.
+        $model   = (new \MyApp\Models\User($this))->load($request->getOption());
         $view->addModel($model);
-        $this->application->addbreadcrumb('User', sURL . 'User');
-        $this->application->addbreadcrumb('View ' . $model->userid, sURL . 'User/show/' . $model->userid);
         $doc = \Pramnos\Framework\Factory::getDocument();
-        $doc->title = $model->userid . ' | User';
+        $doc->title = $model->username . ' | User';
+        $this->application->addbreadcrumb('User', sURL . 'User');
+        $this->application->addbreadcrumb((string)$model->username, sURL . 'User/show/' . $model->userid);
         return $view->display('show');
     }
 
-    /**
-     * Show the form for creating a new resource or editing an existing one
-     * @return string
-     */
-    public function edit()
+    public function edit(): string
     {
-        $view = $this->getView('user');
-        $model = new \MyApp\Models\User($this);
+        $view    = $this->getView('user');
         $request = new \Pramnos\Http\Request();
-        $model->load($request->getOption());
+        $model   = (new \MyApp\Models\User($this))->load($request->getOption());
         $view->addModel($model);
-
+        // (foreign-key option loading goes here — see "Select2 changes what a
+        // foreign-key field loads" above)
+        $doc = \Pramnos\Framework\Factory::getDocument();
+        $doc->title = ($model->userid > 0 ? 'Edit' : 'Create') . ' | User';
         $this->application->addbreadcrumb('User', sURL . 'User');
         if ($model->userid > 0) {
-            $this->application->addbreadcrumb('View ' . $model->userid, sURL . 'User/show/' . $model->userid);
+            $this->application->addbreadcrumb((string)$model->username, sURL . 'User/show/' . $model->userid);
             $this->application->addbreadcrumb('Edit', sURL . 'User/edit/' . $model->userid);
         } else {
             $this->application->addbreadcrumb('Create', sURL . 'User/edit/0');
         }
-        
-        $doc = \Pramnos\Framework\Factory::getDocument();
-        $doc->title = ($model->userid > 0 ? 'Edit' : 'Create') . ' | User';
-        
         return $view->display('edit');
     }
 
-    /**
-     * Store a newly created or edited resource in storage.
-     */
-    public function save()
+    public function save(): void
     {
-        $model = new \MyApp\Models\User($this);
         $request = new \Pramnos\Http\Request();
-        $model->load($request->getOption());
-        
-        // Auto-generated field assignments based on database schema
-        $model->username = trim(strip_tags($request->get('username', '', 'post')));
-        $model->email = trim(strip_tags($request->get('email', '', 'post')));
-        $model->firstname = trim(strip_tags($request->get('firstname', '', 'post')));
-        
+        $model   = (new \MyApp\Models\User($this))->load($request->getOption());
+        $model->username = trim(strip_tags((string) $request->get('username', '', 'post')));
+        $model->email = trim(strip_tags((string) $request->get('email', '', 'post')));
         $model->save();
         $this->redirect(sURL . 'User');
     }
 
-    /**
-     * Remove the specified resource from storage
-     */
-    public function delete()
+    public function delete(): void
     {
-        $model = new \MyApp\Models\User($this);
+        $model   = new \MyApp\Models\User($this);
         $request = new \Pramnos\Http\Request();
         $model->delete($request->getOption());
         $this->redirect(sURL . 'User');
     }
 
-    /**
-     * AJAX data endpoint for the server-side DataTable — returns JSON.
-     */
-    public function data()
+    public function data(): void
     {
         \Pramnos\Framework\Factory::getDocument('json');
-        $result = \Pramnos\Html\Datatable\Datasource::getList(
-            'users', ['userid', 'username', 'email'], false
-        );
-        // Each row gets View/Edit/Delete action links appended here.
+
+        $fields = ['userid', 'username', 'email'];
+        $result = \Pramnos\Html\Datatable\Datasource::getList('users', $fields, false);
+
+        $dataKey = array_key_exists('data', $result) ? 'data' : 'aaData';
+        foreach ($result[$dataKey] as &$row) {
+            $id      = (int) $row[0];
+            $showUrl = sURL . 'User/show/' . $id;
+            array_shift($row);                 // drop the primary key
+            // The first visible column links to the record.
+            if (isset($row[0]) && $row[0] !== null && $row[0] !== '') {
+                $row[0] = '<a href="' . $showUrl . '">'
+                    . htmlspecialchars((string) $row[0], ENT_QUOTES, 'UTF-8') . '</a>';
+            }
+            // Labelled icon links: view, edit, delete (with a confirm).
+            $row[] = \Pramnos\Html\Icon::link($showUrl, 'view', 'View this record')
+                   . \Pramnos\Html\Icon::link(sURL . 'User/edit/' . $id, 'edit', 'Edit this record')
+                   . \Pramnos\Html\Icon::link(
+                       sURL . 'User/delete/' . $id,
+                       'delete',
+                       'Delete this record',
+                       ['data-confirm' => 'Are you sure?', 'class' => 'pf-action-danger']
+                   );
+            unset($row['DT_RowId']);
+        }
+        unset($row);
+
         echo json_encode($result);
         $this->terminate();
     }
+
+    /**
+     * Terminate the request. Isolated so it can be overridden/mocked in tests.
+     */
+    protected function terminate(): void
+    {
+        exit;
+    }
+
 }
 ```
+
+Field assignments in `save()` follow the column type: integers
+`$request->get('col', '', 'post', 'int')`, floats `(float)`, booleans `(bool)`,
+everything else `trim(strip_tags((string) …))`.
 
 ## View Generation
 
@@ -1250,10 +1360,8 @@ Every screen registers itself in `screens/registry.js`, so it is reachable
 without editing `App.svelte`. A screen the registry does not name is a file the
 bundler does not even include.
 
-> Before this command existed, `createSpaScreen()` was reachable only through
-> `create:crud` — so the way to add a dashboard was to generate a CRUD for a
-> table you did not want and delete most of it. `create:view` exists on the MVC
-> side for exactly that reason.
+`create:screen` is to the SPA what `create:view` is to MVC: the way to add a
+screen without generating a CRUD for a table you do not want.
 
 ### `create:component`
 
@@ -1298,8 +1406,9 @@ background re-read leaves the reader where they were.
 
 ### The shared components
 
-A generated screen imports five files, written once per project and **never
-overwritten** afterwards:
+The shared components are written once per project and **never overwritten**
+afterwards. A generated screen imports the first five; `Omnibox.svelte` is used by
+the application shell:
 
 | File | What it is |
 |---|---|
@@ -1308,6 +1417,13 @@ overwritten** afterwards:
 | `components/ConfirmDialog.svelte` | Focus trap, Escape, optional typed-phrase mode |
 | `components/Field.svelte` | The control-per-type renderer described above |
 | `lib/i18n.svelte.js` | `t()` / `tHtml()`, a client for the framework's own catalogue |
+| `components/Omnibox.svelte` | Cross-entity search over `GET /admin/search` (the entities `app/search.php` registers) |
+
+With the `llm` feature enabled, the conversation components come with them:
+`components/llm/Chat.svelte`, `components/llm/Scheduled.svelte`,
+`components/llm/AiConsent.svelte`, `lib/llm/chat.js` and `lib/llm/markdown.js`, with
+their tests under `__tests__/llm/` — and `package.json` gains the libraries they
+render answers with (marked, DOMPurify).
 
 Each ships with its test, into the project's `__tests__/` — where the project's
 Vitest runner will actually run them. **The suite is green and the build is
@@ -1345,21 +1461,22 @@ as it passes, so an older project gains its record on the first resync.
 
 It is **not** included in a plain `project:resync`, for the same reason.
 
-Two conditions decide whether it writes anything at all, and both fail silently — a project that
-meets neither gets no files and no complaint:
+Two conditions decide whether it writes anything at all:
 
 - **`app_style` must not be `mvc`.** That is the default, so a project that has never asked for a
   front end has no source directory to write into, and the resync will not decide it should have one.
   This holds even with `spa_stack => 'svelte'` configured: the stack being right does not create
   somewhere to put the files.
 - **`spa_stack` must be `svelte`.** The shared components *are* Svelte. A project on a no-build
-  stack has an SPA and nothing that compiles `.svelte`, so the files would sit there as text — and
-  the resync would have reported success.
+  stack has an SPA and nothing that compiles `.svelte`, so the files would sit there as text.
 
 Where they land follows `spa_source_dir` when it is set, so a project whose front end lives in
 `admin-ui/` receives them there rather than having to rename its directory to be helped.
 
-If `--spa-components` appears to do nothing, check `app_style` first.
+When nothing is written, the command says `Nothing to sync` and explains why: that `app_style`
+is `mvc`, or which directory it looked in for the front end (and whether it exists). A project on
+another stack gets that same explanation, so if `--spa-components` appears to do nothing, check
+`app_style` and `spa_stack` in `app/app.php`.
 
 ### Generated View Examples
 
@@ -1381,48 +1498,65 @@ plain-css theme; bootstrap/tailwind use their own wrappers):
 ```
 
 #### Edit Form (edit.html.php)
+
+The Bootstrap theme's form, for `username` and `email` (both NOT NULL). Every value is
+escaped, NOT NULL columns get `required`, and the form carries the CSRF token field:
+
 ```php
-<div class="card">
-    <div class="card-body">
-        <form action="[sURL]User/save/<?php echo $this->model->userid; ?>" method="post" role="form">
-            <div class="form-group">
-                <label for="username">Username:</label>
-                <input type="text" value="<?php echo $this->model->username; ?>" 
-                       id="username" name="username" class="form-control">
-            </div>
-
-            <div class="form-group">
-                <label for="email">Email:</label>
-                <input type="email" value="<?php echo $this->model->email; ?>" 
-                       id="email" name="email" class="form-control">
-            </div>
-
-            <div class="form-group">
-                <label for="firstname">First Name:</label>
-                <input type="text" value="<?php echo $this->model->firstname; ?>" 
-                       id="firstname" name="firstname" class="form-control">
-            </div>
-
-            <div class="form-group">
-                <button type="submit" class="btn btn-primary"><?php l('Save'); ?></button>
-            </div>
-        </form>
+<?php
+defined('SP') or die('No startpoint defined...');
+$isNew = ($this->model->userid ?? 0) <= 0;
+?>
+<div class="container py-4" style="max-width:640px">
+    <?php echo \Pramnos\Application\Application::getInstance()->renderBreadcrumbs(); ?>
+    <h2 class="mb-4"><?php echo $isNew ? 'New User' : 'Edit User'; ?></h2>
+    <?php if (!empty($this->error)): ?>
+        <div class="alert alert-danger"><?php echo htmlspecialchars($this->error); ?></div>
+    <?php endif; ?>
+    <div class="card">
+        <div class="card-body">
+            <form method="post" action="<?php echo sURL; ?>User/save/<?php echo $this->model->userid; ?>">
+                <?php echo \Pramnos\Http\Middleware\CsrfMiddleware::tokenField(); ?>
+                <div class="mb-3">
+                    <label for="username" class="form-label">Username</label>
+                    <input type="text" id="username" name="username" class="form-control" value="<?php echo htmlspecialchars((string)($this->model->username ?? '')); ?>" required>
+                </div>
+                <div class="mb-3">
+                    <label for="email" class="form-label">Email</label>
+                    <input type="text" id="email" name="email" class="form-control" value="<?php echo htmlspecialchars((string)($this->model->email ?? '')); ?>" required>
+                </div>
+                <div class="d-flex gap-2 mt-3">
+                    <button type="submit" class="btn btn-primary">Save</button>
+                    <a href="<?php echo sURL; ?>User" class="btn btn-outline-secondary">Cancel</a>
+                </div>
+            </form>
+        </div>
     </div>
 </div>
 ```
+
+The control follows the column type: a checkbox for `boolean`, a `<textarea>` for
+`text` / `longtext`, `date` / `datetime-local` inputs for dates, `number` for numeric
+columns, and a `<select>` for a foreign key.
 
 ## API Generation
 
 ### Creating API Endpoints
 
 ```bash
-php bin/pramnos create:api UserAPI
+php bin/pramnos create:api User
+php bin/pramnos create:api User --table=custom_users   # a table that does not follow the convention
 ```
+
+The argument is the **entity** name: the controller is written as `src/Api/Controllers/User.php`
+(class `User` in the `…\Api\Controllers` namespace), it works over the `User` model, and the table
+is derived from the name (`users`) unless `--table` names it. The table must exist. An existing
+controller is never overwritten.
 
 The target directory is created if it is not there, parents included — a project adding its
 first API controller has no `Api/` yet. If it cannot be created the command **fails with the
-path**, rather than reporting a file it did not write; three of these generators used to do the
-latter, which sent people looking for a bug in generated code that was never on disk.
+path**, rather than reporting a file it did not write — which would send people looking for a
+bug in generated code that was never on disk.
 
 This generates a complete REST API controller with:
 - GET endpoints for listing and individual records
@@ -1433,16 +1567,27 @@ This generates a complete REST API controller with:
 
 ### Generated API Controller
 
+Rendered from `scaffolding/templates/api-controller.stub`, for a `users` table with
+`username` and `email` (NOT NULL) and a nullable `firstname`. The apiDoc blocks are
+shortened here; the generated ones also list every field, the success shapes and the
+error responses.
+
 ```php
 <?php
 namespace MyApp\Api\Controllers;
 
 /**
- * UserAPI Controller
+ * User Controller
  * Auto generated at: 25/12/2024 10:30
  */
-class UserAPI extends \Pramnos\Application\Controller
+class User extends \Pramnos\Application\ApiCrudController
 {
+
+    public function __construct(?\Pramnos\Application\Application $application = null)
+    {
+        parent::__construct($application);
+    }
+
     /**
      * @api {get} 1.0/user List
      * @apiVersion 1.0.0
@@ -1456,66 +1601,54 @@ class UserAPI extends \Pramnos\Application\Controller
      * @apiParam  {Number} [page=0] Page number for pagination. Set to 0 to get all results
      * @apiParam  {Number} [limit=20] Limit number of results per page
      * @apiParam  {String} [sort] Sort by field. Syntax: [+-]fieldname,[+-]fieldname
-     * @apiParam  {String} [search] Global search term or JSON object for field-specific search
-     * @apiParam  {String} [fields] Specify which fields to return (comma-separated or JSON array)
+     * @apiParam  {String} [search] Global search term, or a JSON object for field-specific search
+     * @apiParam  {String} [fields] Fields to return (comma-separated or JSON array)
      */
     public function display()
     {
-        $user = \Pramnos\User\User::getCurrentUser();
-        if (!is_object($user) || (int) $user->userid < 2) {
-            return array('status' => 401);
+        // Authorisation lives in ApiCrudController::authorize(), so it is one
+        // decision per action. Override authorize() to tighten it for this resource.
+        if (($denied = $this->guard('list')) !== null) {
+            return $denied;
         }
-        if ($user->userid < 2) {
-            return array('status' => 401);
-        }
-        
+
         $model = new \MyApp\Models\User($this);
-        
-        // Get parameters from request
+
         $fields = \Pramnos\Http\Request::staticGet('fields', array(), 'get');
         $search = \Pramnos\Http\Request::staticGet('search', '', 'get');
         $sort = \Pramnos\Http\Request::staticGet('sort', '', 'get');
         $page = (int) \Pramnos\Http\Request::staticGet('page', 0, 'get', 'int');
         $limit = (int) \Pramnos\Http\Request::staticGet('limit', 20, 'get', 'int');
-        
-        // Use the new getApiList method for enhanced pagination, search, and field selection
+
+        // useGetData: true, so a list returns the same shape as a single read.
         return $model->getApiList(
-            $fields, 
-            $search, 
-            $sort, 
-            $page, 
+            $fields,
+            $search,
+            $sort,
+            $page,
             $limit,
             false, // debug
             false, // returnAsModels
-            false   // useGetData
+            true   // useGetData
         );
     }
 
     /**
      * @api {get} 1.0/user/:userid Read
-     * @apiVersion 1.0.0
-     * @apiGroup User
-     * @apiName readUser
-     * @apiDescription Read a specific User object
-     *
-     * @apiHeader {String} apiKey Application unique api key
-     * @apiHeader {String} accessToken Authenticated user access token
-     * @apiParam  {Number} userid Id to load
      */
     public function readUser($userid)
     {
-        $user = \Pramnos\User\User::getCurrentUser();
-        if (!is_object($user) || (int) $user->userid < 2) {
-            return array('status' => 401);
+        if (($denied = $this->guard('read')) !== null) {
+            return $denied;
         }
-        if ($user->userid < 2) {
-            return array('status' => 401);
-        }
-        
-        $model = new \MyApp\Models\User($this);
-        $model->load((int) $userid);
+
+        // load() is used as an expression: a tenant-scoped model refuses a row by
+        // returning a different instance, and only the return value carries that.
+        $model = (new \MyApp\Models\User($this))->load($userid);
         if ($model->userid == 0) {
-            return array('status' => 404);
+            return array(
+                'status' => 404
+            );
         }
         $data = $model->getData();
         return array('data' => $data);
@@ -1523,33 +1656,25 @@ class UserAPI extends \Pramnos\Application\Controller
 
     /**
      * @api {post} 1.0/user Create
-     * @apiVersion 1.0.0
-     * @apiGroup User
-     * @apiName createUser
-     * @apiDescription Create a User
-     *
-     * @apiHeader {String} apiKey Application unique api key
-     * @apiHeader {String} accessToken Authenticated user access token
-     * 
      * @apiBody {String} username Username
      * @apiBody {String} email Email address
      * @apiBody {String} [firstname] First name
      */
     public function createUser()
     {
-        $user = \Pramnos\User\User::getCurrentUser();
-        if (!is_object($user) || (int) $user->userid < 2) {
-            return array('status' => 401);
+        if (($denied = $this->guard('create')) !== null) {
+            return $denied;
         }
-        
+
         $model = new \MyApp\Models\User($this);
 
-        $model->username = trim(strip_tags(\Pramnos\Http\Request::staticGet('username', '', 'post')));
-        $model->email = trim(strip_tags(\Pramnos\Http\Request::staticGet('email', '', 'post')));
-        $model->firstname = trim(strip_tags(\Pramnos\Http\Request::staticGet('firstname', '', 'post')));
+        $model->username = trim(strip_tags((string) \Pramnos\Http\Request::staticGet('username', '', 'post')));
+        $model->email = trim(strip_tags((string) \Pramnos\Http\Request::staticGet('email', '', 'post')));
+        $value = \Pramnos\Http\Request::staticGet('firstname', null, 'post');
+        $model->firstname = $value === null ? null : trim(strip_tags((string) $value));
 
         $model->save();
-        
+
         return array(
             'status' => 201,
             'data' => $model->getData()
@@ -1558,32 +1683,27 @@ class UserAPI extends \Pramnos\Application\Controller
 
     /**
      * @api {put} 1.0/user/:userid Update
-     * @apiVersion 1.0.0
-     * @apiGroup User
-     * @apiName updateUser
-     * @apiDescription Update a specific User object
-     *
-     * @apiHeader {String} apiKey Application unique api key
-     * @apiHeader {String} accessToken Authenticated user access token
-     * @apiParam  {Number} userid Id to update
      */
     public function updateUser($userid)
     {
-        $user = \Pramnos\User\User::getCurrentUser();
-        if (!is_object($user) || (int) $user->userid < 2) {
-            return array('status' => 401);
-        }
-        
-        $model = new \MyApp\Models\User($this);
-        $model->load((int) $userid);
-        if ($model->userid == 0) {
-            return array('status' => 404);
+        if (($denied = $this->guard('update')) !== null) {
+            return $denied;
         }
 
-        $model->username = trim(strip_tags(\Pramnos\Http\Request::staticGet('username', $model->username, 'put')));
-        $model->email = trim(strip_tags(\Pramnos\Http\Request::staticGet('email', $model->email, 'put')));
-        $model->firstname = trim(strip_tags(\Pramnos\Http\Request::staticGet('firstname', $model->firstname, 'put')));
-        
+        $model = (new \MyApp\Models\User($this))->load((int) $userid);
+        if ($model->userid == 0) {
+            return array(
+                'status' => 404
+            );
+        }
+
+        $value = \Pramnos\Http\Request::staticGet('username', $model->username, 'put');
+        $model->username = $value === null ? null : trim(strip_tags((string) $value));
+        $value = \Pramnos\Http\Request::staticGet('email', $model->email, 'put');
+        $model->email = $value === null ? null : trim(strip_tags((string) $value));
+        $value = \Pramnos\Http\Request::staticGet('firstname', $model->firstname, 'put');
+        $model->firstname = $value === null ? null : trim(strip_tags((string) $value));
+
         $model->save();
         return array(
             'status' => 202,
@@ -1593,73 +1713,90 @@ class UserAPI extends \Pramnos\Application\Controller
 
     /**
      * @api {delete} 1.0/user/:userid Delete
-     * @apiVersion 1.0.0
-     * @apiGroup User
-     * @apiName deleteUser
-     * @apiDescription Delete a User
-     *
-     * @apiHeader {String} apiKey Application unique api key
-     * @apiHeader {String} accessToken Authenticated user access token
-     * @apiParam  {Number} userid Id to delete
      */
     public function deleteUser($userid)
     {
-        $model = new \MyApp\Models\User($this);
-        $model->load((int) $userid);
+        if (($denied = $this->guard('delete')) !== null) {
+            return $denied;
+        }
+
+        $model = (new \MyApp\Models\User($this))->load((int) $userid);
         if ($model->userid == 0) {
-            return array('status' => 404);
+            return array(
+                'status' => 404
+            );
         }
         $model->delete($userid);
-        return array('status' => 202);
+        return array(
+            'status' => 202
+        );
     }
 }
 ```
 
+**Authorisation.** Every action begins with `guard('<action>')`, inherited from
+`ApiCrudController`. It answers `401` (`not_authenticated`) when there is no signed-in user
+on the request — the user comes from the request's token, and user 1, the anonymous
+account, does not count — and `403` (`forbidden`) when `authorize($action)` refuses.
+`authorize()` asks the permission store for `list` / `read` / `create` / `update` /
+`delete`: an explicit allow or deny decides, and no rule at all allows — except inside an
+organisation (`OrganizationScope` set), where no rule is a refusal. Override `authorize()`
+in the generated controller to tighten it, e.g.
+`return parent::authorize($action) && $this->requestUser()->isAdmin();`.
+
+**Field assignments** follow the column type: integers through `staticGet(…, 'int')`,
+floats with `(float)`, booleans accept `true` / `on` / `yes` / `1`, strings are
+`trim(strip_tags((string) …))`, and a nullable column keeps `null` instead of becoming `''`.
+A nullable integer column sent as `0` on create is stored as `null`. A tenant column
+(`organization_id` / `organizationid`) is never read from the request: create assigns
+`$this->currentOrganizationId()`, and update leaves it alone.
+
 ### API Route Registration
 
-API routes are automatically added to `src/Api/routes.php`:
+`create:api` adds the entity's routes to `src/Api/routes.php`, **inside** the version group
+(whose prefix comes from `APIVERSION`), so they answer at `/1.0/user`. A route already
+registered for the resource is not added twice. Rendered from
+`scaffolding/templates/api-routes.stub`:
 
 ```php
-$router->delete(
+$r->delete(
     '/user/{userid}',
     function ($userid) {
-        $controller = $this->getController('UserAPI');
-        return $controller->deleteUser($userid);
+        return (new \MyApp\Api\Controllers\User($this))->deleteUser($userid);
     }
 );
 
-$router->put(
+$r->put(
     '/user/{userid}',
     function ($userid) {
-        $controller = $this->getController('UserAPI');
-        return $controller->updateUser($userid);
+        return (new \MyApp\Api\Controllers\User($this))->updateUser($userid);
     }
 );
 
-$router->get(
+$r->get(
     '/user/{userid}',
     function ($userid) {
-        $controller = $this->getController('UserAPI');
-        return $controller->readUser($userid);
+        return (new \MyApp\Api\Controllers\User($this))->readUser($userid);
     }
 );
 
-$router->get(
+$r->get(
     '/user',
     function () {
-        $controller = $this->getController('UserAPI');
-        return $controller->display();
+        return (new \MyApp\Api\Controllers\User($this))->display();
     }
 );
 
-$router->post(
+$r->post(
     '/user',
     function () {
-        $controller = $this->getController('UserAPI');
-        return $controller->createUser();
+        return (new \MyApp\Api\Controllers\User($this))->createUser();
     }
 );
 ```
+
+A hand-written `routes.php` with no version group gets the same block, using `$router`,
+before its `return $router->dispatch($newRequest);` line.
 
 ## CRUD Generation
 
@@ -1667,19 +1804,26 @@ $router->post(
 
 ```bash
 php bin/pramnos create:crud User
+php bin/pramnos create:crud User --target=spa    # mvc | spa | both
 ```
 
-This single command creates:
-1. Model with database mapping
-2. Controller with full CRUD operations
-3. Views for list, create, edit, and detail pages
+`--target` decides what is generated; without it the application's `app_style` decides
+(`spa` → `spa`, `hybrid` → `both`, anything else → `mvc`). The model is always generated:
 
-The output shows the status of each component:
+| Target | Generates |
+|---|---|
+| `mvc` | Model, web controller, and the list / edit / show views |
+| `spa` | Model, API controller + routes, and the SPA screen — no server-rendered views |
+| `both` | All of the above |
+
+The output reports each step:
 
 ```
 Creating Model: OK
-Creating Controller: OK
-Creating View: OK
+Creating API controller + routes: OK      (spa, both)
+Creating SPA screen: …                    (spa, both)
+Creating Controller: OK                   (mvc, both)
+Creating View: OK                         (mvc, both)
 ```
 
 ## Migration System
@@ -1687,77 +1831,49 @@ Creating View: OK
 ### Creating Migrations
 
 ```bash
-php bin/pramnos create:migration CreateUsersTable
+php bin/pramnos create:migration create_users_table
 ```
 
-This generates a migration class:
+This writes `app/migrations/<Y_m_d_His>_create_users_table.php` — the timestamp prefix keeps
+the files in order — rendered from `scaffolding/templates/migration.stub`:
 
 ```php
 <?php
 namespace MyApp\Migrations;
 
+use Pramnos\Database\Blueprint;
+use Pramnos\Database\Migration;
+
 /**
- * CreateUsersTable migration
- * Auto generated at: 25/12/2024 10:30
+ * create_users_table
+ * Auto-generated: 25/12/2024 10:30
  */
-final class MigrationCreateUsersTable extends \Pramnos\Database\Migration
+final class CreateUsersTable extends Migration
 {
-    /**
-     * Version that this migration sets
-     * @var string
-     */
-    public $version = 'CreateUsersTable';
-    
-    /**
-     * Description of the migration
-     * @var string
-     */
-    public $description = '';
-    
-    /**
-     * Should the migration executed automatically
-     * @var bool
-     */
-    public $autoExecute = true;
+    public $description = 'create_users_table';
 
     /**
-     * Run the migration
-     * @return void
+     * Set true to wrap up() in BEGIN/COMMIT/ROLLBACK on PostgreSQL.
+     * Leave false for TimescaleDB-native operations (e.g. createHypertable).
      */
-    public function up() : void
+    public bool $transactional = false;
+
+    public function up(): void
     {
-        // this up() migration is auto-generated, please modify it to your needs
+        // TODO: implement
     }
 
-    /**
-     * Undo the migration
-     * @return void
-     */
-    public function down() : void
+    public function down(): void
     {
-        // this down() migration is auto-generated, please modify it to your needs
+        // TODO: implement
     }
 }
 ```
 
-### Migration Registry
-
-Migrations are automatically registered in `app/migrations.php`:
-
-```php
-<?php
-return [
-    /*
-    |--------------------------------------------------------------------------
-    | Migrations List
-    |--------------------------------------------------------------------------
-    |
-    | These migrations will be executed in order on application execution
-    |
-    */
-    'CreateUsersTable' => 'MigrationCreateUsersTable'
-];
-```
+The class name is the PascalCase of the name given. There is no registry to update: the
+migration loader discovers every file in `app/migrations/`, and `php bin/pramnos migrate`
+runs the pending ones. Called **without** a name, `create:migration` starts the
+[interactive wizard](#interactive-migration-wizard) instead.
 
 ## Development Server
 
@@ -1768,23 +1884,21 @@ return [
 php bin/pramnos serve
 
 # Start on custom port
-php bin/pramnos serve --port=8080
+php bin/pramnos serve --port=8080     # or -p 8080
 
-# Start with custom host
+# Start with custom host (default: localhost)
 php bin/pramnos serve --host=0.0.0.0 --port=8080
 ```
 
-The development server provides:
-- Hot reloading for PHP files
-- Automatic routing
-- Error display
-- Access to framework features
+`serve` runs PHP's built-in web server (`php -S <host>:<port>`) with `www/index.php` as the
+router script, so every request goes through the application's front controller. It is a
+development server only — single-process, with no TLS.
 
 ## Log Migration
 
 ### Migrating Log Files
 
-The framework includes a powerful log migration system to convert legacy log formats to structured JSON:
+`logs:convert` converts older log formats to the structured single-line JSON format:
 
 ```bash
 # Migrate all .log files in a directory
@@ -1807,58 +1921,98 @@ php bin/pramnos logs:convert /path/to/application.log --no-backup
 
 ### Example Migration Output
 
+With `--all` over a directory:
+
 ```
 Processing: application.log
+ 1000/1000 [============================] 100%  1 sec
 
- 1000/1000 [▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓] 100%
-
-Migration completed successfully:
-Files processed: 1 (Failed: 0)
+Migration Summary:
+Files processed: 1/1 (Failed: 0)
 Lines processed: 1000 (Converted: 987)
 Duration: 0.45 seconds
 ```
+
+The `Files processed` line appears only in directory mode.
 
 ## Advanced Features
 
 ### Foreign Key Detection
 
-The code generator automatically detects foreign key relationships and generates appropriate model methods:
+The generators read the table's foreign keys from the schema (or from the migration
+wizard's answers). No relationship getter is generated; what a foreign key changes is:
 
-```php
-// If a 'user_id' field is detected, this method is auto-generated
-public function getUser()
-{
-    if ($this->user_id > 0) {
-        $user = new \MyApp\Models\User($this);
-        $user->load($this->user_id);
-        return $user;
-    }
-    return null;
-}
-```
+- **The model.** An integer foreign key declared `ON DELETE SET NULL` makes `save()` store a
+  `0` as `null`:
+
+  ```php
+  public function save($autoGetValues = false, $debug = false): static
+  {
+      if ($this->category_id == 0) {
+          $this->category_id = null;
+      }
+      parent::_save(null, null, $autoGetValues, $debug);
+
+      return $this;
+  }
+  ```
+
+- **The web controller.** The edit form gets a `<select>` for the column, and the controller
+  gets an `fkOptions()` action (public, beside `show` and `data`) mapping each foreign-key
+  column to the referenced model and key:
+
+  ```php
+  $fkMap = [
+      'category_id' => ['\MyApp\Models\Categories', 'id'],
+  ];
+  ```
+
+  It answers `GET …/fkOptions?field=category_id&q=…&page=…` with Select2's
+  `{results: [{id, text}], pagination: {more}}`, reusing the referenced model's
+  `_getApiList()` (20 per page) and taking the label from `name`, `title`, `label` or
+  `username`. A foreign key to `users` maps to `\Pramnos\User\User` / `userid`. See
+  [Select2 changes what a foreign-key field loads](#select2-changes-what-a-foreign-key-field-loads).
+
+- **The SPA screen.** The field becomes a searchable picker against the referenced
+  resource's own list endpoint.
 
 ### Data Type Handling
 
-The generator creates type-safe field assignments based on database schema:
+The generators write field assignments by column type.
+
+In the web controller's `save()`:
 
 ```php
 // Integer fields
-$model->count = \Pramnos\Http\Request::staticGet('count', 0, 'post', 'int');
-
-// Boolean fields  
-$tmpVar = \Pramnos\Http\Request::staticGet('active', '', 'post');
-if ($tmpVar == 'true' || $tmpVar == 'on' || $tmpVar == "yes" || $tmpVar === '1' || $tmpVar === 1) {
-    $tmpVar = true; 
-} else { 
-    $tmpVar = false; 
-} 
-$model->active = $tmpVar;
+$model->count = $request->get('count', '', 'post', 'int');
 
 // Float fields
-$model->price = (float) \Pramnos\Http\Request::staticGet('price', '', 'post');
+$model->price = (float) $request->get('price', '', 'post');
+
+// Boolean fields
+$model->active = (bool) $request->get('active', '', 'post');
 
 // String fields (with sanitization)
-$model->name = trim(strip_tags(\Pramnos\Http\Request::staticGet('name', '', 'post')));
+$model->name = trim(strip_tags((string) $request->get('name', '', 'post')));
+```
+
+In the API controller's create action:
+
+```php
+// Integer fields (a nullable one turns 0 into null)
+$model->count = \Pramnos\Http\Request::staticGet('count', 0, 'post', 'int');
+
+// Boolean fields
+$tmpVar = \Pramnos\Http\Request::staticGet('active', null, 'post');
+if ($tmpVar == 'true' || $tmpVar == 'on' || $tmpVar == "yes" || $tmpVar === '1' || $tmpVar === 1) {
+    $tmpVar = true;
+} else {
+    $tmpVar = false;
+}
+$model->active = $tmpVar;
+
+// String fields (with sanitization; a nullable one keeps null)
+$model->name = trim(strip_tags((string) \Pramnos\Http\Request::staticGet('name', '', 'post')));
 ```
 
 ### API Documentation Generation
@@ -1898,19 +2052,26 @@ Generated API controllers include comprehensive PHPDoc annotations compatible wi
 
 ### Console Application Setup
 
-The console application is configured in `src/Pramnos/Console/Application.php`:
+The framework's commands are registered in `Pramnos\Console\Application::registerCommands()`.
+An application adds its own in `src/Console.php`, which `init` scaffolds as a subclass:
 
 ```php
-protected function registerCommands()
+<?php
+namespace MyApp;
+
+class Console extends \Pramnos\Console\Application
 {
-    $this->add(new \Pramnos\Console\Commands\Make\MakeController());
-    $this->add(new \Pramnos\Console\Commands\Serve());
-    $this->add(new \Pramnos\Console\Commands\MigrateLogs());
-    
-    // Add custom commands here
-    // $this->add(new \MyApp\Console\CustomCommand());
+    protected function registerCommands(): void
+    {
+        parent::registerCommands();
+        // Register your custom commands here:
+        // $this->add(new \MyApp\ConsoleCommands\MyCommand());
+    }
 }
 ```
+
+`create:command` appends its registration on that comment line (see
+[What `create:command` writes](#what-createcommand-writes)).
 
 ### Custom Command Creation
 
@@ -2009,12 +2170,12 @@ works on every version the framework supports.
 
 **Permission Errors**
 ```bash
-# Ensure the web server has write permissions to:
-# - app/ directory (for registry files)
-# - includes/ directory (for generated files)
-# - logs/ directory (for logging)
+# The user running the command must be able to write to:
+# - app/ directory (model registry, migrations)
+# - src/ directory (generated classes)
+# - var/ directory (logs, cache, lock files)
 
-chmod -R 755 app/ includes/ logs/
+chmod -R u+w app/ src/ var/
 ```
 
 **Generated Code Issues**
@@ -2079,8 +2240,21 @@ class MyDaemon extends \Pramnos\Console\CommandBase
 The lock lifecycle is delegated to `Pramnos\Console\WorkerLock` (see below): `startJob()`
 acquires it (writing a JSON lock), `heartbeat()` refreshes it, `endJob()` releases and
 removes it. `readPidFromLockFile()` uses `WorkerLock::pidFromFile()`, which reads the JSON
-`pid` and falls back to a legacy plain-text lock — so the single-instance guard behaves
-exactly as before across an upgrade.
+`pid` and also accepts a plain-text lock holding only a pid.
+
+!!! warning "The supervisor decides the lock path, not the worker"
+    `DaemonOrchestrator` writes the `.stop` sentinel beside the `lockFile` declared in
+    a worker's desired-process entry, and exports that path to the child as
+    `PRAMNOS_JOB_LOCK_FILE` (`CommandBase::LOCK_FILE_ENV`). `CommandBase` reads it in
+    preference to anything the command computes (the `final`
+    `resolvedJobLockFilePath()`), so **an override cannot disagree with the
+    supervisor.** Two independent computations of one path would fail silently: a
+    sentinel read where nothing writes is indistinguishable from no sentinel — no
+    error, no log, a worker reporting itself healthy while ignoring every stop request.
+
+    `getJobLockFilePath()` stays overridable (default `ROOT/var/<job>`): it is a
+    legitimate application default, and it applies when a command is run by hand with
+    no supervisor.
 
 **Two stop models — pick one per command.** A simple lock-guarded command uses
 `beginJob()`, whose SIGINT handler cleans up and exits immediately (fine for one-shot
@@ -2143,7 +2317,7 @@ $lock->release();
 | `release(string $status='stopped'): void` | Mark stopped and drop the held flag (keeps the file for status reads) |
 | `isHeldByAnother(): bool` / `holderIsWedged(): bool` | Foreign-holder liveness / alive-but-not-heartbeating |
 | `readState(): ?array` / `heartbeatAge(?array): ?int` / `stopRequested(): bool` | State inspection |
-| `static pidFromFile(string): int` | JSON `pid`, falling back to a legacy plain-text lock (0 if absent) |
+| `static pidFromFile(string): int` | JSON `pid`, or a plain-text lock holding only a pid (0 if absent) |
 | `static defaultPath(string $name, ?string $dir=null): string` | `<dir>/<name>.lock` (`ROOT/var` or temp) |
 
 A holder is respected only when **both alive and progressing** (pid alive on the same host
@@ -2267,16 +2441,6 @@ Used to build live bordered terminal dashboards:
 | `buildSystemStatusSegments(int $startTime, float $cpu, int|float $mem): string[]` | `['Time: …', 'Uptime: …', 'CPU: …', 'Memory: …']` |
 | `renderDashboardFrame(OutputInterface, string $title, string[] $systemSegments, string[] $sections, int $terminalWidth): void` | Full frame render (cursor-home → write → erase-below) |
 | `renderDashboardFrameAutoSystem(OutputInterface, string $title, string[] $sections, int $terminalWidth): void` | As above with auto-built system segments |
-
-### Migrating the reference application commands
-
-```php
-// Before (the reference application-local):
-use App\ConsoleCommands\CommandBase;
-
-// After (framework-level — no code changes in the command):
-use Pramnos\Console\CommandBase;
-```
 
 ---
 
@@ -2439,11 +2603,12 @@ The wizard collects the full schema definition — columns, types, nullable/defa
 
 ```
  Migration description: create users table
- Table name: #PREFIX#users
+ Table name (use #PREFIX# for the db prefix, e.g. #PREFIX#users): #PREFIX#users
+ Add auto-increment primary key userid? [yes]
  Does this table hold personal data (anything about an identifiable person)? [no] yes
- Add auto-increment primary key id? [yes]
 
  ── Columns ──────────────────────────────────────────────────────────
+ Tip: to set an empty string as default, type '' (two single quotes).
  Column name (Enter to finish): name
    Type [string (VARCHAR)]:
    Length [255]: 100
@@ -2496,15 +2661,16 @@ classifying it. See the
 
 ### UI-aware controller and view generation
 
-The wizard detects the application's UI setup:
+The wizard reads the application's UI setup:
 
-| Setup detected | Generated output |
+| Setting | Effect on the generated code |
 |---|---|
-| Bootstrap + DataTables + Select2 | ServerSide DataTable list, Select2 FK dropdowns |
-| Bootstrap only | Plain `<table class="table">` list |
-| Plain CSS | Minimal HTML table, no framework dependencies |
+| `scaffold_theme` in `app/app.php` (`plain-css`, `bootstrap`, `tailwind`) | Which view templates are written; `bootstrap` also sets `$dt->bootstrap = true` |
+| Select2 registered on the Document (`isScriptRegistered('select2')`) | Foreign-key fields load their options over AJAX from `fkOptions()` instead of in full |
 
-### Non-interactive usage (unchanged)
+The list view is always the framework's server-side DataTable, whatever the theme.
+
+### Non-interactive usage
 
 ```bash
 php bin/pramnos create:migration create_users_table   # blank stub, no wizard

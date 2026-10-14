@@ -29,12 +29,8 @@ rendered pages beside the JSON — for the pages a crawler has to read, or a for
 should work without JavaScript. The services are the same objects; only the thing
 consuming them differs.
 
-> The middle column read **"View layer: none"** until 2026-08-16. That was true of the
-> style as first written and stopped being true the moment an application in it added a
-> controller returning HTML — which is a normal thing to do and which the framework has
-> always supported. A comparison table is a claim like any other, and this one was
-> quietly telling readers that something they were already doing was not a supported
-> option.
+A controller in a Services project that returns HTML is a normal, supported thing to do;
+the third column exists so that is visible rather than implied.
 
 **No model is required for a view.** `View::addModel()` is the only place
 `Pramnos\Application\Model` is structurally needed; skip it and `$this->model` is
@@ -126,7 +122,7 @@ Two things follow from inheriting, and neither costs a line of code:
 in the **Domain** tab, next to the request's models. A `measure()` call adds the
 duration of one operation. This is why the base class exists at all: a plain
 class offers the framework nothing to observe, so in a Services project the tab
-that should describe the domain layer was empty for a request that had done all
+that should describe the domain layer would be empty for a request that did all
 of its work in services. See the
 [Debugging Guide](Pramnos_Debugging_Guide.md#what-this-request-did-to-the-domain-layer).
 
@@ -148,7 +144,9 @@ conclusion that a non-`Api` application cannot feed the toolbar without reimplem
 It can, and it is one line:
 
 ```php
-$pipeline->add(new \Pramnos\Debug\ApiDebugMiddleware());
+$router->addGlobalMiddleware(new \Pramnos\Debug\ApiDebugMiddleware());
+// or, on a MiddlewarePipeline you build yourself:
+$pipeline->pipe(new \Pramnos\Debug\ApiDebugMiddleware());
 ```
 
 That covers every routing style. Both `Api` methods are thin delegations to public statics, and
@@ -168,12 +166,8 @@ Inert outside development — `ApiDebugPayload::isEnabled()` asks the toolbar wh
 is registered, and collectors are registered only in debug mode. In production it is one array
 check per request.
 
-> A consumer filed this as a gap twice: the `Api` methods **are** still `protected`, which is
-> literally true and stopped being the obstacle when the middleware shipped. Their tripwire
-> checked a *name* — is this method still protected — rather than a *construction* — is the
-> capability reachable. It was documented in the Debugging and Upgrade guides and not here, which
-> is the half that was actually missing: on this page, where a project that will hit it is
-> standing.
+The `Api` methods are `protected`, and that is not an obstacle: the capability is reachable
+through the middleware and the two public statics above, so nothing has to be reimplemented.
 
 ### What the scaffolded API client assumes — and what to replace
 
@@ -226,7 +220,7 @@ $post->load($id);
 That works from a service, a queue worker, a console command or an attribute-routed API
 controller. **Measured**: `new Controller()` is 1.54 µs, and the
 `Application::getInstance()` behind it is 1.3 ms cold and 0.002 ms warm. The dependency
-costs nothing and looks like it costs a great deal — which is why it has a name now
+costs nothing and looks like it costs a great deal — which is why it has a name
 rather than a workaround per project.
 
 Use `shared()` rather than constructing one per model: models built from the same
@@ -261,17 +255,15 @@ class SettingsService extends Service
 }
 ```
 
-A consumer caught this before it shipped, and the numbers are why it is worth its own
-section: **59 call sites** constructed the class they were converting, and it had been built
-on an application-level `getInstance()`. Had the two resolvers differed, a conversion sold as
-observability would have repointed all 59. They passed the instance in and pinned it with a
-test.
+A widely used class is the risky case: every call site that constructs it is repointed at
+once if the two resolvers differ. Pass the existing instance in, and pin it with a test that
+asserts which connection the service uses.
 
 **And convert selectively.** Inheritance adds nothing to a class that runs no queries and has
 no steps to time. The shape worth converting is one with several steps, on every request, that
 is slow without anybody being able to say which step — `measure()` answers that without
-temporary `microtime()` calls that get left in the code. The same consumer converted one
-service out of sixty-five, which is about the right ratio.
+temporary `microtime()` calls that get left in the code. In a typical application that is a
+handful of services, not all of them.
 
 `measure()` re-throws whatever the callback threw, after recording the attempt —
 a failed call is the one worth seeing in the toolbar, so it is recorded, not
@@ -370,8 +362,8 @@ so the host needs no toolchain at all:
 
 ### Adding a SPA to an application that already exists
 
-`init` scaffolds a whole project and **refuses to run** where one already is. For an
-existing application there is a separate command:
+`init` scaffolds a whole project and **refuses to run** where one already is (unless
+given `--force`). For an existing application there is a separate command:
 
 ```bash
 php pramnos scaffold:spa --spa-stack=svelte          # at the site root
@@ -400,9 +392,9 @@ directory:
 'spa_source_dir' => 'admin-ui/',
 ```
 
-`project:resync` reads it, and when it finds nothing it now says *where it looked* and
-how to change that — the message used to be the same sentence for "this project has no
-SPA" and "your sources are not where I assumed".
+`project:resync` reads it, and when it finds nothing it says *where it looked* and how
+to change that, so "this project has no SPA" and "your sources are not where I assumed"
+are distinguishable.
 
 ### Developing with HMR — keep browsing the app URL
 
@@ -640,6 +632,6 @@ copied verbatim into `frontend/static`, or change the setting to wherever yours 
 runs before every build and every dev-server start, reading the server-rendered
 theme's `:root` custom properties so the two halves of the application do not look
 like two products. When that stylesheet is missing — or exists but declares no
-custom properties — it now **warns**, names the path it tried and what to change.
-It used to report the fallback in the same voice as a success, so a project whose
-theme lives elsewhere built cleanly and shipped in the framework's brand colour.
+custom properties — it **warns**, names the path it tried and what to change, so a
+project whose theme lives elsewhere does not build cleanly and ship in the framework's
+brand colour.

@@ -11,74 +11,142 @@ use_cases:
 
 # Pramnos Database API Guide
 
-This guide explains how to properly use the Pramnos database API for database operations in the Pramnos MVC framework.
-
-> **v1.2 Update:** A new fluent **QueryBuilder** API is now available for more expressive query construction. See [Pramnos_QueryBuilder_Guide.md](Pramnos_QueryBuilder_Guide.md) for modern query patterns. The `Database::query()` and `prepareQuery()` methods remain unchanged and fully supported.
+This guide explains how to read from and write to the database in a Pramnos application: getting
+the handle, the query builder, the lower-level raw-SQL paths, result handling, errors,
+transactions, replicas and the session settings the framework applies for you.
 
 ## Overview
 
-The Pramnos framework provides a database abstraction layer that must be used for all database operations. The key principle is to **always use `prepareQuery()` for parameter binding, then `query()` for execution**.
+There are three ways to send a statement, in order of preference:
 
-**For new code, consider using the QueryBuilder API:**
+| Path | Use it for | Placeholders |
+|---|---|---|
+| `queryBuilder()` | Almost everything. The builder knows the dialect: it quotes identifiers per driver, resolves `authserver.x` to a schema on PostgreSQL and a prefixed table on MySQL, and binds values instead of interpolating them. | none — values are arguments; `?` inside `whereRaw()` |
+| `preparedQuery($sql, $bindings)` | Hand-written SQL the builder cannot express (driver-specific functions, `RETURNING`, `DISTINCT ON`, stored functions). Values are bound by the driver. | `:name` or `?` |
+| `prepareQuery($sql, ...$args)` + `query($sql)` | The lower-level path: values are escaped and interpolated into the SQL text. Existing code uses it widely and it remains supported. | `%s`, `%d` |
 
 ```php
-// Modern approach (v1.2+)
+$db = $this->application->database;
+
+// Query builder
 $users = $db->queryBuilder()
     ->from('#PREFIX#users')
     ->where('active', 1)
     ->get();
 
-// Legacy approach (still supported)
-$sql = $db->prepareQuery("SELECT * FROM users WHERE active = %d", 1);
+// Raw SQL, escaped and interpolated
+$sql = $db->prepareQuery("SELECT * FROM #PREFIX#users WHERE active = %d", 1);
 $result = $db->query($sql);
 ```
 
-## Database Access in Controllers
+Framework code that you modify should move raw SQL to the builder; where a statement cannot be
+expressed there (DDL, `information_schema` introspection, TimescaleDB functions), leave a one-line
+comment saying why. See the [Query Builder guide](Pramnos_QueryBuilder_Guide.md) for the full API.
 
-In Pramnos controllers, the database connection is accessed through the application instance:
+## Getting the database handle
 
-```php
-// CORRECT: Access database through application
-$sql = $this->application->database->prepareQuery("SELECT * FROM users WHERE id = %d", $userId);
-$result = $this->application->database->query($sql);
+| Where you are | Handle |
+|---|---|
+| Controller | `$this->application->database` (`Controller::$application` is public) |
+| Model | `\Pramnos\Database\Database::getInstance()` — a model holds its controller in `$this->controller`, not an `application` property, so `$this->application` is `null` there |
+| Anywhere else | `\Pramnos\Database\Database::getInstance()` or `\Pramnos\Framework\Factory::getDatabase()` |
+| Migration | `$this->application->database`, or `$this->schema()` for DDL |
 
-// INCORRECT: Direct access to database property
-$sql = $this->application->database->prepareQuery("..."); // This will cause "Call to a member function on null" error
-```
+In a model, `$this->controller->application->database` also works when the model was built with a
+controller.
 
-**Important**: Always use `$this->application->database` in controllers, not `$this->application->database`.
-
-## Core Pattern
-
-### The Two-Step Process
-
-1. **Prepare Query**: Use `prepareQuery()` with printf-style formatting
-2. **Execute Query**: Use `query()` to execute the prepared query
+## The query builder
 
 ```php
-// CORRECT: Pramnos pattern with printf-style formatting
-$sql = $this->application->database->prepareQuery("SELECT * FROM users WHERE email = %s AND status = %d", $email, $status);
-$result = $this->application->database->query($sql);
+$db = $this->application->database;
 
-// INCORRECT: Don't use ? placeholders
-$this->application->database->prepareQuery("SELECT * FROM users WHERE id = ?", [$userId]); // Wrong syntax!
+// SELECT with conditions and ordering
+$users = $db->queryBuilder()
+    ->from('#PREFIX#users')
+    ->where('status', 1)
+    ->where('role', 'admin')
+    ->orderBy('last_login', 'desc')
+    ->limit(10)
+    ->get();
+
+// JOIN
+$applications = $db->queryBuilder()
+    ->select('a.*', 'u.username as owner_name')
+    ->from('applications a')
+    ->join('users u', 'u.id', '=', 'a.user_id')
+    ->where('a.status', 'active')
+    ->get();
+
+// INSERT — returns the execution result, not the new id
+$db->queryBuilder()
+    ->table('#PREFIX#users')
+    ->insert([
+        'username' => 'newuser',
+        'email'    => 'user@example.com',
+        'status'   => 1,
+    ]);
+$newId = $db->getInsertId();
+
+// UPDATE and DELETE
+$db->queryBuilder()->table('applications')
+    ->where('id', $id)->where('user_id', $userId)
+    ->update(['name' => $name, 'redirect_uri' => $redirectUri]);
+
+$db->queryBuilder()->table('user_tokens')
+    ->where('expires_at', '<', date('Y-m-d H:i:s'))
+    ->delete();
 ```
 
-### Printf-Style Format Specifiers
+`get()` and `first()` return a `Result` (see [Result handling](#result-handling)); `getAll()`
+returns an array of rows, `count()` an integer and `value($column)` a single value.
 
-- `%s` - String values
-- `%d` - Integer values  
-- `%%` - Literal % character
+On PostgreSQL, `->returning('id')` before `insert()` makes the statement return the new key.
 
-**Note**: Only `%s` and `%d` are commonly used in the Pramnos framework.
+### Raw expressions
 
-## A literal `%` in the SQL, and `LIKE`
+For database-specific functions (PostGIS, native MySQL functions), use `whereRaw()` with `?`
+placeholders and a bindings array, or `raw()` for a value:
+
+```php
+$locations = $db->queryBuilder()
+    ->from('locations')
+    ->whereRaw("ST_Distance(geom, ST_MakePoint(?, ?)) < 1000", [23.7, 37.9])
+    ->get();
+```
+
+## Raw SQL with `prepareQuery()`
+
+`prepareQuery()` escapes each argument through the driver and substitutes it into the SQL text;
+`query()` then runs the string.
+
+```php
+$sql = $db->prepareQuery(
+    "SELECT * FROM users WHERE email = %s AND status = %d",
+    $email, $status
+);
+$result = $db->query($sql);
+```
+
+### Format specifiers
+
+- `%s` — a string. Leave it unquoted: the method adds the quotes.
+- `%d` — an integer.
+- `%%` — a literal `%`.
+
+`?` and `:name` are **not** placeholders for `prepareQuery()` — they belong to
+`preparedQuery()` and the builder. A `null` argument becomes SQL `null`, and `= null` after
+`WHERE` becomes `IS NULL`.
+
+`#PREFIX#` is replaced by the configured table prefix and `#CP#` by the controller prefix. On
+PostgreSQL, backticks become double quotes and a configured schema is put in front of
+`#PREFIX#` names.
+
+### A literal `%` in the SQL, and `LIKE`
 
 `prepareQuery()` is `sprintf` underneath, so a `%` in the query string is a format directive unless
-you say otherwise. Two rules follow, and the second used to be a crash:
+you say otherwise. Two rules follow.
 
-**With arguments, write `%%` for a literal percent.** That is what the method documents and what
-every `LIKE` needs:
+**With arguments, write `%%` for a literal percent.** Every `LIKE` needs it:
 
 ```php
 // Wildcards, with a bound argument beside them
@@ -88,169 +156,29 @@ $sql = $db->prepareQuery(
 );
 ```
 
-**With no arguments, a single `%` is left alone.** Until 1 September 2026 it was not: `vsprintf` ran
-whether or not there was anything to substitute, so
+**With no arguments, a single `%` is left alone.** With nothing to substitute, `vsprintf` is not
+called, so this is safe:
 
 ```php
 $db->prepareQuery("SELECT * FROM `#PREFIX#queueitems` WHERE `payload` LIKE '%ApplyStart%'");
 ```
 
-raised **`ValueError: Missing padding character`** — `sprintf` reads the trailing `%'` as «pad with
-the next character» and there is no next character. The `@` in front of `vsprintf` suppressed
-warnings, not exceptions, so this was a fatal error on an ordinary query. It no longer calls
-`vsprintf` when there is nothing to substitute.
+Running it through `vsprintf` would raise `ValueError: Missing padding character` — `sprintf`
+reads the trailing `%'` as «pad with the next character» and there is no next character.
 
-`%%` still collapses to `%` on that path, because callers have relied on that for years — a query
-holding `DATE_FORMAT(\`created\`, '%%c')` with no arguments still reaches the database as `'%c'`.
+`%%` still collapses to `%` on that path, so a query holding `DATE_FORMAT(\`created\`, '%%c')`
+with no arguments reaches the database as `'%c'`.
 
 A `%s` or `%d` with no argument passes through to the database instead of raising, which is a
 malformed query rather than a fatal. If you write a placeholder, pass its value.
 
-## What a datatable search actually looks for
+## Real prepared statements: `preparedQuery()`
 
-`_getPaginated()` builds its `WHERE` from the search terms a datatable posts, and four of the rules
-are not obvious from the outside. Worth knowing before deciding a filter is broken.
-
-**A Greek word is searched without its final sigma.** `Γιάννης` becomes `%Γιάννη%`. Greek inflects
-the ending — a visitor types the nominative and the row holds the genitive — so dropping the last
-`ς`/`σ` is the cheapest stemming there is and it is why the search box feels like it works. Only the
-*ending*: `Κώστας` becomes `Κώστα%`, not `Κώτα%`.
-
-**On PostgreSQL, a Greek term is compared through `unaccent()`.**
-
-```sql
-unaccent(CAST(a."name" AS TEXT)) ILIKE unaccent('%Γιάννη%')
-```
-
-So `Γιάννης`, `ΓΙΑΝΝΗΣ` and `Γιαννης` all find each other — a form filled in caps and an import that
-lost its accents are both ordinary. A term with no Greek in it stays plain `ILIKE`, without wrapping
-either side in a function, which on a large table is the difference between using an index and not.
-
-**A numeric column is matched with `=`, not `LIKE`.** Filtering an integer column by `9` with
-`LIKE '%9%'` returns 9, 19, 29, 90 and 1999, which reads as a broken filter rather than a broad one.
-The column's type comes from `Model::$columnCache`, so this only applies where the model has read
-the schema — a joined table whose alias cannot be resolved falls back to `LIKE`.
-
-**A term that already contains `%` is used as it is.** `Γιαν%` is left anchored rather than wrapped
-again, because the caller has said where the wildcard goes.
-
-And one rule that is a boundary rather than a convenience: **a search field that is not in the field
-list produces no condition at all.** The names arrive from the query string, so the list is what
-keeps a request parameter out of the statement. A filter that silently does nothing on a joined
-listing is usually the qualified-name mapping — send `title` and the list may hold `posts.title`,
-which the builder maps, but only for a name that is there.
-
-## Writing a point: `'geometry'` and the coordinate order
-
-`insertDataToTable()` and `updateTableData()` take a `'type' => 'geometry'` field and convert it to
-PostGIS for you, on PostgreSQL. Three shapes are accepted:
-
-```php
-$db->insertDataToTable('places', [
-    // a "lat, lon" string — what a form posts
-    ['fieldName' => 'location', 'value' => '37.9838, 23.7275',                          'type' => 'geometry'],
-    // a named pair — what an API request carries
-    ['fieldName' => 'location', 'value' => ['latitude' => 37.9838, 'longitude' => 23.7275], 'type' => 'geometry'],
-    // anything else: passed to ST_GeomFromText(), so a polygon or a line works
-    ['fieldName' => 'area',     'value' => 'POLYGON((23.7 37.9, 23.8 37.9, 23.8 38.0, 23.7 37.9))', 'type' => 'geometry'],
-]);
-```
-
-The first two both compile to `ST_SetSRID(ST_MakePoint(23.7275, 37.9838), 4326)` — **longitude
-first**, because that is what `ST_MakePoint()` takes while people write latitude first. Getting it
-backwards is silent: nothing errors, every insert succeeds, and `ST_MakePoint(37.9838, 23.7275)` is a
-spot in the Indian Ocean rather than Athens. If a map is drawing points in the wrong place and the
-numbers in the table look right, this is the first thing to check.
-
-Three details worth having:
-
-- **`0, 0` is a coordinate**, not an empty value — the origin is in the Gulf of Guinea and the
-  pattern accepts it. So is a negative number in either position.
-- **The conversion is gated on the driver, not the column.** On MySQL the value is written through
-  unchanged, because `ST_MakePoint` and `ST_SetSRID` are PostGIS spellings — MySQL names its
-  spatial functions differently and takes the SRID as an argument rather than a wrapper.
-- **Each method has its own copy of the conversion.** A change to one and not the other gives you a
-  row that is inserted correctly and moves when it is edited.
-
-## Reading a table's schema: `getColumns()`
-
-```php
-$result = $db->getColumns('stations');
-while ($result->fetch()) {
-    $result->fields['Field'];       // column name
-    $result->fields['Type'];        // 'varchar'      — the bare type
-    $result->fields['ColumnType'];  // 'varchar(255)' — as declared (MySQL)
-    $result->fields['Null'];        // 'YES' / 'NO'
-    $result->fields['Comment'];
-    $result->fields['Key'];         // 'PRI' on the primary key
-    $result->fields['ForeignKey'], $result->fields['ForeignTable'];
-}
-```
-
-Columns come back **in the order the table declares them**, and the result is
-**cached for an hour** per table, because a schema rarely changes and
-introspection is not cheap.
-
-Two things follow from that cache, and both have a name:
-
-**A schema change through the schema builder invalidates it.** Every DDL method
-on `SchemaBuilder` — `createTable()`, `alterTable()`, `dropTable()`,
-`dropTableIfExists()`, `renameTable()` — flushes the table it touched, so a
-migration is visible to the next read. A raw `$db->query('ALTER TABLE …')` does
-not; call `$db->forgetColumns($table)` yourself if you do that.
-
-**Pass `$fresh` when a stale answer would be wrong rather than merely old:**
-
-```php
-$db->getColumns($table, $schema, false, true);   // never from the cache
-```
-
-Code generators do this, because the framework's documented order of work is
-`create:migration`, migrate, `create:crud` — so a generator runs minutes after
-the schema changed, and an hour-old answer describes the table as it was before
-the migration.
-
-On PostgreSQL, `PrimaryKey` and `ForeignKey` come back as booleans rather than
-MySQL's `'PRI'` / `1`; `ForeignTable` and `ForeignColumn` name the referenced
-table and column on both. Code reading these should accept either spelling —
-`true`, `'t'` and `1` all mean yes, depending on how the row was cast on the way
-out.
-
-> **Fixed 2026-08-24 on PostgreSQL, two faults in the flags.** `ForeignKey` was
-> computed from `information_schema.constraint_column_usage`, and for a FOREIGN
-> KEY that view lists the column of the **referenced** table — so on
-> `streams(station_id) → stations(id)` the flag was true on `id`, the primary
-> key, and false on `station_id`. It was never true for a foreign key on any
-> table, so every generator gated on it saw none: the SPA form rendered a number
-> input where its searchable picker belongs, the MVC form a bare input instead of
-> its select2, and `unsigned` is decided from the same flag so generated
-> migrations differed too. `ForeignTable` beside it was correct all along.
->
-> `PrimaryKey` answered correctly through the old view by coincidence — for a
-> PRIMARY KEY constraint it *does* list the table's own columns — so the two
-> looked symmetric while one of them was luck. Both now read
-> `key_column_usage`, which is the view that lists what this table constrains.
-
-> **Fixed 2026-08-24, three faults in one method.** Nothing invalidated the
-> cache at all, so the sequence above wrote a model and a form for the old
-> columns and reported success — and because the store is shared, re-running the
-> command did not clear it either. Neither query had an `ORDER BY`, so column
-> order was whatever the server felt like, usually alphabetical. And only
-> `DATA_TYPE` was selected on MySQL, so `tinyint(1)` — the boolean convention —
-> arrived as `tinyint` and every generated form rendered every boolean column as
-> a number input. `ColumnType` is the declared type; `Type` is unchanged for
-> callers that read it.
-
-## Real Prepared Statements: `preparedQuery()`
-
-`prepareQuery()` + `query()` interpolates escaped values into the SQL string.
-`preparedQuery()` is different: it runs the statement through the driver's own
-prepared-statement engine (`pg_prepare`/`pg_execute`, or mysqli), so values are
-bound as parameters and never become part of the SQL text.
-
-It is the PDO-style bridge, added for code migrating off a raw `\PDO` handle, and
-it takes the SQL verbatim — PostgreSQL `RETURNING`, `ON CONFLICT`, `DISTINCT ON`
-and stored-function calls all survive untouched.
+`preparedQuery()` runs the statement through the driver's own prepared-statement engine
+(`pg_prepare`/`pg_execute`, or mysqli), so values are bound as parameters and never become part
+of the SQL text. It takes the SQL verbatim — PostgreSQL `RETURNING`, `ON CONFLICT`,
+`DISTINCT ON` and stored-function calls all survive untouched, which also makes it the bridge for
+code moving off a raw `\PDO` handle.
 
 ```php
 $db = \Pramnos\Database\Database::getInstance();
@@ -275,9 +203,12 @@ Keys may be written with or without the leading colon (`'owner'` or `':owner'`).
 not be prepared. It does not throw for that case unless the connection is in
 strict mode (see [`throwOnError`](#how-database-failures-surface-and-throwonerror)).
 A caller writing `$db->preparedQuery(...) ?: []` to keep a read failure from
-taking a page down is a deliberate pattern — but be aware that it makes a broken
-query and an empty table look the same. Turn on `throwOnError` while developing
-so the difference is loud.
+taking a page down is a deliberate pattern — but it makes a broken query and an
+empty table look the same. Turn on `throwOnError` while developing so the
+difference is loud.
+
+**With an empty bindings array** the statement goes through `query()` instead, and a failure
+**throws** `\Exception` as `query()` does — there is nothing to prepare.
 
 **Missing bindings throw.** A `:name` with no value in the array is a
 programming error and raises `\InvalidArgumentException`, as does a positional
@@ -293,11 +224,8 @@ it. Two kinds of text are skipped:
   `':notabind'` is a string, not a placeholder. `''` is an escaped quote and
   keeps the literal open.
 - **Comments.** `--` and `/* … */` everywhere, plus `#` on MySQL. Nothing inside
-  a comment is read: a placeholder written there is prose, and — the part that
-  matters in practice — **an apostrophe there is just an apostrophe**.
-
-That last point is worth stating plainly, because the parser did not always know
-it:
+  a comment is read: a placeholder written there is prose, and **an apostrophe
+  there is just an apostrophe**.
 
 ```php
 // Fine. The possessive in the comment is prose, and :minutes still binds.
@@ -307,11 +235,9 @@ $db->preparedQuery(
 );
 ```
 
-Before this was handled, the apostrophe in `JOIN's` read as the start of a string
-literal, so every placeholder after it was left in the SQL unbound; the statement
-failed and `preparedQuery()` answered `false`. In a consuming application that
-turned a working page into an empty one, with no error anywhere — the read did
-`?: []` and the page truthfully reported that it had no rows.
+If an apostrophe in a comment were read as the start of a string literal, every placeholder
+after it would stay unbound, the statement would fail, and a caller doing `?: []` would show an
+empty page with no error anywhere.
 
 **The two dialects genuinely disagree**, and the framework follows each server's
 own rule rather than picking one:
@@ -328,7 +254,190 @@ You do not need to do anything with this table; it is here so that a statement
 which behaves differently on two servers has a documented reason. Write comments
 however you like, apostrophes included.
 
-### A prepared statement whose connection died underneath it
+## Result handling
+
+`query()`, `preparedQuery()`, `get()` and `first()` return a `Result`. Its current row is
+`$result->fields`, an associative array of column => value; `$result->numRows` is the row count.
+
+### Single record
+
+The first row is already loaded — no `fetch()` and no `[0]` index:
+
+```php
+$user = $db->queryBuilder()->from('users')->where('id', $userId)->first();
+
+if ($user->numRows > 0) {
+    $userData = $user->fields;          // column => value
+    $userName = $user->fields['name'];
+}
+
+// COUNT
+$count = $db->queryBuilder()->from('users')->count();
+
+// Raw SQL equivalent
+$result = $db->query($db->prepareQuery("SELECT COUNT(*) AS total FROM users"));
+$total  = $result->fields['total'];     // not $result->fields[0]['total']
+```
+
+### Multiple records
+
+Iterate with `fetch()`, or take everything with `fetchAll()`:
+
+```php
+$result = $db->queryBuilder()
+    ->from('applications')
+    ->where('user_id', $userId)
+    ->orderBy('created_at', 'desc')
+    ->get();
+
+$applications = [];
+while ($result->fetch()) {
+    $applications[] = $result->fields;
+}
+
+// or
+$applications = $db->queryBuilder()->from('applications')->where('user_id', $userId)->getAll();
+```
+
+### Key points
+
+- **Single records**: check `$result->numRows > 0`, then read `$result->fields` directly.
+- **Multiple records**: `while ($result->fetch())`, or `getAll()` / `fetchAll()`.
+- `$result->fields[0]` is never a row — `fields` is the current row, keyed by column name.
+- `getAffectedRows()` on the result of a write tells you how many rows it touched.
+
+## What a datatable search actually looks for
+
+`_getApiList()` (through `ApiListQuery`) builds its `WHERE` from the search terms a datatable
+posts, and four of the rules are not obvious from the outside. Worth knowing before deciding a
+filter is broken.
+
+**A Greek word is searched without its final sigma.** `Γιάννης` becomes `%Γιάννη%`. Greek inflects
+the ending — a visitor types the nominative and the row holds the genitive — so dropping the last
+`ς`/`σ` is the cheapest stemming there is and it is why the search box feels like it works. Only the
+*ending*: `Κώστας` becomes `Κώστα%`, not `Κώτα%`.
+
+**On PostgreSQL, a Greek term is compared through `unaccent()`.**
+
+```sql
+unaccent(CAST(a."name" AS TEXT)) ILIKE unaccent('%Γιάννη%')
+```
+
+So `Γιάννης`, `ΓΙΑΝΝΗΣ` and `Γιαννης` all find each other — a form filled in caps and an import that
+lost its accents are both ordinary. A term with no Greek in it stays a plain `ILIKE`.
+
+**A numeric column is matched with `=`, not `LIKE`.** Filtering an integer column by `9` with
+`LIKE '%9%'` returns 9, 19, 29, 90 and 1999, which reads as a broken filter rather than a broad one.
+The column's type comes from `Model::$columnCache`, so this only applies where the model has read
+the schema — a joined table whose alias cannot be resolved falls back to `LIKE`.
+
+**A term that already contains `%` is used as it is.** `Γιαν%` is left anchored rather than wrapped
+again, because the caller has said where the wildcard goes.
+
+And one rule that is a boundary rather than a convenience: **a search field that is not in the field
+list produces no condition at all.** The names arrive from the query string, so the list is what
+keeps a request parameter out of the statement. A filter that silently does nothing on a joined
+listing is usually the qualified-name mapping — send `title` and the list may hold `posts.title`,
+which the builder maps, but only for a name that is there.
+
+## Writing a point: `'geometry'` and the coordinate order
+
+`insertDataToTable()` and `updateTableData()` take a `'type' => 'geometry'` field and convert it to
+PostGIS for you, on PostgreSQL. Three shapes are accepted for the value:
+
+```php
+// a "lat, lon" string — what a form posts
+$db->insertDataToTable('places', [
+    ['fieldName' => 'location', 'value' => '37.9838, 23.7275', 'type' => 'geometry'],
+]);
+
+// a named pair — what an API request carries
+$db->insertDataToTable('places', [
+    ['fieldName' => 'location', 'value' => ['latitude' => 37.9838, 'longitude' => 23.7275], 'type' => 'geometry'],
+]);
+
+// anything else: passed to ST_GeomFromText(), so a polygon or a line works
+$db->insertDataToTable('areas', [
+    ['fieldName' => 'area', 'value' => 'POLYGON((23.7 37.9, 23.8 37.9, 23.8 38.0, 23.7 37.9))', 'type' => 'geometry'],
+]);
+```
+
+Each entry is one column; the values are keyed by `fieldName`, so the same name twice in one call
+keeps only the last.
+
+The first two both compile to `ST_SetSRID(ST_MakePoint(23.7275, 37.9838), 4326)` — **longitude
+first**, because that is what `ST_MakePoint()` takes while people write latitude first. Getting it
+backwards is silent: nothing errors, every insert succeeds, and `ST_MakePoint(37.9838, 23.7275)` is a
+spot in the Indian Ocean rather than Athens. If a map is drawing points in the wrong place and the
+numbers in the table look right, this is the first thing to check.
+
+Details worth having:
+
+- **`0, 0` is a coordinate**, not an empty value — the origin is in the Gulf of Guinea and the
+  pattern accepts it. So is a negative number in either position.
+- **The WKT branch is interpolated into `ST_GeomFromText('…')` as given.** Validate the shape
+  yourself before passing anything that came from a request; only the `"lat, lon"` pattern and the
+  named pair are checked numerically.
+- **The conversion is gated on the driver, not the column.** On MySQL the value is written through
+  unchanged, because `ST_MakePoint` and `ST_SetSRID` are PostGIS spellings — MySQL names its
+  spatial functions differently and takes the SRID as an argument rather than a wrapper.
+- **Each method has its own copy of the conversion.** A change to one and not the other gives you a
+  row that is inserted correctly and moves when it is edited.
+
+## Reading a table's schema: `getColumns()`
+
+```php
+$result = $db->getColumns('stations');
+while ($result->fetch()) {
+    $result->fields['Field'];       // column name
+    $result->fields['Type'];        // 'varchar'      — the bare type
+    $result->fields['ColumnType'];  // 'varchar(255)' — as declared (MySQL only)
+    $result->fields['Null'];        // 'YES' / 'NO'
+    $result->fields['Comment'];
+    $result->fields['Key'];         // MySQL: 'PRI' on the primary key
+    $result->fields['PrimaryKey'];  // PostgreSQL: boolean
+    $result->fields['ForeignKey'];  // MySQL 1/0, PostgreSQL boolean
+    $result->fields['ForeignTable'], $result->fields['ForeignSchema'], $result->fields['ForeignColumn'];
+}
+```
+
+Columns come back **in the order the table declares them**, and the result is
+**cached for an hour** per table, because a schema rarely changes and
+introspection is not cheap.
+
+**The primary-key flag has a different name per driver.** MySQL answers `Key` = `'PRI'`;
+PostgreSQL answers `PrimaryKey` as a boolean and has no `Key` column. `ForeignKey` is `1`/`0` on
+MySQL and a boolean on PostgreSQL. Code reading these should accept either spelling — `true`,
+`'t'` and `1` all mean yes, depending on how the row was cast on the way out. `ForeignTable`,
+`ForeignSchema` and `ForeignColumn` name the referenced table on both. On MySQL `Type` is the bare
+`DATA_TYPE`, so `tinyint(1)` — the boolean convention — appears as `tinyint` there and as
+`tinyint(1)` in `ColumnType`.
+
+On PostgreSQL the constraint flags are read from `pg_constraint`, which lists the columns *this*
+table constrains. (`information_schema.constraint_column_usage` lists the **referenced** column for
+a foreign key, which would put the flag on the wrong table.)
+
+Two things follow from the cache:
+
+**A schema change through the schema builder invalidates it.** Every DDL method
+on `SchemaBuilder` — `createTable()`, `alterTable()`, `dropTable()`,
+`dropTableIfExists()`, `renameTable()` — flushes the table it touched, so a
+migration is visible to the next read. A raw `$db->query('ALTER TABLE …')` does
+not; call `$db->forgetColumns($table)` yourself if you do that.
+
+**Pass `$fresh` when a stale answer would be wrong rather than merely old:**
+
+```php
+$db->getColumns($table, $schema, false, true);   // never from the cache
+```
+
+Code generators do this, because the framework's documented order of work is
+`create:migration`, migrate, `create:crud` — so a generator runs minutes after
+the schema changed, and an hour-old answer describes the table as it was before
+the migration. The cache store is shared (files, redis), so without invalidation the stale answer
+would outlive the process too.
+
+## A prepared statement whose connection died underneath it
 
 Nothing to do; worth knowing it happens and that it is handled, because the failure it prevents is
 quiet.
@@ -345,62 +454,49 @@ result was never seen is harmless for a `SELECT` and a duplicate for an `INSERT`
 correct when the server cannot have applied it — which is what «the connection was already gone»
 means. A retry on any error would silently double writes.
 
-Two things about it are worth writing down, because both were true for a long time and both were
-invisible:
+How the condition is detected, per driver:
 
-**The retry could not fire on MySQL.** The gate read `mysqli_errno()` after an `execute()` that
-returned false — but mysqli's default error mode has been `MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT`
-since PHP 8.1, so `execute()` raises `mysqli_sql_exception` instead of returning false. The branch
-holding the gate was unreachable code. The failure the retry existed to survive was the one failure it
-could not, and the symptom was an uncaught exception in a process nobody is watching.
+- **MySQL**: from the `mysqli_sql_exception` the call throws. Since PHP 8.1 mysqli's default error
+  mode is `MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT`, so a failed `execute()` raises rather than
+  returning false, and the error number is read from the exception.
+- **PostgreSQL**: from the error text («server closed the connection unexpectedly» and similar).
+  `pg_connection_status()` reports the last *known* state rather than polling, and still answers
+  `OK` at the instant a failing `pg_execute()` returns, so it cannot be the gate.
+- **Prepared-plan cache**: a cached plan is reused only on the connection that prepared it. A plan
+  does not outlive its session, so after a reconnect the statement is prepared again.
 
-**The retry could not fire on PostgreSQL either, for two different reasons.** The gate asked
-`pg_connection_status()`, which reports the last *known* state rather than polling: with the backend
-already terminated it answers `OK` before any operation, still `OK` at the instant the failing
-`pg_execute()` returns, and `BAD` only afterwards — so it was consulted at the one moment the answer
-was wrong. It reads the error text now, which says «server closed the connection unexpectedly» right
-there. And once that was fixed the retry still failed, because the prepared-statement cache is keyed
-on `md5($query)` alone: after reconnecting it handed back a plan name belonging to a session
-PostgreSQL had already forgotten. A plan does not outlive its session, so the cache is scoped to the
-connection that made it.
-
-The same holds for a plain `query()`, and `runQuery()`'s reconnect is the whole of it: the statement
-fails, `isConnectionGone()` distinguishes a dead connection from a bad statement, the connection is
-replaced, and the statement is sent once more. On MySQL that used to come out as an uncaught
-`mysqli_sql_exception` for the same reason as above — the gate read `mysqli_errno()` after a call that
-throws. (On PostgreSQL that path already worked: a failed `pg_query` marks the connection immediately,
-unlike a failed `pg_execute`.)
+The same holds for a plain `query()`: `runQuery()` fails, `isConnectionGone()` distinguishes a dead
+connection from a bad statement, the connection is replaced, and the statement is sent once more.
 
 **`getConnection()` does not probe the handle**, and on MySQL it must not. A probe there means a
 statement of the framework's own before every statement of yours, and that has two costs:
 
-- a round trip per query — measured by a consuming application at **355 pings in 476 statements** on
-  one page load;
+- a round trip per query — on a typical page, more pings than statements;
 - **your second statement stops describing your first.** `FOUND_ROWS()`, `ROW_COUNT()` and
   `LAST_INSERT_ID()` are per-connection state: they report on the *last* statement the connection ran,
-  and with a probe in between that is the probe. A limited select over seven rows reported a total of
-  **one**, and an `UPDATE` touching three rows reported `-1`.
+  and with a probe in between that is the probe. A limited select over seven rows would report a
+  total of **one**, and an `UPDATE` touching three rows would report `-1`.
 
-So liveness is **remembered, not asked**: `isConnectionGone()` already decides it at the one moment
+So liveness is **remembered, not asked**: `isConnectionGone()` decides it at the one moment
 the answer is knowable — when a statement has just failed — and `getConnection()` replaces a link that
 has been marked. PostgreSQL additionally checks `pg_connection_status()`, which is a local read of a
 cached state rather than a statement, so it costs nothing.
 
-`isConnectionAlive()` is still there and still probes with `SELECT 1`. It is a reasonable thing to ask
-deliberately; just know that it costs a round trip and becomes the connection's last statement, so
-anything reading per-connection state afterwards describes the probe.
+`isConnectionAlive()` can be called deliberately. On MySQL it probes with `SELECT 1`, which costs a
+round trip and becomes the connection's last statement, so anything reading per-connection state
+afterwards describes the probe. On PostgreSQL it reads `pg_connection_status()`.
 
 If you keep a `Database` handle across a long idle period yourself, you need nothing extra — the first
 statement after the idle fails, reconnects and is retried. If you hold a raw
 `mysqli`/`PgSql\Connection` from `getConnectionLink()`, you own that problem.
 
-### A paginated list that groups
+## A paginated list that groups
 
 `_getPaginated()` takes a `$group` clause, and two shapes of it behave differently in a way worth
 knowing before you use it.
 
 **Grouping by the primary key** — a join that multiplies rows, grouped back down to one per parent —
-works as it always has, and can return models:
+can return models:
 
 ```php
 $this->_getPaginated(
@@ -445,429 +541,88 @@ handles and closes nothing, so the original stays connected; `close()` on the cl
 
 A clone that calls `connect()` opens a link of its own, owns it, and closes it as usual.
 
-A link handed to a second instance some other way — a legacy handle and a modern one over one
+A link handed to a second instance some other way — two `Database` objects over one
 connection — is owned by both. Whichever closes second, often a destructor at shutdown, finds it
 already closed; `close()` then returns `false` instead of throwing.
 
-## Result Handling
+## Model integration
 
-**CRITICAL**: Pramnos query results use different patterns for single vs multiple records:
-
-### Single Record Queries
-For queries that return a single record (e.g., `SELECT * FROM users WHERE id = %d` or `SELECT COUNT(*) as total`):
-
-```php
-$sql = $database->prepareQuery("SELECT * FROM users WHERE id = %d", $userId);
-$result = $database->query($sql);
-
-// Single record - NO fetch() needed, NO [0] index
-if ($result->numRows > 0) {
-    $userData = $result->fields; // Direct associative array of column => value
-    $userName = $result->fields['name'];
-    $userEmail = $result->fields['email'];
-}
-
-// COUNT queries (single result)
-$sql = $database->prepareQuery("SELECT COUNT(*) as total FROM users");
-$result = $database->query($sql);
-$count = $result->fields['total']; // Direct access, NOT $result->fields[0]['total']
-```
-
-### Multiple Record Queries
-For queries that return multiple records (e.g., `SELECT * FROM applications ORDER BY created_at`):
-
-```php
-$sql = $database->prepareQuery("SELECT * FROM applications WHERE user_id = %d ORDER BY created_at DESC", $userId);
-$result = $database->query($sql);
-
-// Multiple records - USE fetch() to iterate
-$applications = [];
-while ($result->fetch()) {
-    $applications[] = $result->fields; // Each row as associative array
-}
-```
-
-### Common Mistakes to Avoid
-
-❌ **WRONG** - Never use `[0]` index for single records:
-```php
-// These patterns are INCORRECT for Pramnos framework:
-$user = $result->fields[0];           // Wrong!
-$count = $result->fields[0]['total']; // Wrong!
-```
-
-✅ **CORRECT** - Direct access for single records:
-```php
-// These patterns are CORRECT for Pramnos framework:
-$user = $result->fields;           // Correct!
-$count = $result->fields['total']; // Correct!
-```
-
-### Key Points:
-- **Single records**: Check `$result->numRows > 0`, then access `$result->fields` directly (no `[0]` index)
-- **Multiple records**: Use `while ($result->fetch())` to iterate through rows
-- **Never use** `$result->fields[0]` - this is from other frameworks, not Pramnos
-- Access column data via `$result->fields` (associative array)
-
-## Database Operations
-
-### SELECT Operations
-
-```php
-// Single record
-$sql = $this->application->database->prepareQuery("SELECT * FROM users WHERE id = %d", $userId);
-$result = $this->application->database->query($sql);
-if ($result->numRows > 0) {
-    $user = $result->fields; // Associative array of columns
-}
-
-// Multiple records
-$sql = $this->application->database->prepareQuery("SELECT * FROM applications WHERE user_id = %d ORDER BY created_at DESC", $userId);
-$result = $this->application->database->query($sql);
-$applications = [];
-while ($result->fetch()) {
-    $applications[] = $result->fields;
-}
-
-// String and integer parameters
-$sql = $this->application->database->prepareQuery("SELECT * FROM users WHERE email = %s AND status = %d", $email, $status);
-$result = $this->application->database->query($sql);
-```
-
-## The Modern Way: Fluent Query Builder (v1.2+)
-
-While `prepareQuery()` and `query()` are the foundational patterns, v1.2 introduces a fluent **Query Builder** for cleaner, more maintainable code, especially for complex queries.
-
-### Advantages:
-- No need to remember `%s` / `%d` specifiers.
-- Automatic table quoting.
-- Easier joins and conditions.
-- Better cross-database compatibility (MySQL/PostgreSQL).
-
-### Examples:
-
-```php
-// SELECT with conditions and ordering
-$users = $this->application->database->queryBuilder()
-    ->from('#PREFIX#users')
-    ->where('status', 1)
-    ->where('role', 'admin')
-    ->orderBy('last_login', 'desc')
-    ->limit(10)
-    ->get();
-
-// Complex JOINs
-$applications = $this->application->database->queryBuilder()
-    ->select('a.*', 'u.username as owner_name')
-    ->from('applications a')
-    ->join('users u', 'u.id', '=', 'a.user_id')
-    ->where('a.status', 'active')
-    ->get();
-
-// INSERT with auto-binding
-$newId = $this->application->database->queryBuilder()
-    ->table('#PREFIX#users')
-    ->insert([
-        'username' => 'newuser',
-        'email' => 'user@example.com',
-        'status' => 1
-    ]);
-```
-
-#### Raw Expressions
-If you need database-specific functions (like PostGIS or native MySQL functions), use `raw()`:
-
-```php
-$locations = $this->application->database->queryBuilder()
-    ->from('locations')
-    ->whereRaw("ST_Distance(geom, ST_MakePoint(?, ?)) < 1000", [23.7, 37.9])
-    ->get();
-```
-
-### INSERT Operations
-
-```php
-$sql = $this->application->database->prepareQuery(
-    "INSERT INTO applications (client_id, client_secret, name, redirect_uri, user_id, created_at) VALUES (%s, %s, %s, %s, %d, %s)",
-    $clientId, $clientSecret, $name, $redirectUri, $userId, date('Y-m-d H:i:s')
-);
-$result = $this->application->database->query($sql);
-
-// Get inserted ID
-$insertId = $this->application->database->getLastInsertId();
-```
-
-### UPDATE Operations
-
-```php
-$sql = $this->application->database->prepareQuery(
-    "UPDATE applications SET name = %s, redirect_uri = %s WHERE id = %d AND user_id = %d",
-    $name, $redirectUri, $id, $userId
-);
-$result = $this->application->database->query($sql);
-```
-
-### DELETE Operations
-
-```php
-// Simple delete
-$sql = $this->application->database->prepareQuery("DELETE FROM user_tokens WHERE expires_at < %s", date('Y-m-d H:i:s'));
-$result = $this->application->database->query($sql);
-
-// With parameters
-$sql = $this->application->database->prepareQuery("DELETE FROM applications WHERE id = %d AND user_id = %d", $id, $userId);
-$result = $this->application->database->query($sql);
-```
-
-### Queries Without Parameters
-
-```php
-// For queries without parameters, you can use query() directly
-$result = $this->application->database->query("SELECT COUNT(*) as count FROM users");
-```
-
-## Model Integration
-
-### In Model Classes
-
-Models extend `Pramnos\Application\Model` and should use the database API through `$this->application->database` (passed in constructor):
+Models extend `Pramnos\Application\Model` and are constructed with their controller. The base class
+already provides loading, saving and listing (`_load()`, `_save()`, `_getList()`,
+`_getPaginated()`, `_getApiList()`); models generated by `create:crud` wrap them in public `load()`
+/ `save()` methods. Custom queries inside a model take the handle from `Database::getInstance()`:
 
 ```php
 class Application extends \Pramnos\Application\Model
 {
     public function loadByClientId($clientId)
     {
-        $sql = $this->application->database->prepareQuery("SELECT * FROM applications WHERE client_id = %s", $clientId);
-        $result = $this->application->database->query($sql);
-        
-        if ($result->numRows > 0) {
-            foreach (array_keys($result->fields) as $key) {
-                if (property_exists($this, $key)) {
-                    $this->$key = $result->fields[$key];
-                }
-            }
-            return true;
+        $db = \Pramnos\Database\Database::getInstance();
+        $result = $db->queryBuilder()
+            ->from('applications')
+            ->where('client_id', $clientId)
+            ->first();
+
+        if ($result->numRows === 0) {
+            return false;
         }
-        return false;
-    }
-    
-    public function save()
-    {
-        if (isset($this->id) && $this->id > 0) {
-            // Update existing record
-            $sql = $this->application->database->prepareQuery(
-                "UPDATE applications SET name = %s, client_secret = %s, redirect_uri = %s WHERE id = %d",
-                $this->name, $this->client_secret, $this->redirect_uri, $this->id
-            );
-            $this->application->database->query($sql);
-        } else {
-            // Insert new record
-            $sql = $this->application->database->prepareQuery(
-                "INSERT INTO applications (name, client_id, client_secret, redirect_uri, created_at) VALUES (%s, %s, %s, %s, %s)",
-                $this->name, $this->client_id, $this->client_secret, $this->redirect_uri, date('Y-m-d H:i:s')
-            );
-            $this->application->database->query($sql);
-            $this->id = $this->application->database->getLastInsertId();
-        }
-    }
-}
-```
-
-### Model Instantiation
-
-Models should be instantiated with the controller:
-
-```php
-// In a Controller
-$model = new \Model($this);
-$model->load($id);
-
-```
-
-
-## Controllers and Database Access
-
-### In Controller Classes
-
-Controllers should use `$this->application->database` for database operations:
-
-```php
-class Token extends \Pramnos\Application\Controller
-{
-    public function revokeToken()
-    {
-        $token = $_POST['token'] ?? '';
-        
-        // Revoke access token
-        $sql = $this->application->database->prepareQuery("UPDATE user_tokens SET revoked = 1 WHERE access_token = %s", $token);
-        $this->application->database->query($sql);
-        
-        // Also revoke refresh token if it matches
-        $sql = $this->application->database->prepareQuery("UPDATE user_tokens SET revoked = 1 WHERE refresh_token = %s", $token);
-        $this->application->database->query($sql);
-        
-        $this->response(['revoked' => true]);
-    }
-}
-```
-
-## Common Patterns
-
-### Checking if Record Exists
-
-```php
-$sql = $this->application->database->prepareQuery("SELECT COUNT(*) as count FROM applications WHERE client_id = %s", $clientId);
-$result = $this->application->database->query($sql);
-$exists = false;
-if ($result->numRows > 0) {
-    $exists = $result->fields['count'] > 0;
-}
-```
-
-### Getting Multiple Records
-
-```php
-$sql = $this->application->database->prepareQuery("SELECT * FROM user_tokens WHERE user_id = %d AND revoked = 0 ORDER BY created_at DESC", $userId);
-$result = $this->application->database->query($sql);
-
-$tokens = [];
-while ($result->fetch()) {
-    $tokens[] = $result->fields;
-}
-```
-
-### Complex Queries with JOINs
-
-```php
-$sql = $this->application->database->prepareQuery(
-    "SELECT ut.*, a.name as app_name 
-     FROM user_tokens ut 
-     JOIN applications a ON ut.client_id = a.client_id 
-     WHERE ut.user_id = %d AND ut.expires_at > %s",
-    $userId, date('Y-m-d H:i:s')
-);
-$result = $this->application->database->query($sql);
-while ($result->fetch()) {
-    // Process $result->fields
-}
-```
-
-## Best Practices
-
-### 1. Always Use Parameter Binding
-
-**Never** concatenate user input directly into SQL queries:
-
-```php
-// WRONG - SQL injection risk
-$result = $this->application->database->query("SELECT * FROM users WHERE email = '{$email}'");
-
-// CORRECT - Use printf-style parameter binding
-$sql = $this->application->database->prepareQuery("SELECT * FROM users WHERE email = %s", $email);
-$result = $this->application->database->query($sql);
-```
-
-### 2. Handle Database Errors
-
-Always check if query operations succeed:
-
-```php
-try {
-    $sql = $this->application->database->prepareQuery("INSERT INTO users (email) VALUES (%s)", $email);
-    $result = $this->application->database->query($sql);
-    // Handle success
-} catch (Exception $e) {
-    // Handle database error
-    error_log("Database error: " . $e->getMessage());
-    return false;
-}
-```
-
-### 3. Use Transactions for Multiple Operations
-
-For operations that need to be atomic:
-
-```php
-try {
-    $this->application->database->beginTransaction();
-    
-    // First operation
-    $sql1 = $this->application->database->prepareQuery("INSERT INTO applications (name, client_id) VALUES (%s, %s)", $name, $clientId);
-    $this->application->database->query($sql1);
-    
-    // Second operation
-    $sql2 = $this->application->database->prepareQuery("INSERT INTO user_tokens (user_id, token) VALUES (%d, %s)", $userId, $token);
-    $this->application->database->query($sql2);
-    
-    $this->application->database->commit();
-} catch (Exception $e) {
-    $this->application->database->rollback();
-    throw $e;
-}
-```
-
-### 4. Model Loading Patterns
-
-Follow consistent patterns for loading data in models:
-
-```php
-// Single record by ID
-public function loadById($id)
-{
-    $sql = $this->application->database->prepareQuery("SELECT * FROM table_name WHERE id = %d", $id);
-    $result = $this->application->database->query($sql);
-    
-    if ($result->numRows > 0) {
-        foreach (array_keys($result->fields) as $key) {
+        foreach ($result->fields as $key => $value) {
             if (property_exists($this, $key)) {
-                $this->$key = $result->fields[$key];
+                $this->$key = $value;
             }
         }
         return true;
     }
-    return false;
-}
 
-// Multiple records
-public function loadByUserId($userId)
-{
-    $sql = $this->application->database->prepareQuery("SELECT * FROM table_name WHERE user_id = %d", $userId);
-    $result = $this->application->database->query($sql);
-    
-    $records = [];
-    while ($result->fetch()) {
-        $records[] = $result->fields;
+    public function loadByUserId($userId): array
+    {
+        return \Pramnos\Database\Database::getInstance()->queryBuilder()
+            ->from('applications')
+            ->where('user_id', $userId)
+            ->getAll();
     }
-    return $records;
 }
 ```
 
-### 5. Validate Input Before Database Operations
+In a controller:
 
 ```php
-public function updateApplication($id, $name, $redirectUri)
+$model = new \App\Models\Application($this);
+$model->load($id);
+```
+
+### Reading a model's columns
+
+`Database::getColumns()` is the introspection call; it is cached and invalidated for you (see
+[Reading a table's schema](#reading-a-tables-schema-getcolumns)). A model that needs its own field
+list reads it through its full table name:
+
+```php
+class Station extends \Pramnos\Application\Model
 {
-    // Validate input
-    if (empty($name) || empty($redirectUri)) {
-        throw new \InvalidArgumentException('Name and redirect URI are required');
+    public function getAvailableFields(): array
+    {
+        $db = \Pramnos\Database\Database::getInstance();
+        $result = $db->getColumns($this->getFullTableName());
+
+        $fields = [];
+        while ($result->fetch()) {
+            $fields[] = $result->fields['Field'];
+        }
+        return $fields;
     }
-    
-    if (!filter_var($redirectUri, FILTER_VALIDATE_URL)) {
-        throw new \InvalidArgumentException('Invalid redirect URI');
-    }
-    
-    // Proceed with database operation
-    $sql = $this->application->database->prepareQuery("UPDATE applications SET name = %s, redirect_uri = %s WHERE id = %d", $name, $redirectUri, $id);
-    $this->application->database->query($sql);
 }
 ```
+
+`Model::$columnCache` is a **public static** property of the base class; a subclass must not
+redeclare it with narrower visibility, which is a fatal error at class load.
 
 ## Who ran this query: the PostgreSQL session variables
 
 On PostgreSQL the framework labels every connection, so a query caught in
 `pg_stat_activity` or a slow-query log can be attributed to a request rather than to a
-process id. `Database::setTrackingInfo()` writes them, and `Api::execute()` and the console
-commands call it for you.
+process id. `Database::setTrackingInfo()` writes them; the application bootstrap, the API
+dispatcher (`Api::exec()`) and the queue console commands call it for you.
 
 ```sql
 SELECT pid, application_name, query,
@@ -894,7 +649,7 @@ every login attempt, every public endpoint, every request whose token has just e
 Pass your own alongside them, and they are readable under `app.`:
 
 ```php
-$this->database->setTrackingInfo($userId, 'Reporting', [
+$db->setTrackingInfo($userId, 'Reporting', [
     'userid' => $userId,
     'tenant' => $tenantId,      // becomes app.tenant
 ]);
@@ -908,7 +663,7 @@ Nothing here can fail a request. The writes are suppressed and their result is n
 because this runs while the connection is being opened and tracing must never be the reason
 something does not load.
 
-## Error Handling and Best Practices
+## Error handling
 
 ### How database failures surface (and `throwOnError`)
 
@@ -918,8 +673,8 @@ by driver — know which one you are on:
 | Path | On a SQL/connection error | Notes |
 | --- | --- | --- |
 | `query($sql)` / `runQuery()` (raw execution) | **Throws** `\Exception` via `setError()` | The message is `"<errno>:<text> ::: SQL QUERY: <sql>"`. Wrap it in try/catch. |
-| `execute($sql, ...)` on **PostgreSQL** (prepared statements — the fluent **Query Builder** runs through here) | **Returns `false`** when the statement cannot be prepared (`pg_prepare` returns false) | Silent: a caller that ignores the return value swallows the error. |
-| `execute($sql, ...)` on **MySQL** | **Throws** `mysqli_sql_exception` | Since PHP 8.1 `mysqli` defaults to `MYSQLI_REPORT_STRICT`; existing callers catch `\Exception`. |
+| `execute($sql, ...)` on **PostgreSQL** (prepared statements — the query builder and `preparedQuery()` run through here) | **Returns `false`** when the statement cannot be prepared (`pg_prepare` returns false) | Silent: a caller that ignores the return value swallows the error. |
+| `execute($sql, ...)` on **MySQL** | **Throws** `mysqli_sql_exception` | PHP 8.1+ `mysqli` defaults to `MYSQLI_REPORT_STRICT`; callers catching `\Exception` see it. |
 
 So on PostgreSQL a failed `execute()` returns `false` and code that does not check the
 return value proceeds as if a write succeeded. To make those failures loud — and to get
@@ -927,10 +682,10 @@ a single, driver-independent exception type on **both** drivers — opt into str
 
 ```php
 $db = \Pramnos\Framework\Factory::getDatabase();
-$db->throwOnError = true; // process-wide, opt-in — default stays false (backward compatible)
+$db->throwOnError = true; // opt-in; the default is false
 
 try {
-    $db->getQueryBuilder()->table('accounts')->insert(['balance' => 100]);
+    $db->queryBuilder()->table('accounts')->insert(['balance' => 100]);
 } catch (\Pramnos\Database\QueryException $e) {
     // getDetail() is the whole thing — driver text and SQL. For a log.
     \Pramnos\Logs\Logger::log($e->getDetail(), 'billing');
@@ -938,9 +693,7 @@ try {
 }
 ```
 
-##### `getMessage()` is safe to print. The driver's text is not.
-
-This is the whole point of the class, and it used to be the other way round.
+#### `getMessage()` is safe to print. The driver's text is not.
 
 | | carries | print it? |
 |---|---|---|
@@ -958,12 +711,11 @@ DETAIL:  Key (token_lookup)=(35153ba8…) already exists.
 INSERT INTO public.usertokens ("userid", "tokentype", … ) VALUES ($1, … $21) RETURNING tokenid
 ```
 
-That was `getMessage()`, and an authorization server answered it to an API client as an
-OAuth `error_description` — because the same catch is where that endpoint raises its own
-refusals, the ones whose message *is* the response. The customer read their own schema out
-of an HTTP 400 and sent it back.
+An endpoint that returns `getMessage()` to its client — for example as an OAuth
+`error_description`, from the same `catch` that raises its own refusals — must never hand out text
+like that. That is why the driver text lives in `getDriverMessage()`.
 
-So a call site that can say something useful without saying what, should:
+A call site that can say something useful without saying what, should:
 
 ```php
 throw new \Pramnos\Database\QueryException(
@@ -974,27 +726,24 @@ throw new \Pramnos\Database\QueryException(
 );
 ```
 
-**If you are logging `getMessage()` today, log `getDetail()` instead.** Nothing is lost;
-it moved to where printing it has to be deliberate.
+**To log a `QueryException`, log `getDetail()`**, not `getMessage()`.
 
 Key points:
 
-- **Default is unchanged (BC).** `throwOnError` is `false` out of the box and does NOT
-  alter the historical per-driver behaviour: PostgreSQL still returns `false` on a prepare
-  failure, MySQL still throws `mysqli_sql_exception` (which existing callers catch via
-  `catch (\Exception)`). Turn it on only where a silently dropped write would be a
-  correctness bug (billing, migrations, anything transactional).
+- **`throwOnError` is `false` by default** and does not alter the per-driver behaviour:
+  PostgreSQL returns `false` on a prepare failure, MySQL throws `mysqli_sql_exception`.
+  Turn it on where a silently dropped write would be a correctness bug (billing,
+  migrations, anything transactional).
 - **`QueryException extends \RuntimeException`** and adds `getQuery()`,
   `getDriverMessage()` and `getDetail()` so you can log what you must not print. In strict
-  mode it replaces the per-driver signals; `query()` continues to throw its historical
+  mode it replaces the per-driver signals; `query()` continues to throw a plain
   `\Exception`. **`Model::_save()` raises one unconditionally**, strict mode or not — a save
-  that did not save has no fail-soft reading, and it used to throw the driver's message as
-  a plain `\Exception` that no `catch` could separate from an application's own refusals.
+  that did not save has no fail-soft reading, and a `QueryException` can be told apart from an
+  application's own refusals in a `catch`.
 - **Driver parity in strict mode.** With `throwOnError = true`, a prepare failure becomes a
   `QueryException` on **both** drivers — the PostgreSQL `false` return and the MySQL
   `mysqli_sql_exception` are each translated — so a single `catch (QueryException)` works
-  everywhere. With `throwOnError = false` the two drivers keep their (different) historical
-  signals; the framework does not force them to match, precisely to preserve BC.
+  everywhere. With `throwOnError = false` the two drivers keep their different signals.
 
 #### Turning it on from settings — and why a test suite should
 
@@ -1006,25 +755,15 @@ Key points:
 ],
 ```
 
-Read on construction, so it survives the singleton being reset — which a test suite does
-constantly, and which is why setting the property once at bootstrap did not work.
+Read on construction, so it survives the singleton being reset, which a test suite does
+constantly.
 
-**The framework's own fixtures set it, and finding out why is the argument for yours doing the
-same.** A suite that runs one backend cannot see this asymmetry at all: on MySQL every failure
-throws whatever the flag says, so the tests look thorough. Point the same tests at PostgreSQL
-with the flag off and they still pass — while silently exercising the `false` branch nobody
-handles.
-
-Switching it on in this framework's lanes, with no other change, immediately surfaced:
-
-- an inbox listing that **crashed on PostgreSQL and reported the error politely on MySQL**, from
-  the same `try`/`catch` — the `catch` is what made it look handled;
-- two second-factor tests that had been passing **against a missing accounts table**, asserting a
-  refusal that was happening because the query failed rather than because the password was wrong;
-- a characterization test that pinned the lenient path and had to be taught that the message can
-  arrive as an exception.
-
-None of those was a new bug. All three were invisible because the lenient answer to a failed
+**The framework's own test fixtures set it, and the reason is the argument for yours doing the
+same.** A suite that runs one backend cannot see the asymmetry: on MySQL every failure throws
+whatever the flag says, so the tests look thorough. Point the same tests at PostgreSQL with the
+flag off and they still pass — while silently exercising the `false` branch nobody handles. A
+query against a missing table then reads as "no rows", and a test asserting a refusal can pass
+because the query failed rather than because the input was wrong. The lenient answer to a failed
 query — `false`, or `0` from `count()` — is a value a screen will happily print. *You have no
 messages* is a sentence; a missing table is not.
 
@@ -1043,154 +782,87 @@ if ($db->execute($sql) === false) {
 }
 ```
 
-A statement that succeeds clears it, so an empty `error_text` means "nothing went wrong
+Every `prepare()` starts by clearing it, so an empty `error_text` means "nothing went wrong
 here" rather than "nothing has gone wrong yet".
 
-> **Corrected 2026-08-20.** It used to be the *first* error of the request. The captures
-> in `prepare()` are guarded with `empty($this->error_text)` — deliberately, because the
-> PostgreSQL retry path runs `DEALLOCATE` and overwrites `pg_last_error()` — but nothing
-> reset the property between statements, so the first failure in a request answered for
-> every failure after it. `currentQuery`, which `setError()` appends to the message it
-> throws, was set by `query()` alone, so anything raised from a prepared statement quoted
-> whichever unprepared query had run last.
->
-> Together they produced messages naming a real error and a real query that belonged to
-> two different statements minutes apart — worse than no message, because it sends the
-> reader to the wrong file. A DevPanel query failing on a PostgreSQL syntax error was
-> reported as a bind-parameter mismatch in the session INSERT from application boot.
-
-### Proper Error Handling for Database Operations
-
-Always wrap database operations in try-catch blocks to handle potential errors gracefully:
+### Handling errors in application code
 
 ```php
-// Single record with error handling
+// Single record
 private function getUserData(int $userId): ?array
 {
     try {
-        $sql = $this->application->database->prepareQuery("SELECT * FROM users WHERE id = %d", $userId);
-        $result = $this->application->database->query($sql);
-        
-        if ($result && $result->numRows > 0) {
-            return $result->fields;
-        }
-        return null;
+        $result = $this->application->database->queryBuilder()
+            ->from('users')->where('id', $userId)->first();
+
+        return ($result && $result->numRows > 0) ? $result->fields : null;
     } catch (\Exception $e) {
-        error_log("Error getting user data: " . $e->getMessage());
+        \Pramnos\Logs\Logger::logError('Error getting user data', $e);
         return null;
     }
 }
 
-// Multiple records with error handling
+// Multiple records
 private function getUserApplications(int $userId): array
 {
     try {
-        $sql = $this->application->database->prepareQuery("
-            SELECT * FROM applications 
-            WHERE user_id = %d 
-            ORDER BY created_at DESC
-        ", $userId);
-        
-        $result = $this->application->database->query($sql);
-        $applications = [];
-        while ($result->fetch()) {
-            $applications[] = $result->fields;
-        }
-        return $applications;
+        return $this->application->database->queryBuilder()
+            ->from('applications')
+            ->where('user_id', $userId)
+            ->orderBy('created_at', 'desc')
+            ->getAll();
     } catch (\Exception $e) {
-        error_log("Error getting user applications: " . $e->getMessage());
+        \Pramnos\Logs\Logger::logError('Error getting user applications', $e);
         return [];
-    }
-}
-
-// Insert/Update/Delete with error handling
-private function createApplication(array $data): bool
-{
-    try {
-        $sql = $this->application->database->prepareQuery("
-            INSERT INTO applications (name, client_id, user_id, created_at) 
-            VALUES (%s, %s, %d, NOW())
-        ", $data['name'], $data['client_id'], $data['user_id']);
-        
-        $this->application->database->query($sql);
-        return true;
-    } catch (\Exception $e) {
-        error_log("Error creating application: " . $e->getMessage());
-        return false;
     }
 }
 ```
 
-### Common Validation Patterns
+`getAll()` answers `[]` both for "no rows" and — on PostgreSQL with `throwOnError` off — for a
+failed query. Turn strict mode on where the difference matters.
 
-Always validate that database results exist before accessing them:
+Always check a result before reading it:
 
 ```php
-// ✅ CORRECT - Validate result before access
-$sql = $this->application->database->prepareQuery("SELECT name FROM users WHERE id = %d", $userId);
-$result = $this->application->database->query($sql);
-
 if ($result && $result->numRows > 0) {
     $name = $result->fields['name'];
 } else {
     $name = 'Unknown User';
 }
-
-// ❌ WRONG - Direct access without validation
-$name = $result->fields['name']; // Could cause errors if query fails
 ```
 
-### Return Type Consistency
+Keep return types consistent: a list method returns `[]` on failure, a single-record method
+returns `null`.
 
-Methods should have consistent return types with proper defaults:
+### Input validation
+
+Validate before writing — the database is the last line, not the first:
 
 ```php
-// Return array for multiple records (always return array, never null)
-private function getItems(): array
+public function updateApplication($id, $name, $redirectUri)
 {
-    try {
-        // ... database query ...
-        return $items;
-    } catch (\Exception $e) {
-        return []; // Always return empty array on error
+    if (empty($name) || empty($redirectUri)) {
+        throw new \InvalidArgumentException('Name and redirect URI are required');
     }
-}
+    if (!filter_var($redirectUri, FILTER_VALIDATE_URL)) {
+        throw new \InvalidArgumentException('Invalid redirect URI');
+    }
 
-// Return nullable for single records
-private function getItem(int $id): ?array
-{
-    try {
-        // ... database query ...
-        return $item;
-    } catch (\Exception $e) {
-        return null; // Return null on error for single records
-    }
+    \Pramnos\Database\Database::getInstance()->queryBuilder()
+        ->table('applications')
+        ->where('id', $id)
+        ->update(['name' => $name, 'redirect_uri' => $redirectUri]);
 }
 ```
 
-## Common Mistakes to Avoid
+## Which server am I talking to?
 
-1. **Don't use PDO methods directly** - Always use the Pramnos database API
-2. **Don't skip parameter binding** - Even for "safe" values, always use printf-style formatting  
-3. **Don't use `?` placeholders** - Pramnos uses printf-style (`%s`, `%d`, etc.)
-4. **Don't mix database access patterns** - Be consistent throughout your application
+`$database->type` holds the *configured* engine — `'mysql'` or `'postgresql'` (a configured
+`'timescaledb'` is stored as `'postgresql'` with `$database->timescale = true`). It is a
+configuration value, not an observation: **MariaDB is configured as `'mysql'`**, because it speaks
+MySQL's wire protocol and is reached through the same driver.
 
-## Database Connection Access
-
-In different contexts, access the database through:
-
-- **Models**: `$this->application->database` (passed in constructor)
-- **Controllers**: `$this->application->database` (available as property)
-- **Repositories**: `$this->application->database` (injected via constructor)
-- **Application**: `$this->application->database` (global application instance)
-
-### Which server am I talking to?
-
-`$database->type` holds the *configured* engine — `'mysql'` or `'postgresql'`. It is a
-configuration value, not an observation: **MariaDB is configured as `'mysql'`** and always has
-been, because it speaks MySQL's wire protocol and is reached through the same driver.
-
-Two additive accessors ask the live connection instead of the configuration file:
+Two accessors ask the live connection instead of the configuration file:
 
 ```php
 $database->getServerVersion(); // raw, e.g. "10.11.6-MariaDB-1:10.11.6+maria~ubu2204"
@@ -1201,8 +873,8 @@ Both degrade safely: with no live connection `getServerVersion()` returns `''` *
 opening one**, and `isMariaDB()` answers `false`. The result is cached per connection and
 re-detected by `connect()`.
 
-For anything beyond identity, go through `DatabaseCapabilities` — it turns
-(engine, flavor, version) into "can it?" answers:
+For anything beyond identity, go through `DatabaseCapabilities` (or `$database->capabilities()`) —
+it turns (engine, flavor, version) into "can it?" answers:
 
 ```php
 $caps = new \Pramnos\Database\DatabaseCapabilities($database);
@@ -1226,190 +898,36 @@ relies on the type itself must check.
 See the [Schema Builder guide](Pramnos_Schema_Builder_Guide.md#capability-conditional-ddl) for
 the full constant table and capability-conditional DDL.
 
-## Error Handling
+## Transactions
 
-### Check Query Results
-
-```php
-$sql = $this->application->database->prepareQuery("SELECT * FROM applications WHERE id = %d", $id);
-$result = $this->application->database->query($sql);
-
-if ($result->numRows == 0) {
-    throw new \Exception('Application not found');
-}
-
-$application = $result->fields;
-```
-
-### Transaction Support
+The methods are `startTransaction()`, `commitTransaction()` and `rollbackTransaction()`. Each
+returns `true` on success and `false` on failure — `commitTransaction()` and
+`rollbackTransaction()` catch and log their own exceptions rather than throwing — so check the
+return value of the commit.
 
 ```php
+$db = $this->application->database;
+
 try {
-    $this->application->database->beginTransaction();
-    
-    // Multiple database operations
-    $sql1 = $this->application->database->prepareQuery("INSERT INTO applications (client_id, name) VALUES (%s, %s)", $clientId, $name);
-    $this->application->database->query($sql1);
-    
-    $sql2 = $this->application->database->prepareQuery("INSERT INTO application_permissions (app_id, permission) VALUES (%d, %s)", $appId, $permission);
-    $this->application->database->query($sql2);
-    
-    $this->application->database->commit();
+    $db->startTransaction();
+
+    $db->queryBuilder()->table('applications')
+        ->insert(['client_id' => $clientId, 'name' => $name]);
+    $appId = $db->getInsertId();
+
+    $db->queryBuilder()->table('application_permissions')
+        ->insert(['app_id' => $appId, 'permission' => $permission]);
+
+    if (!$db->commitTransaction()) {
+        throw new \RuntimeException('Commit failed');
+    }
 } catch (\Exception $e) {
-    $this->application->database->rollback();
+    $db->rollbackTransaction();
     throw $e;
 }
 ```
 
-## Summary
-
-## Advanced Database Features
-
-### Database Migrations
-
-The Pramnos framework includes a migration system for version-controlled database schema changes:
-
-#### Creating Migrations
-
-```php
-<?php
-namespace MyApp\Migrations;
-
-class CreateUsersTable extends \Pramnos\Database\Migration
-{
-    public $version = '1.0.1';
-    public $description = 'Create users table with authentication fields';
-    public $autoExecute = true;
-
-    public function up(): void
-    {
-        $sql = "CREATE TABLE `#PREFIX#users` (
-            `id` int(11) NOT NULL AUTO_INCREMENT,
-            `username` varchar(50) NOT NULL,
-            `email` varchar(255) NOT NULL,
-            `password_hash` varchar(255) NOT NULL,
-            `created_at` timestamp DEFAULT CURRENT_TIMESTAMP,
-            `updated_at` timestamp DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            PRIMARY KEY (`id`),
-            UNIQUE KEY `username` (`username`),
-            UNIQUE KEY `email` (`email`)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4";
-        
-        $this->addQuery($sql);
-        $this->executeQueries();
-    }
-
-    public function down(): void
-    {
-        $sql = "DROP TABLE IF EXISTS `#PREFIX#users`";
-        $this->addQuery($sql);
-        $this->executeQueries();
-    }
-}
-```
-
-#### Multi-Database Support
-
-```php
-// PostgreSQL-specific migrations
-class CreateUsersTablePostgreSQL extends \Pramnos\Database\Migration
-{
-    public function up(): void
-    {
-        if ($this->application->database->type === 'postgresql') {
-            $sql = 'CREATE TABLE "#PREFIX#users" (
-                id SERIAL PRIMARY KEY,
-                username VARCHAR(50) UNIQUE NOT NULL,
-                email VARCHAR(255) UNIQUE NOT NULL,
-                password_hash VARCHAR(255) NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )';
-            
-            $this->addQuery($sql);
-            $this->executeQueries();
-        }
-    }
-}
-```
-
-### Advanced Query Patterns
-
-#### Complex Joins and Subqueries
-
-```php
-// Complex join with subquery for analytics
-$sql = $this->application->database->prepareQuery("
-    SELECT 
-        u.id,
-        u.username,
-        u.email,
-        COUNT(o.id) as order_count,
-        COALESCE(SUM(o.total), 0) as total_spent,
-        recent_orders.last_order_date
-    FROM users u
-    LEFT JOIN orders o ON u.id = o.user_id
-    LEFT JOIN (
-        SELECT 
-            user_id, 
-            MAX(created_at) as last_order_date
-        FROM orders 
-        WHERE created_at > %s
-        GROUP BY user_id
-    ) recent_orders ON u.id = recent_orders.user_id
-    WHERE u.created_at > %s
-    GROUP BY u.id, u.username, u.email, recent_orders.last_order_date
-    HAVING COUNT(o.id) > %d
-    ORDER BY total_spent DESC
-    LIMIT %d",
-    date('Y-m-d', strtotime('-30 days')), // Recent orders filter
-    date('Y-m-d', strtotime('-1 year')), // User creation filter
-    5, // Minimum order count
-    50  // Limit results
-);
-
-$result = $this->application->database->query($sql);
-$analyticsData = [];
-while ($result->fetch()) {
-    $analyticsData[] = $result->fields;
-}
-```
-
-#### Geospatial Queries (PostgreSQL)
-
-```php
-// PostGIS spatial queries
-if ($this->application->database->type === 'postgresql') {
-    $sql = $this->application->database->prepareQuery("
-        SELECT 
-            id,
-            name,
-            ST_AsText(location) as location_text,
-            ST_Distance(
-                location, 
-                ST_SetSRID(ST_MakePoint(%s, %s), 4326)
-            ) as distance_meters
-        FROM stores 
-        WHERE ST_DWithin(
-            location, 
-            ST_SetSRID(ST_MakePoint(%s, %s), 4326), 
-            %d
-        )
-        ORDER BY distance_meters
-        LIMIT %d",
-        $longitude, $latitude, // Target point
-        $longitude, $latitude, // Search center
-        5000, // 5km radius in meters
-        10 // Limit results
-    );
-    
-    $result = $this->application->database->query($sql);
-}
-```
-
-### Transaction Management
-
-#### Transactions announce themselves
+### Transactions announce themselves
 
 `commitTransaction()` and `rollbackTransaction()` fire an event, so code that has
 been holding work until the outcome is known can act on it without every call site
@@ -1449,512 +967,259 @@ and cache invalidation or an outbox wants the same seam.
     event while the outer transaction is still open. And a raw `BEGIN` issued
     through `query()` is not tracked at all.
 
-#### Advanced Transaction Patterns
+### A multi-step write
 
 ```php
-class OrderProcessor 
+class OrderProcessor
 {
     private $database;
-    
+
     public function __construct($application)
     {
         $this->database = $application->database;
     }
-    
-    public function processOrder($orderData, $orderItems)
+
+    public function processOrder(array $orderData, array $orderItems): array
     {
+        $db = $this->database;
+
         try {
-            // Start transaction
-            $this->database->startTransaction();
-            
-            // Create order record
-            $sql = $this->database->prepareQuery("
-                INSERT INTO orders (user_id, total, status, created_at) 
-                VALUES (%d, %s, %s, %s)",
-                $orderData['user_id'],
-                $orderData['total'],
-                'pending',
-                date('Y-m-d H:i:s')
-            );
-            $this->database->query($sql);
-            $orderId = $this->database->getLastInsertId();
-            
-            // Add order items
+            $db->startTransaction();
+
+            $db->queryBuilder()->table('orders')->insert([
+                'user_id'    => $orderData['user_id'],
+                'total'      => $orderData['total'],
+                'status'     => 'pending',
+                'created_at' => date('Y-m-d H:i:s'),
+            ]);
+            $orderId = $db->getInsertId();
+
             foreach ($orderItems as $item) {
-                $sql = $this->database->prepareQuery("
-                    INSERT INTO order_items (order_id, product_id, quantity, price) 
-                    VALUES (%d, %d, %d, %s)",
-                    $orderId,
-                    $item['product_id'],
-                    $item['quantity'],
-                    $item['price']
+                $db->queryBuilder()->table('order_items')->insert([
+                    'order_id'   => $orderId,
+                    'product_id' => $item['product_id'],
+                    'quantity'   => $item['quantity'],
+                    'price'      => $item['price'],
+                ]);
+
+                // A conditional decrement: stays raw because the SET is an expression.
+                $result = $db->preparedQuery(
+                    'UPDATE products SET stock_quantity = stock_quantity - :qty
+                      WHERE id = :id AND stock_quantity >= :qty',
+                    ['qty' => (int) $item['quantity'], 'id' => (int) $item['product_id']]
                 );
-                $this->database->query($sql);
-                
-                // Update product inventory
-                $sql = $this->database->prepareQuery("
-                    UPDATE products 
-                    SET stock_quantity = stock_quantity - %d 
-                    WHERE id = %d AND stock_quantity >= %d",
-                    $item['quantity'],
-                    $item['product_id'],
-                    $item['quantity']
-                );
-                $result = $this->database->query($sql);
-                
-                // Check if inventory update affected any rows
-                if ($result->getAffectedRows() === 0) {
-                    throw new \Exception("Insufficient inventory for product " . $item['product_id']);
+                if (!$result || $result->getAffectedRows() === 0) {
+                    throw new \RuntimeException('Insufficient inventory for product ' . $item['product_id']);
                 }
             }
-            
-            // Update user's order history
-            $sql = $this->database->prepareQuery("
-                UPDATE users 
-                SET total_orders = total_orders + 1, last_order_date = %s 
-                WHERE id = %d",
-                date('Y-m-d H:i:s'),
-                $orderData['user_id']
-            );
-            $this->database->query($sql);
-            
-            // Commit transaction
-            $this->database->commitTransaction();
-            
-            return ['success' => true, 'order_id' => $orderId];
-            
-        } catch (\Exception $e) {
-            // Rollback on any error
-            $this->database->rollbackTransaction();
-            \Pramnos\Logs\Logger::logError("Order processing failed: " . $e->getMessage());
-            return ['success' => false, 'error' => $e->getMessage()];
-        }
-    }
-}
-```
 
-#### Nested Transactions and Savepoints
-
-```php
-class AdvancedTransactionManager 
-{
-    private $database;
-    private $savepointCounter = 0;
-    
-    public function __construct($application)
-    {
-        $this->database = $application->database;
-    }
-    
-    public function createSavepoint($name = null)
-    {
-        if ($name === null) {
-            $name = 'sp_' . (++$this->savepointCounter);
-        }
-        
-        if ($this->database->type === 'postgresql') {
-            $this->database->query("SAVEPOINT {$name}");
-        } else {
-            $this->database->query("SAVEPOINT {$name}");
-        }
-        
-        return $name;
-    }
-    
-    public function rollbackToSavepoint($name)
-    {
-        if ($this->database->type === 'postgresql') {
-            $this->database->query("ROLLBACK TO SAVEPOINT {$name}");
-        } else {
-            $this->database->query("ROLLBACK TO SAVEPOINT {$name}");
-        }
-    }
-    
-    public function releaseSavepoint($name)
-    {
-        if ($this->database->type === 'postgresql') {
-            $this->database->query("RELEASE SAVEPOINT {$name}");
-        } else {
-            $this->database->query("RELEASE SAVEPOINT {$name}");
-        }
-    }
-}
-```
-
-### Performance Optimization
-
-#### Query Optimization and Analysis
-
-```php
-class QueryOptimizer 
-{
-    private $database;
-    
-    public function __construct($application)
-    {
-        $this->database = $application->database;
-    }
-    
-    public function analyzeQuery($sql)
-    {
-        $explainSql = "EXPLAIN " . $sql;
-        $result = $this->database->query($explainSql);
-        
-        $analysis = [];
-        while ($result->fetch()) {
-            $analysis[] = $result->fields;
-        }
-        
-        return $analysis;
-    }
-    
-    public function getSlowQueries($limit = 10)
-    {
-        if ($this->database->type === 'mysql') {
-            $sql = "
-                SELECT 
-                    sql_text,
-                    exec_count,
-                    avg_timer_wait/1000000000000 as avg_time_seconds,
-                    sum_timer_wait/1000000000000 as total_time_seconds
-                FROM performance_schema.events_statements_summary_by_digest 
-                ORDER BY avg_timer_wait DESC 
-                LIMIT " . (int)$limit;
-            
-            $result = $this->database->query($sql);
-            $slowQueries = [];
-            while ($result->fetch()) {
-                $slowQueries[] = $result->fields;
+            if (!$db->commitTransaction()) {
+                throw new \RuntimeException('Commit failed');
             }
-            return $slowQueries;
+            return ['success' => true, 'order_id' => $orderId];
+        } catch (\Exception $e) {
+            $db->rollbackTransaction();
+            \Pramnos\Logs\Logger::logError('Order processing failed', $e);
+            return ['success' => false];
         }
-        
-        return [];
     }
 }
 ```
 
-#### Connection Pool Management
+### Savepoints
+
+There is no savepoint API; the SQL is the same on both engines, so issue it directly inside a
+transaction:
 
 ```php
-class ConnectionPoolManager 
+$db->query('SAVEPOINT sp_1');
+// …
+$db->query('ROLLBACK TO SAVEPOINT sp_1');   // or: RELEASE SAVEPOINT sp_1
+```
+
+## Migrations
+
+Schema changes go through migrations, written with the schema builder. The full reference —
+file naming, metadata, running, rollback — is the [Migration guide](Pramnos_Migration_Guide.md).
+
+```php
+<?php
+
+use Pramnos\Database\Migration;
+
+class CreateUsersTable extends Migration
 {
-    private static $connections = [];
-    private static $maxConnections = 10;
-    private static $currentConnections = 0;
-    
-    public static function getConnection($config)
+    public function up(): void
     {
-        $key = md5(serialize($config));
-        
-        if (isset(self::$connections[$key]) && self::$connections[$key]->connected) {
-            return self::$connections[$key];
-        }
-        
-        if (self::$currentConnections >= self::$maxConnections) {
-            throw new \Exception("Connection pool exhausted");
-        }
-        
-        $database = new \Pramnos\Database\Database($config);
-        $database->connect();
-        
-        self::$connections[$key] = $database;
-        self::$currentConnections++;
-        
-        return $database;
+        $this->schema()->createTable('users', function ($table) {
+            $table->increments('id');
+            $table->string('username', 50)->unique();
+            $table->string('email', 255)->unique();
+            $table->string('password_hash', 255);
+            $table->timestamps();
+        });
     }
-    
-    public static function releaseConnection($database)
+
+    public function down(): void
     {
-        // In a real implementation, you might pool connections
-        // rather than closing them immediately
-        $database->close();
-        self::$currentConnections--;
+        $this->schema()->dropIfExists('users');
     }
 }
 ```
 
-### Adjacency List Implementation
+The file is named with a timestamp prefix, e.g. `2026_05_29_090000_create_users_table.php`, and
+generated by `create:migration`. The schema builder emits the right DDL for MySQL, PostgreSQL and
+TimescaleDB, so one migration covers all three; `$this->addQuery()` remains for a statement the
+builder cannot express.
 
-The framework includes specialized support for hierarchical data:
+## Advanced query patterns
+
+### Joins, aggregates and subqueries
+
+Analytics queries that need a derived table are a reasonable place for raw SQL. With
+`preparedQuery()` the values are bound by the driver:
+
+```php
+$result = $db->preparedQuery(
+    'SELECT u.id, u.username, u.email,
+            COUNT(o.id) AS order_count,
+            COALESCE(SUM(o.total), 0) AS total_spent,
+            recent_orders.last_order_date
+       FROM users u
+       LEFT JOIN orders o ON u.id = o.user_id
+       LEFT JOIN (
+            SELECT user_id, MAX(created_at) AS last_order_date
+              FROM orders
+             WHERE created_at > :recent
+             GROUP BY user_id
+       ) recent_orders ON u.id = recent_orders.user_id
+      WHERE u.created_at > :since
+      GROUP BY u.id, u.username, u.email, recent_orders.last_order_date
+     HAVING COUNT(o.id) > :minOrders
+      ORDER BY total_spent DESC
+      LIMIT 50',
+    [
+        'recent'    => date('Y-m-d', strtotime('-30 days')),
+        'since'     => date('Y-m-d', strtotime('-1 year')),
+        'minOrders' => 5,
+    ]
+);
+$analyticsData = $result ? $result->fetchAll() : [];
+```
+
+### Geospatial queries (PostgreSQL)
+
+```php
+if ($db->type === 'postgresql') {
+    $result = $db->preparedQuery(
+        'SELECT id, name, ST_AsText(location) AS location_text,
+                ST_Distance(location, ST_SetSRID(ST_MakePoint(:lon, :lat), 4326)) AS distance
+           FROM stores
+          WHERE ST_DWithin(location, ST_SetSRID(ST_MakePoint(:lon, :lat), 4326), :radius)
+          ORDER BY distance
+          LIMIT 10',
+        ['lon' => $longitude, 'lat' => $latitude, 'radius' => 5000]
+    );
+}
+```
+
+Longitude comes first in `ST_MakePoint()` — see [Writing a point](#writing-a-point-geometry-and-the-coordinate-order).
+
+### PostgreSQL JSON, arrays and full-text search
+
+```php
+// JSON field
+$db->preparedQuery('SELECT * FROM events WHERE payload ->> :key = :value',
+    ['key' => 'type', 'value' => 'login']);
+
+// Array column
+$db->preparedQuery('SELECT * FROM posts WHERE :tag = ANY(tags)', ['tag' => 'news']);
+
+// Full-text search
+$db->preparedQuery(
+    "SELECT *, ts_rank(to_tsvector('english', body), plainto_tsquery('english', :q)) AS rank
+       FROM articles
+      WHERE to_tsvector('english', body) @@ plainto_tsquery('english', :q)
+      ORDER BY rank DESC",
+    ['q' => $searchTerm]
+);
+```
+
+Table and column names cannot be bound; never build them from request input.
+
+### Inspecting a plan
+
+`EXPLAIN` is a read statement and goes through `query()` like any other:
+
+```php
+$result = $db->query('EXPLAIN ' . $sql);
+$plan = $result->fetchAll();
+```
+
+For live activity, slow queries and replication on PostgreSQL, `DatabaseInspector` and the
+DevPanel's database page already collect them.
+
+## Adjacency list
+
+`Adjacencylist` reads hierarchical rows (an id and a parent id in the same table):
 
 ```php
 $database = \Pramnos\Framework\Factory::getDatabase();
 $categoryTree = new \Pramnos\Database\Adjacencylist(
     $database,
     'categories',     // table name
-    'id',            // id field
-    'parent_id',     // parent field
-    'name'           // title field
+    'id',             // id field
+    'parent_id',      // parent field
+    'name'            // title field
 );
 
-// Get all categories as hierarchical array
+// All categories as a hierarchical array
 $categories = $categoryTree->getArray();
 
-// Get path to specific category
-$categoryPath = $categoryTree->getPathAsArray(15); // category ID 15
+// The path to one category, as an array of items from the root
+$categoryPath = $categoryTree->getPathAsArray(15);
 
-// Set custom separator for path display
+// The path as a string, joined with $separator (default ' » ')
 $categoryTree->separator = ' > ';
-$fullPath = $categoryTree->getArray(null, 15);
+$fullPath = $categoryTree->getPath(15);
 ```
 
-### Advanced Model Patterns
+## Database security
 
-#### Model Caching and Column Information
+### SQL injection
+
+Values go in as builder arguments, `preparedQuery()` bindings or `prepareQuery()` arguments —
+never concatenated into the SQL:
 
 ```php
-class AdvancedModel extends \Pramnos\Application\Model
-{
-    // Column cache for performance
-    private static $columnCache = [];
-    
-    public function getAvailableFields()
-    {
-        $database = \Pramnos\Database\Database::getInstance();
-        $tableName = $this->getFullTableName();
-        
-        if (isset(self::$columnCache[$tableName])) {
-            return array_column(self::$columnCache[$tableName], 'Field');
-        }
-        
-        $fields = [];
-        if ($database->type === 'postgresql') {
-            $schema = $this->_dbschema ?? $database->schema;
-            $sql = "SELECT column_name as \"Field\", data_type as \"Type\"
-                    FROM information_schema.columns 
-                    WHERE table_schema = '{$schema}' 
-                    AND table_name = '" . str_replace('#PREFIX#', $database->prefix, $this->_dbtable) . "'";
-        } else {
-            $sql = "SHOW COLUMNS FROM `{$tableName}`";
-        }
-        
-        $result = $database->query($sql);
-        while ($result->fetch()) {
-            $fields[] = $result->fields['Field'];
-            if (!isset(self::$columnCache[$tableName])) {
-                self::$columnCache[$tableName] = [];
-            }
-            self::$columnCache[$tableName][] = $result->fields;
-        }
-        
-        return $fields;
-    }
-    
-    public function getDynamicList($filter = '', $order = '', $page = 0, $itemsPerPage = 50, 
-                                  $globalSearch = '', $fieldSearches = [])
-    {
-        $database = \Pramnos\Database\Database::getInstance();
-        $availableFields = $this->getAvailableFields();
-        
-        // Build dynamic search conditions
-        $searchConditions = $this->buildSearchConditions($availableFields, $globalSearch, $fieldSearches);
-        
-        // Combine with existing filter
-        $finalFilter = $this->combineFilters($filter, $searchConditions);
-        
-        // Validate order fields against available fields
-        $validatedOrder = $this->validateOrderFields($order, $availableFields);
-        
-        return $this->getList($finalFilter, $validatedOrder, $page, $itemsPerPage);
-    }
-}
+// Secure
+$users = $db->queryBuilder()
+    ->from('users')
+    ->where('email', $userEmail)
+    ->where('role', $userRole)
+    ->where('active', 1)
+    ->get();
+
+// Vulnerable — never do this
+$sql = "SELECT * FROM users WHERE email = '" . $userEmail . "'";
 ```
 
-### Error Handling and Resilience
+Identifiers (table and column names) cannot be bound by any of the three paths. When one comes
+from a request, check it against a fixed list first.
 
-#### Comprehensive Error Handling
+### Passwords
+
+Store passwords with `password_hash()` and check them with `password_verify()`; never store them
+reversibly, and never write your own salting scheme.
 
 ```php
-class ResilientDatabaseOperation 
-{
-    private $database;
-    private $maxRetries = 3;
-    private $retryDelay = 1; // seconds
-    
-    public function __construct($application)
-    {
-        $this->database = $application->database;
-    }
-    
-    public function executeWithRetry($sql, $params = [])
-    {
-        $attempt = 0;
-        $lastException = null;
-        
-        while ($attempt < $this->maxRetries) {
-            try {
-                if (!$this->database->connected) {
-                    $this->database->connect();
-                }
-                
-                if (!empty($params)) {
-                    $preparedSql = $this->database->prepareQuery($sql, ...$params);
-                } else {
-                    $preparedSql = $sql;
-                }
-                
-                return $this->database->query($preparedSql);
-                
-            } catch (\Exception $e) {
-                $lastException = $e;
-                $attempt++;
-                
-                \Pramnos\Logs\Logger::logError(
-                    "Database query attempt {$attempt} failed: " . $e->getMessage()
-                );
-                
-                if ($attempt < $this->maxRetries) {
-                    sleep($this->retryDelay * $attempt); // Exponential backoff
-                    $this->database->refresh(); // Reconnect
-                }
-            }
-        }
-        
-        throw new \Exception(
-            "Database operation failed after {$this->maxRetries} attempts. Last error: " . 
-            $lastException->getMessage()
-        );
-    }
-    
-    public function executeInTransaction($operations)
-    {
-        try {
-            $this->database->startTransaction();
-            
-            foreach ($operations as $operation) {
-                if (is_callable($operation)) {
-                    $operation($this->database);
-                } elseif (is_array($operation) && isset($operation['sql'])) {
-                    $this->executeWithRetry($operation['sql'], $operation['params'] ?? []);
-                }
-            }
-            
-            $this->database->commitTransaction();
-            return true;
-            
-        } catch (\Exception $e) {
-            $this->database->rollbackTransaction();
-            \Pramnos\Logs\Logger::logError("Transaction failed: " . $e->getMessage());
-            throw $e;
-        }
-    }
-}
+$db->queryBuilder()->table('users')->insert([
+    'username'      => $userData['username'],
+    'email'         => $userData['email'],
+    'password_hash' => password_hash($userData['password'], PASSWORD_DEFAULT),
+    'created_at'    => date('Y-m-d H:i:s'),
+]);
 ```
-
-### Database-Specific Features
-
-#### PostgreSQL Advanced Features
-
-```php
-class PostgreSQLFeatures 
-{
-    private $database;
-    
-    public function __construct($application)
-    {
-        $this->database = $application->database;
-    }
-    
-    public function useJSONQueries($table, $jsonColumn, $jsonPath, $value)
-    {
-        if ($this->database->type !== 'postgresql') {
-            throw new \Exception("JSON queries are only supported in PostgreSQL");
-        }
-        
-        $sql = $this->database->prepareQuery("
-            SELECT * FROM \"{$table}\" 
-            WHERE \"{$jsonColumn}\" ->> %s = %s",
-            $jsonPath,
-            $value
-        );
-        
-        return $this->database->query($sql);
-    }
-    
-    public function useArrayColumns($table, $arrayColumn, $searchValue)
-    {
-        $sql = $this->database->prepareQuery("
-            SELECT * FROM \"{$table}\" 
-            WHERE %s = ANY(\"{$arrayColumn}\")",
-            $searchValue
-        );
-        
-        return $this->database->query($sql);
-    }
-    
-    public function useFullTextSearch($table, $textColumn, $searchTerm)
-    {
-        $sql = $this->database->prepareQuery("
-            SELECT *, ts_rank(to_tsvector('english', \"{$textColumn}\"), plainto_tsquery('english', %s)) as rank
-            FROM \"{$table}\" 
-            WHERE to_tsvector('english', \"{$textColumn}\") @@ plainto_tsquery('english', %s)
-            ORDER BY rank DESC",
-            $searchTerm,
-            $searchTerm
-        );
-        
-        return $this->database->query($sql);
-    }
-}
-```
-
-## Database Security Best Practices
-
-### SQL Injection Prevention
-
-Always use the framework's parameter binding - never concatenate user input:
-
-```php
-// ✅ SECURE - Using parameter binding
-$sql = $this->application->database->prepareQuery(
-    "SELECT * FROM users WHERE email = %s AND role = %s AND active = %d",
-    $userEmail,
-    $userRole,
-    1
-);
-
-// ❌ VULNERABLE - Direct concatenation
-$sql = "SELECT * FROM users WHERE email = '" . $userEmail . "'"; // NEVER DO THIS!
-```
-
-### Sensitive Data Handling
-
-```php
-class SecureDataHandler 
-{
-    public function hashSensitiveData($data, $salt = null)
-    {
-        if ($salt === null) {
-            $salt = bin2hex(random_bytes(32));
-        }
-        
-        return [
-            'hash' => hash_pbkdf2('sha256', $data, $salt, 10000),
-            'salt' => $salt
-        ];
-    }
-    
-    public function insertUserWithHashedPassword($userData)
-    {
-        $passwordData = $this->hashSensitiveData($userData['password']);
-        
-        $sql = $this->application->database->prepareQuery("
-            INSERT INTO users (username, email, password_hash, password_salt, created_at) 
-            VALUES (%s, %s, %s, %s, %s)",
-            $userData['username'],
-            $userData['email'],
-            $passwordData['hash'],
-            $passwordData['salt'],
-            date('Y-m-d H:i:s')
-        );
-        
-        return $this->application->database->query($sql);
-    }
-}
-```
-
-The Pramnos Database API provides a comprehensive, secure, and flexible foundation for all database operations, supporting both MySQL and PostgreSQL with advanced features for modern web applications.
 
 ## Read/write replicas
 
@@ -1964,6 +1229,8 @@ change.
 
 ```php
 'database' => [
+    'type'   => 'postgresql',
+    'prefix' => '',
     'write' => [
         'hostname' => 'db-primary',
         'user'     => 'app',
@@ -1979,15 +1246,20 @@ change.
 ],
 ```
 
-Either block may be partial — anything it omits falls back to the top-level connection
-settings, so a replica that differs only in hostname says only that.
+**Where each key comes from.** Once either block is present, the connection keys —
+`hostname`, `user`, `password`, `database` — are taken from the `write` block (or the `read`
+block if there is no `write`); top-level values for those four are not read. A key the `read`
+block omits falls back to those write values, so a replica that differs only in hostname says
+only that. `port` may be set per block and otherwise falls back to the top level. `type`,
+`prefix`, `schema`, `timezone`, `collation` and `throwOnError` stay top-level.
 
 ### How a statement picks a link
 
-`isWriteQuery()` reads the first keyword. `SELECT`, `SHOW`, `EXPLAIN`, `DESC` and
-`DESCRIBE` go to the read link; **everything else goes to the write link**, which is the
+`isWriteQuery()` takes the statement's text up to its first space. `SELECT`, `SHOW`, `EXPLAIN`,
+`DESC` and `DESCRIBE` go to the read link; **everything else goes to the write link**, which is the
 safe direction to be wrong in — an unrecognised statement reaches the primary rather than
-being refused by a read-only replica.
+being refused by a read-only replica. A keyword followed by a newline instead of a space, and a
+`WITH … SELECT`, therefore also go to the primary.
 
 The two links are independent sessions. The configured time zone and collation are applied
 to each, and a link a failed statement has shown to be gone is replaced on the next call
@@ -2002,8 +1274,8 @@ without disturbing the other one.
 - **This is not failover.** Two hostnames are configuration, not a cluster: a primary that
   is down is an outage, not a promotion. Put a proxy, a managed service or a virtual IP in
   front and point the framework at that.
-- **One block means no split.** With neither `read` nor `write` present the framework uses
-  the single connection it always did, which is what every existing installation gets.
+- **No block means no split.** With neither `read` nor `write` present the framework uses
+  the single top-level connection.
 
 On PostgreSQL, `DatabaseInspector::getReplicationStatus()` reports `pg_stat_replication` —
 client address, state, sync state and lag in seconds — and the DevPanel's database page
@@ -2029,4 +1301,4 @@ zone:
 On connect the framework issues `SET TIME ZONE '<tz>'` (PostgreSQL) /
 `SET time_zone = '<tz>'` (MySQL) on **each** connection (write and read replica).
 The setting is **unset by default** — when absent, no SET is issued and the server
-default is left untouched, so existing applications are unaffected.
+default is left untouched.

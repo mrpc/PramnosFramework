@@ -128,33 +128,20 @@ malformed JSON rather than a missing endpoint.
 **The underscore spelling is deliberate.** `openid_configuration` appears in no
 specification and in a good number of clients. Answering it costs one line.
 
-A project scaffolded before these rules existed keeps its own `.htaccess` —
-version control does not update it for you. Add the block by hand, above the
-catch-all.
+`.htaccess` is the project's own file and is not regenerated. If yours lacks the
+block, add it by hand, above the catch-all.
 
 ### If a discovery response will not parse
 
-Before 2026-08-26 it would not. Every endpoint here answered with valid JSON and
-then a complete HTML page appended to it:
+Every discovery endpoint — `openid-configuration`, `jwks.json`,
+`oauth-authorization-server`, `.well-known/health`, `/Discovery/serverConfig` and the
+project-level `/config` — answers through the framework's `raw` document, so the body is
+the JSON and nothing follows it. A response that does not parse is almost always the
+`.htaccess` order above: the shell fallback answered with HTML. Look at the first bytes:
 
 ```
-$ curl -s https://auth.example.com/.well-known/openid-configuration | wc -c
-173927
+$ curl -s https://auth.example.com/.well-known/openid-configuration | head -c 200
 ```
-
-The actions `echo`ed their body and returned. An echo writes to the output stream
-and leaves the framework to render the page it was going to render anyway, so the
-response was the document *and* the site's home page. `JSON.parse` fails on it;
-`curl | head` does not, which is why it survived.
-
-Fixed by answering with the framework's `raw` document instead of echoing, so the
-body is the JSON and nothing follows it. All six were affected —
-`openid-configuration`, `jwks.json`, `oauth-authorization-server`,
-`.well-known/health`, `/Discovery/serverConfig` and the project-level `/config`.
-
-Nothing to change in a client. If you built a workaround — reading up to the first
-`}` at column 0, or a regex — you can drop it, and you should: the shape it relies
-on is no longer there.
 
 ### A summary built for a person
 
@@ -656,15 +643,12 @@ The condition is recorded in `oauth.log` with the recommendation. For this clien
 register is the operator's call.
 
 !!! warning "A CSP cannot enforce what the layer below it does not"
-    The widening was briefly gated on the registration, on the reasoning that the two
-    layers should agree — and it had the agreement backwards. `form-action` can only answer
-    *may the form post toward the place this request names*, not *should this request be
-    allowed*. Gating it refused destinations the endpoint had just accepted, which added no
-    security and caused an outage: a customer's localhost login stopped working while
-    production kept working, with nothing server-side to see because the refusal happens in
-    the browser.
+    The widening is not gated on the registration. `form-action` can only answer *may the
+    form post toward the place this request names*, not *should this request be allowed*.
+    Gating it would refuse destinations the endpoint had just accepted, add no security, and
+    fail in the browser, with nothing server-side to see.
 
-    It was not even the protection it looked like. `form-action` governs form submissions,
+    Nor would it be the protection it looks like. `form-action` governs form submissions,
     so a user who already holds a session takes `GET /oauth/authorize` → 302 → client with
     no form in it, and the code is delivered regardless. **A mismatch is worth a log line,
     never a refusal, while the layer that could refuse does not.**
@@ -673,8 +657,7 @@ register is the operator's call.
 
 The same client is developed on `http://localhost:3000`, tested on a staging host and run
 in production, and **all three belong to one registration**. A field read as a single URI
-names one environment and refuses the others — which is exactly what happened: one
-production value in the column, and the customer's localhost login stopped working.
+names one environment and refuses the others.
 
 So `callback` holds a list, and the separator is permissive because a human types this
 field. All of these are the same three registrations:
@@ -688,8 +671,7 @@ https://app.example/cb
 ```
 
 Commas, spaces, tabs and newlines all separate; the admin screen's field is a textarea and
-what it stores is normalised to one space-separated list. A single value is a list of one,
-so nothing registered before reads differently.
+what it stores is normalised to one space-separated list. A single value is a list of one.
 
 **A comma inside a URI must be percent-encoded** as `%2C`, since a comma separates.
 
@@ -785,18 +767,13 @@ accepted, exactly. A native application registers its custom scheme URI in full
 `applications.appid` cascades to `usertokens.applicationid`. Delete an OAuth client and every token
 it issued goes with it.
 
-It used to be `ON DELETE SET NULL`, which left the tokens in place with a null `applicationid` —
-indistinguishable from a token that was never issued through OAuth at all. Each one silently changed
-category and carried on authenticating. On one installation, 507 of 522 tokens had a null
-`applicationid` and thirteen of those were still active and unexpired: thirteen live credentials
-belonging to clients that had been deleted.
+Deleting a client is the one action an operator takes precisely to stop it having access. Leaving
+its tokens behind with a null `applicationid` would make them indistinguishable from tokens never
+issued through OAuth, and they would carry on authenticating.
 
-Deleting a client is the one action an operator takes precisely to stop it having access, so that is
-what it does now.
-
-**Tokens already detached are left alone.** The old rule destroyed the reference rather than
-recording it anywhere, so nothing separates "issued by a client that is gone" from "never an OAuth
-token" — and a sweep would have to guess, which here means revoking working credentials.
+**Tokens whose `applicationid` is already null are left alone.** Nothing separates "issued by a
+client that is gone" from "never an OAuth token", so a sweep would have to guess — which here means
+revoking working credentials.
 
 ### Managing applications from your own screen: `ApplicationService`
 
@@ -932,15 +909,16 @@ else. The resource must be an absolute URI on this server's own origin with no f
 anything else is `400 invalid_target`, not silently ignored. Without `resource` the token is
 bound to no resource and `aud` is the client id alone.
 
-### Your client secret is required, on every grant
+### A confidential client's secret is required, on every grant
 
-If a secret is registered for your client, the token endpoint will not
-authenticate you without it. This holds for every grant — `authorization_code`,
+If your client is confidential and a secret is registered for it, the token
+endpoint will not authenticate you without it. This holds for every grant — `authorization_code`,
 `refresh_token`, `password` and `client_credentials` — and for both ways of
 presenting it, HTTP Basic or form field. An empty `client_secret=` counts as
-absent.
+absent. A [public client](#public-clients) may leave it out; a secret it does send is
+checked.
 
-The `client_id` alone is never enough. It is a public identifier: it travels in
+For a confidential client the `client_id` alone is never enough. It is a public identifier: it travels in
 redirect URLs and ships inside every SPA bundle and mobile binary, so anything
 it could unlock on its own would be unlocked for everybody who has ever seen a
 login link.
@@ -1133,8 +1111,9 @@ Content-Type: application/json
 The server computes an MD5 of the manifest and **short-circuits** if it is
 unchanged. On change it **upserts** resources/scopes/conditions; anything absent
 from the new manifest is **soft-deleted** (`is_active = false`), never hard
-deleted. Send the stored `manifest_hash` to get a no-op `304` when nothing
-changed.
+deleted. An unchanged manifest answers `200` with
+`{"status":"unchanged","resources":0,"scopes":0,"conditions":0,"deactivated":0}` —
+the server compares its own hash of the body, so there is nothing extra to send.
 
 Authenticate with HTTP Basic (`client_id:client_secret`) or with `client_id` and
 `client_secret` as form fields. Either is fine — RFC 6749 §2.3.1 allows both.
@@ -1355,9 +1334,9 @@ loopback or link-local, where this server's own ports and the cloud metadata add
 
 **`allow_private => false` really does exclude carrier-grade NAT.** It is worth saying
 because PHP's own address filters do not: `FILTER_FLAG_NO_PRIV_RANGE|NO_RES_RANGE` calls
-`100.64.0.0/10` public, and the check is "public **or** in an allowed range" — so the
-Tailscale block was tested against an allow-list it was not on and then admitted as public
-anyway. `OutboundUrl::NEVER_PUBLIC_RANGES` is the rest of what those flags miss: CGNAT, the
+`100.64.0.0/10` public, and the check is "public **or** in an allowed range" — so without
+help the Tailscale block would pass as public whatever the allow-list said.
+`OutboundUrl::NEVER_PUBLIC_RANGES` is the rest of what those flags miss: CGNAT, the
 IETF protocol block, the benchmarking block and multicast.
 
 ```php

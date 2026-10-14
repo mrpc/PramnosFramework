@@ -55,7 +55,7 @@ return [
     'features'  => ['broadcasting'],
     'broadcasting' => [
         // Server-side backplane used for publish()/subscribe():
-        'default'   => 'redis',      // null | log | redis | database | pusher
+        'default'   => 'redis',      // null | log | redis | redis-stream | database | pusher
 
         // Client edge the browser should use:
         'transport' => 'sse',        // sse | websocket | pusher
@@ -111,7 +111,9 @@ $broadcasting->broadcast(
     protected $emitChanges = true;
     ```
 
-Models can broadcast their own lifecycle events with the `Broadcastable` trait:
+Models can broadcast their own lifecycle events with the `Broadcastable` trait. Nothing in
+the model's save or delete path calls it: you call `broadcastCreated()`, `broadcastUpdated()`
+or `broadcastDeleted()` yourself after the write succeeds.
 
 ```php
 use Pramnos\Broadcasting\Broadcastable;
@@ -121,8 +123,15 @@ class Message extends \Pramnos\Application\OrmModel
     use Broadcastable;
     protected string $broadcastChannel = 'chat.updates';
 }
-// $message->save();  // broadcasts "Message.created" / "Message.updated"
+
+$message->save();
+$message->broadcastCreated();   // event "message.created" on chat.updates
 ```
+
+The event name is the model's short class name in snake_case plus the action
+(`message.created`, `message.updated`, `message.deleted`); the payload is `toArray()` plus a
+`_model` key. `broadcastEvent('typing', [...])` sends any other name the same way. Without a
+`broadcasting` service in the container, each call does nothing.
 
 ### Subscribing (SubscribableDriverInterface)
 
@@ -159,9 +168,7 @@ migration can move publishers and consumers over incrementally.
       Pub/sub, so it keeps **no history**: an event published while nobody is
       subscribed is not delivered later.
     - **redis-stream** — the same envelope on a Redis **Stream**, which can be
-      replayed. Registered and selectable as `default => 'redis-stream'` — it was
-      documented here before it was registered, so choosing it fell back to the
-      **null** driver and discarded every broadcast. Use this one for SSE, where
+      replayed. Selectable as `default => 'redis-stream'`. Use this one for SSE, where
       every reconnect opens a gap; see
       [Reconnecting, and the events published during it](#reconnecting-and-the-events-published-during-it).
     - **database** — appends to a `broadcast_events` table and polls it (for hosts
@@ -286,8 +293,7 @@ $sse->stream(
 );
 ```
 
-Omit `onTick` for the historical ping-only idle behaviour — it is a trailing
-optional parameter, so existing callers are unaffected.
+Omit `onTick` and an idle tick only sends the keep-alive ping.
 
 Return the `StreamedResponse` from your dispatcher exactly like a `Response`
 (both expose `send()`).
@@ -298,10 +304,9 @@ Return the `StreamedResponse` from your dispatcher exactly like a `Response`
 the stream deliberately — so every client reconnects on a schedule, every 95
 seconds. Whatever is published in the window between the close and the
 new subscription has to come from somewhere, or it is simply lost. Nothing
-errors; the client never sees those events. Two applications lost data this way
-before it was noticed.
+errors; the client never sees those events.
 
-**SSE specifies the answer, and the framework now implements it.** Every event
+**SSE specifies the answer, and the framework implements it.** Every event
 that has a backplane id is written with an `id:` frame; the browser remembers
 the last one and sends it back as `Last-Event-ID` on reconnect; `stream()` reads
 that header and resumes from it. No client code, and no application code:
@@ -317,34 +322,23 @@ $sse->stream(
 
 #### `maxRuntime` is when the stream ends — and the client is told when to hand over
 
-**`maxRuntime` is a deadline, and it used to be a floor.** A driver checks it at the top of
-its loop and then blocks for `readTimeout` seconds (`readTimeout = max(1, pingInterval)`), so
-a deadline falling *during* a read was not noticed until that read returned. The stream ended
-somewhere in **`[maxRuntime, maxRuntime + pingInterval]`**:
+**`maxRuntime` is a deadline, not a floor.** A driver checks it at the top of its loop and
+then blocks reading (`readTimeout = max(1, pingInterval)`). An unclamped read would let a
+deadline that falls *during* a read go unnoticed until the read returns, so the stream would
+end anywhere in `[maxRuntime, maxRuntime + pingInterval]` depending on traffic.
 
-| Channel | Deadline noticed | Close landed at |
-|---|---|---|
-| Busy — an event arrives just after the deadline | on that event | ≈ `maxRuntime` |
-| Idle — nothing arrives | at the next read timeout | up to `maxRuntime + pingInterval` |
-
-That range mattered because of who has to act on it. A client doing an **overlapping
-reconnect** — open the replacement, retire the old one once the replacement proves itself —
-must hand over before the server closes, and it had only `maxRuntime` to go on. Its own clock
-starts at `open`, strictly after the server started its own, so at equal periods the server
-leads by however long the connection took to establish. It wins **exactly on the busy
-installs**, where the close lands at the bottom of the range. And the failure is quiet: the
-scheduled close arrives as a transport error, the client backs off, everything recovers, and it
-looks like an occasional network blip that gets worse under load.
-
-Two things changed:
-
-**The last read is clamped.** Drivers now block for `min(readTimeout, deadline - now)`, so the
+**The last read is clamped.** Drivers block for `min(readTimeout, deadline - now)`, so the
 stream ends **at** `maxRuntime` regardless of traffic. `RedisStreamDriver`, `RedisDriver` and
 `DatabaseDriver` all do this — the clamp lives in `SubscriptionOptions::blockingWindow()`, so
 there is one implementation rather than three.
 
-**The stream says when to hand over.** A client should still leave itself a margin, and now it
-does not have to guess: the stream opens with a `stream-info` event.
+**The stream says when to hand over.** A client doing an **overlapping reconnect** — open the
+replacement, retire the old one once the replacement proves itself — must hand over before the
+server closes. Its own clock starts at `open`, strictly after the server started its own, so at
+equal periods the server always leads by however long the connection took to establish; a
+client that guesses the period sees the scheduled close arrive as a transport error that looks
+like an occasional network blip. So it does not have to guess: the stream opens with a
+`stream-info` event.
 
 ```js
 source.addEventListener('stream-info', (e) => {
@@ -361,7 +355,7 @@ never heard of `stream-info` is unaffected: `EventSource` dispatches by name.
 An unlimited stream (`maxRuntime: 0`) sends no `stream-info`, because there is no handover to
 schedule.
 
-That works because the driver can replay. **Which driver you choose decides
+Resuming from `Last-Event-ID` works only when the driver can replay. **Which driver you choose decides
 whether any of this happens:**
 
 | Driver | Replay | Notes |
@@ -370,8 +364,8 @@ whether any of this happens:**
 | `DatabaseDriver` | ✅ | Already durable; resumes from the row id. |
 | `RedisDriver` | ❌ | Pub/sub keeps nothing. Right for a WebSocket daemon that stays connected; loses the gap for SSE. |
 
-`RedisDriver` is unchanged and still the default — switching a deployment to
-streams is a decision about retention, not a bug fix applied behind your back.
+`RedisDriver` is the `redis` choice — switching a deployment to streams is a
+decision about retention, so it is never made for you.
 Both write the same envelope, so consumers do not change.
 
 ##### Choosing a resume point yourself
@@ -447,10 +441,8 @@ publishes**. Getting the pair wrong is silent, not loud:
 
 `SUBSCRIBE` on a key that only ever receives `XADD` is a **perfectly healthy
 subscription that is never delivered anything** — no error, no warning, no events.
-An application that wanted SSE replay (which needs the stream driver) and a
-WebSocket daemon therefore had to publish every event twice, once with `PUBLISH`
-and once with `XADD`, putting two representations of one event on the backplane.
-That is what `RedisStreamSocket` removes.
+`RedisStreamSocket` lets a WebSocket daemon read the same stream an SSE endpoint
+replays from, so an application that wants both publishes each event once.
 
 ```php
 use Pramnos\Broadcasting\RedisStreamSocket;
@@ -465,7 +457,7 @@ $server->useRedisIngest(new RedisStreamSocket(
 `useRedisIngest()` accepts either implementation — it takes the
 `RedisIngestInterface` they share.
 
-!!! tip "`broadcast:serve` now pairs them for you"
+!!! tip "`broadcast:serve` pairs them for you"
     The shipped daemon reads `broadcasting.default` and picks the matching ingest —
     `XREAD` for `redis-stream`, `SUBSCRIBE` for `redis` — and its banner names both:
 
@@ -473,10 +465,8 @@ $server->useRedisIngest(new RedisStreamSocket(
     Redis ingest: app:chat.updates via XREAD (backplane: redis-stream)
     ```
 
-    It used to hard-code pub/sub, which meant an installation that wanted SSE replay
-    (and therefore the stream driver) **could not use this command at all**. One
-    project wrote its own daemon for exactly that reason. If yours did too, the
-    shipped one may now be enough.
+    So an installation using the stream driver for SSE replay can use the shipped
+    daemon as it is.
 
     Wiring `LocalBroadcastServer` yourself is still your pairing to get right.
 
@@ -495,13 +485,10 @@ easy to walk into:
 | An SSE endpoint, one process per client | that client reconnects and resumes from `Last-Event-ID` | **that client** — worth it |
 | A WebSocket worker owning the listening socket | **every client is dropped with it** | an empty room — worth nothing |
 
-A consumer measured exactly this rather than taking the paragraph above at face value, and came
-back with the negative result: their worker owns the socket, so a restart takes every client
-with it, there is nobody left to catch up, and their clients re-read their state on reconnect
-anyway because WebSocket carries no initial snapshot. Persisting cursors would have added
-supervisor state, a stale-cursor failure mode and a backlog to filter, to deliver events to
-nobody. **This guide had claimed the benefit without naming the condition it depends on; that
-is the correction, and it was theirs.**
+A worker that owns the socket takes every client with it on restart, so there is nobody left
+to catch up — and its clients re-read their state on reconnect anyway, because WebSocket
+carries no initial snapshot. Persisting cursors there adds supervisor state, a stale-cursor
+failure mode and a backlog to filter, to deliver events to nobody.
 
 If you do persist, filter what comes back: see the ephemeral-event case below.
 
@@ -541,20 +528,16 @@ function (string $channel, string $event, $payload, ?string $id = null): array {
 }
 ```
 
-Until 2026-08-14 the ingest consumed the id to advance its cursor and dropped it, so a WebSocket
-worker could not do this while an SSE stream could — `SseWriter::stream()` has always passed the
-id to `onEvent`. The asymmetry stayed invisible because **a worker starting at `$` never
-replays**: persisting `cursors()`, which is the whole advantage described above, is exactly the
-change that would have surfaced it — as stale cues for every WebSocket client at once, after a
-deploy. Cursor persistence and correct ephemeral handling were mutually exclusive; they are not
-now.
+`SseWriter::stream()` passes the same id to `onEvent` as its fifth argument, so an SSE endpoint
+can apply the same filter. It matters most once you persist `cursors()`: **a worker starting at
+`$` never replays**, but one resuming from a stored cursor after a deploy replays the backlog —
+as stale cues for every WebSocket client at once, unless the router filters them.
 
 ### Limits on the pre-authentication read
 
-Everything after the handshake was bounded from the start — 8 MiB per frame, a
-separate ceiling for a reassembled message, and a framing violation closes the
-connection. The handshake itself was the one unbounded read, and the one an
-**unauthenticated** peer controls: `authorizeConnection()` runs after the headers are
+Everything after the handshake is bounded — 8 MiB per frame, a separate ceiling for
+a reassembled message, and a framing violation closes the connection. The handshake
+needs bounds of its own, because it is the read an **unauthenticated** peer controls: `authorizeConnection()` runs after the headers are
 parsed, which cannot happen until the request is complete.
 
 In a single-process daemon that is not a slow client. Reaching `memory_limit` is a
@@ -641,23 +624,17 @@ $server->broadcast('private-admin-notifications', 'report', $payload);
 
 That is a legitimate design and not a leak — while the authorizer's rule stays as narrow as the
 channel is broad. **It becomes one silently the day somebody widens the rule**, because the two
-facts live in different files: whoever relaxes an authorizer to admit station owners is reading
-the authorizer, not the worker that named the channel.
-
-A consumer hit exactly this fork. Their `private-admin-notifications` is a bare literal where
-every public channel beside it rebuilds its name with a station id; they checked before
-reporting it, confirmed it is not a leak today because the authorizer requires a platform admin,
-and then noted that their own roadmap direction — letting station owners in — would put every
-station's reports in every station's panel. They joined the two with a test.
+facts live in different files: whoever relaxes an authorizer to admit, say, tenant owners as
+well as platform admins is reading the authorizer, not the worker that named the channel — and
+every tenant's reports then reach every tenant's panel.
 
 So: **when a channel is shared rather than named, say so where it is broadcast**, and pair it
 with the authorizer in a test. A comment on the `broadcast()` call naming the rule it depends on
 costs a line and is the only thing that will be in front of the person who widens it.
 
-The general form is worth carrying further than channels. Their words for it, from a related
-find in the same layer: *where a transport cannot carry something, look for every mechanism that
-assumed it could.* `EventSource` cannot send headers, so a header-based scope silently did
-nothing — and applying that rule immediately found a second stream with the same gap.
+The general form is worth carrying further than channels: *where a transport cannot carry
+something, look for every mechanism that assumed it could.* `EventSource` cannot send headers,
+so a scope read from a request header does nothing on an SSE stream.
 
 ### Supervising the daemon
 
@@ -681,10 +658,9 @@ $server->shouldStopUsing(fn (): bool => $this->shouldStop());
 Without it the server blocks in `stream_select()` and observes only signals, so it
 ignores the sentinel for the whole grace period on **every** deploy and is then
 reported `[stop-timeout]` — an error line about a worker that was given no way to
-comply. On an installation whose orchestrator was also skipping the sentinel check,
-the consequence was worse and was measured: the worker was never stopped, never
-signalled, and never reported as anything but healthy. It served pre-deploy code
-across deploys, indefinitely.
+comply. If the orchestrator also skips the sentinel check, the worker is never
+stopped, never signalled, and never reported as anything but healthy — and serves
+pre-deploy code across deploys, indefinitely.
 
 The check is asked **once per iteration, before any work**, so a stop is honoured one
 select-timeout later rather than after another full round of accepts and fan-out.
@@ -693,20 +669,17 @@ retire a healthy daemon.
 
 It is a seam of its own and deliberately **not** folded into `onTick()`. `onTick` is
 for the *application's* per-iteration work, and making the stop depend on an
-application remembering to return the right thing from it is how the protocol became
-optional in the first place.
+application remembering to return the right thing from it would make the stop
+protocol optional.
 
 ---
 
 ## Channel authorization
 
 A `private-` or `presence-` channel is only private because a client must present a
-signed token to join it. The framework could always **verify** that token
-({@see PusherAuthorizer}) but never **produce** one, so every application wrote its
-own `/broadcasting/auth` endpoint and its own HMAC — production security code,
-rewritten per project, the same code every time.
-
-Three pieces now ship instead.
+signed token to join it. The daemon **verifies** that token (`PusherAuthorizer`); the
+framework also **produces** it, so no application has to write its own
+`/broadcasting/auth` endpoint and HMAC. Three pieces do that.
 
 ### 1. Rules: `ChannelRegistry`
 
@@ -797,13 +770,13 @@ as "forbidden" sends whoever debugs it to the wrong file.
 
 | Source | Keys come from | When |
 |---|---|---|
-| `config` | `broadcasting.pusher.app_key` / `app_secret` | the historical single-app setup |
+| `config` | `broadcasting.pusher.app_key` / `app_secret` | a single app, configured in `app.php` |
 | `authserver` | the `applications` table | the `authserver` feature is enabled |
 | `auto` | whichever of the two the feature list implies | default |
 
 `auto` means the two features travel together: with the `authserver` feature on,
 realtime app keys are AuthServer applications; without it, the simple config
-implementation runs, byte-identical to before. Naming `authserver` **explicitly**
+implementation runs. Naming `authserver` **explicitly**
 while the feature is off is an error rather than a silent fallback — falling back
 would authorize channels against a different secret than the operator asked for.
 
@@ -815,29 +788,31 @@ second table and no second admin screen:
 | Pusher / Reverb | AuthServer |
 |---|---|
 | `app_key` | `applications.apikey` (already UNIQUE) |
-| `app_secret` | `applications.broadcast_secret`, falling back to `apisecret` |
+| `app_secret` | `applications.broadcast_secret` — encrypted at rest, and the only source |
 | `app_id` | `applications.appid` |
 | enabled / disabled | `applications.status` |
-| secret rotation | `ApplicationsController::rotate()` |
 
 What that buys over a config file is the rest of the row: an `owner`, a `scope`, a
 `trusted` flag, the audit log, and `user_app_authorizations` — so a user can revoke
 one application's realtime access without touching the others. See the
 [AuthServer Integration Guide](Pramnos_AuthServer_Integration_Guide.md).
 
-**`broadcast_secret` is a separate, nullable column on purpose.** A WebSocket daemon
-is a long-running process holding every connected app's secret in memory for the
-life of the connection; an OAuth2 token exchange reads one and exits. Sharing a
-secret between them means a core dump from the daemon leaks OAuth2 client
-credentials too. The column is nullable and `apisecret` is the fallback, so an
-installation that has not run the migration keeps working — and an operator can
-rotate the realtime key without invalidating OAuth2 clients.
+**`broadcast_secret` is a separate column on purpose.** A WebSocket daemon is a
+long-running process holding every connected app's secret in memory for the life of
+the connection; an OAuth2 token exchange reads one and exits. Sharing a secret
+between them means a core dump from the daemon leaks OAuth2 client credentials too.
+There is no fallback to `apisecret`: the client secret is stored hashed, and a hash
+cannot serve as an HMAC key. `ApplicationService::create()` issues both secrets for a
+new application, and the `split_broadcast_secret_from_apisecret` migration fills the
+column for existing rows. An application whose `broadcast_secret` is empty cannot
+authorize channels. `ApplicationsController::rotate()` rotates the OAuth2 client
+secret only; nothing in the framework rotates `broadcast_secret` today.
 
 #### More than one app, at the edge
 
 `PusherAuthorizer` holds one key and one secret. That is correct for a single-app
-deployment and it was also the ceiling: the `applications` table could describe fifty
-apps while the daemon only ever verified against the pair in `app.php`.
+deployment and is also its ceiling: the `applications` table can describe fifty apps,
+and `PusherAuthorizer` verifies only against the pair in `app.php`.
 
 `Auth\AppRegistryAuthorizer` resolves the app per connection instead, and
 `broadcast:serve` wires it automatically when the app source is `authserver`:
@@ -913,16 +888,11 @@ independently and it never travels over the socket.
     **Publishing** to a `private-encrypted-` channel with no `encryption_key` throws.
     **Authorizing** one throws too.
 
-    The publish half used to send the payload in the clear, documented as a deliberate
-    decision on the reasoning that the prefix alone does nothing. A consuming project
-    asked whether that was the decision we wanted, and it was not: the two halves of
-    one feature disagreed, and the publish half had the worse failure. A visible
-    exception costs a request; silent plaintext on a channel whose whole purpose is
-    that the relay cannot read it costs the thing the feature exists to protect.
-
-    There is no legitimate case for the old behaviour either — `pusher-js` decrypts a
-    `private-encrypted-` channel natively, so a plaintext payload on one does not
-    merely leak, it also does not arrive.
+    Publishing throws rather than sending the payload in the clear. A visible exception
+    costs a request; silent plaintext on a channel whose whole purpose is that the relay
+    cannot read it costs the thing the feature exists to protect. And `pusher-js`
+    decrypts a `private-encrypted-` channel natively, so a plaintext payload on one would
+    not merely leak, it would also not arrive.
 
     Authorizing without a key throws because a token with no `shared_secret` produces a
     client that subscribes successfully and then silently drops every message it cannot
@@ -994,11 +964,10 @@ in everybody's member list.
 
 !!! note "A custom authorizer opts in"
     Membership is read through `Auth\PresenceAuthorizer`, which extends
-    `ConnectionAuthorizer` rather than replacing a method on it. The guide has always
-    invited applications to implement `ConnectionAuthorizer` themselves, and adding a
-    method to it would have broken every one of those on upgrade. A deployment with a
-    custom authorizer keeps working with no membership until it implements the new
-    interface. The shipped `PusherAuthorizer` and `AllowAllAuthorizer` both do.
+    `ConnectionAuthorizer` rather than adding a method to it, so an application's own
+    `ConnectionAuthorizer` keeps compiling. A custom authorizer works with no membership
+    until it also implements `PresenceAuthorizer`. The shipped `PusherAuthorizer` and
+    `AllowAllAuthorizer` both do.
 
 Server-side, `presenceMembers($channel)` returns `user_id → user_info` for an
 application that wants to act on the live audience — the counterpart of
@@ -1034,10 +1003,8 @@ room.listenForWhisper('typing', function (payload) { showTyping(payload); });
     a client must not be able to assert about another user may travel this way — that
     has to go through your application.
 
-    It stayed off by default for a reason beyond caution: until this existed a
-    `client-` event was silently dropped, so no deployment has ever had this write
-    path. Enabling it by default would have opened one on every installation that
-    merely updated the framework.
+    Off by default so that updating the framework never opens this write path on an
+    installation that did not ask for it. With it off, a `client-` event is dropped.
 
 Three guards, and each refusal is **silent** — a client event is fire-and-forget, and
 answering every rejection would hand a browser a cheap way to make the server talk:
@@ -1088,18 +1055,17 @@ header.
 
 Two constraints, both from BC:
 
-**`except()` returns a clone and no method grew a parameter.** Adding a trailing
-optional parameter to a public method is source-compatible for callers and **fatal
-for a subclass that overrides it** — and this framework's own test suite subclasses
-`LocalBroadcastServer` and overrides `broadcast()` with its exact three-argument
-signature. The pattern demonstrably exists in the wild, so `broadcast()` kept its
-signature and the server gained `broadcastExcept()` beside it.
+**`except()` returns a clone, and no method takes an extra parameter.** Adding a
+trailing optional parameter to a public method is source-compatible for callers and
+**fatal for a subclass that overrides it** — and subclasses of `LocalBroadcastServer`
+that override `broadcast()` with its three-argument signature exist. So `broadcast()`
+keeps that signature and the server has `broadcastExcept()` beside it.
 
 **The exclusion travels inside the envelope.** The process that publishes and the
 daemon that fans out to browsers are different processes, so anything held in PHP
 memory is gone by the time the edge sees the event. A driver that supports exclusion
 adds an `except` key to the `{event, payload, timestamp}` envelope it already writes;
-consumers that predate the key ignore it, because envelope decoding reads by key.
+a consumer that does not know the key ignores it, because envelope decoding reads by key.
 
 A driver that does not implement `Drivers\ExcludesSocketInterface` — a third-party one
 — broadcasts to everyone and the manager **logs it**. Degrading is better than
@@ -1220,7 +1186,7 @@ get wrong:
 - **Your watched-socket count is a floor, not the quantity.** A daemon holding database,
   Redis and log handles has fd numbers above its socket count. `isNearDescriptorCeiling()`
   takes the greater of what you pass and what `/proc/self/fd` reports, for exactly this
-  reason — a consumer measured the gap at 58 feeds costing 69 descriptors.
+  reason — 58 feeds can easily cost 69 descriptors.
 - **The failure is wholesale.** Past the ceiling `stream_select()` returns `false` and
   watches nothing: not a partial result, not a skipped stream. **And it leaves the
   arrays untouched** — so a loop that acts on them without checking the return value
@@ -1238,10 +1204,6 @@ get wrong:
     rather than a coincidence: a new socket takes the lowest free number, so every
     other open file pushes the watched sockets' numbers up. Gaps in the table are
     exactly what keep it a proxy.
-
-    This section said `false` first, was "corrected" to a per-descriptor skip on the
-    strength of PHP's strings, and is now back to `false` on the strength of the
-    measurement. Both corrections came from the project that ran it.
 
 Each connection is one descriptor, plus the listening socket and any Redis ingest
 stream. A warning is logged once at 90% of the ceiling
@@ -1267,8 +1229,8 @@ rather than discovering the cliff from it.
     readable and reads from none of them. Distinguish `false` from `0` while you are
     there: `0` is "nothing happened" and `false` past the ceiling is permanent, so
     folding them together turns a node serving nobody into one that looks idle. The
-    framework's own loop did exactly that until it was measured — `select_failures` in
-    the metrics endpoint is what came of it.
+    framework's own loop counts each `false` as `select_failures` in the metrics
+    endpoint.
 
     **Then pause on the failure branch.** Past `FD_SETSIZE` the call returns `false`
     *immediately* — the timeout is not applied — so an error branch that does its
@@ -1291,12 +1253,10 @@ rather than discovering the cliff from it.
     "close", and it counts the descriptors the process *holds* as well as the ones you
     pass, which your own count cannot see.
 
-    **It will not save you from a rebuilt PHP**, and an earlier version of this page
-    claimed it would. `defined('FD_SETSIZE')` is false on every build checked, so
-    `descriptorCeiling()` returns a hard-coded 1024 — it is the literal, centralised.
-    That is still worth having (one place to read, one place to correct) and
-    `useDescriptorCeiling()` exists for a build that differs, but the durability was
-    never there. Caught by the consumer who adopted it on that sentence.
+    **It will not save you from a rebuilt PHP.** `defined('FD_SETSIZE')` is false on
+    every build checked, so `descriptorCeiling()` returns a hard-coded 1024 — it is the
+    literal, centralised. That is still worth having (one place to read, one place to
+    correct), and `useDescriptorCeiling()` exists for a build that differs.
 
 **This is the main reason to reach for clustering.** Past that ceiling, more nodes is
 the answer; a bigger one does not exist.
@@ -1395,8 +1355,8 @@ rather than failing: a conditional audience legitimately resolves to an empty li
 `except()` composes: `$broadcasting->except($socketId)->event(new OrderPaid($order))`.
 
 !!! note "Related, but different from the `Broadcastable` trait"
-    The trait broadcasts a model's own lifecycle (`created`/`updated`/`deleted`)
-    automatically. `BroadcastableEvent` is for a *named* thing that happened, whose
+    The trait broadcasts a model's own lifecycle (`created`/`updated`/`deleted`) when
+    you call its `broadcast*()` methods. `BroadcastableEvent` is for a *named* thing that happened, whose
     audience and payload are its own business. Both, neither, or one of each.
 
 ### Deferring one to a worker
@@ -1449,12 +1409,11 @@ Full reference — including `assertBroadcastExcept()` for `toOthers()` — in t
 
 ## The HTTP API
 
-Until now the only way into the server was the backplane: an event had to be
-published to Redis and ingested. That is right for the application and wrong for
-everything else — a deploy script announcing a release, a service in another
-language, a check asking "is anybody in room 12" all had to speak Redis and know
-the envelope format, or do nothing. Occupancy in particular was unobservable from
-outside the process.
+The backplane — publish to Redis, the daemon ingests — is the right way in for the
+application and the wrong one for everything else: a deploy script announcing a
+release, a service in another language, a check asking "is anybody in room 12" would
+all have to speak Redis and know the envelope format, and occupancy is not on the
+backplane at all. The HTTP API answers them directly.
 
 ```php
 'broadcasting' => [
@@ -1523,7 +1482,7 @@ caller unable to retry safely.
 | | |
 |---|---|
 | `connections_current`, `channels_occupied`, `subscriptions_current`, `presence_channels` | levels — what is true now |
-| `connections_total`, `messages_sent`, `client_events_relayed`, `client_events_refused`, `webhook_events_queued` | counters, since start |
+| `connections_total`, `messages_sent`, `client_events_relayed`, `client_events_refused`, `webhook_events_queued`, `select_failures` | counters, since start |
 | `uptime_seconds` | so a counter can be read as a rate |
 
 Both kinds, because neither is enough alone. "Twelve connected" says nothing about
@@ -1553,9 +1512,9 @@ to log or export them.
 
 How an application learns things it cannot otherwise see: that a room is empty and
 its state can be torn down, that a user's last connection went away, that somebody
-is typing. The only previous route was polling from an `onTick` callback, which
-counts channels rather than observing transitions and fires on a timer rather than
-on the event.
+is typing. Polling from an `onTick` callback counts channels rather than observing
+transitions and fires on a timer rather than on the event; a webhook fires on the
+transition itself.
 
 ```php
 'broadcasting' => [
@@ -1603,7 +1562,11 @@ synchronously works in development and takes the server down in production.
 `Webhooks\WebhookSigner::verify()` takes the **raw** body:
 
 ```php
-$signer = new WebhookSigner($app);
+use Pramnos\Broadcasting\Apps\BroadcastApp;
+use Pramnos\Broadcasting\Webhooks\WebhookSigner;
+
+// The app whose secret signed the batch — key and secret, as the daemon has them
+$signer = new WebhookSigner(new BroadcastApp($appKey, $appSecret));
 
 if (!$signer->verify($rawBody, $_SERVER['HTTP_X_PUSHER_SIGNATURE'] ?? '')) {
     // reject
@@ -1727,12 +1690,11 @@ client and `LocalBroadcastServer`. One implementation of the length forms rather
 one per direction — the single asymmetry RFC 6455 imposes is *who* masks (a client
 must, a server must not), which is one boolean.
 
-That extraction fixed two things in the server on the way through. It **never read
-the FIN bit**, so a fragmented text message reached the Pusher handler as separate
-halves, each invalid JSON, from a client that had done nothing wrong. And completing
-the handshake cleared the whole read buffer, discarding any frame a client had
-pipelined into the same segment as its request — a loss that depended on how the
-kernel happened to split two writes.
+Two properties come with the shared code. The server honours the **FIN bit**, so a
+fragmented text message reaches the Pusher handler whole rather than as separate
+halves of invalid JSON. And completing the handshake keeps whatever follows the
+request in the read buffer, so a frame a client pipelined into the same segment as
+its request is not discarded.
 
 ### What this makes possible next
 
@@ -1755,7 +1717,10 @@ $clientConfig = RealtimeConfig::forClient($app->applicationInfo['broadcasting'])
 // e.g. {"transport":"sse","url":"/api/stream"}
 ```
 
-Then let `pramnos-realtime.js` connect the right way:
+Then let `pramnos-realtime.js` connect the right way. The framework ships it, and
+`pramnos-echo.js`, under `scaffolding/resources/vendor/` in the package; neither `init`
+nor any other command copies them into the web root (they are not in
+`scaffolding/assets.json`), so the path below is wherever you serve your copy from:
 
 ```html
 <script>window.__realtime = <?= json_encode($clientConfig) ?>;</script>

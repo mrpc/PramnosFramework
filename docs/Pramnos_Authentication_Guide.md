@@ -78,27 +78,29 @@ if ($result) {
 }
 ```
 
-### Login with Remember Me
+### Remember me
+
+`auth($username, $password = '', $remember = true, …)` — the third parameter **defaults to
+`true`**, so the basic login above already sets the persistent login cookie. Pass `false` for a login that
+lasts only as long as the browser session:
 
 ```php
-// Login with persistent session
+// Session-only login: no persistent cookie
 $auth = \Pramnos\Auth\Auth::getInstance();
-$result = $auth->auth('user@example.com', 'password', true); // Third parameter enables "remember me"
-
-if ($result) {
-    // User will stay logged in across browser sessions
-    $user = \Pramnos\User\User::getCurrentUser();
-}
+$result = $auth->auth('user@example.com', 'password', false);
 ```
 
 ### Encrypted Password Authentication
 
 ```php
-// Login with pre-encrypted password (for API scenarios)
+// Login with the stored hash instead of the plaintext password
 $auth = \Pramnos\Auth\Auth::getInstance();
-$hashedPassword = password_hash('plaintext_password', PASSWORD_DEFAULT);
-$result = $auth->auth('user@example.com', $hashedPassword, false, true); // Fourth parameter indicates encrypted password
+$storedHash = $user->password; // exactly as stored in users.password
+$result = $auth->auth('user@example.com', $storedHash, false, true); // Fourth parameter: password is the stored hash
 ```
+
+The driver compares the value with `users.password` as a plain string. Pass the hash exactly as
+it is stored; a newly computed `password_hash()` has its own random salt and never matches.
 
 ### Logout
 
@@ -143,12 +145,11 @@ fails at `response.json()` and surfaces as «something went wrong» with no clue
 simply missing a field. A form post handed a bare JSON body shows the visitor `{"success":false,…}`
 as the entire page.
 
-**The redirect belongs in `sendRevokeResponse()`, not at the end of the action.** It used to sit after
-the try/catch, which meant the two early returns above it — «client_id is required» and «Application
-not found» — skipped it: a browser form hitting either one got a flash queued for a page that was
-never rendered, so a blank response, and the message surfacing later on whatever the visitor opened
-next. The AJAX caller was answered correctly in both, which is why it went unnoticed. If you override
-`sendRevokeResponse()`, it owns ending the response.
+**The redirect belongs in `sendRevokeResponse()`, not at the end of the action.** The action has
+early returns — «client_id is required», «Application not found» — and every one of them answers
+through `sendRevokeResponse()`, so a browser form gets its redirect on every path rather than a flash
+queued for a page that is never rendered. If you override `sendRevokeResponse()`, it owns ending the
+response.
 
 ### `exportdata` is a confirmation on `GET` and the file on `POST`
 
@@ -158,7 +159,7 @@ browser history, in a proxy log, and fetchable by any `<img src>` on any page th
 renders what is about to be exported, and only a `POST` with a valid session token builds it.
 
 The order inside the `POST` matters too: the data is built *before* the download headers go out. The
-other way round hands the browser a file called `user_data_export_2026-09-01.json` containing an error
+other way round hands the browser a file called `user_data_export_<date>.json` containing an error
 page.
 
 ## User Management
@@ -249,9 +250,8 @@ defaults underneath would grant things it did not ask for. The administration sc
 added whatever it says: they are not grants but a description of what each screen does.
 
 Every bundled screen — the badge on a user, the label and filter in the list, the select on
-the edit form, the reference screen — reads this registry. **No view carries its own copy**,
-which is what it did before: three screens, three sets of thresholds, three answers to
-"what is 85?" and three opinions about which number was alarming.
+the edit form, the reference screen — reads this registry. **No view carries its own copy**, so every screen gives the same answer
+to "what is 85?" and the same opinion about which number is alarming.
 
 #### Capabilities are not permissions, and neither is the area's floor
 
@@ -268,8 +268,8 @@ which is what it did before: three screens, three sets of thresholds, three answ
 
 ### What the administration screen shows about a user
 
-The framework records a user's history in **ten** stores, and until they were joined on
-one screen most of it was invisible outside the DevPanel:
+The framework records a user's history in **ten** stores, all shown on the user's
+administration screen:
 
 | Store | What it holds | Where it appears |
 | --- | --- | --- |
@@ -363,7 +363,7 @@ should not lose a typed name.
 
 ### Second factors: which ones exist, and who decides
 
-Three, and they are not equally strong. The order is the policy, and it is the order a
+Four, and they are not equally strong. The order is the policy, and it is the order a
 step-up offers them in:
 
 | Method | What it is | Strength |
@@ -518,15 +518,16 @@ the stronger thing.
 
 #### Adding a factor of your own — SMS, a push, anything
 
-The two the framework ships are adaptors like any other, held in
-`Pramnos\Auth\SecondFactorRegistry`. An application adds a third from a service
+The three the framework ships — `totp`, `email` and `push` — are adaptors like any other, held
+in `Pramnos\Auth\SecondFactorRegistry` (passkeys sit outside the registry). An application adds
+its own from a service
 provider's `boot()`:
 
 ```php
 \Pramnos\Auth\SecondFactorRegistry::register(new \MyApp\Auth\SmsSecondFactor());
 ```
 
-`Pramnos\Auth\SecondFactorInterface` is five questions:
+`Pramnos\Auth\SecondFactorInterface` is seven methods:
 
 ```php
 public function name(): string;                 // 'sms' — travels in forms and the audit log
@@ -789,8 +790,8 @@ the settings screen:
 `always` exists because for a service where the account *is* the product, telling somebody
 their credentials were used from a new device is closer to an obligation than a setting.
 `off` exists for the incident where the alert stops being a security feature and becomes
-the outage's own mailing list. The default is the behaviour every installation had before
-the setting existed, so upgrading starts and stops nobody's mail.
+the outage's own mailing list. `optin` is the framework's default so that an upgrade starts
+nobody's mail.
 
 A **new project starts at `optout`**: `pramnos init` writes it into `app.php`, where it acts as
 the default the setting overrides.
@@ -799,9 +800,9 @@ the default the setting overrides.
 'auth' => ['newsignin_policy' => 'optout'],
 ```
 
-`optin` stays the *framework's* default, because that is what existing installations rely on —
-an upgrade that begins mailing a user base would be a surprise delivered by a patch release. A
-project scaffolded today has no such history.
+`optin` stays the *framework's* default because existing installations rely on it — an upgrade
+that begins mailing a user base would be a surprise delivered by a patch release. A newly
+scaffolded project has no such user base.
 
 **`optout` is the one to reach for on a real user base.** Under `optin`, the people who most
 need this mail are the ones who will never find the checkbox, so the feature ends up
@@ -849,6 +850,20 @@ is the only answer that is not a wall in front of every account on the installat
 
 A device the account has used before is never questioned by any of them, so this costs a
 step on unrecognised browsers and nothing on the rest.
+
+**When the action applies** is a separate setting, `auth_newsignin_trigger`
+(`NewSignInAlert::TRIGGER_SETTING`):
+
+| Value | The action applies to |
+| --- | --- |
+| `new_device` (default) | any browser this account has not been used from |
+| `suspicious` | only a sign-in with a harder-to-explain signal (`SignInRisk`): a country the account has never used, two places at once, a different country too soon to have travelled, or a success straight after a run of failed attempts |
+
+"A device this account has not used" fires constantly on a real user base — new phones,
+cleared cookies, a borrowed laptop — so a demand attached to it is a step everybody pays
+regularly. `suspicious` spends the friction where there is something to be suspicious about.
+`new_device` is the default because it is the conservative reading: it asks more often, not
+less.
 
 **The link is a link in an authentication email, which the alert deliberately refuses to
 be.** The difference is that this one is *expected*: the person submitted a password
@@ -933,7 +948,8 @@ What the endpoint enforces, in this order:
 
 1. Already signed in → redirected away.
 2. Registration closed → refused before the request body is read at all, so a
-   crafted POST to a closed server cannot write a row.
+   crafted POST to a closed server cannot write a row. A pending invitation opens it for
+   that one address.
 3. CSRF token → checked before validation, so a form with no token is not even an
    account-existence oracle.
 4. The human check, when `auth.security.human_check` lists `register`. This is a
@@ -941,10 +957,17 @@ What the endpoint enforces, in this order:
    most worth pricing.
 5. Username 3–60 characters, `[A-Za-z0-9._-]` only — the set that needs no
    escaping in a URL, a log line or an email subject.
-6. A valid email address.
+6. A valid email address — with an invitation, the invited address
+   (`invite_email_mismatch`); without one, an address at a domain in
+   `auth_registration_domains` when that list is set (`email_domain_not_allowed`).
 7. The same password policy `resetpassword` uses: 8 characters, a digit, a
    symbol, and a matching confirmation.
-8. Uniqueness, and only then a write.
+8. A unique username (`username_taken`) and a unique address (`email_unavailable`),
+   and only then a write.
+9. After the write: an invitation is accepted, or — with
+   `auth_registration_verify_email` on — a confirmation link is mailed and the account
+   cannot sign in until it is opened (`/register/confirmemail`). See
+   [Registration: open, by domain, by invitation](#registration-open-by-domain-by-invitation).
 
 A refused submission comes back with the username and the address filled in — retyping an
 address after a failed check is how people give up — and **never with the password**: the form
@@ -963,8 +986,10 @@ need it, and keep the login lockout in place, because the value of an enumerated
 username is what you do with it next. The email case is worded so that it does not
 add a second, independent confirmation.
 
-To decide on something other than a global flag — an invite code, a domain
-allow-list, an organization policy — override one method:
+Invitations and a domain allow-list are built in (see
+[Registration: open, by domain, by invitation](#registration-open-by-domain-by-invitation)).
+To open registration on some other condition — a shared invite code, an organization
+policy — override one method, and keep the parent's answer so invitation links still work:
 
 ```php
 class Register extends \Pramnos\Auth\Controllers\Account
@@ -978,7 +1003,8 @@ class Register extends \Pramnos\Auth\Controllers\Account
 
     protected function registrationIsOpen(): bool
     {
-        return $this->post('invite') === $this->setting('signup_invite_code');
+        return parent::registrationIsOpen()
+            || $this->post('invite') === $this->setting('signup_invite_code');
     }
 }
 ```
@@ -998,14 +1024,21 @@ it is what another application sends somebody here to find out.
 ```php
 // Create a new user
 $user = new \Pramnos\User\User();
-$user->username = 'johndoe';
-$user->email = 'john@example.com';
-$user->password = password_hash('password', PASSWORD_DEFAULT);
+$user->username  = 'johndoe';
+$user->email     = 'john@example.com';
 $user->firstname = 'John';
-$user->lastname = 'Doe';
-$user->status = 1; // Active
+$user->lastname  = 'Doe';
+$user->active    = 1;
+$user->regdate   = time();
+$user->save();                      // assigns the userid
+
+$user->setPassword('password1!');   // hashed with the account's pepper, so it needs the id
 $user->save();
 ```
+
+Two saves, in that order: `setPassword()` keys the hash with the account's id, so a hash
+written before the id exists is one no login can match. Assigning `$user->password` directly
+stores whatever string you give it.
 
 ### Loading Users
 
@@ -1013,9 +1046,10 @@ $user->save();
 // Load user by ID
 $user = new \Pramnos\User\User(123);
 
-// Load user by username/email
-$user = new \Pramnos\User\User();
-$user->loadByUsername('johndoe');
+// Load user by username or email
+$userId = \Pramnos\User\User::getuserid('johndoe', 'username');   // false when there is none
+$userId = \Pramnos\User\User::getuserid('john@example.com', 'email');
+$user   = new \Pramnos\User\User((int) $userId);
 
 // Get current logged-in user
 $currentUser = \Pramnos\User\User::getCurrentUser();
@@ -1051,16 +1085,6 @@ $userId = \Pramnos\User\User::current()?->userid;   // null when nobody is signe
 `getCurrentUser()` keeps `false`, because code compares it with `=== false` and
 would read `null` as somebody being signed in.
 
-> **Changed 2026-08-23.** It did write. On every call after the first in a
-> request it compared `users.language` with the interface language and, when
-> they differed, overwrote the column and saved the user. Two things followed: a
-> stored language preference was reverted by the act of viewing a page rendered
-> in another language, and on an account with no email address the save could
-> raise from the address validation in `_save()` — so a lookup ended the
-> request. Both are gone. If your application worked around this by keeping its
-> language preference in a column of its own, `users.language` is now safe to
-> use again.
-
 ### How a stored password is hashed, and read
 
 Everything that hashes or checks a password goes through `Pramnos\Auth\PasswordHash`.
@@ -1074,12 +1098,10 @@ $user->verifyPassword($plain);         // true for any scheme it can read
 ```
 
 **The preferred scheme is bcrypt over an HMAC-SHA-256 digest of the password**, keyed by a
-per-account pepper (`md5(securitySalt . userid)`). The digest is what solves a defect worth
-naming, because it is silent: bcrypt stops at 72 bytes, and the scheme this replaced
-appended a 32-character pepper to the plaintext. Everything a user typed past the 40th
-character was discarded, and two long passwords sharing a 40-character prefix verified
-against each other — both passwords worked, which reads as success. A fixed-length digest
-has no such ceiling.
+per-account pepper (`md5(securitySalt . userid)`). The digest is there because bcrypt stops
+at 72 bytes: the `pepper` scheme (still read) appends a 32-character pepper to the plaintext,
+so everything typed past the 40th character is discarded and two long passwords sharing a
+40-character prefix verify against each other. A fixed-length digest has no such ceiling.
 
 The per-account pepper means the same password held by two accounts is two different
 hashes, so one leaked hash cannot be tested against every row.
@@ -1094,15 +1116,14 @@ $scheme = \Pramnos\Auth\PasswordHash::verify($plain, $storedHash, $userId);
 | Scheme | What it is | Accepted |
 |--------|-----------|----------|
 | `hmac` | the preferred scheme above | always |
-| `pepper` | the previous scheme — pepper appended to the plaintext | always |
+| `pepper` | pepper appended to the plaintext | always |
 | `plain` | `password_hash($plain, PASSWORD_DEFAULT)`, no pepper | always |
 | `md5` | a raw md5 from a very old table | only with `$allowMd5 = true` |
 
-`plain` is there for a reason worth spelling out: **an application sharing this user table
-may have written the row itself.** One did, with a bare `password_hash()`, and its accounts
-could not pass the framework's own password step-up — the correct password was refused,
-with nothing in the refusal to suggest that hashing was the reason. Verification reads
-both, so either side may have created a row.
+`plain` is there because **an application sharing this user table may write the row itself**,
+with a bare `password_hash()`. Without it, such an account could not pass the framework's own
+password step-up — the correct password would be refused, with nothing in the refusal to
+suggest that hashing was the reason. Verification reads both, so either side may create a row.
 
 It returns the scheme's *name* rather than a boolean because a caller cannot know whether
 to rewrite the row without knowing what it is holding.
@@ -1132,11 +1153,9 @@ is yours to choose:
   migrating one, where the alternative is asking every user to reset a password that is
   correct.
 
-The same key governs the login driver and `User::verifyPassword()`, which is worth saying
-because it did not: `DatabaseAuthDriver` had its own boolean `auth.auto_upgrade`. A project
-that set `rehash_on_login => 'off'` still had its rows rewritten by the login, and a project
-that set `auto_upgrade => false` still had them rewritten by a step-up. `auto_upgrade` is
-still read, as the older name for the same decision.
+The same key governs the login driver and `User::verifyPassword()`, so a sign-in and a
+step-up never disagree about whether a row may be rewritten. `auth.auto_upgrade` (boolean) is
+still read, as an older name for the same decision.
 
 Each rewrite is recorded as a `password_hash_upgraded` activity entry, so a migration is
 something you can watch finish rather than assume.
@@ -1151,9 +1170,9 @@ hands, and the wrong order is the natural one to write.
 
 ### `users.language` is the user's preference
 
-Nothing in the framework writes `users.language`. It holds whatever your
-application put there, and it is yours to interpret — typically as the language
-the account prefers the interface in.
+The framework never writes `users.language` on its own — only an operator's edit on the
+administration user form, or your application. It is yours to interpret — typically as the
+language the account prefers the interface in.
 
 **It is read at sign-in.** A login carries the stored language into the session, so the
 page after the login form is already in it — see
@@ -1191,9 +1210,15 @@ $userData = $user->getData();
 $user->email = 'newemail@example.com';
 $user->save();
 
-// Delete user
-$user->delete();
+// Delete the users row only
+$user->deleteuser();
+
+// Erase the account and everything the framework holds about it (GDPR)
+(new \Pramnos\Auth\AccountErasure($database))->erase((int) $user->userid);
 ```
+
+`deleteuser()` removes the `users` row and nothing else. For a person's data, use
+`AccountErasure` — see [Erasure](#erasure-accountdata_erase).
 
 ### `userlog` is deprecated
 
@@ -1311,8 +1336,7 @@ RequestIdentity::seal(null);                   // this request is anonymous
 Both `ApiAuthMiddleware` and `UnifiedAuthMiddleware` do this for you. Sealing is
 request-scoped and writes nothing that outlives the call, so an API request can
 never change who the browser's next page belongs to — and an anonymous API call
-can never sign the browser out, which is what used to happen when the API
-"cleared" the ambient session to protect itself.
+can never sign the browser out.
 
 **An API that genuinely needs both** — an authserver whose own web UI calls its
 own endpoints — should use `UnifiedAuthMiddleware`, which accepts a Bearer token
@@ -1322,8 +1346,8 @@ site could make authenticated calls on the user's behalf.
 
 ## The data export, section by section
 
-`buildExportData()` reads eleven tables, several belonging to features an installation may not
-have enabled. Each section is resolved on its own:
+`buildExportData()` reads a table per section, several belonging to features an installation may
+not have enabled. Each section is resolved on its own:
 
 ```php
 foreach ([...'privacy_settings' => fn () => $this->getPrivacySettings($userId)...] as $section => $read) {
@@ -1336,10 +1360,10 @@ foreach ([...'privacy_settings' => fn () => $this->getPrivacySettings($userId)..
 }
 ```
 
-Composed as one array literal — which is what it was — a single unreadable table aborted the
-**whole export**. Somebody exercising a data-subject request got an error, and the ten sections
-that were perfectly readable went with it. For a document an installation is legally obliged to
-produce, that is the wrong failure: partial is worth more than nothing.
+Each section is read on its own so that one unreadable table cannot abort the **whole export**.
+Somebody exercising a data-subject request would otherwise get an error, and every readable
+section would go with it. For a document an installation is legally obliged to produce, that is
+the wrong failure: partial is worth more than nothing.
 
 Two details of the recovery are deliberate:
 
@@ -1351,7 +1375,7 @@ Two details of the recovery are deliberate:
   who can do anything about it.
 
 A listener contributes its own sections through `account.data_export`, and cannot overwrite a
-core one: `array_key_exists` before writing, so an export's `profile` always came from the
+core one: `array_key_exists` before writing, so an export's `profile` always comes from the
 framework.
 
 ### Erasure: `account.data_erase`
@@ -1524,14 +1548,17 @@ The framework supports various token types for different purposes:
 ```php
 $user = new \Pramnos\User\User(123);
 
+// addToken($tokentype, $token, $notes = '', $parentToken = null, $expires = null)
+// returns $user, so calls chain; read tokens back with getToken() / getAllTokens().
+
 // Add authentication token
-$token = $user->addToken('auth', bin2hex(random_bytes(32)), 'API access token');
+$user->addToken('auth', bin2hex(random_bytes(32)), 'API access token');
 
 // Add Apple Push Notification token
-$apnsToken = $user->addToken('apns', $deviceToken, 'iPhone device');
+$user->addToken('apns', $deviceToken, 'iPhone device');
 
-// Add OAuth2 access token
-$accessToken = $user->addToken('access_token', $oauthToken, 'OAuth2 access', $refreshTokenId);
+// Add a token issued under a parent token
+$user->addToken('access_token', $oauthToken, 'OAuth2 access', $parentToken);
 ```
 
 ### Token Operations
@@ -1558,7 +1585,7 @@ A `web_session` token is created on every successful web login and lives in
 `$_SESSION['usertoken']`, so same-origin AJAX is authenticated without a Bearer token.
 One login, one row.
 
-That row now carries an expiry — **30 days** by default, set at creation:
+That row carries an expiry — **30 days** by default, set at creation:
 
 ```php
 // app settings
@@ -1591,17 +1618,14 @@ writes the new row:
   fingerprint inside `deviceinfo`.
 
 The fingerprint and nothing else. `deviceinfo` also carries the address the token was
-issued from, and matching on the whole stored value meant a router reboot between two
-sessions left the older token valid — the dynamic-address problem that
-`SignInFingerprint` exists to avoid, reintroduced one layer down. Tokens from *other*
+issued from, and matching on the whole stored value would leave the older token valid after
+a router reboot between two sessions — the dynamic-address problem that `SignInFingerprint`
+exists to avoid. Tokens from *other*
 devices are left alone: signing in on a laptop must not sign you out on a phone.
 
-> **Added 2026-08-20.** Neither existed: `createWebSessionToken()` set no expiry,
-> `loadByToken()` reads 0 and NULL as "never", and `cleanupAllAuthTokens()` covered only
-> `auth` and `access_token` — and had no caller anywhere in the framework. A two-day-old
-> development installation with a single user had **7,255** `web_session` rows, none of
-> them expiring, arriving at about 230 an hour. It is also the table `tokenactions` points
-> a foreign key at, which is how a buffered write outlives the row it references.
+`loadByToken()` reads an expiry of 0 or NULL as "never". Without the expiry and the
+cleanup, `usertokens` grows by a row per login for ever — and it is the table `tokenactions`
+points a foreign key at.
 
 ### What a logged request records
 
@@ -1621,12 +1645,9 @@ otherwise be empty — which is every GET.
 A negative `$return_status` still means "this happened, do not record what it returned":
 the row is written with no status and no duration.
 
-> **Corrected 2026-08-20.** The web path recorded neither status nor duration — only the
-> API path calls `updateAction()`, and the shutdown flush wrote the held row exactly as it
-> was held. Every page view in the audit log had `execution_time_ms` empty, so the
-> DevPanel's slowest-endpoints report read `0.0 ms` on every row. And the endpoint was the
-> absolute URL with its query, so that same report was twenty distinct URLs of one call
-> each. Both reported from the same screen.
+Both matter to the DevPanel's slowest-endpoints report: it needs a duration on every row,
+and it groups by endpoint, so an absolute URL with its query would make every call an
+endpoint of its own.
 
 #### `updateAction()` repairs a `tokenactions` older than the columns it writes
 
@@ -1635,19 +1656,18 @@ An installation whose `tokenactions` predates `return_status`, `execution_time_m
 handled the failed `UPDATE`. Then the write is retried.
 
 You need to do nothing. It is documented because of *when* it runs: once, on a production database,
-during a request, in an error path — so it is worth knowing it exists and that it is now tested on both
-engines rather than believed.
+during a request, in an error path — so it is worth knowing it exists, and it is tested on both
+engines.
 
-Two things it got wrong until 2 September 2026, both of the kind that only a real database reveals:
+Two details, both of the kind only a real database reveals:
 
-- **`ADD COLUMN IF NOT EXISTS` is MariaDB, not MySQL.** MySQL 8 rejects it as a syntax error, so the
-  whole repair — on the engine most installations run — threw from inside the `catch` that was already
-  handling a failure. The request failed, the audit row was lost, the table was not repaired, and the
-  next request did it all again. It asks the schema builder per column and per index now.
-- **On PostgreSQL the sync trigger read `servertime = 0` as a real instant.** `servertime` is declared
-  `DEFAULT 0`, so a row written without one arrives as a zero rather than a null — and `IS NOT NULL`
-  stamped every such row 1 January 1970. An audit log where «no time was given» and «this happened at
-  the epoch» are the same row cannot be read. The condition is `> 0`.
+- **It asks the schema builder per column and per index.** `ADD COLUMN IF NOT EXISTS` is MariaDB,
+  not MySQL — MySQL 8 rejects it as a syntax error, which inside this `catch` would fail the request,
+  lose the audit row and leave the table unrepaired.
+- **On PostgreSQL the sync trigger treats only `servertime > 0` as a real instant.** `servertime` is
+  declared `DEFAULT 0`, so a row written without one arrives as a zero rather than a null; reading
+  that as a time would stamp the row 1 January 1970, and «no time was given» would be
+  indistinguishable from «this happened at the epoch».
 
 The PostgreSQL branch also installs a `plpgsql` function and a `BEFORE INSERT OR UPDATE` trigger that
 keep `servertime` and `action_time` in step **both** ways, so code that writes only one of them does not
@@ -1677,10 +1697,20 @@ the device renews itself straight back in. If you rely on that, rely on it on My
 
 #### «Sign out everywhere else» keeps the credential you are holding
 
-`revokeOtherSessions()` reads the token to spare from `$_SESSION['usertoken']`, because the session is
-the only place that knows which credential *this* request arrived with. A button that signed the caller
-out as well is the bug a user notices immediately and cannot work around: they press it, they are
-ejected, and the natural conclusion is that the button is broken rather than that it worked.
+```php
+$user->revokeOtherSessions(md5(session_id()));   // ends every other session and web_session token
+```
+
+`revokeOtherSessions(?string $keepSid = null): int` spares the caller **only when it is given the
+current session's id** (`md5(session_id())`, as the `sessions` table stores it). With it, the
+session row with that id is kept, and so is the `web_session` token in `$_SESSION['usertoken']` —
+the session is the only place that knows which credential *this* request arrived with. **Called
+with no argument it ends every session and revokes every `web_session` token of the account,
+the caller's included.** It returns how many session rows it ended.
+
+Passing the id is what a "sign out everywhere else" button needs: a button that signed the caller
+out as well is the bug a user notices immediately — they press it, they are ejected, and the
+natural conclusion is that the button is broken rather than that it worked.
 
 ### Working with Token Objects
 
@@ -1720,14 +1750,13 @@ To write scopes, either set the property and `save()`, or issue the token in one
 $user->addScopedToken('access_token', $jwt, ['mcp', 'mcp:logs'], 'notes', $expires);
 ```
 
-**Four shapes are in that column across installations**, and the framework wrote three of
-them itself:
+**Four shapes are in that column across installations:**
 
 | Shape | Where it came from |
 |---|---|
 | `profile email` | [RFC 6749 §3.3](https://www.rfc-editor.org/rfc/rfc6749#section-3.3), and what `AccessTokenRepository` writes |
-| `["profile","email"]` | `Token::save()`, before it was made to write the standard form |
-| `profile,email` | rows predating both |
+| `["profile","email"]` | a JSON list, from older `Token::save()` rows |
+| `profile,email` | comma-separated, from older rows |
 | `[profile email]` | brackets round a space list — a stringified array somewhere upstream |
 
 The rule is asymmetric on purpose:
@@ -1746,9 +1775,8 @@ $scopes = \Pramnos\User\Token::parseScopes($row['scope']);
 
 **Do not `explode(' ', …)` a raw column value.** That reads one of the four shapes, and
 which one you get depends on how the row was written rather than on anything the caller
-did. Eight readers in the framework did it their own way — five with `explode(' ', …)`,
-one with `json_decode(…) ?: explode(…)` — so the same installation answered differently
-depending on which code path reached the row first. They all delegate now.
+did. Every reader in the framework delegates to `parseScopes()`, so one installation gives
+one answer whichever code path reaches the row first.
 
 ### Which values get the forgiving parse, and which do not
 
@@ -1757,20 +1785,15 @@ depending on which code path reached the row first. They all delegate now.
 | A **column**, or a stored token's scope | `Token::parseScopes()` |
 | An OAuth **request parameter** (`$_GET['scope']`, the token endpoint's `scope`) | space-delimited, as the RFC defines |
 
-The forgiveness exists for rows written years ago by code that has since been fixed. It is
-not a licence for a client to invent a syntax: a request is a live conversation with
+The forgiveness exists for rows already in the column. It is not a licence for a client to invent a syntax: a request is a live conversation with
 somebody who can be told they are wrong, so `Scopes::hasInvalidScopes()` still reads the
 standard form only and reports `profile,email` as one unknown scope.
 
 A value that is not a scope list at all — `null`, an object, a bare number — parses to an
 empty list rather than a list containing it. `json_decode('123')` is a valid document and
-an `int`, and a reader that took it put a scalar where a list belongs: `in_array($needed,
-123, true)` is a `TypeError` on PHP 8, which is a 500 where a scope check should be.
-
-Anything that is not a scope list — `null`, an object, a bare number — parses to an empty
-list rather than to a list containing it. A scalar where a list belongs fails every
-`in_array($needed, $scopes, true)` regardless of what it holds, which is a refusal that
-looks like a missing grant.
+an `int`; a scalar where a list belongs would make `in_array($needed, $scopes, true)` a
+`TypeError` on PHP 8 — a 500 where a scope check should be. An empty list makes it a plain
+refusal.
 
 ## Permissions System
 
@@ -1851,8 +1874,7 @@ $verdict = $permissions->isAllowed(
 ```
 
 That distinction matters. Collapsing `null` into `false` is how a screen ends up
-refusing a user for whom no rule was ever written — which is exactly what the
-class did before it knew which store it was reading.
+refusing a user for whom no rule was ever written.
 
 **Users with a role per organisation.** `isAllowed()` reads the user's roles for the
 organisation the request is about once the application has set
@@ -1997,8 +2019,8 @@ The token is signed with the same key the API verifier uses, resolved in this or
 The fallback is the **normal** path, not the exceptional one, and the reason is worth
 knowing if you are reading this because an exchange returned `null`: `authenticationKey` is
 declared on `Api`, not on `Application`. A session-authenticated MVC route — which is the
-only kind that can call this — has an `Application`, so reading the property alone found
-nothing every single time.
+only kind that can call this — has an `Application`, so reading the property alone would
+find nothing.
 
 There is one case with no answer: **no declared key and no `sURL`**. The derivation then
 reduces to `md5('edge')`, a constant every installation in that state would share, so a
@@ -2036,14 +2058,15 @@ can say where the credential came from.
 **The activity-log entry is written once per session, not once per exchange.** Every other
 entry in that log is a decision somebody made — signed in, changed a password, added a
 passkey — and each occurrence is worth a row. An exchange is what happens when a page opens
-without a token, so a new tab, a hard refresh, a private window and an expiry each produced
-one, and the entries a person can act on drowned in them. What is audit-worthy is that *this
+without a token, so a new tab, a hard refresh, a private window and an expiry would each
+produce one, and the entries a person can act on would drown in them. What is audit-worthy is that *this
 session* obtained an API credential, and that is one fact however often the page asks again.
 
 **Every issued token carries a `jti`.** The other claims — `iss`, `aud`, `iat`, `nbf`, `exp`
-— name no user and are identical for anything minted in the same second, so two tokens
-issued a second apart were the same string, for two different people as readily as for one.
-`usertokens.token_lookup` is unique, so the second insert failed and the sign-in did nothing.
+— name no user and are identical for anything minted in the same second, so without it two
+tokens issued in the same second would be the same string, for two different people as readily
+as for one. `usertokens.token_lookup` is unique, so the second insert would fail and that
+sign-in would do nothing.
 Nothing verifies the `jti`; a token is still resolved to its user by its `usertokens` row.
 
 ### The one decision that stays yours
@@ -2108,21 +2131,17 @@ the active-sessions list can show a person which of their devices a session belo
 
 `Token` decodes it into an array. Both writers agree on the format — `User::addToken()`
 at creation and `Token::save()` afterwards both `json_encode()`. The `unserialize()`
-branch in `Token::load()` is a **reader** for rows written by an older path, not a
+branch in `Token::fillProperties()` is a **reader** for rows written by an older path, not a
 second format anything produces today.
 
 **It is written once, at creation, and never rewritten.** It records the device the token
 was *issued to*, which is what makes it comparable later — and what makes a token used from
 a browser it was not issued to visible as such.
 
-> **Fixed 2026-08-29.** `Token::addAction()` overwrote it on every request with
-> `Helpers::getBrowser()`, a different shape entirely — `{"userAgent": …, "browser": …}`,
-> with no `device` key. So the column held two shapes depending on whether a token had ever
-> been used, and the session retirement below could never match a token that had. Every
-> superseded `web_session` token stayed valid for its full thirty days; reopening a browser
-> looked like it minted a new session each time, because it did, and nothing retired the
-> previous one. It also destroyed the evidence it looked like it was collecting: a token
-> used from a browser it was not issued to had its record rewritten to say the new browser.
+`Token::addAction()` does not touch it. A column rewritten on use would hold a different
+shape depending on whether a token had ever been used, the session retirement could not match
+a used token, and a token used from a browser it was not issued to would have its record
+rewritten to say the new browser — destroying the evidence it appears to collect.
 
 **It stores the fingerprint, not the raw user agent**, and that is the same decision as
 in the section below: keeping the agent string would make every session look like a new
@@ -2130,20 +2149,21 @@ device after any browser update, turning a list meant for recognition into a lis
 strangers. The `ip` is recorded for an administrator investigating an incident — it is
 never used to decide anything.
 
-> Until 2026-08-16 this column was written as an empty string at every call site, while
-> its own comment described it as holding *"browser, OS, IP at token creation"*. The
-> reader had existed for years; there was simply never anything in it.
-
 ## New sign-in alerts
 
-Opt-in. When a user has asked for it, an account signed in to from a browser/platform
-combination that account has not used before triggers one email.
+When enabled for an account, a sign-in from a browser/platform combination that account has
+not used before triggers one email. Whether it is enabled follows the site policy,
+`auth_newsignin_policy` (see
+[Telling an account it was used from somewhere new](#telling-an-account-it-was-used-from-somewhere-new)):
+under `optin` (the framework default) it is off until the account turns it on; under `optout`
+(what `pramnos init` writes for a new project) it is on until the account turns it off;
+`always` and `off` override the account's choice.
 
 ```php
 use Pramnos\Auth\NewSignInAlert;
 
-NewSignInAlert::setEnabledFor($userId, true);
-NewSignInAlert::isEnabledFor($userId);          // false unless asked for
+NewSignInAlert::setEnabledFor($userId, true);   // the account's own preference
+NewSignInAlert::isEnabledFor($userId);          // the preference read through the site policy
 ```
 
 The built-in Account controller exposes it as a checkbox on the privacy page, beside
@@ -2271,9 +2291,8 @@ anything that is neither — a `null` or an empty string returns `false` before 
 for anything. `isActive()` and `getAddon()` do the same.
 
 That is not defensive coding for its own sake: the `addons` setting holds a serialized list,
-and an entry saved from an admin screen with no addon selected stores a null name. One
-installation had 19 such rows out of 24, so a request asked 19 impossible questions before
-this refused them.
+and an entry saved from an admin screen with no addon selected stores a null name — without the
+refusal, every request would ask an impossible question per such entry.
 
 ### User Database Addon
 
@@ -2283,39 +2302,44 @@ The framework includes a user database addon for standard username/password auth
 // The UserDatabase addon is automatically triggered during authentication
 // It checks credentials against the users table
 
-// Custom validation can be added by extending the addon
+// Custom validation can be added by extending the addon.
+// Auth calls onAuth() with five arguments; the parent declares four, with defaults, so an
+// override keeps those defaults and may add `$validate = true` as an optional fifth.
 class CustomUserAuth extends \Pramnos\Addon\Auth\UserDatabase
 {
-    public function onAuth($username, $password, $remember, $encryptedPassword, $validate)
+    public function onAuth($username, $password,
+        $remember = true, $encryptedPassword = false, $validate = true)
     {
-        // Add custom validation logic
-        $result = parent::onAuth($username, $password, $remember, $encryptedPassword, $validate);
-        
-        if ($result['status']) {
-            // Additional checks (e.g., account verification, 2FA)
-            if (!$this->isTwoFactorVerified($result['uid'])) {
-                return [
-                    'status' => false,
-                    'message' => 'Two-factor authentication required',
-                    'statusCode' => 401
-                ];
-            }
+        $result = parent::onAuth($username, $password, $remember, $encryptedPassword);
+
+        if (!empty($result['status']) && !$this->isAccountApproved((int) $result['uid'])) {
+            return [
+                'status'     => false,
+                'message'    => 'Your account is awaiting approval',
+                'statusCode' => 403,
+            ];
         }
-        
+
         return $result;
     }
 }
 ```
+
+The second factor does not belong here: the login flow (`LoginFlow`) asks for it after the
+password is accepted — see [Second factors](#second-factors-which-ones-exist-and-who-decides).
 
 ### Creating Custom Authentication Addons
 
 ```php
 class LdapAuth extends \Pramnos\Addon\Addon
 {
-    public function onAuth($username, $password, $remember, $encryptedPassword, $validate)
+    public function onAuth($username, $password,
+        $remember = true, $encryptedPassword = false, $validate = true)
     {
         // LDAP authentication logic
-        $ldapConnection = ldap_connect($this->config['ldap_server']);
+        $ldapConnection = ldap_connect(
+            (string) \Pramnos\Application\Settings::getSetting('ldap_server')
+        );
         
         if (ldap_bind($ldapConnection, $username, $password)) {
             // Authentication successful
@@ -2431,12 +2455,8 @@ Two application settings, both editable from the settings screen:
 | `loginlockoutsteps` | JSON map, `{"attempts": seconds}` — e.g. `{"3":60,"5":300}` |
 | `loginlockoutwindowseconds` | the sliding window, 60–86400 |
 
-Both are read on every attempt. Until 2026-08-27 they were read *nowhere*:
-`calculateDuration()` consulted `DEFAULT_STEPS` and the window arithmetic used
-`DEFAULT_WINDOW_SECONDS`, so the whole progressive-lockout section of the settings
-screen — the editor, its validation, and its "adjusted to safe defaults" warning —
-configured nothing. An operator tightened the ladder, the page confirmed the save,
-and every account kept locking on the shipped 3/5/7/10.
+Both are read on every attempt, so a change on the settings screen applies to the next
+failed sign-in.
 
 An unusable `loginlockoutsteps` (not JSON, empty, or no usable pair) falls back to
 `DEFAULT_STEPS`, and a window outside 60–86400 falls back to 900 — never to no
@@ -2605,21 +2625,17 @@ name on the card and the name in the app agree. Override `issuer()` to choose an
 a label: changing it later renames nothing in an app that has already scanned the code.
 
 **Backup codes come from enrolment, not from setup.** `startSetup()` deliberately
-returns none. It used to return a generated set, and the setup screen listed them under
-"save these, they will not be shown again" — but `completeSetup()` generates and stores
-its *own* set, so the codes on screen were dead before the user finished reading them.
-The account's real recovery codes were known to nobody, and the user found out the first
-time they lost their phone. `takeNewBackupCodes()` returns what enrolment stored, once
-(it survives one redirect, in the session, and is cleared on read).
+returns none: `completeSetup()` generates and stores the account's codes, so they can only be
+shown after enrolment — codes shown any earlier would not be the ones stored.
+`takeNewBackupCodes()` returns what enrolment stored, once (it survives one redirect, in the
+session, and is cleared on read).
 
 It is also the right moment to show them: somebody who abandons setup halfway should not
 walk away holding recovery codes for an account with no second factor.
 
 **The password is required, and the unchecked path has a name.** `disable()` and
-`regenerateBackupCodes()` both take the account password and verify it. Both used to take
-one parameter while the controller in front of them collected a password and passed it —
-and PHP discards an extra argument to a userland function, so nothing was checked. Any
-signed-in session could strip the second factor, or rotate the backup codes (which
+`regenerateBackupCodes()` both take the account password and verify it. Without that check,
+any signed-in session could strip the second factor, or rotate the backup codes (which
 invalidates every code the owner wrote down and prints ten new ones to whoever asked).
 
 | Call | Meaning |
@@ -2629,9 +2645,9 @@ invalidates every code the owner wrote down and prints ten new ones to whoever a
 | `regenerateBackupCodes($userId, $password)` | the user's own action |
 | `regenerateBackupCodesForOperator($userId)` | administrative, and destructive: it invalidates every code the owner holds |
 
-The password is **not optional**, deliberately. An optional parameter fixes the call site
-that had the bug and leaves the hole open for the next one — omit the argument and the check
-silently does not happen. A step-up check in front of *removing* the second factor is not
+The password is **not optional**, deliberately. PHP discards an extra argument to a userland
+function, and with an optional parameter a caller that omits it would silently skip the
+check. A step-up check in front of *removing* the second factor is not
 something to skip by accident, so skipping it has to be spelled. An empty string counts as
 wrong rather than absent, so a form that submitted nothing does not pass.
 
@@ -2647,46 +2663,23 @@ rather than the operator.
 
 | Table | Description |
 |---|---|
-| `user_twofactor` | One row per user — enabled flag, secret, backup code hashes, last_used |
-| `twofactor_setup` | Temporary setup sessions (15-min TTL) |
-| `twofactor_attempts` | Append-only attempt log (TimescaleDB hypertable where available) |
+| `authserver.user_twofactor` | One row per user — enabled flags (TOTP and email), secret, backup code hashes, last_used |
+| `authserver.twofactor_setup` | Temporary setup sessions (15-min TTL) |
+| `authserver.twofactor_attempts` | Append-only attempt log (TimescaleDB hypertable where available) |
+| `authserver.twofactor_email_codes` | Live mailed codes for the email factor — one row per user per purpose, hashed, with an expiry and an attempt cap |
 
 ### Password Security
 
-```php
-class SecureUser extends \Pramnos\User\User
-{
-    public function setPassword($plainPassword)
-    {
-        // Validate password strength
-        if (!$this->isPasswordStrong($plainPassword)) {
-            throw new \Exception('Password does not meet security requirements');
-        }
-        
-        // Hash with current best practices
-        $this->password = password_hash($plainPassword, PASSWORD_ARGON2ID, [
-            'memory_cost' => 65536,
-            'time_cost' => 4,
-            'threads' => 3
-        ]);
-    }
-    
-    public function verifyPassword($plainPassword)
-    {
-        return password_verify($plainPassword, $this->password);
-    }
-    
-    private function isPasswordStrong($password)
-    {
-        // Implement password strength requirements
-        return strlen($password) >= 8 
-            && preg_match('/[A-Z]/', $password)
-            && preg_match('/[a-z]/', $password) 
-            && preg_match('/[0-9]/', $password)
-            && preg_match('/[^A-Za-z0-9]/', $password);
-    }
-}
-```
+There is nothing to override. `User::setPassword()` hashes with the preferred scheme and
+`User::verifyPassword()` reads every scheme `PasswordHash` knows (see
+[How a stored password is hashed, and read](#how-a-stored-password-is-hashed-and-read)).
+Replacing either with a plain `password_hash()` / `password_verify()` pair would stop the
+account's existing peppered hashes from verifying, and `verifyPassword(string $password): bool`
+cannot be overridden without its return type in any case.
+
+The password **policy** — 8 characters, a digit, a symbol, a matching confirmation — is
+`Account::validatePasswordPolicy()`, used by registration, the password change and the reset
+alike. Override it on your `Account` subclass to change the rules in all three places.
 
 ### OAuth2 Scopes and Policy
 
@@ -2781,46 +2774,33 @@ $methods = OAuthPolicyHelper::getDefaultAllowedAuthMethods();
 // ['client_secret_basic', 'client_secret_post', 'private_key_jwt']
 
 $grants = OAuthPolicyHelper::getDefaultAllowedGrantTypes();
-// ['authorization_code', 'client_credentials', 'device_code', 'refresh_token', 'exchange_token']
-// 'password' grant excluded (deprecated per RFC 9126 / OAuth 2.1)
+// ['authorization_code', 'client_credentials', 'device_code', 'password', 'refresh_token', 'exchange_token']
 ```
+
+These are the grants a client with no rows of its own in `oauth2_application_grants` may use.
+The list **includes `password`**. To drop it — OAuth 2.1 deprecates the grant — set the list in
+`app.php`; `pramnos init` writes this key for an `authserver` project:
+
+```php
+'authserver' => [
+    'default_grants'       => ['authorization_code', 'client_credentials', 'device_code', 'refresh_token', 'exchange_token'],
+    'default_auth_methods' => ['client_secret_basic', 'client_secret_post', 'private_key_jwt'],
+    'default_scopes'       => [],
+],
+```
+
+`jwt_bearer` is never a default grant, and a `system:` scope is never a default scope: either is
+ignored with a warning if listed.
 
 ### OAuth2 Integration
 
-```php
-// OAuth2 server capabilities are built into the API system
-class OAuth2Controller extends \Pramnos\Application\Controller
-{
-    public function authorize()
-    {
-        // Handle OAuth2 authorization requests
-        $clientId = $_GET['client_id'];
-        $redirectUri = $_GET['redirect_uri'];
-        $scope = $_GET['scope'] ?? 'read';
-        
-        // Validate client application
-        $app = new \Pramnos\Application\Api\Apikey($clientId);
-        if ($app->appid == 0 || $app->callback !== $redirectUri) {
-            throw new \Exception('Invalid client application');
-        }
-        
-        // If user is not logged in, redirect to login
-        if (!\Pramnos\Http\Session::staticIsLogged()) {
-            $this->redirect('/login?return_to=' . urlencode($_SERVER['REQUEST_URI']));
-            return;
-        }
-        
-        // Generate authorization code
-        $user = \Pramnos\User\User::getCurrentUser();
-        $authCode = bin2hex(random_bytes(32));
-        
-        $user->addToken('auth_code', $authCode, 'OAuth2 authorization code', null);
-        
-        // Redirect back to client with code
-        $this->redirect($redirectUri . '?code=' . $authCode . '&state=' . ($_GET['state'] ?? ''));
-    }
-}
-```
+The OAuth2 **server** is built in — do not hand-roll an `authorize()` action. With the
+`authserver` feature, `Pramnos\Auth\Controllers\Oauth` serves the authorize, token, revoke,
+introspect, userinfo, logout, client-registration and device-authorization endpoints on `league/oauth2-server` (`Pramnos\Auth\OAuth2\OAuth2ServerFactory`), with
+PKCE, consent, client authentication and per-client grant and scope policy. Authorization codes
+are stored by `AuthCodeRepository`, not as user tokens. How a client application registers and
+signs in is in the [Third-Party Integration Guide](Pramnos_AuthServer_Integration_Guide.md);
+signing in to *another* platform is the [OAuth2 Client Guide](Pramnos_OAuth_Client_Guide.md).
 
 ## Registration: open, by domain, by invitation
 
@@ -2843,7 +2823,7 @@ until it follows a link mailed to it (`register/confirmemail`, valid `auth_email
 domain and hold an account relying parties believe belongs to it. Until then sign-in answers
 `email_unverified` rather than signing in, and signing in again after ten minutes mails a new link.
 Only accounts that were held back this way are stopped; an older account with `validated = 0` is
-not. `validated` is what the ID token's `email_verified` is read from, so it is now true only when
+not. `validated` is what the ID token's `email_verified` is read from, so it is true only when
 somebody checked.
 
 ### Invitations
@@ -2938,83 +2918,64 @@ the erased account itself came from is deleted.
 
 ### Authentication Settings
 
+Two places configure authentication, and each key is described in the section that owns it.
+
+**Application settings** — editable on the settings screen, or fixed in `app/config/settings.php`:
+
+| Setting | Section |
+| --- | --- |
+| `web_session_lifetime` | [Web-session tokens](#web-session-tokens-and-how-they-stop) |
+| `loginlockoutsteps`, `loginlockoutwindowseconds` | [Login Lockout](#login-lockout-brute-force-protection) |
+| `auth_allow_registration`, `auth_registration_domains`, `auth_registration_verify_email`, `auth_invitation_ttl_hours` | [Registration](#registration-open-by-domain-by-invitation) |
+| `auth_newsignin_policy`, `auth_newsignin_action`, `auth_newsignin_trigger` | [Telling an account it was used from somewhere new](#telling-an-account-it-was-used-from-somewhere-new) |
+| `auth_trusted_devices`, `auth_trusted_device_days`, `auth_push_approval`, `auth_push_number_matching` | [Trusted devices and sign-in approval](#trusted-devices-and-sign-in-approval) |
+
+**`app/app.php`** — fixed per deployment, versioned with the code:
+
 ```php
-// In your application configuration
-return [
-    'authentication' => [
-        'jwt_secret' => env('JWT_SECRET', 'your-secret-key'),
-        'jwt_expiry' => env('JWT_EXPIRY', 3600), // 1 hour
-        'session_timeout' => env('SESSION_TIMEOUT', 1800), // 30 minutes
-        'remember_me_duration' => env('REMEMBER_ME_DURATION', 2592000), // 30 days
-        'password_hash_algo' => PASSWORD_ARGON2ID,
-        'enable_mfa' => env('ENABLE_MFA', false),
-    ],
-    
-    'permissions' => [
-        'cache_permissions' => env('CACHE_PERMISSIONS', true),
-        'default_user_permissions' => [
-            'profile' => ['read', 'update'],
-            'content' => ['read']
-        ]
-    ]
-];
+'auth' => [
+    'rehash_on_login'             => 'modern',   // 'off' | 'modern' | 'all'
+    'newsignin_policy'            => 'optout',   // the default the setting overrides
+    'registration_admin_editable' => true,
+    'security'                    => ['human_check' => ['register']],
+],
+'authserver' => [
+    'default_grants'       => [...],
+    'default_auth_methods' => [...],
+    'default_scopes'       => [],
+],
 ```
+
+See [Upgrading on the next sign-in](#upgrading-on-the-next-sign-in) and
+[OAuth2 Scopes and Policy](#oauth2-scopes-and-policy) for the `rehash_on_login` and
+`authserver` keys.
 
 Email confirmation at registration is a setting rather than a configuration key — see
 [Registration](#registration-open-by-domain-by-invitation).
 
 ### Database Setup
 
-The authentication system requires several database tables. Use the framework's migration system to set them up:
+The tables are created by the framework's migrations — there is nothing to create by hand:
 
-```sql
--- Users table
-CREATE TABLE `users` (
-    `userid` int NOT NULL AUTO_INCREMENT,
-    `username` varchar(255) NOT NULL,
-    `email` varchar(255) NOT NULL,
-    `password` varchar(255) NOT NULL,
-    `firstname` varchar(255),
-    `lastname` varchar(255),
-    `status` tinyint DEFAULT 1,
-    `created_at` timestamp DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (`userid`),
-    UNIQUE KEY `username` (`username`),
-    UNIQUE KEY `email` (`email`)
-);
-
--- User tokens table
-CREATE TABLE `usertokens` (
-    `tokenid` int NOT NULL AUTO_INCREMENT,
-    `userid` int NOT NULL,
-    `tokentype` varchar(50) NOT NULL,
-    `token` varchar(255) NOT NULL,
-    `created` int NOT NULL,
-    `lastused` int DEFAULT 0,
-    `expires` int DEFAULT NULL,
-    `status` tinyint DEFAULT 1,
-    `notes` text,
-    PRIMARY KEY (`tokenid`),
-    KEY `userid` (`userid`),
-    KEY `token` (`token`),
-    FOREIGN KEY (`userid`) REFERENCES `users` (`userid`) ON DELETE CASCADE
-);
-
+```bash
+php <cli>.php migrate --scope=framework
 ```
 
-> **Permissions are not in this list on purpose.** They live in
-> `authserver.permissions`, created by the `auth` feature's migrations — there
-> is nothing to create by hand. An older revision of this guide printed a
-> `CREATE TABLE permissions` statement for a table no migration has ever
-> created; if you built one from it, see
-> [Legacy Permissions Migration](Pramnos_Legacy_Permissions_Migration.md) for
-> the SQL that moves its rows across.
+The `auth` feature creates `users`, `usertokens`, `authserver.permissions` and the other
+`authserver.*` tables this guide names; the `authserver` feature adds the OAuth2 server's own.
+Do not build these tables from hand-written SQL: `usertokens.token` holds an encrypted value and
+authentication finds a token through `usertokens.token_lookup`, which a hand-made table would not
+have.
+
+> If your installation has a hand-made `permissions` table, see
+> [Legacy Permissions Migration](Pramnos_Legacy_Permissions_Migration.md) for the SQL that moves its
+> rows into `authserver.permissions`.
 
 ## Best Practices
 
 ### Security Guidelines
 
-1. **Always use prepared statements** - The framework's `prepareQuery()` method prevents SQL injection
+1. **Use the query builder** - `$db->queryBuilder()` binds parameters instead of interpolating them, and resolves `authserver.*` table names per driver
 2. **Validate JWT tokens properly** - Set appropriate expiry times and validate all claims
 3. **Use strong passwords** - Implement password complexity requirements
 4. **Enable CSRF protection** - Use session tokens for form submissions
@@ -3038,22 +2999,17 @@ try {
     
     if (!$result) {
         $response = $auth->lastResponse;
-        \Pramnos\Logs\Logger::logWarning('Failed login attempt', [
-            'username' => $username,
-            'ip' => $_SERVER['REMOTE_ADDR'],
-            'user_agent' => $_SERVER['HTTP_USER_AGENT'],
-            'reason' => $response['message']
-        ]);
-        
+        \Pramnos\Logs\Logger::log(
+            'Failed login attempt for ' . $username . ': ' . ($response['message'] ?? ''),
+            'auth'
+        );
+
         return ['status' => 401, 'message' => 'Authentication failed'];
     }
-    
-} catch (\Exception $e) {
-    \Pramnos\Logs\Logger::logError('Authentication error', [
-        'error' => $e->getMessage(),
-        'trace' => $e->getTraceAsString()
-    ]);
-    
+
+} catch (\Throwable $e) {
+    \Pramnos\Logs\Logger::logError('Authentication error', $e);   // message, then the exception
+
     return ['status' => 500, 'message' => 'Internal authentication error'];
 }
 ```

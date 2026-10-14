@@ -7,10 +7,10 @@ use_cases:
 
 # Keeping the test suite fast
 
-The suite runs ~15,700 tests against MySQL, PostgreSQL and TimescaleDB. The tests themselves
-take **under three minutes**; the default `./dockertest` takes **just under ten**, and the
+The suite runs against MySQL, PostgreSQL and TimescaleDB. In the measurements below, the
+default `./dockertest` took roughly three times as long as a `--nocoverage` run, and the
 difference is Xdebug instrumenting every line of `src/`. Everything below is what keeps the
-three minutes where they are, and what the other seven are for.
+plain run short, and what the coverage run's extra time is for.
 
 ## Measure before you plan
 
@@ -118,7 +118,7 @@ thousands of fast tests is worth less than one class fixed.
 
 ## Where the time is, measured
 
-Per suite, on 16,174 tests. Two readings of each, agreeing; the noise band above is why one
+Per suite, in one dated measurement on 16,174 tests. Two readings of each, agreeing; the noise band above is why one
 would not be enough.
 
 | Suite | Tests | PHPUnit time | Per test |
@@ -159,34 +159,32 @@ apart:
 | `./dockertest` | **9:50** | — |
 | `./dockertest --nocoverage` | **2:56** | 149.5 s of test time |
 
-That pair is from the commit that measured it, on 15,693 tests and the `latest-pg14`
-database image. The suite is 16,174 tests now and the image is pinned to
-`timescale/timescaledb:2.26.4-pg17` — so the ratio is the finding to carry forward, not the
-seconds.
+That pair is a dated measurement: 15,693 tests on the `latest-pg14` database image. The
+suite and the image (`timescale/timescaledb:2.26.4-pg17`) have both moved since, so the
+ratio is the finding to carry forward, not the seconds.
 
 **Instrumentation is 3.3× — about 70% of the default run.** A subset reproduces the ratio at
 a smaller scale: `tests/Unit/Console` is 88 s by default and 27 s with `--nocoverage`, and
 part of that 27 s is Docker start-up rather than tests.
 
-An earlier reading of the same question said 12%, and that number is quoted in two places
-this page used to be one of. It compared a coverage-collecting run with one where Xdebug was
-still loaded in coverage mode — so it measured PHPUnit's collection and report, not the
-instrumentation, which is where the time actually is. That is the trap this whole page is
+A figure of 12% is easy to arrive at, and wrong: it comes from comparing a coverage-collecting
+run with one where Xdebug is still loaded in coverage mode — which measures PHPUnit's
+collection and report, not the instrumentation, which is where the time actually is. That is the trap this whole page is
 about: the second measurement has to change the thing you think is expensive, not the flag
 that names it.
 
 What follows from it:
 
-- **For an ordinary run, use `--nocoverage`.** Three minutes is a different working rhythm
-  from ten, and nothing about a red test needs a clover file.
-- **For rule 11, use `--coverage`.** That is the run whose seven extra minutes buy something.
+- **For an ordinary run, use `--nocoverage`.** A run a third as long is a different working rhythm
+  from the default, and nothing about a red test needs a clover file.
+- **For rule 11, use `--coverage`.** That is the run whose extra time buys something.
 - The always-on `<coverage>` block still earns its place — a coverage report that has to be
   asked for is one nobody has — but the ordinary loop should not be paying for it.
 
-## Two traps that make a test lie, and the sweeps that find them
+## Three traps that make a test lie, and the sweeps that find them
 
-Both were found by sweeping rather than by reading, both had been in the suite for a long
-time, and both produce a test that passes whether the subject works or not. That is the
+The first two are found by sweeping rather than by reading, and all three produce a test
+that passes whether the subject works or not. That is the
 category worth automating: a test that is merely slow announces itself.
 
 ### `fail()` inside a `try` its own `catch` swallows
@@ -203,10 +201,8 @@ try {
 }
 ```
 
-**Forty of these, in twenty-four files**, by several authors over years — including two
-written in one afternoon by somebody who had just fixed the first one. All forty branches
-turned out to be sound once they could fail; the value is that forty tests now mean what
-they say. `FailIsNotSwallowedTest` keeps them that way. Only `\Throwable`, `\Exception`
+The shape is easy to write and easy to miss in review, which is why a sweep guards it:
+`FailIsNotSwallowedTest` fails on any occurrence. Only `\Throwable`, `\Exception`
 and `\RuntimeException` swallow it — a `catch (ValidationException $e)` is fine, and a
 sweep that flagged those too would report 128 sites of which 88 are correct.
 
@@ -216,15 +212,12 @@ When every assertion in a test sits inside a `foreach`, the loop body *is* the t
 empty collection means no assertion is evaluated at all. PHPUnit reports a pass, and not
 even a risky one: the `foreach` line counts as work.
 
-**Forty-five of these**, and the shape is not theoretical. `create:crud` registered every
-admin search source against a column called `name` for months, because the helper picking
-the columns destructured a pair into one variable and returned `[]` every time — and its
-test asserted "at most two" and "no empty strings", both true of nothing. Separately, a
-`glob()` over a directory that briefly vanished mid-run turned two theme sweeps into no-ops
-the same way.
+The shape is not theoretical: a helper that destructures a pair into one variable returns
+`[]` every time, and a test asserting "at most two" and "no empty strings" is true of
+nothing. A `glob()` over a directory that briefly vanishes mid-run turns a sweep into a
+no-op the same way.
 
-All forty-five collections turned out to be populated. `ASweepOverNothingDoesNotPassTest`
-keeps it that way, restricted to a `foreach` over a **call**: a literal array or a variable
+`ASweepOverNothingDoesNotPassTest` guards against it, restricted to a `foreach` over a **call**: a literal array or a variable
 the test built above it cannot be empty by surprise, and flagging those reports three
 hundred sites of which almost none is a risk.
 
@@ -241,16 +234,17 @@ worse than no guard, because it is counted.
 ## What not to do
 
 - **Do not remove the always-on `<coverage>` block** — but know what it costs, because it is
-  not 12%. See below: it is most of the run, and it is the one number worth re-measuring
+  not 12%. See [above](#coverage-is-not-12-it-is-most-of-the-run): it is most of the run, and it is the one number worth re-measuring
   before believing anything else about this suite.
 - **Do not drop a database from the matrix.** The bugs this framework has shipped in the
   query builder were dialect-specific — a `?` placeholder only MySQL tolerated, a backtick
   only MySQL accepts. The repetition *is* the test.
-- **Do not reach for parallelism first.** `paratest` would give perhaps 3–4× on one machine,
-  but this suite shares a database: it needs a schema or a database per worker, plus every
-  static-state reset that currently relies on running in one process. It is the right step
-  only once the per-class costs above are gone — and after them, the suite is fast enough
-  that the answer has stayed "not yet".
+- **Do not reach for parallelism first.** `./dockertest --parallel[=N]` exists — ParaTest
+  over N workers, each with its own database, then the `serial` group in one process (see
+  the [Testing Guide](Pramnos_Testing_Guide.md#running-the-frameworks-suite-in-parallel)).
+  It collects no coverage, so the sequential run stays the reference, and a test that fails
+  only in parallel is one that shares something. Parallelism hides a slow class rather than
+  fixing it; remove the per-class costs above first.
 - **Do not fix a class the profiler has not looked at.** See above; this is where the time
   goes when it is wasted.
 

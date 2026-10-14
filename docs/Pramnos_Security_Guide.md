@@ -19,21 +19,19 @@ Security is a core concern in Pramnos Framework v1.2. This guide covers built-in
 
 ## CSRF Protection
 
-Both CSRF paths verify with `hash_equals()`. The synchronizer token
-(`verifyCsrfToken()`) always did; the legacy fingerprint check (`checkTokenValue()`,
-which the account controllers, the settings form and the scaffolded templates still
-use) compared with `===` until 2026-08-31. Neither is now the weaker choice, so a
-project on the legacy path is not on a worse one.
+There are two CSRF tokens, and both are verified with `hash_equals()`:
 
-### Session Token Hardening (v1.2)
-
-| Change | Before | After |
+| Token | Emitted by | Verified by |
 |---|---|---|
-| Session token entropy | `random_bytes(5)` → 40-bit | `random_bytes(32)` → 256-bit |
-| Fingerprint algorithm | `md5($ua . $ip . $token)` | `hash_hmac('sha256', $ua . $ip, $token)` |
-| Existing sessions | — | Silently upgraded on first request |
+| **Form token** — a field whose *name* is the session token and whose value is `hash_hmac('sha256', $userAgent [. $ip], $sessionToken)` | `Session::getTokenField()` | `Session::checkToken()` / `checkTokenValue()` |
+| **Synchronizer token** — 256 random bits kept in the session | `CsrfMiddleware::tokenField()`, `<meta name="csrf">` | `Session::verifyCsrfToken()`, `CsrfMiddleware` |
 
-New methods on `Session`:
+The account controllers, the settings form and the scaffolded templates use the form token;
+neither is the weaker choice. The session token behind the form token is 256 bits
+(`random_bytes(32)`); a shorter one found in an existing session is replaced on its next
+request.
+
+Synchronizer-token methods on `Session`:
 
 | Method | Description |
 |---|---|
@@ -97,7 +95,10 @@ token fails it. A controller's new write action is covered as soon as it is decl
 
 ### CsrfMiddleware
 
-Validates the token on `POST`, `PUT`, `PATCH`, `DELETE`. Passes `GET`, `HEAD`, `OPTIONS`, `TRACE` through unchecked.
+Validates the token on `POST`, `PUT`, `PATCH`, `DELETE`. Passes `GET`, `HEAD`, `OPTIONS`, `TRACE` through unchecked,
+and also passes requests whose first path segment is exempt — `unsubscribe` always (a mail
+client's one-click unsubscribe carries no token), plus any listed in the constructor's
+`$exemptPaths`.
 
 ```php
 // Global protection for all state-changing routes
@@ -122,80 +123,79 @@ Token lookup order per request:
 
 ### AJAX / Fetch
 
-```html
-<meta name="csrf-token" content="<?php echo \Pramnos\Http\Middleware\CsrfMiddleware::token(); ?>">
-```
+A signed-in page already carries the synchronizer token: the document's `<head>` emits
+`<meta name="csrf" content="…">` whenever a session is running and somebody is signed in
+(`Document::csrfHeadMarkup()`). Send it back as a header:
 
 ```javascript
 fetch('/api/data', {
     method: 'POST',
-    headers: { 'X-CSRF-Token': document.querySelector('meta[name=csrf-token]').content }
+    headers: { 'X-CSRF-Token': document.querySelector('meta[name="csrf"]').content }
 });
 ```
 
-### Legacy API (unchanged)
+`pf-utils.js`, `pf-auth.js` and `pf-consent.js` read the same tag. On an anonymous page there is
+no tag — reading the token would start a session on every public URL — so a page that must post
+without a sign-in prints the field itself with `CsrfMiddleware::tokenField()`.
+
+### The form token
 
 ```php
-// Existing code — continues to work
-$session->checkToken('POST');
-$session->getTokenField();
+echo $session->getTokenField();          // in the form
+if (!$session->checkToken('POST')) { … }  // in the action
 ```
 
 ### CsrfMiddleware API
 
 | Method | Description |
 |---|---|
-| `new CsrfMiddleware(string $fieldName = '_csrf_token')` | Constructor; custom field name for legacy forms |
+| `new CsrfMiddleware(string $fieldName = '_csrf_token', array $exemptPaths = [])` | Constructor; a custom field name, and first path segments to let through in addition to `unsubscribe` |
 | `CsrfMiddleware::token(): string` | Returns the session CSRF token |
 | `CsrfMiddleware::tokenField(string $fieldName = '_csrf_token'): string` | Returns `<input type="hidden">` with HTML-escaped token |
 
 ## Session Security
 
-### Session Cookie Hardening (v1.2)
+### What the session does on its own
 
-Three security improvements added transparently:
+1. **Strict session ids.** `Session::start()` sets `session.use_strict_mode = 1` before
+   `session_start()`, so PHP refuses a session id it did not generate.
+2. **A new id at every privilege change.** `Session::regenerateId()` calls
+   `session_regenerate_id(true)`, keeping the session's contents. The framework's login path
+   calls it *before* writing the signed-in state, so an id planted beforehand is worthless;
+   `Session::reset()` — the logout wipe — calls it too, along with new form and synchronizer
+   tokens.
+3. **Cookie flags.** The session cookie is always `HttpOnly` and `SameSite=Lax`, and `Secure`
+   whenever `Session::isHttps()` is true. These are set in `Session::start()` and are not
+   configurable.
 
-1. **Session fixation prevention** — `Session::reset()` now calls `session_regenerate_id(true)` on login/logout. An attacker who planted a session ID is immediately locked out.
-2. **Strict session ID mode** — `session.use_strict_mode = 1` is set before `session_start()`. PHP rejects any session ID not generated by itself.
-3. **HTTPS detection fix** — `Session::isHttps()` now accepts both `'on'` (Apache/nginx) and `'1'` (IIS/CGI).
-
-### Usage
-
-The hardening is **transparent** — existing login/logout code gets protection automatically:
+### Signing somebody in or out from your own code
 
 ```php
-// Session::start() sets strict mode automatically
-$session = Session::getInstance();
-$session->start();
+$session = \Pramnos\Http\Session::getInstance();
 
-// Session::reset() regenerates session ID + CSRF token
-// Call AFTER setting session data on login/logout
+// Sign in: new id first, then write — everything lands on the new session.
+$session->ensureStarted();
+$session->regenerateId();
 $session->set('userid', $user->userid);
+
+// Sign out: clears the signed-in state, regenerates the id and both tokens.
 $session->reset();
 ```
+
+`reset()` sets `logged` to `false` and `uid` to the guest, so it is the **last** call of a
+logout and never follows a login. Prefer the framework's `Auth` login, which does all of this
+and records the sign-in.
 
 ### Session::isHttps()
 
 ```php
-// Before (fragile — missed IIS/CGI '1' value)
-if ($_SERVER['HTTPS'] === 'on') { ... }
-
-// After (handles 'on', '1' consistently)
-if (Session::isHttps()) {
-    // set Secure cookie, redirect HTTP→HTTPS, etc.
+if (\Pramnos\Http\Session::isHttps()) {
+    // set a Secure cookie, redirect HTTP→HTTPS, etc.
 }
 ```
 
-### Session Cookie Settings (already set in v1.1, unchanged)
-
-```php
-// HttpOnly, SameSite=Lax, and Secure (when HTTPS) are set automatically
-'session' => [
-    'secure'    => true,      // HTTPS only
-    'http_only' => true,      // No JavaScript access
-    'same_site' => 'Lax',     // CSRF protection
-],
-```
+Accepts `HTTPS` set to `'on'` (Apache/nginx) or `'1'` (IIS/CGI), and `X-Forwarded-Proto` from a
+trusted proxy — see [trusted proxies](#who-is-the-client-trusted-proxies).
 
 ### Cookie consent (EU)
 
@@ -561,20 +561,17 @@ client cannot connect.
 
 Comparing `token` cannot match a presented value any more, and every caller in this framework
 reads "no row" as "not a valid token" — so a missed lookup **fails closed, silently**, on a path
-that worked the day before. Two were missed when the column was split, both written as
-`where('ut.token', …)`: the aliased form, which a grep for `where('token'` does not see.
-`Oauth::selectTokenRow()` made introspection answer `{"active": false}` for every token the
-server had issued, and `OAuth2Middleware::loadTokenFromDatabase()` refused every Bearer request.
+that worked the day before. Watch the aliased form, `where('ut.token', …)`, which a grep for
+`where('token'` does not see: in token introspection it answers `{"active": false}` for every
+token, and in the OAuth2 middleware it refuses every Bearer request.
 
 `TokenAtRestTest::testNoLookupMatchesOnTheTokenColumn()` reads `src/` and fails on any surviving
 comparison, alias or not. Add a sixteenth lookup and it will tell you.
 
 **Both columns come from one place, and saving a token goes through it.**
 `Token::storageFor($value)` produces the pair — the value encrypted and the digest —
-and `Token::save()` calls it. It did not: it wrote `$this->token` as it stood and
-never wrote `token_lookup` at all, so a token inserted through the model was stored
-in plaintext and could not be found by any of those fifteen lookups. `User::addToken()`,
-which INSERTs directly, had it right, which is why nothing in the framework noticed.
+and `Token::save()` and `User::addToken()` both go through it, so a token written either way
+is stored encrypted and can be found by every lookup.
 
 ```php
 $token = new \Pramnos\User\Token();
@@ -594,11 +591,9 @@ Two properties of that, both deliberate:
   not encrypt the plaintext again under a fresh nonce, rewriting the column for no
   change, and the object matches what a `load()` would give.
 
-**Loading by value means loading by digest.** `Token::load($value)` matched
-`WHERE token = %s`, which cannot work on any installation that has an `APP_KEY`:
-encryption is non-deterministic, so the stored ciphertext never equals the presented
-value. It worked only where nothing was encrypted — which is why it survived. It now
-looks up the digest, and falls back to the plaintext comparison only when that finds
+**Loading by value means loading by digest.** `Token::load($value)` with a non-numeric value
+looks up `token_lookup`, because encryption is non-deterministic and the stored ciphertext never
+equals the presented value. It falls back to a plaintext comparison only when that finds
 nothing, for rows written before the column existed.
 
 **Both paths check that the column exists first**, cached once per process. The
@@ -609,9 +604,8 @@ issues a query, and `save()` runs on the authentication path whenever a token's
 last-used moment is persisted, so asking once per process is the difference between
 a guard and a tax.
 
-The mocked unit tests over `introspect()` and `revoke()` stayed green through both, which is the
-other half of the lesson: a mocked query builder returns the prepared row whatever the `WHERE`
-says, so it cannot answer a question about a column.
+A unit test with a mocked query builder cannot catch a wrong lookup column: the mock returns
+the prepared row whatever the `WHERE` says. That is why the guard is a test that reads `src/`.
 
 Nothing about using these changes — `getSecret()` returns a base32 seed, a
 delivery signs with the real key, `getSetting('smtp_pass')` returns a password.
@@ -621,14 +615,19 @@ until something rewrites them.
 ### Settings that are encrypted automatically
 
 `Settings` encrypts the values it knows are credentials, listed in
-`Settings::ENCRYPTED_SETTINGS`. Currently that is `smtp_pass`.
+`Settings::ENCRYPTED_SETTINGS`: `smtp_pass` and `database_readonly_dsn`.
 
-Nothing else changes: `Settings::getSetting('smtp_pass')` returns the plaintext
-it always did, and `setSetting()` takes a plaintext. Only the row is different.
-An existing installation needs no migration — the row converts itself the next
-time the settings screen is saved — and if `APP_KEY` is not set the value is
-stored as before, because a settings screen that refuses to save is worse than
-the problem it would be avoiding.
+`Settings::getSetting('smtp_pass')` returns the plaintext and `setSetting()` takes a
+plaintext; only the row is encrypted. A row written in plaintext is read as it is and converts
+itself the next time it is saved, so there is no migration.
+
+Without an `APP_KEY` the two differ, on purpose:
+
+- `smtp_pass` is **stored in plaintext**, because an installation must still be able to save
+  its mail settings, and an unreadable credential is worse than the exposure.
+- `database_readonly_dsn` is **refused** (`Settings::KEY_REQUIRED_SETTINGS`). It is optional —
+  `db-inspect` uses the ordinary connection without it — so storing a database password in
+  the clear would buy nothing. Run `key:generate` first.
 
 ## XSS Prevention
 
@@ -724,79 +723,98 @@ $users = $db->queryBuilder()
 ### Login/Logout
 
 ```php
-// Login
-$user = \Pramnos\User\User::authenticate($username, $password);
-if ($user) {
-    $session->set('userid', $user->userid);
-    // Success
+$auth = \Pramnos\Auth\Auth::getInstance();
+
+// Login — verifies the password, regenerates the session id, writes the signed-in
+// state and records the sign-in. Returns true or false.
+if ($auth->auth($username, $password, remember: false)) {
+    $user = \Pramnos\User\User::getCurrentUser();
 } else {
     // Authentication failed
 }
 
-// Logout
-$session->destroy();
+// Logout — ends the session record, clears the cookies and calls Session::reset().
+$auth->logout();
 ```
+
+The bundled sign-in screens go through `LoginFlow`, which adds the lockout, the address limit,
+the human check and the second factor on top of this.
 
 ### Login Lockout
 
-Prevent brute-force attacks:
+`Pramnos\Auth\Loginlockout` counts failures per **scope** (`'user'`, `'identifier'` or `'ip'`)
+and identifier, and locks progressively:
 
 ```php
-$lockout = new \Pramnos\Auth\Loginlockout($user);
+$lockout    = new \Pramnos\Auth\Loginlockout();
+$identifier = strtolower(trim($username));
 
-// Check if user is locked out
-if ($lockout->isLocked()) {
-    return "Too many login attempts. Try again in " . $lockout->getRemainingTime() . " seconds";
+$status = $lockout->getLockoutStatus('identifier', $identifier);   // ['locked' => bool, 'remaining' => seconds]
+if ($status['locked']) {
+    return "Too many login attempts. Try again in {$status['remaining']} seconds";
 }
 
-// Record failed attempt
-$lockout->recordFailure();
-
-// Clear failures on success
-$lockout->clearFailures();
+if (!$auth->auth($username, $password)) {
+    $lockout->recordFailedAttempt('identifier', $identifier);
+} else {
+    $lockout->clearSuccessfulLoginState('identifier', $identifier);
+}
 ```
+
+The ladder and window come from the `loginlockoutsteps` and `loginlockoutwindowseconds`
+settings — see the
+[Authentication guide](Pramnos_Authentication_Guide.md#login-lockout-brute-force-protection).
 
 ### Two-Factor Authentication
 
-Protect accounts with 2FA:
+`TOTPHelper` is static and holds no user; the secret is stored per account by
+`TwoFactorAuthService`, which also handles backup codes and the replay guard.
 
 ```php
-$totp = new \Pramnos\Auth\TOTPHelper($user);
+use Pramnos\Auth\TOTPHelper;
 
-// Generate secret
-$secret = $totp->generateSecret();
+$secret = TOTPHelper::generateSecret();                       // base32
+$uri    = TOTPHelper::buildOtpAuthUri($secret, $email, 'My App');
 
-// Verify code
-if ($totp->verify($code)) {
-    // Code valid
-} else {
-    // Code invalid
+if (TOTPHelper::verifyCode($secret, $code)) {
+    // Code valid (current window ± the accepted drift)
 }
 ```
 
+See [Two-Factor Authentication](Pramnos_Authentication_Guide.md#two-factor-authentication-totp)
+for the full enrolment flow.
+
 ## Content Security Policy
 
-### CSP Headers
+The framework sends a `Content-Security-Policy` header on every page it renders. You do not
+build it: it comes from `Application::cspPolicy()`, starting from `default-src 'none'`, with
+a per-request nonce for inline scripts and styles.
 
-Protect against XSS by restricting script sources:
-
-```php
-// In controller or middleware
-$response->setHeader('Content-Security-Policy', 
-    "default-src 'self'; script-src 'nonce-" . $nonce . "'; style-src 'unsafe-inline'");
-
-// In template
-<script nonce="<?php echo $nonce; ?>">
-    // Only this script executes
-</script>
-```
-
-### Nonce Generation
+**Allow another origin** in `app/app.php`, under `csp`:
 
 ```php
-$nonce = bin2hex(random_bytes(16));
-// Pass to template and validate on execution
+'csp' => [
+    'script-src'  => ['https://cdn.jsdelivr.net'],
+    'connect-src' => ['https://api.example.com'],
+],
 ```
+
+The directives that take sources, their defaults and what is fixed are in the
+[Framework guide](Pramnos_Framework_Guide.md#security-content-security-policy-csp).
+A key outside that list is logged and ignored.
+
+**Inline scripts** in a template rendered by the framework get the nonce stamped on them
+automatically. Where you write markup the renderer does not see — a string you send yourself —
+read the nonce from the application:
+
+```php
+$nonce = \Pramnos\Application\Application::currentInstance()?->cspNonce ?? '';
+echo '<script nonce="' . htmlspecialchars($nonce, ENT_QUOTES) . '">…</script>';
+```
+
+Do not also set a `Content-Security-Policy` header yourself, in PHP or in the web server: a
+browser enforces every policy it receives, so a second one can only make the first stricter,
+and the result is scripts blocked for reasons neither policy states.
 
 ## File Upload Security
 
@@ -919,7 +937,7 @@ new RateLimitMiddleware(
     maxRequests: 600,
     perSeconds: 3600,
     keyPrefix: 'ratelimit:api:',
-    identify: static fn (Request $r): ?string => $r->header('X-Api-Key') ?: null,
+    identify: static fn (Request $r): ?string => ($_SERVER['HTTP_X_API_KEY'] ?? '') ?: null,
 );
 ```
 
@@ -931,7 +949,7 @@ new RateLimitMiddleware(
 
 ```php
 identify: static function (Request $r): ?array {
-    $key = ApiKeys::find($r->header('X-Api-Key'));      // your lookup
+    $key = ApiKeys::find($_SERVER['HTTP_X_API_KEY'] ?? '');   // your lookup
     return $key ? ["key:{$key->id}", $key->tierLimit, 3600] : null;
 },
 ```
@@ -1004,11 +1022,10 @@ Three details decide whether this is safe to switch on:
 
   Paths 2 and 4 exist because **`crypto.subtle` is only available in a secure context** —
   HTTPS, or localhost. A site reached over plain HTTP by hostname or LAN address (a staging
-  box, a colleague's machine, a tablet on the office network) has none of it, and until those
-  paths existed the check could not be solved there at all: the form submitted an empty
-  solution, the server refused it, and the visitor read "your browser must support
-  JavaScript" while using a browser that supported it perfectly well. It happened on a login
-  form.
+  box, a colleague's machine, a tablet on the office network) has none of it. Without these
+  paths the check could not be solved there at all: the form would submit an empty solution,
+  the server would refuse it, and the visitor would read "your browser must support
+  JavaScript" while using a browser that supports it perfectly well.
 
   Hashing in JavaScript is slower for the same difficulty, which is the right trade — a slow
   sign-in beats a sign-in that cannot happen. On the main thread the search is sliced with
@@ -1062,10 +1079,10 @@ It returns an empty string when the check is off for that form, so the line is s
 every one of them, and otherwise emits the two hidden fields, marks the enclosing form for
 `pf-humancheck.js`, and carries the CSP nonce on the script it needs.
 
-A function rather than a partial, which is what it was first. A partial lives in a view
-directory and a view directory is per-application: the sign-in page is the one screen no
-project inherits, so every project had to copy the partial in to use the feature and then
-owned a copy of the framework's markup for ever.
+A function rather than a partial, because a partial lives in a view directory and a view
+directory is per-application: the sign-in page is the one screen no project inherits, so every
+project would have to copy the partial in to use the feature and then own a copy of the
+framework's markup for ever.
 
 **The nonce is not optional.** A project with a strict `Content-Security-Policy` drops an
 un-nonced inline script *silently* — no error a person sees — so no solution is ever computed
@@ -1153,7 +1170,7 @@ cache. Two things to know before relying on it:
 **It is off unless you turn it on.**
 
 ```php
-'auth' => ['security' => ['cache_totp_replays' => true]],
+'auth' => ['security' => ['totp_replay_cache' => true]],
 ```
 
 Without that, `claimCode()` is never called and a code is replayable for its whole window.
@@ -1389,10 +1406,8 @@ SVG for exactly that reason.
 ### `Helpers::fileGetContents()` is a thin wrapper over this, and deprecated
 
 There is a second way to fetch a URL in this framework, and it is not the one to reach
-for. `\Pramnos\General\Helpers::fileGetContents()` predates `OutboundUrl` and used to be
-a general HTTP helper with certificate verification switched off, ten followed redirects,
-no restriction on scheme and no cap on the body. It now delegates here, and carries an
-`@deprecated` tag pointing back at `fetch()`.
+for. `\Pramnos\General\Helpers::fileGetContents()` delegates to `OutboundUrl::fetch()` and
+carries an `@deprecated` tag pointing back at it.
 
 Call `OutboundUrl::fetch()` directly in new code. The wrapper has to choose the byte
 ceiling, the timeout and the redirect budget on your behalf — they are
@@ -1400,18 +1415,18 @@ ceiling, the timeout and the redirect budget on your behalf — they are
 `REMOTE_FETCH_MAX_REDIRECTS` — and it gives you neither the reason nor the status, which
 are the two things that tell you whether to retry an address or forget it.
 
-Three behaviour changes came with the delegation, and each of them can break a caller:
+Three properties of the wrapper that a caller has to know:
 
-- **A host on a private address is refused**, which is the point. A caller fetching
-  `sURL . $path` against its own site stops working, because that name resolves locally to
-  a private address. Read the file from disk instead.
-- **`$fakeRef` is ignored.** It sent a Google referer and a Firefox user agent, which is
-  hotlink-protection evasion; re-adding header injection to a checked fetch path to keep
-  it is not a trade worth making. The parameter stays so the signature does not change.
-- **`allow_url_fopen` is now required.** `fetch()` dials with a stream because it has to
-  connect to an *address* it approved rather than to a name — that is the property the
-  whole class exists for, and curl is what used to work without the ini setting. It fails
-  closed: falling back to an unchecked curl fetch would undo the change.
+- **A host on a private address is refused**, which is the point. Fetching `sURL . $path`
+  against your own site fails, because that name resolves locally to a private address.
+  Read the file from disk instead.
+- **`$fakeRef` is ignored.** Sending a borrowed referer and user agent is hotlink-protection
+  evasion, and header injection does not belong on a checked fetch path. The parameter stays
+  so the signature does not change.
+- **`allow_url_fopen` is required.** `fetch()` dials with a stream because it has to connect
+  to the *address* it approved rather than to a name — that is the property the whole class
+  exists for. Without the ini setting it fails closed; falling back to an unchecked curl fetch
+  would undo the check.
 
 ### `Helpers::checkUrlStatus()` is **not** guarded, deliberately
 
@@ -1440,7 +1455,7 @@ costs the process its memory even though the body is never read.
 
 ## Personal data and the denial list
 
-Diagnosing a production problem used to mean SSH, and SSH gives a shell: everything the
+Diagnosing a production problem over SSH means a shell: everything the
 account can do, no record of what was *read*, and one mistyped `DELETE` away from an
 incident. The narrower thing is a single capability — `db-inspect`, an MCP tool that runs
 one read-only `SELECT` — and what makes it narrower is entirely what it refuses.
@@ -1525,7 +1540,7 @@ head or tail — `billing_email` and `user_phone` are caught by declaring `email
 `phone`. It is a heuristic and it is stated as one: it reduces what leaks from a table
 nobody classified, and it is not a substitute for classifying it.
 
-The framework declares its own twenty tables — credentials, identity, the GDPR
+The framework declares its own tables (twenty-three of them) — credentials, identity, the GDPR
 record-keeping that exists precisely because these are personal, and `tokenactions`,
 because a request log keyed to a token is a record of what one person did and when. Those
 apply with nothing loaded and nothing configured.
@@ -1613,23 +1628,44 @@ composer audit
 
 # Update dependencies
 composer update
-
-# Require security patches
-composer require symfony/security --security-advisories
 ```
+
+Composer also refuses, by default, to install a package version with a known advisory;
+`--no-security-blocking` overrides that and should stay off.
 
 ## Security Headers
 
 ### Recommended Headers
 
+The framework does not send these for you (the CSP, which also covers framing through
+`frame-ancestors`, it does). Add them in a middleware that wraps the response:
+
 ```php
-// In base controller or middleware
-$response->setHeader('X-Content-Type-Options', 'nosniff');
-$response->setHeader('X-Frame-Options', 'SAMEORIGIN');
-$response->setHeader('X-XSS-Protection', '1; mode=block');
-$response->setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-$response->setHeader('Permissions-Policy', 'geolocation=(), microphone=()');
+use Pramnos\Http\MiddlewareInterface;
+use Pramnos\Http\Request;
+use Pramnos\Http\Response;
+
+class SecurityHeadersMiddleware implements MiddlewareInterface
+{
+    public function handle(Request $request, callable $next): mixed
+    {
+        $response = $next($request);
+
+        if ($response instanceof Response) {
+            return $response
+                ->withHeader('X-Content-Type-Options', 'nosniff')
+                ->withHeader('Referrer-Policy', 'strict-origin-when-cross-origin')
+                ->withHeader('Permissions-Policy', 'geolocation=(), microphone=()');
+        }
+
+        return $response;
+    }
+}
 ```
+
+A page rendered by the classic MVC path is not a `Response` object; there, call PHP's
+`header()` before output, or set them in the web server. `X-XSS-Protection` is omitted on
+purpose — current browsers ignore it, and the CSP is what stops script injection.
 
 ## Reference
 
@@ -1638,4 +1674,4 @@ For complete technical details, see the inline documentation in the framework so
 **Related Guides:**
 - [Pramnos_Authentication_Guide.md](Pramnos_Authentication_Guide.md) — Login lockout, 2FA/TOTP, OAuth2
 - [Pramnos_Framework_Guide.md](Pramnos_Framework_Guide.md) — Middleware pipeline, CORS, exception handler
-- [Pramnos_Authorization_Guide.md](Pramnos_Authorization_Guide.md) — Policy engine, gates, access control
+- [Pramnos_Authorization_Guide.md](Pramnos_Authorization_Guide.md) — Gates, permissions, roles, administration access

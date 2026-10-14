@@ -199,8 +199,7 @@ prompt** on every signed-in page.
 **Both halves ship, and that is the point.** The worker can receive a notification; nothing in
 it can ask to show one — `Notification.requestPermission()` and `PushManager.subscribe()` exist
 only in a page. An installation with the worker, the key pair, the table and the endpoints and
-no page that asks has no subscriptions, for ever, with nothing anywhere saying why. That is not
-hypothetical: it is how this section came to be written.
+no page that asks has no subscriptions, for ever, with nothing anywhere saying why.
 
 #### The soft prompt, and why it is not the real one
 
@@ -269,8 +268,8 @@ composer require minishlink/web-push:^11.0
 
 It is a **suggestion rather than a requirement** so that applications sending no
 notifications do not carry a push library in `vendor/`. Without it the channel
-logs once and does nothing, which is a better failure than a message that
-silently never arrives.
+sends nothing, and on every send it logs why and writes a `NO_LIBRARY` refusal to
+the push log — a better failure than a message that silently never arrives.
 
 ---
 
@@ -279,11 +278,10 @@ silently never arrives.
 `/admin/PushLog`, beside `/admin/Emails`, and the two answer the same question about the two
 channels: *what was sent, when, to whom, and what came of it*.
 
-Push had no such screen. `pushsubscriptions` says when a browser was last reached successfully
-and how many failures it has since — a fact about the **browser**, not about a message — and the
-mass-send path writes `massmessagerecipients`, which covers one path out of two. Everything a
-`notify()` sent left no trace at all, so the only way to find out whether a notification had
-gone out was to ask the person it was for.
+It is needed because nothing else records a message. `pushsubscriptions` says when a browser was
+last reached successfully and how many failures it has since — a fact about the **browser**, not
+about a message — and `massmessagerecipients` covers only the mass-send path. The push log covers
+every `notify()` as well.
 
 ```php
 use Pramnos\Push\Log;
@@ -331,9 +329,10 @@ differ: an account with three browsers gets three answers, and «delivered, deli
 shape of the real question.
 
 **And every reason a push does *not* go out writes a row too** — which is usually the row
-somebody is looking for. Each of these used to be a silent `return`:
+somebody is looking for. The row has `status` 0, an empty `endpoint_hash`, and the text of one
+of these `Log` constants in `error`:
 
-| `error` | What happened |
+| `Log::` constant | What happened |
 | --- | --- |
 | `NO_SUBSCRIPTION` | no browser on the account has ever granted permission |
 | `NO_KEYS` | the installation has no VAPID pair |
@@ -509,9 +508,9 @@ either. It counts as one bad attempt. After ten consecutive failures with no 410
 among them, the subscription is presumed dead and removed; a single success
 clears the count.
 
-### The worker was scaffolded before push existed
+### The worker has no push handlers
 
-A project generated before web push has a `sw.js` without the three handlers — registered,
+A `sw.js` without the three handlers is registered,
 working, caching assets, and discarding every notification. The send succeeds, the subscription
 stays healthy, and the only symptom is that nobody mentions receiving anything.
 
@@ -539,7 +538,7 @@ never be shown — for ever, because nothing tells it otherwise.
 
 The shipped worker catches that and unsubscribes, on `NotAllowedError` only: a transient failure
 must not unsubscribe somebody who had a bad moment. Handed to `waitUntil()` without a catch it
-is an unhandled rejection in somebody else's console, which is where this was first seen.
+is an unhandled rejection in somebody else's console, where nobody will ever see it.
 
 ### `pushsubscriptionchange`
 
@@ -590,9 +589,11 @@ an IP address on your LAN.
 (`pushsubscriptions.trusted_device_id`) when it carries the trust cookie — that link is
 what makes it one of the phones a sign-in elsewhere can be approved from.
 
-The last two require a session, because a subscription belongs to an account —
-without one there is nobody to notify. (That is deliberately the opposite of the
-one-click mail endpoints, where requiring a session would break every request.)
+`subscribe`, `unsubscribe`, `respond`, `test` and `teststatus` require a session,
+because a subscription belongs to an account — without one there is nobody to
+notify (`401` otherwise). `ack` and `testack` authenticate by their token alone,
+because the service worker posting them may have no page and no session — the same
+reasoning as the one-click mail endpoints.
 
 `POST /push/unsubscribe` answers success when there was nothing to forget: the
 browser has already unsubscribed by the time it calls, and reporting a failure

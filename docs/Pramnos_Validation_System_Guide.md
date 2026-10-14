@@ -38,7 +38,10 @@ The validation system is built around the following classes:
 
 - `Pramnos\Validation\Validator`
 - `Pramnos\Validation\ValidationException`
+- `Pramnos\Validation\RuleInterface` — a custom rule
+- `Pramnos\Validation\FormRequest` — rules in their own class
 - `Pramnos\Http\Request`
+- `Pramnos\Http\Middleware\ValidationRedirectMiddleware` — the redirect for router-dispatched applications
 
 It is also integrated into:
 
@@ -146,32 +149,92 @@ $request->clearValidationState();
 
 ## Validation Rules
 
-Rules are declared as strings separated by `|`.
+Rules for a field are given either as one string separated by `|`, or as an array whose
+entries are rule strings or rule objects:
 
-### Supported Rules
+```php
+'name'  => 'required|string|max:255',
+'code'  => ['required', 'regex:/^[A-Z]{3}$/', new UppercaseRule()],
+```
 
-| Rule | Description |
+Parameters follow a `:` and are split on `,` — `in:a,b,c`, `between:1,5`.
+
+### Presence
+
+| Rule | Meaning |
+|------|---------|
+| `required` | Present, and not `null` or `''` |
+| `required_if:other,value` | Required when `other` equals `value` |
+| `required_unless:other,value` | Required unless `other` equals `value` |
+| `required_with:a,b` | Required when any of the listed fields is present and non-empty |
+| `required_without:a,b` | Required when any of the listed fields is absent or empty |
+| `nullable` | `null` or `''` is accepted and skips the remaining rules |
+| `sometimes` | When the field is absent, none of its rules run |
+
+A field that is absent and not required is skipped — its other rules do not run.
+
+### Type and format
+
+| Rule | Passes when |
 |------|-------------|
-| `required` | The field must be present and must not be empty |
-| `nullable` | The field may be missing, `null`, or an empty string |
-| `string` | The field must be a string |
-| `integer` | The field must be an integer |
-| `numeric` | The field must be numeric |
-| `min:x` | Minimum numeric value or minimum string length |
-| `max:x` | Maximum numeric value or maximum string length |
-| `between:min,max` | Value or length must be within the specified interval |
-| `in:a,b,c` | The field value must be one of the allowed values |
-| `csrf` | The security token must be valid for the session |
-| `url` | The field must be a valid URL format |
-| `json` | The field must be a valid JSON string |
+| `string` | the value is a string |
+| `integer` | `filter_var(FILTER_VALIDATE_INT)` accepts it (`"12"` passes) |
+| `numeric` | `is_numeric()` |
+| `boolean` | one of `true`, `false`, `0`, `1`, `'0'`, `'1'` |
+| `array` | the value is an array |
+| `alpha` | letters only (Unicode) |
+| `alpha_num` | letters and digits only (Unicode) |
+| `digits:n` | exactly `n` digits |
+| `regex:/pattern/` | `preg_match()` matches |
+| `starts_with:x` | the value starts with `x` |
+| `ends_with:x` | the value ends with `x` |
+| `email` | `FILTER_VALIDATE_EMAIL` |
+| `ip` | a valid IPv4 or IPv6 address |
+| `uuid` | an 8-4-4-4-12 hex UUID |
+| `url` | a valid URL; see below |
+| `json` | a valid JSON string |
+
+### Size and inclusion
+
+| Rule | Meaning |
+|------|---------|
+| `min:x` | at least `x` |
+| `max:x` | at most `x` |
+| `size:x` | exactly `x` |
+| `between:min,max` | from `min` to `max`, inclusive |
+| `in:a,b,c` | one of the listed values (compared as strings) |
+| `not_in:a,b,c` | none of the listed values |
+
+### Dates and cross-field
+
+| Rule | Meaning |
+|------|---------|
+| `date` | `strtotime()` can parse it |
+| `date_format:Y-m-d` | matches that `DateTime` format exactly |
+| `before:date` / `before_or_equal:date` | earlier than (or equal to) `date` |
+| `after:date` / `after_or_equal:date` | later than (or equal to) `date` |
+| `confirmed` | a `<field>_confirmation` key holds the identical value |
+
+The `date` parameter of the comparison rules is anything `strtotime()` reads — `2025-01-01`,
+`today`, `+1 week`. It is a date, not the name of another field.
+
+### Security
+
+| Rule | Meaning |
+|------|---------|
+| `csrf` | the session's form token is valid; see below |
 
 ### Rule Details
 
-#### `min`, `max`, and `between`
-These rules are type-aware and adapt their behavior based on the input:
-- **Strings**: Validates the **number of characters** (using `mb_strlen`).
-- **Numbers**: Validates the **numeric value**.
-- **Arrays**: Validates the **number of elements** in the array.
+#### `min`, `max`, `size` and `between`
+These rules are type-aware:
+- **Strings**: the **number of characters** (`mb_strlen`).
+- **Numbers**: the **numeric value**.
+- **Arrays**: the **number of elements**.
+
+A field that also carries `numeric` or `integer` is compared **by value** even when it arrives
+as a string, so `"25"` from a form passes `integer|min:18` as the number 25 rather than as a
+two-character string.
 
 | Rule | String Example | Numeric Example | Array Example |
 |------|----------------|-----------------|---------------|
@@ -179,18 +242,89 @@ These rules are type-aware and adapt their behavior based on the input:
 | `max:10` | At most 10 chars | Value <= 10 | At most 10 items |
 | `between:1,5` | 1 to 5 chars | Value from 1 to 5 | 1 to 5 items |
 
+#### `regex`, `starts_with` and `ends_with`
+Parameters are split on `,`, so a `regex` pattern containing a comma (`{2,4}`) is cut at the
+comma and no longer means what was written; express such a pattern as a custom rule. A
+pattern containing `|` must be given in the array form, since the string form splits on `|`. `starts_with` and `ends_with` check only the **first** listed value.
+
 #### `csrf`
-The `csrf` rule verifies the security token for the request. Because Pramnos uses dynamic parameter names for CSRF tokens, the rule automatically verifies that:
-1. The field name matches the current session token (`Session::getToken()`).
-2. The field value is set to `'1'`.
+Verifies the form token that `Session::getTokenField()` emits. That token's field **name** is
+the session's token and its **value** is a per-session fingerprint, so the rule checks both:
+1. The field name equals the current session token (`Session::getToken()`).
+2. The submitted value matches the session's fingerprint (`Session::checkTokenValue()`).
+
+Unlike other rules it runs even when the field is absent, so a missing token fails.
 
 *Note: This rule requires an active session.*
 
 #### `url`
-Validates that the input is a valid URL. It automatically adds `http://` if a protocol is missing (e.g., `google.com` becomes `http://google.com`).
+Validates that the input is a valid URL. A missing scheme is assumed to be `http://` **when
+checking**, so `google.com` passes; the value returned by `validate()` is the input as
+submitted, not the normalised URL. A host without a dot fails.
 
 #### `json`
-Validates that the input is a valid JSON string. Uses `json_validate()` on PHP 8.3+ for better performance.
+Validates that the input is a valid JSON string, with `json_validate()`.
+
+### Custom messages and attribute names
+
+`validate()` takes two more arrays after the rules:
+
+```php
+$data = $request->validate(
+    ['email' => 'required|email'],
+    [
+        'email.required' => 'We need an address to reply to.',   // this field, this rule
+        'required'       => 'Please fill in :attribute.',        // any field, this rule
+    ],
+    ['email' => 'email address'],                                 // :attribute
+    'POST'
+);
+```
+
+A message is looked up as `field.rule`, then as `rule`, then falls back to the built-in
+text. Placeholders: `:attribute`, `:min`, `:max`, `:size`, `:digits`, `:format`, `:date`,
+`:values`.
+
+### Custom rules
+
+A rule object implements `Pramnos\Validation\RuleInterface`:
+
+```php
+use Pramnos\Validation\RuleInterface;
+
+class UppercaseRule implements RuleInterface
+{
+    public function passes(string $attribute, mixed $value): bool
+    {
+        return is_string($value) && strtoupper($value) === $value;
+    }
+
+    public function message(): string
+    {
+        return 'The :attribute must be upper case.';
+    }
+}
+
+$request->validate(['code' => ['required', new UppercaseRule()]]);
+```
+
+To use it by name in rule strings, register it once with `Validator::extend()`. A closure
+works too, and receives the parameters after the `:`:
+
+```php
+use Pramnos\Validation\Validator;
+
+Validator::extend('uppercase', new UppercaseRule());
+Validator::extend('multiple_of', fn (string $attribute, mixed $value, array $parameters): bool =>
+    is_numeric($value) && fmod((float) $value, (float) ($parameters[0] ?? 1)) == 0
+);
+
+$request->validate(['qty' => 'required|integer|multiple_of:6']);
+```
+
+A rule registered by name takes its message from the `$messages` array (`'multiple_of' => …`)
+or the generic *"The :attribute field is invalid."*. An unknown rule name throws
+`InvalidArgumentException` rather than passing silently.
 
 ### Example
 
@@ -369,26 +503,31 @@ This behavior makes validation act like a standard form flash session workflow.
 
 ## API Usage
 
-In API applications, validation should typically be handled by returning a structured response.
-
-### Example
+An API controller does not need to catch `ValidationException`. `Pramnos\Application\Api`
+catches it around every controller action and around `src/Api/routes.php`, and answers with
+a `422`:
 
 ```php
-try {
-    $data = $request->validate([
+public function create()
+{
+    $data = (new \Pramnos\Http\Request())->validate([
         'name' => 'required|string|max:255',
     ], [], [], 'POST');
-} catch (\Pramnos\Validation\ValidationException $e) {
-    return [
-        'status' => 422,
-        'message' => $e->getMessage(),
-        'error' => 'ValidationError',
-        'errors' => $e->errors(),
-    ];
+
+    // only reached when validation passed
 }
 ```
 
-The framework API handling can then translate this into a proper JSON response.
+```json
+{
+    "status": 422,
+    "message": "…",
+    "error": "ValidationError",
+    "errors": { "name": ["The name field is required."] }
+}
+```
+
+Catch it yourself only when an endpoint needs a different shape.
 
 ---
 
@@ -422,7 +561,7 @@ If validation fails, a `ValidationException` is thrown.
 
 When introducing validation into old controllers, it is usually better to start with forgiving rules and preserve existing behavior where possible.
 
-For example, if a field used to allow an empty string, avoid making it suddenly required unless that is an intentional business rule change.
+For example, if a field accepts an empty string today, avoid making it suddenly required unless that is an intentional business rule change.
 
 ### 2. Use database structure as a guide, but not blindly
 
@@ -475,17 +614,10 @@ public function save()
 
 ---
 
-## Future Improvements
+## Not provided
 
-Possible future enhancements for the validation system include:
-
-- additional validation rules
-- custom validation messages
-- custom attribute names
-- field-level error helpers in views
-- Form Request classes
-- middleware integration
-- schema-aware validation helpers
+- Schema-aware helpers that derive rules from a table's columns. Use the schema as a guide
+  by hand (see Practical Notes above).
 
 ---
 

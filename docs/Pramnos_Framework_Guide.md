@@ -76,9 +76,6 @@ class ExampleController extends \Pramnos\Application\Controller
         // Define authenticated actions (login required)
         $this->addAuthAction(['private_action', 'dashboard']);
         
-        // Set module name for views and navigation
-        $this->_modulename = 'Example';
-        
         parent::__construct($application);
     }
     
@@ -92,8 +89,8 @@ class ExampleController extends \Pramnos\Application\Controller
     {
         $view = $this->getView('Example');
         
-        // Set page title and breadcrumbs
-        $this->header = 'Dashboard';
+        // Page heading (read by the template), browser title and breadcrumbs
+        $view->header = 'Dashboard';
         $doc = \Pramnos\Framework\Factory::getDocument();
         $doc->title = 'My Dashboard';
         $this->addbreadcrumb('Dashboard', sURL . 'Example/dashboard');
@@ -152,14 +149,10 @@ public function view(mixed $id = null): mixed
 }
 ```
 
-This has cost real features twice. `Capabilities::sync()` could not be called
-through the classic dispatcher at all — a `?string` declaration made it a
-`TypeError`. `Organizations::addmember()` and `removemember()` trusted the
-argument, so **adding a member to an organization was impossible**: the form posts
-to `organizations/addmember/{id}`, the id never arrived, and the screen answered
-"No valid entries were selected" and redirected to `organizations/0/members`. Both
-actions look correct in isolation and their unit tests passed, because a test that
-calls `addmember(5)` constructs a state no request can produce.
+A typed parameter (`?string $id`) makes the action a `TypeError` under the classic
+dispatcher, and an untyped one silently receives the array. A unit test that calls
+`addmember(5)` passes either way, because it constructs a state no request can produce —
+so test such an action through a request.
 
 **One id per path, and the rest as query parameters.** `staticGetOption()` returns
 a single option, and the parser only fills it when the path has exactly one segment
@@ -172,8 +165,8 @@ adminUrl('Organizations/removemember/' . $orgId . '/' . $userId)          // doe
 ```
 
 And read the second id from `$_GET`/`$_POST` only — never from
-`staticGetOption()`, which is the *first* segment. Resolving both the same way made
-them equal, the update matched no row, and the screen still reported success.
+`staticGetOption()`, which is the *first* segment. Resolving both the same way makes
+them equal, so an update matches no row while the screen still reports success.
 
 ### Authentication and Authorization
 
@@ -207,8 +200,8 @@ $this->redirect(sURL . 'Controller/action');
 $this->addbreadcrumb('Home', sURL);
 $this->addbreadcrumb('Dashboard', sURL . 'Dashboard/dashboard');
 
-// Set page headers
-$this->header = 'Page Title';
+// Page heading is a view variable; the browser title is the document's
+$view->header = 'Page Title';
 $doc = \Pramnos\Framework\Factory::getDocument();
 $doc->title = 'Browser Title';
 ```
@@ -288,7 +281,7 @@ $session->regenerateToken();
 Pramnos Framework provides built-in support for a **Nonce-based Content Security Policy**. This approach allows for a highly restrictive `script-src` and `style-src` while still permitting legitimate inline content throughout your application.
 
 #### 1. How It Works
-1.  **Nonce Generation**: A unique, cryptographically secure nonce is generated once per request in `Application::exec()`. This value is accessible via `Application::getInstance()->cspNonce`.
+1.  **Nonce Generation**: A unique, cryptographically secure nonce is generated once per request — in `Application::exec()`, and again just before rendering if `exec()` was overridden without calling the parent. Read it as `Application::currentInstance()?->cspNonce`.
 2.  **Header Emission**: The `Content-Security-Policy` header is automatically sent to the browser before any content is rendered.
 3.  **Auto-Injection**: The framework's HTML rendering layer (`DocumentTypes\Html`) automatically post-processes the output to inject the `nonce` attribute into all:
     -   Inline `<script>` tags (those without a `src` attribute).
@@ -394,12 +387,9 @@ When using the framework's built-in CSP, ensure you remove any manual `Content-S
 ## Reading the request body
 
 `$_POST` is filled by PHP **for POST only**. A handler that reads it under DELETE,
-PUT or PATCH finds nothing, and nothing about the code says it will. That has
-already shipped as three separate bugs in one application — banning worked and
-unbanning was impossible, an endpoint worked over POST and failed over DELETE on
-the same route, a third accepted JSON and refused the form-encoded body every
-other endpoint used. All three passed their unit tests, because a test that seeds
-`$_POST` for a DELETE constructs a state no real request can produce.
+PUT or PATCH finds nothing, and nothing about the code says it will. A unit test that
+seeds `$_POST` for a DELETE passes anyway, because it constructs a state no real request
+can produce.
 
 **Use `body()`.** It answers for whatever method this request actually used:
 
@@ -495,9 +485,9 @@ The convention is flat: `views/<module>/<template>.<type>.php`. That is what the
 reference application and all three scaffolded themes use, and nothing needs to be
 configured for it.
 
-An application migrating off the **legacy** view layer will have them one level
-down — `pramnos_application_view` built `<path>/tpl/<template>.<type>.php`. Declare
-it once on a base view rather than moving the files:
+An application whose templates sit one level down —
+`<path>/tpl/<template>.<type>.php` — declares that once on a base view rather than moving
+the files:
 
 ```php
 abstract class AppView extends \Pramnos\Application\View
@@ -562,13 +552,10 @@ class Posts extends \Pramnos\Application\Model
 }
 ```
 
-The check is `is_object($this->model) && method_exists(...)`. It used to be
-`isset($this->model)`, which is why this section exists: `$model` is declared
-`public $model = false`, and `isset()` answers *not null* rather than *not empty*, so the
-guard passed for every view that has no model at all — and `method_exists(false, …)` is a
-`TypeError` on PHP 8. The branch that exists to recover from a missing template was
-taking the page down instead, on any request with `?format=json`. Reported from a
-consuming application's home page.
+The check is `is_object($this->model) && method_exists(...)`, not `isset($this->model)`:
+`$model` is declared `public $model = false`, `isset()` answers *not null* rather than *not
+empty*, and `method_exists(false, …)` is a `TypeError` on PHP 8. A view with no model and a
+missing template therefore logs and renders nothing on `?format=json`, rather than failing.
 
 ### Layouts and partials
 
@@ -607,16 +594,14 @@ Both `.html.php` and `.tpl.php` are tried at each step.
 
 **Debug output.** In debug mode an HTML view appends a comment naming the template it
 rendered and when. It is emitted only when `Application::isDebugMode()` says so — the
-`APP_DEBUG` environment variable, the `DEVELOPMENT` constant, or the debug setting. It
-used to be unconditional, which put the application's file layout into the source of
+`APP_DEBUG` environment variable, the `DEVELOPMENT` constant, or the debug setting —
+never in production, where it would put the application's file layout into the source of
 every public page.
 
-Step 4 was missing until 2026-08-16, which made a shared layout the one thing that
-could not be found — and a declared layout that does not resolve renders the child
-**alone**: a page returned with `200`, no `<head>`, and, until the same change, nothing
-in any log. It presents as a stylesheet that failed to load. If a page comes back
-looking unstyled and structurally bare, check the log for `Layout not found:` before
-looking at anything else.
+**A declared layout that does not resolve renders the child alone**: a page returned with
+`200`, no `<head>`, and a `Layout not found:` line in the log. It presents as a stylesheet
+that failed to load. If a page comes back looking unstyled and structurally bare, check the
+log for `Layout not found:` before looking at anything else.
 
 ## Routing
 
@@ -636,49 +621,46 @@ namespace YourNamespace;
 
 class Application extends \Pramnos\Application\Application
 {
-    public function __construct()
+    public function init($settingsFile = '')
     {
-        parent::__construct();
-        
-        // Set application-specific configuration
-        $this->setConfig('app_name', 'Your App Name');
-        $this->setConfig('version', '1.0.0');
-    }
-    
-    public function exec($query = '')
-    {
-        // Custom application logic before execution
-        
-        // Call parent execution
-        parent::exec($query);
+        parent::init($settingsFile);
+        // application-specific setup: register libraries, services, resolvers…
+        return $this;
     }
 }
 ```
 
+This is the shape `init` scaffolds. Override `init()` for setup, and leave `exec()` alone
+unless you call `parent::exec()` — it is where the route is dispatched and the CSP nonce is
+created. Application settings (name, features, `csp`, `middleware`, `auth`, …) are not set
+in code: they live in `app/app.php` and are read into `$this->applicationInfo`.
+
 ### Configuration Files
 
-Configuration is typically stored in `/app/config/settings.php`:
+The connection and environment settings are in `app/config/settings.php`, which `init`
+writes to read its values from `.env`:
 
 ```php
 <?php
+loadDotenv(dirname(__DIR__, 2));
+
 return [
     'database' => [
-        'host' => 'localhost',
-        'username' => 'dbuser',
-        'password' => 'dbpass',
-        'database' => 'dbname'
+        'type'     => envvar('APP_DB_TYPE', 'postgresql'),
+        'hostname' => envvar('APP_DB_HOST', 'localhost'),
+        'database' => envvar('APP_DB_NAME', 'app'),
+        'user'     => envvar('APP_DB_USER', 'app'),
+        'password' => (string) envvar('APP_DB_PASSWORD', ''),
+        'prefix'   => (string) envvar('APP_DB_PREFIX', ''),
     ],
-    'app' => [
-        'name' => 'Your Application',
-        'version' => '1.0.0',
-        'timezone' => 'UTC'
-    ],
-    'security' => [
-        'session_timeout' => 3600,
-        'password_hash_algo' => PASSWORD_DEFAULT
-    ]
+    'dbsettings'  => true,
+    'language'    => 'en',
+    'development' => false,
+    'forcessl'    => false,
 ];
 ```
+
+The database keys are `hostname` and `user` — `Database` reads those names.
 
 
 ### Runtime settings — the `settings` table
@@ -713,10 +695,8 @@ SELECT setting, COUNT(*) FROM settings GROUP BY setting HAVING COUNT(*) > 1;
 ```
 
 Resolve whatever that returns, then re-run migrations. Until it is empty, `setSetting()`
-detects the missing index and falls back to the older read-then-write, which is correct for
-one writer and still races for two. The fallback is not a second implementation to maintain
-— it is the behaviour the framework has always had, kept for installations that cannot take
-the constraint yet.
+detects the missing index and falls back to a read-then-write, which is correct for one
+writer and races for two.
 
 The answer is read from the catalogue **once per process**, because a settings form calls
 `setSetting()` once per field. A long-lived worker that was running when the migration
@@ -731,10 +711,12 @@ the next `getSetting()` reads the table again. The queue worker calls it before 
 claims, never while idle; a daemon of your own does the same at the top of each unit of work.
 
 !!! warning "Encrypted values"
-    A setting whose name matches the framework's credential patterns is encrypted with
-    `APP_KEY` before it is written. Without a key it is stored in clear and converts itself
-    on the next save once `key:generate` has run — an unreadable mail password is a worse
-    outcome than a readable one.
+    The settings listed in `Settings::ENCRYPTED_SETTINGS` — `smtp_pass` and
+    `database_readonly_dsn` — are encrypted with `APP_KEY` before they are written. Without a
+    key, `smtp_pass` is stored in clear and converts itself on the next save once
+    `key:generate` has run (an unreadable mail password is a worse outcome than a readable
+    one), while `database_readonly_dsn` is refused. See the
+    [Security guide](Pramnos_Security_Guide.md#settings-that-are-encrypted-automatically).
 
 
 ## Declining the automatic session
@@ -782,11 +764,6 @@ state, and there is nothing to remove from a session that does not exist.
 
 `has()` is not `get($key) !== null`. It distinguishes a stored `null` from an absent key, which
 is the question a caller actually has when deciding whether to compute a value again.
-
-> **`set()` was missing until 2026-08-28.** `get()` existed, so callers wrote
-> `$session->set(...)` and got `Call to undefined method` — a fatal on whichever request
-> reached that line, not an error anything saw earlier. One was found in production on a path a
-> full-page cache had been hiding behind cache misses.
 
 ### What "lazy" means, and what it does not
 
@@ -883,8 +860,7 @@ list stops covering them is a day nothing reports. `isBot()` uses it when it is 
 
 A `suggest` rather than a `require`, for the same reason as `matomo/device-detector` beside
 it: an application that never counts a visit should not carry a crawler list. **Without it
-this class answers exactly as it always did**, so upgrading changes nothing an installation
-relies on.
+the class answers from its own patterns alone.**
 
 `botName()` consults the framework's own patterns **first**, because they carry a label
 somebody wrote — `Googlebot` — while the library can only report which fragment of the agent
@@ -893,9 +869,8 @@ string it matched on. The library is the wider net, not the better label.
 ## Declining session tracking
 
 `SessionTrackingMiddleware` records visitors in the `sessions` table. It runs
-automatically unless the application **names** it in `middleware` — so, until this
-key existed, the way to switch it off was to declare it and then arrange not to run
-it, in two places, each needing a comment explaining the other.
+automatically unless the application **names** it in `middleware`. To switch it off, say
+so:
 
 ```php
 // app/app.php
@@ -905,11 +880,8 @@ return [
 ];
 ```
 
-Omission is not refusal, and one application learned that the expensive way: its
-config carried the comment *"session tracking is deliberately NOT wired"* while the
-middleware had been running the whole time — two cookies and a database upsert on
-every request, crawler hits included — and a passing test guarded the claim while
-the behaviour was the opposite.
+Omission is not refusal: leaving the middleware out of `middleware` does not stop it,
+because the framework registers it itself. Only this key does.
 
 Accepts the spellings a config file actually contains: `false`, `0`, `'0'`,
 `'false'`, `'no'`, `'off'` and `''` all decline. `true`, `1`, `'yes'`, `'on'` leave
@@ -936,16 +908,10 @@ included, would clear the instruction before it was ever read, and the eject but
 nothing.
 
 **A failure to write the row is logged and nothing else.** It is a tracking write: the visit is
-not recorded and the request carries on. This has to be said explicitly because it was not true —
-both dialect branches caught the exception and called `$session->reset()` and `$auth->logout()`,
-so any database error signed the visitor out. The case that found it was `sessions.url`, a
-`varchar(255)` holding an OAuth callback that carries three scopes and is comfortably over 400
-characters: PostgreSQL refused the statement, and the person saw the sign-in page at the end of a
-successful consent screen. `url` and `agent` are `text` now — the same storage as `varchar` in PostgreSQL, and in MySQL
-the difference is that a long value moves off-page, which is the behaviour wanted for a column
-whose whole problem was values that did not fit — and the handler no longer ends
-anybody's session — a revoked session still takes effect through the `logout` flag above, on the
-next request that reaches the database.
+not recorded and the request carries on, and nobody is signed out because a tracking write
+failed. A revoked session still takes effect through the `logout` flag above, on the next
+request that reaches the database. `url` and `agent` are `text`, because a URL such as an
+OAuth callback carrying several scopes is easily longer than 255 characters.
 
 Two settings keep the cost down, and both trade promptness for writes:
 
@@ -1006,10 +972,8 @@ Outside a view, read them from the request: `$request->messages()` and
     the user pastes when asking for help, and it is user-controlled input arriving at a page
     that displays it.
 
-    The framework itself did this in **sixty-seven** places until 2026-08-17. All are converted.
-
 !!! note "If your application reads the flash through `Base`"
-    All four members keep working, and they are a supported way to do it — they are `protected`
+    All four members work, and they are a supported way to do it — they are `protected`
     on `Base`, so every controller, model and theme inherits them:
 
     | Member | Consumes the flash? | Typical use |
@@ -1018,12 +982,10 @@ Outside a view, read them from the request: `$request->messages()` and
     | `_printErrors()` / `_printMessages()` | yes | renders `<span>`s |
     | `_getErrors()` / `_getMessages()` | yes | the raw array, e.g. for a JSON response |
 
-    All four now consult the same per-request capture, because `View::__construct()` drains
-    `$_SESSION` into it. Without that, a gate answers `false` for a flash that arrived perfectly
-    well and **the printer behind it is never reached** — which is silent: nothing fails, the page
-    simply says nothing. That happened to a reference application, in its theme header and five
-    views, and took three real HTTP requests against two framework versions to find. Neither its
-    5497-test suite nor this framework's saw it.
+    All four consult the same per-request capture, because `View::__construct()` drains
+    `$_SESSION` into it. If they read the session directly, a gate would answer `false` for a
+    flash that arrived perfectly well and **the printer behind it would never be reached** —
+    silently: nothing fails, the page simply says nothing.
 
     The gates are non-destructive on purpose: a gate that consumed would leave the printer with
     nothing, which is the same silence by the opposite route.
@@ -1109,82 +1071,47 @@ $proxies = $app?->applicationInfo['trusted_proxies'] ?? [];
 
 Use `currentInstance()` anywhere that runs **before the application is ready**:
 CSRF verification, middleware that runs early in the pipeline, and anything on
-the database connection path. The last one is not hypothetical — reading the
-application name while a connection was being opened built an application, which
-set up `Settings`, which queried the database through the very connection still
-being established. `ConnectionPathPurityTest` now fails the build if that
-returns.
+the database connection path. On that last path the factory is self-defeating:
+building an application builds `Settings`, which queries the database through the very
+connection still being opened. `ConnectionPathPurityTest` fails the build if a connection
+path reaches the factory.
 
 **Four directories are guarded the same way.** Nothing under `src/Pramnos/Auth/`,
 `src/Pramnos/Http/Middleware/`, `src/Pramnos/User/` or `src/Pramnos/Database/` may
 call `Application::getInstance()`; `ApplicationFactoryPurityTest` reads the source
 and fails the build if it does, with an enumerated exemption list that is
-currently empty. `ConnectionPathPurityTest` guards the connection path in
-particular; this is the wider rule that path is one instance of.
+currently empty. These are the places where the factory is a hazard: asking *who is signed
+in* (`User::getCurrentUser()`) must not construct an application, and reporting a database
+error must not query the database that just failed.
 
-That guard exists because this section did not prevent the mistake. Nine call
-sites were still using the factory, and the placements say why the rule matters:
-
-- inside a **token-minting** method, in `SessionExchange`;
-- inside **`User::getCurrentUser()`** — asking *who is signed in* constructed an
-  entire application, database and session included;
-- inside **`Database::displayError()`**, where building an application builds
-  `Settings`, which queries the database that just failed. That also made the
-  method's own `error_log()` fallback unreachable, so a database error outside a
-  request went nowhere at all;
-- and in four middleware and driver methods that wanted to write one property or
-  read two booleans.
-
-Every one of them was written as `if ($app)` or `if (!is_object($app))` — a guard
-for a null the factory cannot return. So the guard was dead and the construction
-was live, and the source had been saying so all along.
+A tell-tale of the mistake is a guard such as `if ($app)` or `if (!is_object($app))` after a
+`getInstance()` call: the factory never returns null, so the guard is dead and the
+construction is live.
 
 One practical consequence when you convert a call site: `currentInstance()`
 declares `?Application` while `getInstance()` declares nothing, so any test that
 installs a plain `stdClass` in the registry as a fake application starts failing
 with a `TypeError`. That is the correct type being enforced — the registry is
-meant to hold applications — but it is the first thing you will see. Use a real
-subclass with an empty constructor.
+meant to hold applications. Use a real subclass with an empty constructor.
 
 If you genuinely need to *build* an application from guarded code, add the file to
 `ApplicationFactoryPurityTest::EXEMPT` with the reason. Having to write the reason
 down is the point.
 
-### Outside the guarded directories: audited, and twelve calls kept
+### Where the factory is the right call
 
-The remaining `getInstance()` calls in `src/` were examined one by one rather than
-left as an unknown. Eleven were converted and one deleted:
+- **Console bootstraps** — `Console\Application`, `TimescaleDrain`, `TimescaleEnsure`,
+  `PolicyEngine`, `BroadcastServe`, `BaseTestCase`, and the two bootstrap scripts the
+  scaffolder generates. Building an application is what these are *for*.
+- **Constructor fallbacks** in `Controller` and `Theme`: `__construct($application =
+  null)` resolving the current one when none was passed. In a request both calls answer
+  identically, and `currentInstance()` would put **null** into `$this->application` for a
+  controller built by hand, which unit tests rely on not happening.
 
-- the CSP-nonce reads in the debug panel and in the `Html` and `Raw` renderers, where
-  rendering already happens inside a request and the `if ($app && …)` guard was
-  already written for a null the factory could not return;
-- `Broadcastable::resolveBroadcastingManager()`, where building an application in
-  order to ask whether broadcasting is configured was a side effect inside a `try`
-  whose `catch` reports "not configured";
-- `RouteList`'s third fallback strategy, which asks whether a global instance
-  *exists*;
-- `TestClient`, whose `if ($appInstance === null)` fallback was unreachable and
-  carried a coverage-ignore saying so — it is now live;
-- five generated templates the scaffolder writes into every project, now
-  `currentInstance()?->…`;
-- and a line in the session-cleanup addon that assigned `$app` and **never read it**,
-  so an entire application was constructed for a variable nothing used. Deleted.
-
-**Twelve are kept deliberately**, and they fall into two groups:
-
-1. **Console bootstraps** — `Console\Application`, `TimescaleDrain`, `TimescaleEnsure`,
-   `PolicyEngine`, `BroadcastServe`, `BaseTestCase`, and the two bootstrap scripts the
-   scaffolder generates. Building an application is what these are *for*; the factory
-   is the correct call.
-2. **Constructor fallbacks** in `Controller` and `Theme`: `__construct($application =
-   null)` resolving the current one when none was passed. In a real request both calls
-   answer identically, and `currentInstance()` would put **null** into
-   `$this->application` for the standalone case — which every unit test that builds a
-   controller by hand relies on not happening. The blast radius is every controller
-   and every theme, for no gain in production.
-
-The guard covers the directories where the factory is a hazard rather than a choice.
-These twelve are choices.
+A few other callers outside the guarded directories also use the factory —
+`Http\SiteUrl`, `Llm\Analyst\Analyst`, `Validation\FormRequest` and
+`Framework\Testing\TestEnvironment`. In a request there is always an application, so they
+behave as `currentInstance()` would; called before one exists, they construct it.
 
 This guide provides a comprehensive overview of the Pramnos framework structure and conventions. Use it as a reference for building consistent, secure, and maintainable applications within the Pramnos ecosystem.
 
@@ -1210,19 +1137,27 @@ $router->post('/api/export', fn() => exportData())
        );
 ```
 
-### Global Middleware (ServiceProvider::boot())
+### Global Middleware
+
+For the MVC application, list it in `app/app.php` — class names, or instances when a
+constructor needs arguments:
 
 ```php
-public function boot(): void
-{
-    $router = $this->app->getRouter();
-
-    $router->addGlobalMiddleware(new MaintenanceModeMiddleware());
-    $router->addGlobalMiddleware(new CorsMiddleware(
+'middleware' => [
+    \Pramnos\Http\Middleware\MaintenanceModeMiddleware::class,
+    new \Pramnos\Http\Middleware\CorsMiddleware(
         allowedOrigins: ['https://app.example.com'],
         allowCredentials: true
-    ));
-}
+    ),
+],
+```
+
+The scaffolded front controller feeds `Application::getMiddleware()` into a
+`MiddlewarePipeline` around the dispatch.
+An application that dispatches through a `Router` of its own registers on that router:
+
+```php
+$router->addGlobalMiddleware(new MaintenanceModeMiddleware());
 ```
 
 ### Controller Middleware
@@ -1282,7 +1217,7 @@ class HostRoutingMiddleware implements MiddlewareInterface
 {
     public function handle(Request $request, callable $next): mixed
     {
-        if ($request->getHeader('Host') === 'bio.example.com') {
+        if (($_SERVER['HTTP_HOST'] ?? '') === 'bio.example.com') {
             $request->setController('bio')->setAction('geekdom');
         }
 
@@ -1322,20 +1257,17 @@ path's action behind, which is rarely the pair you meant.
 
 #### Maintenance mode: which flag, and what the client is told
 
-There are two ways the site goes down on purpose, and until 2026-08-15 they watched
-different files:
+There are several ways the site goes down on purpose:
 
 | Raised by | Flag |
 | --- | --- |
 | `Application::startMaintenance()` | `<ROOT>/var/MAINTENANCE` |
 | `MigrationRunner` (for the duration of a batch) | `<ROOT>/var/MAINTENANCE` |
-| A deployment script doing `touch` | whatever it touches — historically `<ROOT>/maintenance.flag` |
+| A deployment script doing `touch` | whatever it touches — conventionally `<ROOT>/maintenance.flag` |
 
-`MaintenanceModeMiddleware` watched only the last one. So an application that
-registered it exactly as shown above and then ran a migration **served the whole
-migration from the live site** — the runner raised its flag, the middleware watched
-the other, and nothing looked wrong. With no constructor argument it now watches both.
-Pass a path explicitly and that path is the only one watched, because an application
+With no constructor argument, `MaintenanceModeMiddleware` watches both `<ROOT>/var/MAINTENANCE`
+and `<ROOT>/maintenance.flag`, so a migration's flag takes the site down for the middleware
+too. Pass a path explicitly and that path is the only one watched, because an application
 that named its own file has said which file it means.
 
 #### Paths that still answer while it is up
@@ -1487,8 +1419,8 @@ define('PRAMNOS_MAINTENANCE_RETRY_AFTER', 900);   // 15 minutes
 ```
 
 **What the client gets.** `Application::showError()` — which the constructor calls when
-`var/MAINTENANCE` exists, so a router-dispatched application reaches it too — now sends
-a status and a content type:
+`var/MAINTENANCE` exists, so a router-dispatched application reaches it too — sends a
+status and a content type:
 
 | Situation | Status | Body |
 | --- | --- | --- |
@@ -1496,10 +1428,9 @@ a status and a content type:
 | Maintenance, `Accept: application/json` | `503` + `Retry-After` | `{"error":"maintenance","retry_after":300,…}` |
 | Any other fatal (PHP version, addon, database) | `500` | as above, `"error":"unavailable"`, no retry |
 
-It previously sent **neither**, which produced two failures that look unrelated and
-are one bug: a JSON client got `200 OK` with a page of HTML and failed on parsing
-rather than recognising the state, and a crawler got the maintenance page as a `200`,
-making it eligible to be indexed in place of the real page.
+Both matter: without the status a JSON client would get `200 OK` with a page of HTML and
+fail on parsing rather than recognising the state, and a crawler would get the maintenance
+page as a `200`, eligible to be indexed in place of the real page.
 
 A client is treated as wanting JSON when its `Accept` names `application/json` or it
 sends `X-Requested-With: XMLHttpRequest`. Browsers send neither, so no list of API
@@ -1654,37 +1585,29 @@ StringHelper::excerpt($post->body, 120);          // 'The quick brown fox…'
 StringHelper::excerpt($post->body, 120, ' [more]');
 ```
 
-Three things it guarantees, each of them a bug it was written to remove:
+Three things it guarantees:
 
 - **At most `$length` characters, ellipsis included.** Size a column or a meta
   description with it and the number holds.
 - **HTML is stripped before measuring**, so the length is a length of visible text — an
   excerpt of markup gives prose, not an unclosed `<span class="…">`.
 - **A word longer than the limit is cut, not lost.** `Καθηγητήςμαθηματικών` at 10 gives
-  `Καθηγητής…`. It used to give the ellipsis on its own — `mb_strrpos()` finds no space,
-  returns `false`, `mb_substr()` reads that as 0 — so one long word came back looking
-  like missing text. A Greek compound, a name with no space, a URL and a hashtag are all
-  that shape, and a listing page is where you find out.
+  `Καθηγητής…`, not the ellipsis on its own, which would read as missing text. A Greek
+  compound, a name with no space, a URL and a hashtag are all that shape.
 
 `null` is an empty string, not a `TypeError`. A negative length is an
 `InvalidArgumentException`.
 
 ### `Helpers::shortenText()` is a deprecated alias
 
-It forwards, so there is one implementation. Two behaviours changed on the way and both
-are visible to existing callers:
+It forwards, so it has `excerpt()`'s guarantees: the result never exceeds `$length`, and a
+single word longer than the limit is hard-cut.
 
-| | before | now |
-|---|---|---|
-| result length | could exceed `$length` — the suffix was appended *after* cutting to it | never exceeds `$length` |
-| one long word | the suffix alone | the word, hard-cut |
-
-The default suffix is the character `…` rather than the entity `&hellip;`. It renders the
-same in HTML, and it is correct in the places the entity was wrong — a plain-text email, a
-JSON field, or anything that escapes the result and turned `&hellip;` into a visible
-`&amp;hellip;`. It also has to be one character, because the length now includes it, and
-charging eight for an ellipsis leaves almost nothing of a short excerpt. A suffix you pass
-yourself is used and counted literally.
+Its default suffix argument, `&hellip;`, is mapped to the character `…`. It renders the same
+in HTML and is also correct in a plain-text email, a JSON field, or anything that escapes the
+result (where the entity would show as `&amp;hellip;`). It has to be one character because
+the suffix counts against the length, and charging eight for an ellipsis leaves almost
+nothing of a short excerpt. Any other suffix you pass is used and counted literally.
 
 `$charset` is ignored; `excerpt()` uses the internal encoding, which this framework sets
 to UTF-8.
@@ -1732,10 +1655,9 @@ Three engines are tried in order, and only the first fills every field:
 
 **`sniff` is what an installation gets by default**, and it is a six-branch regex that
 returns a lowercase name — `version`, `platform`, `majorver`, `os_number` and `engine`
-come back empty. The method has always returned a valid object either way, which is what
-made this hard to notice: one consuming application measured 3,040 visits with a browser
-name and 771 with an operating system, and nothing had gone wrong as far as any code
-could tell.
+come back empty. The method returns a valid object either way, which is what makes this
+hard to notice: statistics fill with browser names and no operating systems, and no code
+reports an error.
 
 `matomo/device-detector` is a **suggest**, not a requirement — a framework should not put
 a user-agent parser into every project that installs it. Add it when you store or report
@@ -1751,8 +1673,8 @@ a cron job, and there is no way for a missing download to degrade it silently.
 
 ### What `detector` is for
 
-An empty `version` used to mean either *this agent is not identifiable* or *there was no
-parser running*, and those call for opposite responses — the first is a fact about the
+Without it, an empty `version` could mean either *this agent is not identifiable* or *there
+was no parser running*, and those call for opposite responses — the first is a fact about the
 visitor, the second is a missing package. `detector` is how a caller tells them apart,
 and it is the reason the field exists at all.
 
@@ -1773,7 +1695,7 @@ and a fabricated number is worse there than an empty one.
 - **[Authentication Guide](Pramnos_Authentication_Guide.md)** — User authentication and authorization
 - **[Routing Guide](Pramnos_Routing_Guide.md)** — Modern routing with PHP 8 attributes
 - **[Security Guide](Pramnos_Security_Guide.md)** — CSRF, XSS, sessions, 2FA
-- **[Authorization Guide](Pramnos_Authorization_Guide.md)** — Policy engine and access control
+- **[Authorization Guide](Pramnos_Authorization_Guide.md)** — Gates, permissions, roles and access control
 - **[Cache System Guide](Pramnos_Cache_Guide.md)** — Performance optimization
 - **[Console Commands Guide](Pramnos_Console_Guide.md)** — CLI tools and generators
 - **[Logging System Guide](Pramnos_Logging_Guide.md)** — Application monitoring

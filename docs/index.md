@@ -59,12 +59,17 @@ docker-compose up -d
 A typical Pramnos project following initialization looks like this:
 
 - **`app/`**: Configuration and Migrations.
-	 - `config/settings.php`: Main environment configuration.
-	 - `config/testsettings.php`: Database settings for unit tests.
+	 - `config/settings.php`: Main environment configuration — reads `.env`, holds no credentials.
+	 - `config/testsettings.php`: The same, pointed at `APP_DB_TEST_NAME`.
+- **`.env`**: this machine's values — credentials, database name, `APP_DEBUG`. Not committed.
+- **`.env.example`**: the committed list of every key, secrets blank. Copy it to `.env`.
 - **`src/`**: Your application logic (Controllers, Models, Views).
 - **`www/`**: Public entry point (contains `index.php` and assets).
-- **`var/`**: Logs and cache files.
+- **`var/`**: Logs, cache and migration state — machine-local, ignored by git.
 - **`tests/`**: Unit and Integration tests.
+
+The [Full Setup Guide](Getting_Started.md) explains the configuration, the `daemons`
+container and what `init` puts in `.gitignore`.
 
 To run your tests, use the following command:
 
@@ -76,16 +81,18 @@ To run your tests, use the following command:
 ./dockertest --coverage
 ```
 
-The `./dockertest` command runs PHPUnit inside the Docker container (PHP 8.4), ensuring all dependencies and environmental requirements are met. It automatically handles container startup and composer installation if needed.
+The `./dockertest` command runs PHPUnit inside the Docker container (PHP 8.5), ensuring all dependencies and environmental requirements are met. It automatically handles container startup and composer installation if needed.
 
 ## Creating Entities
 
-Once your project is initialized, you can use the `create` command to scaffold new components:
+Once your project is initialized, use the `create:*` commands to scaffold new components.
+The project's CLI is `<cli>.php` at the project root (`myapp.php` for the namespace `MyApp`);
+with Docker, `./<cli>` runs it inside the container:
 
 ```bash
 # Create a new controller
-php bin/pramnos create controller MyNewController
+./<cli> create:controller MyNewController
 
 # Create a new model
-php bin/pramnos create model MyModel
+./<cli> create:model MyModel
 ```

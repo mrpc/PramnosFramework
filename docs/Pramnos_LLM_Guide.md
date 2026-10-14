@@ -509,7 +509,7 @@ A Svelte SPA with the `llm` feature gets `components/llm/Chat.svelte`, `Schedule
 `AiConsent.svelte`, with `lib/llm/chat.js` (the API client and what the screens share),
 `lib/llm/markdown.js` (`marked`, then DOMPurify) and their tests under `__tests__/llm/` — a
 directory of their own, so they cannot land on an application's own chat screen or its tests.
-An existing project takes them with `./pramnos project:resync --spa-components --all`, which adds
+An existing project takes them with `php bin/pramnos project:resync --spa-components --all`, which adds
 `marked` and `dompurify` to package.json and leaves every component the project changed as it is
 (see the [Console Guide](Pramnos_Console_Guide.md)). They are the project's files from then on.
 
@@ -534,7 +534,7 @@ out through `onopen(id)`. Everything else an application changes without editing
 
 | prop | |
 |---|---|
-| `client`, or `api` and `paths` | the API: `chatClient(api, paths)` from `lib/chat.js` by default |
+| `client`, or `api` and `paths` | the API: `chatClient(api, paths)` from `lib/llm/chat.js` by default |
 | `extra` | an object, or a function returning one, sent with each question; `extraUsed()` once it went |
 | `canAsk`, `onRefusal(err)` | hold the Ask button; take a refusal — return `true` when the application said it itself |
 | `suggestions` | questions that fill the box when pressed — they do not ask |
@@ -545,9 +545,12 @@ out through `onopen(id)`. Everything else an application changes without editing
 | `waitingLine(ms)` | a line under *Thinking*, asked each second of waiting; `null` shows nothing. By default a sentence after a minute |
 | `onanswer(messages)` | told the conversation each time an answer has been read back — open what it produced |
 | `formatDate`, `numberFormat` | how a conversation's date and the limits' figures are shown |
+| `scheduledHref` | where the scheduled reports live; without it there is no *Scheduled reports* link |
+| `privacyUrl` | the privacy policy, linked from the consent notice; without it there is no link |
 | `conversationHref(id)` | the conversations become links the application's router follows, and open in a new tab |
 | `header` (snippet) | the title, in place of *Ask AI* |
 | `message(message, change)` (snippet) | drawn under each answer; `change(patch)` updates the message and calls `onmessagechange(id, patch)` |
+| `onmessagechange(id, patch)` | told when `change(patch)` updated a message, to persist it |
 | `composer` (snippet) | beside the Ask button: a cost, what the question is about |
 | `aside` (snippet), `asideOpen` (bindable) | a panel beside the conversation from `lg`, over it below that, closed with ✕ |
 
@@ -571,7 +574,8 @@ the analyst's own addresses, with everything `pf-chat.js` does there; its waitin
 - *Ask AI* is left out of the user menu, and the widget draws nothing (`Chat::available()`, with
   the asking person's own routing);
 - the admin header has no Ask, and the side panel no Ask tab (`Analyst::available()`);
-- `/admin/Ai` opens the settings, where the key is set. The admin menu's *AI* item stays.
+- the admin menu has no *AI* item, and `/admin/Ai` opens the settings. The settings stay one
+  click away from Settings (*AI: providers & keys*), where the key is set.
 
 A menu item of an application's own does the same with `when:`, a closure asked each time the
 menu is drawn:
@@ -700,7 +704,7 @@ Rows go through the redaction like every tool's answer. `sql` and `export_csv` a
 
 The admin header's **Ask** opens the analyst in a panel beside the page, about that page. A
 question carries the screen and the record it shows, and the analyst gets the page's help as
-background. Its `help` tool answers from the installation's help pages. See
+background. With the `help` feature on, its `help` tool answers from the installation's help pages. See
 [Administration help and the side panel](Pramnos_Admin_Assistant_Guide.md).
 
 ### The application's figures

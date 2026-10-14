@@ -93,9 +93,10 @@ $user->save();
 ```
 
 **A language that is not installed is refused.** Every candidate is checked against
-`Language::getLanguages()`, which is the filenames in `app/language/`. That is a security
+`Language::getLanguages()`, which is the language filenames it finds (see
+[Listing the languages](#listing-the-languages-an-installation-ships)). That is a security
 property as much as a correctness one — `load()` interpolates the name into an `include`
-path, and `?lang=` used to reach it unfiltered.
+path, and `?lang=` is visitor input.
 
 ### Changing it mid-request
 
@@ -180,8 +181,8 @@ it directly. See the [Notifications guide](Pramnos_Notifications_Guide.md).
 
 Two things it does that a hand-rolled switch does not:
 
-- **It restores the catalogue, not just the name.** `load()` *merges* — `addlang()` is an
-  `array_merge` — so switching by calling `load()` twice leaves the second language's
+- **It restores the catalogue, not just the name.** `load()` *merges* — `addlang()` adds the
+  new strings over those already loaded — so switching by calling `load()` twice leaves the second language's
   translations in place, and the next message in the first language comes out in the second.
   Nothing raises; it is noticed by a recipient.
 - **It ignores a language that is not installed.** The name usually comes from
@@ -222,43 +223,38 @@ l('Welcome, %s!', $username);
 
 ### Language Switching
 
-```php
-// Switch language via URL parameter
-if (isset($_GET['lang'])) {
-    $_SESSION['language'] = $_GET['lang'];
-    $lang = Language::getInstance();
-    $lang->setLang($_GET['lang']);
-}
+`?lang=el` on any URL already switches and remembers the language — see
+[Which language a request is served in](#which-language-a-request-is-served-in). To switch
+from code, use the validated call rather than writing the session yourself:
 
-// In application initialization
-$application = new \Pramnos\Application\Application();
-if (isset($_GET['lang'])) {
-    $application->language = $_GET['lang'];
-}
+```php
+$application = \Pramnos\Application\Application::currentInstance();
+$application->setLanguage('greek');   // false when 'greek' is not installed
 ```
 
 ## Language Files
 
 ### File Structure
 
-Language files are stored in the `language/` directory:
+Language files are stored in `app/language/` (the layout `init` creates; `LANGPATH` and
+`ROOT/language/` are also searched — see [Where language files are looked for](#where-language-files-are-looked-for)):
 
 ```
-language/
+app/language/
 ├── english.php
 ├── greek.php
 ├── spanish.php
 ├── french.php
-├── english.png      (flag icons)
-├── greek.png
 └── ...
 ```
+
+Flag icons are not looked for here — see `getFlag()` below.
 
 ### Language File Format
 
 ```php
 <?php
-// language/english.php
+// app/language/english.php
 
 $lang = array(
     // Basic translations
@@ -304,7 +300,7 @@ $lang = array(
 
 ```php
 <?php
-// language/greek.php
+// app/language/greek.php
 
 $lang = array(
     'Hello' => 'Γεια σας',
@@ -347,10 +343,9 @@ $title = t('Hello, World!');   // returns — for a value
 ```
 
 `l()` is right inside a view and useless anywhere a translation is a *value*: a document
-title, a flash message, an array of labels, an exception. Those call sites had only
-`\Pramnos\Framework\Factory::getLanguage()->_(…)`, which is long enough that most of them
-kept an English literal instead — the framework's own account screens among them, whose
-page titles were hardcoded until `t()` existed.
+title, a flash message, an array of labels, an exception. `t()` is the short form of
+`\Pramnos\Framework\Factory::getLanguage()->_(…)` for exactly those call sites, so a value
+does not end up as an untranslated English literal because the long form was inconvenient.
 
 Both take the same arguments and format by the same rules as `_()`.
 
@@ -418,14 +413,6 @@ call site passes, or contains a specifier that is not valid, the *unformatted*
 translation is returned and the mismatch is written to the error log. Language
 files are content — a translator adding a stray `%s` must not be able to take a
 page down. Check the log if a page shows a raw `%s` where a value belongs.
-
-> **Fixed in this release.** `_()` used to call `sprintf()` on every translation
-> it found, whether or not arguments were given, and passed those arguments as a
-> single array. On PHP 8 both are fatal: looking up a translation containing
-> `%s` with no arguments raised `ArgumentCountError`, and one *with* arguments
-> printed `Array` for the first placeholder. The examples above were in this
-> guide before they worked. If your application worked around it by reading
-> `getlang()` and formatting the string itself, that workaround can now go.
 
 ### Translating a front end from the same catalogue
 
@@ -497,8 +484,8 @@ its inherited copies. But *which* class you get then depends on who asks first:
 | your subclass | your subclass, overrides running |
 | the framework | the base class, overrides never running |
 
-`Factory::getLanguage()` is called from seven places inside the framework, so the order is
-not yours to control. Declaring the class removes the race.
+`Factory::getLanguage()` is called from dozens of places inside the framework, so the order
+is not yours to control. Declaring the class removes the race.
 
 #### Handing over an object you built yourself
 
@@ -537,8 +524,7 @@ knowing:
 
 - **Whatever you return is formatted with the caller's arguments**, exactly as a stored
   translation would be. So a supplied `'Καλώς ήρθες, %s'` works with `_('greeting',
-  $name)`. The legacy filter this replaces returned its result raw, which silently dropped
-  the arguments — harmless there only because none of its languages used a placeholder.
+  $name)`; a hook answer returned raw would silently drop the caller's arguments.
 - **Returning the key unchanged means "I have nothing"**, and returning `''` means "show
   nothing". Identity against the key is the test, not emptiness, so an empty translation is
   a decision you can make.
@@ -551,10 +537,12 @@ The hook is only consulted on a **miss**. A key with a translation never reaches
 `ROOT/app/language`, then `ROOT/language`. The requested language across all of them
 first, then `english` across all of them.
 
-That second pass is the part worth stating, because it used to be broken: the English
-fallback existed only under `ROOT/language`, so a project laid out the way `init` lays one
-out — with `app/language/` — did **not** fall back to English when a language file was
-missing. It returned `false` and the page rendered untranslated.
+After `english`, `en` is tried the same way, for a project that names its catalogues by ISO
+code. `load()` returns `false` only when none of those exists anywhere; it never throws.
+
+An explicit second argument, `load('custom', $path)`, reads `$path/language/custom.php`
+(then `$path/language/english.php`) — the path is the **parent** of a `language/`
+directory — and falls back to the search above when neither exists.
 
 `getFlag()` is narrower on purpose, and answers a different question: a flag has to be
 *servable*, not merely present. It looks under the web root (`www/assets/flags/`) and at
@@ -568,13 +556,8 @@ $languages = \Pramnos\Translator\Language::getLanguages();   // ['english', 'gre
 ```
 
 It looks where `load()` looks: `LANGPATH`, then `app/language/`, then
-`ROOT/language/`, merged and de-duplicated.
-
-> **Fixed 2026-08-24.** It scanned `ROOT/language` and nothing else, while
-> `load()` reads `app/language` first — the layout `init` actually generates. So
-> on a normal project it threw *"Languages directory does not exist"* while
-> `_()` was translating happily, and anything offering a language picker had
-> nothing to put in it.
+`ROOT/language/`, merged, de-duplicated and sorted. It throws *"Languages directory does
+not exist"* only when none of those directories exists.
 
 ### Theme Integration
 
@@ -595,9 +578,10 @@ It looks where `load()` looks: `LANGPATH`, then `app/language/`, then
 ```php
 // Get list of available languages
 $languages = Language::getLanguages();
+$lang      = Language::getInstance();
 
 foreach ($languages as $langCode) {
-    $flag = Language::getFlag($langCode);
+    $flag = $lang->getFlag($langCode);   // instance method; false when no servable flag
     echo "<option value='$langCode'>$langCode</option>";
 }
 ```
@@ -623,8 +607,8 @@ echo "<img src='$currentFlag' alt='Language Flag'>";
 ```php
 $lang = Language::getInstance();
 
-// Load from custom path
-$lang->load('custom_lang', '/path/to/custom/languages/');
+// Load from a custom path: reads /path/to/custom/language/custom_lang.php
+$lang->load('custom_lang', '/path/to/custom');
 
 // Load additional strings
 $customStrings = [
@@ -645,27 +629,30 @@ use Pramnos\Translator\StringFinder;
 
 $finder = new StringFinder();
 
-// Search for translatable strings in a directory
-$strings = $finder->findInPath('/path/to/your/code');
+// Search *.php files under a directory (default: APPS_PATH). `storage/` is skipped.
+// Returns [file path => [string, …]], files with no strings omitted.
+$found = $finder->search('/path/to/your/code');
 
 // Generate language file content
-foreach ($strings as $string) {
-    echo "'$string' => '$string',\n";
+foreach ($found as $file => $strings) {
+    foreach ($strings as $string) {
+        echo "'$string' => '$string',\n";
+    }
 }
 ```
 
 ### Finding Patterns
 
-The StringFinder looks for common translation patterns:
+`search()` matches a quoted literal as the first argument of ` l(` and `_(`:
 
 ```php
-// These patterns are automatically detected:
+// These patterns are detected:
 l('Translatable string');
 $lang->_('Another string');
 echo $lang->_('Third string');
-
-// In templates:
 <?php l('Template string'); ?>
+
+// Not detected: t('…'), and any key that is not a string literal
 ```
 
 ## Localization Features
@@ -678,7 +665,7 @@ use Pramnos\General\Helpers;
 $lang = Language::getInstance();
 
 // Format relative time
-$timeAgo = Helpers::formatTimePassed(time() - 3600); // 1 hour ago
+$timeAgo = Helpers::timepassed(time() - 3600); // 1 hour ago
 echo $timeAgo; // Output depends on current language
 
 // The system automatically uses translated terms:
@@ -759,11 +746,10 @@ l('order.summary', $total, $items, $date);
 ```php
 $lang = Language::getInstance();
 
-// Always provide fallback
-try {
-    $lang->load($userLanguage);
-} catch (Exception $e) {
-    $lang->load('english'); // Fallback to English
+// load() never throws. It already falls back to `english`, then `en`, and returns
+// false only when no catalogue was found at all — so check the boolean.
+if (!$lang->load($userLanguage)) {
+    \Pramnos\Logs\Logger::logError('No language catalogue found for ' . $userLanguage);
 }
 ```
 
@@ -836,7 +822,7 @@ $lang->setLang($userLang);
 
 #### Discovery Methods
 - `__construct()` - Create finder instance
-- `findInPath($path)` - Find translatable strings in directory
+- `search($path = null)` - Find translatable strings under a directory; returns `[file => [strings]]`
 
 ### Helper Functions
 
@@ -846,7 +832,7 @@ $lang->setLang($userLang);
 
 #### Utility Functions
 - `Helpers::greeklish($text, $urlFriendly)` - Greek to Latin conversion
-- `Helpers::formatTimePassed($timestamp)` - Localized time formatting
+- `Helpers::timepassed($timestamp)` - Localized "time ago" formatting
 - `StringHelper::pluralize($word)` - English pluralization
 - `StringHelper::singularize($word)` - English singularization
 
@@ -874,7 +860,7 @@ $lang->setLang($userLang);
 ### Common Issues
 
 1. **Translations Not Loading**
-   - Verify language file exists in `/language/` directory
+   - Verify the language file exists in `app/language/` (or `LANGPATH` / `ROOT/language/`)
    - Check file permissions
    - Ensure proper PHP syntax in language file
 

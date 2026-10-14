@@ -32,8 +32,10 @@ src/Pramnos/Document/
 └── DocumentTypes/           # Format-specific implementations
     ├── Html.php             # HTML document type
     ├── Amp.php              # AMP (Accelerated Mobile Pages)
+    ├── Json.php             # JSON body with an application/json header
     ├── PrintDocument.php    # Printable HTML (print dialog / save as PDF)
     ├── Png.php              # PNG image output
+    ├── Raw.php              # The body as-is, no theme, no headers
     ├── Rss.php              # RSS feed generation
     └── Rss/
         └── Item.php         # RSS item class
@@ -41,7 +43,7 @@ src/Pramnos/Document/
 
 ### Key Features
 
-- **Multiple Output Formats**: HTML, AMP, print, RSS, PNG, JSON, XML
+- **Multiple Output Formats**: HTML, AMP, print, RSS, PNG, JSON, raw
 - **Asset Management**: JavaScript and CSS dependency management
 - **Theme Integration**: Seamless theming and template system
 - **SEO Optimization**: Meta tags, Open Graph, and structured data
@@ -58,11 +60,18 @@ $htmlDoc = \Pramnos\Framework\Factory::getDocument('html');
 $printDoc = \Pramnos\Framework\Factory::getDocument('print');
 $rssDoc = \Pramnos\Framework\Factory::getDocument('rss');
 $ampDoc = \Pramnos\Framework\Factory::getDocument('amp');
-
-// JSON/XML via content type setting
-$doc = \Pramnos\Framework\Factory::getDocument();
-$doc->setType('json');
+$jsonDoc = \Pramnos\Framework\Factory::getDocument('json');
+$rawDoc = \Pramnos\Framework\Factory::getDocument('raw');
 ```
+
+The known types are `html`, `amp`, `json`, `rss`, `print`, `pdf` (an alias for `print`),
+`raw` and `png` (`Document::KNOWN_TYPES`). `getDocument('<type>')` also makes that type the
+default for later `getDocument()` calls with no argument. Calling it with no argument picks the
+type from the `?format=` query parameter when it names a known type, and the current default
+otherwise.
+
+`Document::setType()` is static: it sets that default and does **not** change the document
+you call it on. To switch, ask for the other document.
 
 ### HTML Document Type
 
@@ -72,7 +81,6 @@ $doc = \Pramnos\Framework\Factory::getDocument('html');
 // Set basic properties
 $doc->title = 'Page Title';
 $doc->description = 'Page description for SEO';
-$doc->setGenerator('Pramnos Framework');
 
 // Add content
 $doc->addContent('<h1>Hello World</h1>');
@@ -135,11 +143,9 @@ page break before the element.
 
 Set `autoPrint = false` for a page the reader is meant to check before printing.
 
-> **Note on `pdf`.** The old `pdf` document type rendered through TCPDF, which is
-> not a dependency of this framework — it raised a fatal error on its first line,
-> so every caller of it was already broken. `getDocument('pdf')` now returns this
-> printable document, so old links produce something usable rather than a stack
-> trace. Use `'print'` in new code.
+> **`pdf` is an alias.** `getDocument('pdf')` returns this printable document, so a
+> `?format=pdf` link produces a page the browser can save as PDF. The framework has no
+> server-side PDF renderer. Use `'print'` in new code.
 
 ### RSS Feed Type
 
@@ -196,9 +202,8 @@ $doc = \Pramnos\Framework\Factory::getDocument();
 // Basic properties
 $doc->title = 'Page Title';
 $doc->description = 'Page description for search engines';
-$doc->setGenerator('Pramnos Framework');
-$doc->setLanguage('en');
-$doc->setCharset('UTF-8');
+// The <html lang> and the charset come from the active language
+// (its LangShort and CHARSET strings), not from a document setter.
 
 // URL and canonical
 $doc->url = 'https://example.com/current-page';
@@ -256,8 +261,8 @@ $doc->registerScript(
 $doc->enqueueScript('my-script');
 $doc->enqueueScript('jquery'); // Dependencies loaded automatically
 
-// Add inline scripts
-$doc->addScriptDeclaration('
+// Add an inline script (a bare <script> appended to the page foot)
+$doc->addInlineScript('
     window.addEventListener("load", function() {
         console.log("Page loaded");
     });
@@ -350,12 +355,8 @@ and which one comes back depends on how the setting was written and read, not on
 'documentAssetSource' => 'jquery, bootstrap-datepicker'  // typed into a form
 ```
 
-Before 1.2 only the plain-array form was understood by the "is anything on the CDN" check. The other
-three misbehaved in two different ways: an `stdClass` raised `Object of class stdClass could not be
-converted to string` on **every page build**, and the string forms were read as "everything is on
-the CDN" — so a page emitted CDN tags for scripts the installation had vendored, which is precisely
-the outcome the setting was configured to avoid. Both are fixed; if you are on an earlier version
-and using a list, prefer the plain array.
+Every form goes through the same reader (`localHandles()`), including the "is anything on the
+CDN" check, so a list stored as JSON or typed into a form behaves exactly like the array.
 
 **The default is the CDN.** Not configuring this sends every visitor's browser to a third-party
 host for three scripts, which is a privacy decision an installation inherits without making it.
@@ -368,7 +369,7 @@ host for three scripts, which is a privacy decision an installation inherits wit
 $doc->registerStyle(
     'my-styles',                                   // Handle
     '/assets/css/my-styles.css',                  // Source URL
-    ['bootstrap'],                                 // Dependencies
+    ['datatables'],                                // Dependencies (registered handles)
     '1.0.0',                                      // Version
     'all'                                         // Media type
 );
@@ -376,13 +377,13 @@ $doc->registerStyle(
 // Enqueue stylesheets
 $doc->enqueueStyle('my-styles');
 
-// Add inline styles
-$doc->addStyleDeclaration('
+// Add inline styles (no dedicated method: put a <style> block in the head)
+$doc->addHeadContent('<style>
     .custom-class {
         background-color: #f0f0f0;
         padding: 20px;
     }
-');
+</style>');
 ```
 
 ### Default Framework Assets
@@ -395,9 +396,8 @@ $doc->enqueueScript('datatables');      // DataTables
 $doc->enqueueScript('bootstrap-datepicker');
 $doc->enqueueScript('jquery-inputmask');
 
-// CSS frameworks
+// Stylesheets (there is no pre-registered 'bootstrap' handle — register your own)
 $doc->enqueueStyle('jquery-ui');
-$doc->enqueueStyle('bootstrap');
 $doc->enqueueStyle('datatables');
 ```
 
@@ -494,8 +494,8 @@ class PageController extends \Pramnos\Application\Controller
 $doc = \Pramnos\Framework\Factory::getDocument();
 $doc->usetheme = false;
 
-// Or set document type that doesn't use themes
-$doc->setType('json');
+// Or switch to a document type that doesn't use themes
+$doc = \Pramnos\Framework\Factory::getDocument('json');   // or 'raw'
 ```
 
 ## Multi-Format Output
@@ -503,12 +503,12 @@ $doc->setType('json');
 ### Format Detection and Switching
 
 ```php
-// Automatic format detection from URL/request
-// Example URLs:
-// /page.html     -> HTML output
+// Automatic format detection: getDocument() with no argument reads ?format=
+// when it names a known type. The path's extension plays no part.
+// /page              -> the current default (HTML)
 // /page?format=print -> printable page (save as PDF from the browser)
-// /page.rss      -> RSS output
-// /page?format=json -> JSON output
+// /page?format=rss   -> RSS output
+// /page?format=json  -> JSON output
 
 // Manual format switching
 $format = \Pramnos\Http\Request::staticGet('format', 'html', 'get');
@@ -521,8 +521,7 @@ switch ($format) {
         $doc = \Pramnos\Framework\Factory::getDocument('rss');
         break;
     case 'json':
-        $doc = \Pramnos\Framework\Factory::getDocument('html');
-        $doc->setType('json');
+        $doc = \Pramnos\Framework\Factory::getDocument('json');
         break;
     default:
         $doc = \Pramnos\Framework\Factory::getDocument('html');
@@ -547,8 +546,7 @@ public function activeusers(): void
 request goes on to render the theme, so the response is the JSON *followed by a
 complete web page*. `fetch(url).then(r => r.json())` throws on that, and what a
 person sees is a widget whose numbers never appear — with a 200 status and a
-response that begins with exactly the right JSON. Six endpoints on the framework's
-own dashboard were in that state.
+response that begins with exactly the right JSON.
 
 The alternative, for an action whose signature allows a return value, is
 `return \Pramnos\Http\Response::json($data);` — which carries the status and the
@@ -558,10 +556,9 @@ headers with it. Prefer it in new code; the `getDocument('json')` form is what a
 ### JSON Output
 
 ```php
-// For API responses
-$doc = \Pramnos\Framework\Factory::getDocument();
-$doc->setType('json');
-$doc->usetheme = false;
+// For API responses: the json type renders no theme and sends
+// Content-type: application/json with the language's charset itself
+$doc = \Pramnos\Framework\Factory::getDocument('json');
 
 // Add JSON data
 $data = [
@@ -572,20 +569,16 @@ $data = [
 
 $doc->setContent(json_encode($data, JSON_PRETTY_PRINT));
 
-// Set appropriate headers
-if (!headers_sent()) {
-    header('Content-Type: application/json');
-}
-
 echo $doc->render();
 ```
 
 ### XML Output
 
+There is no `xml` document type. Use `raw`, which renders the body as-is with no theme and
+sends no `Content-Type` of its own, and set the header yourself:
+
 ```php
-$doc = \Pramnos\Framework\Factory::getDocument();
-$doc->setType('xml');
-$doc->usetheme = false;
+$doc = \Pramnos\Framework\Factory::getDocument('raw');
 
 $xml = '<?xml version="1.0" encoding="UTF-8"?>
 <response>
@@ -704,42 +697,6 @@ a `Document` — a layout template, say. One implementation, two ways in.
 `type` and appends to the **foot**, not the head — so the browser would run your JSON-LD
 as JavaScript.
 
-<details>
-<summary>Before <code>addStructuredData()</code> existed</summary>
-
-JSON-LD had to go in by hand, and this is what that looked like — kept because
-applications written against it still work:
-
-</details>
-
-```php
-$structuredData = [
-    '@context'      => 'https://schema.org',
-    '@type'         => 'Article',
-    'headline'      => 'Article Title',
-    'author'        => ['@type' => 'Person', 'name' => 'Author Name'],
-    'datePublished' => '2024-01-01',
-];
-
-$doc->addHeadContent(
-    '<script type="application/ld+json">'
-    . json_encode(
-        $structuredData,
-        JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP
-    )
-    . '</script>'
-);
-```
-
-**The flags are not decoration.** `JSON_HEX_TAG` closes the one injection this format
-has: a `</script>` inside any value would otherwise end the block early and everything
-after it would be parsed as markup. `JSON_UNESCAPED_SLASHES` and `JSON_UNESCAPED_UNICODE`
-keep URLs and non-Latin text readable rather than escaped into `\/` and `\uXXXX`.
-
-**Do not use `addInlineScript()` for this.** It hardcodes a bare `<script>` with no
-`type` attribute and appends to the **foot**, not the head — so the browser would run
-your JSON-LD as JavaScript.
-
 ### Canonical links
 
 ```php
@@ -777,8 +734,7 @@ Three things follow:
   it is unnecessary.
 - **`addHeadContent()`, `addHeadTagContent()` and `extraHtmlTag` / `extraBodyTag` are
   NOT escaped**, by design: they exist to carry markup. Anything you interpolate into
-  them is yours to escape, which is why the canonical example above calls
-  `htmlspecialchars()` explicitly.
+  them is yours to escape with `htmlspecialchars()`.
 - **Body classes are escaped too.** The guarantee is not limited to `<head>`:
   `addBodyClass()` values go through the same escaping, because an application reasonably
   feeds it a slug, a content type or a user's chosen theme name, and a `"` in any of those
@@ -897,43 +853,16 @@ $doc = new MyApp\Document\CustomDocument();
 
 ### Document Hooks and Events
 
-```php
-// Use addon system for document processing
-class DocumentAddon extends \Pramnos\Addon\Addon
-{
-    public function onBeforeDocumentRender($doc)
-    {
-        // Modify document before rendering
-        if ($doc->getType() === 'html') {
-            $doc->addMetaName('generator', 'My CMS');
-        }
-    }
-    
-    public function onAfterDocumentRender($content, $doc)
-    {
-        // Post-process rendered content
-        if ($doc->getType() === 'html') {
-            $content = str_replace('</body>', $this->getAnalyticsCode() . '</body>', $content);
-        }
-        return $content;
-    }
-}
-```
-
-### Performance Optimization
+A document runs one addon hook while it renders: `onParse($text, $texttype, $doctype)` on every
+active `content` addon, over the theme's head and foot (see
+[Custom Content Processing](#custom-content-processing)), plus the `send_headers` action. The
+body content is not passed through it, and there are no before/after-render hooks. To
+post-process the final markup, work on the string `render()` returns:
 
 ```php
-// Asset minification and compression
-$doc = \Pramnos\Framework\Factory::getDocument();
-
-// Enable asset compression (if supported)
-$doc->setCompression(true);
-
-// Combine and minify assets
-$doc->combineAssets(true);
-
-// Set cache headers for assets
-$doc->setCacheHeaders(3600); // 1 hour cache
+$html = $doc->render();
+$html = str_replace('</body>', $analyticsCode . '</body>', $html);
+echo $html;
 ```
 
 ### AMP Optimization
@@ -945,8 +874,12 @@ $doc = \Pramnos\Framework\Factory::getDocument('amp');
 // AMP requires specific image handling
 $content = '<amp-img src="/image.jpg" width="600" height="400" layout="responsive" alt="Description"></amp-img>';
 
-// AMP analytics
-$doc->addScriptDeclaration('
+// AMP analytics: the component script in the head, the element in the body
+$doc->addHeadContent(
+    '<script async custom-element="amp-analytics" '
+    . 'src="https://cdn.ampproject.org/v0/amp-analytics-0.1.js"></script>'
+);
+$content .= '
 <amp-analytics type="googleanalytics">
 <script type="application/json">
 {
@@ -962,7 +895,7 @@ $doc->addScriptDeclaration('
 }
 </script>
 </amp-analytics>
-', 'amp-analytics');
+';
 
 $doc->addContent($content);
 ```
@@ -985,7 +918,7 @@ class MyController extends \Pramnos\Application\Controller
         $doc->description = 'Page description';
         
         // 3. Add meta tags and assets
-        $doc->addMetaName('keywords', 'relevant, keywords');
+        $doc->addMetaTag('keywords', 'relevant, keywords', true);
         $doc->enqueueScript('page-specific-js');
         
         // 4. Handle view and return content
@@ -1031,7 +964,7 @@ private function setSEOMeta($title, $description, $keywords = '')
     
     // Keywords
     if ($keywords) {
-        $doc->addMetaName('keywords', $keywords);
+        $doc->addMetaTag('keywords', $keywords, true);
     }
     
     // Open Graph
@@ -1041,7 +974,7 @@ private function setSEOMeta($title, $description, $keywords = '')
     $doc->og_url = $this->getCurrentUrl();
     
     // Canonical URL
-    $doc->addMeta('canonical', $this->getCurrentUrl());
+    $doc->setCanonical($this->getCurrentUrl());
 }
 ```
 
@@ -1070,9 +1003,7 @@ public function display()
 
 private function renderJson($data)
 {
-    $doc = \Pramnos\Framework\Factory::getDocument();
-    $doc->setType('json');
-    $doc->usetheme = false;
+    $doc = \Pramnos\Framework\Factory::getDocument('json');
     $doc->setContent(json_encode($data));
     return $doc->render();
 }

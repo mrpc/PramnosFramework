@@ -85,9 +85,10 @@ the ids:
 'devpanel' => ['production_min_usertype' => 100, 'userids' => [7]],
 ```
 
-100 rather than 9999, because `DevPanelServiceProvider::bootHttp()` warns on **every request**
-when `min_usertype` leaves 1..100 — worth knowing, since raising a floor out of reach is the
-way to narrow this.
+Any value above every usertype the installation uses works for `production_min_usertype`.
+Keep the *development* floor, `min_usertype`, inside 1..100:
+`DevPanelServiceProvider::bootHttp()` logs a warning on every request when it is outside that
+range.
 
 Every opening outside a development environment is written to the `auth` log with the user,
 their type and the address. On a development machine the environment is the trace; on a live
@@ -95,18 +96,17 @@ one nothing else would be.
 
 ### All three developer tools read the same names
 
-`/devpanel`, `/adminer` and `/debugbar` are three routes with three gates, and for a while
-only this one could name a person. Adminer and the toolbar had a usertype floor and nothing
-else, so there was no configuration that meant *this account and nobody else* for either.
+`/devpanel`, `/adminer` and `/debugbar` are three routes with three gates, and each of them
+can name a person, not only a usertype floor.
 
 **A usertype is a role, and on a real installation it is a role granted to other
-organisations.** One production database had 9 accounts at usertype 99 across six of them —
-each able to open a full database client against a live 418 GB database — and 64 accounts at
-90 or above, each able to issue itself a toolbar grant carrying the query log of a live
-request. That installation set both floors to 100 and **turned two of the three tools off**,
-because off was the only reachable state narrower than nine organisations.
+organisations.** Several organisations can each hold usertype-99 accounts, and every one of
+those would be able to open a full database client against a live database; every account at
+90 or above could issue itself a toolbar grant carrying the query log of a live request. A
+floor alone cannot say *this account and nobody else*, so off would be the only state narrower
+than "everybody at that type".
 
-Every gate now reads the same three ideas through
+Every gate reads the same three ideas through
 `Pramnos\Application\DeveloperAccess`, and each tool has its own lists that **fall back to
 the panel's**:
 
@@ -144,10 +144,9 @@ naming the tool.
     the queries, session keys and logs of **one request** in **one browser**, for a bounded
     time. The gradient is deliberate.
 
-    It is worth stating because an installation that never set `grant_min_usertype` read the
-    90 as a decision somebody had made about it, and 64 accounts held that grant for as long
-    as the feature was enabled. If 90 is wrong for yours, `grant_userids` is now a narrower
-    answer than raising the floor.
+    The 90 is a default, not a decision about your installation: every account at 90 or above
+    can issue itself that grant while the feature is enabled. If that is too wide,
+    `grant_userids` is a narrower answer than raising the floor.
 
 ### There is no setting that opens this panel
 
@@ -157,15 +156,11 @@ the container. A row in the settings table makes that reachable by anybody who c
 administration area, on a live server, with no deploy and nothing in the repository to say it
 happened.
 
-`devpanel.mount` and `devpanel.min_usertype` used to be **settings** too, with fields on that
-screen. They read from `app.php` now, for the same reason — where a developer tool is mounted
-and who may open it are properties of the deployment. (The fields never worked, as it
-happens: PHP replaces the `.` in a form field name with `_`, so both inputs posted under a
-name the controller never asked for, and every save wrote the default back. An installation
-that thought it had moved the mount point had not.)
+`devpanel.mount` and `devpanel.min_usertype` are read from `app.php` only, for the same
+reason — where a developer tool is mounted and who may open it are properties of the
+deployment. A `devpanel.*` row in the settings table is ignored.
 
-The point stands for the *settings*: there is still no row anybody can tick to open this. What
-changed is that the alternative to `APP_DEBUG=1` is no longer "nothing" — it is a name in
+There is no row anybody can tick to open this. The alternative to `APP_DEBUG=1` is a name in
 `app.php`, which is also a deploy, and a narrower one than turning the whole deployment into a
 development environment.
 
@@ -183,8 +178,8 @@ one who needs to *look* at that schema. So `/adminer` is exempt by default:
 ```
 
 The exemption grants exactly one thing: that the application **boots** for that path. Every
-route's own authorisation still runs — for Adminer that is signed in plus `usertype >= 99`,
-or a development environment — so anybody else gets the same 404 they would get with the site
+route's own authorisation still runs — for Adminer that is signed in plus its floor (99) or
+one of its named lists, or a development environment — so anybody else gets the same 404 they would get with the site
 up, and it is logged. Auto-migrations stay held off by the flag either way, so opening this
 cannot start the thing maintenance was raised to prevent.
 
@@ -202,9 +197,8 @@ cannot start the thing maintenance was raised to prevent.
 > answer *«Invalid CSRF token»* on every `POST` while navigation keeps working, because
 > navigation is `GET` and Adminer does not check it.
 >
-> A cookie naming *this* session is refused and dropped — the earlier collision wrote one
-> into every affected browser, and honouring it walks back into the bug on an installation
-> that has been fixed. So is anything that is not a session id.
+> A cookie naming *this* session is refused and dropped: honouring it would put both
+> applications back in one session file. So is anything that is not a session id.
 
 
 Adminer is the database tool most people already use, and the usual way to have it on a server
@@ -220,8 +214,10 @@ package is present.
 
 **Who may open it**, either:
 
-- **usertype ≥ 99** — `Root` in `UserTypes::DEFAULTS`, on any deployment **including production**,
-  and with or without the `devpanel` feature. That half
+- **usertype ≥ 99** — `Root` in `UserTypes::DEFAULTS`, or the installation's
+  `devpanel.adminer_min_usertype` — **or listed** in `devpanel.adminer_usertypes` /
+  `devpanel.adminer_userids` (which fall back to the panel's `usertypes` / `userids`), on any
+  deployment **including production**, and with or without the `devpanel` feature. That half
   is deliberate: fixing data on a live server is a real thing an owner does, and a tool that
   only works in development means they do it in `psql` with no undo, or leave `adminer.php` in
   the web root for ever.
@@ -230,10 +226,15 @@ package is present.
 Anything else gets a **404**, not a 403. A 403 confirms the route exists, and this is the one
 URL on the site where that is worth withholding.
 
-**Adminer keeps its own database login**, and this deliberately does not fill it in.
-Auto-login would make "may this browser reach a URL" the only thing between somebody and every
-row — and the accounts that can reach it are exactly the ones whose sessions are worth stealing.
-Two locks, and the second is not the framework's to remove.
+**Adminer is logged in with the application's own connection by default** — asking an
+operator to retype the production database password is asking them to keep it somewhere they
+can copy it from. That makes "may this browser reach this URL" the only thing between somebody
+and every row, and the accounts that can reach it are exactly the ones whose sessions are worth
+stealing. For two locks instead of one, turn it off and Adminer shows its own login form:
+
+```php
+'devpanel' => ['adminer_autologin' => false],
+```
 
 **A `suggest`, not a `require`.** A framework that shipped a database browser into every
 application's `vendor/` would enlarge the attack surface of applications that never asked for
@@ -242,11 +243,13 @@ answers 404 like any other unknown address.
 
 ### The two clauses of the gate
 
-Both must hold for a non-root account, and only the first for root:
+Both must hold for an account the first check does not admit:
 
 ```php
-if ($usertype >= static::rootFloor()) {          // 99, or the installation's own
-    return true;                                  // anywhere, devpanel or not
+// Floor (99, or adminer_min_usertype), adminer_usertypes, adminer_userids —
+// the lists falling back to the panel's. Anywhere, devpanel or not.
+if (DeveloperAccess::permits(DeveloperAccess::ADMINER, static::rootFloor())) {
+    return true;
 }
 
 if (!Application::isDeveloperEnvironment()) {
@@ -295,10 +298,10 @@ Adminer stores a database password in, in cleartext, which it could only have wr
 two sessions were one.
 
 **The URL rewrite is an output-buffer callback, not code after the include.** Adminer is a script and
-several of its paths end with `exit`, the login page among them — so post-include code never ran, PHP
-flushed the buffer at shutdown, and the page went out with Adminer's own `./static/default.css` links.
-Served from `/adminer` those resolve to `/static/…`, so the tool arrived with no stylesheet and looked
-broken rather than un-rewritten. A callback is invoked by the buffer's own flush, `exit` included.
+several of its paths end with `exit`, the login page among them — so code after the include would not
+run, PHP would flush the buffer at shutdown, and the page would go out with Adminer's own
+`./static/default.css` links, which resolve to `/static/…` under `/adminer`: no stylesheet. A callback is
+invoked by the buffer's own flush, `exit` included.
 
 If you override `serveAdminer()`, all three come with it.
 
@@ -329,7 +332,7 @@ reaching the database. That makes the list of what holds it worth reading in ful
 | | |
 | --- | --- |
 | **Who** | signed in, and usertype ≥ 99 (`Root`) — or a development environment plus the DevPanel's floor. Everybody else gets a **404**, not a 403 |
-| **Credentials** | come from the configuration only. Adminer's login form is removed, and `$_POST['auth']` is discarded before Adminer sees the request |
+| **Credentials** | come from the configuration (`adminer_autologin`, on by default). `$_POST['auth']` is discarded before Adminer sees the request |
 | **Which connections** | the primary and the declared replicas (`database.read` / `database.write`). A request naming any other host, user or database gets the default rather than what it asked for |
 | **Audit** | every open **and every refusal** is logged to `auth` with the account, the address and the URL |
 | **Headers** | own CSP with `frame-ancestors 'none'`, `Referrer-Policy: no-referrer`, `X-Robots-Tag: noindex` |
@@ -338,12 +341,12 @@ reaching the database. That makes the list of what holds it worth reading in ful
 | **What its links carry** | the connection is stripped from every `href` and `action` the page contains — `server`, `pgsql`, `sqlite`, `mssql`, `oracle`, `mongo`, `elastic`, `username`, `db`. Left in, every link on the page would name this installation's database host and account, in the address bar, in the browser history, and in a `Referer` on the way to adminer.org. Absolute URLs are untouched: those are Adminer's own outbound links |
 | **No package** | 404, like any other unknown address |
 
-Two of those were holes and are worth naming rather than listing. **Removing the login form did
-not remove the ability to log in**: `auth.inc.php` acts on `$_POST['auth']` before anything else,
-so a hand-made POST — or a form on another site aimed at this URL — could have pointed this
-Adminer at any host reachable from the server, with any credentials the sender knew. And a
-**request naming another server** was obeyed, because that is Adminer's own design: the query
-string says who to connect as. Behind a single-purpose gate it must not.
+Two of those are worth the reasoning. **Removing a login form does not remove the ability to
+log in**: `auth.inc.php` acts on `$_POST['auth']` before anything else, so a hand-made POST — or a
+form on another site aimed at this URL — would point this Adminer at any host reachable from the
+server, with any credentials the sender knew. And Adminer's own design lets **the query string
+say which server to connect to**; behind a single-purpose gate it must not, so any other host,
+user or database is replaced by the default.
 
 What this does **not** protect against is somebody who already has a root account's session. If
 that is a concern, keep `adminer_autologin` off, and the operator types the database password —
@@ -351,16 +354,14 @@ two locks instead of one.
 
 ### The session repair
 
-Adminer starts a session only when none is active, so the first version of this route handed it
-ours. One of the keys it uses is `token`: ours is a hex string and its is
-`rand() ^ $_SESSION["token"]`, which gives «A non-numeric value encountered» twice a page and a
-CSRF check that cannot work.
+Adminer starts a session only when none is active. One of the keys it uses is `token`: ours is a
+hex string and its is `rand() ^ $_SESSION["token"]`, which gives «A non-numeric value encountered»
+twice a page and a CSRF check that cannot work.
 
-Closing our session fixed it for a new visitor and did nothing for anybody who had already loaded
-the broken page — the bad value was already in their `adminer_sid` session, waiting for every later
-request. So `AdminerBridge::repairSession()` removes it, rather than only preventing it: the
-alternative is telling people to clear their cookies, which is what software says when it cannot
-fix itself.
+Handing over the session prevents that for a new visitor; it does nothing for an `adminer_sid`
+session that already holds a non-numeric `token`. So `AdminerBridge::repairSession()` removes it,
+rather than only preventing it: the alternative is telling people to clear their cookies, which is
+what software says when it cannot fix itself.
 
 It is deliberately narrow. Only `token`, and only when it is not numeric — everything else in
 there is Adminer's. Only when no session is already open, because starting a second one over a live
@@ -369,7 +370,7 @@ that value is under the visitor's control and `session_id()` rejects anything el
 
 And it restores what it changed: the session name, and `session.use_cookies`.
 `session_start($options)` applies its options as ini settings **for the rest of the request**, so
-without the restore Adminer's own `session_set_cookie_params()` warned «Session cookies cannot be
+without the restore Adminer's own `session_set_cookie_params()` would warn «Session cookies cannot be
 used when session.use_cookies is disabled» at the top of every page.
 
 Two details worth knowing:
@@ -429,9 +430,8 @@ tables, views, TimescaleDB — and then the three this tab adds.
 | Read the hard way | which tables are scanned sequentially, and how many rows that costs |
 | Slowest statements | what the database actually spends its time on |
 
-All of it comes from the shared `DatabaseInspector`, which the administration screen already
-used. This tab had its own copy of the table-size query — the third in the framework, with its
-own bugs — and it is gone.
+All of it comes from the shared `DatabaseInspector`, the same one the administration screen
+uses, so the two screens cannot disagree about a table's size.
 
 **Kill ends a backend** — `pg_terminate_backend`, not `pg_cancel_backend`: cancel asks a query
 to stop and a backend stuck in a lock wait ignores it, which is exactly the backend somebody is
@@ -452,8 +452,8 @@ somebody came here for as often as the list is. Same for replication on a standa
 
 **Active processes distinguishes running from idle.** `active_sec` is the running query's own
 age and is null unless the backend is running one; `idle_sec` is how long a pooled connection
-has been sitting there. Reported as one number, an idle connection showed as running for 194
-minutes, in red, and two of those is all it takes for nobody to read the column again.
+has been sitting there. Reported as one number, an idle pooled connection would read as a query
+running for hours, and a column that cries wolf is a column nobody reads.
 
 **Unused indexes exclude primary keys and unique constraints.** They are not there to be
 scanned — they are there to make a duplicate impossible — so listing them as dead weight is
@@ -472,8 +472,8 @@ that instead, because it is fixable.
 `_timescaledb_internal` as one table per chunk — `_hyper_7_15_chunk` and forty like it — and
 they are not tables anybody put anything in. Listed, they crowd out the tables somebody was
 looking for and double-count storage the hypertable already reports. They are counted in the
-TimescaleDB section instead. (Fixed in the shared inspector, so the administration screen stops
-listing them too.)
+TimescaleDB section instead — in the shared inspector, so the administration screen does not
+list them either.
 
 **The jobs are on the same screen as the hypertables.** A hypertable whose compression policy
 has been failing for a week looks perfectly healthy from the hypertable list alone.
@@ -529,11 +529,10 @@ Slowest endpoints and slowest users/applications over a selectable window, read 
 `tokenactions`. An endpoint is shown by URL, resolved through the `urls` table.
 
 **Only calls that were timed appear here.** A row with no duration has nothing to say about
-speed, and it did worse than say nothing: `ORDER BY avg_ms DESC` puts NULLs *first* on
-PostgreSQL, so a table holding unmeasured rows showed twenty of them at the top, each
-rendered as `0.0 ms`, with the real measurements pushed off the list. Web requests carried no
-duration before 2026-08-20, so on an installation with history that was the whole report.
-When rows exist but none are timed, the panel says that instead.
+speed, and including it would do worse than say nothing: `ORDER BY avg_ms DESC` puts NULLs
+*first* on PostgreSQL, so unmeasured rows would fill the top of the list as `0.0 ms` and push
+the real measurements off it. On an installation with old, untimed history that can be most of
+the table. When rows exist but none are timed, the panel says that instead.
 
 `tokenactions` rows are written through the write spool, so this panel shows nothing until
 something drains it. When the table is empty the panel says so — and says how many rows are
@@ -586,16 +585,10 @@ started, which is not this one. See the
 
 `/devpanel/logs` — **the administration area's log viewer**, served here.
 
-It used to be a second, smaller one: a table with three filters, written beside a
-`LogController` that already had pagination, reverse order, follow, per-level filtering,
-statistics, cross-file search, export, rotate and archive. Reported as *«γιατί τα logs στο
-devpanel δεν είναι τα ίδια με τον κανονικό controller;»* — and the honest answer was that they
-had no reason not to be.
-
-The reason they were not was one hard-coded URL. `LogViewer` built the address of its own `raw`
-endpoint from `adminUrl('logs')`, so the component could be embedded in exactly one place, and
-rather than make that a parameter a smaller viewer was written. `renderViewer()` takes a base
-URL now:
+One viewer, not two: pagination, reverse order, follow, per-level filtering and the rest are
+the `LogController` component's, and the panel embeds it. `renderViewer()` takes the base URL
+its `raw` endpoint is built from, which is what lets the same component be served from more than
+one address:
 
 ```php
 (new LogViewer($files, $controller))->renderViewer($file, $base);
@@ -613,16 +606,16 @@ lines are not a developer's to read.
 
 **What it does not reproduce** is linked instead: statistics, cross-file search, filter and
 export stay in `/admin/Logs`, and the panel says plainly that they need an admin session.
-Writing a second copy of each is what produced the viewer this replaced.
+A second copy of each would drift from the first.
 
 **A file name from the URL is a choice, never a path.** It is compared against the names
 actually on disk rather than joined to the log directory, so there is nothing to get subtly
 wrong about how many `..` a path can contain.
 
 `/devpanel/logs?request=<id>` still answers JSON, which is what the debug toolbar asks for. The
-same address serves both because the toolbar always passes an id and a person never does — and
-before that, a person who opened `/devpanel/logs` got a 400 about a parameter they had no way to
-know existed.
+same address serves both because the toolbar always passes an id and a person never does, so a
+person opening `/devpanel/logs` gets the viewer rather than an error about a parameter they
+could not know existed.
 
 ### Git, PHP Info
 
@@ -643,7 +636,7 @@ tab, and inherits the same access guard.
 
 ## When a panel looks empty
 
-Empty is an answer, and it used to be the wrong one often enough to be worth a section.
+Empty is an answer, and often enough the wrong one to be worth a section.
 
 - **A section that could not load says so.** Failures are rendered as a warning above the
   panel, and logged to the `devpanel` log. A panel that shows an empty table and no warning

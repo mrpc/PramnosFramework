@@ -44,21 +44,13 @@ first request's middleware sealed (a bearer token, a session exchange), just as 
 where each request is a new process. If a test needs a signed-in request, establish the
 identity through the request itself: a session via `loginUser()`, or a header.
 
-> Until 2026-08-14 this section showed a `Pramnos\Testing\HttpTest` base class with the
-> request methods on `$this`. **It has never existed.** The capability is real; the class was
-> not. If you have code extending it, it is `BaseTestCase` plus a `TestClient` — the methods
-> below are the same ones, on the client rather than on the test.
+There is no HTTP base class with request methods on `$this`: a test extends `BaseTestCase`
+and makes its requests through a `TestClient`.
 
-> **Before 2026-08-26 the path was ignored.** `TestClient` set `REQUEST_URI` and nothing
-> else, but classic MVC routing reads `$_GET['r']` — which is what the scaffolded rewrite
-> produces — so `calcParams()` never ran and every request fell through to the default
-> controller. The response was the site's home page whatever you asked for, and the
-> assertions passed against it: a test written to prove `/admin/users` is refused to a guest
-> passed on a home page no guard applies to. Attribute-routed projects were unaffected;
-> everything routing the classic way was testing one page.
->
-> If you have HTTP tests written before that date, re-read them. Some were asserting things
-> the home page happens to satisfy.
+The path is routed the way the server routes it. `TestClient` sets `REQUEST_URI` and the
+`$_GET['r']` that classic MVC routing reads, so `/admin/users` reaches the admin Users
+controller rather than falling through to the default one. An assertion that a guarded
+address refuses a guest is therefore made against that address, not against the home page.
 
 ### What a request writes
 
@@ -72,12 +64,9 @@ $body = (string) $client->get('/Legacy')->getResponse()->getBody();
 $this->assertStringContainsString('what it echoed', $body);
 ```
 
-Before 2026-08-27 it went to the terminal instead, straight through PHPUnit's own
-output: `Application::redirect()` writes a `<script>window.location=…</script>`
-fallback before ending a request, so a suite exercising an administration area
-printed a block of HTML per redirect between the progress dots. That was the visible
-half. The invisible half was that a controller echoing its body — several bundled
-ones did — could not be asserted on at all.
+That includes the `<script>window.location=…</script>` fallback that
+`Application::redirect()` writes before ending a request: it lands in the response, not
+between PHPUnit's progress dots, and a controller that echoes its body can be asserted on.
 
 ### One client, many requests
 
@@ -91,12 +80,12 @@ before each request:
 
 ```php
 $client->get('/admin');       // admin theme, Dashboard as the default controller
-$client->get('/');            // site theme again — before this, still the admin one
+$client->get('/');            // site theme again, not the admin one left from the last request
 ```
 
 It also resets `Request`'s statics. Those matter for the same reason: routing state
-is only recomputed when there is a path to route, so a request to `/` used to serve
-whatever controller the request before it had resolved.
+is only recomputed when there is a path to route, so without the reset a request to `/`
+would serve whatever controller the request before it had resolved.
 
 If you handle several requests in one process yourself, call `beginRequest()` per
 request. A single-request process needs nothing: the constructor calls it.
@@ -142,11 +131,9 @@ reason that is nowhere in them.
 The id must be above 1: 0 is the guest and 1 the built-in system account, and every
 guard in the framework rejects both.
 
-> **Before 2026-08-26 `loginUser()` signed nobody in.** It set `$_SESSION['auth']`
-> and `$_SESSION['user_id']`, and nothing reads either — `staticIsLogged()` wants
-> `logged` and `uid`. Tests using it exercised the signed-out path while reading as
-> though they covered the signed-in one. If you have such a test, it is running for
-> the first time now.
+It sets `logged` and `uid`, the keys `Session::staticIsLogged()` reads, and also leaves
+the web-session token a real sign-in creates, so a same-origin call to the application's
+own API works from the signed-in test as it does from a page.
 
 ### CSS selector assertions
 
@@ -156,10 +143,11 @@ guard in the framework rejects both.
 composer require --dev symfony/dom-crawler symfony/css-selector
 ```
 
-Projects scaffolded from 2026-08-26 have them. Earlier ones do not, because they
-are dev dependencies of the framework and a dependency's dev dependencies are never
-installed — which is why those three assertions used to throw a missing-class
-error. They stay out of `require`: nothing in production parses HTML.
+`pramnos init` puts both in the project's `require-dev`. A project that lacks them
+adds them with the command above: they are dev dependencies of the framework, and a
+dependency's dev dependencies are never installed, so without them the three selector
+assertions throw a missing-class error. They stay out of `require`: nothing in
+production parses HTML.
 
 ### Available request methods
 
@@ -257,8 +245,8 @@ sweep is about whether the loop runs.
 **And give a detail screen its subject.** `subjectFor()` is the same problem one layer
 along: `/admin/Users/view` with no id is a valid request that answers 200, and what
 renders is the "nothing selected" branch — four lines at the top of a template whose six
-hundred are the point. A project that adopted the sweep without it watched coverage
-*fall* from 74.8% to 45.0%.
+hundred are the point. Without it, adopting the sweep can make measured coverage *fall*,
+because the screens it adds to the count are counted at their emptiest.
 
 ```php
 protected function subjectFor(string $prefix, string $action): string
@@ -283,9 +271,8 @@ push logs. It is not something an application should have to write.
 
 The reason is the person card. `Admin/Views/users/view.html.php` is usually the single
 largest uncovered file in a project on this framework: it is the framework's file, behind
-the framework's controller, drawing from seventeen of the framework's tables. One project
-measured it at 355 of 605 statements, a quarter of everything uncovered anywhere; seeding
-these took it to 495 of 605 and the project's total from 93.49% to 95.30%.
+the framework's controller, drawing from seventeen of the framework's tables. Without a
+row in each, most of its panels render only their empty state.
 
 Each insert is absorbed on its own, because a table that is not there is a feature this
 installation does not have. And anything unique gets a random value —
@@ -367,12 +354,10 @@ failure above order-dependent, and the next one will be the same shape.
 `Request::resetInstance()` clears the factory's cached request too, so the request the
 framework dispatches with is the one your reset produced.
 
-It did not, for a while: the factory cached in a **function** static, which nothing outside
-that method can clear. After a reset there were two request objects, and the stale one was
-what `Api::exec()` handed to the middleware pipeline. The visible symptom was narrow and
-alarming — an endpoint listed in `public_api_paths` answered `403 APIKeyMissing` in tests
-and correctly in production, because `ApiAuthMiddleware` reads the request's own URI and the
-bootstrap's request had none.
+Two request objects after a reset would be a real fault: `Api::exec()` hands the factory's
+request to the middleware pipeline, and `ApiAuthMiddleware` reads that request's own URI. A
+stale one with no URI makes an endpoint listed in `public_api_paths` answer
+`403 APIKeyMissing` in tests while it works in production.
 
 **`Factory::getRequest()` returns by reference, and that is an API.** Substituting a mock
 works, and is how several suites here do it:
@@ -420,101 +405,131 @@ It returns one entry: `[field name => fingerprint]`, the same two strings
 `getTokenField()` puts in the markup. Pass `true` for the IP-pinned variant, matching
 `getTokenField(true)`.
 
-Both of these exist because neither half was reachable. `submitForm()` threw
-`not yet fully implemented` while the class documented it as the way to post a form, and
-the CSRF field's name is a private property while its value is `getFingerprint()`, which
-is also not public — so the only way in was a regular expression over generated HTML, in
-every application that tested a form. Those are the highest-value tests in an application
-with accounts in it, and the ones most likely to be skipped, because the first hour of
-writing one went on this rather than on the behaviour.
+Use one of these two rather than a regular expression over the generated HTML: the
+field's name is a private property of the session and its value comes from a method that
+is not public, so these are the supported ways to reach them.
 
 
 ## Factories
 
-### Generate Test Data
+### Model factories
 
-Factories create fake model instances for testing:
+A model factory builds instances of an `OrmModel`. It extends
+`Pramnos\Support\ModelFactory`, names the model it produces and returns the attributes
+from `definition()`:
 
 ```php
-class UserFactory
+namespace App\Models;
+
+use Pramnos\Support\Faker;
+use Pramnos\Support\ModelFactory;
+
+class PostFactory extends ModelFactory
 {
-    public function definition()
+    protected string $model = Post::class;
+
+    public function definition(): array
     {
+        $faker = Faker::create();
+
         return [
-            'username' => \Pramnos\Support\Faker::username(),
-            'email'    => \Pramnos\Support\Faker::email(),
-            'password' => hash('sha256', 'password'),
-            'active'   => true,
+            'title'  => $faker->sentence(),
+            'email'  => $faker->email(),
+            'active' => 1,
         ];
     }
 }
 ```
 
-### Using Factories
+`Faker::create()` returns an instance (the default locale is `el_GR`), and the generators
+are methods on it: `$faker->userName()`, `$faker->email()`, `$faker->unique()->safeEmail()`.
+
+### Using a model factory
+
+The model finds its factory by convention (`{Model}Factory` in the same namespace), or
+through a `protected static string $factory` property on the model:
 
 ```php
-// Generate single user
-$user = factory(\App\Models\User::class)->create();
-
-// Generate multiple
-$users = factory(\App\Models\User::class, 10)->create();
-
-// Generate with overrides
-$user = factory(\App\Models\User::class)->create([
-    'email' => 'admin@example.com',
-    'active' => false,
-]);
-
-// Generate without saving
-$attributes = factory(\App\Models\User::class)->make();
+$post  = Post::factory()->create();                  // one, saved
+$posts = Post::factory()->count(10)->create();       // ten, saved; an array
+$post  = Post::factory()->create(['active' => 0]);   // with overrides
+$post  = Post::factory()->make();                    // one model instance, not saved
+$posts = Post::factory()->state(['active' => 0])->count(3)->create();
 ```
 
-## Seeders
+`create()` calls `save()` on each model. With a count above one, `make()` and `create()`
+return an array of models.
 
-### Database Seeding
+### Row factories for seeders
 
-Seeders populate the database with test data:
+`Pramnos\Database\Factory` is the table-level counterpart: it declares `$table` and
+`definition()`, and `make()` / `create()` return column arrays rather than models, with
+`create()` inserting them. It is what a seeder's `$this->factory()` builds.
 
 ```php
-<?php
+use Pramnos\Database\Factory;
 
-namespace Database\Seeders;
-
-use Pramnos\Database\Seeder;
-
-class UserTableSeeder extends Seeder
+class UserRowFactory extends Factory
 {
-    public function run()
+    protected string $table = 'users';
+
+    public function definition(): array
     {
-        // Create seed data
-        factory(\App\Models\User::class, 50)->create();
-        
-        // Or create specific records
-        \App\Models\User::create([
-            'username' => 'admin',
-            'email'    => 'admin@example.com',
-            'password' => hash('sha256', 'admin'),
-            'role'     => 'admin',
-        ]);
+        return [
+            'username' => $this->faker->userName(),
+            'email'    => $this->faker->unique()->safeEmail(),
+        ];
     }
 }
 ```
 
-### Run Seeders
+## Seeders
+
+### Writing a seeder
+
+A seeder extends `Pramnos\Database\Seeder` and implements `run(): void`. The return type
+is part of the parent's signature, so a `run()` without it fails when the class loads.
+
+```php
+<?php
+// database/seeds/UsersSeeder.php
+
+use Pramnos\Database\Seeder;
+
+class UsersSeeder extends Seeder
+{
+    public function run(): void
+    {
+        // Fifty rows through a row factory
+        $this->factory(UserRowFactory::class)->count(50)->create();
+
+        // Or one specific row
+        $this->insert('#PREFIX#users', [
+            'username' => 'admin',
+            'email'    => 'admin@example.com',
+        ]);
+
+        // Another seeder, composed rather than repeated
+        $this->call(PostsSeeder::class);
+    }
+}
+```
+
+`db:seed` takes the class name from the file name (`UsersSeeder.php` → `UsersSeeder`), so
+a seeder in `database/seeds/` declares no namespace.
+
+### Running seeders
 
 ```bash
-# Run all seeders
-php vendor/bin/pramnos db:seed
+php vendor/bin/pramnos db:seed                       # every seeder in database/seeds/
+php vendor/bin/pramnos db:seed UsersSeeder           # one, by class name
+php vendor/bin/pramnos db:seed --path=/other/seeds   # another directory
+```
 
-# Run specific seeder
-php vendor/bin/pramnos db:seed --seeder=UserTableSeeder
+In a test, run a seeder directly:
 
-# In tests
-public function setUp(): void
-{
-    parent::setUp();
-    $this->seed(['UserTableSeeder', 'PostTableSeeder']);
-}
+```php
+(new UsersSeeder())->run();
 ```
 
 ## Test Cases
@@ -598,26 +613,21 @@ the test database, says so on STDERR, and builds it from nothing, which costs on
 migration. Keys are the table names in the database, with the prefix on MySQL. A table or a
 database that does not exist counts as empty. The setting is off unless you set it.
 
-### Database Transactions
+### Writes are real
 
-```php
-public function testCreateUser()
-{
-    $this->withoutTransactions(function () {
-        // Run with real database writes
-        $user = \App\Models\User::create([...]);
-        $this->assertDatabaseHas('users', ['email' => $user->email]);
-    });
-}
-```
+`BaseTestCase` does not wrap a test in a transaction: what the code under test writes is
+in the database, where the assertions below can see it. Cleanup is by ownership instead.
+Users go through `createTestUser()` / `trackTestUser()`, and other rows through the watched
+tables above. A class that owns its tables extends `DatabaseTestCase` (see
+[Owning a schema](#owning-a-schema-without-paying-for-it-per-test)).
 
 ### Database Assertions
 
 ```php
 // Check record exists
 $this->assertDatabaseHas('users', [
-    'email' => 'john@example.com',
-    'active' => true,
+    'email'  => 'john@example.com',
+    'active' => 1,
 ]);
 
 // Check record doesn't exist
@@ -626,53 +636,57 @@ $this->assertDatabaseMissing('users', [
 ]);
 
 // Count records
-$this->assertEquals(42, \App\Models\User::count());
+$count = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
+    ->table('#PREFIX#users')->where('active', 1)->count();
 ```
 
 ## Complete Example
 
 ```php
-class UserApiTest extends \Pramnos\Framework\Testing\BaseTestCase
+use Pramnos\Framework\Testing\BaseTestCase;
+use Pramnos\Testing\TestClient;
+
+class ProfileApiTest extends BaseTestCase
 {
-    protected $user;
-    
+    private int $userId;
+    private TestClient $client;
+
     protected function setUp(): void
     {
         parent::setUp();
-        $this->user = factory(\App\Models\User::class)->create();
+        // Erased, with everything that belongs to it, when the test ends
+        $this->userId = $this->createTestUser(['email' => 'someone@example.test']);
+        $this->client = new TestClient();
     }
-    
-    public function testUserCanViewTheirProfile()
+
+    public function testAUserCanViewTheirProfile(): void
     {
-        $response = $this->withToken($this->user->api_token)
-            ->get('/api/v1/profile');
-        
-        $response->assertOk();
-        $response->assertJsonPath('data.email', $this->user->email);
+        $this->client
+            ->get('/api/v1/profile', ['Authorization' => 'Bearer ' . $this->tokenFor($this->userId)])
+            ->assertStatus(200)
+            ->assertJsonPath('data.email', 'someone@example.test');
     }
-    
-    public function testUserCanUpdateProfile()
+
+    public function testAUserCanUpdateTheirProfile(): void
     {
-        $response = $this->withToken($this->user->api_token)
-            ->patch('/api/v1/profile', [
-                'email' => 'newemail@example.com',
-            ]);
-        
-        $response->assertOk();
-        $this->assertDatabaseHas('users', [
-            'userid' => $this->user->userid,
-            'email'  => 'newemail@example.com',
-        ]);
+        $this->client
+            ->call('PATCH', '/api/v1/profile', ['email' => 'new@example.test'],
+                ['Authorization' => 'Bearer ' . $this->tokenFor($this->userId)])
+            ->assertSuccessful();
+
+        $this->assertDatabaseHas('users', ['userid' => $this->userId, 'email' => 'new@example.test']);
     }
-    
-    public function testUnauthorizedUserCannotAccessProfile()
+
+    public function testAGuestIsRefused(): void
     {
-        $response = $this->get('/api/v1/profile');
-        
-        $response->assertUnauthorized();
+        $this->client->get('/api/v1/profile')->assertStatus(401);
     }
 }
 ```
+
+`tokenFor()` stands for however the application issues an access token. The client has
+`get`, `post`, `put`, `delete`, `call` (any method, `PATCH` included) and `submitForm`;
+the response's assertions are the ones in the table above.
 
 ## Take the connection from `Connection::fresh()`, not from the factory
 
@@ -696,8 +710,7 @@ RuntimeException: No such file or directory
 
 — reported against a class that has touched none of this. It is order-dependent, so it
 appears when a filter or a new test changes what runs first and vanishes when the class is
-run alone, which is the worst way for a defect to behave. Three classes had each worked it
-out separately and written the same two lines; one had not, and carried the failure.
+run alone, which is the worst way for a defect to behave.
 
 **And when you park the singleton to put a mock in its place, park the object.**
 
@@ -720,12 +733,10 @@ Schema::table('applications', $this->db);
 
 **Never hand-write `CREATE TABLE` for a table the framework migrates.** A fixture that
 does is testing against a schema nothing else has, and the difference stays invisible until
-it is expensive. This repository has already paid for it: fixtures declared
-`applications.redirect_uri`, a column no migration has ever created — production registers
-the URI in `callback`, and only a *view* aliases it under the other name. So those tests
-set a field nothing consulted, took the "no redirect URI registered" branch, and passed.
-Four fixtures carried the column; a fifth carried the same wrong assumption in an array
-literal.
+it is expensive. `applications` is the standing example: production registers the redirect
+URI in `callback`, and only a *view* aliases it as `redirect_uri`. A hand-written fixture
+with a `redirect_uri` column sets a field nothing consults, takes the "no redirect URI
+registered" branch, and passes.
 
 The cost argument does not survive measurement. On this project's MySQL container, for
 `applications`:
@@ -737,18 +748,18 @@ The cost argument does not survive measurement. On this project's MySQL containe
 | canonical migrations, table already present | **0.23 ms** |
 
 A migration's `up()` opens with `if (hasTable()) return;`, so the second class to ask pays
-0.23 ms instead of building its own 9.56 ms copy. Converting eight fixtures cost nothing
-measurable: 16,075 tests in 3:22, against 3:22 before.
+0.23 ms instead of building its own 9.56 ms copy.
 
 `Schema::table()` takes a **name**, not a list of migrations, because the list is the part
-that gets written wrong — `applications` is created by one migration, gains `systemuser`
-from a second and a wider `callback` from a third, and the first attempt at this named only
-two. Add a table by putting its recipe in `Schema::RECIPES`. `Schema::ensure([...])` takes
+that gets written wrong — `applications` is created by one migration and then altered by
+seven more (`systemuser`, a wider `callback`, `trusted`, token lifetimes…), and a list that
+misses one builds a table production does not have. Add a table by putting its recipe in `Schema::RECIPES`. `Schema::ensure([...])` takes
 an explicit list for the cases that genuinely need one.
 
-**A stub is replaced, not kept.** For `applications`, `usertokens`, `users`, `userdetails` and
-`settings`, `Schema::table()` checks for a column every real copy has (`apikey`, `token`,
-`username`, `fieldname`, `setting`). A table that exists without it is a stub that some test
+**A stub is replaced, not kept.** For the tables in `Schema::SENTINELS` — `applications`,
+`usertokens`, `users`, `userdetails`, `settings`, `authserver.permissions` and
+`authserver.oauth2_device_codes` — `Schema::table()` checks for a column every real copy has
+(`apikey`, `token`, `username`, `fieldname`, `setting`, `granted_by`, `user_id`). A table that exists without it is a stub that some test
 built and left behind, so it is dropped and rebuilt. Otherwise every migration's `up()` would
 return early because the table exists, and the next insert would fail on a column the stub
 never had.
@@ -774,9 +785,9 @@ deprecated for new tests: call `Schema::table()` for the tables a test reads.
 **Both create the PostgreSQL schema first.** A migration names the schema its table lives in
 (`create_authserver_schema`, `create_pramnos_schema`, `create_applications_schema`) in
 `$dependencies`, and `Schema::ensure()` runs that one before it. The migration tests drop
-these schemas. Without that ordering, a test that built `authserver.loginlockouts` failed
-with `schema "authserver" does not exist`, but only in a run where a migration test had gone
-first.
+these schemas. Without that ordering, a test that builds `authserver.loginlockouts` would
+fail with `schema "authserver" does not exist`, but only in a run where a migration test had
+gone first.
 
 **Ensure every table the code under test reads, not only the one it writes.** `User::load()`
 reads `userdetails`, `Apikey::getData()` resolves its owner through `users`, and a push
@@ -785,10 +796,9 @@ ensure is one that an earlier test in the same run may have dropped.
 
 **Seeding a row means seeding it the way production does.** The canonical `usertokens` has
 `token`, `deviceinfo` and `scope` as `TEXT NOT NULL`, and MySQL gives a TEXT column no
-default — so a seed that omits one is refused, and a stub that declared them nullable was
-hiding that. Converting the fixtures surfaced it in eleven places, and in one production
-writer: `Oauth::generateAuthCode()` omitted `deviceinfo`, which meant the framework's own
-authorization endpoint could not issue a code at all under strict mode.
+default — so a seed that omits one is refused, and a stub that declares them nullable hides
+that. A production writer that omits one fails the same way under strict mode, which is
+exactly what a fixture built from the migration lets a test catch.
 
 **Two fixtures may still be hand-rolled**, and both are about the schema rather than about
 a feature:
@@ -803,22 +813,25 @@ Some tests need a table in its **canonical** shape rather than whatever the suit
 to have left there. `Integration/Auth/OAuth2/FullAuthorizationCodeFlowTest` is one: it
 drives the OAuth2 client against the framework's own authorization server, and the server
 compares the client's redirect URI against `applications.callback` character for character
-— a column several tests' hand-rolled `applications` does not have.
+— a column a hand-rolled `applications` may not have.
 
-The pattern is the one `OAuth2ClientSecretRequiredTest` established: **drop that table and
-rebuild it from its own migration**, through `BaseTestCase::runMigrations()`.
+The pattern: **drop that table and rebuild it from its migrations**. `Schema::table()` runs
+the table's whole recipe, so nothing in its history is left out:
 
 ```php
 $this->db->schema()->dropTableIfExists('#PREFIX#applications');
-$this->runMigrations([CreateApplicationsTable::class, WidenApplicationsCallback::class], $this->db);
+Schema::table('applications', $this->db);
 ```
 
+`BaseTestCase::runMigrations([...], $this->db)` does the same from an explicit list of
+migration classes, when a test needs a shape no recipe describes.
+
 **Drop only what nothing else points at.** That is the whole rule, and it is cheap to get
-wrong: `usertokens` carries a foreign key to `applications`, so a test that also dropped
-and rebuilt `usertokens` left the constraint dangling and **thirty-eight tests with nothing
-to do with OAuth2 failed afterwards** — account changes, permissions, token actions — each
-pointing at its own tables, none at the test that caused it. Rebuilding the parent is
-survivable because it is put back immediately; rebuilding the child is not.
+wrong: `usertokens` carries a foreign key to `applications`, so a test that also drops and
+rebuilds `usertokens` leaves the constraint dangling, and tests with nothing to do with
+OAuth2 fail afterwards — account changes, permissions, token actions — each pointing at its
+own tables, none at the test that caused it. Rebuilding the parent is survivable because it
+is put back immediately; rebuilding the child is not.
 
 Check before you drop:
 
@@ -856,8 +869,8 @@ by extending the MySQL one with `#[Group('mariadb')]` and a data provider that p
 ```
 
 This is the framework's own suite, not a scaffolded project's. ParaTest splits the test files
-over N workers, and then the `serial` group runs in a single process. On this machine that
-takes about 1½ minutes, against 3½ sequentially. The sequential `./dockertest --nocoverage`
+over N workers, and then the `serial` group runs in a single process, in a fraction of the
+sequential run's time. The sequential `./dockertest --nocoverage`
 remains the reference run: there is no coverage in parallel, and a failure seen only in
 parallel is a test that shares something.
 
@@ -887,8 +900,8 @@ a class to the group, see whether the shared thing can be given a per-test name 
 
 ## Writing a test that does not slow the suite down
 
-The suite's cost is concentrated, not spread: **203 tests out of 9364 account for 46% of
-the run**, measured. Three habits are what put a test in that group, and all three have a
+The suite's cost is concentrated, not spread: a small fraction of the tests accounts for a
+large share of the run. A few habits are what put a test in that group, and each has a
 cheap alternative:
 
 | Habit | Cost measured | Instead |
@@ -902,19 +915,19 @@ cheap alternative:
 | Writing a row with an explicit auto-increment id into a shared table | a duplicate-key failure in some *other* test, later | Let the sequence give the id (`RETURNING`, or read it back), and delete the row. On PostgreSQL an explicit id leaves the sequence behind |
 | `#[RunTestsInSeparateProcesses]` on a class | a PHP process and a full bootstrap per test — 25 tests took 5.8 s | Nothing to work around: every class already starts with no connection and no settings (see above). Keep it only for what a process cannot undo, such as `define()` without a guard, `header()` or `exit` |
 | Linting generated files with one `php -l` each | ≈40 ms a file — a scaffold of 80 files took 1.2 s | One `php -l` for many files (PHP 8.3+), then file by file only if that fails, to name the offender |
-| MySQL's general log on (`--general-log=1`) | one file write per statement, to a file that is never rotated | Off. Projects scaffolded by `pramnos init` no longer turn it on; an older `docker-compose.yml` that has it on the `db` command can drop it |
+| MySQL's general log on (`--general-log=1`) | one file write per statement, to a file that is never rotated | Off. `pramnos init` leaves it off; a `docker-compose.yml` that has it on the `db` command can drop it |
 | Letting the code under test shell out or reach the network | **1.9 s per test**, and variable | Skip it with the flag the command already has, or should have — `init` gained `--no-install` for exactly this. A unit test that depends on composer or on HTTP is slow *and* flaky |
-| Saving a model, in a suite or in production | **1358 ms** before 2026-08-27 — `cacheflush()` walked the whole cache tree on every write | Nothing: fixed in `FileAdapter`. If you see it again, check that `clear()` is still sampling its sweep |
+| Saving a model, in a suite or in production | over a second per write if `cacheflush()` walks the whole cache tree | Nothing: `FileAdapter::clear()` samples its sweep instead. If a save is slow again, check that it still does |
 | `exec('rm -rf …')` in `tearDown()` for a small temporary tree | **≈12 ms per test** (measured: 382 ms → 272 ms over nine tests) | A recursive `unlink`/`rmdir` helper — one already exists in `ApiDocsTest`. **Measure before converting a large tree**: for a scaffolded project of hundreds of files, `rm -rf` in C may well beat PHP recursion, and this row is not a licence to assume otherwise |
 
 **PHPUnit's dependency resolution costs time on a large suite.** With `#[Depends]` unused,
 `resolveDependencies="false"` on `<phpunit>` saves the quadratic resolution PHPUnit performs
-before every run. In this framework's 18,000 tests it was 47% of a run filtered to one class.
+before every run. In this framework's suite it was nearly half of a run filtered to one class.
 Leave it on if any test uses `#[Depends]`.
 
 **A PostgreSQL test database does not wait for the disk on commit.** `TestEnvironment`
-runs `ALTER DATABASE <test db> SET synchronous_commit = off` on every run, which in one
-project took a test class from 47 s to 28.5 s and the whole suite from 12:00 to 6:45. The
+runs `ALTER DATABASE <test db> SET synchronous_commit = off` on every run, which can
+nearly halve a commit-heavy suite. The
 setting belongs to that database, so a development database on the same server keeps full
 durability. If the connecting user does not own the database, the step is skipped and the
 suite is only slower.
@@ -1007,13 +1020,14 @@ Foreign keys between owned tables are handled: the drops and deletes run with
 `FOREIGN_KEY_CHECKS = 0` on MySQL, and `ownedTables()` is ordered so PostgreSQL is satisfied
 without disabling anything. Override `setUp()`/`tearDown()` freely — just call `parent::`.
 
-**Why it is worth converting a class.** `QueryBuilderMySQLTest` went from **16.8 s to
-0.56 s** for its 92 tests, with no assertion changed. Recreating three tables per test cost
-170 ms of the 183 ms each test took, in a class that never asserts anything about a schema.
+**Why it is worth converting a class.** Recreating tables per test is most of each test's
+time in a class that never asserts anything about a schema; `QueryBuilderMySQLTest` runs on
+this base for that reason, about thirty times faster than with per-test DDL and with the
+same assertions.
 
 ### The one thing that will bite you
 
-**Auto-increment counters no longer restart between tests.** A fixture that writes a
+**Auto-increment counters do not restart between tests.** A fixture that writes a
 hardcoded foreign key —
 
 ```php
@@ -1051,7 +1065,7 @@ $this->db->query('CREATE TABLE IF NOT EXISTS `tokenactions` (…)');   // a mini
 an insert naming one the winner did not create. In isolation both pass. Together, one fails, and
 which one depends on the filter you happened to use.
 
-Three rules, in order of preference:
+Five rules, in order of preference:
 
 1. **Do not create a table you do not read.** The cheapest fix by far. A test whose subject is
    session revocation needs `sessions` and nothing else — creating the other four to satisfy a
@@ -1071,8 +1085,8 @@ Three rules, in order of preference:
 4. **Include the retrofit migrations, not only the creating one.** Several indexes are added by
    `AddMissingIndexesToExistingTables` rather than by the `create_*` migration — `idx_sessions_userid`
    among them. A table rebuilt from part of its history is not the shipped table, and the cost lands
-   on *other* tests: every later query against it scans. That was 40 seconds of suite wall clock,
-   measured, in files that had nothing to do with the change.
+   on *other* tests: every later query against it scans, and the slowdown shows up in files
+   that have nothing to do with the change.
 5. **Ask for a name, never spell it.** A table whose name an installation can override —
    `authserver.user_organizations` is one — has a single reader in the framework
    (`Role::membershipTable()`, `Role::organizationColumn()`), and a fixture that writes the literal
@@ -1086,19 +1100,16 @@ Three rules, in order of preference:
 
 ### A test that names one class but exercises seventeen
 
-The cost of getting this wrong, measured. A tool-discovery test asserts the wire contract of every
-registered MCP tool — a unique name, a description long enough to choose by, a JSON Schema that
-survives a round-trip — and declared `#[CoversClass(McpServiceProvider::class)]`, which is true of
-what it asks for the server and false of what it exercises. Every line of tool code it ran was
-discarded: 69 tests, 305 assertions, and a project total that moved from **94.05% to 94.05%**, with
-the three methods the class was written for still reading zero hits.
+Take a tool-discovery test that asserts the wire contract of every registered MCP tool — a
+unique name, a description long enough to choose by, a JSON Schema that survives a
+round-trip. Declaring `#[CoversClass(McpServiceProvider::class)]` on it is true of what it
+asks the server for and false of what it exercises: every line of tool code it runs is
+discarded from the report, invisibly, behind a green run. Without the attribute, those
+lines count.
 
-Removing the attribute recovered **76 statements** and changed no code. That is the whole finding:
-the round had earned them and the attribute threw them away, invisibly, behind a green run.
-
-Which is the case for declaring nothing at all when the subject is a contract rather than a class.
-Naming all seventeen tools would have worked and would have been wrong for the same reason the test
-is written the way it is — a tool added tomorrow would silently stop counting. `requireCoverageMetadata`
+That is the case for declaring nothing at all when the subject is a contract rather than a
+class. Naming every tool would work today and be wrong for the same reason the test is
+written the way it is — a tool added tomorrow would silently stop counting. `requireCoverageMetadata`
 is not enabled here, so a test with no attribute contributes everything it executes.
 
 **`#[CoversClass]` is a filter, not a label.** Reach for it when a test's subject really is one or
@@ -1108,8 +1119,9 @@ two named classes, and leave it off when the test deliberately runs code outside
 
 The same rule, in the shape that is easy to miss. `src/Pramnos/DevPanel/adminer-object.php` declares
 one global *function* — Adminer looks the hook up with an unqualified string, so it cannot be a
-method — and its test carried `#[CoversClass(AdminerBridge::class)]`. Eleven passing tests, and the
-coverage report called the file **0%**, because no attribute on that test named it.
+method. With only `#[CoversClass(AdminerBridge::class)]` on its test, every test passes and the
+coverage report calls the file **0%**, because no attribute names it; `AdminerObjectHookTest`
+therefore also carries `#[CoversFunction('adminer_object')]`.
 
 So when reading a report: a 0% file is not always unexecuted machinery. Check what names it first —
 `#[CoversFunction('the_function')]` is what credits a file that declares functions rather than a
@@ -1125,19 +1137,17 @@ says zero:
 
 ```php
 #[CoversClass(AbstractAdapter::class)]
-#[CoversClass(FileAdapter::class)]      // …and no RedisAdapter
+#[CoversClass(FileAdapter::class)]
+#[CoversClass(RedisAdapter::class)]     // leave this out and the Redis rows credit nothing
 class StructuredOperationParityTest extends TestCase
 ```
 
-That class asserts that the fallback adapters and the native Redis one behave identically — its
-Redis rows pass, `hashSet()` provably reaches the server, and `RedisAdapter` still measured
-**0 of 328** when the class was run on its own. Adding the missing attribute took it to 90 with no
-other change. The same file reads 222 in a full suite run, because *other* tests declare
-`RedisAdapter` and contribute their own lines.
-
-So three numbers for one commit — 0, 90 and 222 — and none of them was a measurement fault. If a
-file looks less covered than the tests suggest, check the attributes before you go looking for a
-flake.
+That class asserts that the fallback adapters and the native Redis one behave identically.
+Without the third attribute its Redis rows still pass and `hashSet()` provably reaches the
+server, yet `RedisAdapter` reads zero when the class runs on its own — and a different,
+higher number in a full run, because *other* tests declare `RedisAdapter` and contribute
+their own lines. Neither number is a measurement fault. If a file looks less covered than
+the tests suggest, check the attributes before you go looking for a flake.
 
 **Add the attribute only where the class really is part of the test's subject.** The parity test *is*
 about all three adapters, so declaring all three is accurate. `PageCacheEdgesTest` merely uses a
@@ -1149,14 +1159,13 @@ worse than one that is honestly low.
 
 A file at **0%** is a different kind of signal from a file at 70%, and it is worth acting on
 before anything else: it means the machinery is written, shipped, and has never been executed —
-not by a test, and quite possibly not by anybody. Every 0% file in this repository that has been
-worked on has produced at least one real defect, because nothing about it had ever been observed.
+not by a test, and quite possibly not by anybody. Nothing about it has ever been observed, so it is
+where defects wait.
 
 Which makes the obvious ranking a trap. Sorting by *percentage* with a "files of at least N
 statements" filter — the natural way to avoid noise from three-statement classes — hides exactly
 these files, because they tend to be small: a reader, a writer and a service provider are 20 to 40
-statements each. In this repository that filter concealed eight files at 0% (189 statements) and
-462 uncovered statements in total.
+statements each.
 
 So rank twice:
 
@@ -1171,24 +1180,21 @@ something has never run.
 
 ## Reflection into a private method covers the algorithm, not the tool
 
-`route-list` had thirteen tests for its routes-file parser, all of them green, and every one reached
-it the same way:
+The `route-list` tool's routes-file parser is tested through reflection:
 
 ```php
 $routes = (new \ReflectionMethod(RouteListTool::class, 'parseRoutes'))
     ->invoke($tool, $contents);
 ```
 
-Which is a fine way to test a parser — the cases are pure string-in, array-out, and driving them
-through the public surface would mean writing thirty files to disk. It is also why `execute()` was a
-straight line of code that had never run. Finding the candidate files, reading them, stamping each
-route with the file it came from, applying the filter while reading, and choosing between the two
-answer shapes: none of it was touched by any of the thirteen. The report said 87%, the parser was
-exhaustively covered, and the tool had never been called.
+That is a fine way to test a parser — the cases are pure string-in, array-out, and driving them
+through the public surface would mean writing thirty files to disk. But none of those tests touches
+`execute()`: finding the candidate files, reading them, stamping each route with the file it came
+from, applying the filter while reading, and choosing between the two answer shapes. A report can
+show the class well covered while the tool itself has never been called.
 
-So the parser tests stayed and one file was added that goes in through `execute()` against real
-files, with `projectRoot()` overridden to a directory the test owns. Six tests, and they immediately
-described two behaviours nobody had written down:
+So the tool also has tests that go in through `execute()` against real files, with `projectRoot()`
+overridden to a directory the test owns. They pin behaviour the parser tests cannot see:
 
 - with routes on disk and no attribute controllers — **which is every console application, and the
   console is the only kernel that reaches this tool** — the answer is the keyed report, never the
@@ -1196,9 +1202,6 @@ described two behaviours nobody had written down:
 - the keyed report is in discovery order (`app/routes.php`, `routes.php`, `routes/web.php`,
   `routes/api.php`, and within a file the order written), while only the combined answer is sorted
   by URI, because only it merges two sources with no natural order between them.
-
-Both were correct and neither was asserted anywhere, which is the usual state of a code path that has
-only ever been read.
 
 The rule this leaves: **test the private method for the algorithm and the public one for the wiring.**
 If every test of a class reaches past its entry point, the entry point is untested no matter what the
@@ -1235,8 +1238,8 @@ is the part that matters: without it the next reader cannot tell an unreachable 
 nobody got round to, and the annotation becomes a way of hiding work rather than recording a fact.
 
 What the tests assert instead is the guard that *does* fire — an occupied path is refused, on all
-four, with the message naming the kind of file. Which turned out to be the more valuable assertion
-anyway: `create:model` used to overwrite an existing model and report success either way.
+four, with the message naming the kind of file. That is the more valuable assertion anyway: it
+is what stops `create:model` from overwriting an existing model and reporting success.
 
 ## An application's `applicationInfo` cannot be set by a property default
 
@@ -1250,9 +1253,9 @@ class TestApplication extends \Pramnos\Application\Application
 }
 ```
 
-— comes back holding the fixture's namespace, not the empty array. Which is why four `: 'App'`
-fallback lines in the scaffolders had never executed: every test that reached them supplied a
-namespace without meaning to, and the "unconfigured project" case was unreachable by construction.
+— comes back holding the fixture's namespace, not the empty array. A test written that way
+supplies a namespace without meaning to, and the scaffolders' `: 'App'` fallback for an
+unconfigured project is unreachable by construction.
 
 Assign it after construction instead:
 
@@ -1299,9 +1302,9 @@ Two details that follow:
 
 ## Two ways to lose a row you just wrote
 
-Both cost an afternoon in `MediaObject`, and neither is about the code under test.
+Neither is about the code under test.
 
-**`load()` reads through the query cache.** It is `query($sql, true, 600, 'media')` — cached for ten
+**`MediaObject::load()` reads through the query cache.** It is `query($sql, true, 600, 'media')` — cached for ten
 minutes, keyed on the SQL text. A test that writes a row and reads it back gets the cache unless it
 flushes:
 
@@ -1312,10 +1315,11 @@ flushes:
 Worse in a class that recreates its tables per run, because `mediaid` restarts at 1 and the cached
 row belongs to a *different test's* media — same id, same SQL, plausible-looking answer.
 
-**`MediaObject` declares no constructor.** So `new MediaObject($id)` accepts the argument, ignores
-it, and hands back an empty object — no error, no warning, and `->thumbnails` is the empty default.
-`new MediaObject(); $media->load($id);` is the loading form. An assertion that a freshly written row
-came back empty is the symptom, and the row is fine.
+**The constructor loads only a positive id.** `new MediaObject($id)` calls `load($id)` when the
+id is above zero; `0`, `''` and `null` give an empty object with no error and no warning, and
+`->thumbnails` is the empty default. A test that passes an id it has not resolved yet (an
+unset variable, a route segment that did not parse) gets the empty object, and an assertion that a
+freshly written row came back empty is the symptom while the row is fine.
 
 ## `No such file or directory` from a database that worked under a filter
 
@@ -1324,7 +1328,9 @@ flaky database. It is the singleton: whichever test ran before left
 `Database::getInstance()` holding another lane's connection settings, and `Factory::getDatabase()`
 hands that same object back rather than building one from the settings just loaded.
 
-Drop the reference first, which is what the integration tests here already do:
+Take the connection from `Connection::fresh()` (see
+[above](#take-the-connection-from-connectionfresh-not-from-the-factory)), or drop the
+reference first:
 
 ```php
 Settings::loadSettings($this->settingsFixture());
@@ -1349,23 +1355,20 @@ two may have nothing to talk to.
 
 ## A wrong-case namespace is a bug that only an uncovered branch can hide
 
-Thirty-six references in the Cache subsystem were written `\pramnos\Logs\Logger` — lowercase `p`.
-PHP resolves class names case-insensitively, so this looks harmless, and it is not:
+A reference written `\pramnos\Logs\Logger` — lowercase `p` — looks harmless, because PHP
+resolves class names case-insensitively. It is not:
 
 - **If the class is already loaded**, PHP finds it in its own table and the call works.
 - **If it is not**, the autoloader is asked for the literal string `pramnos\Logs\Logger`, and
   Composer's PSR-4 map is keyed on `Pramnos\` — a case-sensitive miss. `Error: Class
   "pramnos\Logs\Logger" not found`.
 
-So whether it works depends on what else the process happened to load first. In these files every
-one of them sat inside a `catch`, which is the worst possible place for a load-order-dependent
-fatal: the line only runs when something has already gone wrong, and it turns a handled failure
-into an unhandled one. The Redis adapter's sixteen `catch` arms exist so that losing the cache
-degrades the application rather than stopping it, and every one of them would have raised
-`Class not found` instead.
-
-It surfaced the moment a test executed one of those arms in isolation, and not before, because the
-covered arms all ran in processes where the Logger was loaded already. That is the general shape:
+So whether it works depends on what else the process happened to load first. Inside a `catch`
+it does the most damage: the line only runs when something has already gone wrong, and it turns
+a handled failure into an unhandled one. A cache adapter's `catch` arms exist so that losing the
+cache degrades the application rather than stopping it, and a wrong-case logger reference in them
+raises `Class not found` instead. Tests that run those arms in processes where the class is
+already loaded do not see it. That is the general shape:
 
 **A wrong-case reference in a rarely-taken branch cannot be found by running the application.** It
 needs either the branch executed in a cold process, or a grep:
@@ -1379,16 +1382,14 @@ demonstrably exists is reported as not found.
 
 ## A green filtered run is not evidence that your new test ran
 
-Seven tests appended to an existing file, `./dockertest --filter UsersControllerTest`, `OK (62
-tests, 183 assertions)`. Read as "they pass". They had not run at all.
+Tests appended to an existing file, then `./dockertest --filter UsersControllerTest`, and
+`OK`. That reads as "they pass", and it can mean they did not run at all.
 
-The file ends with two classes — the `TestCase` and a `UsersProbe` subclass that exposes protected
-methods — and the insertion landed in the second one. A test method on a class that is not a
-`TestCase` is just a method: PHPUnit never sees it, nothing fails, and the run is green because the
-*other* 62 tests are fine.
-
-The full suite is what said so, and only by its count: 14,853 before and 14,853 after. Same
-assertion total, too.
+A file can end with two classes — the `TestCase` and a probe subclass that exposes protected
+methods — and an insertion "before the last closing brace" lands in the second one. A test
+method on a class that is not a `TestCase` is just a method: PHPUnit never sees it, nothing
+fails, and the run is green because the *other* tests are fine. Only the counts give it away:
+the test and assertion totals do not move.
 
 So when adding to an existing file:
 
@@ -1432,10 +1433,9 @@ last one that *did*, and the next `End` then ignores everything from there to it
 several annotations and explanations on the `Start` lines, whole regions disappear from the report —
 and nothing warns you, because the numbers only get better.
 
-Measured here: **453 statements across 32 files** were excluded by accident. `Init.php` alone was
-missing 157, `ProjectResync` 122, `MakeCommandBase` 59. Correcting the syntax put them back and the
-project total still went **up**, 94.62% to 94.71%, because most of the accidentally-excluded code is
-covered — the exclusions were not hiding untested code, they were hiding the size of the codebase.
+The effect can be hundreds of statements across a codebase, and it does not always flatter: when
+most of the accidentally-excluded code is covered, correcting the syntax makes the total go *up*.
+The exclusions hide the size of the codebase as much as untested code.
 
 So:
 
@@ -1474,12 +1474,12 @@ foreach ($this->directories() as $directory) {
 ```
 
 — makes the test's contribution to the suite's assertion total depend on how much the checkout
-happens to have. Two identical runs reported 44,287 and 44,290 assertions, and the difference was
-this: one run found a theme directory the other did not.
+happens to have: two identical runs report different totals when one finds a directory the other
+does not.
 
 Nothing fails, and that is the cost. The assertion total is the cheapest signal there is for "did
-this change add assertions or quietly lose some" — the same signal that caught seven tests landing
-in the wrong class earlier — and a variable total is a signal you can no longer read.
+this change add assertions or quietly lose some" — the same signal that catches tests landing in
+the wrong class, above — and a variable total is a signal you cannot read.
 
 Assert the property instead of iterating:
 
@@ -1498,12 +1498,12 @@ so — *"This test did not perform any assertions"* — but only when the loop i
 
 ## A test that re-implements the code under test will pass when the code changes
 
-The sharpest version of "a test that replaces a method is not a test of it", because this one had a
-good reason and a name that said it was doing the opposite.
+The sharpest version of "a test that replaces a method is not a test of it", because it can have a
+good reason and a name that says it is doing the opposite.
 
 `ApiAdmin::search()` caps the omnibox limit at twenty — an endpoint that took the number from the
-request would be a denial-of-service endpoint with a friendly name. The test called
-`testTheOmniboxLimitIsCapped()`, and its probe did this:
+request would be a denial-of-service endpoint with a friendly name. A test of that cap whose probe
+overrides `search()` looks like this:
 
 ```php
 public function search(): mixed
@@ -1519,12 +1519,12 @@ public function search(): mixed
 }
 ```
 
-The reasoning in its docblock was sound — running six real searches would assert the registry's
-behaviour rather than the cap. The consequence was not: **the test asserted its own arithmetic.**
-Change the source to `min(500, …)` and it still passes, because the source is never called.
+The reasoning is sound — running six real searches would assert the registry's behaviour rather
+than the cap. The consequence is not: **the test asserts its own arithmetic.** Change the source to
+`min(500, …)` and it still passes, because the source is never called.
 
-The fix is to record from *below* the thing under test, not in place of it. One protected line in
-the controller —
+Record from *below* the thing under test, not in place of it. That is why the controller has one
+protected line —
 
 ```php
 protected function searchRegistry(string $term, int $perSource): array
@@ -1534,8 +1534,8 @@ protected function searchRegistry(string $term, int $perSource): array
 ```
 
 — and the probe overrides that instead. The real `search()` runs, the real cap computes, and the
-number asserted is the one the endpoint produced. Two assertions became possible that were not
-before: that the term comes from `q`, and that the default is five.
+number asserted is the one the endpoint produced. It also lets the test assert that the term
+comes from `q` and that the default is five.
 
 **The test to run on your own probes:** for each method it overrides, ask whether the source could
 change and the test still pass. If the override contains a copy of any expression from the source,
@@ -1543,17 +1543,17 @@ the answer is yes.
 
 ## When the gap is in the environment, fix the environment
 
-Two branches in this framework had no covered line for a reason that was not about the tests at all.
+Some branches have no covered line for a reason that is not about the tests at all.
 
 **APCu.** The migration fingerprint cache prefers APCu and falls back to a marker file. APCu is the
-path that runs in production — it is the reason the cache exists — and it was unreachable here
-twice over: the extension was not in the image, and `apc.enable_cli` defaults to `0` even once it
-is. Both are now set in the `Dockerfile`. Each CLI process gets its own empty cache, so nothing
-carries between tests.
+path that runs in production — it is the reason the cache exists — and it needs two things in the
+test image: the extension, and `apc.enable_cli=1`, because the setting defaults to `0` for the CLI.
+The `Dockerfile` sets both. Each CLI process gets its own empty cache, so nothing carries between
+tests.
 
 **A fetchable address.** `OutboundUrl` refuses every private, loopback, link-local and reserved
-address, which is the whole point of it — so nothing a container can reach is fetchable, and its
-socket path had never opened. The temptation is to widen the guard for tests: change `self::` to
+address, which is the whole point of it — so nothing a container ordinarily reaches is fetchable,
+and its socket path cannot open. The temptation is to widen the guard for tests: change `self::` to
 `static::` so a subclass can override `isPublicAddress()`, or add a flag. **Do not.** A guard that a
 test can relax is a guard an application can relax by accident.
 
@@ -1589,7 +1589,7 @@ FeatureRegistry::loadFromConfig([]);        // a no-op, not "no features"
 
 leaves whatever an earlier test enabled still enabled. Invisible in production, where it runs once
 at boot; in a suite it means a test asserting "refused without the `devpanel` feature" can pass
-for the wrong reason, or fail for one — which is how it was found.
+for the wrong reason, or fail for one.
 
 ```php
 FeatureRegistry::reset();                       // clears known *and* enabled
@@ -1692,11 +1692,11 @@ them already:
 
 | Extension | What leaks without it |
 | --- | --- |
-| `ProcessStateIsolation` | Per **test class**, not per test. It records the process once, after `tests/bootstrap.php`, and puts it back before every class: settings, the default connection, the applications, `Auth`, `Permissions`, two dozen registries (features, menu, health checks, mail types, second factors…), `$_SESSION`, `$_GET`, `$_POST`, `$_REQUEST`, `$_COOKIE`, `$_ENV`, and the environment `putenv()` changes. It also empties the caches of table shapes and loaded users. What the bootstrap set up stays, and what a class added is gone. In the framework's own suite, run in random order, this was the difference between twenty-odd failures per seed and none. |
-| `RequestIdentityIsolation` | An identity sealed by one test stays sealed. A controller test running after a middleware test finds itself signed in as somebody it never authenticated — **135 failures**, in tests that had nothing to do with authentication. It also clears `$unittesting_logged`, the override that makes `Session::staticIsLogged()` answer "signed in" under `UNITTESTING` whatever the session says. One test that set it and never cleared it signed in every test after it. |
-| `DocumentIsolation` | `Document` is a mutable singleton per type. A test that sets `->type = 'json'` is writing to the shared HTML document, and the next test that renders gets it — **three failures**, each of which appeared only in a full run. |
-| `GateIsolation` | `Gate` keeps abilities, policies and hooks in statics. A `Gate::before(fn () => true)` registered by one test would allow everything for every test after it — and the failure lands in a test asserting that an ordinary user is *refused*. Written **with** the feature rather than after the failures. |
-| `ServerGlobalIsolation` | `$_SERVER` is a superglobal. Fourteen of the framework's test classes started with `$_SERVER = []`, and the tests that paid were elsewhere: a console command with no `PHP_SELF`, a URL with a port and no host — **warnings in a full run only**. It is restored to what it was after the bootstrap script, so what `tests/bootstrap.php` sets is kept. |
+| `ProcessStateIsolation` | Per **test class**, not per test. It records the process once, after `tests/bootstrap.php`, and puts it back before every class: settings, the default connection, the applications, `Auth`, `Permissions`, two dozen registries (features, menu, health checks, mail types, second factors…), `$_SESSION`, `$_GET`, `$_POST`, `$_REQUEST`, `$_COOKIE`, `$_ENV`, and the environment `putenv()` changes. It also empties the caches of table shapes and loaded users. What the bootstrap set up stays, and what a class added is gone. Without it, a random-order run fails by which class happened to go first. |
+| `RequestIdentityIsolation` | An identity sealed by one test stays sealed. A controller test running after a middleware test finds itself signed in as somebody it never authenticated — and fails, in a test that has nothing to do with authentication. It also clears `$unittesting_logged`, the override that makes `Session::staticIsLogged()` answer "signed in" under `UNITTESTING` whatever the session says. Left set, it would sign in every test after it. |
+| `DocumentIsolation` | `Document` is a mutable singleton per type. A test that sets `->type = 'json'` is writing to the shared HTML document, and the next test that renders gets it — a failure that appears only in a full run. |
+| `GateIsolation` | `Gate` keeps abilities, policies and hooks in statics. A `Gate::before(fn () => true)` registered by one test would allow everything for every test after it — and the failure lands in a test asserting that an ordinary user is *refused*. |
+| `ServerGlobalIsolation` | `$_SERVER` is a superglobal. A test class that starts with `$_SERVER = []` makes tests elsewhere pay: a console command with no `PHP_SELF`, a URL with a port and no host — **warnings in a full run only**. It is restored to what it was after the bootstrap script, so what `tests/bootstrap.php` sets is kept. |
 
 The others reset at `PreparationStarted`, which is **before `setUp()`** — so a test that
 deliberately seals an identity or configures a document still gets exactly what it asked
@@ -1710,9 +1710,9 @@ else. This is also why they are worth knowing about even if you never touch them
 failure that only happens in a full run is almost never a bug in the test that failed.**
 
 If you hit one anyway — a full-run-only failure involving state you did not set — the fix
-is a third extension of the same shape, not a `setUp()` in the test that noticed.
+is another extension of the same shape, not a `setUp()` in the test that noticed.
 
-Existing projects that predate this: see
+A project whose `phpunit.xml` lacks these extensions: see
 [the Upgrade Guide](Pramnos_Upgrade_Guide.md#test-isolation-extensions-for-existing-projects).
 
 ## A test that passes alone and fails in the suite
@@ -1765,63 +1765,53 @@ from the list has to read the same on two runs; directory order does not.
 
 ### What it is for
 
-A full run once produced two errors and nothing else:
+The error it exists for looks like this:
 
 ```
 UnexpectedValueException: RecursiveDirectoryIterator::__construct(
   …/scaffolding/themes/tailwind/views): Failed to open directory: No such file or directory
 ```
 
-The directory is tracked in git, is not ignored, nothing in the repository writes under
-`scaffolding/`, and **its mtime on the host predated the run by seventeen days** — so it had
-not been removed and put back. What went missing was the container's *view* of it. The
-repository is a bind mount, and on macOS Docker Desktop that is VirtioFS (`fakeowner` over
-`/run/host_mark/Users`), which under load can answer `ENOENT` for a directory that is on the
-disk throughout. It is rare: a watcher stat-ing the same path as fast as the mount allows,
-for a whole 16,000-test run, did not reproduce it once.
+— on a directory that is tracked in git, that nothing in the repository writes, and that
+was never removed. What goes missing is the container's *view* of it. The repository is a
+bind mount, and on macOS Docker Desktop that is VirtioFS (`fakeowner` over
+`/run/host_mark/Users`), which under load can answer `ENOENT` for a directory that is on
+the disk throughout. It is rare, and it is not reproducible on demand.
 
 `Tree::files()` looks **three times**, 50 ms apart, and then raises a `RuntimeException`
-naming the path and saying how to tell the two explanations apart.
+naming the path and saying how to tell the two explanations apart. One retry is not enough
+for a sweep over a large tree such as the whole of `scaffolding/`; a loop would tolerate a
+directory that is genuinely gone. Three keeps the cost of a directory that is actually
+missing at 100 ms before it raises.
 
-It was two, on the reasoning that one retry is for a mount that blinked and a loop is a way
-to tolerate a directory that is genuinely gone. The reasoning holds and the number was
-wrong: a new sweep over the whole of `scaffolding/` — a large tree — lost *both* attempts
-twice in eight runs, which is a flaky test rather than a rare one, and a flake is
-indistinguishable from a real failure to whoever reads it next. Three is still a small
-number chosen for the same reason two was: a directory that is actually missing costs
-100 ms and then raises.
-
-### The two shapes it replaces, and why both were wrong
+### The two shapes it replaces, and why both are wrong
 
 - `new RecursiveIteratorIterator(new RecursiveDirectoryIterator($dir))` throws an
   `UnexpectedValueException` that reads like a bug in the test rather than a directory that
   could not be read.
 - `glob($dir . '/*')` returns `false`, so the sweep quietly examines nothing and **passes**.
-  That is the same failure mode the emptiness assertions on forty-five sweeps exist for; a
-  sweep still asserts its list is non-empty, because `Tree::files()` legitimately returns
+  A sweep still asserts its list is non-empty, because `Tree::files()` legitimately returns
   `[]` for a directory that is there and holds nothing.
 
-`Tree::matching($pattern)` is the glob half, with the same one retry. The emptiness
-assertion alone turned out not to be enough: it makes a blink a red test rather than a
-silent pass, which is right, but the red is still a failure nobody can act on — and one
-fired in a full run the day after `files()` landed, over a directory whose mtime had not
-moved in a month. It returns `[]` for a pattern that genuinely matches nothing, and only
-pays the pause when there is nothing to report.
+`Tree::matching($pattern)` is the glob half. It looks twice — one retry, 50 ms later — when
+the first look returns `false` or nothing, and returns `[]` for a pattern that genuinely
+matches nothing. The emptiness assertion alone is not enough: it makes a blink a red test
+rather than a silent pass, which is right, but the red is still a failure nobody can act on.
+The pause is paid only when there is nothing to report.
 
 ### And `Tree::read($path)` for the file itself
 
 The listing is not the last chance to blink. A sweep lists a directory, then reads each
-path it was given — and that read is the call that answers `false` with a warning PHPUnit
-turns into an error, on a file whose host mtime has not moved in weeks. It happened twice
-in eight runs of a new sweep, after `Tree::files()` had already made the listing safe.
+path it was given — and that read can answer `false` with a warning PHPUnit turns into an
+error, on a file that has not changed.
 
 ```php
 $body = Tree::read($path);   // not file_get_contents()
 ```
 
-Same attempts, same `RuntimeException` naming the path. An **empty file is `''`, not a
-failure**, which is the distinction the retry depends on: reading the two as the same
-thing would pause 50 ms on every empty file in a sweep and then raise on one.
+Same attempts as `files()`, same `RuntimeException` naming the path. An **empty file is
+`''`, not a failure**, which is the distinction the retry depends on: reading the two as the
+same thing would pause on every empty file in a sweep and then raise on one.
 
 ### If you are the one adding a sweep
 
@@ -1838,7 +1828,7 @@ is the framework's own container only — the compose file `init` writes for an 
 does not carry the line and must not, because an application's retention and compression
 policies have to actually run.
 
-The scheduler was crashing the server:
+Under the suite, the scheduler crashes the server:
 
 ```
 background worker "Retention Policy [9262]" was terminated by signal 11: Segmentation fault
@@ -1846,7 +1836,7 @@ DETAIL:  Failed process was running: CALL _timescaledb_functions.policy_retentio
 LOG:  terminating any other active server processes
 ```
 
-Seven times in one day, roughly once per full suite run. Each one puts PostgreSQL into
+Each crash puts PostgreSQL into
 recovery and kills whatever test is mid-statement, which surfaces as
 `the database system is not yet accepting connections` on two or three unrelated
 `FrameworkMigrations…` tests and — because the timing is random — as an occasional failure
@@ -1897,9 +1887,9 @@ exit $phpunit_status
 framework's own: every branch that invokes PHPUnit captures `$?` on the very next
 line, and the last statement is `exit $phpunit_status`.
 
-**A project scaffolded before this** has its own copy and version control will not
-update it — the same caveat as the lock block below. Check the last lines of your
-`dockertest`; if there is no `exit $phpunit_status`, add the two pieces above.
+A project's `dockertest` is its own copy, and updating the framework does not update
+it — the same caveat as the lock block below. Check the last lines of yours; if there is
+no `exit $phpunit_status`, add the two pieces above.
 
 ## `./dockertest` says a run is already in progress
 
@@ -1911,10 +1901,9 @@ holds a lock. It is a **directory**:
 ```
 
 `mkdir` is atomic on Linux, macOS and WSL alike, and succeeds only when the
-directory does not already exist. The lock used to be `flock` on a file
-descriptor — which is Linux-only. On macOS `flock` is simply absent, so
-`flock: command not found` made the acquire fail and **every** run reported that
-another was already in progress. There was no other run.
+directory does not already exist. A lock built on `flock` would not do: `flock`
+is Linux-only, and on macOS `flock: command not found` makes the acquire fail, so
+**every** run reports that another is already in progress.
 
 If you see that message and believe it is wrong:
 
@@ -1926,21 +1915,21 @@ A run killed hard leaves the directory behind, and the next run notices: it read
 the PID file, finds the process gone, says "stale lock detected" and proceeds. You
 should not need to remove anything by hand — if you do, `rm -rf` the path above.
 
-A project scaffolded before this change still has the flock version in its own
-`dockertest`; version control does not update it for you. Copy the lock block from
-a freshly scaffolded project, or replace the file.
+A project whose own `dockertest` still locks with `flock` is not updated by a
+framework upgrade. Copy the lock block from a freshly scaffolded project, or replace
+the file.
 
 ### …or that Docker is not responding, when it is
 
-The same platform gap, one guard further on. The daemon-hang timeouts call GNU
-coreutils `timeout`, which macOS also does not ship — so every guard exited 127,
-"command not found", and the first one concluded the daemon was unreachable:
+The same platform gap, one guard further on. The daemon-hang timeouts need GNU
+coreutils `timeout`, which macOS does not ship. Called directly there, every guard
+exits 127, "command not found", and the first one concludes the daemon is unreachable:
 
 ```
 ERROR: Docker is not responding (timed out after 15s, or the daemon is not running).
 ```
 
-The script now prefers a real `timeout`, then `gtimeout` (Homebrew coreutils), and
+So the script prefers a real `timeout`, then `gtimeout` (Homebrew coreutils), and
 otherwise uses a small bash implementation that mirrors the two call forms in use
 and returns `124` on a deadline, as GNU `timeout` does — the callers test for that
 code to tell a wedged daemon from a failed command.
@@ -1961,10 +1950,10 @@ because that is where the image installs the `timescaledb` extension — copy
 copy a template while any session is attached to it, and on TimescaleDB one
 regularly is: the extension runs a background-worker scheduler per database,
 `template1` included, and that worker reconnects on a schedule of its own. So the
-copy failed at random, on a database nothing in the project ever touches.
+copy can fail at random, on a database nothing in the project ever touches.
 
 Terminating `template1`'s sessions is not a fix on its own — the scheduler can be
-back before the next statement runs. `TestEnvironment` now retries the terminate
+back before the next statement runs. `TestEnvironment` retries the terminate
 and the copy together (ten attempts, 200 ms apart) and rethrows anything that is
 not SQLSTATE 55006 immediately, so a wrong password still fails on the first try
 instead of two seconds later.
@@ -1973,7 +1962,7 @@ Nothing to change in a project: the retry lives in `TestEnvironment::setupPostgr
 
 ## The JavaScript the framework ships
 
-One browser asset — `src/Pramnos/Debug/assets/debugbar.js`, around 3700 lines, served on every
+One browser asset — `src/Pramnos/Debug/assets/debugbar.js`, a few thousand lines, served on every
 page of every project with the debug toolbar enabled — plus the tests that cover it under
 `tests/js/`.
 
@@ -1992,31 +1981,28 @@ than failing on a detail nobody wants to think about while linting.
 ### What the linter is for, and what it is not
 
 Every rule enabled describes a **defect**. There are no style rules — no quote policy, no
-semicolons, no indentation — because `debugbar.js` predates the config by years: reformatting it
-would bury the next real change in noise, and a `--fix` sweep across 3700 lines is precisely the
+semicolons, no indentation — because `debugbar.js` was written long before the config: reformatting it
+would bury the next real change in noise, and a `--fix` sweep across the whole file is precisely the
 diff nobody can review.
 
-The rule the config exists for is `no-redeclare`. That asset had `var hasMvcPage` declared
-twice; a consuming project's linter found it, and the duplicate had stopped **1,195 panel tests**
-from running there. Nothing here could have caught it.
+The rule the config exists for is `no-redeclare`. A `var` declared twice in that asset is
+legal JavaScript and passes every test here, yet a consuming project's stricter tooling can
+refuse the file — and with it every panel test that loads it.
 
 !!! warning "Do not write a unit test for this class of mistake"
-    It was tried. A test that scanned for duplicate `var` declarations flagged `var rows` in six
-    unrelated functions, because it matched an **identifier** rather than a redeclaration, and it
-    was deleted. `no-redeclare` understands scope; a grep never will.
+    A test that scans for duplicate `var` declarations flags `var rows` in six unrelated
+    functions, because it matches an **identifier** rather than a redeclaration.
+    `no-redeclare` understands scope; a grep never will.
 
     The same reasoning applies to `no-undef`, `no-dupe-keys` and the rest: they are answers a
     parser can give and a test cannot.
 
-### First run
+### `CLIENT_TABS` is deliberately absent
 
-Six findings, and two of them were the config's own fault — `Blob` and `setImmediate` missing
-from the globals. The other four were real: a dead `CLIENT_TABS` lookup table in `debugbar.js`
-that nothing read, and three tests destructuring a `sandbox` they never used. The dead table is
-worth a note, because deleting it correctly required reading the code rather than the error: the
-three tabs it named *are* special-cased, by explicit `tab.key === …` checks in three separate
-places. The constant duplicated knowledge that lives elsewhere; wiring it up would be a refactor
-of behavioural code, so the observation is recorded in the file instead.
+The three tabs a `CLIENT_TABS` lookup table would name *are* special-cased in `debugbar.js`, by
+explicit `tab.key === …` checks in three places. Such a constant would duplicate that knowledge
+rather than replace it, and wiring it up would be a refactor of behavioural code, so the note is
+kept in the file instead.
 
 CI runs both, on Node 20 — the version the container ships, so a failure there reproduces with
 `./lintjs` rather than being a CI-only surprise.
@@ -2047,8 +2033,7 @@ deletes, and the value of a mechanical sweep is entirely in being believed.
 
 Verify it bites before you trust it. Break a stub on purpose, watch the test fail with a message
 that names the file and the offending name, then restore. A sweep is the one kind of test where
-passing on a clean tree and matching nothing at all look identical — and both of the framework's
-stub sweeps were, at first draft, unable to fail.
+passing on a clean tree and matching nothing at all look identical.
 
 ## Reference
 

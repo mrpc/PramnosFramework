@@ -9,225 +9,126 @@ use_cases:
 
 ## Overview
 
-This feature introduces support for environment variables in the Pramnos Framework using a `.env` file, similar to modern frameworks like Laravel and Symfony.
+The framework reads configuration from environment variables and from a `.env` file at the
+project root, through Symfony's Dotenv component (`symfony/dotenv`, a framework dependency).
 
-It allows developers to:
+This lets an application:
 
-* Store sensitive configuration outside the codebase
-* Manage environment-specific settings (dev, staging, production)
-* Access environment variables in a consistent and safe way
-
----
-
-## Why This Was Added
-
-Previously, Pramnos relied on constants or manual configuration handling.
-
-This approach had limitations:
-
-* Hard to manage across environments
-* Not secure for sensitive data (e.g. API keys, DB credentials)
-* No standardized way to load configuration
-
-With this feature:
-
-* Configuration becomes centralized
-* Sensitive data can be excluded from version control
-* The framework becomes more flexible and modern
+* keep credentials and other secrets out of version control;
+* run one committed configuration in development, staging and production;
+* read every value through one helper, `envvar()`, with consistent parsing.
 
 ---
 
-## Installation (Framework Side)
+## In a scaffolded project
 
-The feature uses Symfony’s Dotenv component.
+A project created by `init` already does all of this. `app/config/settings.php` loads the
+root `.env` with `loadDotenv(dirname(__DIR__, 2))` and reads every value through `envvar()`:
 
-Dependency added:
-
+```php
+'database' => [
+    'type'     => envvar('APP_DB_TYPE', 'postgresql'),
+    'hostname' => envvar('APP_DB_HOST', 'db'),
+    'password' => (string) envvar('APP_DB_PASSWORD', ''),
+    ...
+],
+'development' => envvar('APP_DEBUG', false),
 ```
-symfony/dotenv
-```
 
-No additional setup is required by the framework user beyond creating a `.env` file.
+`init` writes `.env` (this machine's values, ignored by git) and `.env.example` (the
+committed list of every key, secrets blank). See
+[Getting Started](Getting_Started.md#configuration-and-secrets) for why the keys are
+`APP_DB_*` rather than `DB_*`.
 
 ---
 
-## Usage
+## In a project you wire yourself
 
-### 1. Create a `.env` file
-
-At the root of your project:
-
-```
-.env
-```
-
-Example:
+### 1. Create a `.env` file at the project root
 
 ```
 APP_ENV=dev
 APP_DEBUG=true
 DEBUG_LEVEL=2
-DB_HOST=localhost
-DB_USER=root
-DB_PASSWORD=secret
+APP_DB_HOST=localhost
+APP_DB_USER=root
+APP_DB_PASSWORD=secret
 TEST_FLOAT=3.14
 TEST_EMPTY=
 ```
 
----
+### 2. Load it
 
-### 2. Load the `.env` file
-
-After loading the Composer autoloader, call:
+After the Composer autoloader, pass `loadDotenv()` the **directory that contains `.env`**.
+From an entry point in `www/`, that is the parent directory:
 
 ```php
 require __DIR__ . '/../vendor/autoload.php';
 
-loadDotenv(__DIR__);
+loadDotenv(dirname(__DIR__));
 ```
 
-> ⚠️ This should be done early in the application lifecycle (e.g. entry point like `index.php`).
+`loadDotenv($path = null, $fileName = '.env')` reads `$path/$fileName` (the current working
+directory when `$path` is `null`). It returns `false` when the file is missing or unreadable,
+or when `symfony/dotenv` is not installed. It uses Dotenv's `loadEnv()`, so `.env.local` and
+`.env.<APP_ENV>` files are read as well when they exist.
 
----
+Call it early, before anything reads configuration.
 
-### 3. Access environment variables
-
-Use the helper:
+### 3. Read values
 
 ```php
 envvar('KEY');
-```
-
-Examples:
-
-```php
-var_dump(envvar('APP_ENV'));      // "dev"
-var_dump(envvar('APP_DEBUG'));    // true
-var_dump(envvar('DEBUG_LEVEL'));  // 2
-var_dump(envvar('TEST_FLOAT'));   // "3.14"
-var_dump(envvar('TEST_EMPTY'));   // ""
-```
-
-You can also provide a default value:
-
-```php
 envvar('NOT_DEFINED', 'default_value');
 ```
 
----
-
-## Behavior & Parsing Rules
-
-The `envvar()` helper automatically converts common string values:
-
-| Value    | Result              |
-| -------- | ------------------- |
-| `true`   | `true` (bool)       |
-| `false`  | `false` (bool)      |
-| `null`   | `null`              |
-| `empty`  | `""` (empty string) |
-| `"text"` | `text`              |
-| `'text'` | `text`              |
-
-### Numeric Values
-
-Numeric values are **NOT automatically cast to boolean**.
-
-Example:
-
-```
-DEBUG_LEVEL=1
-```
-
 ```php
-envvar('DEBUG_LEVEL'); // "1"
-```
-
-This allows using values like:
-
-* `0`, `1`, `2`, `3` for debug levels
-* without breaking logic by converting them to `true/false`
-
----
-
-## Important Notes
-
-### `.env` should NOT be committed
-
-Add to `.gitignore`:
-
-```
-.env
-```
-
-For shared configuration, you can create:
-
-```
-.env.example
+var_dump(envvar('APP_ENV'));      // string(3) "dev"
+var_dump(envvar('APP_DEBUG'));    // bool(true)
+var_dump(envvar('DEBUG_LEVEL'));  // int(2)
+var_dump(envvar('TEST_FLOAT'));   // float(3.14)
+var_dump(envvar('TEST_EMPTY'));   // string(0) ""
 ```
 
 ---
 
-### `loadDotenv()` is safe to call multiple times
+## Parsing rules
 
-The function internally prevents reloading the same file.
+`envvar()` converts string values:
+
+| Value                    | Result                    |
+| ------------------------ | ------------------------- |
+| `true`, `(true)`         | `true` (bool)             |
+| `false`, `(false)`       | `false` (bool)            |
+| `null`, `(null)`         | `null`                    |
+| empty                    | `""` (empty string)       |
+| `"text"` or `'text'`     | `text` (quotes removed)   |
+| `2`                      | `2` (int)                 |
+| `3.14`                   | `3.14` (float)            |
+| anything else            | the trimmed string        |
+
+The keyword match is case-insensitive. Numbers become `int` or `float`, never `bool`, so `0`,
+`1`, `2` stay usable as levels.
 
 ---
 
-### Fallback Order
+## Precedence
 
-The `envvar()` helper checks values in this order:
+`envvar()` returns the first value it finds in:
 
 1. `getenv()`
 2. `$_ENV`
 3. `$_SERVER`
 
----
-
-## Backward Compatibility
-
-This feature does **not break existing functionality**.
-
-* Existing `env()` helper remains unchanged
-* Old projects continue to work without modification
-* New projects can adopt `.env` gradually
+and the default otherwise. Dotenv does not overwrite a variable that is already set, so a
+real environment variable beats `.env` — a host that injects `APP_DB_PASSWORD` needs no file.
 
 ---
 
-## Best Practices
+## Notes
 
-* Always call `loadDotenv()` early
-* Use `envvar()` instead of `env()` for new code
-* Keep secrets in `.env`, not in source code
-* Use `.env.example` for documentation
-
----
-
-## Example Integration
-
-```php
-require __DIR__ . '/../vendor/autoload.php';
-
-loadDotenv(__DIR__);
-
-$env = envvar('APP_ENV', 'prod');
-$debug = envvar('APP_DEBUG', false);
-$debugLevel = envvar('DEBUG_LEVEL', 0);
-```
-
----
-
-## Summary
-
-This feature brings modern configuration handling to Pramnos:
-
-* Clean separation of config and code
-* Safer handling of sensitive data
-* Flexible multi-environment support
-* Developer-friendly API
-
-It is a foundational step toward more advanced features such as:
-
-* configuration management
-* validation systems
-* environment-based behavior
+* **Do not commit `.env`.** Commit `.env.example` with every key and the secrets blank.
+* **`loadDotenv()` is safe to call more than once.** A file already loaded in the request is
+  not read again.
+* **`env()` is a different helper.** It reads PHP *constants* (`env('FIELD')` returns
+  `constant('FIELD')`), not the environment. Use `envvar()` for environment values.

@@ -40,17 +40,14 @@ What makes it safe to say yes to is the boundary below.
 | Paths | anything ending `.css .js .mjs .woff .woff2 .ttf .otf .eot .png .jpg .jpeg .gif .svg .webp .avif .ico` |
 | Everything else | **not intercepted at all** — no `respondWith`, so the browser behaves as if there were no worker |
 
-**HTML is never touched.** That is the whole design, and it is drawn from a production
-service worker that crossed the line. Once a worker caches HTML it needs a list of URLs
-never to cache — the signed-in pages, the checkout, the profile editor — and that list
-is maintained by hand. The one this replaces had eleven entries and had grown one at a
-time:
+**HTML is never touched.** That is the whole design. Once a worker caches HTML it needs a
+list of URLs never to cache — the signed-in pages, the checkout, the profile editor — and
+that list is maintained by hand, one line at a time:
 
 ```js
 if (request.url.includes('/admin')) { return; }
-if (request.url.includes('parent/profile')) { return; }
-if (request.url.includes('professional/profile')) { return; }
-// …eight more
+if (request.url.includes('/account/profile')) { return; }
+// …one more line for every private page the application ever adds
 ```
 
 Every page added to the application is a chance to forget a line, and the consequence
@@ -75,13 +72,11 @@ is nothing to check:
 is fetched behind it. The reader may see one stale paint; the next load is correct.
 
 `assets/css/style.css` is the case that matters: its URL never changes, so cache-first
-there would be stale **forever**. That is precisely how the worker this replaces served
-a *Maintenance Mode* page through hard reloads for a day — it fell back to a cached copy
-after a two-second timeout, and had stored the error page as though it were the real
-one.
+there would be stale **forever** — and if the stored copy were an error page, a
+*Maintenance Mode* response say, the visitor would keep getting it through hard reloads.
 
-Which is why **only a successful response is stored**: `response.ok`, so a redirect, a
-404 and a 500 are all refused.
+Which is why **only a successful response is stored**: `response.ok` and not opaque, so a
+redirect, a 404, a 500 and an unreadable cross-origin response are all refused.
 
 !!! note "There is no `Set-Cookie` check, and there cannot be"
     `PageCache::store()` refuses a response carrying `Set-Cookie`, for good reasons. The
@@ -94,14 +89,11 @@ Which is why **only a successful response is stored**: `response.ok`, so a redir
 ## There is no cache version to bump
 
 The usual pattern is a version prefix on the cache name, bumped by hand at deploy time.
-This has none, and that is deliberate: the version prefix is what made the incident
-above permanent.
-
-That worker had three caches. Two of them — `pages` and `images` — had **unversioned**
-names, and the sweep that runs on activation deletes every cache whose name is not in
-the current list. Since those two names never changed they always matched, so bumping
-the version purged the one versioned cache and left the other two stale for good. One
-bad response outlived every reload and every version bump.
+This has none, and that is deliberate: a version prefix only purges the caches that carry
+it. A worker with several caches, one of them unversioned, keeps the unversioned one
+across every bump — the activation sweep deletes caches *not in the current list*, and
+an unchanging name is always in it — so one bad response outlives every reload and every
+version bump.
 
 Nothing here needs a version. Immutable entries stay valid by definition and everything
 else revalidates itself, so a bump would be repairing no state. What bounds the cache
@@ -116,9 +108,8 @@ LRU — the oldest writes go first regardless of how often they are read, becaus
 LRU needs an access log of its own and a static asset cache does not earn one.
 
 !!! warning "A timer inside a service worker does not run"
-    The worker this replaces cleaned up on a `setInterval` of six hours. A browser
-    terminates an idle service worker, so that timer essentially never fired and the
-    whole cleanup block was dead code. Anything periodic has to happen on an event the
+    A browser terminates an idle service worker, so a cleanup on a `setInterval` of
+    hours essentially never fires. Anything periodic has to happen on an event the
     worker is woken for — which, here, is a cache write.
 
 ---
@@ -166,27 +157,28 @@ assignment above the registration.
 
 ## CSP: `worker-src` has to allow it
 
-`worker-src` governs `Worker`, `SharedWorker` **and the service-worker script**. The
-framework's default policy used to say `worker-src 'none'`, which refused every
-registration — the `register()` promise rejected and nothing installed.
+`worker-src` governs `Worker`, `SharedWorker` **and the service-worker script**. A policy
+of `worker-src 'none'` refuses every registration — the `register()` promise rejects and
+nothing installs.
 
-It is `'self'` now, and reads the `csp` block like every directive around it:
+The framework's default is `worker-src 'self' blob:`, and it reads the `csp` block like
+every directive around it:
 
 ```php
 // app/app.php — only if the worker is served from somewhere else, which is unusual
 'csp' => ['worker-src' => ['https://cdn.example']],
 ```
 
-`'self'` is the tightest value that works: a browser will not accept a cross-origin
-service-worker script in the first place. It gives up very little over `'none'` — the
-only extra thing it permits is a same-origin `new Worker(...)`, and reaching that needs a
-script on your origin, at which point `script-src 'self'` has already been defeated.
+`'self'` is the tightest value that works for the service worker: a browser will not
+accept a cross-origin service-worker script in the first place. `blob:` is there for
+workers a page builds from a Blob — `pf-humancheck.js` builds its solver that way. Neither
+gives up much over `'none'`: both need a script already running on your origin, at which
+point `script-src 'self'` and the nonce have already been defeated.
 
 **If the worker is not registering, read the console.** The registration reports a
 rejected `register()` with `console.warn`, and a CSP refusal names the directive that
-refused it. That message exists because the first version of this discarded the
-rejection, and the argument for discarding it — *a browser that declines to register is
-just a browser without the cache* — was wrong in exactly the case that mattered.
+refused it. A refused registration is a misconfiguration somebody can fix, so it is
+logged rather than swallowed.
 
 Two other reasons registration silently does nothing, neither of them CSP:
 
@@ -231,10 +223,8 @@ page is what makes it immediate.
 
 ## Caching HTML as well
 
-Not scaffolded, and if you add it, invert the rule the worker this replaces used.
-
-That one had a **deny-list** of private paths and cached everything else. Start from an
-**allow-list** of paths that are genuinely public — the same shape as the page cache's
+Not scaffolded. If you add it, do not start from a **deny-list** of private paths that
+caches everything else. Start from an **allow-list** of paths that are genuinely public — the same shape as the page cache's
 `onlyPaths` — so that a page nobody thought about is uncached rather than shared. And
 remember what the server-side rules cannot do for you: `bypassCookies` protects the
 store the application owns, not a copy sitting in somebody's browser, and
@@ -260,9 +250,9 @@ arrives — a receipt, used by sign-in approvals so the waiting page can say "de
 already open. The worker's own requests (`push/key`, `push/subscribe`, `push/unsubscribe`) are
 resolved against its registration scope, so a site installed in a folder works.
 
-A worker scaffolded before these were added has neither. The framework does not rewrite an
-application's worker: copy the `Web push` block of `scaffolding/templates/service-worker.js.stub`
-over yours, as for the handlers themselves.
+An application's `sw.js` is its own file, and the framework never rewrites it. If yours
+lacks these handlers or fields, copy the `Web push` block of
+`scaffolding/templates/service-worker.js.stub` over yours.
 
 ---
 

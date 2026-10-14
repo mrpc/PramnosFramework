@@ -56,8 +56,9 @@ Gate::define('update-post', function ($user, $post) {
     return $user->userid === $post->userid;
 });
 
-// "an administrator may do anything", once, instead of at the top of every rule
-Gate::before(fn ($user) => $user->isAdmin() ? true : null);
+// "a superuser may do anything", once, instead of at the top of every rule.
+// $user is null for an anonymous visitor, hence the null-safe read.
+Gate::before(fn (?object $user) => (int) ($user?->usertype ?? 0) >= 98 ? true : null);
 ```
 
 A rule returns `true` to allow, `false` to deny, and **`null` for no opinion** — which falls
@@ -81,7 +82,7 @@ class PostPolicy
     /** Runs before this policy's own methods — narrower than the global hook. */
     public function before($user, $ability, ...$args)
     {
-        return $user->isModerator() ? true : null;
+        return (int) ($user?->usertype ?? 0) >= 90 ? true : null;
     }
 }
 ```
@@ -143,8 +144,7 @@ public-facing rule can simply say what an anonymous visitor may do.
 
 ### Seeing which step decided
 
-The order above is the contract, and until the toolbar carried it there was **no way to observe
-it**. A rule is a closure in a bootstrap file, so it appears in no stack trace. A `before` hook
+The order above is the contract, and without the toolbar it **cannot be observed**. A rule is a closure in a bootstrap file, so it appears in no stack trace. A `before` hook
 that returns `true` skips everything after it and leaves no mark. The SQL panel cannot help,
 because a decision may touch no database at all. And a 403 says something refused, not which of
 six steps did.
@@ -927,7 +927,8 @@ To tighten it, override in the generated controller:
 ```php
 protected function authorize(string $action): bool
 {
-    return parent::authorize($action) && $this->user()->isAdmin();
+    return parent::authorize($action)
+        && (int) ($this->requestUser()?->usertype ?? 0) >= 90;
 }
 ```
 
@@ -1124,7 +1125,7 @@ An Admin item under `admin_access = permissions` is the exception: it is shown o
 ability is granted — see [Administration screens](#administration-screens-by-usertype-or-by-permission).
 
 A menu that vanished because nobody had granted anything yet would look like a broken
-install, which is exactly what happened before the framework had a permission system.
+install.
 
 ### A count beside a label
 
@@ -1202,31 +1203,13 @@ conclude you have found the authorization system. The one you want is
 
 ---
 
-## What this page used to say
+## Why the API has this shape
 
-Until 2026-08-14 this guide documented `Gate::define()`, policy classes with `before`/`after`
-hooks, `auth()->can()`, `$this->authorize('update', $post)` and
-`\Pramnos\Auth\AuthorizationException` — **none of which existed**. The page came out of the
-v1.2 documentation reorganisation describing an API that was planned rather than shipped, and
-it was found by a consumer who tried to build on it.
-
-It is recorded rather than quietly overwritten because of *how* it failed. Eight other guides
-had namespace slips — the class exists, the guide spells its path wrong — and a reader greps
-the class name, finds it one namespace over and moves on. This page was the only one where
-there was nothing to find under any namespace, and a reader who greps `Gate` and gets nothing
-back cannot tell *"I searched wrong"* from *"this does not exist"*. That is the state in which
-somebody keeps looking for another hour, and it lands on whoever is doing authorization work —
-which is precisely where people reach for a framework instead of inventing something.
-
-**The gate now exists**, because the design was sound and the gap was real: the permission
-store cannot express a rule. Three things differ from what that page described, and they are
-deliberate:
-
-| That page | Today | Why |
-| --- | --- | --- |
-| `$this->authorize('update', $post)` on a controller | `$this->can()` / `$this->cannot()`, or `Gate::authorize()` | `ApiCrudController::authorize(string $action): bool` already exists with a different meaning; two `authorize()`s in one hierarchy is a trap even where PHP allows it |
-| a global `auth()` helper | `Gate::` statics | the framework has three unrelated `auth()` methods already; a fourth spelling would have been the worst of them |
-| policies only | policies **and** a permission-store bridge | the store was already there and already used; a gate that ignored it would have split authorization in two |
+| Choice | Why |
+| --- | --- |
+| `$this->can()` / `$this->cannot()` on a controller, or `Gate::authorize()` — no `$this->authorize()` | `ApiCrudController::authorize(string $action): bool` already exists with a different meaning; two `authorize()`s in one hierarchy is a trap even where PHP allows it |
+| `Gate::` statics, no global `auth()` helper | the framework already has unrelated `auth()` methods; another spelling would be the most confusing of them |
+| policies **and** a permission-store bridge | the store is already there and used; a gate that ignored it would split authorization in two |
 
 ## Reference
 

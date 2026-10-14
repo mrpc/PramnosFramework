@@ -188,13 +188,6 @@ body should be — and do set one when you are calling something you do not
 control, because without it a server that answers with a gigabyte will exhaust
 `memory_limit` and take the worker down.
 
-> **Added 2026-08-23.** Before this, a live streaming endpoint was reported
-> unreachable: the server answered `200 audio/mpeg` in milliseconds and all of
-> it was discarded, because the only way out of `send()` was a complete body or
-> an exception. A faster endpoint did not even reach the timeout — three seconds
-> of a fast stream measured a quarter of a gigabyte in `memory_limit`. Consuming
-> applications dropped to raw cURL for both; they no longer need to.
-
 ---
 
 ## Several requests at once: `Client::pool()`
@@ -296,12 +289,6 @@ foreach ($responses as $key => $response) {
 That is what the accessors are for. Together they answer whether an outbound cost
 is **payload** or **waiting**, and those have different fixes — ask for less,
 against ask less often.
-
-> **Added 2026-08-24.** curl measured both already and the client discarded them.
-> A consuming application keeping an outbound-traffic ledger therefore kept one
-> service on a hand-rolled curl handle purely to read `curl_getinfo()`, and its
-> pooled poller had to redefine its `millis` column as "share of the batch's
-> elapsed time" because there was nothing else to divide.
 
 ---
 
@@ -617,6 +604,10 @@ for development only — it makes the connection trivially interceptable.
 | `->maxResponseBytes(int $bytes): static` | Keep at most this much body |
 | `->sink(string $path): static` | Write a 2xx body to this file instead of memory |
 | `->decodeGzip(bool $decode = true): static` | Inflate a gzip file on its way into the sink |
+| `->maxRedirects(int $times): static` | Follow at most this many redirects (default 5) |
+| `->withoutRedirects(): static` | Return a `30x` instead of following it |
+| `->forUserSuppliedUrl(bool $allowHttp = false): static` | SSRF guard: public addresses only, checked on every hop |
+| `->allowAddresses(array $ranges): static` | Ranges the guard lets through although not public |
 | `->withoutSslVerification(): static` | Disable certificate checks (dev only) |
 | `->userAgent(string $agent): static` | Override the User-Agent |
 | `->throwOnError(): static` | Throw on 4xx/5xx instead of returning |

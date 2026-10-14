@@ -32,29 +32,29 @@ The Pramnos Framework includes a comprehensive email system built on top of Symf
 2. [Basic Usage](#basic-usage)
 3. [Configuration](#configuration)
 4. [Advanced Features](#advanced-features)
-5. [Email Tracking](#email-tracking)
+5. [Tracking: opens and clicks](#tracking-opens-and-clicks)
 6. [A message to one account](#a-message-to-one-account)
 7. [A message to many accounts](#a-message-to-many-accounts)
 8. [What kinds of mail this application sends](#what-kinds-of-mail-this-application-sends)
 9. [Unsubscribing, and what Gmail requires](#unsubscribing-and-what-gmail-requires)
-9. [The line the inbox shows beside the subject](#the-line-the-inbox-shows-beside-the-subject)
-10. [Dark mode](#dark-mode-and-why-the-wrapper-declares-it)
-11. [Accessibility in the message](#accessibility-in-the-message)
-12. [What DNS says](#what-dns-says-and-what-the-application-cannot-see)
-13. [Retention](#what-to-keep-of-a-sent-message-and-for-how-long)
-13. [The outbox](#the-outbox)
-14. [SMTP Configuration](#smtp-configuration)
-14. [Error Handling](#error-handling)
-15. [Best Practices](#best-practices)
-16. [API Reference](#api-reference)
+10. [The line the inbox shows beside the subject](#the-line-the-inbox-shows-beside-the-subject)
+11. [Dark mode](#dark-mode-and-why-the-wrapper-declares-it)
+12. [Accessibility in the message](#accessibility-in-the-message)
+13. [What DNS says](#what-dns-says-and-what-the-application-cannot-see)
+14. [The outbox](#the-outbox)
+15. [Retention](#what-to-keep-of-a-sent-message-and-for-how-long)
+16. [SMTP Configuration](#smtp-configuration)
+17. [Error Handling](#error-handling)
+18. [Best Practices](#best-practices)
+19. [API Reference](#api-reference)
 
 ## Overview
 
 The Email system (`\Pramnos\Email\Email`) is a powerful wrapper around Symfony Mailer that provides:
 
 - **Simple API**: Fluent interface for building and sending emails
-- **Multiple Transport Options**: SMTP, local mail, and more
-- **Email Tracking**: Built-in open tracking with database logging
+- **SMTP transport**: the installation's `smtp_*` settings, or per message another SMTP server (`via()`) or any Symfony Mailer transport (`withTransport()`)
+- **Email Tracking**: opt-in open and click tracking for list mail, recorded in the database
 - **Attachment Support**: File attachments with validation
 - **Template Integration**: Works seamlessly with the theme system
 - **Error Handling**: Comprehensive error reporting and debugging
@@ -227,10 +227,8 @@ $template = (new \Pramnos\Messaging\MailTemplate($controller))
     ->findByKey('auth.passwordreset', 'el', \Pramnos\Messaging\MailTemplate::TYPE_EMAIL);
 ```
 
-**`/admin/MailTemplates` is where an operator edits them.** Until it existed the table was
-reachable only through a database client, which in practice meant the templates were not
-edited at all: a project that wanted to change the wording of a password-reset email
-changed the code that composes it and left the template unused.
+**`/admin/MailTemplates` is where an operator edits them**, so changing the wording of a
+password-reset email is a screen, not a code change.
 
 Three things the screen does, each because leaving it out makes the screen decorative:
 
@@ -265,8 +263,8 @@ protected function mailer(): \Pramnos\Email\Email
 }
 ```
 
-Without the seam the only reachable part of `test()` is its refusals — the mailer is built
-inline — so the two things the action exists to prove could not be tested at all.
+Without overriding it, a test can reach only `test()`'s refusals, not the two things the
+action exists to prove.
 
 ## Which language a message is written in
 
@@ -275,10 +273,9 @@ inline — so the two things the action exists to prove could not be tested at a
 without one (a `PlainAddress`, an account that never chose) is sent in whatever language the
 installation is currently using.
 
-That is the only correct answer and it was not the old one: the language of a request belongs
-to whoever made it, so an operator resetting a password from an English administration screen
-sent an English mail to an account whose every screen is Greek, and a queue worker sent
-whatever the default was.
+The language of a request belongs to whoever made it: an operator resetting a password from
+an English administration screen must still send a Greek account a Greek mail, and a queue
+worker has no request language at all.
 
 Mail composed outside the notification system asks for the same thing itself — see
 `Language::using()` in the Internationalization guide. The framework's own auth mail
@@ -375,14 +372,10 @@ class Messages extends \Pramnos\Messaging\Controllers\MessagesController {}
 `MessagesController::unreadCount($userId)` is the number for a badge; it answers zero rather
 than throwing, because a badge is not worth an exception on an unrelated page.
 
-**This is the other end of a dead end.** `messages` has been in the schema since the messaging
-feature shipped, `MassMessageDispatcher` writes a row per recipient when a broadcast goes out as
-an internal message, and `Message::countUnread()` counted them — and nothing displayed any of
-it. An operator could compose a message, choose "internal message", watch the progress screen
-report every recipient delivered, and no recipient could read a word of it. Every part of the
-machinery was working: the insert succeeded, the count was right, the admin screen was honest
-about what it had done. Only the reader was missing, and no test notices a reader that was never
-written.
+**This is where an internal message is read.** `MassMessageDispatcher` writes a row per
+recipient to `messages` when a broadcast goes out as an internal message, and
+`Message::countUnread()` counts them; `/messages` is the screen that displays them. Without it
+in a project, the progress screen reports every recipient delivered and nobody can read a word.
 
 `messages.type` carries the state, and it is overloaded — the same column distinguishes an inbox
 item from a sent one, an archived one and a deleted one. The listing therefore *names* the states
@@ -396,8 +389,7 @@ that on first read.
 
 ### Writing to `messages` yourself
 
-Two things bite, and both were found by running the same tests against a second backend rather
-than by reading the code.
+Two things bite, and both differ between backends, so test on each one you support.
 
 **`attachmenttext` has no default.** It is `TEXT NOT NULL`, so an insert that omits it fails —
 on PostgreSQL always, and on MySQL under strict mode. Pass `''` explicitly, as
@@ -431,8 +423,8 @@ if (!$result) {
 ```
 
 Worth stating as a rule rather than a footnote: **a `try`/`catch` around a query is only half the
-handling.** The inbox screen reported the error politely on MySQL and crashed on PostgreSQL, from
-the same lines.
+handling.** Without the guard, the same lines report an error politely on MySQL and crash on
+PostgreSQL.
 
 ## A message to one account
 
@@ -502,9 +494,8 @@ pixel, no `ld+json`.
 
 That default is the important half. A password reset must arrive even for somebody who
 unsubscribed from everything, an unsubscribe link on it teaches people the link does nothing, and
-a tracking pixel on it tracks somebody who never agreed to be tracked. Any notification can now
-declare these — the capability is not confined to code that builds an `Email` by hand, which is
-what everybody did instead.
+a tracking pixel on it tracks somebody who never agreed to be tracked. Any notification can
+declare these — the capability is not confined to code that builds an `Email` by hand.
 
 ```php
 class WeeklyDigest implements NotificationInterface
@@ -556,9 +547,8 @@ files: `init` writes it and `project:resync --js` brings it to a project made be
 
 ## A message to many accounts
 
-`massmessages` and `massmessagerecipients` have been in the schema since the messaging
-feature shipped, with a model each and nothing that composed, sent or displayed one. There
-is now `/admin/MassMessages`, and behind it two classes:
+`/admin/MassMessages` composes, sends and reports on a message stored in `massmessages`, with
+one row per recipient in `massmessagerecipients`. Behind it are two classes:
 
 ```php
 $audience = (new MassMessageAudience())->resolve(['usertype_min' => 0]);
@@ -636,15 +626,12 @@ $preview = (new MassMessageAudience())->preview($criteria);
 // ['total' => 4812, 'sample' => [ … 25 rows … ], 'truncated' => 4787]
 ```
 
-The screen asked an operator to choose criteria and then pressed send. What the criteria
-*meant* — how many people, and which ones — was visible only afterwards, in the recipient rows
-of a message that had already gone out. A send to the wrong band of accounts is not something
-anybody can take back.
+What the criteria *mean* — how many people, and which ones — has to be visible before the
+send, because a send to the wrong band of accounts is not something anybody can take back.
 
 **Preview this audience** on the compose form posts the same fields to `MassMessages/preview`,
 which resolves them and renders the form again with the answer on it. Nothing is written and
-nothing is sent, so an operator can try a filter, look, and change it — which is the loop that
-was missing. It is a form post rather than a fetch on purpose: it has to work identically in
+nothing is sent, so an operator can try a filter, look, and change it. It is a form post rather than a fetch on purpose: it has to work identically in
 three themes and with no JavaScript.
 
 The sample is a window, not the audience — forty thousand rows are not a thing to render — and
@@ -736,10 +723,8 @@ preview counts and samples them the same way.
 
 A *kind* — «password reset», «weekly digest», «sign-in alert» — is the thing a person means
 when they say they get too many emails from you, and every feature around mail needs a name
-for it. None of them had one. The unsubscribe list was a string typed at each call site, the
-mass-send screen asked for one in a free-text box, the audit log's `module` column was whatever
-the sender happened to write, and there was no way at all to show somebody the mail they can
-turn off, because nothing knew what it was.
+for it: the unsubscribe list, the audit log's name for the message, and the page that shows
+somebody the mail they can turn off. A `MailType` is that name, declared once.
 
 ```php
 use Pramnos\Email\MailType;
@@ -762,18 +747,18 @@ $mail->type('digest')->setTo($address)->setSubject($subject)->setBody($html)->se
 
 ### What the one call decides
 
-Four things have to agree for a message on a list, and they were decided separately:
+Four things have to agree for a message on a list:
 
 | | Without a type | With one |
 | --- | --- | --- |
 | `List-Unsubscribe` + `List-Unsubscribe-Post` | `offerUnsubscribe('digest')` | from the type |
 | The visible link in the footer | the same call | from the type |
-| **Not sending to somebody who left the list** | *nothing did this* | from the type |
+| **Not sending to somebody who left the list** | *not checked* — call `Unsubscribe::isOptedOut()` yourself | from the type |
 | What the audit log calls it | whatever was typed | the type's name |
 
-The third row is the one that mattered. `offerUnsubscribe()` put a working link in the message
-and then sent it to the address that had used the previous one — so the reader unsubscribed
-twice and decided the sender was lying, which is what the spam button is for. A `type()`d send
+The third row is the one that matters. `offerUnsubscribe()` alone puts a working link in the
+message and sends it even to an address that already used the previous one — so the reader
+unsubscribes twice and decides the sender is lying, which is what the spam button is for. A `type()`d send
 to an opted-out address returns `false`, sets `getLastError()` to say why, and **still writes
 the `mails` row**: «we did not send this, and this is why» is exactly what an audit log is for.
 
@@ -807,14 +792,14 @@ default.
 
 ### The preferences page
 
-`/unsubscribe` is no longer one button that says *none, ever*. After honouring the link it
-lists every optional type with what it is and whether this address is receiving it, each row a
-link carrying its own signed token for that address and that list — so the page needs no
-session and cannot be edited into changing somebody else's settings.
+After honouring the link, `/unsubscribe` lists every optional type with what it is and whether
+this address is receiving it, each row a link carrying its own signed token for that address
+and that list — so the page needs no session and cannot be edited into changing somebody
+else's settings.
 
 That is the difference between a reader who wanted fewer emails keeping one of four and a
-reader who wanted fewer emails receiving none. The sender reads the second as a clean
-unsubscribe rather than as the failure it was.
+reader who wanted fewer emails receiving none — which a sender would otherwise read as a clean
+unsubscribe rather than the failure it is.
 
 `a=in` on a GET turns something back on. It is never honoured for one-click POST: RFC 8058 says
 a POST to that endpoint unsubscribes, and a provider that found a parameter turning it into a
@@ -893,8 +878,8 @@ An unsubscribe writes **two** things, and the difference is the whole design:
 | Keyed by | the **address** | `userid` |
 | Aged out | never | 7 years, by policy |
 
-Asked directly — *«τα email unsubscribe δεν θα μπορούσαν να είναι στο user_consents;»* — and the
-answer is both. As the lookup it cannot be the consent table: that is append-only, so "may I
+Why not keep unsubscribes in `user_consents` alone? Because they need both. As the lookup it
+cannot be the consent table: that is append-only, so "may I
 send to this address" becomes "find the latest row for this user and this type and read its
 `revoked_at`", per send; it is keyed by account, and somebody on a list often has none; and its
 seven-year retention would eventually drop a withdrawal and start sending again.
@@ -985,9 +970,9 @@ next move is the spam button, which is the outcome the whole feature exists to a
 ### A blank address gets no token
 
 `token('')` returns an empty string, and `url()` and `mailto()` turn that into an **omitted
-header** rather than one pointing at nothing. Until now it signed a token for the empty address:
-that token verifies, so the endpoint read `['email' => '', 'list' => 'all']` out of it, called
-`optOut('')`, was refused, and showed the reader a failure for a link the framework had generated.
+header** rather than one pointing at nothing. A signed token for the empty address would
+verify, the endpoint would call `optOut('')`, be refused, and show the reader a failure for a
+link the framework had generated.
 
 ### The rest of the compliance list
 
@@ -1003,7 +988,7 @@ The parts that are not code:
   unsubscribe link exists to keep down, because the alternative the reader has is the spam
   button.
 - Every message goes out as `multipart/alternative` with a plain-text part, which `Email` builds
-  from the HTML — see below, because for a long time it built a bad one.
+  from the HTML — see [the plain-text part](#the-plain-text-part).
 
 ---
 
@@ -1217,12 +1202,12 @@ existed goes with it. The table is on the personal-data denial list, with `email
 
 ## The line the inbox shows beside the subject
 
-The second most prominent piece of text in an inbox, and until now chosen by nobody.
+The second most prominent piece of text in an inbox, and worth choosing deliberately.
 
 Every mailbox list — Gmail, Apple Mail, Outlook — prints the message's first readable text next
 to the subject. On a wrapped message that is whatever the wrapper opens with: a logo's `alt`, a
-"view this in your browser" link, the first cell of a layout table. So the line that decides
-whether the mail is opened is an accident of the template.
+"view this in your browser" link, the first cell of a layout table. Left alone, the line that
+decides whether the mail is opened is an accident of the template.
 
 ```php
 $mail->preheader('Your code is 481920 — it expires in ten minutes.');
@@ -1266,7 +1251,7 @@ property: inline the light palette, and let the stylesheet only *change* it.
 
 ## Accessibility in the message
 
-Three things a mail template gets wrong by default, all of them in the bundled wrapper now:
+Three things a mail template gets wrong by default, all of them handled in the bundled wrapper:
 
 - **`role="presentation"` on every layout table.** Without it a screen reader announces "table,
   two columns, row one of three" about a message that has no table in it — the layout is read
@@ -1275,29 +1260,29 @@ Three things a mail template gets wrong by default, all of them in the bundled w
   the mass dispatcher both switch to the recipient's before composing. An empty `lang` is worse
   than a wrong one: the reader falls back to its own setting silently, and announces Greek as if
   it were English.
-- **16px body text**, not 12. Mail is read on phones, and the footer was the smallest thing on
-  the least-read part of the message.
+- **16px body text**, not 12. Mail is read on phones, and a small-print footer is the smallest
+  thing on the least-read part of the message.
 
 And `alt` on every image, including the decorative ones, where it should be `alt=""` — an empty
 `alt` tells a screen reader to skip the image, while a missing one makes it read the filename.
 
 ## The plain-text part
 
-Every message is `multipart/alternative`, and the text half used to be `strip_tags($body)`. That
-produces a part which is technically present and practically useless, in three specific ways:
+Every message is `multipart/alternative`. The obvious way to build the text half,
+`strip_tags($body)`, produces a part which is technically present and practically useless, in
+three specific ways:
 
-- **Every link disappeared.** `strip_tags` keeps the anchor *text* and throws the `href` away, so
-  «click here to confirm your address» arrived with nothing to click and no address to copy. On a
+- **Every link disappears.** `strip_tags` keeps the anchor *text* and throws the `href` away, so
+  «click here to confirm your address» arrives with nothing to click and no address to copy. On a
   confirmation mail that is the entire message gone.
-- **The text ran together.** HTML mail is nested tables, and adjacent cells have no whitespace
-  between them, so a header, a heading and a paragraph arrived as one line.
-- **The stylesheet came along.** `strip_tags` removes the `<style>` *tags* and keeps what was
-  inside them, so a reader in a text-only client was shown the CSS.
+- **The text runs together.** HTML mail is nested tables, and adjacent cells have no whitespace
+  between them, so a header, a heading and a paragraph arrive as one line.
+- **The stylesheet comes along.** `strip_tags` removes the `<style>` *tags* and keeps what is
+  inside them, so a reader in a text-only client is shown the CSS.
 
-And a text part that does not match the HTML is a documented spam signal, so the thing meant to
-help deliverability was hurting it.
+And a text part that does not match the HTML is a documented spam signal.
 
-`Pramnos\Email\PlainText` converts instead:
+`Pramnos\Email\PlainText` converts instead, and `Email` uses it for every message:
 
 ```php
 use Pramnos\Email\PlainText;
@@ -1329,7 +1314,7 @@ Six decisions in it worth knowing, because each one is a wrong output avoided:
 | It does | Because |
 |---|---|
 | `text <https://…>`, and just the URL when the text already is the URL | A text-only reader has to be able to reach the same place — and `https://… <https://…>` reads as a mistake |
-| Drops `<head>`, `<style>`, `<script>` and `<title>` entirely | The old output began with the CSS and then repeated the subject line |
+| Drops `<head>`, `<style>`, `<script>` and `<title>` entirely | Otherwise the text would begin with the CSS and then repeat the subject line |
 | Reads `role="presentation"` to tell a layout table from a data one | A layout table's cells joined with ` | ` is nonsense; a data table's rows joined with newlines is unreadable. The distinction is already in the markup for screen readers |
 | Skips `display:none` and zero-height elements | A preheader is written for the inbox preview and is invisible in the HTML; repeating it in the text is a difference between the two halves |
 | `[alt text]` for an image with one, nothing for a decorative one | A line reading `[]` is worse than no line |
@@ -1343,14 +1328,15 @@ either, libxml assumes ISO-8859-1 and every Greek character becomes mojibake.
 
 ## The headers a message carries
 
-Four of these are added automatically. None changes what the reader sees; all of them change what
-happens to the message — which is why they go missing, and why they went missing here. Nothing in
-mail reports a missing header back to the sender, and nothing reports a malformed one either.
+All five are added automatically — two on every message, three on list mail. None changes what
+the reader sees; all of them change what happens to the message — which is why they go missing.
+Nothing in mail reports a missing header back to the sender, and nothing reports a malformed one
+either.
 
 | Header | On | Why |
 |---|---|---|
 | `Auto-Submitted: auto-generated` | every message | RFC 3834. Stops an out-of-office responder replying to a password reset — and then to the reply, which is how a mail loop starts |
-| `X-Entity-Ref-ID` | every message | Gmail groups by subject, and «a new sign-in to your account» repeats. Two sign-ins arrived as one thread with the older behind "show trimmed content" — exactly the message somebody needs to see twice |
+| `X-Entity-Ref-ID` | every message | Gmail groups by subject, and «a new sign-in to your account» repeats. Without a unique id two sign-ins arrive as one thread with the older behind "show trimmed content" — exactly the message somebody needs to see twice |
 | `Precedence: bulk` | list mail | Not in any standard, honoured nearly everywhere. The older half of the same idea as `Auto-Submitted`. **Not** on transactional mail: marking a password reset bulk invites a provider to deprioritise the one message the reader is waiting for |
 | `List-ID` (RFC 2919) | list mail | A stable identifier, so a client can group, filter and unsubscribe by list rather than guessing from the subject |
 | `Feedback-ID` | list mail | Google Postmaster's grouping key. Without it every complaint lands in one bucket and the dashboard can say something is wrong but not what; with it, «the newsletter is marked as spam and the receipts are not» becomes a fact |
@@ -1525,8 +1511,9 @@ registration.
 
 #### What ships registered
 
-`revoke-sessions` — the handler a "this wasn't me" button needs. It ends every session on the
-account, and the framework's own new-sign-in alert **does not use it**; see below.
+`revoke-sessions` — the handler a "this wasn't me" button needs, registered by the `authserver`
+feature's service provider (so present only when that feature is enabled). It ends every
+session on the account, and the framework's own new-sign-in alert **does not use it**; see below.
 
 ```php
 $url = MailAction::url('revoke-sessions', ['user' => $userId], 3600);
@@ -1541,9 +1528,9 @@ sat in a mailbox for a month should not still be able to.
 **The password-reset mail carries a `ViewAction`.** That mail contains exactly one link, which is
 its entire purpose, so an action pointing at it exposes nothing the message did not already
 expose — and turns four taps on a phone into one. A `ViewAction` needs no handler and makes no
-promise about the first request, so there was never anything to build for it.
+promise about the first request, so there is nothing to build for it.
 
-**No `ConfirmAction` on the framework's own mail — but the handler for one now exists.** The
+**No `ConfirmAction` on the framework's own mail — although the handler for one exists.** The
 contract is real, and `MailAction` above is how it is met: `revoke-sessions` is registered and
 ready. What the framework does not do is *put it in a message*, because the only message it would
 belong in is the new-sign-in alert, and that is the paragraph below.
@@ -1551,8 +1538,9 @@ belong in is the new-sign-in alert, and that is the paragraph below.
 **The new-sign-in alert carries no action at all, and that is a decision.** It contains no link
 either: a link in an unexpected security email is the shape of the attack it warns about, and a
 button in the message list is the same thing, larger and easier to press. The message tells the
-reader to open the site themselves. A one-tap "this wasn't me" would need both a new one-click
-revoke endpoint *and* a reversal of that judgement — worth discussing, not worth assuming.
+reader to open the site themselves. The `revoke-sessions` handler makes a one-tap "this wasn't
+me" possible; adding one to this alert would be a reversal of that judgement — an application's
+call to make for its own users, not something the framework assumes.
 
 ### Where the block goes
 
@@ -1590,8 +1578,8 @@ $mail->setSubject('This month at Example')
 ```
 
 Gate 2 is the one that matters. A pixel in a password reset is a remote image in the most
-sensitive message a system sends, to somebody who agreed to nothing — and until now the framework
-would happily have put one there, because `enableTracking()` appended it on the spot.
+sensitive message a system sends, to somebody who agreed to nothing — so `enableTracking()` only
+*requests* tracking, and the pixel is added at send time only when all three gates hold.
 
 ### An open is a weak signal, and getting weaker
 
@@ -1634,10 +1622,7 @@ message that looks like yours, and lands wherever the attacker chose.
 
 ### The routes, and the tables
 
-`/emailpixel` and `/emailclick` are bundled controllers — no route to register. The previous
-version of this feature asked an application to write both the route *and* the table, in a
-doc-block, which is why it never worked anywhere: the pixel pointed at a 404 and the insert failed
-into a `catch`.
+`/emailpixel` and `/emailclick` are bundled controllers — no route to register.
 
 `emailtracking` holds one row per tracked message; `emailtrackingclicks` holds one row per link
 followed, because *which* link is the only question worth asking of a click. Both are created by
@@ -1666,7 +1651,7 @@ Tracking::campaignRecipients('massmessage', '42', 'clicked');
 Tracking::campaignLinks('massmessage', '42');         // url, clicks, people — most followed first
 ```
 
-A message sent before `moduleinfo` was recorded has no campaign to find: its opens and clicks
+A message whose `mails` row has no `moduleinfo` belongs to no campaign: its opens and clicks
 are on each message's own page on the email history screen.
 
 ### Privacy
@@ -1955,7 +1940,7 @@ $email->setFrom('press@customer.example')
 `signWith()` adds the signature last, after every other header, so nothing added later breaks
 it. The domain must be the From address's domain, or DMARC does not align. A key that does
 not load fails the send, and the key never appears in the error.
-`DnsAuthentication::inspect('customer.example', 'pramnos1')` reports whether the record has
+`(new \Pramnos\Email\DnsAuthentication())->inspect('customer.example', 'pramnos1')` reports whether the record has
 been published (see [What DNS says](#what-dns-says-and-what-the-application-cannot-see)).
 
 The record value is longer than 255 characters at 2048 bits. Most DNS screens split it
@@ -2228,8 +2213,9 @@ if (defined('EMAIL_TEST_MODE') && EMAIL_TEST_MODE) {
    - Avoid spam trigger words in subject/content
 
 4. **Tracking Not Working**
-   - Verify tracking route is properly configured
-   - Check database table exists
-   - Ensure tracking pixel URL is accessible
+   - Check `'email' => ['tracking' => true]` in `app/app.php`
+   - Check the message is list mail (`offerUnsubscribe()` or a `type()` with a list) and called `enableTracking()` — transactional mail is never tracked
+   - Check the `emailtracking` and `emailtrackingclicks` tables exist (`migrate`)
+   - Ensure `/emailpixel` and `/emailclick` are reachable from outside
 
 For additional support, refer to the framework's logging system to capture detailed error information.

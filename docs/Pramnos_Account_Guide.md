@@ -233,8 +233,9 @@ in the mail.
 You can download a complete copy of the personal data the application holds about
 you. The confirmation page lists exactly which sections the export contains
 (profile, authorized applications, OAuth consents, passkeys, two-factor status,
-active sessions, tokens, token activity, account details, privacy settings and
-activity log — plus any application-specific data).
+active sessions, tokens, token activity, account details, privacy settings,
+activity log, mailing-list subscriptions and profile picture — plus any
+application-specific data).
 
 Confirm to download a single JSON file. For your safety the export **never
 contains secrets** — no passwords, token values, 2FA secrets/backup codes,
@@ -274,10 +275,6 @@ return $view->display('profile');
 Calling `$view->display(...)` as a bare statement from a `void` action throws the
 markup away. The response is still a 200, with the theme, the layout and the
 correct `<title>` — everything except the page.
-
-Before 2026-08-26 six bundled screens did exactly that: the OAuth2 consent form
-and all five pages of the device-authorization flow. If you worked around a blank
-consent screen by marking clients trusted, that is no longer necessary.
 
 ## Related guides
 

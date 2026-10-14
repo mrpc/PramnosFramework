@@ -1,18 +1,19 @@
 ---
 use_cases:
   - Planning where a sent message's body is stored and how it is deduplicated
-  - Understanding why `mails.path`, `mails.hash` and `BodyStore` disagree with each other
+  - Understanding why `mails.path` and `mails.hash` mean different things in applications and in the framework
   - Deciding the migration of a large `mails` table to a hypertable
 ---
 
 # Mail body storage — design
 
-**Status:** design. Nothing here is implemented.
+**Status:** design, open. Nothing here is implemented.
 **Last updated:** 31 August 2026
 
-An earlier attempt at this was written while the design was still being discussed, carried
-decisions that had not been agreed, and was reverted whole (`03e944cc`). This page keeps the
-material so the next attempt starts from a plan rather than from assumptions.
+An earlier prototype — a `BodyStore` class and a `mail:archive` command — was reverted whole
+(`03e944cc`, `2039c49e`) because it carried decisions that had not been agreed. Neither exists
+in the framework today. This page keeps what that prototype taught, so the next attempt starts
+from a plan rather than from assumptions.
 
 See also [Roadmap & Open Items](Roadmap.md).
 
@@ -91,7 +92,8 @@ Every query against the table, in the framework and in a large application using
 | `WHERE tomail = ?` | the application's GDPR export | rarely |
 | `DELETE WHERE date<? AND (status=1 OR status=0)` | the application's history cleanup | daily |
 | `WHERE date>=? AND date<?` | the application's statistics | per page view |
-| `WHERE content<>'' AND date>0 ORDER BY id LIMIT n` | `mail:archive` | manual |
+| `WHERE status=2 AND date>=? ORDER BY date ASC LIMIT n` | framework: `mail:flush` (the outbox) | every minute |
+| `WHERE content<>'' AND date>0 ORDER BY id LIMIT n` | a body-archiving pass (the reverted prototype's `mail:archive`; no such command ships) | manual |
 
 **Proposal, not agreed:**
 
@@ -127,8 +129,14 @@ cost of rewriting existing data.
 
 **A premise that turned out to be wrong.** "It is enough to delete the body" does not hold.
 `tomail` is present on every row and **is** the personal datum, not metadata about it. And the
-content was in the database on most rows anyway, because the store was opt-in and had a
-512-byte floor.
+content is in the database on every framework row anyway: no body store ships, and the reverted
+prototype's was opt-in with a 512-byte floor.
+
+**The shipped retention command differs from this policy.** `mail:prune` (see the
+[Email guide](Pramnos_Email_Guide.md#what-to-keep-of-a-sent-message-and-for-how-long)) strips
+bodies and deletes rows past configured ages. It does nothing until an installation configures a
+policy, so it does not contradict "never deleted" by default — but the two have to be reconciled
+before a body store is designed around either.
 
 **Still open:** GDPR erasure does not touch `mails` at all today. `deleteuser()` removes only the
 `users` row; the `Gdpr` controller touches `usertokens` and `gdpr_requests`.
@@ -225,9 +233,10 @@ counting references all along, so no separate count can drift out of step with t
   mechanism are plain files with a link count of one and a row pointing straight at them. Walking
   the dated tree and trusting `nlink` deletes every one of them. That needs a structural
   guarantee, not a comment.
-- **Does it coexist with `BodyStore::orphans()`?** They are two incompatible definitions of an
-  orphan. `orphans()` may simply have to go: it solves a problem that "mail is never deleted"
-  makes nearly non-existent, and it is the part that does not scale.
+- **Is a separate orphan sweep needed at all?** The reverted prototype's `orphans()` — every row's
+  path against every file — is an incompatible definition of an orphan, solves a problem that
+  "mail is never deleted" makes nearly non-existent, and is the part that did not scale (§8).
+  The next design should not reintroduce it by default.
 - **Backup.** `rsync` without `-H` expands hard links into copies. This has to be documented, or
   a backup is silently many times the size of the original. SMB and NFS do not always support
   links — fall back to a plain copy.
@@ -263,7 +272,7 @@ triggers and no cutover step are needed.
 3. Drain **newest first**. Oldest-first leaves people looking at an empty screen for hours that
    then fills in backwards.
 4. UPDATE or DELETE by id against a row that has not moved yet affects **zero rows, silently**.
-   So `mail:archive` runs **before** the migration, not during it.
+   So any body-archiving pass runs **before** the migration, not during it.
 5. `set_integer_now_func` requires the function's return type to match the partition column
    **exactly** (`integer`, not `bigint`). Moot if `date` becomes `timestamptz`.
 6. **Peak disk.** `DELETE` does not return pages to the operating system, so peak usage is the old
@@ -291,20 +300,22 @@ changes at all.
 
 ---
 
-## 8. Real bugs, still open
+## 8. Flaws in the reverted prototype — not to repeat
 
-Found while prototyping; none is fixed.
+The prototype was removed, so none of these exists in the framework today. They are listed
+because each is easy to write again.
 
-1. **TOCTOU in `BodyStore::orphans()`.** It reads the rows first and the directory second. A
-   message sent in between writes a file that no row named at the time the rows were read, so it
-   is reported as an orphan — and `--gc` deletes the body of something that was just delivered.
-   On an installation that sends all day this window is not theoretical, and the damage is silent:
-   the row keeps its path and the file behind it is gone.
-2. **`BodyStore::bodyOf()` returns an empty string for a row whose body is in `path`.** It knows
-   `content` and its own column and nothing else, so the screens go blank on exactly the
-   installations with the most history to show.
-3. **`orphans()` does not scale.** It reads every path on every row into memory and walks every
-   file. At ten million messages that is a job that cannot be run.
+1. **TOCTOU in an orphan sweep.** The prototype's `orphans()` read the rows first and the
+   directory second. A message sent in between writes a file that no row named at the time the
+   rows were read, so it is reported as an orphan — and a `--gc` deletes the body of something
+   that was just delivered. On an installation that sends all day this window is not theoretical,
+   and the damage is silent: the row keeps its path and the file behind it is gone.
+2. **A body reader that knows only `content` and its own column.** The prototype's `bodyOf()`
+   returned an empty string for a row whose body is in `path`, so the screens go blank on exactly
+   the installations with the most history to show. A reader has to understand the applications'
+   existing `path` convention.
+3. **An orphan sweep that does not scale.** Reading every path on every row into memory and
+   walking every file is, at ten million messages, a job that cannot be run.
 4. **"A campaign is one file" is false for personalised mail.** The unsubscribe token and the
    tracking pixel are per recipient, so a mailed campaign is one file per recipient. Only bodies
    that are genuinely identical collapse.
@@ -315,6 +326,7 @@ Found while prototyping; none is fixed.
 
 1. **Finish the survey** — other installations with their own store.
 2. **Decide** the open questions in §5 (the audit-trail cost), §6 (where `.by-digest` lives, and
-   the fate of `orphans()`), and §3 (indexes, `tomail` normalisation).
+   whether any orphan sweep is needed), §3 (indexes, `tomail` normalisation) and §4 (how
+   `mail:prune` relates to "mail is never deleted").
 3. **Write an implementation plan** with an order and checkpoints — no code before that.
 4. Separately and afterwards: the hypertable migration (§7) and GDPR erasure (§4).

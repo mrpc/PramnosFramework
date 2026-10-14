@@ -13,15 +13,14 @@ use_cases:
 Everything for **console commands, long-running workers, and the daemon supervisor** —
 one place, with worked examples for every case.
 
-> **The short version (nothing you knew got harder).** The three classes you already
-> use are unchanged in spirit:
+> **The short version.** Three classes cover almost every case:
 >
 > - **`CommandBase`** — the base for *every* console command (adds a single-instance lock).
 > - **`ProcessQueue`** — a ready-made queue worker (extends `CommandBase`).
 > - **`DaemonOrchestrator`** — supervises long-running daemons.
 >
-> What's new is that the daemon *plumbing* (locking, heartbeats, stop-signals, systemd
-> notifications) was pulled out of those classes into four small **standalone primitives**.
+> The daemon *plumbing* (locking, heartbeats, stop-signals, systemd notifications) lives in
+> four small **standalone primitives**.
 > You almost never construct them yourself — `CommandBase` composes them for you. They exist
 > so the classes above share one implementation, and so a **plain script** that is *not* a
 > command can reuse the same building blocks. If you only ever extend `CommandBase` /
@@ -103,7 +102,7 @@ class RebuildSearchIndex extends CommandBase
 ```
 
 `beginJob()` also installs a SIGINT handler that cleans up and exits — right for a
-one-shot command.
+one-shot command. Under the orchestrator, SIGINT is ignored instead.
 
 ### 1b. Long-running worker command (a loop)
 
@@ -122,7 +121,7 @@ protected function execute(InputInterface $input, OutputInterface $output): int
     $this->systemd()->ready();         // no-op unless under systemd Type=notify
 
     try {
-        while (!$this->shouldStop()) {                 // signal ∪ .stop sentinel
+        while (!$this->shouldStop()) {                 // signal, .stop sentinel or lock removed
             $did = $this->processOneBatch();
 
             // Records state + pings the systemd watchdog; false ⇒ our lock was
@@ -145,12 +144,18 @@ protected function execute(InputInterface $input, OutputInterface $output): int
 
 | | `beginJob()` (simple) | `installStopSignals()` (worker) |
 |---|---|---|
-| Traps | SIGINT | SIGTERM **and** SIGINT |
+| Traps | SIGINT (ignored under the orchestrator) | SIGTERM, plus SIGINT when run interactively — a supervised worker ignores SIGINT |
 | On signal | clean up + **exit now** | raise a flag; **finish the job**, then exit |
 | Loop guard | — | `while (!$this->shouldStop())` |
 | Best for | one-shot commands | long-running loops |
 
 Pick one per command; don't mix them.
+
+A supervised worker (one started by `DaemonOrchestrator`, which exports
+`PRAMNOS_JOB_LOCK_FILE`) has no terminal, so a SIGINT reaching it was not addressed to it
+— an operator pressing Ctrl+C in a shell sharing the process group, a script signalling a
+group. It is set to `SIG_IGN` rather than left untrapped, because the default action for
+SIGINT is to terminate mid-task.
 
 ### Method reference
 
@@ -164,8 +169,8 @@ Pick one per command; don't mix them.
 | `checkIfRunning(): bool` | Is another live instance holding the lock? |
 | `startJob(): void` | Acquire the lock (no guard/handler; for the manual worker pattern) |
 | `heartbeat(array $extra=[]): bool` | Refresh heartbeat + record `$extra` + watchdog; `false` if the lock was taken over |
-| `installStopSignals(?callable $onStop=null): void` | Cooperative SIGTERM/SIGINT graceful stop |
-| `shouldStop(): bool` | Loop guard: trapped signal **or** the `.stop` sentinel |
+| `installStopSignals(?callable $onStop=null): void` | Cooperative SIGTERM/SIGINT graceful stop (SIGINT ignored when supervised) |
+| `shouldStop(): bool` | Loop guard: trapped signal, the `.stop` sentinel, **or** this worker's lock file removed |
 | `signalStop(): SignalStop` / `systemd(): SystemdNotifier` / `workerLock(): WorkerLock` | The composed primitives, if you need them directly |
 
 ---
@@ -197,21 +202,18 @@ php pramnos work --max-runtime=3600 # exit hourly for a supervisor to restart
 `work` holds a single-instance lock and stops cooperatively, so a SIGTERM
 during a task lets that task finish.
 
-!!! warning "`schedule:list` shows what is registered; it now also says whether anything runs it"
-    **Listing reads definitions. Running needs a process, and nothing checked for one.** One
-    installation had forked `DaemonOrchestrator` without extending the framework's, so
-    `includeScheduler()` and `schedulerProcess()` never ran — no `work` process, and no
-    `schedule:run` line in the crontab. `schedule:list` printed six due jobs and **none of
-    them had ever executed**: `spool:drain` every minute, `timescale:drain` hourly,
-    `auth:token-cleanup`, `auth:twofactor-cleanup`, `mail:prune` and `auth:webhook-deliver`
-    every five minutes.
+!!! warning "`schedule:list` shows what is registered, and whether a `work` process runs it"
+    **Listing reads definitions. Running needs a process.** A schedule can list every
+    framework job as due while nothing executes any of them — no `work` process and no
+    `schedule:run` crontab line.
 
-    It took reading `ps` to find. `schedule:list` now ends with a line saying whether a
-    `work` process holds the lock, and says plainly that a `schedule:run` crontab line
-    cannot be detected from there — so the absence of the message is not a claim that
-    nothing is running.
+    So `schedule:list` ends with a line saying whether a `work` process holds the lock, and
+    says plainly that a `schedule:run` crontab line cannot be detected from there — so the
+    absence of the message is not a claim that nothing is running.
 
-    **A fork of the orchestrator is a silent way to lose the whole schedule.** If you
+    **A fork of the orchestrator is a silent way to lose the whole schedule**: a copy that
+    does not extend the framework's class never calls `includeScheduler()` or
+    `schedulerProcess()`, so no `work` process is started. If you
     subclass it, extend `Pramnos\Console\DaemonOrchestrator` rather than `CommandBase`, or
     run `work` yourself.
 
@@ -238,17 +240,16 @@ the end of the interval.
 **With a daemon orchestrator** — nothing to do. `DaemonOrchestrator` supervises
 `work` alongside the application's own daemons, so a project that has an
 orchestrator already runs the schedule. See
-[§3](#3-daemonorchestrator--the-supervisor).
+[§3](#3-daemonorchestrator-the-supervisor).
 
 ### The queue worker does not need a controller to exist
 
 `queue:process` asks the application for a controller called `Queueitems` — the administration
 screen for queued jobs — because `Application\Model` will not be constructed without a
-`Controller` to hold. An application that has no such screen used to get
-«Cannot find controller: Queueitems» from a background worker, at start-up, for a class it was
-never going to render anything with; under a supervisor that means respawn, fail, repeat, with
-a queue that never drains. It falls back to a plain `Controller` now. An application that *has*
-one still gets it.
+`Controller` to hold. An application that has no such screen gets a plain `Controller`
+instead (`QueueManager::controllerOrPlain()`), because a background worker never renders
+anything with it, and failing at start-up would mean respawn, fail, repeat under a supervisor,
+with a queue that never drains. An application that *has* one gets it.
 
 ### This is not the queue worker
 
@@ -311,7 +312,8 @@ command printed — both streams — is appended to the logged message:
 
 ```
 failed: channels:collect (0 * * * *) — Scheduled command 'channels:collect' exited with
-status 1. Output: PDOException: SQLSTATE[HY000] [2002] Connection refused
+status 1 (ran: '/usr/local/bin/php' '/var/www/html/myapp.php' channels:collect).
+Output: PDOException: SQLSTATE[HY000] [2002] Connection refused
 ```
 
 This matters more than it looks. Cron sends `schedule:run` output to `/dev/null` on a normal
@@ -322,7 +324,7 @@ own leaves nothing to do but guess. The tail rather than the whole output, becau
 command's error is at the bottom.
 
 A command's own output still reaches the console while it runs, so an interactive
-`schedule:run` is unchanged apart from stderr now arriving on stdout — which is what makes
+`schedule:run` shows it as usual — with stderr arriving on stdout, which is what makes
 the reason capturable at all.
 
 Which puts a burden on every scheduled command: **exit non-zero only for something a person
@@ -335,40 +337,34 @@ should look at.** `spool:drain` is the worked example, since it runs every minut
 | a row kept for the next run | exit **0** — the retry budget being spent is the spool working |
 | a row parked as unwritable | exit **1** — data set aside, no further attempt, somebody must look |
 
-The kept case used to exit non-zero, and the scheduler recorded a failure every minute until the
-budget ran out. One deployment read *"3 errors in 200 seconds"* as three tasks failing when it was
-one task failing three times — which is the ambiguity that costs an afternoon, and the reason the
-parked case is a usable signal now: it is the only one that fires.
+The kept case exits 0 because a retry is not something to act on: reported as a failure, it
+would record one every minute until the budget ran out, and three failures of one task read
+like three tasks failing. Keeping it at 0 is what makes the parked case a usable signal — it
+is the only one that fires.
 
 The same argument makes the empty case **silent** rather than logging a line a minute. A log
 nobody reads is where the one line that mattered goes unnoticed; `-v` says it for somebody who is
 watching on purpose.
-
-> **Corrected 2026-08-20.** The default used to be the literal `php pramnos`, and the exit
-> status was discarded. In a scaffolded application every `command` task therefore answered
-> `Could not open input file: pramnos` while reporting `✓ Done` — including `spool:drain`,
-> which meant a write spool that was never drained. Found on an installation with 478 rows
-> in `var/spool/` and a `tokenactions` table that had never had a row in it.
 
 ### Overlap protection across containers
 
 ```php
 Scheduler::command('slow:job')->hourly()->withoutOverlapping();
 Scheduler::command('very:slow')->daily()->withoutOverlapping('', 7200);  // wait up to 2h
+Scheduler::command('shared:job')->hourly()->withoutOverlapping(ROOT . '/var');  // lock on a shared volume
 ```
 
-The lock is a [`WorkerLock`](#workerlock--single-instance-lock--heartbeat): it records the
-**host** beside the pid, and trusts the pid only when the host matches. Where it does not —
-an application container and a daemon container sharing one `var/` — the holder is judged by
-how recently it reported instead. The second argument is that threshold, for a task that
-legitimately runs longer than the default two minutes.
+The lock is a [`WorkerLock`](#workerlock-single-instance-lock-heartbeat): it records the
+**host** beside the pid, and trusts the pid only when the host matches. A pid is a fact about
+the process table of whoever is asking, so where the host does not match the holder is judged
+by how recently it reported instead. The second argument is that threshold, for a task that
+legitimately runs longer than the default two minutes. Taking the lock is a single atomic
+create, so two schedulers a millisecond apart cannot both pass.
 
-> **Corrected 2026-08-20.** The lock used to be a bare pid file checked with
-> `posix_kill($pid, 0)`. A pid is a fact about the process table of whoever is asking, so in
-> a two-container stack each side read the other's pid, found *some* local process holding
-> that number, and concluded the task was still running — for ever, silently, because "still
-> running" is a normal answer. The check-then-write was also a race two schedulers a
-> millisecond apart both passed; `acquire()` is a single atomic create.
+**The lock file lives in `sys_get_temp_dir()` by default**, which is per container. An
+application container and a daemon container that share only `var/` do not see each other's
+lock unless the first argument points both at the shared directory, as in the third line
+above.
 
 ### Replacing a framework task
 
@@ -410,12 +406,15 @@ A spool is a promise to write a row **later**, and later can arrive after the ro
 being writable. The common case is a foreign key: `tokenactions` references `usertokens`,
 and a token cleaned up while its rows waited takes the key with it.
 
-Such a row is retried **five times** and then *parked* — appended to
-`<table>.spool.failed` with the error that stopped it and a timestamp, removed from the
+A row that fails is retried up to **five times** (`spool_max_attempts`), or **twice** when
+the error is a constraint violation such as a missing foreign-key parent — such a row will not
+become writable by being retried, and the second attempt exists only because a parent row may
+itself still be waiting in the spool. Then it is *parked* — appended to `<table>.spool.failed`
+with the error that stopped it, the attempts actually spent and a timestamp, removed from the
 spool, and never read back:
 
 ```json
-{"parked_at":"2026-08-20T04:11:07+03:00","attempts":5,
+{"parked_at":"2026-08-20T04:11:07+03:00","attempts":2,
  "error":"insert or update … violates foreign key constraint","row":{"tokenid":3907,…}}
 ```
 
@@ -427,7 +426,7 @@ Tuning:
 
 ```
 php pramnos spool:drain --max-attempts=10   # more patient
-php pramnos spool:drain --max-attempts=0    # never park; retry for ever
+php pramnos spool:drain --max-attempts=0    # never park a transient failure; retry for ever
 ```
 
 ```php
@@ -435,12 +434,11 @@ WriteSpool::setMaxAttempts(10);                    // in code
 // or the `spool_max_attempts` application setting
 ```
 
-> **Added 2026-08-20.** There was no limit: a row that could not be written was requeued
-> unconditionally. One installation whose drain had never run accumulated a backlog whose
-> tokens were cleaned up in the meantime; when the schedule started working, the same 209
-> rows failed every minute, for ever, printing a line each. Identical failures are now
-> reported once with a count, too — two hundred lines a minute for one reason is how the
-> reason stops being read.
+A constraint violation is parked after at most two attempts whatever the setting says,
+`0` included; a lower setting (`1`) parks it sooner.
+
+Identical failures are reported once with a count — two hundred lines a minute for one
+reason is how the reason stops being read.
 
 ---
 
@@ -455,7 +453,14 @@ use Pramnos\Queue\Worker;
 
 class MyQueue extends ProcessQueue
 {
-    protected function getJobName(): string        { return 'QUEUE_PROCESSOR'; }
+    protected function configure(): void
+    {
+        parent::configure();          // keeps every queue:process option
+        $this->setName('my:queue');
+    }
+
+    // No getJobName() override: ProcessQueue names the lock QUEUE_PROCESSOR, or
+    // QUEUE_PROCESSOR_<worker-id> with --worker-id, so several workers can run side by side.
     protected function getDashboardTitle(): string { return ' MY APP QUEUE '; }
     protected function getControllerName(): string { return 'Queueitems'; }
 
@@ -474,7 +479,7 @@ Run it:
 php console my:queue --daemon            # loop forever
 php console my:queue --daemon --runtime=55   # cron-friendly: run 55s then exit
 php console my:queue --limit=100         # process up to 100 then exit
-php console my:queue --force             # clear a stale lock and start
+php console my:queue --force             # remove the lock, even a live holder's, and start
 ```
 
 Common options: `--daemon`, `--runtime=N`, `--sleep=N`, `--batch=N`, `--limit=N`,
@@ -553,9 +558,9 @@ Five rules, and each one is a failure somebody already had:
   queue; but load alone never sheds a worker, because the load may not be the queue's at all
   and shedding would fail to fix that while making the backlog worse. Getting this backwards
   gives a pool that abandons its work whenever anything else on the machine is busy.
-- **A backlog that cannot be read is no backlog** — the pool holds at its floor. Not "grow to
-  be safe": the query most likely failed because the database is in trouble, and adding
-  workers to it makes an outage worse.
+- **A backlog that cannot be read is no backlog** — the pool holds where it is (kept within
+  floor and ceiling), neither growing nor shrinking. Not "grow to be safe": the query most likely failed because the database is in trouble, and adding
+  workers to it makes an outage worse; shrinking would drain the pool during a blip.
 
 **What "settled" can mean.** A pool is a whole number of workers and the load it serves
 usually is not, so when the load needs three-point-something the pool *must* walk 3,4,3,2,3,4…
@@ -564,9 +569,8 @@ what the load needs. That bound is what the cooldown buys — a span of two inst
 
 **Log `explain()` beside the process count.** A scaling controller needs its decision and the
 resulting number of processes on the same line, or a supervisor that undoes its own decisions
-is indistinguishable from one that never makes them. An installation investigated "burst is
-not working" three times against the thresholds and the load gate — each time correctly
-confirming the policy — while a prefix-matching deduplicator killed two workers every cycle.
+is indistinguishable from one that never makes them — a correct policy and something else
+killing its workers look, from the thresholds alone, like a policy that does nothing.
 
 **And it is unsafe without the rest.** Every shrink stops a worker, so `queue:reclaim` and the
 cooperative stop are prerequisites rather than companions: an autoscaler over a queue that
@@ -669,9 +673,9 @@ search and a substring search matches a prefix:
 --worker-id worker-1   found inside   --worker-id worker-10
 ```
 
-Which capped every pool at **nine workers per profile**, silently, whatever the ceiling said:
-`deduplicateRunningProcesses()` — whose whole job is killing genuine double-spawns — killed
-workers 10 and above as duplicates of worker 1 within a cycle of being spawned.
+A substring search would cap every pool at **nine workers per profile**, silently, whatever
+the ceiling said: `deduplicateRunningProcesses()` — whose whole job is killing genuine
+double-spawns — would kill workers 10 and above as duplicates of worker 1.
 
 Nine is not a special number; it is the boundary only because ids are decimal. **Any id that
 is a prefix of another has the same hole**, and no separator convention closes it while the
@@ -679,11 +683,9 @@ test is a substring search. `cmdline` is NUL-separated, so the arguments arrive 
 delimited — comparing them as values removes the question rather than answering it. Both
 `--worker-id x` and `--worker-id=x` are understood.
 
-**Worth knowing because of where the symptom points.** "Burst is not working" was
-investigated three times against the thresholds, the load gate and the stored settings on the
-installation that found it, and each investigation correctly confirmed the policy and
-concluded the configuration must be wrong. The policy was asking for eleven workers and
-getting them; something else was killing two of them every cycle.
+**Worth knowing because of where the symptom points.** A pool held below its ceiling by
+something killing its workers looks like a scaling policy that is not working, and checking
+the thresholds, the load gate and the stored settings will each confirm the policy is right.
 
 If you build a scaling policy on this, **log the decision and the resulting process count on
 the same line.** A supervisor that undoes its own decisions is otherwise indistinguishable
@@ -702,11 +704,11 @@ without being asked — `work`, the framework's schedule worker (§1c) — under
 ```
 
 The framework declares periodic work of its own and a schedule only happens when
-something runs it. A stack with an orchestrator and no crontab used to run none of
-it: `spool:drain` never fired, rows written through the `WriteSpool` stayed in a
-file, and every report reading the drained table showed "no data" for ever — a
-symptom several layers away from its cause. An application answers for its own
-daemons; the framework's are the framework's business.
+something runs it. A stack with an orchestrator, no crontab and no `work` process
+would run none of it: `spool:drain` would never fire, rows written through the
+`WriteSpool` would stay in a file, and every report reading the drained table would
+show "no data" — a symptom several layers away from its cause. An application
+answers for its own daemons; the framework's are the framework's business.
 
 Two overrides:
 
@@ -749,10 +751,10 @@ Two things follow from being spawned by `DaemonOrchestrator`, and both are read 
 
 - **The lock path is the supervisor's**, through `resolvedJobLockFilePath()`. A worker that
   rebuilds the path itself can disagree, and disagreement here is invisible: a sentinel read
-  where nothing writes is indistinguishable from no sentinel. `queue:process` had three places
-  still computing their own answer, one of them the daemon loop's "is my lock still there"
-  check — so under any orchestrator naming its own `lockFile`, that worker announced
-  «stop signal detected» and left on its first pass, for ever.
+  where nothing writes is indistinguishable from no sentinel. A worker whose "is my lock still
+  there" check looks at a different path from the one its supervisor named would see no lock,
+  conclude it had been told to stop, and leave on its first pass. Always go through
+  `resolvedJobLockFilePath()`, never `getJobLockFilePath()` directly.
 - **No dashboard.** `isSupervised()` is true, and the interactive dashboard is skipped: it
   clears the screen and repaints in place, which in a log file is thousands of escape sequences
   and no readable history. That log is the only account of what the worker did; the live
@@ -776,13 +778,9 @@ worker, worth finding in a log.
 The sentinel applies **whatever `requireLockFile` says**: it is the orchestrator's
 instruction to that process, not a claim about its lock.
 
-> **Corrected 2026-08-20.** Only the teardown path had a deadline. A redeploy called
-> `requestStopAll()` and re-exec'd the orchestrator immediately; the new image knew only the
-> state file, which recorded nothing about the stop, so the grace period never started —
-> and a `requireLockFile => false` daemon was reported `[ok]` throughout, because the
-> sentinel was read as part of a lock check it had switched off. Reported from a project
-> where one worker ran for 1h32m across three deploys with its `.stop` sentinel on disk the
-> whole time, serving every WebSocket client from the old code.
+The time of each stop request is kept in the state file, so the deadline survives the
+orchestrator re-executing itself after a redeploy — otherwise a daemon that ignores its
+sentinel could keep serving from the old code across any number of deploys.
 
 ### Health snapshot for a dashboard
 
@@ -981,8 +979,8 @@ WatchdogSec=120      # a missed watchdog ping → systemd restarts it
 **systemd, simplest:** drop `Type=notify`/`WatchdogSec`; `Restart=always` still restarts a
 crash, and the single-instance lock prevents overlap.
 
-**cron (no supervisor):** `run --runtime=55` (ProcessQueue) or `--max-runtime=55` (the RCB
-script) polls for 55 s of each minute:
+**cron (no supervisor):** `--daemon --runtime=55` (ProcessQueue) or `work --max-runtime=55`
+polls for 55 s of each minute:
 ```
 * * * * * cd /srv/app && php console my:queue --daemon --runtime=55 >> var/logs/queue.log 2>&1
 ```
@@ -1003,8 +1001,9 @@ cd /srv/app && php console list | grep daemons
 ```
 
 If nothing comes back, there is no supervisor to run yet: write the subclass first
-([§3](#3-daemonorchestrator--the-supervisor)). A scaffolded application gets one in
-`src/ConsoleCommands/Daemons.php`.
+([§3](#3-daemonorchestrator-the-supervisor)). A scaffolded application gets one in
+`src/ConsoleCommands/Daemons.php` when it enables a feature with background work —
+`queue`, `messaging`, `broadcasting`, `auth` or `authserver`.
 
 **2. The unit file** — `/etc/systemd/system/app-daemons.service`:
 
@@ -1106,7 +1105,7 @@ each of those fails quietly rather than loudly.
 ### `withoutOverlapping()` is per machine. `onOneServer()` is not
 
 ```php
-Scheduler::command('reports:nightly')->dailyAt('02:00')->onOneServer();
+Scheduler::command('reports:nightly')->daily()->at('02:00')->onOneServer();
 Scheduler::call(fn() => …)->hourly()->onOneServer(name: 'metrics:rollup');
 ```
 
@@ -1116,7 +1115,7 @@ that is right and free. On two, each has its own `var/` and its own `sys_get_tem
 each takes its own lock and the task runs once per node. Nothing fails; the work happens
 twice, which is why it can run for months unnoticed.
 
-`onOneServer()` takes a {@see Pramnos\Database\SharedLock} instead — a row in
+`onOneServer()` takes a `Pramnos\Database\SharedLock` instead — a row in
 `pramnos.locks` whose primary key is the exclusion. The database is the one shared thing
 every installation already has; a shared cache is the usual answer to this and is optional
 here, and the default cache adapter is local files, which would be a lock that excludes
@@ -1171,9 +1170,8 @@ Storage::disk('media')->exists($path);
 
 **It is optional in the sense that matters: an installation that configures nothing gets a
 `local` disk rooted at `www/`** — where uploads already are — so the façade is usable
-without anything being imposed and without any file moving. It used to require
-`Storage::init()` during bootstrap, which nothing in the framework ever called, so the
-whole subsystem was unreachable unless an application already knew it was there.
+without anything being imposed and without any file moving. No `Storage::init()` call is
+needed during bootstrap.
 
 The `s3` driver needs `aws/aws-sdk-php`, which is **not** a dependency of this framework:
 `composer require aws/aws-sdk-php` in the application that wants it. Without it the driver
@@ -1209,8 +1207,8 @@ single server, also what is served; deleting them would make rendering a page de
 disk being reachable.
 
 `$media->url` is already the key. It is the path relative to `www/` —
-`uploads/2026/09/x.png` — which is what the media system has stored since long before there
-was a disk, so nothing about the database changes.
+`uploads/2026/09/x.png` — which is what the media system stores with or without a disk, so
+nothing about the database changes.
 
 #### Ask for the address rather than building it
 

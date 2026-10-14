@@ -48,8 +48,8 @@ yourself if yours does.
 !!! note "Why `cache` is degraded rather than down"
 
     `Cache` walks down to the next adapter when the configured one cannot be reached,
-    which is correct: a cache that cannot connect must not take the site down. What
-    was missing was anybody being told. An application whose PHP image lacks the
+    which is correct: a cache that cannot connect must not take the site down. The
+    risk is that nobody is told. An application whose PHP image lacks the
     `redis` extension runs on local disk with `redis` in its settings, `redis` in its
     compose file and Redis on its bill — and passes every test. Invalidation is then
     per-server, so a two-node deployment serves whatever the node that was not asked
@@ -64,8 +64,8 @@ yourself if yours does.
 
     Because on one server it is correct. `files` is PHP's default, it is free, it has no
     dependency and nothing to configure, and **the existence of a shared-store option does
-    not make not using it a fault.** This check answered `degraded` and then `notice` before
-    that was said out loud, and both put an alarm colour beside a working site.
+    not make not using it a fault.** Either `degraded` or `notice` here would put an alarm
+    colour beside a working site.
 
     What the check is actually for survives in `ok`: it names the store. The common way to
     get sessions wrong is not leaving them on files — it is pointing them at a Redis the
@@ -155,12 +155,11 @@ looks at the status code treats reduced capacity as an outage. That is the safer
 default — a cache that has stopped working is not something to discover a week
 later — but if you want the two distinguished, read `status` from the body.
 
-**`notice` exists because that default was wrong for one category.** "Correct here,
-and would not be everywhere" is a real answer — sessions on local files are right on
-one machine — and it had to borrow `degraded`, which pages. A correct single-server
-installation therefore answered 503 to the uptime monitor this endpoint exists for.
-`notice` appears in the JSON, in the table and on the badge, and does not change the
-status code.
+**`notice` exists for the one category where that default would be wrong.** "Correct
+here, and would not be everywhere" is a real answer, and reporting it as `degraded`
+would make a correct installation answer 503 to the uptime monitor this endpoint
+exists for. `notice` appears in the JSON, in the table and on the badge, and does not
+change the status code.
 
 ### `/health/status` — when the full report says too much
 
@@ -203,15 +202,15 @@ thought even on `/health/check`.
 ```bash
 php pramnos health:check                        # a table
 php pramnos health:check --json                 # the same report as JSON
-php pramnos health:check --only=database,redis  # just these
+php pramnos health:check --only=database,cache  # just these
 ```
 
 Exit codes make it usable in CI or a deploy gate: `0` all ok, `1` something
 degraded, `2` something down. A `notice` is a success.
 
-The command sees every check the application registered, not only the built-in
-three — it boots the application first, so feature providers and your own
-`Application::init()` registrations are all present.
+The command runs the same set as `/health/check`: the built-in checks listed above,
+those registered by enabled features' service providers, and your own
+`Application::init()` registrations.
 
 ---
 
@@ -307,8 +306,8 @@ failure the others cannot see.
 
 An authorization server whose private key has gone missing answers every page
 normally. The database is fine, the disk is fine, memory is fine, and every
-`/oauth/token` request returns a 500. `/health/check` reported `ok` on exactly
-that server.
+`/oauth/token` request returns a 500. Without this check, `/health/check` reports
+`ok` on exactly that server.
 
 So `signing_keys` does not ask whether the files exist. It walks the states in
 which they exist and the server still cannot issue a usable token:

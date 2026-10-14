@@ -23,10 +23,13 @@ See also [Roadmap & Open Items](Roadmap.md).
 
 - **`hreflang`: nothing.** The framework has a complete language system and no way for a page to
   say which URL is its equivalent in another language.
-- **Sitemap: nothing.** No generator, no route, no `<link rel="sitemap">`.
-- **`robots`: no home.** The concept exists in four places with three mechanisms — a raw `<meta>`
-  string built in `Application.php`, and `header('X-Robots-Tag: …')` in two controllers. There is
-  no `Document` property for it.
+- **Sitemap: no generator.** No route and no `<link rel="sitemap">`. The generated `robots.txt`
+  only points at one: the `sitemap_url` setting, or `/sitemap.xml` when that file exists in the
+  document root (`MachineReadable`).
+- **`robots`: no home.** The concept is scattered across two mechanisms — a raw `<meta>` string
+  built in `Application.php`, and `header('X-Robots-Tag: …')` in seven classes (`DevPanelController`,
+  `DebugGrantController`, `StandalonePage`, `Adminer`, `Email`, `MailAction`, `Emailclick`). There
+  is no `Document` property for it.
 
 The third one matters here because sitemap membership and indexability keep being confused, and
 the absence of one place to say either is part of why.
@@ -52,8 +55,8 @@ solving it.
 
 **What its implementation gets wrong** — recorded so nobody copies it:
 
-- Emits raw HTML through `addHeadContent()`, bypassing escaping. The framework now has
-  `Document::metaTag()` and `Html\Seo` for exactly this.
+- Emits raw HTML through `addHeadContent()`, bypassing escaping. The framework has the escaped
+  `Document::addMetaTag()`, and `Html\Seo` for head elements built outside a `Document`.
 - Derives alternates with `str_replace` over the **whole path**, so a slug that appears as a
   substring elsewhere is rewritten too: `childcare` also matches `/blog/childcare-tips`.
 - Has **two** states where three are needed. An empty declaration means "derive", so there is no
@@ -240,7 +243,7 @@ as the model.
    framework offer a shape (`latest N`, `changed since`)?
 3. **Sharding and the sitemap index** — how the generator names shards, and whether the index is
    regenerated wholesale or incrementally.
-4. **`Document::$robots`** — worth introducing alongside this, since the four existing sites are
+4. **`Document::$robots`** — worth introducing alongside this, since the scattered existing sites are
    the reason indexing and listing keep being confused. In scope or separate?
 
 ## 10. Next steps

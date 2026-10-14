@@ -22,6 +22,20 @@ The single source of Redis connections. It centralises `connect` / `auth` /
 - **`newConnection()`** — a fresh, dedicated connection, required for a blocking
   `SUBSCRIBE` (a subscribed connection cannot be used for anything else).
 - **`prefix()`** and config getters (`host()`/`port()`/`database()`/`password()`).
+- **`ConnectionManager::forConfig($config)`** — the pooled manager for one endpoint
+  (keyed on host, port, database and a hash of the password), so every caller naming
+  the same server shares one manager and one socket. `resetPool()` forgets the pool
+  (tests, or a process rebuilding its world).
+
+`new ConnectionManager($config)` gives an object with a connection of its own, so two
+callers naming the same server get two sockets. In a request that is invisible; in a
+daemon it is one socket per caller for the life of the worker, and a worker that runs
+out of file descriptors cannot autoload a class either. Long-running code that needs a
+connection for an explicit endpoint should go through `forConfig()`.
+
+Config keys: `host` (default `127.0.0.1`), `port` (6379), `database` (0), `password`,
+`prefix` (`''`), `timeout` (connect timeout in seconds; 0 = phpredis default) and
+`read_timeout` (`OPT_READ_TIMEOUT` in seconds).
 
 ```php
 use Pramnos\Redis\ConnectionManager;
@@ -48,18 +62,26 @@ A connection **factory** is injectable (second constructor argument) for tests
 
 The cache, broadcasting and queue Redis drivers create their connections through
 a `ConnectionManager` built from their own config, so there is one implementation
-of connect/auth/select. Each still honours its own configuration, and each still
-accepts an injected connection factory for full control — so this is backwards
-compatible.
+of connect/auth/select. Each honours its own configuration. The broadcasting
+`RedisDriver` and the `RedisQueueDriver` also accept an injected connection factory
+(second constructor argument) for full control; the cache `RedisAdapter` takes
+host, port, database, password and prefix only.
 
-To make the whole stack share a single connection, inject the same factory (or
-point them all at the shared instance) from your bootstrap.
+To make broadcasting and the queue share a single connection, inject the same
+factory (or point them at the shared instance) from your bootstrap.
 
 ## Health check
 
-`Pramnos\Health\Checks\RedisConnectivityCheck` pings Redis through the manager and
-reports up/down, alongside the built-in database / disk / memory checks. Register
-it with the `HealthRegistry` (or it is available to `health:check`).
+`Pramnos\Health\Checks\RedisConnectivityCheck` pings Redis through the manager
+(the shared `getInstance()` by default, or one passed to its constructor) and reports
+`ok` with the latency, or `down`. It is not registered by default, because not every
+application uses Redis; register it in `Application::init()`:
+
+```php
+\Pramnos\Health\HealthRegistry::register(new \Pramnos\Health\Checks\RedisConnectivityCheck());
+```
+
+Its name in the report, and for `health:check --only`, is `redis`.
 
 ## Prefixing
 
@@ -69,7 +91,7 @@ prefix keys explicitly and keys stay byte-predictable across installs.
 ## Capabilities derive from the ConnectionManager
 
 The ConnectionManager is the single Redis connection source, and the Redis-backed
-capabilities can now be obtained pre-wired from it — configure the manager once in
+capabilities can be obtained pre-wired from it — configure the manager once in
 bootstrap and use the capabilities anywhere:
 
 - Cache: `FlatCache::default()` (see the Cache guide)
@@ -77,6 +99,8 @@ bootstrap and use the capabilities anywhere:
 - Queue: `DelayedQueue::redis($namespace)` (see the Queue guide)
 
 Each resolves `ConnectionManager::getInstance()` lazily, so an app that binds the
-manager via `setInstance()` during bootstrap is always in effect. The cache adapter
-keeps its own dedicated connection; broadcast/queue publish over the shared
-`connection()`.
+manager via `setInstance()` during bootstrap is always in effect. Broadcast and the
+delayed queue publish over that instance's shared `connection()`. The cache adapter
+(`RedisAdapter`) and a self-connecting `RedisQueueDriver` take the shared connection
+of the pooled manager for their endpoint (`forConfig()`), so all cache categories
+pointed at one server use one socket.

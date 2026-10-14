@@ -67,6 +67,13 @@ public function callback()
 
     $tokens = $client->exchange($_REQUEST['code'], $_SESSION['oauth_verifier'] ?? '');
 
+    // Who signed in: the provider's own profile endpoint, called with the new token.
+    $profile = \Pramnos\Http\Client::get('https://openidconnect.googleapis.com/v1/userinfo')
+        ->bearerToken($tokens->accessToken)
+        ->send()
+        ->json();
+    $profile = ['id' => $profile['sub'] ?? '', 'name' => $profile['name'] ?? '', 'picture' => $profile['picture'] ?? ''];
+
     (new ConnectionStore())->save(
         $this->application->currentUser->userid,
         'google',

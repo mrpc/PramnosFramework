@@ -1,9 +1,8 @@
 ---
 use_cases:
-  - Registering a route, a route group or a REST resource
+  - Registering a route or a route group
   - Using #[Route] attribute routing on a controller
   - Attaching middleware to routes
-  - Binding a model to a route parameter
   - Diagnosing a URL that answers 404 only when it carries a query string
   - Working out how `?r=module/action/x` becomes a controller, an action and $_GET entries
   - Working out why HEAD requests, link checkers or uptime monitors report a page as missing
@@ -12,186 +11,149 @@ use_cases:
   - Putting the administration screens behind an /admin prefix with their own layout
 ---
 
-# Pramnos Modern Routing Guide
+# Pramnos Routing Guide
 
-The **Routing Engine** in Pramnos v1.2 supports both attribute-based and fluent API routing with parameter binding, groups, and middleware support.
+The router supports fluent registration and `#[Route]` attributes, with URI parameters, named
+routes, groups, permissions and middleware.
 
 **Class:** `Pramnos\Routing\Router`
 
 ## Getting Started
 
-### Define Routes
+### Define routes
+
+A router is constructed with the IoC container, which it uses to build controllers:
 
 ```php
-// routes/web.php or routes/api.php
-$router = \Pramnos\Routing\Router::getInstance();
+// src/Api/routes.php — included with $this bound to the Api instance
+$router = new \Pramnos\Routing\Router($this);
 
-// Simple GET route
-$router->get('/users', 'UserController@index');
+// A closure
+$router->get('/hello', fn() => ['message' => 'hello']);
 
-// GET with parameter
-$router->get('/users/{id}', 'UserController@show');
+// A controller method, as [class, method] — the class is built through the container
+$router->get('/users',        [UserController::class, 'index']);
+$router->get('/users/{id}',   [UserController::class, 'show']);
+$router->post('/users',       [UserController::class, 'store']);
+$router->put('/users/{id}',   [UserController::class, 'replace']);
+$router->patch('/users/{id}', [UserController::class, 'update']);
+$router->delete('/users/{id}', [UserController::class, 'destroy']);
+$router->options('/users',    fn() => '');
 
-// POST route
-$router->post('/users', 'UserController@store');
+// Several methods at once (returns the router, not a Route)
+$router->match(['GET', 'POST'], '/search', [SearchController::class, 'handle']);
 
-// PATCH/PUT route
-$router->patch('/users/{id}', 'UserController@update');
-
-// DELETE route
-$router->delete('/users/{id}', 'UserController@destroy');
-
-// Multiple methods
-$router->match(['get', 'post'], '/search', 'SearchController@handle');
-
-// All HTTP methods
-$router->any('/webhook', 'WebhookController@handle');
+// The response of the matched route, or null when nothing matched
+return $router->dispatch(new \Pramnos\Http\Request());
 ```
 
-### Route Parameters
+An action is a closure, a function name, a `[class, method]` pair or any other callable. A
+`'Controller@method'` string is **not** an action: it is not callable, and the route returns
+`null`.
+
+`get()`, `post()`, `put()`, `patch()`, `delete()`, `options()` and `head()` take
+`($uri, $action, $permissions = null)` and return the `Route`, so `->name()` and
+`->middleware()` can be chained. `addRoute($uri, $methods, $action, $permissions)` is the
+underlying form and returns the router.
+
+### Route parameters
 
 ```php
-// Simple parameter
-$router->get('/users/{id}', 'UserController@show');
-
-// Constrained parameter (regex)
-$router->get('/posts/{id}', 'PostController@show')->where('id', '[0-9]+');
-
-// Multiple constraints
-$router->get('/files/{year}/{month}/{slug}', 'FileController@show')
-    ->where('year', '[0-9]{4}')
-    ->where('month', '[0-9]{2}')
-    ->where('slug', '[a-z0-9-]+');
-
-// Global constraints (apply to all routes)
-$router->pattern('id', '[0-9]+');
-$router->pattern('slug', '[a-z0-9-]+');
-```
-
-### Named Routes
-
-```php
-$router->get('/users/{id}', 'UserController@show')->name('users.show');
-
-// Generate URL from name
-$url = route('users.show', ['id' => 42]);
-// → /users/42
-```
-
-## Route Groups
-
-### Prefix & Middleware
-
-```php
-$router->group([
-    'prefix'     => 'admin',
-    'middleware' => ['auth', 'admin'],
-], function ($router) {
-    $router->get('/dashboard', 'Admin/DashboardController@show');
-    $router->get('/users', 'Admin/UserController@index');
-    $router->post('/users', 'Admin/UserController@store');
+$router->get('/users/{id}', function ($id) {
+    return ['userid' => (int) $id];
 });
 
-// Routes:
-// GET /admin/dashboard
-// GET /admin/users
-// POST /admin/users
+// Optional parameter — the action's own default applies when it is absent
+$router->get('/posts/{year}/{slug?}', function ($year, $slug = null) { /* … */ });
 ```
 
-### Route Groups with Namespaces
+Matched values are passed to the action **by parameter name**; a parameter that did not match
+is left to the method's default. A placeholder matches one path segment (`[^/]+`). There is no
+per-route constraint API — validate the value in the action.
+
+### Permissions
+
+The third argument is the list of permission scopes the caller must hold:
 
 ```php
-$router->group(['namespace' => 'Api'], function ($router) {
-    $router->get('/users', 'UserController@index');
-    // Resolves to Api\UserController@index
-});
+$router->get('/reports', [ReportController::class, 'index'], ['reports:read']);
 ```
 
-### Nested Groups
+`dispatch($request, $userPermissions)` throws `Pramnos\Auth\AuthorizationException` (code 403)
+when the scopes are missing; `dispatchSafe()` returns an array with `error` set to
+`RouteNotFound` or `InsufficientPermissions` instead of throwing.
+
+### Named routes
 
 ```php
-$router->group(['prefix' => 'api'], function ($router) {
-    $router->group(['prefix' => 'v1', 'middleware' => 'api'], function ($router) {
-        $router->get('/users', 'UserController@index');
-    });
-});
+$router->get('/users/{id}', [UserController::class, 'show'])->name('users.show');
 
-// Route: GET /api/v1/users
+$url = $router->route('users.show', ['id' => 42]);   // '/users/42'
+$router->getByName('users.show');                    // the Route, or null
 ```
+
+`route()` throws `InvalidArgumentException` for an unknown name. Optional placeholders that are
+not supplied are stripped.
 
 ## Middleware
 
-### Apply Middleware
+Middleware is a `Pramnos\Http\MiddlewareInterface` instance or its class name. A class name is
+instantiated with `new`, so it must be a real class — there are no string aliases.
 
 ```php
-// Single route
-$router->get('/profile', 'ProfileController@show')->middleware('auth');
+use Pramnos\Http\Middleware\{AuthMiddleware, ThrottleMiddleware, CorsMiddleware};
 
-// Multiple middleware
-$router->post('/users', 'UserController@store')
-    ->middleware(['auth', 'verified']);
+// One route
+$router->get('/profile', [ProfileController::class, 'show'])
+    ->middleware(AuthMiddleware::class);
 
-// Entire group
-$router->group(['middleware' => ['auth', 'csrf']], function ($router) {
-    $router->post('/settings', 'SettingsController@update');
-});
+// Several
+$router->post('/users', [UserController::class, 'store'])
+    ->middleware(AuthMiddleware::class, new ThrottleMiddleware(60, 60));
 
-// Exclude middleware
-$router->get('/login', 'AuthController@login')
-    ->withoutMiddleware(['csrf']);  // CSRF not required for login form
+// Every route the router dispatches
+$router->addGlobalMiddleware(new CorsMiddleware(['https://app.example.com']));
 ```
 
-## Attribute-Based Routing
+Order: global middleware → group middleware → route middleware → action. Groups are described
+under [Route Groups](#route-groups) below.
 
-### Route Attributes (PHP 8+)
+## Attribute-Based Routing
 
 ```php
 <?php
 namespace App\Controllers;
 
-use Pramnos\Routing\Attributes\{Route, Middleware, Name};
+use Pramnos\Http\Middleware\AuthMiddleware;
+use Pramnos\Routing\Attributes\Route;
 
-class UserController extends \Pramnos\Application\Controller
+class UserController
 {
-    #[Route('GET', '/users')]
-    #[Name('users.index')]
-    public function index()
-    {
-        // GET /users
-    }
-    
-    #[Route('GET', '/users/{id}')]
-    #[Name('users.show')]
-    public function show($id)
-    {
-        // GET /users/{id}
-    }
-    
-    #[Route('POST', '/users')]
-    #[Middleware('auth')]
-    public function store()
-    {
-        // POST /users (requires auth)
-    }
-    
-    #[Route('PATCH', '/users/{id}')]
-    #[Middleware('auth')]
-    public function update($id)
-    {
-        // PATCH /users/{id}
-    }
+    #[Route('/users', methods: 'GET', name: 'users.index')]
+    public function index() { /* … */ }
+
+    #[Route('/users/{id}', methods: 'GET', name: 'users.show')]
+    public function show($id) { /* … */ }
+
+    #[Route('/users', methods: 'POST', middleware: [AuthMiddleware::class])]
+    public function store() { /* … */ }
+
+    #[Route('/users/{id}', methods: ['PUT', 'PATCH'], permissions: ['users:write'])]
+    public function update($id) { /* … */ }
 }
 ```
 
-### Auto-Discovery of Routes
+`#[Route]` takes `uri` first, then `methods` (a string or an array, default `'GET'`), `name`,
+`permissions`, `middleware` and `apiKeyScopes`. It is repeatable on one method.
+
+### Discovering attribute routes
 
 ```php
-// Scan controllers for attributes
-$router->discoverRoutes([
-    'path'      => 'app/Controllers',
-    'namespace' => 'App\\Controllers',
-]);
+$router->loadFromDirectory(ROOT . '/src/Controllers', 'App\\Controllers');
 ```
+
+Every public method of every class under the directory is inspected for `#[Route]`; a class
+carrying [`#[RouteGroup]`](#routegroup-attribute) has its routes registered inside that group.
 
 ## HEAD is answered by GET
 
@@ -199,7 +161,7 @@ $router->discoverRoutes([
 it.
 
 ```php
-$router->addRoute('station/{slug}', 'GET', 'StationController@show');
+$router->addRoute('station/{slug}', 'GET', [StationController::class, 'show']);
 ```
 
 | Request | Route |
@@ -210,18 +172,17 @@ $router->addRoute('station/{slug}', 'GET', 'StationController@show');
 
 This is RFC 9110 §9.3.2 — *"The HEAD method is identical to GET except that the server MUST NOT
 send content"* — and it matters far more than the verb's reputation suggests: HEAD is what link
-checkers, uptime monitors, `curl -I` and several crawlers send first. Until 2026-08-18 the router
-kept a separate table per method and answered **404 to HEAD for every page**, so an entirely
-reachable site reported as entirely broken. See the changelog post *Every page answered 404 to
-HEAD*.
+checkers, uptime monitors, `curl -I` and several crawlers send first. Routes are stored per method,
+so without the fallback HEAD would answer 404 for every page and an entirely reachable site would
+report as entirely broken.
 
 **Declaring HEAD explicitly still wins**, and is worth doing when the answer can be cheaper than
 the GET:
 
 ```php
 // A GET that renders a report, and a HEAD that only decides whether it exists.
-$router->addRoute('report/{id}', 'GET',  'ReportController@show');
-$router->addRoute('report/{id}', 'HEAD', 'ReportController@exists');
+$router->addRoute('report/{id}', 'GET',  [ReportController::class, 'show']);
+$router->addRoute('report/{id}', 'HEAD', [ReportController::class, 'exists']);
 ```
 
 **The body is not the router's concern.** PHP's SAPI drops the content of a HEAD response. If your
@@ -240,7 +201,7 @@ Only HEAD falls back. POST, PUT, PATCH and DELETE never borrow the GET table.
 **A query string never takes part in matching, and never lands in a placeholder.**
 
 ```php
-$router->addRoute('station/{slug}', 'GET', 'StationController@show');
+$router->addRoute('station/{slug}', 'GET', [StationController::class, 'show']);
 ```
 
 | Request | `{slug}` receives |
@@ -252,19 +213,17 @@ $router->addRoute('station/{slug}', 'GET', 'StationController@show');
 The parameters themselves are read the ordinary way — `$request->get('fbclid', '', 'get')` or
 `$_GET` — not from the route.
 
-This is worth stating because it was wrong until 2026-08-18, and wrong in a way that only showed
-on routes with a placeholder. The pattern was tried against the URI with its query string still
-attached, and a placeholder compiles to `[^/]+`, which a query string satisfies — so
-`/station/athens?fbclid=abc` matched with a slug of `athens?fbclid=abc`, and the controller
-answered 404 for a page that exists. Every link shared on a network that appends a tracking
-parameter was affected. See the changelog post *A placeholder that ate the query string*.
+The query string is stripped **before** the pattern is tried, not after a miss. A placeholder
+compiles to `[^/]+`, which a query string satisfies, so matching against the full URI would
+hand the controller a slug of `athens?fbclid=abc` — and every link shared on a network that
+appends a tracking parameter would answer 404.
 
 **One exception, by design:** a route registered *with* a query string in its own URI matches on
 that exact form.
 
 ```php
-// Matches `/legacy?page=2` and nothing else.
-$router->addRoute('legacy?page=2', 'GET', 'LegacyController@page');
+// Matches `/archive?page=2` and nothing else.
+$router->addRoute('archive?page=2', 'GET', [ArchiveController::class, 'page']);
 ```
 
 Use it only for an address that must be preserved verbatim; ordinary paging belongs in a
@@ -276,8 +235,8 @@ placeholder or in `$_GET`.
 `$_SERVER['REQUEST_URI']`.** Matching normalises all three.
 
 ```php
-$router->get('/stations/{id}', 'StationController@show');   // route: with
-$router->get('stations/{id}',  'StationController@show');   // route: without — same thing
+$router->get('/stations/{id}', [StationController::class, 'show']);   // route: with
+$router->get('stations/{id}',  [StationController::class, 'show']);   // route: without — same thing
 
 Request::create('/stations/7');   // → getRequestUri() === 'stations/7'
 Request::create('stations/7');    // → getRequestUri() === 'stations/7'
@@ -288,12 +247,10 @@ Request was built. Code that concatenates it into a path should still write
 `'/' . ltrim($uri, '/')` rather than `'/' . $uri` — cheap, and it survives a caller who sets the
 static directly.
 
-This is worth stating because it was wrong until 2026-08-24. `Request::create()` stored its
-argument verbatim while the constructor trimmed, so the two disagreed; `Route::matches()` then
-prefixed a slash unconditionally and tried `//stations/7` against an anchored pattern. **Every
-route with a placeholder missed, and every static route worked** — which is why it survived so
-long: the routes anybody tests first are the ones that were fine. See the changelog post *The
-slash that only broke the routes with placeholders*.
+`Route::matches()` trims the URI before adding the single leading slash its anchored pattern
+expects. A doubled slash (`//stations/7`) would miss every route with a placeholder while every
+static route still matched — the kind of failure that survives because the routes tested first
+are the static ones.
 
 ## The legacy path decomposition — `Request::calcParams()`
 
@@ -326,50 +283,28 @@ from a rewrite, a front controller, a middleware or a test is left alone.
 
 That distinction is the whole of it, and both halves matter:
 
-- Without the clear, a second parse **inherits** the first. `el/parent/skipjobpost` then
-  `parent/skipjobpost` kept `_option = 'skipjobpost'` — the action's own name, from the parse
+- Without the clear, a second parse would **inherit** the first. `el/parent/skipjobpost` then
+  `parent/skipjobpost` would keep `_option = 'skipjobpost'` — the action's own name, from the parse
   where the prefix had shifted every index by one. An action whose `_option` names itself routes
   to itself.
 - The pairs are worse than stale: the pairing loop writes a key only when it is not already set,
-  so a surviving pair **blocks** the new value. `page/view/k/first` then `page/view/k/second`
-  answered `first`.
+  so a surviving pair would **block** the new value: `page/view/k/first` then
+  `page/view/k/second` would answer `first`.
 
 Cleared before the query string is merged, so `?_option=x` still wins — that one was written by
 whoever made the request. `resetInstance()` forgets the record, like the controller and the action
 beside it.
 
-### Two anomalies that used to be in that table
+### Only the path decides the decomposition
 
-Both fixed on 2026-08-31, and both were **routing changes** — they decided what ended up in
-`$_GET` for URLs already in use — so they are recorded here rather than quietly corrected.
+Two rules follow from the table above:
 
-**Leftover path segments became `$_GET` keys.** `module/action/x` set `_option = x` *and*
-`$_GET['module'] = 'action'`: only `$parts[2]` was removed before the key/value pairing loop
-walked the rest, so the controller and the action were paired into an entry of their own. On
-`/jobposts/view/479`, code reading `$_GET['jobposts']` got `'view'`. The other two branches
-already removed them; that one was the outlier.
-
-**A slash inside the query string changed the decomposition.** `$slashes` — which chooses the
-branch — was recounted *after* the query string had been appended to the path, so an ordinary
-return-url parameter moved the same path:
-
-```
-before:  r=jobposts/view/479                            → _option=479, jobposts=view
-before:  r=jobposts/view/479 ?return=/account/settings  → _option=479, 479=null
-now:     both                                           → _option=479
-```
-
-One slash was enough, and `_option` survived either way — which is why it went unnoticed. It was
-the leftover keys that moved, and code reading one of them by name read something else.
-
-The append had no other purpose: `explode('?', …)` threw the query string away on the next line,
-`$mainString[1]` is never read, and `$request` is not used past that point. The slash count now
-comes from the path, and only the path.
-
-**If you relied on either** — a controller reading `$_GET['<module-name>']`, or on a segment
-appearing as its own key — that key is gone. Read `_option` and the named pairs instead. The
-framework's own suite had **no** dependency on either: measured, the change failed four
-characterization tests written to record it and nothing else in 13,294.
+- **The controller and the action never become `$_GET` keys.** On `/jobposts/view/479`,
+  `$_GET['jobposts']` is not set; only `_option` and the key/value tail after the action are
+  written. Read `_option` and the named pairs.
+- **The query string does not change the branch.** The number of slashes that chooses how the
+  path is split is counted on the path alone, so `r=jobposts/view/479` and
+  `r=jobposts/view/479?return=/account/settings` decompose identically (`_option = 479`).
 
 ### `$originalRequestNoChange` — the request as it arrived
 
@@ -384,16 +319,13 @@ Assigned when `r` is read, **before** `calcParams()` runs. Use the second when y
 the visitor actually asked for — building a canonical link, deciding whether to redirect to one —
 and the first when you want whatever the current route resolved to.
 
-It was declared, cleared by `resetInstance()`, and **never assigned** until 2026-08-31, so every
-read answered `''`. Worth stating because of the failure that produces: an application building a
-canonical URL from it gets `sURL` alone, compares that against the real address, finds them
-different, and redirects the page **to itself**. An infinite loop, on a page that looks correct in
-the source, with no error and no log line — `curl -L` gives up at ten hops and reports nothing
-about why.
+If it were empty, an application building a canonical URL from it would get `sURL` alone,
+compare that against the real address, find them different and redirect the page **to itself** —
+an infinite loop with no error and no log line. That is why it is assigned before anything can
+rewrite the request.
 
-**The action is cleared on every call**, as of 2026-08-31. It used to be written only when the
-path had a second segment and cleared only by `resetInstance()`, so `calcParams('module')`
-inherited the previous call's action. One request per process hides that; a test suite is one
+**The action is cleared on every call**, so `calcParams('module')` never inherits the previous
+call's action. One request per process would hide the difference; a test suite or a worker is one
 process for thousands of requests.
 
 ## Telling a wrong verb from a wrong address — 405
@@ -445,144 +377,18 @@ Two details worth knowing:
 This is a question, not a decision. What you answer, and whether you send
 `Allow` at all, stays with your application.
 
-## Route Model Binding
-
-### Implicit Binding
-
-```php
-$router->get('/users/{user}', 'UserController@show');
-
-// Automatically inject User model
-class UserController extends \Pramnos\Application\Controller
-{
-    public function show(\App\Models\User $user)
-    {
-        // $user is automatically loaded by ID from the URL
-        return view('users.show', ['user' => $user]);
-    }
-}
-```
-
-### Custom Key
-
-```php
-$router->get('/posts/{post:slug}', 'PostController@show');
-// Binds by slug instead of ID
-```
-
-## Fallback & View Routes
-
-### Catch-All Route
-
-```php
-// Must be last!
-$router->get('/{path}', 'PageController@show')->where('path', '.*');
-```
-
-### Redirect Route
-
-```php
-$router->redirect('/home', '/dashboard');
-$router->redirectPermanent('/old-path', '/new-path');  // 301
-```
-
-### View Route
-
-```php
-// Render view directly without controller
-$router->view('/about', 'pages.about');
-
-// With data
-$router->view('/contact', 'pages.contact', [
-    'email' => 'contact@example.com',
-]);
-```
-
 ## Route Listing
-
-### View All Routes
 
 ```bash
 php vendor/bin/pramnos route:list
-
-# Output:
-# GET    /users              UserController@index
-# GET    /users/{id}         UserController@show
-# POST   /users              UserController@store
+php vendor/bin/pramnos route:list --json
 ```
 
-## Complete Example
-
-```php
-// routes/web.php
-$router = \Pramnos\Routing\Router::getInstance();
-
-// Public routes
-$router->get('/', 'HomeController@show')->name('home');
-$router->get('/about', 'PageController@show', ['page' => 'about'])->name('about');
-$router->get('/contact', 'ContactController@show')->name('contact');
-$router->post('/contact', 'ContactController@store');
-
-// Authentication routes
-$router->group(['middleware' => 'guest'], function ($router) {
-    $router->get('/login', 'Auth/LoginController@show')->name('login');
-    $router->post('/login', 'Auth/LoginController@store');
-    $router->get('/register', 'Auth/RegisterController@show')->name('register');
-    $router->post('/register', 'Auth/RegisterController@store');
-});
-
-// Protected routes
-$router->group(['middleware' => ['auth', 'verified']], function ($router) {
-    $router->get('/dashboard', 'DashboardController@show')->name('dashboard');
-    $router->post('/logout', 'Auth/LogoutController@store')->name('logout');
-    
-    // User profile
-    $router->get('/profile', 'ProfileController@show')->name('profile.show');
-    $router->patch('/profile', 'ProfileController@update')->name('profile.update');
-});
-
-// Admin routes
-$router->group(['prefix' => 'admin', 'middleware' => ['auth', 'admin']], function ($router) {
-    $router->get('/', 'Admin/DashboardController@show')->name('admin.dashboard');
-    
-    $router->resource('users', 'Admin/UserController');  // REST resource
-    $router->resource('posts', 'Admin/PostController');
-});
-
-// API routes
-$router->group(['prefix' => 'api/v1', 'middleware' => 'api'], function ($router) {
-    $router->get('/users', 'Api/UserController@index');
-    $router->get('/users/{id}', 'Api/UserController@show')->where('id', '[0-9]+');
-    $router->post('/users', 'Api/UserController@store')->middleware('auth:api');
-});
-```
-
-## REST Resource Routes
-
-### Auto-Generate CRUD Routes
-
-```php
-// Generates all 7 RESTful routes
-$router->resource('posts', 'PostController');
-
-// Generated routes:
-// GET    /posts              PostController@index
-// GET    /posts/create       PostController@create
-// POST   /posts              PostController@store
-// GET    /posts/{id}         PostController@show
-// GET    /posts/{id}/edit    PostController@edit
-// PATCH  /posts/{id}         PostController@update
-// DELETE /posts/{id}         PostController@destroy
-```
-
-### Customize Resource Routes
-
-```php
-$router->resource('comments', 'CommentController')
-    ->only('index', 'show', 'store', 'destroy')  // Exclude create/edit
-    ->except(['create', 'edit'])                  // Same as above
-    ->names('comments.list', 'comments.view');    // Custom names
-```
+The command lists the routes of the router the application publishes as `$app->router`. A
+route file builds its own router and dispatches it, so it cannot be loaded from the CLI; an
+application that wants its routes listed assigns the populated router in a service provider
+or bootstrap (`$app->router = $router;`). With no router available the command prints an
+explanation and an empty list.
 
 ## Route Groups
 
@@ -675,8 +481,7 @@ class UserController
 
 Because `#[Route]` attributes are the single source of truth the router dispatches
 from, the framework can generate an OpenAPI 3.0 document from them directly — no
-separate `routes.php` + `@api` comment blocks to keep in sync. This is the
-attribute-native alternative to the older apidoc/JSDoc flow.
+separate `@api` comment blocks to keep in sync.
 
 ```
 php pramnos api:docs \
@@ -695,12 +500,9 @@ Scanned src/Api/Controllers (namespace App\Api\Controllers)
 Wrote 72 path(s), 96 operation(s) to /srv/app/public/api/openapi.json
 ```
 
-That first line exists because its absence cost somebody an hour. The command used to
-default to `src/Controllers` and report only where it wrote, so an application keeping
-its API in `src/Api/Controllers` got `Wrote 1 path(s), 1 operation(s)` for 72
-endpoints — every word of it true. **A document describing one endpoint of seventy-two
-is not obviously broken; it is indistinguishable from an application that has one
-endpoint**, so it gets published and believed.
+The first line says which directory was read because a scan of the wrong one is not
+obviously broken: **a document describing one endpoint of seventy-two is indistinguishable
+from an application that has one endpoint**, so it gets published and believed.
 
 For the same reason, a run that finds fewer operations than a sibling directory holds
 says so and names it:
@@ -715,10 +517,9 @@ Nothing is switched under you, and the check is skipped entirely when you passed
 
 ### Commit the document and the viewer
 
-`www/api/openapi.json` and `www/api/docs/` belong **in the repository**. The scaffold used
-to add both to `.gitignore` as "generated output", and the result was those two addresses
-answering 403 on every live site it had ever made — the only two URLs an integrator ever
-opens.
+`www/api/openapi.json` and `www/api/docs/` belong **in the repository**. Ignored as
+"generated output", those two addresses answer 403 on every live site — and they are the only
+two URLs an integrator ever opens.
 
 Neither is build output in the sense that phrase usually carries. The document is written
 by a CLI command that no deploy runs — the scaffolded deploy is `git fetch`,
@@ -738,17 +539,15 @@ php pramnos api:docs --routes=src/Api/routes.php --no-html
 git diff --exit-code www/api/openapi.json   # fails when the document is stale
 ```
 
-**A project scaffolded before this** still has the two lines in its own `.gitignore`;
-version control will not remove them. Delete them, then `git add -f www/api/openapi.json
-www/api/docs/`.
+If a project's `.gitignore` lists either path, delete the line, then `git add -f
+www/api/openapi.json www/api/docs/`.
 
 ### Routes registered on the router — `--routes`
 
 `#[Route]` attributes are one way to declare an API. The other is registering on the
 router, which is what the framework's own dispatcher reads and what the scaffolder
-generates in `src/Api/routes.php`. The generator could only see the first, so an
-application using the second got a document describing **nothing at all** — written over
-the previous one, exiting 0, with a line that reads like success.
+generates in `src/Api/routes.php`. `--routes` reads the second, so an application that
+registers its API on the router gets a document of it rather than one describing nothing.
 
 ```
 php pramnos api:docs --routes=src/Api/routes.php
@@ -834,9 +633,7 @@ the overrides names it as well as the spec.
 
 Zero operations from a scan is not a document, it is a failure — and writing it is the
 worst available outcome, because the previous file is destroyed, the exit code is 0, and
-the line printed reads like success to a deploy script and to a person skimming. One
-installation carried a ten-day-old file describing four scaffold endpoints while its real
-API had ninety-one addresses.
+the line printed reads like success to a deploy script and to a person skimming.
 
 ```
 Scanned src/Api/Controllers (namespace App\Api\Controllers) and found no operations
@@ -851,9 +648,8 @@ no operations yet, which is a real state and not one to guess at.
 
 **`--namespace` follows `--controllers`.** It is derived from the application
 namespace in `app/app.php` plus the path after `src/`, so
-`--controllers=src/Api/Controllers` gives `App\Api\Controllers`. It used to append a
-fixed `\Controllers` regardless, which is why passing `--controllers` alone found
-nothing at all and still exited successfully.
+`--controllers=src/Api/Controllers` gives `App\Api\Controllers`, so passing
+`--controllers` alone is enough.
 
 What is derived automatically: paths and methods (with `{param}` segments becoming
 path parameters), `operationId` (from the route name), `summary`/`description`
@@ -904,10 +700,8 @@ The URL segment is read with `Request::staticGetOption()`, not taken as an
 argument. The parameter is kept for the signature's sake and ignored.
 
 A scalar declaration is not a bug that appears under some input: the action cannot
-be called at all. Five bundled actions had one — `ServicesController`'s `stop`,
-`start`, `restart` and `logs`, which is every button on the services screen, and
-`LogController::clearFile()`. All are fixed, and a structural test now walks every
-bundled controller so the next one fails in the suite rather than on a click.
+be called at all. A structural test walks every bundled controller, so a scalar first
+parameter fails in the suite rather than on a click.
 
 ## An administration area under a prefix
 
@@ -940,10 +734,10 @@ renders `/Users` because the prefix is empty. The screens answer 404 while the m
 lists them, since the navigation is built from the registry rather than from routes: the
 area looks present and nothing in it opens.
 
-`min_usertype` is the floor for the **area**, and 80 is what `init` writes because that is
-the lowest any bundled admin controller requires. Raising it above the lowest locks out the
-screens that only needed 80; each controller still enforces its own, which is stricter for
-some of them.
+`min_usertype` is the floor for the **area**, and 98 is what `init` writes — the floor of every
+bundled screen (`AdminAccess::defaultUsertype()`). Somebody below it reaches the area only when a
+role opens a screen to them (`admin_access = mixed` or `permissions`); each controller still
+enforces its own check.
 
 Set `default_controller` unless you want the bare prefix to fall through to the
 site's own default — which is usually the public home page, and which for a
@@ -967,8 +761,8 @@ src/Views/home/…
 
 Inside the area the framework looks there **first** and falls through to the site's
 own — so an area holds the screens that belong to it, not a copy of the application. A
-shared `Home`, a shared partial and an application with no `src/Admin` at all keep
-working exactly as before.
+shared `Home`, a shared partial and an application with no `src/Admin` at all work
+unchanged.
 
 Outside the area, `src/Admin/` is not in scope. That is the part that matters:
 
@@ -1011,12 +805,9 @@ account and the dashboard.
     use. Moving it under `src/Admin/` closes the bare path — but the check is still
     the thing that protects the screen.
 
-    `SettingsController` was in that state until 2026-08-27: it declared its
-    actions with `addAuthAction()`, which requires only *being signed in*, and had
-    no usertype floor. `/admin/settings` correctly refused an ordinary account;
-    `/settings` served it the whole form — including the SMTP host, user and
-    password rendered into fields — and `POST /Settings/saveSystem` rewrote
-    `site_url`, `forcessl`, `admin_mail` and the login lockout rules.
+    `addAuthAction()` requires only *being signed in*. A settings screen that relies on it
+    and on the area's floor refuses an ordinary account at `/admin/settings` and serves it
+    the whole form — SMTP credentials included — at `/settings`.
 
     Every screen inside the area needs its own `requiredUserType` and a
     `requireMinUserType()` call in each action — it is on `Application\Controller`, so
@@ -1068,9 +859,8 @@ string. The breadcrumb partials rely on that.
 <a href="<?php echo adminUrl('Users'); ?>">Users</a>   <!-- identical to the second -->
 ```
 
-`URL` was a second name for the site URL, from before the framework had an area at all —
-`sURL` was defined from it and nothing else read it. It is the area's base now, so the
-two constants answer the two questions a link has.
+`URL` is the area's base and `sURL` the site's, so the two constants answer the two questions a
+link has.
 
 `adminUrl()` is the same answer for code that runs where constants may not be defined — a
 controller under test, a CLI render — which is why the bundled views use it. Both are
@@ -1085,7 +875,7 @@ wants the public account page, not an admin-framed copy of it, so `account`,
 
 Admin `NavItem`s point into the area automatically, from anywhere — including the
 public site header, which shows the same section. With no area configured they
-are plain application URLs, as before. The underlying calls:
+are plain application URLs. The underlying calls:
 
 ```php
 adminUrl('Users');                       // the helper the views use
@@ -1126,9 +916,8 @@ $this->terminate();
 ```
 
 **Never write `exit` for this.** Under a test runner `exit` does not fail — it ends the process:
-no summary, no failure count, and **exit status 0**, which every CI reads as a pass. A suite that
-walked a project's controllers stopped at 126 of 198 and printed a grant page where the summary
-should have been; nothing reported anything wrong.
+no summary, no failure count, and **exit status 0**, which every CI reads as a pass, while
+nothing reports anything wrong.
 
 `terminate()` exits in production and throws `ApplicationClosedException` under any test runner —
 `PRAMNOS_TESTING`, which the framework's own test bootstrap defines, or either of the constants
@@ -1159,19 +948,15 @@ $this->application->redirect();
 
 `Application::redirect()` records the destination, which `getRedirect()` returns and a
 `TestClient` answers as the response's `Location`. A bare `header('Location: …')` leaves nothing:
-PHP keeps no headers on the CLI, so the test sees a 302 with an empty `Location` — which is how
-the authorization endpoint's own redirect with the code went untested. `RedirectsAreRecordedTest`
-fails on a new one in `src/`.
+PHP keeps no headers on the CLI, so the test sees a 302 with an empty `Location` and the redirect
+goes untested. `RedirectsAreRecordedTest` fails on a bare one in `src/`.
 
 ### Why it is not a seam to override
 
-It is `protected`, so a subclass still can. It used to be *only* that: eight framework controllers
-each carried their own `protected function terminate() { exit; }` with a comment saying it "can be
-mocked in tests" — four different behaviours between them, including one that returned and one
-that threw a bare `\Exception` with a message tests matched on by string. A seam only helps
-somebody who already knows they need it, and the ninth controller to end a request is written by
-somebody who does not. The default is right now, in one place, and overriding it is for a
-controller that needs something else rather than for one that needs this.
+It is `protected`, so a subclass still can. But a seam only helps somebody who already knows they
+need it, and the next controller to end a request is written by somebody who does not. The default
+is right, in one place, and overriding it is for a controller that needs something else rather than
+for one that needs this.
 
 ## `sURL` is the script's base, not the site root
 
@@ -1186,8 +971,8 @@ www/api/index.php  →  sURL = https://example.com/api/     ← same site, same 
 So an asset under the document root, built during an API request as
 `sURL . 'uploads/x.jpg'`, is `https://example.com/api/uploads/x.jpg` — a 404. The expensive
 part is that it is *absolute and well-formed*, so every "is this a fetchable address" check
-passes it: one was handed to an external service, which fetched it, got a 404, and answered
-with an error that never mentioned the URL. The visible half was a broken thumbnail.
+passes it: an external service handed it fetches it, gets a 404 and answers with an error that
+never mentions the URL.
 
 And `getUrl()` cannot answer at all from the command line: there is no `SERVER_NAME`, so a
 scheduled task putting a public URL in an email, a webhook payload or a feed builds
@@ -1234,9 +1019,8 @@ For related guides:
 **Topics covered:**
 
 - Route definition with all HTTP methods
-- Parameter binding and constraints
+- URI parameters, optional parameters and permissions
 - Named routes and URL generation
 - Route groups with prefixes, middleware, permissions, and name prefixes
 - Attribute-based routing discovery (`#[Route]`, `#[RouteGroup]`)
-- Resource routes and REST conventions
 - Distinguishing a wrong verb from a wrong address (`allowedMethodsFor()`, 405 with `Allow`)

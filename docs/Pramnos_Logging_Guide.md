@@ -40,7 +40,12 @@ src/Pramnos/Logs/
 ├── LogManager.php       # Log file management and analytics
 ├── LogViewer.php        # Log reading and viewing
 ├── LogMigrator.php      # Format migration tools
-└── Application/Controllers/LogController.php  # Web interface
+├── LogAnalytics.php     # The dashboard's figures, for code, commands and MCP tools
+├── FatalErrorReporter.php # fatal.log on a process that dies
+├── Trace.php            # Stack traces without arguments
+└── PsrLogger.php        # PSR-3 adapter (Logger::channel())
+
+src/Pramnos/Application/Controllers/LogController.php  # Web interface (/admin/logs)
 ```
 
 ### Key Features
@@ -181,12 +186,12 @@ slow enough to explain it. That shape — one request asking the same question i
 invisible in a list of timings, because every individual answer is fast. It is the whole reason the
 file is separate from the query log rather than a column in it.
 
-Three bounds, because all three logs used to grow without limit and the machine that hits that is a
-developer's, running a whole suite in one process:
+Three bounds, because unbounded logs hit the machine least able to spare it — a developer's,
+running a whole suite in one process:
 
-- the accumulated query text is written out once it passes 256 KB, rather than in the destructor —
-  a process killed by the memory limit used to write **nothing at all**, so the log was empty on
-  exactly the run somebody needed it for;
+- the accumulated query text is written out once it passes 256 KB, rather than only in the
+  destructor — a process killed by the memory limit never reaches its destructor, so the log would
+  be empty on exactly the run somebody needed it for;
 - the duplicate detector remembers 5,000 statement fingerprints and then forgets the oldest half.
   What that loses is a statement seen once at the start of a very long process and again at the end,
   which is two requests rather than one request asking twice;
@@ -206,18 +211,13 @@ Logger::log('Could not reach the push service', 'push', context: ['type' => 'err
 When you do **not** set it, the message is sniffed: if it parses as JSON, `type` becomes `json`.
 When you **do** set it, the sniff is skipped and your value survives.
 
-That second half did not work until 31 August 2026. The guard read a variable that does not exist
-in that scope, so it was always true and the sniff always ran — and a type you supplied was
-overwritten with `json` whenever the message happened to parse as JSON. A bare number parses. So
-do `true`, `null`, and any quoted string:
+The second half matters because a great deal parses as JSON — a bare number, `true`, `null`, any
+quoted string. Setting `type` yourself is what keeps an error whose message happens to be numeric
+filed as an error:
 
 ```php
-Logger::log('42', 'push', context: ['type' => 'error']);   // was filed as json
+Logger::log('42', 'push', context: ['type' => 'error']);   // filed as error, not json
 ```
-
-An error logged as `'42'` was filed as JSON, and anybody filtering the log by type never saw it.
-Worth knowing if you are reading logs written before that date: a `json` entry may be an error
-whose message was numeric.
 
 ## Log Levels and PSR-3 Compliance
 
@@ -234,19 +234,10 @@ The logging system follows PSR-3 standards with eight severity levels:
 | info | `Logger::LEVEL_INFO` | Interesting events |
 | debug | `Logger::LEVEL_DEBUG` | Detailed debug information |
 
-### Level-Based Filtering
-
-```php
-// Only log errors and above in production
-if (ENVIRONMENT === 'production') {
-    Logger::setMinimumLevel(Logger::LEVEL_ERROR);
-}
-
-// Log everything in development
-if (ENVIRONMENT === 'development') {
-    Logger::setMinimumLevel(Logger::LEVEL_DEBUG);
-}
-```
+There is no minimum-level filter: every call is written. The level is stored on the entry
+(`"level": "error"`), and the readers — `LogViewer::setLogLevel()`, `LogAnalytics::entries()`,
+`LogManager::getFilteredLogEntries()` — filter on it when the log is read. To keep debug output
+out of production, guard the call yourself (`if (DEVELOPMENT) { Logger::debug(…); }`).
 
 ## Log File Management
 
@@ -317,20 +308,24 @@ Logger::truncateLogFile('debug', 'log', 5 * 1024 * 1024, false);
 ```php
 use Pramnos\Logs\LogManager;
 
-// Get statistics for all log files
-$stats = LogManager::getLogFiles(true, true);
+// Every *.log file, with size and modification time
+// (a list of ['name', 'size', 'size_formatted', 'modified', 'modified_formatted'])
+$files = LogManager::getLogFiles(false, true);
 
-foreach ($stats as $file => $info) {
-    echo "File: {$file}, Size: {$info['size']}, Lines: {$info['lines']}\n";
+foreach ($files as $info) {
+    echo "File: {$info['name']}, Size: {$info['size_formatted']}\n";
 }
 
-// Archive old log files (older than 30 days)
+// Archive log files older than 30 days into archives/logs_<Y-m-d_His>.zip, then delete them
 $result = LogManager::archiveOldLogs(30);
 echo "Archived {$result['archived']} files\n";
 
-// Clear specific log files
-LogManager::clearLog('debug'); // Clear debug.log
-LogManager::clearLog('application', 'log'); // Clear application.log
+// Empty one log file (Logger, not LogManager)
+Logger::clearLog('debug');               // debug.log
+Logger::clearLog('application', 'log');  // application.log
+
+// Empty several, or every *.log file
+LogManager::clearAllLogs(['debug.log', 'application.log']);
 ```
 
 ### Log File Statistics
@@ -340,7 +335,7 @@ LogManager::clearLog('application', 'log'); // Clear application.log
 $stats = LogManager::getLogFileStats('application', 'log');
 
 echo "File size: {$stats['size_formatted']}\n";
-echo "Line count: {$stats['lines']}\n";
+echo "Line count: {$stats['lines']}\n";   // exact up to 1,000 lines, extrapolated beyond
 echo "JSON percentage: {$stats['json_percentage']}%\n";
 echo "Modified: {$stats['modified_formatted']}\n";
 
@@ -380,7 +375,7 @@ nothing to configure. Each entry is a `critical` record with:
 
 | Field | What it holds |
 | --- | --- |
-| `entry` | The command line (`cli: urbanwater.php maintenance --zone=7`) or the request's method and path (`GET /reports/run`) |
+| `entry` | The command line (`cli: pramnos maintenance --zone=7`) or the request's method and path (`GET /reports/run`) |
 | `where` | The file and line PHP stopped at |
 | `request_id` | The request id, to find the same request in the other logs |
 | `peak_memory_mb`, `memory_limit` | How much it used, against how much it was allowed |
@@ -406,9 +401,9 @@ and `E_USER_ERROR`. Warnings and exceptions have their own path.
 
 ### The dashboard's own figures — `LogAnalytics`
 
-Everything `/admin/logs` draws is one call. The aggregation used to live inside the controller,
-which meant a hundred lines of useful numbers were reachable only by a human with a browser and
-an administrator's session:
+Everything `/admin/logs` draws is one call, and it lives outside the controller so the same
+numbers are reachable from code, a command or an MCP tool — not only by a human with a browser
+and an administrator's session:
 
 ```php
 use Pramnos\Logs\LogAnalytics;
@@ -447,10 +442,9 @@ Five things worth knowing before you use either:
 
 - **The date on a line is read day-first.** The framework's own `Logger` writes
   `28/08/2026 13:39:37`, and `strtotime()` reads a slash-separated date as American
-  month-first — month 28 does not exist, so it returned `false` and both readers fell back
-  to `time()`. Every entry the framework had ever written came back stamped with the moment
-  somebody opened the screen. `LogManager::parseTimestamp()` is the one parser now: the
-  framework's formats first, then ISO and everything else PHP knows. A line whose date cannot
+  month-first — month 28 does not exist, so it returns `false`. `LogManager::parseTimestamp()`
+  is the one parser both readers use: the framework's formats first, then ISO and everything
+  else PHP knows. A line whose date cannot
   be read returns `null` and is in **no** time window, because an undatable entry counted
   inside whichever window was asked for is how a whole file ends up in the last hour's
   figures.
@@ -494,13 +488,11 @@ unchanged — so `'pramnosframework'` is a different, non-existent file.
 file that does not exist, which is the normal state of a log nothing has logged to yet, so a
 reader should answer an empty page rather than propagate it — `ApiAdmin::logs()` does.
 
-> **This was a vulnerability until 2026-08-31.** The check read
-> `if ($checkWhitelist && !empty($this->whitelist) && !in_array(…))`, so an **empty** whitelist
-> skipped it entirely: "nothing is configured" was read as "everything is allowed". Every caller
-> in the framework passed a whitelist except `ApiAdmin::logs()`, which constructs a viewer with no
-> arguments — so `GET /admin/logs?file=../../../../etc/passwd` answered **200** with the file's
-> contents to any caller the permission store allowed to read logs. A grant of *may read the log
-> file* was a grant of *may read any file this process can*.
+**An empty whitelist is not "everything is allowed".** With no list, the viewer falls back to the
+log directory's own contents rather than skipping the check. That is what keeps a grant of *may
+read the log file* from becoming a grant of *may read any file this process can* — a viewer
+constructed with no arguments, as `ApiAdmin::logs()` does, still refuses
+`?file=../../../../etc/passwd`.
 
 ### Real-time Log Viewing
 
@@ -621,87 +613,49 @@ foreach ($files as $file) {
 }
 ```
 
-### Bulk Processing
-
-```php
-// Process multiple files with error handling
-$migrator = new LogMigrator();
-$results = $migrator->migrateDirectory('/path/to/logs', [
-    'backup' => true,
-    'skip_errors' => false,
-    'chunk_size' => 8 * 1024 * 1024 // 8MB chunks
-]);
-
-foreach ($results as $file => $result) {
-    if ($result['success']) {
-        echo "✓ {$file}: {$result['converted_lines']} lines converted\n";
-    } else {
-        echo "✗ {$file}: {$result['error']}\n";
-    }
-}
-```
-
 ## Console Commands
 
-### Migrate Logs Command
+### Converting logs to the structured format: `logs:convert`
 
 ```bash
-# Migrate a single log file
-php bin/pramnos migrate:logs /path/to/file.log --backup
+# Convert one file (a .bak copy is written beside it by default)
+php vendor/bin/pramnos logs:convert /path/to/file.log
 
-# Migrate all logs in directory
-php bin/pramnos migrate:logs /path/to/logs --all --backup
+# Convert every .log file in a directory
+php vendor/bin/pramnos logs:convert /path/to/logs --all
 
-# Migrate without backup
-php bin/pramnos migrate:logs /path/to/file.log --no-backup
-
-# Display help
-php bin/pramnos migrate:logs --help
+# Without the .bak copy
+php vendor/bin/pramnos logs:convert /path/to/file.log --no-backup
 ```
 
-### Log Management Commands
-
-```bash
-# View log file statistics
-php bin/pramnos logs:stats
-
-# Rotate large log files
-php bin/pramnos logs:rotate --max-size=10 --backups=5
-
-# Archive old logs
-php bin/pramnos logs:archive --days=30
-
-# Clear debug logs
-php bin/pramnos logs:clear debug
-
-# Export logs to CSV
-php bin/pramnos logs:export application.log --format=csv
-
-# Monitor logs in real-time
-php bin/pramnos logs:tail application.log --follow
-```
+`logs:convert` is the only log command. Statistics, rotation, archiving, clearing and export
+are reached through `LogManager` / `Logger` from code (above) or through the web interface
+(below). Rotation needs no command at all: it happens on write.
 
 ## Web Interface
 
 ### Accessing the Log Viewer
 
-The web interface is accessible through the LogController:
+`LogController` serves the log screens inside the administration area —
+`AdminArea::url('logs')`, which is `/admin/logs` with the default `admin.prefix`. Its actions:
 
 ```
-/logs                   # Main log listing
-/logs/view/filename     # View specific log file
-/logs/stats             # Log file statistics
-/logs/dashboard         # Analytics dashboard
-/logs/export            # Export logs
-/logs/rotate            # Rotate log files
-/logs/archive           # Archive old logs
-/logs/search            # Advanced search
+/admin/logs                # display: the viewer for the selected file
+/admin/logs/viewer         # the viewer itself
+/admin/logs/raw            # raw file contents
+/admin/logs/stats          # log file statistics
+/admin/logs/dashboard      # analytics dashboard
+/admin/logs/filter         # filtered entries
+/admin/logs/search         # search across files
+/admin/logs/export         # download (?file=…&format=csv|json|raw)
+/admin/logs/rotate         # rotate log files
+/admin/logs/archive        # archive old logs
+/admin/logs/clear          # clear logs
 ```
 
 ### Log Viewer Features
 
-- **Real-time Updates**: Auto-refresh capabilities
-- **Search and Filter**: Full-text search with regex support
+- **Search and Filter**: Case-insensitive text search, and `key:value` matches on a structured entry's fields
 - **Level Filtering**: Filter by log levels
 - **Pagination**: Navigate through large log files
 - **Export Options**: Download as CSV, JSON, or raw format
@@ -712,11 +666,12 @@ The web interface is accessible through the LogController:
 
 The dashboard provides:
 
-- **Trend Charts**: Visual representation of log entry patterns
-- **Level Distribution**: Pie charts showing log level breakdown
-- **Error Tracking**: Top errors with occurrence counts
-- **System Status**: Health overview across all log files
-- **Performance Metrics**: Response times and resource usage
+- **Trend Charts**: entries per minute, hour or day over the chosen timespan
+- **Level Distribution**: how many entries each level has
+- **Error Tracking**: top errors with occurrence counts, merged across files
+- **Per-file Status**: last entry, error rate and entry count for each log file
+
+These are the figures `LogAnalytics::summary()` returns (see above).
 
 ## Performance and Best Practices
 
@@ -758,21 +713,20 @@ Logger::info('API request processed', [
 ### Performance Considerations
 
 ```php
-// 1. Conditional debug logging
-if (Logger::isDebugEnabled()) {
+// 1. Conditional debug logging — every call is written, so guard the expensive ones
+if (DEVELOPMENT) {
     Logger::debug('Expensive debug info', [
         'data' => $expensiveToSerializeData
     ]);
 }
 
-// 2. Lazy evaluation for expensive operations
+// 2. Compute values before logging them. Context is passed to json_encode() as it is:
+//    a closure is not called, and is written as {}.
 Logger::info('Operation result', [
-    'result' => function() use ($expensiveOperation) {
-        return $expensiveOperation->getResult();
-    }
+    'result' => $expensiveOperation->getResult(),
 ]);
 
-// 3. Log rotation to prevent large files
+// 3. An explicit rotation with a different cap (automatic rotation already runs on write)
 Logger::truncateLogFile('application', 'log', 50 * 1024 * 1024); // 50MB max
 
 // 4. Archive old logs regularly
@@ -782,94 +736,76 @@ LogManager::archiveOldLogs(30); // Archive logs older than 30 days
 ### Memory Management
 
 ```php
-// Use log viewer with chunked reading for large files
+// LogViewer reads large files in 8 MB chunks on its own; bound what it returns per page
 $viewer = new LogViewer();
 $viewer->setFile('large-log.log')
-       ->setChunkSize(8 * 1024 * 1024) // 8MB chunks
-       ->setMaxLines(100); // Limit results
+       ->setParameters(true, 1, 100);   // newest first, page 1, 100 lines
 
-// Process logs in batches
-LogManager::processLogFile('application', 'log', function($line) {
-    // Process each line
+// Process a file line by line without loading it
+LogManager::processLogFileWithCallback('application', 'log', function ($line) {
     echo $line . "\n";
-}, 1000); // Process 1000 lines at a time
+});
 ```
 
 ## Configuration
 
 ### Log Directory Structure
 
+Logs are written to `LOG_PATH/logs/` (`Logger::logDirectory()`; the system temp directory when
+`LOG_PATH` is not defined). Each `Logger` call names its file — `pramnosframework.log` by default:
+
 ```
-app/logs/
-├── application.log      # Main application logs
-├── error.log           # Error-level logs only
-├── debug.log           # Debug information
-├── performance.log     # Performance metrics
-├── security.log        # Security events
-├── api.log             # API request logs
-└── archives/           # Archived log files
-    ├── logs_2024-01-01.zip
-    └── logs_2024-01-02.zip
+LOG_PATH/logs/
+├── pramnosframework.log   # Logger's default file
+├── php_error.log          # PHP's error_log, set by Application
+├── fatal.log              # FatalErrorReporter
+├── <name>.log             # Logger::log($message, '<name>')
+├── <name>.log.1 … .5      # rotated backups
+└── archives/              # LogManager::archiveOldLogs()
+    └── logs_2026-01-01_120000.zip
 ```
 
 ### Environment-Specific Configuration
 
-```php
-// config/logging.php
-return [
-    'default_level' => ENVIRONMENT === 'production' ? 'error' : 'debug',
-    'max_file_size' => 50 * 1024 * 1024, // 50MB
-    'max_backups' => 5,
-    'archive_after_days' => 30,
-    'structured_logging' => true,
-    'include_context' => ENVIRONMENT !== 'production',
-    'files' => [
-        'application' => [
-            'level' => 'info',
-            'max_size' => 100 * 1024 * 1024
-        ],
-        'error' => [
-            'level' => 'error',
-            'max_size' => 50 * 1024 * 1024
-        ],
-        'debug' => [
-            'level' => 'debug',
-            'max_size' => 200 * 1024 * 1024,
-            'enabled' => ENVIRONMENT !== 'production'
-        ]
-    ]
-];
-```
+There is no logging config file. Three settings exist, each read from an environment variable
+first, then a constant, then a default:
+
+| Environment variable | Constant | Default | What it sets |
+|---|---|---|---|
+| `PRAMNOS_LOG_MODE` | `LOG_MODE` | `file` | `file`, `stream` (STDERR) or `both` |
+| `PRAMNOS_LOG_MAX_SIZE` | `LOG_MAX_SIZE` | `10485760` | Rotation size in bytes; `0` disables rotation |
+| `PRAMNOS_LOG_MAX_BACKUPS` | `LOG_MAX_BACKUPS` | `5` | Rotated backups kept |
+
+`Logger::setOutputMode()`, `setMaxSize()` and `setMaxBackups()` override them for the current
+process. Levels are not filtered at write time; see
+[Log Levels and PSR-3 Compliance](#log-levels-and-psr-3-compliance).
 
 ## Advanced Features
 
 ### Custom Log Handlers
 
+`Logger`'s methods are static and typed, so an override must repeat the parent's signature
+exactly — a missing parameter or return type is a fatal error when the class loads.
+
 ```php
-// Create custom log handler
-class EmailAlertHandler extends Logger
+use Pramnos\Logs\Logger;
+
+class AlertingLogger extends Logger
 {
-    public static function critical($message, $context = [])
-    {
-        // Log normally
-        parent::critical($message, $context);
-        
-        // Send email alert for critical errors
-        $emailData = [
-            'subject' => 'Critical Error Alert',
-            'message' => $message,
-            'context' => $context,
-            'timestamp' => date('Y-m-d H:i:s'),
-            'server' => $_SERVER['SERVER_NAME'] ?? 'Unknown'
-        ];
-        
-        // Send email using framework's email system
-        Email::send('admin@example.com', 'Critical Error Alert', $emailData);
+    public static function critical(
+        string $message,
+        array $context = [],
+        string $file = 'pramnosframework'
+    ): void {
+        parent::critical($message, $context, $file);
+
+        // Hand the alert to whatever the application uses to notify people —
+        // a queued job, a notification, a chat webhook.
+        MyAlerts::send('Critical: ' . $message, $context);
     }
 }
 
-// Use custom handler
-EmailAlertHandler::critical('Database connection lost');
+AlertingLogger::critical('Database connection lost');
 ```
 
 ### Log Aggregation
@@ -961,7 +897,7 @@ $monitor->monitor();
 ### Log Encryption
 
 ```php
-// Encrypt sensitive log data
+// Encrypt sensitive log data. info()/error()/… call static::log(), so they reach the override.
 class EncryptedLogger extends Logger
 {
     private static function encryptContext($context)
@@ -987,8 +923,13 @@ class EncryptedLogger extends Logger
         return base64_encode($iv . $encrypted);
     }
     
-    public static function log($message, $file = 'application', $ext = 'log', $startoffile = false, $context = [])
-    {
+    public static function log(
+        string $message,
+        string $file = 'pramnosframework',
+        string $ext = 'log',
+        bool $startoffile = false,
+        array $context = []
+    ): void {
         $context = self::encryptContext($context);
         parent::log($message, $file, $ext, $startoffile, $context);
     }
@@ -1040,8 +981,8 @@ traffic, and none of it is a visitor going anywhere.
 
 ### Two deliberate choices
 
-**The default is `all`**, which is what every installation has today. A setting
-that quietly changed the contents of an audit log would be worse than no
+**The default is `all`**, so an installation that never sets it keeps a complete
+audit log. A default that quietly changed the contents of an audit log would be worse than no
 setting.
 
 **An unrecognised value means `all`, not `none`.** A typo in a settings table
@@ -1077,7 +1018,7 @@ $health = [
     'log_directory_writable' => is_writable(LOG_PATH . '/logs'),
     'disk_space' => disk_free_space(LOG_PATH),
     'active_log_files' => count(LogManager::getLogFiles()),
-    'total_log_size' => LogManager::getTotalLogSize()
+    'total_log_size' => array_sum(array_column(LogManager::getLogFiles(false, true), 'size'))
 ];
 
 foreach ($health as $check => $status) {

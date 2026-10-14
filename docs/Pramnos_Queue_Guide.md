@@ -25,10 +25,71 @@ report generation, admin-visible jobs). Reach for the **delayed queue** when you
 want a fast, ephemeral "do this in N seconds" primitive where the job's existence
 *is* the state (bot replies, deferred deliveries, debounced work).
 
-This guide documents the **delayed queue** capability, plus the durable queue's
-operational side — [keeping the durable queue honest](#keeping-the-durable-queue-honest).
-For the durable queue's API see `QueueManager` / `Worker` (feature entry #28 in
-[1.2-new-features](1.2-new-features.md)).
+This guide documents both: [the durable queue](#the-durable-work-queue) and its
+operational side — [keeping the durable queue honest](#keeping-the-durable-queue-honest) —
+and [the delayed queue](#the-delayed-queue-capability).
+
+---
+
+## The durable work queue
+
+A task is a row in `queueitems`; a handler is a class implementing
+`Pramnos\Queue\TaskInterface` (or extending `AbstractTask`); a worker claims rows and runs
+the handler for their type.
+
+```php
+use Pramnos\Queue\QueueManager;
+
+$queue = new QueueManager($controller);
+
+// addTask(string $taskType, mixed $data, int $priority = 10, int $maxAttempts = 3, bool $unique = false): ?int
+$taskId = $queue->addTask('send_email', ['to' => 'a@example.com'], priority: 5, unique: true);
+// null when unique and an identical task is still pending or processing
+```
+
+A handler:
+
+```php
+class SendEmailTask extends \Pramnos\Queue\AbstractTask
+{
+    public function execute(\Pramnos\Queue\QueueItem $queueItem): mixed
+    {
+        $payload = $this->getPayload($queueItem);
+        // … do the work; throw to fail the attempt
+        return true;
+    }
+
+    public function getDescription(\Pramnos\Queue\QueueItem $queueItem): string
+    {
+        return 'Send an email';
+    }
+}
+```
+
+`TaskInterface` also declares `validate()` and `handleFailure()`; `AbstractTask` provides
+both. Handlers are registered on the worker. The `queue:process` command builds its worker
+in `createWorker()`, so an application subclasses it:
+
+```php
+class ProcessQueue extends \Pramnos\Console\Commands\ProcessQueue
+{
+    protected function createWorker($controller, ?string $workerId): \Pramnos\Queue\Worker
+    {
+        $w = parent::createWorker($controller, $workerId);
+        $w->registerTaskHandler('send_email', SendEmailTask::class);
+        return $w;
+    }
+}
+```
+
+The framework's own task types (`Worker::FRAMEWORK_HANDLERS`) need no registration; an
+application registering the same type wins.
+
+Other `QueueManager` methods: `addMany()` and the batch methods ([below](#spreading-a-pass-over-the-worker-pool-addmany)),
+`getNextTask()`, `markTaskAsCompleted()` / `markTaskAsWarning()` / `markTaskAsFailed()`,
+`retryTask(int $taskId)`, `getStats()`, `reclaimAbandonedTasks()`, `throughput()`,
+`activeTaskTypes()`, `history()` and `purgeOldTasks()`. Running and supervising workers is
+covered in [Workers & Daemons](Pramnos_Workers_And_Daemons_Guide.md).
 
 ---
 
@@ -128,11 +189,17 @@ returned by an injected factory — the same pattern as the broadcasting
 rather than opening a second one:
 
 ```php
+use Pramnos\Redis\ConnectionManager;
+
 $driver = new RedisQueueDriver(
-    ['prefix' => $app->redisPrefix(), 'namespace' => 'jobs'],
-    static fn (): \Redis => $app->redis()   // reuse the app's connection
+    ['prefix' => ConnectionManager::getInstance()->prefix(), 'namespace' => 'jobs'],
+    static fn (): object => ConnectionManager::getInstance()->connection()   // reuse the shared connection
 );
 ```
+
+That is exactly what [`DelayedQueue::redis('jobs')`](#redis-delayed-queue-from-the-connectionmanager)
+builds for you. Without a factory the driver connects through the pooled
+`ConnectionManager::forConfig()` for its host, port and database.
 
 ### Redis key layout
 
@@ -249,10 +316,10 @@ An id nobody queued reads as an empty batch that is finished.
 worker claims it before then, on any claim path (both `SKIP LOCKED` shapes and the
 fallback).
 
-The reason is the case that reached production. A unit queued while a deploy landed was
-claimed by a worker still running the old code, and it failed there. Retried at once, it went
-straight back to the same worker. The orchestrator restarts workers once it sees the new
-deploy, within a minute, and the delay outlasts that window.
+The reason is a deploy. A unit queued while a deploy lands can be claimed by a worker still
+running the old code and fail there; retried at once, it goes straight back to the same
+worker. The orchestrator restarts workers once it sees the new deploy, within a minute, and
+the delay outlasts that window.
 
 To change the curve, override `retryDelaySeconds()`:
 
@@ -266,9 +333,9 @@ class Queue extends \Pramnos\Queue\QueueManager
 }
 ```
 
-`retryTask()`, an operator's retry of a task that failed for good, is available at once. Until
-`migrate` has added the `availableat` column, retries are immediate as before and nothing
-fails.
+`retryTask()`, an operator's retry of a task that failed for good, is available at once. On a
+database where `migrate` has not yet added the `availableat` column, retries are immediate and
+nothing fails.
 
 ---
 
@@ -345,36 +412,24 @@ returns it to `pending` while attempts remain, and the queue is still carrying i
 
 !!! warning "`--window` cannot reach past the purge"
     `throughput()` counts among rows that are **still there**, and `queue:cleanup` deletes
-    them. On an installation running it hourly, `--window=86400` counted the ninety minutes
-    that survived, reported the rate as if it were the day, and exited 0 — not an error, not
-    a warning, a number that looks like the answer to the question that was asked.
+    them. On an installation running it hourly, `--window=86400` can only count the ninety
+    minutes that survived, and the rate would look like the answer for the whole day.
 
-    It says so now: when the oldest surviving completion is newer than the window, the
-    output carries a line to that effect. Detected rather than configured, because the
+    So when the oldest surviving completion is newer than the window, the output carries a
+    line saying so. Detected rather than configured, because the
     retention is an argument on somebody else's crontab and the oldest surviving row is a
     fact this connection has.
 
     For a window that long, read the roll-up instead — `--history`, below.
 
-### The history the queue used to delete — `queue:cleanup` and `--history`
+### History that outlives the purge — `queue:cleanup` and `--history`
 
-**The queue measured itself and then deleted the measurements.** `execution_time` and
-`cpu_time` are recorded per task; `queue:cleanup` deleted them an hour later and nothing
-aggregated them first. So an installation could not answer *is this task type slower than
-last week* about either — and **wait time was recorded nowhere at all**, existing only as
-`startedat - createdat` on rows about to go.
+`execution_time` and `cpu_time` are recorded per task, and wait time exists only as
+`startedat - createdat` — on rows that `queue:cleanup` deletes an hour later. To answer
+*is this task type slower than last week*, or to see a nightly burst where queue latency
+goes far above normal, the measurements have to survive the purge.
 
-That is not a small loss. Running the aggregate over one installation's purge set found:
-
-```
-01:00   16,130 tasks   avg wait 9.48 s   max wait 40 s
-others  ~2,300 tasks   avg wait 0.60 s   max wait 1–10 s
-```
-
-A nightly burst where queue latency went **fifteen times** normal — invisible that night and
-every night before it.
-
-`QueueManager::purgeOldTasks()` now summarises the rows it is about to delete into
+`QueueManager::purgeOldTasks()` summarises the rows it is about to delete into
 `queuestats`, one row per task type per hour, in the **same transaction** as the `DELETE`.
 That equivalence — a counted row is a deleted row — is the whole correctness argument: no
 row can be summarised twice and none deleted without being summarised.
@@ -399,13 +454,12 @@ be added to another average.
 
 **Percentiles are deliberately absent.** `percentile_cont` does not merge across two inserts
 into one bucket, so storing p95 would mean either a wrong number or a second pass over rows
-that no longer exist. `max` and the derived mean find the problem — the burst above shows in
+that no longer exist. `max` and the derived mean are enough to find a burst — it shows in
 both.
 
 **Statuses are broken out**, and the framework's own retention is why: `queue:cleanup` keeps
-warnings for `$hours * 10`, which on that installation made `warning` the *dominant*
-population — 38,041 rows against 25,861 completed. A roll-up that counted only "tasks" would
-describe the small half.
+warnings for `$hours * 10`, which can make `warning` the *dominant* population of the
+table. A roll-up that counted only "tasks" could describe the small half.
 
 !!! note "A `--limit` purge is not summarised"
     `DELETE … LIMIT` removes an arbitrary subset of what the predicate matches, so an
@@ -416,11 +470,9 @@ describe the small half.
 ### Waiting is not working — `cpu_time` beside `execution_time`
 
 **`execution_time` is wall clock around the handler, and on its own it is misleading.** A task
-taking 0.9 seconds reads the same whether it is computing or waiting, and an installation
-chasing queue throughput ruled in an atomic claim, a missing index, TimescaleDB compression
-and a CPU-bound handler over four hours — every one of them fitted the wall clock. The tasks
-were at **1.6% CPU**, waiting on a cache invalidation that scanned the whole redis keyspace
-per model save, and only `/proc/<pid>/wchan` said so.
+taking 0.9 seconds reads the same whether it is computing or waiting, and every theory of a
+slow queue — lock contention, a missing index, a CPU-bound handler — fits the wall clock. A
+handler at 1.6% CPU is waiting on something, and only the CPU figure says so.
 
 So the worker records `cpu_time` — user plus system CPU across the handler — beside it, and
 `throughput()` reports the ratio:
@@ -457,9 +509,8 @@ completion time; saying so is more informative than any number.
 The rate is the **net** rate for the same reason: work arriving during the drain has to be
 drained too.
 
-And read it per type. An installation that aggregated got *"about a month"* out of one queue
-draining in nine hours and another that never cleared — describing neither and pointing at
-nothing.
+And read it per type. Aggregated over one queue draining in nine hours and another that never
+clears, the estimate describes neither and points at nothing.
 
 ### One claim, one worker
 
@@ -480,10 +531,8 @@ it nor a loser — it is offered the next unlocked row. Twelve workers take twel
 rows on the first attempt, one round trip each.
 
 Which matters more than it sounds, because select-then-claim is *correct* and, under
-contention, slower than the race it fixes. Measured on the installation that reported it:
-three workers on the old non-atomic write moved **11 tasks a second**; twelve workers on
-select-then-claim with a retry loop moved **9.2** — worse, with four times the workers, and
-invisible in `execution_time`, which times only the handler.
+contention, slow: more workers mean more lost races and retries, and none of it shows in
+`execution_time`, which times only the handler.
 
 **Engine differences.** PostgreSQL takes the statement above. MySQL and MariaDB reject it —
 error 1093, *you can't specify target table for update in FROM clause* — and have no
@@ -512,8 +561,8 @@ still the claim I read?*, not *is some claim expired?*
 **A lost race is not an empty queue**, and spelling them the same way is expensive. Selection
 is deterministic, so an atomic claim turns "everybody wins" into ten losers per eleven asks —
 and a loser that answers `false` reaches `processBatch()`, which reads `false` as *nothing
-left*, breaks out of the batch and sleeps five seconds. Ten of eleven workers spent their
-lives losing races and sleeping. So a pass that was offered rows and won none is retried, up
+left*, breaks out of the batch and sleeps five seconds — most of the pool would spend its
+time losing races and sleeping. So a pass that was offered rows and won none is retried, up
 to ten passes: the winner has already marked its row `processing`, so the next pass is offered
 the one below and the pool converges. A pass offered **nothing** answers `false` immediately —
 an idle poll must not cost ten selections.
@@ -581,30 +630,12 @@ it absorbs — a pool that quietly soaks up a misconfiguration is a pool nobody 
 ### The index the backlog count needs
 
 `count(*) WHERE status = ? AND type = ?` is what a backlog check runs, and what a pool
-deciding how many workers a type needs runs every cycle, per profile. The table's
-`(status, priority, createdat)` index leads with `status` but does not carry `type`, so
-every matching row had to be fetched to be discarded — a sequential scan measured at 98 ms
-and 50,365 buffers on a 175,000-row table, five times a minute, for a number that changes
-slowly.
+deciding how many workers a type needs runs every cycle, per profile. The
+`(status, priority, createdat)` index leads with `status` but does not carry `type`, so on
+its own it would fetch every matching row to discard most of them.
 
-`idx_queueitems_status_type` answers it. Added by a framework migration; nothing to
+`idx_queueitems_status_type` answers it. Created by a framework migration; nothing to
 configure.
-
-## BC / additive notes
-
-The delayed-queue capability is **purely additive**: `QueueDriverInterface`,
-`ReservedJob`, `DelayedQueue`, and the drivers are all new types, and the
-`delayed_jobs` table is a new migration (created only for apps that use the
-database driver). No existing class (including `QueueManager`, `Worker`,
-`QueueItem`) or table changed signature, schema, or behaviour, so existing
-applications are unaffected.
-
-The durable queue's operational additions are additive in the same way:
-`reclaimAbandonedTasks()`, `throughput()` and `activeTaskTypes()` are **new methods** on
-`QueueManager` rather than parameters on existing ones, `queue:reclaim` and `queue:health`
-are new commands, and `idx_queueitems_status_type` is a new index. `queue:cleanup` gained
-two options with defaults that preserve its behaviour except for also reclaiming — which
-is the point, and `--no-reclaim` turns it off.
 
 ## Redis delayed queue from the ConnectionManager
 

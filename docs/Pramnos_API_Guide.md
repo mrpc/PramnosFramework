@@ -12,118 +12,78 @@ The Pramnos Framework provides comprehensive support for building REST APIs with
 
 ## REST API Scaffolding
 
-### Generate API with pramnos init
+### Generate the API layer with `pramnos init`
 
 ```bash
-php vendor/bin/pramnos init --rest-api
+php vendor/bin/pramnos init --rest-api=y
 ```
 
-This creates:
-- `src/Api/Controllers/` - API endpoint controllers
-- `routes/api.php` - API route definitions
-- `www/api/index.php` - API entry point
-- Configuration for versioning and CORS
+`--rest-api` takes a value (`y`/`n`); given without one, `init` asks the question
+interactively. Answering yes creates:
 
-### Manual API Setup
+- `src/Api.php` — the application's API kernel, a subclass of `Pramnos\Application\Api`
+- `src/Api/Controllers/` — API endpoint controllers
+- `src/Api/routes.php` — the route definitions, included by `Api::_executeCore()`
+- `www/api/index.php` and `www/api/.htaccess` — the API entry point
+- an `'api'` section in `app/app.php` (prefix and version)
 
-```php
-// app/app.php
-\Pramnos\Application\Application::getInstance()
-    ->register('api', function () {
-        return include __DIR__ . '/api.php';
-    });
+### Generating an endpoint controller
+
+```bash
+php pramnos create:api Stations
 ```
+
+writes a controller extending `Pramnos\Application\ApiCrudController`: list, read, create,
+update and delete actions over a model, each starting with `$this->guard('<action>')`, which
+answers `401 not_authenticated` or `403 forbidden` from the framework's permission store.
+Override `authorize()` in the generated class to tighten it for that resource.
 
 ## API Controllers
 
 ### Basic Structure
 
+An API controller is an ordinary `Pramnos\Application\Controller`. Each action returns a
+`Pramnos\Http\Response` — `Response::json()` sets the body, the status and the content type:
+
 ```php
 <?php
 namespace App\Api\Controllers;
 
-use Pramnos\Application\Api as ApiController;
+use Pramnos\Http\Response;
+use Pramnos\Validation\Validator;
 
-class UsersController extends ApiController
+class Stations extends \Pramnos\Application\Controller
 {
-    public function __construct()
+    /** GET /1.0/stations/{id} */
+    public function show($id): Response
     {
-        parent::__construct();
-    }
-    
-    /**
-     * List all users (GET /api/users)
-     */
-    public function index()
-    {
-        $users = \App\Models\User::all();
-        return $this->json($users, 200);
-    }
-    
-    /**
-     * Get single user (GET /api/users/{id})
-     */
-    public function show($id)
-    {
-        $user = \App\Models\User::find($id);
-        
-        if (!$user) {
-            return $this->json(['error' => 'Not found'], 404);
+        $station = new \App\Models\Station($this);
+        $station->load((int) $id);
+
+        if (empty($station->stationid)) {
+            return Response::json(['error' => 'NotFound'], 404);
         }
-        
-        return $this->json($user, 200);
+
+        return Response::json($station->getData());
     }
-    
-    /**
-     * Create user (POST /api/users)
-     */
-    public function store()
+
+    /** POST /1.0/stations */
+    public function store(): Response
     {
-        $data = $this->request->json();
-        
-        try {
-            $user = \App\Models\User::create([
-                'username' => $data['username'],
-                'email'    => $data['email'],
-                'password' => hash('sha256', $data['password']),
-            ]);
-            
-            return $this->json($user, 201);
-        } catch (\Exception $e) {
-            return $this->json(['error' => $e->getMessage()], 400);
-        }
-    }
-    
-    /**
-     * Update user (PATCH /api/users/{id})
-     */
-    public function update($id)
-    {
-        $user = \App\Models\User::find($id);
-        
-        if (!$user) {
-            return $this->json(['error' => 'Not found'], 404);
-        }
-        
-        $data = $this->request->json();
-        $user->update($data);
-        
-        return $this->json($user, 200);
-    }
-    
-    /**
-     * Delete user (DELETE /api/users/{id})
-     */
-    public function destroy($id)
-    {
-        $user = \App\Models\User::find($id);
-        
-        if (!$user) {
-            return $this->json(['error' => 'Not found'], 404);
-        }
-        
-        $user->delete();
-        return $this->json(null, 204);
+        $request = \Pramnos\Framework\Factory::getRequest();
+
+        // Throws ValidationException; the API kernel answers it as 422 ValidationError.
+        $data = Validator::validate($request->body(), [
+            'name'     => 'required|min:3|max:50',
+            'email'    => 'required|email',
+        ]);
+
+        $station = new \App\Models\Station($this);
+        $station->name  = $data['name'];
+        $station->email = $data['email'];
+        $station->save();
+
+        return Response::json($station->getData(), 201);
     }
 }
 ```
@@ -132,75 +92,85 @@ class UsersController extends ApiController
 
 ### Define API Routes
 
-```php
-// routes/api.php
-$router = \Pramnos\Routing\Router::getInstance();
+`src/Api/routes.php` is included with `$this` bound to the `Api` instance, and its return
+value is the response. Routes take a closure or a `[Class, 'method']` pair; the controller
+is resolved through the container, and URI parameters are injected by name:
 
-// API version 1
-$router->group(['prefix' => 'api/v1'], function ($router) {
-    // Users endpoints
-    $router->get('/users', 'Api/UsersController@index');
-    $router->get('/users/{id}', 'Api/UsersController@show');
-    $router->post('/users', 'Api/UsersController@store');
-    $router->patch('/users/{id}', 'Api/UsersController@update');
-    $router->delete('/users/{id}', 'Api/UsersController@destroy');
-    
-    // Posts endpoints
-    $router->get('/posts', 'Api/PostsController@index');
-    $router->get('/posts/{id}', 'Api/PostsController@show');
-});
+```php
+// src/Api/routes.php
+$router     = new \Pramnos\Routing\Router($this);
+$newRequest = new \Pramnos\Http\Request();
+
+$router->group(
+    ['prefix' => '/' . (defined('APIVERSION') ? APIVERSION : '1.0')],
+    function (\Pramnos\Routing\Router $r): void {
+        $r->get('/stations/{id}', [\App\Api\Controllers\Stations::class, 'show']);
+        $r->post('/stations', [\App\Api\Controllers\Stations::class, 'store']);
+
+        // A closure works too
+        $r->get('/hello', fn () => \Pramnos\Http\Response::json(['hello' => 'world']));
+    }
+);
+
+return $router->dispatch($newRequest);
 ```
+
+The verbs are `get`, `post`, `put`, `patch`, `delete`, `options`, `head` and `match()`.
 
 ### Route Groups & Middleware
 
+Middleware is given as **instances** (or class names with a no-argument constructor) — there
+are no string aliases:
+
 ```php
-$router->group([
-    'prefix'     => 'api/v1',
-    'middleware' => ['api', 'auth:api'],
-], function ($router) {
-    // Protected endpoints
-    $router->post('/profile/update', 'Api/ProfileController@update');
-    $router->post('/tokens', 'Api/TokenController@create');
+$r->group([
+    'prefix'     => '/admin',
+    'middleware' => [new \Pramnos\Http\Middleware\RateLimitMiddleware(600, 3600)],
+], function (\Pramnos\Routing\Router $r): void {
+    $r->post('/tokens', [\App\Api\Controllers\Tokens::class, 'create']);
 });
+
+// Or on a single route
+$r->post('/stations', [Stations::class, 'store'])
+  ->middleware(new \Pramnos\Http\Middleware\ApiKeyScopeMiddleware(['stations:write']));
 ```
+
+API-key and token authentication need no route middleware: `Api::exec()` runs them for every
+request (see [the pipeline](#apiexec-middleware-pipeline)).
 
 ## Request Handling
 
-### JSON Requests
+### Request bodies
 
 ```php
-// Get JSON body
-$data = $this->request->json();
+$request = \Pramnos\Framework\Factory::getRequest();
 
-// Get specific field
-$email = $this->request->json('email');
-
-// Get with defaults
-$page = $this->request->json('page', 1);
-
-// Raw body
-$raw = $this->request->getRawBody();
+$data  = $request->body();                     // JSON or form body, as an array
+$email = $request->bodyValue('email');         // one field
+$page  = $request->bodyValue('page', 1);       // with a default
+$q     = $request->get('q', '', 'get');        // a query-string value
 ```
+
+A JSON body decodes to arrays, never objects.
 
 ### Validation
 
+`Validator::validate()` returns the validated (whitelisted) fields or throws
+`Pramnos\Validation\ValidationException`. Inside an API route it needs no catch: the kernel
+answers it as `422` with `"error": "ValidationError"` and the per-field `errors`.
+
 ```php
 use Pramnos\Validation\Validator;
+use Pramnos\Validation\ValidationException;
 
-public function store()
-{
-    $data = $this->request->json();
-    
-    $validator = new Validator();
-    $validator->add('username', 'required|min:3|max:50|unique:users');
-    $validator->add('email', 'required|email|unique:users');
-    $validator->add('password', 'required|min:8');
-    
-    if ($validator->fails()) {
-        return $this->json($validator->errors(), 422);
-    }
-    
-    // Process valid data...
+try {
+    $data = Validator::validate($request->body(), [
+        'username' => 'required|min:3|max:50',
+        'email'    => 'required|email',
+        'password' => 'required|min:8',
+    ]);
+} catch (ValidationException $e) {
+    return Response::json(['errors' => $e->errors()], $e->getStatus());
 }
 ```
 
@@ -209,23 +179,13 @@ public function store()
 ### JSON Responses
 
 ```php
-// Success with data
-return $this->json(['user' => $user], 200);
+use Pramnos\Http\Response;
 
-// Created
-return $this->json($user, 201);
-
-// No content
-return $this->json(null, 204);
-
-// Client error
-return $this->json(['error' => 'Invalid input'], 400);
-
-// Not found
-return $this->json(['error' => 'Not found'], 404);
-
-// Server error
-return $this->json(['error' => 'Internal error'], 500);
+return Response::json(['user' => $data]);            // 200
+return Response::json($data, 201);                    // Created
+return Response::make('', 204);                       // No content
+return Response::json(['error' => 'Invalid input'], 400);
+return Response::json(['error' => 'NotFound'], 404);
 ```
 
 ### The two «not found» codes, and which is which
@@ -241,16 +201,12 @@ A client can act on the distinction — the first means the URL is wrong, the se
 id is — so a consumer that answers `NotFound` for a missing route is telling callers to
 retry a path that will never work.
 
-**`EndpointNotFound` is only for a route that does not exist.** It used to be broader by
-accident: `Api::exec()` caught `\Exception` around `getController()`, which *instantiates*
-the controller, so a constructor that threw — a missing dependency, a failed database
-connection, a bad configuration read — also answered 404. That is worse than a 500 in the
-way that matters: a 500 gets looked at, and a 404 on a path the client mistyped gets
-ignored, so an endpoint that had broken *itself* reported as missing indefinitely.
-
-The catch is now `Pramnos\Application\ControllerNotFoundException`, and everything else
-propagates to the handler that already distinguishes a `ValidationException`, a 403 by code
-and a SQL error. **If you have overridden `exec()`**, catch the type rather than matching the
+**`EndpointNotFound` is only for a route that does not exist.** `Api::exec()` catches
+`Pramnos\Application\ControllerNotFoundException` and nothing broader, so a controller whose
+constructor throws — a missing dependency, a failed database connection — answers 500, not
+404. That matters because a 500 gets looked at, while a 404 reads as a path the client
+mistyped and gets ignored. Everything else propagates to the handler that distinguishes a
+`ValidationException`, a 403 by code and a SQL error. **If you have overridden `exec()`**, catch the type rather than matching the
 message:
 
 ```php
@@ -258,21 +214,21 @@ catch (\Pramnos\Application\ControllerNotFoundException $exception) {   // 404
 ```
 
 Its `getController()` returns the name that did not resolve, and `getContext()` the request
-URI and signed-in username — **for a log, not for the response.** They used to be appended
-to the exception's message, and a mistyped API version therefore answered 500 with a trace
-naming the signed-in user.
+URI and signed-in username — **for a log, not for the response.** They are kept out of the
+exception's message so that a mistyped URL never echoes who is signed in.
 
 ### Response Objects
+
+`Response` is immutable-style: each `with…()` returns the response.
 
 ```php
 use Pramnos\Http\Response;
 
-$response = new Response();
-$response->setStatus(200);
-$response->setHeader('Content-Type', 'application/json');
-$response->setBody(json_encode(['data' => $user]));
+return Response::make(json_encode(['data' => $data]), 200)
+    ->withHeader('Content-Type', 'application/json')
+    ->withHeader('Cache-Control', 'no-store');
 
-return $response;
+// Response::redirect($url, 302), ->withStatus(), ->withBody(), ->withoutHeader()
 ```
 
 ### `getData()` and the columns it returns
@@ -283,72 +239,51 @@ response holding models one level down — a list of related records, a model in
 encodes each as its columns. Encoding the public properties instead reaches `$controller`, the
 application and back to the model: *Recursion detected*, and a 500.
 
-A model's `getData()` **Since 2026-08-16 it
-returns every column** — including `NULL`, booleans and decoded JSON.
-
-It did not before. The old implementation kept only values that were `is_numeric()` or
-`is_string()`, so a column holding `NULL` was **absent from the payload** rather than
-`null`, and booleans and JSON columns disappeared with them.
-
-That was not a neutral historical quirk. Overrides in one application do
+`getData()` **returns every column** — including `NULL`, booleans and decoded JSON. A
+column holding `NULL` is present as `null` rather than absent, so an override such as
 
 ```php
 $data = parent::getData();
 $data['reportid'] = (int) $data['reportid'];
 ```
 
-unguarded — so a record with `NULL` in that column raised *Undefined array key* in
-production and cast the missing value to `0`. **The absent key was producing warnings
-and wrong numbers**, and that measurement is what decided the change rather than
-tidiness.
+never meets *Undefined array key*. Things that depend on the full shape:
 
-Measured on that application before flipping: 54 models, 42 reaching this through
-`parent::getData()`, **523 keys added across 48 models** — 411 `NULL`, 53 boolean,
-55 array.
+- a JSON column arrives as an **array** — not something to pass to `implode()`,
+  `http_build_query()` or SQL;
+- `array_key_exists()` on the result means *"this column exists"*, not *"it has a value"*.
 
-**What to check after upgrading**, in order of likelihood:
-
-- code calling `implode()`, `http_build_query()`, or building SQL from the result — a
-  JSON column now arrives as an **array** where a scalar was assumed;
-- clients that reject unknown keys;
-- anything reading `array_key_exists()` as *"this record has no value"*, which now means
-  *"this column is null"*.
-
-To get the old shape back, byte for byte, opt out **once** in a base model class:
+To get the filtered shape (only numeric and string values) instead, opt out **once** in a base
+model class:
 
 ```php
 abstract class AppModel extends \Pramnos\Application\Model
 {
-    protected $getDataFullFidelity = false;   // the pre-1.2 shape
+    protected $getDataFullFidelity = false;   // only numeric and string values
 }
 ```
 
-**`sqlError` is no longer in the payload, in either mode.** It is a string once a query
-has failed, so the old type filter let it through — a failed read put an SQL error
-message into whatever was being serialised.
+**`sqlError` is never in the payload, in either mode**, so a failed read cannot put an SQL
+error message into whatever is being serialised.
 
-**A model that declares no public properties used to return `[]`.** Columns assigned to
-an undeclared property go through `Base::__set` into an internal bag, which the filter
-dropped whole. They are read now. Where both exist, the declared property wins — the bag
-is the fallback, not the source of truth.
+**Undeclared columns are included.** Columns assigned to an undeclared property go through
+`Base::__set` into an internal bag, and `getData()` reads it. Where both exist, the declared
+property wins — the bag is the fallback, not the source of truth.
 
 ### When something fails on the server
 
-Two things that used to end an API request with a page of HTML no longer do.
+An API request that fails on the server gets JSON, not a page of HTML.
 
-**A failed list query.** `Model::_getList()` catches a query failure and, with its
-`$displayerroroutput` default of `true`, called `showError()` — which **exits**. The two
-lines after it, which record `sqlError` and return an empty list, are what
-`ApiListResponse::error()` was written against and were unreachable on the one path
-that needs them. A request whose `Accept` names JSON now takes those two lines instead,
-so the caller can report the failure in its own envelope:
+**A failed list query.** `Model::_getList()` catches a query failure. For a browser, with its
+`$displayerroroutput` default of `true`, it calls `showError()`, which renders the error page and
+exits. For a request whose `Accept` names JSON it records `sqlError` and returns an empty list
+instead, so the caller can report the failure in its own envelope:
 
 ```json
 { "error": "...", "data": [], "pagination": null, "fields": [...] }
 ```
 
-The page path is unchanged: without a list there is nothing useful to render, so a
-browser still gets the error page.
+The page path keeps the error page: without a list there is nothing useful to render.
 
 **A terminal error of any kind.** `Application::showError()` — maintenance mode, an
 unsupported PHP version, a database that will not answer — answers JSON to a client
@@ -359,22 +294,28 @@ that asked for it, with a real status:
 { "error": "unavailable" }
 ```
 
-`503` while `var/MAINTENANCE` exists, `500` otherwise. It previously sent an HTML page
-with **no status code at all**, so an API client got `200 OK` and failed on parsing
-rather than recognising the state. See the
+`503` while `var/MAINTENANCE` exists, `500` otherwise — a real status, so an API client
+recognises the state instead of failing to parse a `200` page. See the
 [Framework guide](Pramnos_Framework_Guide.md) for the flag files and `Retry-After`.
 
 ## Authentication
 
 ### Token-Based Authentication
 
+Every API request already passes `ApiAuthMiddleware` (see [the pipeline](#apiexec-middleware-pipeline)):
+an `apiKey` header names the client, and an `accessToken` header — or `Authorization: Bearer` —
+names the user. A request with no token is anonymous, not refused, so an action that needs a
+signed-in user checks for one:
+
 ```php
-// routes/api.php
-$router->group(['middleware' => ['api', 'auth:api']], function ($router) {
-    $router->post('/profile', 'Api/ProfileController@show');
-    $router->post('/profile/update', 'Api/ProfileController@update');
-});
+$user = \Pramnos\User\User::getCurrentUser();
+if (!is_object($user) || (int) $user->userid < 2) {   // user 1 is the anonymous account
+    return Response::json(['error' => 'not_authenticated'], 401);
+}
 ```
+
+A controller extending `ApiCrudController` gets this, plus the permission check, from
+`$this->guard('<action>')`.
 
 ### `POST /account/login` — a password for a bearer token
 
@@ -385,9 +326,12 @@ for a token:
 ```
 POST /account/login          {"username": "...", "password": "..."}
   → 200 {"status":"success","access_token":"<jwt>","token_type":"Bearer","user":{…}}
+  → 400 {"error":"missing_credentials"}
   → 401 {"error":"two_factor_required","methods":[…]}   then POST /account/login2fa {"code":"…"}
   → 401 {"error":"invalid_credentials"}
+  → 403 {"error":"email_unverified"}                    the password was right; the address is not confirmed
   → 429 {"error":"too_many_attempts","retry_after": <seconds>}
+  → 405 {"error":"method_not_allowed"}                  not a POST
 
 POST /account/logout         accessToken: <jwt>   (or Authorization: Bearer <jwt>)
 ```
@@ -396,7 +340,7 @@ Either header is read, and the body may be JSON or a form post.
 
 ### What `POST /account/login2fa` answers
 
-The second leg carries only the code — the pending login lives server-side — and its four answers
+The second leg carries only the code — the pending login lives server-side — and these answers
 are the whole of what a client has to branch on:
 
 ```
@@ -429,10 +373,9 @@ proxy in between, and is worth something for as long as it is valid.
 'auth' => ['token_ttl' => 3600],
 ```
 
-Left unset — or set to `0`, or to a negative number — the token never expires, which is the
-behaviour every installation had before the setting existed. Giving them an expiry by default
-would sign every client out at once on the day the framework was upgraded, so it is a decision
-an installation makes.
+Left unset — or set to `0`, or to a negative number — the token never expires. An expiry by
+default would sign every existing client out at once on upgrade, so it is a decision an
+installation makes.
 
 A TTL is stamped in **two** places, because two different pieces of code end a token: the JWT's
 `exp` claim, which `JWT::decode()` refuses once past, and the `usertokens.expires` column, which
@@ -450,7 +393,7 @@ credential valid for ever.
 
 ```php
 // Generate token
-POST /api/oauth/token
+POST /oauth/token
 Content-Type: application/x-www-form-urlencoded
 
 grant_type=password&client_id=abc&client_secret=xyz&username=user&password=pass
@@ -461,50 +404,45 @@ Authorization: Bearer token_here
 
 ## CORS Configuration
 
-### Database-Driven CORS
-
-Configure CORS origins in the database:
-
-```php
-// Enable specific origins
-INSERT INTO cors_settings (origin, allowed_methods, allowed_headers)
-VALUES ('https://example.com', 'GET,POST,PATCH,DELETE', 'Content-Type,Authorization');
-
-// Origins are validated on each request automatically
-```
-
-### Middleware
+`Api::exec()` adds `CorsMiddleware` to every API request; nothing has to be declared on a
+route. The allowed origins come from **top-level** keys in `app/app.php`:
 
 ```php
-// routes/api.php
-$router->group(['middleware' => ['cors']], function ($router) {
-    // CORS headers added automatically
-});
+// app/app.php — top level, not inside 'api'
+'cors_origins' => ['https://spa.example.com'],
+// or read them per application from the database:
+'cors_from_db' => true,
 ```
+
+With neither, every origin is allowed (`['*']`). The database form reads `cors_enabled` and
+`cors_origins` from `applications.application_settings` — see
+[Database-Driven CORS](#database-driven-cors).
 
 ## Pagination
 
 ### Paginate API Results
 
+A model's `getApiList()` paginates, searches, sorts and selects fields in one call — it is what
+`create:api` controllers use:
+
 ```php
-public function index()
+public function display()
 {
-    $page    = $this->request->get('page', 1);
-    $perPage = $this->request->get('per_page', 20);
-    
-    $qb = \App\Models\User::queryBuilder();
-    $total = $qb->count();
-    $users = $qb->forPage($page, $perPage)->get();
-    
-    return $this->json([
-        'data'       => $users,
-        'total'      => $total,
-        'page'       => $page,
-        'per_page'   => $perPage,
-        'last_page'  => ceil($total / $perPage),
-    ], 200);
+    $request = \Pramnos\Framework\Factory::getRequest();
+    $model   = new \App\Models\Station($this);
+
+    return $model->getApiList(
+        $request->get('fields', [], 'get'),
+        $request->get('search', '', 'get'),
+        $request->get('sort', '', 'get'),
+        (int) $request->get('page', 0, 'get', 'int'),    // 0 = every row
+        (int) $request->get('limit', 20, 'get', 'int')
+    );
 }
 ```
+
+The answer carries `data`, `fields` and, when `page > 0`, `pagination` (`currentpage`,
+`itemsperpage`, `totalitems`, `totalpages`, `hasnext`, `hasprevious`).
 
 ### The calling application's page sizes
 
@@ -645,7 +583,7 @@ new \Pramnos\Http\Middleware\JsonResponseMiddleware()
 
 ### ApiAuthMiddleware
 
-Validates the `HTTP_APIKEY` header via a caller-supplied checker callable, then (optionally) validates a JWT `HTTP_ACCESSTOKEN`. On success sets `$_SESSION['logged']` and `$_SESSION['user']`. On failure short-circuits and returns a JSON error envelope.
+Validates the `HTTP_APIKEY` header via a caller-supplied checker callable, then (optionally) validates a JWT `HTTP_ACCESSTOKEN` (or `Authorization: Bearer`). On success it sets the request's identity — what `User::getCurrentUser()` answers for this request — without reading or writing the session; a request with no token is anonymous. On failure it short-circuits and returns a JSON error envelope.
 
 ```php
 new \Pramnos\Http\Middleware\ApiAuthMiddleware(
@@ -659,6 +597,7 @@ new \Pramnos\Http\Middleware\ApiAuthMiddleware(
 | Condition | HTTP status | `error` key |
 |---|---|---|
 | `HTTP_APIKEY` missing, and no same-origin session (below) | 403 | `APIKeyMissing` |
+| no key, same-origin session + CSRF valid, but not signed in | 401 | `Unauthenticated` |
 | API key invalid | 401 | `APIKeyInvalid` |
 | JWT malformed / unreadable | 403 | `InvalidAccessToken` |
 | JWT valid but user not found | 403 | `InvalidAccessToken` |
@@ -669,7 +608,7 @@ Some endpoints exist precisely to be called by somebody who has no credential **
 pairing handshake, an inbound webhook from a third party, a device-code poll. Declare them:
 
 ```php
-// app/config/app.php
+// app/app.php
 'public_api_paths' => [
     '/1.0/wordpress/pair',
     '/1.0/hooks/*',
@@ -717,9 +656,8 @@ the position that matters: your middleware runs first, so it can answer a reques
 claim a header. To run *after* authentication, do the work in the controller — the
 pipeline's remaining position is the dispatch.
 
-Before this existed, the only seam was `checkApiKey()`, which is handed the key and nothing
-else — so declaring a route public meant reading `$_SERVER['REQUEST_URI']` from inside a
-method about a key, to work out which route it was on.
+`checkApiKey()` is not the place for this: it is handed the key and nothing else, so it cannot
+tell which route it is on.
 
 #### Calling your own API from your own page
 
@@ -759,9 +697,8 @@ permission store for the action itself also opens it. Anyone else gets 403. `/ad
 is open to any signed-in user, and its sources decide what they show (see the
 [Search guide](Pramnos_Search_Guide.md#permissions)).
 
-Without the header the request is anonymous and answers 403 `APIKeyMissing`, which is
-what `Html\SearchBox` did before this existed: the box rendered, the endpoint
-answered, and typing did nothing.
+Without the header the request is anonymous and answers 403 `APIKeyMissing` — a search box
+that renders, an endpoint that answers, and typing that does nothing.
 
 #### What a key may do: `ApiKeyScopeMiddleware`
 
@@ -877,8 +814,11 @@ plenty of endpoints use the word for something else (`{"status":"ok"}`).
 `Api::exec()` automatically runs:
 
 ```
-CorsMiddleware → JsonResponseMiddleware → ApiAuthMiddleware → ApplicationPolicyMiddleware → _executeCore()
+CorsMiddleware → JsonResponseMiddleware → [configureApiPipeline()] → ApiAuthMiddleware → ApplicationPolicyMiddleware → _executeCore()
 ```
+
+`configureApiPipeline()` is the application's hook (see
+[An authentication scheme of your own](#an-authentication-scheme-of-your-own)).
 
 `ApplicationPolicyMiddleware` applies the calling application's limits — HTTPS, its IP lock, its
 browser origins and its rate limit — once `ApiAuthMiddleware` has named it from the API key. A
@@ -887,22 +827,22 @@ Every answer to an application carries `X-RateLimit-Limit` and `X-RateLimit-Rema
 limit it is `429` with `Retry-After`. See
 [Access and limits](Pramnos_AuthServer_Integration_Guide.md#access-and-limits).
 
-Configure CORS via `app.php`:
+Configure CORS with **top-level** keys in `app/app.php` — `Api::exec()` reads
+`cors_origins` and `cors_from_db` from the top level, and the same keys nested inside
+`'api' => [...]` are ignored:
 
 ```php
-'api' => [
-    'cors_origins' => ['https://spa.example.com'],   // config-based
-    // OR:
-    'cors_from_db' => true,  // read from application_settings table
-],
+'cors_origins' => ['https://spa.example.com'],   // config-based
+// OR:
+'cors_from_db' => true,  // read from applications.application_settings
 ```
 
 ---
 
 ## Database-Driven CORS
 
-`CorsMiddleware::fromApplicationSettings(string $appName): self` queries `application_settings` joined with `applications` to load the CORS policy from the database. Falls back to `['*']` when:
-- DB is unavailable or `authserver` feature not enabled
+`CorsMiddleware::fromApplicationSettings(string $appName, ?Database $db = null): self` reads `cors_enabled` and `cors_origins` from `applications.application_settings` joined with `applications` to load the CORS policy from the database. Falls back to `['*']` when:
+- the database is unavailable or the table does not exist
 - No row found for `$appName`
 - `cors_enabled = false`
 

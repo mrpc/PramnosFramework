@@ -37,22 +37,27 @@ the same code and behaves identically.
 
 ## Turning it on in development
 
-Any of these is enough:
+Either of these is enough:
 
 ```
-APP_DEBUG=1            # environment
-development=true       # application setting
-debug=true             # application setting
+APP_DEBUG=1            # in .env
+define('DEVELOPMENT', true);   # in code
 ```
 
-Or list `debug` in the application's `features`. The toolbar then appears on
-every HTML page, and API responses carry their debug data as a `_debug` key.
+The toolbar then appears on every HTML page, and API responses carry their debug
+data as a `_debug` key. Listing `debug` in `features` registers the provider but
+does not open the toolbar by itself, and the `debug` / `development` **settings**
+do not open it at all: they are rows editable from `/admin/Settings`, and the
+toolbar carries every query, the session's keys and the request's authentication
+state, for every visitor.
 
-`Application::isDebugMode()` answers the same question for your own code — use it
-rather than re-implementing the four checks, which is how two definitions of
-"development" drift apart. It deliberately excludes a debug-access token: a token
-opens the toolbar for one browser on a live server and must not turn that server
-into a development one. For that question there is `DebugAccess::isGranted()`.
+`Application::isDeveloperEnvironment()` answers the same question for your own
+code — use it rather than re-implementing the checks, which is how two definitions
+of "development" drift apart. `isDebugMode()` is a wider question: it also reads
+the `debug` / `development` settings, and decides error display. Neither counts a
+debug-access token: a token opens the toolbar for one browser on a live server and
+must not turn that server into a development one. For that question there is
+`DebugAccess::isGranted()`.
 
 ### An application that does not run `Application::init()`
 
@@ -79,7 +84,7 @@ application that routes `#[Route]` attributes to controllers returning
 every routing style:
 
 ```php
-$pipeline->add(new \Pramnos\Debug\ApiDebugMiddleware());
+$router->addGlobalMiddleware(new \Pramnos\Debug\ApiDebugMiddleware());
 ```
 
 It handles both shapes a controller returns (a `Response` and a bare string), sends
@@ -105,7 +110,7 @@ does not work.
 
 Most pages are not finished when they render. A datatable pages and sorts, a
 form saves, a widget polls, a single-page application does nothing *but* talk to
-the server after the first load — and those requests were invisible.
+the server after the first load — and none of those requests is the page's own.
 
 The **requests** tab is the list of everything this page has done, the page's own
 request included, newest first. It needs no setup on a server-rendered page: the
@@ -130,8 +135,8 @@ naming it in the info strip — either way the toolbar goes back to its default.
 
 - on a server-rendered page, **the page's own request** — not the newest one. A
   datatable fetches its rows the moment it renders, and following the newest
-  request meant a page that had just rendered a template reported `Views 0`,
-  which was true of a JSON call nobody had asked about;
+  request would make a page that had just rendered a template report `Views 0`,
+  which is true of a JSON call nobody had asked about;
 - in a SPA, **the newest request**, because there is no page request to show;
 - in **Logs** and **Exceptions**, everything across every request so far, with a
   column naming the request each line came from. Those two are streams — a log
@@ -299,8 +304,8 @@ as absent rather than as broken, because those are different findings.
 
 The **Exceptions** tab is the server's. Everything after the response arrives —
 a screen that throws while rendering the data it just fetched, a promise nobody
-caught, an `ApiError` a screen turned into a message — used to leave the panel
-looking healthy next to a page that was visibly broken. The **Errors** tab is
+caught, an `ApiError` a screen turned into a message — would otherwise leave the
+panel looking healthy next to a page that was visibly broken. The **Errors** tab is
 that half, and it appears (red, with a `⚠`) only once something has been thrown.
 
 Each row carries the failure's kind, its message, a folded stack, and **the
@@ -360,9 +365,8 @@ The badge counts both, so it reflects what the panel contains.
 It is one tab rather than two because a reader asking "what did this request do"
 should not have to know which style this project uses — and because a project
 built one way would otherwise stare at a permanently empty tab named after the
-other. That is not hypothetical: the tab used to be called **Models**, and in a
-Services + API + SPA project it was empty for a request that had done all of its
-work in services.
+other: a Services + API + SPA project does all of a request's work in services,
+and a Models-only tab would show nothing for it.
 
 The two sections record on different terms:
 
@@ -407,16 +411,16 @@ collected:
 Either is absent rather than zero when the number is missing: a bar claiming 0ms
 of network for a response that only carried a header would be inventing.
 
-The **segments** below them are what the server did, and they now include the
-part that happens before any application code runs:
+The **segments** below them are what the server did, including the part that
+happens before any application code runs:
 
 | segment | what it covers |
 |---|---|
 | `bootstrap` | the whole of `Application::init()` |
 | `db-connect`, `providers`, `session` | its phases, individually |
 | `routing`, `controller` | the MVC path |
-| `middleware`, `action` | the API path — a SPA showed one segment because these did not exist |
-| `debugbar` | the toolbar registering its own collectors, named for what it is. It used to be called `boot`, which read as application startup and was not |
+| `middleware`, `action` | the API path, so a SPA's API call is broken down rather than shown as one segment |
+| `debugbar` | the toolbar registering its own collectors, named for what it is rather than as part of application startup |
 
 Bootstrap cannot be timed the usual way — the collector that would record it is
 registered *by* one of those phases — so each phase is measured as it happens and
@@ -468,19 +472,15 @@ middleware pipeline to get a toolbar — every MVC application ends its request 
 `echo $app->render()` — and it cannot get two, because injection is idempotent per
 request.
 
-There used to be a process-wide `ob_start()` instead, and it was removed. It caught
-output from any code path, including an application that simply echoes, and the
-price was structural: booting the toolbar added an output-buffer level, so code that
-cleared "its" buffer — a bare `ob_get_clean()`, or the `while (ob_get_level())
-{ ob_end_clean(); }` loop a kernel uses to drop stray output — cleared **ours**, with
-the response inside it. The client got `200` with an empty body while every header
-said the request had succeeded, nothing was logged, and with the toolbar off the same
-code worked. That happened twice in one application; the second report measured it
-off the socket: 523 header bytes, zero body bytes.
-
-Laravel's debugbar and Symfony's profiler both inject through the response object and
-install no such buffer. This now does the same, and the failure mode is gone rather
-than guarded.
+There is deliberately no process-wide `ob_start()`. It would catch output from any
+code path, including an application that simply echoes, but the price is structural:
+the toolbar would add an output-buffer level, so code that clears "its" buffer — a
+bare `ob_get_clean()`, or the `while (ob_get_level()) { ob_end_clean(); }` loop a
+kernel uses to drop stray output — would clear **ours**, with the response inside it.
+The client would get `200` with an empty body while every header said the request had
+succeeded, and nothing would be logged. Injecting through the response, as Laravel's
+debugbar and Symfony's profiler also do, removes that failure mode rather than
+guarding against it.
 
 **What that costs.** A response the framework never sees gets no toolbar: a raw
 `echo`, or a kernel that ends an unmatched request by `require`-ing a page file. The
@@ -612,7 +612,7 @@ recordDebug(method, path, response.status, payload && payload._debug, { ms, body
 It is the same toolbar — literally. Both are generated from one source
 (`Pramnos\Debug\DebugBarAsset`): the server-rendered page gets it inlined, a SPA
 project gets it as an ES module with `record()` exported. There is no second
-renderer to drift, which is what produced a `✕` that had to be fixed twice.
+renderer to drift, so a fix lands in both deliveries at once.
 
 So both deliveries draw **every collector the payload carries** — SQL, Time,
 Route, Auth, Session, Logs, Views, Domain, Migrations, Exceptions — plus **Errors**,
@@ -622,8 +622,7 @@ reads as "nothing happened".
 
 Nothing in the panel is application-specific, so **do not write your own** — if a
 field is missing, add it to the framework's source or report it upstream. A
-second panel beside the working one has already happened once, because the SPA
-panel was documented only in changelog posts.
+second panel beside the working one duplicates everything above and drifts from it.
 
 In production nothing attaches `_debug`, so `record()` never has anything to
 show: no data, no DOM, no panel. That is why the file ships unconditionally
@@ -680,6 +679,7 @@ the framework resolves the controller itself, the way it does `/devpanel`.
 |---|---|
 | Who | Signed in, **user type ≥ 90** by default |
 | Raise or lower it | `'debug' => ['grant_min_usertype' => 95]` in `app.php` |
+| Name people | `'debug' => ['grant_usertypes' => [95], 'grant_userids' => [7]]` — unset lists fall back to `devpanel.usertypes` / `devpanel.userids`; see the [DevPanel Guide](Pramnos_DevPanel_Guide.md#all-three-developer-tools-read-the-same-names) |
 | How long | 15 minutes, 1 hour or 4 hours |
 | Recorded | Every grant and revocation goes to the `auth` log, with who and for how long |
 
@@ -692,11 +692,10 @@ That last part is the whole of it. `?_debug=` becomes a cookie inside
 `DebugAccess::isGranted()`, and the pages a developer lands on after pressing the switch —
 the DevPanel, this screen — `echo` their own HTML and read the grant's state with
 `expiresAt()`, which verifies the token and reports its expiry **without persisting it**.
-So the switch reported success, no `Set-Cookie` went out, and the next ordinary page had
-nothing: *"it says it was enabled but it does not work; only the console enables it
-properly."* Turning it off had the mirror of the same fault. Both halves now act on their
-own response, and reading the state on a developer page persists an offered token rather
-than merely reporting it.
+Relying on the landing page would let the switch report success while no `Set-Cookie` went
+out, and the next ordinary page would have nothing. So enabling and disabling both act on
+their own response, and reading the state on a developer page persists an offered token
+rather than merely reporting it.
 
 **Why the floor is a user type and not merely "signed in."** The query collector reports
 the SQL each request ran, and this framework interpolates values into statements — so
@@ -704,12 +703,13 @@ the toolbar shows real column values, personal ones included, for the rows your 
 browsing touches. The session collector masks `password`, `token`, `secret` and friends;
 the query log does not.
 
-**Why this is not in the DevPanel.** That panel refuses to open unless `APP_DEBUG` or
-`DEVELOPMENT` says the deployment is a development one, and deliberately so: it browses
-the database, reads the cache and dumps the container. The toolbar is a smaller thing —
-it shows *this request* to the one browser that redeemed a grant — and its whole reason
-for existing is the server where `APP_DEBUG` is off. Behind the DevPanel's lock it would
-work only where nobody needs it.
+**Why this is not in the DevPanel.** That panel opens only in a development environment
+(`APP_DEBUG` or `DEVELOPMENT`) or for the people `app.php` names
+(`devpanel.production_min_usertype`, `usertypes`, `userids`), and deliberately so: it
+browses the database, reads the cache and dumps the container. The toolbar is a smaller
+thing — it shows *this request* to the one browser that redeemed a grant — and its whole
+reason for existing is the server where `APP_DEBUG` is off. Behind the DevPanel's lock it
+would work only for the few people trusted with the whole database.
 
 `/debugbar` and its two actions send their page as the **whole** response and stop, the way the
 DevPanel does. They return complete documents, so echoing one and letting the request carry on
@@ -741,8 +741,8 @@ unreachable with a mouse.
 the framework's document, which is where the toolbar is injected. So the panel says the state
 in two places instead: the switch reads `● Debug bar on until 15:42 — turn off`, and a notice
 above the content says it is on and that the toolbar is drawn on the site's own pages. A
-control whose only receipt is one word in its own caption has no receipt — and this one was
-reported as doing nothing twice while working.
+control whose only receipt is one word in its own caption has no receipt, and reads as doing
+nothing while working.
 
 It appears only for somebody who may use it; a control that 403s when pressed is worse than
 one that is absent.
@@ -760,8 +760,7 @@ is protocol-relative and a browser reads it as another site, `/\host/x` is the s
 a backslash, and a scheme can hide after the slash. All three are refused.
 
 **And a refusal is logged** under `debug`, saying what was refused and what the site is.
-Landing on the site root is otherwise indistinguishable from the feature not working, which is
-how it was reported twice.
+Landing on the site root is otherwise indistinguishable from the feature not working.
 
 Put it in your own admin menu with a plain link:
 

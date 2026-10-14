@@ -15,7 +15,7 @@ use_cases:
 
 # Hypertables: declaring them, and repairing them later
 
-The framework keeps seven tables as TimescaleDB hypertables where the extension
+The framework keeps ten tables as TimescaleDB hypertables where the extension
 is available. This page covers where those parameters are declared, how to add
 your own, and — the part most installations eventually need — how to repair a
 database that gained TimescaleDB *after* the migrations had already run.
@@ -61,7 +61,10 @@ two disagree silently.
 | `authserver.user_activity_log` | `created_at` | 1 day | 30 days | 24 months |
 | `authserver.user_consents` | `granted_at` | 1 month | 6 months | 7 years |
 | `authserver.data_processing_records` | `processed_at` | 1 week | 90 days | 36 months |
-| `authserver.gdpr_requests` | `requested_at` | 1 month | 1 year | 7 years |
+| `authserver.gdpr_requests` | `requested_at` | 1 month | — | 7 years |
+| `pramnos.changelog` | `created_at` | 7 days | 7 days | 30 days |
+| `pramnos.changelog_events` | `created_at` | 7 days | 30 days | 2 years |
+| `pramnos.changelog_trace` | `created_at` | 1 day | — | 3 days |
 | `applications.application_stats` | `time` | 14 days | 60 days | 3 years |
 
 This table is documentation. The registry is the source.
@@ -91,18 +94,15 @@ framework does instead is **refuse the declaration by name** when it is applied 
 `channel_metrics.measured_at is bigint, so \`chunk_interval\` must be a number in the unit
 that column stores` — rather than let TimescaleDB answer in terms of overloads.
 
-!!! warning "A tick used to be a claim nobody checked"
-    `timescale:ensure` printed `✓ converted to hypertable`, `✓ compression enabled` and
-    `✓ compression policy added` for a table `timescaledb_information.hypertables` does
-    not list. The underlying calls log their failure and return `false`, and `apply()`
-    appended its line regardless — so three failed calls produced three ticks and exit
-    code 0, and a second run said the same.
+!!! warning "A tick is a claim, so it is checked"
+    The underlying TimescaleDB calls log their failure and return `false`. `apply()` reads
+    every step back from the catalogue before it reports it, and a step the database did
+    not take raises a `RuntimeException` naming the table and the usual causes.
 
-    Nothing breaks, which is what makes it the worst available failure mode: rows are
-    written and read as before, every test passes and every screen works. What is missing
-    is chunking, compression and a table that stays usable holding years rather than days
-    — found when it is far too large to convert quickly. Every step is now read back from
-    the catalogue before it is reported, and a step the database did not take raises.
+    The reason is that a hypertable that silently is not one is the worst available failure
+    mode: rows are written and read as before, every test passes and every screen works.
+    What is missing is chunking, compression and a table that stays usable holding years
+    rather than days — found when it is far too large to convert quickly.
 
 ### Choosing `segmentby`: a measurement worth repeating
 
@@ -171,11 +171,11 @@ The cost of the safe default is a token-history listing at 6.8 ms rather than 0.
 — an admin screen rather than a hot path, and the analytical reads go through the
 hourly continuous aggregate rather than this table.
 
-#### And the four that had no segment key at all
+#### What no segment key costs
 
-The rule above went unapplied on four of the framework's own tables. They declared a
-compression policy and **no `segmentby`**, so TimescaleDB picked none — it warns that it
-cannot find a suitable indexed column — and compression made every one of them *larger*:
+With a compression policy and **no `segmentby`**, TimescaleDB picks none — it warns that it
+cannot find a suitable indexed column — and compression makes the table *larger*. Measured on
+the framework's own audit and consent tables:
 
 | table | `segmentby` | quiet (5 k rows) | busy (500 k rows) |
 |---|---|---|---|
@@ -196,7 +196,7 @@ cannot find a suitable indexed column — and compression made every one of them
 | | **`operation`** | **1.58** | **62.59** |
 
 `tests/Benchmarks/hypertable_compression_sweep.php`, TimescaleDB 2.19.3, each table built
-by its own migration. Bold is what the framework declares now.
+by its own migration. Bold is what the framework declares.
 
 Three things worth taking from it beyond the values:
 
@@ -212,7 +212,7 @@ Three things worth taking from it beyond the values:
   for both ordering and segmenting»*. In the sweep that made four winning layouts look
   impossible.
 
-A test now asserts the rule rather than these five instances of it: a registry entry with
+A test asserts the rule rather than these instances of it: a registry entry with
 `compress_after` must declare a `segmentby`, and it must not be a per-row identifier.
 
 #### And one where the answer is to drop compression instead
@@ -224,9 +224,8 @@ across the seven-year retention. At 5,000 rows the whole table is 5.56 MB and th
 layout saves 1.86 MB of it.
 
 **Compression's benefit scales with volume. Its cost does not.** A compressed chunk cannot
-be altered, so every future schema change has to decompress first whatever the size — and
-compression on that table had already cost the framework two migrations: a column rename
-and a foreign key, both refused once its chunks aged past a year.
+be altered, so every future schema change has to decompress first whatever the size — a
+column rename or a new foreign key is refused on a table with compressed chunks.
 
 So `gdpr_requests` declares retention and no compression. Retention is unaffected by the
 change; it drops whole chunks and needs no compression to do it.
@@ -268,7 +267,7 @@ Then apply it:
 
 ```bash
 php pramnos timescale:ensure --dry-run   # what would change
-php pramnos timescale:ensure --fix       # change it
+php pramnos timescale:ensure             # change it
 ```
 
 ### Changing a policy that already exists
@@ -295,10 +294,10 @@ PostgreSQL and guessing otherwise would be the comparison inventing a policy nob
 
 ### On a backend without TimescaleDB
 
-The command still runs, and it does something: **continuous aggregates are refreshed on every
-backend**, because the defect there belongs to the backend *without* the extension — four
-migrations registered the refresh only inside their TimescaleDB branch, so on plain PostgreSQL
-the materialized view was created and never updated again.
+The command still runs, and it does something: **continuous aggregates get a refresh policy on
+every backend**. Without the extension a rollup is a plain materialised view, and one that
+nothing refreshes is frozen at the moment it was created — so this half runs first and runs
+everywhere.
 
 Only then does the hypertable half bow out, and it says where retention actually comes from:
 
@@ -310,12 +309,8 @@ policy engine's job (service:policy-engine).
 
 Exit 0, deliberately — including for "nothing to do" and "no extension". A repair command that
 exited non-zero because a database is already correct would fail every deployment pipeline it
-was added to.
-
-An interval that cannot be parsed — `1 year 6 mons 3 days` — is **left alone**. The
-bias is deliberate: a false positive is permanent churn against the scheduler, while
-a false negative costs one changed number not taking effect, which is the situation
-this replaced rather than one it introduces.
+was added to. What exits non-zero is an actual failure: a refresh policy or a table that could not be
+brought in line, or a `--table` that is not declared.
 
 ### One hypertable that is deliberately not in the registry
 
@@ -696,10 +691,14 @@ both your migration and `timescale:ensure` see it.
 Then in the migration:
 
 ```php
-$schema->ifCapable(DatabaseCapabilities::TIMESCALEDB, function () use ($schema) {
+$schema->whenCapable(DatabaseCapabilities::TIMESCALEDB, function () use ($schema) {
     HypertableRegistry::apply($schema, 'readings');
 });
 ```
+
+`whenCapable()`, not `ifCapable()`: the table is the migration's work and the conversion an
+extra that `timescale:ensure` repairs later. `ifCapable()` without a fallback would mark the
+migration as not applied where TimescaleDB is absent.
 
 Omitting `retention` means "keep for ever", and omitting `compress_after` means
 "never compress automatically" — neither is given a default, because inventing a
@@ -864,14 +863,10 @@ $queue->process('readings');              // drain, returns per-table stats
 The queue lives in **`pramnos.deferredwrites`**, created by a framework core migration on every
 backend. In the `pramnos` schema because it is the framework's own bookkeeping — nobody writing
 an application queries it, `DeferredWriteQueue` does, and `public` is the application's. On
-MySQL, which has no schemas, the name flattens to a `pramnos_` prefix.
-
-> **Moved on 2026-08-30.** It was created in `public` on 12 August, so unlike the tables that
-> moved the same week this one had been deployed — the move is its own migration
-> (`move_deferredwrites_to_pramnos`) rather than an edit to the one that created it. `ALTER
-> TABLE … SET SCHEMA` is a catalogue update: no row is copied, nothing is locked beyond the
-> statement, and the migration is a no-op where the table is already in place. Address the table
-> through `DeferredWriteQueue::TABLE` and none of this matters to a caller.
+MySQL, which has no schemas, the name flattens to a `pramnos_` prefix. A database that has the
+table in `public` gets it moved by the `move_deferredwrites_to_pramnos` migration — a catalogue
+update, no rows copied. Address the table through `DeferredWriteQueue::TABLE` and its location
+never matters to a caller.
 
 ## Checking state from code
 
@@ -885,5 +880,6 @@ $schema->hasRetentionPolicy('authserver.user_consents');   // job scheduled?
 $schema->primaryKeyColumns('authserver.user_consents');    // ['id', 'granted_at']
 ```
 
-All four return `false` on a backend without TimescaleDB rather than raising, so
-they are safe to call from portable code.
+The four `has…`/`is…` checks return `false` on a backend without TimescaleDB rather
+than raising, so they are safe to call from portable code. `primaryKeyColumns()` works
+on every backend and returns `[]` for a table with no primary key.

@@ -201,8 +201,8 @@ A breadcrumb's `<ol>`, on the other hand, is one element with one meaning. It wa
 >
 > A **utility-dense** set the theme wants visible in the markup is a keyed preset.
 
-Getting this backwards is how `Breadcrumb` came to emit `class="breadcrumb"` — Bootstrap's own name,
-as a literal, in framework markup. It reads as neutral and is not: a Tailwind project got an element
+Getting this backwards means emitting a framework's own name — Bootstrap's `breadcrumb` — as a
+literal in framework markup. It reads as neutral and is not: a Tailwind project gets an element
 carrying a name nothing in its stylesheet defines.
 
 **Every hook has a rule in every scaffolded theme, and a test asserts it.** A hook with no rule
@@ -261,16 +261,15 @@ The name becomes `tags[]`, which is not cosmetic: without the brackets PHP keeps
 last submitted value and a multiple select silently behaves like a single one. An array
 current value selects every option it holds.
 
-### Two things it does that its predecessor did not
+### Escaping and comparison
 
-**It escapes.** Labels and values go through `htmlspecialchars()`. The class this replaces
-concatenated them into markup untouched, and its documented use is a filter populated from
-a database column.
+**It escapes.** Labels and values go through `htmlspecialchars()` — its commonest use is a
+filter populated from a database column.
 
 **It compares as strings.** The current value is matched with `(string) $a === (string)
-$b`. The old `==` gave a different answer for `0 == ''` on PHP 7 than on PHP 8, so a select
-with an "All" option of `''` and a current value of `0` selected a different option
-depending on the interpreter.
+$b`. A loose `==` answers `0 == ''` differently on PHP 7 and PHP 8, so a select with an
+"All" option of `''` and a current value of `0` would select a different option depending
+on the interpreter.
 
 ### Other attributes
 
@@ -298,14 +297,11 @@ The companion to [`Select`](#select), and there for the same reason: `Form\Field
 control **in a form** and its `render()` needs the form's style preset; a filter above a
 table has no form.
 
-### One class, not five
+### One class for every input type
 
-It replaces four legacy classes — `input`, `checkbox`, `colorpicker` and a `time` widget —
-and covers more than they did. The old `input` was a *dispatcher*: `type` decided, and for
-`date`, `time`, `checkbox` and `color` it constructed a different class and forwarded a
-dozen properties. Most of that existed because those input types did not work in browsers
-when it was written. `<input type="color">` and `type="time"` have been native for years,
-and what is left once the widgets are gone is a tag with attributes.
+Text, checkbox, colour, time and the rest are one class: `<input type="color">` and
+`type="time"` are native in every browser, so what each type needs is a tag with the
+attributes that apply to it, not a widget of its own.
 
 ### Types
 
@@ -316,8 +312,7 @@ $input->type = 'number';   // text hidden password email url tel search number r
                            // textarea
 ```
 
-`textfield` is accepted as a spelling of `text` and `colorpicker` as one of `color`,
-because the classes this replaces used them. An unrecognised type becomes `text` rather
+`textfield` is accepted as a spelling of `text` and `colorpicker` as one of `color`. An unrecognised type becomes `text` rather
 than being emitted — a browser treats an unknown type as text anyway, so passing a typo
 through only adds an attribute a validator will reject.
 
@@ -386,10 +381,9 @@ correct than a framework's own translated strings and needs nothing here.
 
 ### What it does not do
 
-No `validate` / `addcss` / `addjs`. The legacy properties of those names made an element
-push CSS and JavaScript into the document while rendering itself, so echoing a search box
-changed the page's asset list. `Document::addScript()` and `addStyle()` are how a page
-declares what it needs.
+It pushes no CSS or JavaScript into the document while rendering, so echoing a control never
+changes the page's asset list. `Document::addScript()` and `addStyle()` are how a page declares
+what it needs.
 
 ---
 
@@ -413,8 +407,7 @@ password». The class is optional and normally left off — see below.
 
 ### It is a sibling of the input, never one of its attributes
 
-The one way to get this wrong, and it has been got wrong in three themes on three
-different screens:
+The one way to get this wrong:
 
 ```php
 <!-- WRONG: the toggle is inside class="" -->
@@ -453,8 +446,7 @@ to change for that, and there is no stylesheet to ship.
 It is done in JavaScript rather than in the markup because the two requirements pull in opposite
 directions. The button has to come **after** the input in the document: with no `tabindex` anywhere,
 tab order *is* document order, so a control written into the label row above the field means tabbing
-off the username lands on «Show» instead of on the password box — reported as «the tabindex on the
-login form is wrong», and it was, by being absent. Absolute positioning moves the button visually
+off the username lands on «Show» instead of on the password box. Absolute positioning moves the button visually
 without moving it in the document, so the tab order stays right and the icon still sits in the field.
 
 `tabindex="-1"` on the button would have fixed the tab order too, and is the wrong answer: it makes
@@ -482,10 +474,9 @@ before, and the field never depended on the script.
 Every button carries the script, and the script guards itself in the browser — the first copy binds a
 delegated listener on `document`, the rest return immediately.
 
-The first version kept a static «already emitted» flag so it went out once per page. That flag is
-**process** state, not request state: a process that renders more than one response — an in-process
-test client, a long-running worker, anything producing two pages — gave the second page a button with
-no listener behind it. A few hundred repeated bytes is the better trade against a bug that only
+A static «already emitted» flag would be **process** state, not request state: a process that
+renders more than one response — an in-process test client, a long-running worker, anything
+producing two pages — would give the second page a button with no listener behind it. A few hundred repeated bytes is the better trade against a bug that only
 appears outside a plain request, which is exactly where nobody looks for it.
 
 ### What it does not touch
@@ -574,8 +565,8 @@ script. Anything else is ignored rather than emitted as a class.
 **What a theme styles:** `pf-stat-grid`, and `pf-stat-tile` with `__label`, `__value`,
 `__note`, `__progress` and the `--good`, `--warning` and `--critical` modifiers. The value
 uses tabular digits, so a number that changes does not shift its neighbours. Each scaffold
-theme's `style.css` dresses them from its own colours, in light and dark. A project scaffolded
-before this has no such rules in its theme. Copy the `Stat tiles` block from the framework's
+theme's `style.css` dresses them from its own colours, in light and dark. A theme without those
+rules can copy the `Stat tiles` block from the framework's
 `scaffolding/themes/<ui>/style.css` into it, or rename the hooks with `stat_tile` and
 `stat_grid` in `component_classes`.
 
@@ -589,7 +580,7 @@ $bc->addItem('Alice');          // no url — the current page
 echo $bc->render();
 ```
 
-It emits the trail twice: as an `<ol class="breadcrumb">` for the reader, and as
+It emits the trail twice: as an `<ol class="pf-breadcrumb">` (the class is `$listClass`) for the reader, and as
 `BreadcrumbList` JSON-LD for a search engine, from the same items.
 
 **A label is rendered as HTML; a title and a URL are escaped.** Callers pass markup in a label
@@ -608,7 +599,7 @@ attribute and make everything after it markup the visitor chose.
 
 The descending heading levels are how the trail expresses depth to a crawler. A heading is
 a **block element**, and Tailwind's Preflight strips its size but not its `display` — so a
-stylesheet that styles `.breadcrumb` and forgets the headings gets a trail where each label
+stylesheet that styles the list and forgets the headings gets a trail where each label
 fills its own line and the separators drop underneath:
 
 ```
@@ -762,7 +753,7 @@ The **9th argument** is the filter:
 | Value | What appears |
 | --- | --- |
 | `true` | a text box under the column, debounced and guarded by `minSearchLength` |
-| an **id** string | the control you rendered into the footer (8th argument) — the table wires `change` and a debounced `keyup` on that id |
+| an **id** string | the control you rendered into the footer (6th argument) — the table wires `change` and a debounced `keyup` on that id |
 | `false` (default) | no filter for this column |
 
 The **10th** is the filter's current value, applied on load. Without it a bookmarked or
@@ -904,9 +895,7 @@ $ds->render(
 );
 ```
 
-Its own parameter rather than something smuggled into the `where` string, which is fragile
-enough that a consuming application maintained **two forks** of this class whose only
-difference was this argument.
+Its own parameter rather than something smuggled into the `where` string, which is fragile.
 
 It applies to the counts as well as the rows, and that is the half worth stating:
 `QueryBuilder::count()` preserves a `GROUP BY` (it documents that), so `COUNT(*)` on a
@@ -947,9 +936,8 @@ like any other out-of-range page.
 ```
 
 A pattern with no `:page` gets `/:page` appended. **Rendering twice gives the same
-result** — worth stating because the implementation this replaces appended to its own
-property inside `render()`, so a template with a pager above and below a list produced
-`/items/:page/:page` on the second one.
+result**: `render()` never modifies the pattern, so a template with a pager above and below a list
+gets the same links from both.
 
 ```php
 $pagination->firstPageUrl = '/genres';   // page 1 has its own address
@@ -963,7 +951,7 @@ whole reason these are paths rather than a query parameter.
 | Property | Default | |
 |---|---|---|
 | `containerElement` | `'div'` | element wrapping the whole thing |
-| `containerElementClass` | `''` | class on it |
+| `containerElementClass` | `'pf-pagination'` (from `component_classes`) | class on it |
 | `pageContainerElement` | `''` | element wrapping each link — `'li'` for a list |
 | `currentPageClass` | `'current'` | class on the current page's link |
 | `adjacents` | `2` | pages shown either side of the current one |
@@ -975,8 +963,7 @@ whole reason these are paths rather than a query parameter.
 | `dotsText` | `'&hellip;'` | shown where pages are elided. **markup** |
 
 !!! warning "The button properties are not escaped"
-    They exist to hold an `<img>`, which is what the request that added this class needed.
-    That makes them the one place a caller's string reaches the page unfiltered, so they
+    They exist to hold an `<img>`. That makes them the one place a caller's string reaches the page unfiltered, so they
     must never be built from user input. Page numbers, URLs and the container class *are*
     escaped.
 
@@ -1035,10 +1022,10 @@ dots there would hide the fact that page 1 exists at all.
 
 ### It is a navigation landmark
 
-Every link already carried `aria-label="Page 7"` and the current one `aria-current="page"` — all of
-which help once you are inside the pager. Getting inside was the part that did not work: with no
-`<nav>` this was an anonymous run of anchors, and somebody moving through a page by its regions
-passed straight over it.
+Every link carries `aria-label="Page 7"` and the current one `aria-current="page"` — which help
+once you are inside the pager. The `<nav>` is what gets you inside: without it the pager is an
+anonymous run of anchors, and somebody moving through a page by its regions passes straight over
+it.
 
 ```html
 <nav aria-label="Pagination"><div class="pf-pagination"> … </div></nav>
@@ -1086,8 +1073,8 @@ required marker, the style preset, `effectiveValue()`, `readSubmitted()`, and an
 defaulted to the name. The tag itself is built by `Input` or `Select`, so the rules about
 which attributes a type may carry live in one place.
 
-That mattered: while the two were separate, `Field` emitted `min`/`max`/`step` on **every**
-type including `text` — invalid markup that browsers accept and validators reject.
+So `min`/`max`/`step` appear only on the types they apply to, never on `text` — where they would
+be invalid markup that browsers accept and validators reject.
 
 ### `$label` is the label, `$title` is the HTML attribute
 
@@ -1126,13 +1113,13 @@ plain text box.
 
 ### A validation message that belongs to its field
 
-`aria-describedby` and `aria-invalid` did not exist anywhere in `Pramnos\Html` until now. A
-`<small>` under an input is not attached to it — it is a sentence that happens to sit nearby, which
-is a relationship only a sighted reader can see. Somebody using a screen reader heard the label and
-the control and never the explanation, so the field that needed the most explanation gave none.
+A `<small>` under an input is not attached to it — it is a sentence that happens to sit nearby,
+which is a relationship only a sighted reader can see. Without `aria-describedby` somebody using a
+screen reader hears the label and the control and never the explanation, so the field that needs
+the most explanation gives none.
 
 ```php
-$field        = new Field('email', 'email', 'Email', null, 'Your work address');
+$field        = new Field('email', 'Email', 'email', null, 'Your work address');
 $field->error = 'That address is already registered.';
 
 echo $field->render(FieldStyles::for('tailwind'));
@@ -1230,9 +1217,8 @@ opposite of nothing.
 
 `Organization` and `WebSite`, on every page, from settings the installation already has.
 
-Until now the only `@type` the framework emitted anywhere was `BreadcrumbList` — the shape of a
-page's position in a hierarchy that was never named. `Document::addStructuredData()` existed the
-whole time and the framework called it from nowhere.
+Without it the only `@type` on a page would be `BreadcrumbList` — the shape of a page's position
+in a hierarchy that is never named.
 
 ```php
 Html\SiteIdentity::jsonLd();    // called for you, from Document::seoHeadMarkup()
@@ -1254,7 +1240,7 @@ worth asserting.
 
 ### Absent is not empty
 
-The rule `jsonLd()` has documented from the start, now enforced by the head renderer too.
+The rule `jsonLd()` documents, enforced by the head renderer too.
 
 `<meta name="description" content="">` is **not** the absence of a description. It is a claim that
 this page has none — and a crawler records the claim rather than falling back to the page text. An
@@ -1264,15 +1250,14 @@ So `description`, `og:title`, `og:url`, `og:image` and `og:description` are emit
 have a value. `og:title` and `og:site_name` still fall back to the page title and the `sitename`
 setting, because those are values the framework *has*, not claims it invents.
 
-Two more in the same pass. **`viewport` moved onto the document** — it lived in the scaffolded
-themes and nowhere else, so a theme that omitted it produced a page Google labels not
-mobile-friendly with no signal that anything was missing. And **`twitter:card` is emitted only when
+Two more rules in the same renderer. **`viewport` is emitted by the document**, not left to the
+theme, so a theme that omits it cannot produce a page Google labels not mobile-friendly with no
+signal that anything is missing. And **`twitter:card` is emitted only when
 there is an image for it**: X reads the OpenGraph tags for everything else, and a
 `summary_large_image` card promising an image the page does not have renders worse than no card.
 
-The `xmlns:og` and `xmlns:fb` attributes are gone — RDFa declarations from 2010, parsed by nothing
-since Facebook moved to `<meta property>`, occupying the first hundred bytes of every page the
-framework rendered.
+No `xmlns:og` or `xmlns:fb` attributes are emitted — RDFa declarations that nothing parses since
+Facebook moved to `<meta property>`.
 
 ## See also
 

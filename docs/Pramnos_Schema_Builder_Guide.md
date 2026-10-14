@@ -9,10 +9,10 @@ use_cases:
 
 # Pramnos Schema Builder Guide
 
-The **Schema Builder** (DDL — Data Definition Language) provides a programmatic interface for defining and modifying database schemas. It supports MySQL 8.0+, PostgreSQL 17+ and TimescaleDB 2.26.4+ with dialect-aware syntax — the versions the suite actually runs against. PostgreSQL 14 worked in every test until the lane moved to 17 and is very likely still fine; it is no longer verified, which is a different claim.
+The **Schema Builder** (DDL — Data Definition Language) provides a programmatic interface for defining and modifying database schemas. It supports MySQL 8.0+, PostgreSQL 17+ and TimescaleDB 2.26.4+ with dialect-aware syntax — the versions the suite runs against.
 
 **Class:** `Pramnos\Database\SchemaBuilder`  
-**Entry point:** `$db->schemaBuilder()` — returns a fresh builder bound to the current database connection.
+**Entry point:** `$db->schema()` — returns a builder bound to the current database connection. `$db->schemaBuilder()` returns the same kind of builder.
 
 ## Overview
 
@@ -21,11 +21,9 @@ The Schema Builder enables you to:
 - Create and drop tables with proper type mapping
 - Add, modify, and drop columns
 - Define indexes, primary keys, and foreign keys
-- Create views and stored procedures (dialect-specific)
+- Create views, materialized views, triggers and sequences (dialect-specific)
 - Manage TimescaleDB hypertables and time-series features
 - Detect database capabilities and conditionally execute DDL
-
-**Entry point:** `$db->schema()` — preferred alias. `$db->schemaBuilder()` also works.
 
 ## Getting Started
 
@@ -33,17 +31,17 @@ The Schema Builder enables you to:
 
 ```php
 $db = \Pramnos\Database\Database::getInstance();
-$schema = $db->schemaBuilder();
+$schema = $db->schema();
 
 $schema->create('users', function ($table) {
-    $table->id();                                    // BIGINT PRIMARY KEY AUTO_INCREMENT
+    $table->bigIncrements('userid');                 // BIGINT UNSIGNED AUTO_INCREMENT PK / BIGSERIAL
     $table->string('username', 50)->unique();       // VARCHAR(50) UNIQUE
     $table->string('email')->unique();              // VARCHAR(255) UNIQUE
     $table->string('password', 60);                 // VARCHAR(60) for hashed password
-    $table->timestamps();                           // created_at, updated_at
+    $table->timestamps();                           // nullable created_at, updated_at
     $table->timestamp('last_login')->nullable();    // nullable timestamp
-    $table->boolean('active')->default(true);       // BOOLEAN DEFAULT TRUE
-    $table->index('email');                         // Email index for quick lookups
+    $table->boolean('active')->default(true);       // TINYINT(1) / BOOLEAN
+    $table->index('email');                         // named users_email_index
 });
 ```
 
@@ -51,12 +49,14 @@ $schema->create('users', function ($table) {
 
 ```php
 $schema->table('users', function ($table) {
-    $table->string('phone')->nullable();            // Add column
-    $table->dropColumn('legacy_field');             // Remove column
-    $table->changeColumn('username', 'string', 100); // Modify column type
-    $table->dropIndex('email');                     // Remove index
+    $table->string('phone')->nullable();                              // Add column
+    $table->dropColumn('obsolete_field');                             // Remove column
+    $table->modifyColumn('username', 'string', ['length' => 100]);   // Change column type
+    $table->dropIndex('users_email_index');                           // Remove index by name
 });
 ```
+
+`table()` is an alias of `alterTable()`, and `create()` of `createTable()`.
 
 ### Drop a Table
 
@@ -66,25 +66,25 @@ $schema->dropIfExists('users');
 
 ## Column Types
 
-The Schema Builder maps PHP type hints to database-native types:
+The most common types — the [complete reference](#complete-column-type-reference) lists every one:
 
 | Method | MySQL | PostgreSQL | Notes |
 |---|---|---|---|
-| `id()` | BIGINT AUTO_INCREMENT | BIGSERIAL | Primary key |
+| `increments($name)` / `bigIncrements($name)` | INT / BIGINT UNSIGNED AUTO_INCREMENT | SERIAL / BIGSERIAL | Primary key |
 | `string($name, $length = 255)` | VARCHAR(n) | VARCHAR(n) | |
-| `integer($name)` | INT | INT | 32-bit |
+| `integer($name)` | INT | INTEGER | 32-bit |
 | `bigInteger($name)` | BIGINT | BIGINT | 64-bit |
 | `text($name)` | TEXT | TEXT | Large text |
-| `boolean($name)` | BOOLEAN | BOOLEAN | 0/1 or true/false |
-| `float($name, $precision, $scale)` | FLOAT | REAL | |
-| `decimal($name, $precision, $scale)` | DECIMAL(p,s) | NUMERIC(p,s) | |
+| `boolean($name)` | TINYINT(1) | BOOLEAN | |
+| `float($name, $total = 8, $places = 2)` | FLOAT | REAL | |
+| `decimal($name, $total = 8, $places = 2)` | DECIMAL(p, s) | DECIMAL(p, s) | |
 | `date($name)` | DATE | DATE | |
 | `time($name)` | TIME | TIME | |
 | `dateTime($name)` | DATETIME | TIMESTAMP | |
-| `timestamp($name)` | TIMESTAMP | TIMESTAMP | Server timestamp |
-| `json($name)` | JSON | JSON / JSONB | |
+| `timestamp($name)` | TIMESTAMP | TIMESTAMP | |
+| `json($name)` / `jsonb($name)` | JSON | JSON / JSONB | |
 | `uuid($name)` | CHAR(36) | UUID | |
-| `enum($name, $values)` | ENUM | Enum (PG only) | |
+| `enum($name, $values)` | ENUM('a', 'b') | VARCHAR + CHECK | `enumType()` for a native PostgreSQL enum |
 
 ## Column Modifiers
 
@@ -93,11 +93,16 @@ $table->string('email')
     ->nullable()           // allow NULL
     ->default('guest')     // set DEFAULT
     ->unique()             // UNIQUE constraint
-    ->index()              // create index
     ->after('username')    // column ordering (MySQL)
-    ->first()              // place at start (MySQL)
     ->comment('User email'); // column comment
+
+$table->integer('count')->unsigned();               // UNSIGNED (MySQL)
+$table->timestamp('seen_at')->useCurrent();         // DEFAULT CURRENT_TIMESTAMP
+$table->integer('score')->check('score >= 0');      // CHECK constraint
 ```
+
+`first()`, `autoIncrement()`, `primary()`, `storedAs()`, `virtualAs()`, `charset()` and
+`collation()` are also available on a column.
 
 ## Indexes
 
@@ -105,12 +110,10 @@ $table->string('email')
 $table->primary('userid');                  // PRIMARY KEY
 $table->unique('email');                    // UNIQUE index
 $table->index('created_at');                // Regular index
-$table->fullText('description');            // Full-text index (MySQL)
-$table->spatialIndex('location');           // Spatial index (MySQL)
 
-// Composite indexes
-$table->index(['country', 'city']);
-$table->unique(['userid', 'token']);
+// Composite indexes, with an explicit name
+$table->index(['country', 'city'], 'idx_location');
+$table->unique(['userid', 'token'], 'uq_user_token');
 ```
 
 ## Foreign Keys
@@ -124,18 +127,21 @@ $table->foreign('author_id')
     ->onUpdate('CASCADE');
 ```
 
+`cascadeOnDelete()`, `cascadeOnUpdate()`, `nullOnDelete()` and `noActionOnDelete()` are
+shorthands, and `name()` sets the constraint name.
+
 The referenced table is named as the one being built is: `->on('users')` references the
 installation's prefixed `users`, and `->on('authserver.roles')` the `{prefix}authserver_roles` a
 MySQL database has. On MySQL the two columns must have the same type, sign included — an
 `increments()` is `INT UNSIGNED`, so the column referencing it is `->integer(…)->unsigned()`.
 
-## Timestamps & Tracking
+## Timestamps
 
 ```php
-$table->timestamps();        // created_at, updated_at (both TIMESTAMP)
-$table->softDeletes();       // deleted_at (nullable TIMESTAMP)
-$table->userstamps();        // created_by, updated_by (user IDs)
-$table->rememberToken();     // For API tokens (String)
+$table->timestamps();        // nullable created_at, updated_at (TIMESTAMP)
+$table->timestampsTz();      // the same as TIMESTAMPTZ on PostgreSQL
+$table->softDeletes();       // nullable deleted_at TIMESTAMP
+$table->softDeletesTz();     // nullable deleted_at TIMESTAMPTZ
 ```
 
 ## Conditional DDL (DatabaseCapabilities)
@@ -143,92 +149,84 @@ $table->rememberToken();     // For API tokens (String)
 Execute DDL conditionally based on database features:
 
 ```php
-$caps = new \Pramnos\Database\DatabaseCapabilities($db);
+$schema->create('metrics', function ($table) {
+    $table->bigIncrements('id');
+    $table->timestamp('time');
+    $table->float('value');
+    $table->index('time');
+});
 
-$caps->ifCapable(
-    \Pramnos\Database\DatabaseCapabilities::FEATURE_TIMESCALEDB,
-    function () use ($schema) {
-        // TimescaleDB only — create hypertable
-        $schema->create('metrics', function ($table) {
-            $table->id();
-            $table->timestamp('time')->index();
-            $table->float('value');
-        });
+$schema->ifCapable(
+    \Pramnos\Database\DatabaseCapabilities::TIMESCALEDB,
+    function (\Pramnos\Database\SchemaBuilder $schema) {
+        // TimescaleDB only
         $schema->createHypertable('metrics', 'time');
     },
-    function () use ($schema) {
-        // Plain PostgreSQL or MySQL fallback
-        $schema->create('metrics', function ($table) {
-            $table->id();
-            $table->timestamp('time')->index();
-            $table->float('value');
-        });
+    function () {
+        // Plain PostgreSQL or MySQL: stays a regular table
     }
 );
 ```
+
+See [Capability-Conditional DDL](#capability-conditional-ddl) for `ifCapable()` against
+`whenCapable()`.
 
 ## TimescaleDB Features
 
 ### Create Hypertables
 
 ```php
-$schema->createHypertable('metrics', 'time', 'chunk_time_interval' => '1 day');
+$schema->createHypertable('metrics', 'time', ['chunk_time_interval' => '1 day']);
 ```
 
 ### Time Bucketing
 
 ```php
-// Dialect-transparent time_bucket()
-$result = $db->queryBuilder()
-    ->select([
-        $db->schemaBuilder()->timeBucket('1 hour', 'time'),
-        $db->queryBuilder()->raw('AVG(value) as avg_value'),
-    ])
+// Dialect-transparent time_bucket() — a QueryBuilder method
+$qb = $db->queryBuilder();
+$bucket = $qb->timeBucket('1 hour', 'time');
+
+$result = $qb
+    ->select([$bucket . ' AS bucket', 'AVG(value) AS avg_value'])
     ->from('metrics')
-    ->groupBy(1)
+    ->groupBy([$bucket])
     ->get();
 ```
 
 ### Retention Policies
 
 ```php
-$schema->addRetentionPolicy('metrics', '30 days');
+$schema->addRetentionPolicy('metrics', '30 days', 'time');   // third argument: time column, default 'created_at'
 ```
 
 ### Continuous Aggregates
 
+The body is a SQL string:
+
 ```php
-$schema->createContinuousAggregate('metrics_hourly', function ($q) {
-    $q->select([
-        $db->schemaBuilder()->timeBucket('1 hour', 'time'),
-        $q->raw('AVG(value) as avg_value'),
-    ])
-    ->from('metrics')
-    ->groupBy(1);
-});
+$schema->createContinuousAggregate(
+    'metrics_hourly',
+    "SELECT time_bucket('1 hour', time) AS bucket, AVG(value) AS avg_value
+       FROM metrics GROUP BY bucket"
+);
 ```
+
+See [TimescaleDB Operations](#timescaledb-operations) for what is materialised on creation.
 
 ## Views
 
-```php
-// Create a view from a QueryBuilder
-$schema->createView('active_users', function () use ($db) {
-    return $db->queryBuilder()
-        ->select('userid', 'username', 'email')
-        ->from('users')
-        ->where('active', 1);
-});
+Views take their body as a SQL string; a builder query becomes one with `toSql()` only when
+it has no bindings, so write the SQL directly:
 
-// Drop a view
+```php
+$schema->createView('active_users',
+    'SELECT userid, username, email FROM users WHERE active = 1');
+
 $schema->dropView('active_users');
 
-// Materialized view (PostgreSQL)
-$schema->createMaterializedView('user_stats', function () use ($db) {
-    return $db->queryBuilder()
-        ->select('userid', $db->queryBuilder()->raw('COUNT(*) as post_count'))
-        ->from('posts')
-        ->groupBy('userid');
-});
+// Materialized view (PostgreSQL; a regular VIEW on MySQL)
+$schema->createMaterializedView('user_stats',
+    'SELECT userid, COUNT(*) AS post_count FROM posts GROUP BY userid');
 ```
 
 ## Complete Column Type Reference
@@ -448,8 +446,8 @@ if (!$schema->hasIndex('usertokens', 'idx_usertokens_token_lookup')) {
 }
 ```
 
-Before it existed the alternatives were catching the driver's duplicate-index error
-or leaving the guard out, which are two ways of writing "I could not ask".
+Without it the alternatives are catching the driver's duplicate-index error or leaving the
+guard out, which are two ways of writing "I could not ask".
 
 **Each driver asks its own question, and PostgreSQL asks a different one.** MySQL reads
 `information_schema.statistics`; PostgreSQL reads `pg_indexes`, because the standard has no index
@@ -724,7 +722,7 @@ $id = $schema->nextVal('order_seq');
 if ($id === 0) {
     // No sequence objects on this server — fall back to AUTO_INCREMENT
     $db->query("INSERT INTO orders ...");
-    $id = $db->insertId();
+    $id = (int) $db->getInsertId();
 }
 ```
 
@@ -796,10 +794,3 @@ if ($this->DB()->capabilities()->hasTimescaleDB()) { /* hypertable branch */ }
 // Schema-qualified builder
 $this->schema('public')->create('users', function ($table) { ... });
 ```
-
-## Backward Compatibility
-
-- `$db->schemaBuilder()` continues to work; `$db->schema()` is the preferred alias.
-- `SchemaBuilder` previously existed as a stub. All original methods (`create()`, `drop()`, `truncate()`, `createHypertable()`, `addRetentionPolicy()`) still exist with the same signatures.
-- `ColumnDefinition`, `ForeignKeyDefinition`, and `Blueprint` are new — purely additive.
-- `Blueprint::addColumn()` was `protected`; it is now `public`.

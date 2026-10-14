@@ -71,7 +71,7 @@ $db = \Pramnos\Database\Database::getInstance();
 $result = $db->query("SELECT * FROM #PREFIX#users WHERE active = 1");
 
 // Automatically uses the WRITE connection
-$db->query("UPDATE #PREFIX#users SET last_login = NOW() WHERE userid = %i", 42);
+$db->execute("UPDATE #PREFIX#users SET last_login = NOW() WHERE userid = %i", 42);
 ```
 
 #### API Reference
@@ -82,11 +82,11 @@ $db->query("UPDATE #PREFIX#users SET last_login = NOW() WHERE userid = %i", 42);
 | `isConnectionAlive(mixed $connection): bool` | Checks if connection handle is open |
 | `isWriteQuery(string $sql): bool` | Returns `true` if the query's first keyword implies a write operation |
 
-**BC Note:** If `read`/`write` config keys are absent, the database behaves as before — a single connection for all queries.
+If the `read`/`write` config keys are absent, one connection serves all queries.
 
 ### Connection Health & Auto-reconnect
 
-Long-running workers and daemon processes lose database connections when the server closes idle sockets (e.g., MySQL's `wait_timeout`). Previously this caused silent failures; now `Database::query()` detects a lost connection and transparently reconnects once before executing.
+Long-running workers and daemon processes lose database connections when the server closes idle sockets (e.g., MySQL's `wait_timeout`). `Database::query()` detects a lost connection and transparently reconnects once before executing.
 
 #### How It Works
 
@@ -152,10 +152,10 @@ if ($caps->hasTimescaleDB()) {
 
 ```php
 $caps->ifCapable(
-    \Pramnos\Database\DatabaseCapabilities::FEATURE_TIMESCALEDB,
-    function () use ($db, $table) {
+    \Pramnos\Database\DatabaseCapabilities::TIMESCALEDB,
+    function (\Pramnos\Database\Database $db) use ($table) {
         // runs only on TimescaleDB
-        $db->query("SELECT create_hypertable('%s', 'time')", $table);
+        $db->schema()->createHypertable($table, 'time');
     },
     function () {
         // runs on all other backends
@@ -167,9 +167,9 @@ $caps->ifCapable(
 
 | Constant | Value | Detected via |
 |---|---|---|
-| `FEATURE_TIMESCALEDB` | `'timescaledb'` | `pg_extension` catalog query |
+| `TIMESCALEDB` | `'timescaledb'` | `pg_extension` catalog query |
 | `FEATURE_JSON` | `'json'` | Always true (MySQL 5.7+, all PG versions) |
-| `FEATURE_JSONB` | `'jsonb'` | PostgreSQL only |
+| `JSONB` | `'jsonb'` | PostgreSQL only |
 | `FEATURE_FULLTEXT` | `'fulltext'` | MySQL only |
 | `FEATURE_SPATIAL` | `'spatial'` | MySQL with spatial extensions |
 
@@ -297,37 +297,24 @@ owns the table, write `#PREFIX#`.
     `users` the same string. Every test passes either way, so nothing about running
     the suite tells you a query is missing its prefix.
 
-    That is not hypothetical: **seventy-nine** queries in the framework had lost
-    it, ten of them in `User\User` — three inside its constructor, so on a
-    prefixed installation simply constructing a user failed. It was reported by an
-    application whose suite produced 97 failures, all
-    `Table '….users' doesn't exist`, on its first migration attempt. This guide
-    already said what would happen; saying it was not enough.
-
-    `tests/Unit/Database/TablePrefixInQueriesTest.php` now fails on any bare
+    `tests/Unit/Database/TablePrefixInQueriesTest.php` fails on any bare
     occurrence, in a `table()` / `from()` / join position, of a name the framework
     writes with `#PREFIX#` anywhere. It derives that list from the source, so a new
     table following the convention is covered without editing the test.
 
 !!! tip "A configurable table name belongs behind one accessor"
-    `User\User` computes `DB_USERSTABLE` into a property *and* had ten queries
-    naming the table themselves — six lines referenced the resolved name while ten
-    bypassed it. The users, user-details and user-friends tables now go through one
-    private static accessor each, which is also what makes them usable from the
-    class's static methods.
-
-    The four friend methods were the last of them, with the harsher version of the
-    same defect: a **bare** `userfriends`, no `#PREFIX#` at all, so they addressed
-    a table that does not exist on a prefixed installation rather than the wrong
-    one. A constant that only some queries honour is worse than
-    no constant: it works until somebody sets it.
+    `User\User` computes `DB_USERSTABLE` into a property, and its users, user-details
+    and user-friends tables each go through one private static accessor, which is also
+    what makes them usable from the class's static methods. A query that names such a
+    table itself bypasses the setting — and a constant that only some queries honour is
+    worse than no constant: it works until somebody sets it.
 
 #### Schema-qualified tables
 
 `authserver.roles` is resolved per driver: a PostgreSQL schema, and a
 prefix-flattened `prefix_authserver_roles` on MySQL, which has no schemas. This
 is one of the reasons hand-written SQL against those tables silently matches
-nothing — see [rule 12 in the project rules](Pramnos_Framework_Guide.md).
+nothing, and why raw SQL over them should be converted to the builder.
 
 **A `Model` over one resolves the same way.** `Model::getFullTableName()` sends a `_dbtable`
 containing a dot through the same resolver, so
@@ -341,19 +328,15 @@ class Role extends \Pramnos\Application\Model
 ```
 
 reads and writes the schema on PostgreSQL and `prefix_authserver_roles` on the MySQL family
-(MariaDB included). It did not always, and it took **three** fixes because the Model has three
-places that name a table:
+(MariaDB included). The Model names a table in three places, and all three agree:
 
-1. `getFullTableName()` did not resolve a dotted name at all, so MySQL got
-   `yourdb.authserver.roles` — a cross-database reference — and threw.
-2. It then resolved it *after* prepending the connection's schema on PostgreSQL, so every read and
-   write went to `public.authserver.roles`. A qualified name is checked first now: it has already
-   said where it lives, and prepending another schema to it can only be wrong.
-3. The column-introspection query asked PostgreSQL for `table_schema = 'public' AND table_name =
-   'authserver.roles'`. That matches nothing, an empty column list is not an error anywhere, and
-   `_save()` went on to build `INSERT INTO authserver.roles () VALUES ()`. There were three copies
-   of that query and only one of them split the name; there is one now, and a save with no
-   writable columns throws instead of composing invalid SQL.
+1. `getFullTableName()` resolves a dotted name, so MySQL never sees `yourdb.authserver.roles` — a
+   cross-database reference.
+2. A qualified name is checked *before* the connection's schema would be prepended on PostgreSQL:
+   it has already said where it lives, and `public.authserver.roles` can only be wrong.
+3. Column introspection splits the name into schema and table. Unsplit, it would match nothing,
+   and an empty column list would build `INSERT INTO authserver.roles () VALUES ()`; a save with
+   no writable columns throws instead of composing invalid SQL.
 
 A model over a `pramnos.*` or `authserver.*` table needs nothing but the name.
 
@@ -451,12 +434,11 @@ $qb->whereRaw('a = ?', [1, 2]);
 // InvalidArgumentException: whereRaw() was given 2 binding(s) for 1 placeholder(s) in: a = ?
 ```
 
-That is deliberate, and it replaces a silent failure worth knowing about: a
-mismatch used to leave a literal `?` in the statement with one binding too many, the
-server rejected it, `get()`/`first()` returned **`false`**, and the only symptom was
-`Attempt to read property "fields" on false` in the *calling* code, several lines
-from the cause. A statement that cannot be prepared is now also written to the
-application error log with its SQL, so the false always has a trail.
+That is deliberate. Left to run, a mismatch would leave a literal `?` in the statement
+with one binding too many; the server would reject it, `get()`/`first()` would return
+**`false`**, and the only symptom would be `Attempt to read property "fields" on false`
+in the *calling* code, several lines from the cause. A statement that cannot be prepared
+is also written to the application error log with its SQL, so a `false` always has a trail.
 
 `orWhereRaw()` and `orHavingRaw()` exist for the OR forms; `havingRaw()` behaves
 identically for HAVING.
@@ -533,8 +515,8 @@ $qb->table('authserver.user_roles ur')
 
 #### `joinRaw(string $sql): static`
 
-For a join the builder cannot express. Note that a multi-condition `ON` no longer
-needs one:
+For a join the builder cannot express. A multi-condition `ON` does not need
+one — pass a closure to `join()` (above):
 
 ```php
 $qb->joinRaw("LEFT JOIN permissions p ON p.userid = u.userid AND p.active = 1");
@@ -587,7 +569,7 @@ $qb->limit(25);
 $qb->offset(50);  // page 3 with limit(25)
 ```
 
-#### `forPage(int $page, int $perPage = 15): static`
+#### `forPage(int $page, int $perPage): static`
 
 Shorthand for `offset(($page - 1) * $perPage)->limit($perPage)`.
 
@@ -691,11 +673,6 @@ where it is most consequential — **settings, permissions, bans, allowlists**. 
 failed to read is an empty ban list, and one cache call later it is a *cached* empty ban list,
 outliving the failure that caused it.
 
-That is not hypothetical. A consumer renamed their `settings` table away and their
-`getGlobalSettings()` returned `array()` without throwing; the answer was cached as the
-installation's configuration, so every feature toggle sat at its compiled-in default for the
-whole TTL, with nothing in the logs.
-
 Three ways to keep the distinction, cheapest first:
 
 ```php
@@ -735,14 +712,7 @@ return $this->cache($patterns);   // ← an unreadable table arrives here, as []
 ```
 
 `getAll()` does not throw on PostgreSQL, so the `catch` is unreachable and the failure walks
-straight into the branch that caches a miss. The author had decided the right thing and written
-it down; the decision simply could not run.
-
-A consumer found **eight** reads of this class in their application and reported that **six of
-them already had a `catch` written for exactly this failure** — one of them arguing the
-fail-closed direction explicitly, in a comment. Their summary is the useful part: *the week's
-work was less about deciding correct behaviour than about making decisions somebody had already
-taken actually run.*
+straight into the branch that caches a miss. The right decision is written down and cannot run.
 
 So when you find a `try/catch` around a convenience read, treat it as a **signal rather than a
 guard**: somebody knew this could fail and which way it should go. Check what the call actually
@@ -837,15 +807,6 @@ $qb->from('loginlockouts')
 That holds for `where()`, `orWhere()`, `having()`, `whereIn()` and both endpoints of
 `whereBetween()`, as well as the `insert()` / `update()` / `upsert()` value maps.
 
-> **Corrected 2026-08-20.** Until this date a raw value in `where()`, `having()` or
-> `whereBetween()` was inlined into the SQL **and** appended to the bindings, so the
-> statement carried one value more than it had placeholders. Both drivers refused it —
-> PostgreSQL with *"bind message supplies 1 parameters, but prepared statement requires
-> 0"*, MySQL with *"bind_param(): Argument #1 (\$types) must not be empty"* — which
-> means the `DELETE` example further down this page did not run as written. The
-> `insert()` and `upsert()` paths filtered Expressions out at their own call sites, so
-> the same fragment worked in a value map and threw in a `WHERE`. The filter now lives
-> in `addBinding()`, which every clause goes through.
 
 #### Conditional Building
 
@@ -867,7 +828,8 @@ $result = $qb->when($sortField,
 ### INSERT
 
 ```php
-$result = $db->queryBuilder()
+$qb = $db->queryBuilder();
+$result = $qb
     ->table('logs')
     ->insert([
         'message'    => 'User logged in',
@@ -879,7 +841,8 @@ $result = $db->queryBuilder()
 ### UPDATE
 
 ```php
-$db->queryBuilder()
+$qb = $db->queryBuilder();
+$qb
     ->table('users')
     ->where('userid', 42)
     ->update(['last_login' => $qb->raw('NOW()')]);
@@ -888,7 +851,8 @@ $db->queryBuilder()
 ### DELETE
 
 ```php
-$db->queryBuilder()
+$qb = $db->queryBuilder();
+$qb
     ->from('sessions')
     ->where('expires_at', '<', $qb->raw('NOW()'))
     ->delete();
@@ -1022,9 +986,8 @@ $db->queryBuilder()->table('usertokens')
 
 You need this because **PostgreSQL folds an unquoted identifier to lower case**.
 `SELECT parentToken` asks for `parenttoken`, which does not exist, and the query
-fails. `INSERT` and `UPDATE` have always quoted, so before this a camelCase column
-could be written and not read — and the failure looks exactly like an empty result,
-because the builder returns nothing either way.
+fails. `INSERT` and `UPDATE` quote as well, so a camelCase column can be both written and
+read; unquoted, the failure would look exactly like an empty result.
 
 Only a **bare identifier** is quoted, and only when it has an upper-case letter:
 
@@ -1078,7 +1041,7 @@ Returns compiled SQL without executing:
 
 ```php
 echo $qb->from('users')->where('active', 1)->toSql();
-// → SELECT * FROM "users" WHERE "active" = '...'
+// → SELECT * FROM users WHERE active = %i   (typed placeholder; the value is in getBindings())
 ```
 
 ### `getBindings(): array`
@@ -1087,7 +1050,7 @@ Returns bound parameter values:
 
 ```php
 $bindings = $qb->from('users')->where('active', 1)->getBindings();
-// → ['where' => [1], 'join' => [], ...]
+// → [1]   — a flat list, in placeholder order
 ```
 
 ## Complete Example — Paginated List
@@ -1112,7 +1075,3 @@ $users = $qb->get()->fetchAll();
 
 // Use $users and $total for rendering
 ```
-
-## Backward Compatibility
-
-`QueryBuilder` is new and purely additive. The existing `Database::query()`, `Database::prepareQuery()`, and `Database::execute()` methods are unchanged and continue to work exactly as before. No migration required for existing code.
