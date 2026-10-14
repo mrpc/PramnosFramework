@@ -38,6 +38,7 @@ function element(tag, attributes = {}) {
         set textContent(value) { this._text = String(value); this.children = []; },
         get firstElementChild() { return this.children[0] || null; },
         getAttribute(name) { return name in this.attributes ? this.attributes[name] : null; },
+        hasAttribute(name) { return name in this.attributes; },
         setAttribute(name, value) { this.attributes[name] = String(value); },
         removeAttribute(name) { delete this.attributes[name]; },
         appendChild(child) {
@@ -101,9 +102,11 @@ function all(root, selector) {
 }
 
 /** The panel the server draws, inside its template, with Ask and help. */
-function template(withHelp = true) {
+function template(withHelp = true, themed = false) {
     const tpl = element('template', { 'data-pf-assist': '' });
-    const aside = element('aside', { 'data-page': JSON.stringify({ screen: 'users', kind: 'user', id: '5' }), 'data-ask': '/admin/Ai', 'data-chat-script': '/assets/js/pf-chat.js', 'data-say-failed': 'Ask could not be opened here.' });
+    const aside = element('aside', { 'data-page': JSON.stringify({ screen: 'users', kind: 'user', id: '5' }), 'data-ask': '/admin/Ai', 'data-chat-script': '/assets/js/pf-chat.js', 'data-say-failed': 'Ask could not be opened here.',
+        // The server's own look carries inline styles; a themed panel only its classes.
+        ...(themed ? {} : { style: 'position:fixed' }) });
     aside.appendChild(element('button', { 'data-pf-assist-new': '' }));
     aside.appendChild(element('button', { 'data-pf-assist-close': '' }));
     if (withHelp) {
@@ -140,9 +143,10 @@ function askPage(conversationId) {
  * The page, the script run over it, and a fetch answering from a queue: a page's conversation,
  * or an Error.
  */
-function run({ answers = [], stored = {}, withHelp = true, chatLoaded = false } = {}) {
-    const opener = element('a', { 'data-pf-assist-open': '' });
-    const tpl = template(withHelp);
+function run({ answers = [], stored = {}, withHelp = true, chatLoaded = false, openers: tabs = [''], themed = false } = {}) {
+    const openers = tabs.map((tab) => element('a', { 'data-pf-assist-open': tab }));
+    const opener = openers[0];
+    const tpl = template(withHelp, themed);
     const body = element('body');
     const head = element('head');
     const docListeners = {};
@@ -166,6 +170,7 @@ function run({ answers = [], stored = {}, withHelp = true, chatLoaded = false } 
         body,
         head,
         querySelector: (s) => (s === '[data-pf-assist-open]' ? opener : s === 'template[data-pf-assist]' ? tpl : null),
+        querySelectorAll: (s) => (s === '[data-pf-assist-open]' ? openers : []),
         createElement: (t) => element(t),
         importNode: (node) => node,
         addEventListener: (type, h) => { (docListeners[type] ||= []).push(h); },
@@ -194,7 +199,7 @@ function run({ answers = [], stored = {}, withHelp = true, chatLoaded = false } 
     const key = (k) => docListeners.keydown.forEach((h) => h({ key: k }));
     const state = () => JSON.parse(storage['pf-assist'] || '{}');
 
-    return { opener, body, panel, requests, inits, key, state };
+    return { opener, openers, body, panel, requests, inits, key, state };
 }
 
 const settle = async () => {
@@ -314,5 +319,50 @@ test('a page that cannot be fetched, or has no conversation, says so and tries a
 
 test('a page without the panel does nothing', () => {
     // Act / Assert
-    assert.doesNotThrow(() => vm.runInNewContext(SOURCE, { window: {}, document: { querySelector: () => null } }));
+    assert.doesNotThrow(() => vm.runInNewContext(SOURCE, { window: {}, document: { querySelector: () => null, querySelectorAll: () => [] } }));
+});
+
+test('every opener opens the panel, on the tab it names; another tab\'s button turns it there', async () => {
+    // Arrange — the theme's two buttons: Ask, and "?" for the page's help
+    const ui = run({ answers: [askPage(0)], openers: ['ask', 'help'] });
+    const [ask, help] = ui.openers;
+    const shown = () => ['ask', 'help'].filter((name) => !ui.panel().querySelector(`[data-pf-assist-pane="${name}"]`).hidden);
+
+    // Act / Assert — "?" opens on help
+    help.dispatch('click');
+    await settle();
+    assert.deepEqual(shown(), ['help']);
+    assert.equal(ui.panel().style.display, 'flex');
+    assert.equal(ask.getAttribute('aria-expanded'), 'true', 'every opener says the panel is open');
+
+    // Ask, while it is open, turns it to Ask rather than closing it
+    ask.dispatch('click');
+    await settle();
+    assert.deepEqual(shown(), ['ask']);
+    assert.equal(ui.panel().style.display, 'flex');
+
+    // Ask again closes it, and focus goes back to the button pressed last
+    ask.dispatch('click');
+    assert.equal(ui.panel().style.display, 'none');
+    assert.equal(ask.focused, true);
+    assert.equal(help.getAttribute('aria-expanded'), 'false');
+});
+
+test('a themed panel is shown and hidden with `hidden`, and its tabs only say which is selected', async () => {
+    // Arrange — `'assist' => ['styles' => 'theme']`: the panel carries no inline styles
+    const ui = run({ answers: [askPage(0)], openers: ['help'], themed: true });
+
+    // Act
+    ui.opener.dispatch('click');
+    await settle();
+    const open = ui.panel().hidden;
+    const tab = ui.panel().querySelector('[data-pf-assist-tab="help"]');
+    ui.key('Escape');
+
+    // Assert
+    assert.equal(open, false);
+    assert.equal(tab.getAttribute('aria-selected'), 'true');
+    assert.equal(tab.style.fontWeight, undefined, 'the theme styles [aria-selected]');
+    assert.equal(ui.panel().hidden, true, 'Esc closes it');
+    assert.equal(ui.panel().style.display, undefined, 'no inline display set');
 });

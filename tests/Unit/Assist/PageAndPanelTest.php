@@ -289,7 +289,7 @@ class PageAndPanelTest extends LlmTestCase
         $this->assertStringContainsString('data-pf-assist-tab="help"', $both, 'two tabs');
         $this->assertStringContainsString('<strong>published</strong>', $both, 'the help, already drawn');
         $this->assertStringContainsString('&quot;title&quot;:&quot;All &lt;posts&gt;&quot;', $both, 'the page, escaped, to send back');
-        $this->assertStringContainsString('<strong style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">All &lt;posts&gt;</strong>', $both);
+        $this->assertStringContainsString('<strong class="pf-assist-title" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">All &lt;posts&gt;</strong>', $both);
         $this->assertStringEndsWith('pf-assist.js" defer></script></li>', $both);
         $this->assertStringContainsString('>Help</a>', $helpOnly, 'without the analyst, the help');
         $this->assertStringNotContainsString('data-pf-assist-pane="ask"', $helpOnly);
@@ -305,5 +305,74 @@ class PageAndPanelTest extends LlmTestCase
         $this->assertSame('', Panel::render(false, '/admin/Ai'), 'and without the analyst, nothing');
         $this->assertStringNotContainsString('help says', Page::prompt(Page::fromInput(['screen' => 'posts'])));
         $this->assertArrayNotHasKey('help', \Pramnos\Llm\Analyst\Analyst::tools(7));
+    }
+
+    /**
+     * A theme's own buttons: `opener()` draws one that opens the panel on a tab — nothing for a
+     * page without help, nothing for Ask on Ask's own page — and `template()` the panel alone.
+     */
+    public function testOpenersAndThePanelApart(): void
+    {
+        // Arrange
+        $screen = new \ReflectionProperty(Page::class, 'screen');
+        $screen->setValue(null, 'posts');
+
+        // Act
+        $help     = Panel::opener('help', '?', 'btn btn-ghost btn-circle', 'title="Help" aria-label="Help"');
+        $ask      = Panel::opener('ask');
+        $template = Panel::template(true, '/admin/Ai');
+        $screen->setValue(null, 'orders');
+        $noHelp   = Panel::opener('help');
+        $nothing  = Panel::template(false, '/admin/Ai');
+        $screen->setValue(null, 'ai');
+        $onAsk    = Panel::opener('ask');
+        $askOnly  = Panel::template(true, '/admin/Ai');
+
+        // Assert
+        $this->assertStringStartsWith('<a class="btn btn-ghost btn-circle" href="#" data-pf-assist-open="help" aria-haspopup="dialog" title="Help" aria-label="Help">?</a>', $help);
+        $this->assertStringContainsString('data-pf-assist-open="ask"', $ask);
+        $this->assertStringContainsString('>Ask</a>', $ask);
+        $this->assertStringStartsWith('<template data-pf-assist>', $template);
+        $this->assertStringNotContainsString('data-pf-assist-open', $template, 'the panel, not a button');
+        $this->assertStringEndsWith('pf-assist.js" defer></script>', $template);
+        $this->assertSame('', $noHelp);
+        $this->assertSame('', $nothing, 'neither Ask nor help: no panel');
+        $this->assertSame('', $onAsk);
+        $this->assertSame('', $askOnly, 'on Ask\'s own page, and no help for it');
+        $this->assertFalse(\Pramnos\Llm\Analyst\Analyst::canAsk(), 'nobody signed in');
+    }
+
+    /**
+     * `'assist' => ['styles' => 'theme']`: the panel carries its `pf-assist-*` classes and no inline
+     * style, so the theme's stylesheet decides its look; without the key it keeps its own.
+     */
+    public function testAThemedPanelCarriesOnlyItsClasses(): void
+    {
+        // Arrange
+        (new \ReflectionProperty(Page::class, 'screen'))->setValue(null, 'posts');
+        $app  = \Pramnos\Application\Application::getInstance();
+        $info = $app->applicationInfo;
+
+        try {
+            // Act
+            $own = Panel::template(true, '/admin/Ai');
+            $app->applicationInfo['assist'] = ['styles' => 'theme'];
+            $themed = Panel::template(true, '/admin/Ai');
+        } finally {
+            $app->applicationInfo = $info;
+        }
+
+        // Assert
+        $this->assertFalse(Panel::themed());
+        $this->assertStringContainsString('<aside class="pf-assist" role="dialog"', $themed);
+        foreach (['pf-assist-header', 'pf-assist-title', 'pf-assist-button', 'pf-assist-tabs', 'pf-assist-tab', 'pf-assist-pane'] as $hook) {
+            $this->assertStringContainsString($hook, $themed, $hook);
+        }
+        $this->assertStringNotContainsString(' style="', $themed);
+        $this->assertStringContainsString(' style="', $own);
+        // Every scaffolded stylesheet has the rules a themed panel relies on.
+        foreach (glob(ROOT . '/scaffolding/themes/*/style.css') ?: [] as $css) {
+            $this->assertStringContainsString('.pf-assist[hidden] { display: none; }', (string) file_get_contents($css), $css);
+        }
     }
 }

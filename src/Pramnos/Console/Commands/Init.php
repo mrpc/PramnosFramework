@@ -1303,7 +1303,9 @@ class Init extends Command
             . "        'default_controller' => 'Dashboard',\n"
             . "    ],\n";
 
-        $styleLines = "    'app_style' => '$appStyle',\n";
+        $styleLines = "    'app_style' => '$appStyle',\n"
+            // The side panel takes its look from the theme's stylesheet, which has its rules.
+            . "    'assist' => ['styles' => 'theme'],\n";
         if ($spaStack !== '') {
             $styleLines .= "    'spa_stack' => '$spaStack',\n";
         }

@@ -685,6 +685,20 @@ p.error {
 .pf-ui-spinner-lg { width: 2.5rem; height: 2.5rem; border-width: 3px; }
 @keyframes pf-ui-spin { to { transform: rotate(360deg); } }
 
+/*
+ * The side panel — Ask about the page, and its help — when the theme styles it:
+ * 'assist' => ['styles' => 'theme'] in app.php. Without that key it carries inline styles.
+ */
+.pf-assist { position: fixed; top: 0; right: 0; bottom: 0; z-index: 1080; display: flex; flex-direction: column; width: min(460px, 100vw); font-size: .95rem; background: var(--color-base-100, #fff); color: var(--color-base-content, #111); box-shadow: -4px 0 24px rgba(0,0,0,.25); }
+.pf-assist[hidden] { display: none; }
+.pf-assist-header { display: flex; gap: .5rem; align-items: center; padding: .625rem .75rem; border-bottom: 1px solid rgba(128,128,128,.3); }
+.pf-assist-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pf-assist-button { background: none; border: 1px solid rgba(128,128,128,.3); border-radius: .375rem; padding: .125rem .5rem; color: inherit; cursor: pointer; }
+.pf-assist-tabs { display: flex; gap: .375rem; padding: .5rem .75rem 0; }
+.pf-assist-tab[aria-selected="true"] { font-weight: 600; background: rgba(128,128,128,.18); }
+.pf-assist-pane { flex: 1; overflow: auto; padding: .75rem 1rem; }
+.pf-assist-more { margin-top: 1rem; opacity: .75; }
+
 /* The unread count beside a navigation label — NavItem::badgeHtml(). */
 .pf-nav-badge {
     display: inline-flex;

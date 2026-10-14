@@ -1,7 +1,8 @@
 /**
  * The administration's side panel: Ask about the page you are on, and that page's help.
  *
- * The server draws everything — the button (`data-pf-assist-open`), the panel inside
+ * The server draws everything — the buttons (`data-pf-assist-open`, every one of them; `="help"`
+ * or `="ask"` opens on that tab), the panel inside
  * `<template data-pf-assist>`, the help already rendered — and this script only opens it beside
  * the page. Ask is the analyst's conversation page itself: fetched, its conversation taken out of
  * it, and run by `pf-chat.js`, with the page this panel was opened on sent with every question.
@@ -19,14 +20,40 @@
 
     var KEY = 'pf-assist';
 
-    var opener = document.querySelector('[data-pf-assist-open]');
+    // Every opener: a theme may draw several — Ask, and a "?" for the page's help — each opening
+    // the one panel, on its own tab when it names one (`data-pf-assist-open="help"`).
+    var openers = Array.prototype.slice.call(document.querySelectorAll('[data-pf-assist-open]'));
     var template = document.querySelector('template[data-pf-assist]');
 
-    if (!opener || !template) {
+    if (openers.length === 0 || !template) {
         return;
     }
 
     var panel = null;
+    // The opener used last, where focus goes back when the panel closes.
+    var opener = openers[0];
+
+    /**
+     * Whether the panel draws itself: inline styles from the server, unless the theme styles it
+     * (`'assist' => ['styles' => 'theme']`), when it carries only its classes and is shown and
+     * hidden with `hidden`.
+     */
+    function inline() {
+        return panel.hasAttribute('style');
+    }
+
+    function isOpen() {
+        return panel !== null && (inline() ? panel.style.display !== 'none' : !panel.hidden);
+    }
+
+    function setOpen(on) {
+        if (inline()) {
+            panel.style.display = on ? 'flex' : 'none';
+        } else {
+            panel.hidden = !on;
+        }
+        openers.forEach(function (one) { one.setAttribute('aria-expanded', on ? 'true' : 'false'); });
+    }
 
     /** What this tab remembers; nothing, where storage is refused. */
     function remembered() {
@@ -67,8 +94,11 @@
         Array.prototype.forEach.call(panel.querySelectorAll('[data-pf-assist-tab]'), function (tab) {
             var selected = tab.getAttribute('data-pf-assist-tab') === name;
             tab.setAttribute('aria-selected', selected ? 'true' : 'false');
-            tab.style.fontWeight = selected ? '600' : '400';
-            tab.style.background = selected ? 'rgba(128,128,128,.18)' : 'none';
+            // A themed panel styles `[aria-selected="true"]` itself.
+            if (inline()) {
+                tab.style.fontWeight = selected ? '600' : '400';
+                tab.style.background = selected ? 'rgba(128,128,128,.18)' : 'none';
+            }
         });
         remember({ tab: name });
         if (name === 'ask' && !pane('ask').getAttribute('data-loaded')) {
@@ -151,7 +181,8 @@
         }
     }
 
-    function open() {
+    /** Open the panel, on `tab` when given, else on the one it was on. */
+    function open(tab) {
         if (!panel) {
             panel = template.content.firstElementChild.cloneNode(true);
             document.body.appendChild(panel);
@@ -170,33 +201,44 @@
                 });
             }
         }
-        // Its own display: `hidden` loses to the inline `display:flex` the panel is laid out with.
-        panel.style.display = 'flex';
-        opener.setAttribute('aria-expanded', 'true');
+        setOpen(true);
         remember({ open: true });
-        show(remembered().tab || 'ask');
+        show(tab || remembered().tab || 'ask');
     }
 
     function close() {
         if (panel) {
-            panel.style.display = 'none';
+            setOpen(false);
         }
-        opener.setAttribute('aria-expanded', 'false');
         remember({ open: false });
         opener.focus();
     }
 
-    opener.addEventListener('click', function (event) {
-        event.preventDefault();
-        if (panel && panel.style.display !== 'none') {
-            close();
-        } else {
-            open();
-        }
+    /** The tab an opener names, or '' for "where it was". */
+    function tabOf(one) {
+        return one.getAttribute('data-pf-assist-open') || '';
+    }
+
+    openers.forEach(function (one) {
+        one.addEventListener('click', function (event) {
+            event.preventDefault();
+            var tab = tabOf(one);
+            var current = remembered().tab;
+            opener = one;
+
+            // The same button again closes it; another tab's button turns to that tab.
+            if (isOpen() && (tab === '' || tab === current || !pane(tab))) {
+                close();
+            } else if (isOpen()) {
+                show(tab);
+            } else {
+                open(tab);
+            }
+        });
     });
 
     document.addEventListener('keydown', function (event) {
-        if (event.key === 'Escape' && panel && panel.style.display !== 'none') {
+        if (event.key === 'Escape' && isOpen()) {
             close();
         }
     });

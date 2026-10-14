@@ -84,48 +84,125 @@ final class Panel
     }
 
     /**
+     * Whether the theme styles the panel — `'assist' => ['styles' => 'theme']` in app.php — rather
+     * than the panel carrying its own inline styles.
+     *
+     * The panel always carries its `pf-assist-*` classes, and every scaffolded stylesheet styles
+     * them. Inline styles win over any class, though, so a theme that wants the panel in its own
+     * look (daisyUI's surfaces, Bootstrap's offcanvas) says so here; one that says nothing keeps
+     * the inline look it had, whether or not its stylesheet has the rules.
+     */
+    public static function themed(): bool
+    {
+        $app = \Pramnos\Application\Application::currentInstance();
+
+        return is_object($app) && ($app->applicationInfo['assist']['styles'] ?? null) === 'theme';
+    }
+
+    /**
+     * One button that opens the panel, on a tab: `ask` or `help`. For a theme that draws its own
+     * buttons — Ask, and a "?" for the page's help — beside one {@see template()}.
+     *
+     * '' for `help` where the page has none, and for `ask` on Ask's own page. Whether this person
+     * may ask is the caller's to decide ({@see \Pramnos\Llm\Analyst\Analyst::canAsk()}).
+     *
+     * @param string $tab        `ask` or `help`
+     * @param string $label      The button's text; "Ask" or "Help" by default, escaped either way
+     * @param string $class      Its classes
+     * @param string $attributes More attributes, as markup — `aria-label="…" title="…"`
+     */
+    public static function opener(string $tab, string $label = '', string $class = 'pf-ask', string $attributes = ''): string
+    {
+        $tab     = $tab === 'help' ? 'help' : 'ask';
+        $context = Page::context();
+        $book    = Help::book();
+
+        if ($tab === 'ask') {
+            if ($context['screen'] === 'ai') {
+                return '';
+            }
+            $href = function_exists('adminUrl') ? adminUrl('Ai') : '#';
+        } else {
+            $help = Help::enabled() ? $book->forScreen($context['screen'], $context['action']) : null;
+            if ($help === null) {
+                return '';
+            }
+            $href = $book->screen() !== '' ? $book->url((string) $help['slug']) : '#';
+        }
+
+        return '<a class="' . self::e($class) . '" href="' . self::e($href) . '" data-pf-assist-open="' . $tab . '" aria-haspopup="dialog"'
+            . ($attributes !== '' ? ' ' . $attributes : '') . '>'
+            . self::e($label !== '' ? $label : ($tab === 'ask' ? self::t('Ask') : self::t('Help'))) . '</a>';
+    }
+
+    /**
+     * The panel and its script, without a button — for a theme whose buttons are {@see opener()}s.
+     * '' where there is nothing to offer here.
+     *
+     * @param bool $ask Whether this person may ask the analyst
+     */
+    public static function template(bool $ask, string $askUrl): string
+    {
+        $context = Page::context();
+        $book    = Help::book();
+        $help    = Help::enabled() ? $book->forScreen($context['screen'], $context['action']) : null;
+
+        if ((!$ask || $context['screen'] === 'ai') && $help === null) {
+            return '';
+        }
+        $ask = $ask && $context['screen'] !== 'ai';
+
+        return '<template data-pf-assist>' . self::panel($ask, $askUrl, $help, $context, $book) . '</template>'
+            . '<script src="' . self::e(function_exists('assetUrl') ? assetUrl('assets/js/pf-assist.js') : 'assets/js/pf-assist.js') . '" defer></script>';
+    }
+
+    /**
      * @param array<string, mixed>|null $help
      * @param array<string, string>     $context
      */
     private static function panel(bool $ask, string $askUrl, ?array $help, array $context, HelpBook $book): string
     {
+        $themed = self::themed();
+        // Its own look, unless the theme gives it one.
+        $style  = static fn (string $css): string => $themed ? '' : ' style="' . $css . '"';
         $both   = $ask && $help !== null;
         $chat   = function_exists('assetUrl') ? assetUrl('assets/js/pf-chat.js') : 'assets/js/pf-chat.js';
-        $button = 'style="background:none;border:1px solid rgba(128,128,128,.4);border-radius:6px;padding:2px 8px;color:inherit;cursor:pointer"';
+        $button = 'class="pf-assist-button"' . $style('background:none;border:1px solid rgba(128,128,128,.4);border-radius:6px;padding:2px 8px;color:inherit;cursor:pointer');
         $html   = '<aside class="pf-assist" role="dialog" aria-label="' . self::e($ask ? self::t('Ask about this page') : self::t('Help')) . '"'
             . ' data-page="' . self::e((string) json_encode($context, JSON_UNESCAPED_UNICODE)) . '"'
             . ' data-ask="' . self::e($askUrl) . '" data-chat-script="' . self::e($chat) . '"'
             . ' data-say-loading="' . self::e(self::t('Loading…')) . '" data-say-failed="' . self::e(self::t('Ask could not be opened here.')) . '"'
-            . ' style="position:fixed;top:0;right:0;bottom:0;width:min(460px,100vw);z-index:1080;display:flex;flex-direction:column;'
-            . 'background:Canvas;color:CanvasText;box-shadow:-4px 0 24px rgba(0,0,0,.25);font-size:.95rem">'
-            . '<header style="display:flex;gap:8px;align-items:center;padding:10px 12px;border-bottom:1px solid rgba(128,128,128,.3)">'
-            . '<strong style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'
+            . $style('position:fixed;top:0;right:0;bottom:0;width:min(460px,100vw);z-index:1080;display:flex;flex-direction:column;'
+                . 'background:Canvas;color:CanvasText;box-shadow:-4px 0 24px rgba(0,0,0,.25);font-size:.95rem') . '>'
+            . '<header class="pf-assist-header"' . $style('display:flex;gap:8px;align-items:center;padding:10px 12px;border-bottom:1px solid rgba(128,128,128,.3)') . '>'
+            . '<strong class="pf-assist-title"' . $style('flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap') . '>'
             . self::e($context['title'] !== '' ? $context['title'] : ($ask ? self::t('Ask') : self::t('Help'))) . '</strong>';
 
         if ($ask) {
             $html .= '<button type="button" data-pf-assist-new ' . $button . '>' . self::e(self::t('New')) . '</button>'
-                . '<a href="' . self::e($askUrl) . '" title="' . self::e(self::t('Open in Ask')) . '" aria-label="' . self::e(self::t('Open in Ask')) . '">↗</a>';
+                . '<a class="pf-assist-link" href="' . self::e($askUrl) . '" title="' . self::e(self::t('Open in Ask')) . '" aria-label="' . self::e(self::t('Open in Ask')) . '">↗</a>';
         }
 
         $html .= '<button type="button" data-pf-assist-close aria-label="' . self::e(self::t('Close')) . '" ' . $button . '>✕</button></header>';
 
         if ($both) {
-            $html .= '<nav style="display:flex;gap:6px;padding:8px 12px 0" role="tablist">'
-                . '<button type="button" role="tab" data-pf-assist-tab="ask" aria-selected="true" ' . $button . '>' . self::e(self::t('Ask')) . '</button>'
-                . '<button type="button" role="tab" data-pf-assist-tab="help" aria-selected="false" ' . $button . '>' . self::e(self::t('Help')) . '</button>'
+            $tab = 'class="pf-assist-button pf-assist-tab"' . $style('background:none;border:1px solid rgba(128,128,128,.4);border-radius:6px;padding:2px 8px;color:inherit;cursor:pointer');
+            $html .= '<nav class="pf-assist-tabs"' . $style('display:flex;gap:6px;padding:8px 12px 0') . ' role="tablist">'
+                . '<button type="button" role="tab" data-pf-assist-tab="ask" aria-selected="true" ' . $tab . '>' . self::e(self::t('Ask')) . '</button>'
+                . '<button type="button" role="tab" data-pf-assist-tab="help" aria-selected="false" ' . $tab . '>' . self::e(self::t('Help')) . '</button>'
                 . '</nav>';
         }
 
         if ($ask) {
-            $html .= '<section data-pf-assist-pane="ask" style="flex:1;overflow:auto;padding:12px"></section>';
+            $html .= '<section class="pf-assist-pane" data-pf-assist-pane="ask"' . $style('flex:1;overflow:auto;padding:12px') . '></section>';
         }
 
         if ($help !== null) {
             $page   = $book->screen() !== '';
-            $html  .= '<section data-pf-assist-pane="help"' . ($ask ? ' hidden' : '') . ' style="flex:1;overflow:auto;padding:12px 16px">'
+            $html  .= '<section class="pf-assist-pane" data-pf-assist-pane="help"' . ($ask ? ' hidden' : '') . $style('flex:1;overflow:auto;padding:12px 16px') . '>'
                 . '<div class="pf-help-page">' . ($page ? $book->pageHtml($help) : Help::html((string) $help['body'])) . '</div>'
                 . ($page
-                    ? '<p style="margin-top:16px;opacity:.75"><a href="' . self::e($book->url((string) $help['slug'])) . '">' . self::e(self::t('Open this page')) . '</a>'
+                    ? '<p class="pf-assist-more"' . $style('margin-top:16px;opacity:.75') . '><a href="' . self::e($book->url((string) $help['slug'])) . '">' . self::e(self::t('Open this page')) . '</a>'
                         . ' · <a href="' . self::e($book->url()) . '">' . self::e(self::t('All help')) . '</a></p>'
                     : '')
                 . '</section>';

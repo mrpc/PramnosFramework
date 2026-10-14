@@ -61,11 +61,22 @@ final class Analyst
                 : '';
         }
 
-        $ask = \Pramnos\Application\FeatureRegistry::isEnabled('llm')
+        return \Pramnos\Assist\Panel::render(self::canAsk(), adminUrl('Ai'), $before, $after);
+    }
+
+    /**
+     * Whether the signed-in person may ask the analyst here: the `llm` feature, a key for its
+     * connection, and `admin.ai` at the analyst's floor. For a theme that draws its own Ask button
+     * with `Panel::opener('ask')` beside `Panel::template(Analyst::canAsk(), adminUrl('Ai'))`.
+     */
+    public static function canAsk(): bool
+    {
+        $user = \Pramnos\User\User::getCurrentUser();
+
+        return is_object($user) && (int) ($user->userid ?? 0) > 1
+            && \Pramnos\Application\FeatureRegistry::isEnabled('llm')
             && self::available()
             && \Pramnos\Auth\AdminAccess::allows($user, 'admin.ai', self::floor());
-
-        return \Pramnos\Assist\Panel::render($ask, adminUrl('Ai'), $before, $after);
     }
 
     /**

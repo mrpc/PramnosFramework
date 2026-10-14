@@ -11,6 +11,8 @@ use_cases:
   - Hiding help pages or parts of them from customers whose plan does not include a feature
   - Letting the application's own assistant answer from the site's help pages
   - Making the site's help button a small icon, or replacing it with the application's own
+  - Putting separate Ask and Help buttons in a theme's header, each opening the panel on its tab
+  - Styling the side panel from the theme's stylesheet, to match daisyUI or Bootstrap
 ---
 
 # Administration help and the side panel
@@ -185,6 +187,44 @@ button, the panel inside an inert `<template>`, and `assets/js/pf-assist.js`.
 - **New** starts another conversation.
 
 Without the script the button is a plain link: to Ask, or to the page's help.
+
+### Buttons of the theme's own
+
+`headerButton()` draws one button. A theme that wants its own, an "Ask" and a "?" for the page's
+help each opening the panel on its tab, draws openers and the panel separately:
+
+```php
+<?php use Pramnos\Assist\Panel; use Pramnos\Llm\Analyst\Analyst; ?>
+<?php if (Analyst::canAsk()): ?>
+    <?php echo Panel::opener('ask', t('Ask'), 'btn btn-ghost btn-sm'); ?>
+<?php endif; ?>
+<?php echo Panel::opener('help', '?', 'btn btn-ghost btn-sm btn-circle', 'aria-label="Help" title="Help"'); ?>
+<?php echo Panel::template(Analyst::canAsk(), adminUrl('Ai')); ?>
+```
+
+- **Every `[data-pf-assist-open]` is an opener.** One that names a tab (`="ask"`, `="help"`)
+  opens the panel there.
+- **Pressing it again closes the panel.** Pressing another tab's opener while the panel is open
+  turns the panel to that tab.
+- **`opener('help')` draws nothing on a page without help.** `opener('ask')` draws nothing on
+  Ask's own page.
+- **`template()` draws nothing** where there is neither Ask nor help.
+
+### Styling the panel from the theme
+
+The panel always carries its classes: `pf-assist`, `pf-assist-header`, `pf-assist-title`,
+`pf-assist-button`, `pf-assist-tabs`, `pf-assist-tab` (styled by `[aria-selected="true"]`),
+`pf-assist-pane`, `pf-assist-more`. It also carries inline styles, which win over any class,
+unless the application says the theme styles it:
+
+```php
+// app/app.php — init writes it
+'assist' => ['styles' => 'theme'],
+```
+
+Then the panel carries only its classes and is shown and hidden with `hidden`. Every scaffolded
+stylesheet has the rules, from the system's own surface colours; a theme overrides them like any
+other. A project scaffolded before keeps the inline look until it adds the key and the rules.
 
 ## The site's help, for visitors
 
