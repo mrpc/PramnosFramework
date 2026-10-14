@@ -114,8 +114,9 @@ export default [
     },
 
     {
-        // The framework's own JS tests, which run under `node --test`.
-        files: ['tests/js/**/*.js'],
+        // The framework's own JS tests, which run under `node --test` — and the test helpers it
+        // ships for applications' tests, `resources/js/pramnos-testing`, which run there too.
+        files: ['tests/js/**/*.js', 'resources/js/**/*.js'],
         languageOptions: {
             ecmaVersion: 2022,
             // `require()`, not `import` — these run under `node --test` as CommonJS, and
@@ -140,6 +141,7 @@ export default [
                 fetch: 'readonly',
                 structuredClone: 'readonly',
                 setImmediate: 'readonly',
+                URLSearchParams: 'readonly',
             },
         },
         rules: {

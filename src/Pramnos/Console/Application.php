@@ -150,6 +150,9 @@ class Application extends \Symfony\Component\Console\Application
         $this->add(new \Pramnos\Console\Commands\MaintenanceOff());
         // Health check (Phase 4)
         $this->add(new \Pramnos\Console\Commands\HealthCheck());
+        // The application's JavaScript: its tests, and the framework's lint rules
+        $this->add(new \Pramnos\Console\Commands\TestJs());
+        $this->add(new \Pramnos\Console\Commands\LintJs());
         // Routing introspection
         $this->add(new \Pramnos\Console\Commands\RouteList());
         $this->add(new \Pramnos\Console\Commands\ApiDocs());

@@ -948,6 +948,8 @@ php bin/pramnos logs:convert /path/to/file.log --no-backup
 | Command | Purpose | Key options |
 |---|---|---|
 | `health:check` | Run all registered health checks | `--json`, `--only` |
+| `test:js` | Run the application's JavaScript tests with `node --test` and the framework's `pramnos-testing` helpers | `--dir`, files |
+| `lint:js` | ESLint over the application's JavaScript with the framework's rules | `--fix`, paths |
 | `debug:status` | Show the debug configuration (APP_DEBUG, Xdebug, port 9003) | — |
 | `debug:token` | Issue a signed token that opens the debug toolbar for one browser | `--ttl`, `--url/-u` |
 | `api:docs` | Generate an OpenAPI document from `#[Route]` controllers (and RapiDoc HTML) | `--controllers`, `--namespace`, `--routes`, `--output`, `--title`, `--api-version`, `--description`, `--server` (repeatable), `--overrides`, `--allow-empty`, `--no-html` |
