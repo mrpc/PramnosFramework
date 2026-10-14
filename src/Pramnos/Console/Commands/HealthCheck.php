@@ -10,8 +10,6 @@ use Symfony\Component\Console\Helper\Table;
 use Pramnos\Health\HealthRegistry;
 use Pramnos\Health\HealthStatus;
 use Pramnos\Health\Checks\DatabaseConnectivityCheck;
-use Pramnos\Health\Checks\DiskSpaceCheck;
-use Pramnos\Health\Checks\MemoryLimitCheck;
 
 /**
  * Runs all registered health checks and displays a status table.
@@ -80,17 +78,23 @@ class HealthCheck extends Command
     // Helpers
     // -------------------------------------------------------------------------
 
+    /**
+     * The same checks `/health` runs: the framework's whole list. The database's is always
+     * there — not connecting is what it reports here, since this is where somebody looks.
+     */
     private function registerBuiltinChecks(): void
     {
+        $db = null;
         try {
             $db = \Pramnos\Database\Database::getInstance();
-            HealthRegistry::register(new DatabaseConnectivityCheck($db));
         } catch (\Throwable) {
-            // DB not available — the check itself will report Down when run
+            // No database object at all: its check is left out.
         }
 
-        HealthRegistry::register(new DiskSpaceCheck());
-        HealthRegistry::register(new MemoryLimitCheck());
+        HealthRegistry::registerBuiltIns(null);
+        if ($db !== null) {
+            HealthRegistry::register(new DatabaseConnectivityCheck($db));
+        }
     }
 
     /**
@@ -154,7 +158,8 @@ class HealthCheck extends Command
             if (!empty($row['details'])) {
                 $parts = [];
                 foreach ($row['details'] as $k => $v) {
-                    $parts[] = "{$k}: {$v}";
+                    // A detail may be a list or a map — a check reports what it found.
+                    $parts[] = $k . ': ' . (is_scalar($v) || $v === null ? (string) $v : json_encode($v, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
                 }
                 $details = implode(', ', $parts);
             }

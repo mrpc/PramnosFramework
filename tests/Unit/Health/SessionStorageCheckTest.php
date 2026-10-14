@@ -187,7 +187,7 @@ class SessionStorageCheckTest extends TestCase
     {
         // Arrange
         $source = (string) file_get_contents(
-            dirname(__DIR__, 3) . '/src/Pramnos/Application/Application.php'
+            dirname(__DIR__, 3) . '/src/Pramnos/Health/HealthRegistry.php'
         );
 
         // Act + Assert

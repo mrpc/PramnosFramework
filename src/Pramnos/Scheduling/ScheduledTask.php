@@ -230,7 +230,7 @@ class ScheduledTask
      * that excludes nothing in exactly the same way and just as quietly.
      *
      * ```php
-     * Scheduler::command('reports:nightly')->dailyAt('02:00')->onOneServer();
+     * Scheduler::command('reports:nightly')->daily()->at('02:00')->onOneServer();
      * ```
      *
      * **The lease has to outlast the work.** A holder that dies never releases, so the

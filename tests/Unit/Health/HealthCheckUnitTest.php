@@ -767,4 +767,25 @@ class HealthCheckUnitTest extends TestCase
             }
         };
     }
+
+    /**
+     * `health:check` runs the checks `/health` runs: the framework's whole list, not three of
+     * them — `site_url`, `session_storage` and `cache` were missing from the command, so the
+     * process that most needs a site root could not see it was unset.
+     */
+    public function testTheCommandRunsWhatTheEndpointRuns(): void
+    {
+        // Arrange
+        $command = new \Pramnos\Console\Commands\HealthCheck();
+        $tester  = new \Symfony\Component\Console\Tester\CommandTester($command);
+
+        // Act
+        $tester->execute(['--json' => true]);
+        $report = json_decode($tester->getDisplay(), true);
+
+        // Assert
+        foreach (['disk_space', 'memory_limit', 'cache', 'site_url', 'session_storage', 'framework_scripts', 'llm_tables', 'hypertables'] as $name) {
+            $this->assertArrayHasKey($name, $report['checks'], $name . ' is run by the command too');
+        }
+    }
 }
