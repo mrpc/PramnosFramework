@@ -457,4 +457,49 @@ class PaginationTest extends TestCase
         $this->assertSame('5', $byText['5'], 'the current page too');
         $this->assertStringNotContainsString('data-page="…"', $pagination->render(), 'the ellipsis is no link');
     }
+
+    /** The numbered links a pager draws, in order — buttons and ellipses left out. */
+    private static function numbersOf(Pagination $pagination): array
+    {
+        preg_match_all('#<a [^>]*>(\d+)</a>#', $pagination->render(), $m);
+
+        return array_map('intval', $m[1]);
+    }
+
+    /**
+     * The window keeps its width at the ends — five numbers on page 1 and on the last page, as on
+     * any page in the middle — and every page when there are fewer than that. The reader's row
+     * does not change width as they move through it.
+     */
+    public function testTheWindowKeepsItsWidthAtTheEnds(): void
+    {
+        // Arrange
+        $make = static function (int $pages, int $page): Pagination {
+            $pagination = new Pagination($pages, $page, '/ads/page/:page');
+            $pagination->displayEdgePages    = false;
+            $pagination->displayNextPrevious = false;
+            $pagination->displayFirstLast    = false;
+
+            return $pagination;
+        };
+
+        // Act / Assert
+        $this->assertSame([1, 2, 3, 4, 5], self::numbersOf($make(76, 1)), 'page 1: the window runs forward');
+        $this->assertSame([1, 2, 3, 4, 5], self::numbersOf($make(76, 2)));
+        $this->assertSame([3, 4, 5, 6, 7], self::numbersOf($make(76, 5)), 'the middle, as before');
+        $this->assertSame([72, 73, 74, 75, 76], self::numbersOf($make(76, 76)), 'the last page: the window runs back');
+        $this->assertSame([1, 2, 3], self::numbersOf($make(3, 2)), 'fewer pages than the window: every page');
+    }
+
+    /** `steadyWindow = false` is the window cut at the ends: three numbers on page 1. */
+    public function testASteadyWindowCanBeTurnedOff(): void
+    {
+        // Arrange
+        $pagination = new Pagination(76, 1, '/ads/page/:page');
+        $pagination->displayEdgePages = false;
+        $pagination->steadyWindow     = false;
+
+        // Act / Assert
+        $this->assertSame([1, 2, 3], self::numbersOf($pagination));
+    }
 }

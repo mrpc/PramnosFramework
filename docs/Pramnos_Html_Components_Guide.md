@@ -955,6 +955,7 @@ whole reason these are paths rather than a query parameter.
 | `pageContainerElement` | `''` | element wrapping each link — `'li'` for a list |
 | `currentPageClass` | `'current'` | class on the current page's link |
 | `adjacents` | `2` | pages shown either side of the current one |
+| `steadyWindow` | `true` | the number row keeps `2 × adjacents + 1` numbers at the ends too |
 | `displayNextPrevious` | `true` | the ‹ › buttons |
 | `displayFirstLast` | `true` | the « » buttons |
 | `displayEdgePages` | `true` | the pinned `1` and last-page **numbers** beside the ellipses |
@@ -1017,6 +1018,15 @@ The ellipses stay honest either way — they appear only where a page is actuall
 and the threshold moves with the setting. With `1` on screen a gap exists from page 3, so
 `1 … 2` would be a lie; with `1` off screen a gap exists from page 2, and omitting the
 dots there would hide the fact that page 1 exists at all.
+
+### The window keeps its width at the ends
+
+Near an end, the numbers the window cannot show on one side are shown on the other. With
+`adjacents = 2` page 1 shows `1 2 3 4 5`, page 2 the same, the last page `72 73 74 75 76`:
+`2 × adjacents + 1` numbers on every page, or every page when there are fewer. A row that
+narrows at the ends is a row that moves under the pointer as the reader steps through it.
+
+`steadyWindow = false` cuts the window at the ends instead — `1 2 3` on page 1.
 
 ---
 

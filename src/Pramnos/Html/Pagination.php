@@ -115,6 +115,16 @@ class Pagination extends \Pramnos\Framework\Base
     /** How many pages to show either side of the current one. */
     public int $adjacents = 2;
 
+    /**
+     * Whether the window of numbers keeps its width at the ends.
+     *
+     * On, there are always `2 × adjacents + 1` numbers (or every page, when there are fewer): on
+     * page 1 the window runs `1 2 3 4 5`, on the last page `72 … 76`, rather than shrinking to
+     * three numbers. A row whose width changes as the reader moves is a row that moves under the
+     * pointer. Off, the window is the current page and `adjacents` either side, cut at the ends.
+     */
+    public bool $steadyWindow = true;
+
     /** Whether to show previous/next. */
     public bool $displayNextPrevious = true;
 
@@ -295,6 +305,17 @@ class Pagination extends \Pramnos\Framework\Base
     {
         $from = max(1, $this->page - $this->adjacents);
         $to   = min($this->pages, $this->page + $this->adjacents);
+
+        // Cut at one end, it borrows from the other: the same count of numbers on every page.
+        if ($this->steadyWindow) {
+            $width = 2 * $this->adjacents;
+            if ($from === 1) {
+                $to = min($this->pages, 1 + $width);
+            }
+            if ($to === $this->pages) {
+                $from = max(1, $this->pages - $width);
+            }
+        }
 
         $out = '';
 
