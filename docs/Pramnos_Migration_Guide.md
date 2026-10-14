@@ -152,8 +152,8 @@ apply on every one of those paths:
 - **`features`** gates the framework's per-feature migration directories. A
   feature the application has not enabled contributes no migrations.
 - **`migration_cutoff`** excludes every migration whose filename timestamp is at
-  or before it. In `app.php` it is a date-time string such as `'2020-01-02 00:00:00'`; a
-  value that does not parse as a date leaves no cutoff. A migration with no timestamp in its name is never excluded by a
+  or before it. In `app.php` it is a migration timestamp (`'2020_01_02_000000'`) or a date-time
+  (`'2020-01-02 00:00:00'`); a value that is neither leaves no cutoff. A migration with no timestamp in its name is never excluded by a
   cutoff, on either path.
 
 This matters most on an installation whose schema predates the migration system.
@@ -1037,10 +1037,10 @@ suite.
 
 **Important:** the framework's *baseline* migrations carry the `2020_01_01_*` timestamp; later
 framework migrations carry their real date. An installation whose database predates the
-migration system skips the baseline with a cutoff just after it — in `app.php` as a date-time,
-`'migration_cutoff' => '2020-01-02 00:00:00'`. The setting is parsed with `new \DateTime()`, so
-the underscore form (`2020_01_02_000000`) does not parse there and leaves **no** cutoff at all;
-the underscore form is what `--cutoff` and `MigrationRunner::run(['cutoff' => …])` take.
+migration system skips the baseline with a cutoff just after it:
+`'migration_cutoff' => '2020_01_02_000000'` in `app.php` — or the same moment as a date-time,
+`'2020-01-02 00:00:00'`. `--cutoff` and `MigrationRunner::run(['cutoff' => …])` take the
+underscore form.
 
 ## Batching & Rollback
 

@@ -1542,4 +1542,21 @@ class ApplicationTest extends TestCase
             unset($_SESSION['user']);
         }
     }
+
+    /**
+     * A cutoff written as a migration's own timestamp — `2020_01_02_000000`, the form the docs use
+     * — is read as it is; DateTime cannot parse it, and an unread cutoff disabled itself silently,
+     * so a legacy installation would replay its baseline migrations.
+     */
+    public function testAMigrationCutoffInTheLedgersOwnShapeIsKept(): void
+    {
+        // Arrange
+        $app       = $this->getMockBuilder(\Pramnos\Application\Application::class)->disableOriginalConstructor()->onlyMethods([])->getMock();
+        $normalize = new \ReflectionMethod(\Pramnos\Application\Application::class, 'normalizeMigrationCutoff');
+
+        // Act / Assert
+        $this->assertSame('2020_01_02_000000', $normalize->invoke($app, '2020_01_02_000000'));
+        $this->assertSame('2020_01_02_000000', $normalize->invoke($app, '2020-01-02 00:00:00'), 'a date is still read');
+        $this->assertSame('', $normalize->invoke($app, 'not a date'));
+    }
 }

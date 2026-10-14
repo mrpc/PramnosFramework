@@ -4493,6 +4493,12 @@ class Application extends Base
         if ($raw === '') {
             return '';
         }
+        // A migration's own timestamp shape — `2020_01_02_000000`, as the cutoff is written in
+        // the docs and the project rules — is already the answer. DateTime does not read it, and
+        // an unread cutoff is no cutoff: a legacy installation would replay its baseline.
+        if (preg_match('/^\d{4}_\d{2}_\d{2}_\d{6}$/', trim($raw)) === 1) {
+            return trim($raw);
+        }
         try {
             return (new \DateTime($raw))->format('Y_m_d_His');
         } catch (\Throwable) {
