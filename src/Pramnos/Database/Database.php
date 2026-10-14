@@ -745,7 +745,8 @@ class Database extends \Pramnos\Framework\Base
         $sql = ltrim($sql);
         // Common read-only keywords
         $readKeywords = ['SELECT', 'SHOW', 'EXPLAIN', 'DESC', 'DESCRIBE'];
-        $firstWord = strtoupper(explode(' ', $sql)[0]);
+        // The first word, whatever whitespace follows it: `SELECT\n…` is a read too.
+        $firstWord = strtoupper((string) (preg_split('/\s+/', $sql, 2)[0] ?? ''));
         
         return !in_array($firstWord, $readKeywords);
     }

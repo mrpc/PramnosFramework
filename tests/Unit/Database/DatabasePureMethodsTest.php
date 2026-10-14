@@ -54,6 +54,9 @@ class DatabasePureMethodsTest extends TestCase
             'ALTER TABLE'       => ['ALTER TABLE foo ADD COLUMN bar INT', true],
             'TRUNCATE'          => ['TRUNCATE TABLE foo',                 true],
             'CALL stored proc'  => ['CALL my_proc()',                     true],
+            // The first word, whatever whitespace follows it: a read on its own line is a read.
+            'SELECT newline'    => ["SELECT\n  id\nFROM users",           false],
+            'SELECT tab'        => ["SELECT\tid FROM users",              false],
         ];
     }
 

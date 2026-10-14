@@ -1255,11 +1255,11 @@ only that. `port` may be set per block and otherwise falls back to the top level
 
 ### How a statement picks a link
 
-`isWriteQuery()` takes the statement's text up to its first space. `SELECT`, `SHOW`, `EXPLAIN`,
+`isWriteQuery()` takes the statement's first word, whatever whitespace follows it. `SELECT`, `SHOW`, `EXPLAIN`,
 `DESC` and `DESCRIBE` go to the read link; **everything else goes to the write link**, which is the
 safe direction to be wrong in — an unrecognised statement reaches the primary rather than
-being refused by a read-only replica. A keyword followed by a newline instead of a space, and a
-`WITH … SELECT`, therefore also go to the primary.
+being refused by a read-only replica. A `WITH … SELECT` therefore goes to the primary, since a
+common table expression can write.
 
 The two links are independent sessions. The configured time zone and collation are applied
 to each, and a link a failed statement has shown to be gone is replaced on the next call
