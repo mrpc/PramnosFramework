@@ -100,8 +100,9 @@ class Theme extends \Pramnos\Framework\Base
         'page' => 'page.php', // The page template. Used when an individual Page is queried.
         'single' => 'single.php', // The single post template. Used when a single post is queried. For this and all other query templates, index.php is used if the query template is not present.
         'home' => 'home.php', // The home page template, which is the front page by default. If you use a static front page this is the template for the page with the latest posts.
-        'front-page', 'front-page.php', // The front page template, it is only used if you use a static front page.
+        'front-page' => 'front-page.php', // The front page template, it is only used if you use a static front page.
         'comments' => 'comments.php', // The comments template.
+        'search_form' => 'searchform.php', // The search form. To include it, use get_search_form().
         'style' => 'style.css', // The main stylesheet.
         'dynamicStyle' => 'style.php',
         'index' => 'theme.html.php',
@@ -422,6 +423,10 @@ class Theme extends \Pramnos\Framework\Base
             include $themefile; //This way we execute any PHP commands in the file.
             $this->contents = ob_get_contents();
             ob_end_clean();
+        } else {
+            // A theme named in app.php that is not there draws the bare screen — no stylesheet,
+            // no navigation, no scripts — and nothing else says why.
+            \Pramnos\Logs\Logger::log('Theme "' . $this->theme . '" has no layout at ' . $themefile . ': the page is drawn without one.', 'theme');
         }
         if (preg_match("/\<body(.*?)>(.*?)<\/body>/is", $this->contents, $result)) {
             $this->body = $result[2];
@@ -484,7 +489,10 @@ class Theme extends \Pramnos\Framework\Base
         $this->loadIfUnread();
 
         $return = '';
-        $head = substr($this->body, 0, strpos($this->body, "[MODULE]"));
+        // A layout without [MODULE] is all head: the screen follows it, rather than the layout
+        // being cut at position 0 and its first eight characters lost from the foot.
+        $at   = strpos($this->body, "[MODULE]");
+        $head = $at === false ? $this->body : substr($this->body, 0, $at);
         $return .= $head; //pass html code to the browser
         $return .= "\n<!-- Begin Module Content -->\n"; //add this to make the html code easy to understand
         return $return;
@@ -498,7 +506,8 @@ class Theme extends \Pramnos\Framework\Base
         $this->loadIfUnread();
 
         $return = '';
-        $foot = substr($this->body, (strpos($this->body, "[MODULE]") + 8));
+        $at   = strpos($this->body, "[MODULE]");
+        $foot = $at === false ? '' : substr($this->body, $at + 8);
         $return .= "\n<!-- End of Module Content -->\n";
         $return .= $foot;
         return $return;

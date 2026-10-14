@@ -218,6 +218,52 @@ class DatatableTest extends TestCase
     // =========================================================================
 
     /**
+     * Bootstrap's markup follows the project's UI system: on under bootstrap and with no system
+     * declared, off under tailwind and plain-css — where Bootstrap's classes have no stylesheet and
+     * its dropdown no script, so the column picker opened nothing.
+     */
+    public function testBootstrapFollowsTheUiSystem(): void
+    {
+        // Arrange
+        $app  = \Pramnos\Application\Application::getInstance();
+        $info = $app->applicationInfo;
+        $made = [];
+
+        try {
+            // Act
+            foreach (['' => null, 'bootstrap' => 'bootstrap', 'tailwind' => 'tailwind', 'plain-css' => 'plain-css'] as $key => $theme) {
+                $app->applicationInfo['scaffold_theme'] = $theme;
+                $made[$key === '' ? 'none' : $key] = (new Datatable('t'))->bootstrap;
+            }
+        } finally {
+            $app->applicationInfo = $info;
+        }
+
+        // Assert
+        $this->assertSame(['none' => true, 'bootstrap' => true, 'tailwind' => false, 'plain-css' => false], $made);
+    }
+
+    /**
+     * The column picker's dropdown opens under Bootstrap 5 as well as 3: each reads its own toggle
+     * attribute and button class, and the items carry 5's `dropdown-item`.
+     */
+    public function testTheColumnPickerOpensUnderBootstrapFive(): void
+    {
+        // Arrange
+        $dt = new Datatable('grid', '/api/data');
+        $dt->bootstrap = true;
+        $dt->addColumn('Name');
+
+        // Act
+        $html = $dt->renderTable();
+
+        // Assert
+        $this->assertStringContainsString('data-toggle="dropdown" data-bs-toggle="dropdown"', $html);
+        $this->assertStringContainsString('btn btn-default btn-secondary btn-sm dropdown-toggle', $html);
+        $this->assertStringContainsString('<li><a class="dropdown-item" href="#" id="psh_grid_0">Name</a></li>', $html);
+    }
+
+    /**
      * renderTable() produces a string containing a <table> element with the
      * datatable id set to the configured name.
      */

@@ -957,8 +957,9 @@ id. Arguments after `section` are optional and are normally passed by name.
 | `badge` | `?\Closure` | `null` | `fn (int $userId): int` — a count shown beside the label. |
 | `when` | `?\Closure` | `null` | `fn (?User $user): bool` — asked at render time; hidden when it returns false or throws. |
 
-Two methods read the badge: `badgeCount(int $userId): int` and `badgeLabel(int $userId): string`
-(which writes anything over 99 as `99+`). Both answer zero for a guest, for an item without a
+Three methods read the badge: `badgeCount(int $userId): int`, `badgeLabel(int $userId): string`
+(which writes anything over 99 as `99+`), and `badgeHtml(int $userId): string`, the markup a
+scaffolded header prints after the label: a `pf-nav-badge` span named "3 unread", or nothing. Both answer zero for a guest, for an item without a
 badge, and when the closure throws; the value is memoised per item and user for the request,
 so a header and a mobile menu can both ask. The badge's design is described in the
 [Authorization Guide](Pramnos_Authorization_Guide.md#a-count-beside-a-label).
@@ -1182,13 +1183,13 @@ nested submenu. Read the menu once per page and pass `$_nav` to every partial th
 - **One level of nesting is what the shipped headers render.** `parent` may point at a child,
   but nothing renders grandchildren unless your template recurses.
 - **Orphans.** If a parent is hidden for this user, `getForUser()` still returns its visible
-  children with `parent` set. The scaffolded headers file them under the missing parent and
-  never print them; promote them, as the example does.
+  children with `parent` set. A template that nests must promote them, as the example and the
+  scaffolded Tailwind header do, or they are filed under nothing and never printed.
 - **`parent` and `group` are not validated.** A `parent` id that names nothing, or an item
   in another section, is accepted silently.
 - **Groups and icons are not rendered by the scaffolded headers.** They show the Admin items
-  flat (Bootstrap, plain CSS) or with parent/child folding only (Tailwind); `group`, `icon` and
-  — outside the Tailwind theme header — `badge` are left for the theme to draw.
+  flat (Bootstrap, plain CSS) or with parent/child folding (Tailwind); `group` and `icon` are left
+  for the theme to draw. Badges are drawn, with `NavItem::badgeHtml($userId)`.
 - **Labels are not translated** by the registry; pass a translated string at registration.
 
 ## An administration area theme
@@ -1879,22 +1880,21 @@ render many fields.
 
 ### What does not adapt
 
-- **`Html\Datatable` with its defaults.** `$bootstrap` defaults to `true` whatever the UI system.
-  It appends `table table-striped table-bordered table-hover` to the table, and it renders the
-  column picker as a Bootstrap 3 dropdown (`btn btn-default dropdown-toggle`,
-  `data-toggle="dropdown"`, `caret`). Bootstrap 5 reads `data-bs-toggle` and has no `btn-default`,
-  so the picker is broken even on the bootstrap system. Set `$jui = true` and you get jQuery UI
-  markup instead. Turn both off, which is what the framework's own admin controllers do:
+- **`Html\Datatable` follows the UI system only in part.** `$bootstrap` defaults to on under
+  `scaffold_theme = bootstrap` (or none declared) and off under tailwind and plain-css. On, it
+  appends `table table-striped table-bordered table-hover` and draws the column picker as a
+  Bootstrap dropdown that carries both 3's and 5's attributes. Off, the table keeps DataTables' own
+  `display` look and the picker is plain links, with `pf-footsearch` and `pf-action` for the
+  filters and row actions. `$jui = true` draws jQuery UI markup instead. A table built while one
+  system is declared does not change its markup when another is; set the property to choose.
 
     ```php
     $dt = new \Pramnos\Html\Datatable('dt-orders');
-    $dt->bootstrap = false;   // neutral markup: DataTables' own `display` table, plain-link column picker
+    $dt->bootstrap = false;   // neutral markup, whatever the system
     ```
 
-    With `bootstrap = false` the table keeps DataTables' own `display` class and stylesheet, and the
-    column filters and row actions use `pf-footsearch` and `pf-action`, which every theme styles.
-- **`Html\Date`.** The input carries Bootstrap's `form-control` by default. plain-css has a rule for
-  it and tailwind does not. To change the class, use the `date` key in `component_classes`, but
+- **`Html\Date`.** The input carries Bootstrap's `form-control` by default, which all three
+  scaffolded stylesheets style. To change the class, use the `date` key in `component_classes`, but
   read the next item first.
 - **`component_classes`.** It is one static map, not one map per system, and the switch does not
   touch it. If you set `'pagination' => 'pagination'` to suit Bootstrap, every system receives
@@ -1937,7 +1937,8 @@ Some markup has no neutral form, because the framework ships no component for it
    template then stays the same across a switch, and you rewrite one stylesheet, not 300 templates.
    This is the same convention the framework follows with `pf-*`.
 3. **Pass `FieldStyles::configured()`, never a system name.**
-4. **Set `$dt->bootstrap = false` on every `Datatable`.**
+4. **Leave `Datatable::$bootstrap` to follow the system**, or set it to `false` for markup that
+   is the same everywhere.
 5. **Keep `component_classes` for script-facing names only.**
 6. **Own as few bundled screens as you can.** Every bundled screen you inherit, rather than
    publish, switches for free.

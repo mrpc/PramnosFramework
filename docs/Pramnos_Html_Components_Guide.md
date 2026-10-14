@@ -134,11 +134,13 @@ It is **not escaped** — it exists to carry markup, so never build it from user
 `Field` takes no class properties. Its classes come from a per-theme preset:
 
 ```php
-echo $field->render(FieldStyles::for('tailwind'));
+echo $field->render(FieldStyles::for(FieldStyles::configured()));   // the project's UI system
+echo $field->render(FieldStyles::for('tailwind'));                  // pinned to one
 ```
 
 You rarely need to name the theme. `app/app.php` already carries `scaffold_theme` — the UI
-framework the project was generated against, in this same vocabulary — and it is the default:
+framework the project was generated against (`plain-css` resolves to the `plain` preset) — and it
+is the default:
 
 ```php
 new SettingsForm('settings');                 // uses scaffold_theme
@@ -180,10 +182,13 @@ them. **Restyle them with CSS (route 1)** — they are neutral hooks, so a rule 
 and a property would only be a second way to do the same thing.
 
 The real exception is `Datatable`. Nine of its classes are a CSS framework's own —
-`btn btn-default dropdown-toggle`, `form-control`, `ui-buttonset` — chosen by `$jui`:
+`btn btn-default btn-secondary dropdown-toggle`, `form-control`, `ui-buttonset` — chosen by
+`$bootstrap` and `$jui`. `$bootstrap` follows the project's `scaffold_theme` (on for bootstrap or
+none, off for tailwind and plain-css), and its dropdown opens under Bootstrap 3 and 5 alike:
 
 ```php
-$datatable->jui = true;    // jQuery UI markup instead of Bootstrap 3
+$datatable->bootstrap = false;   // DataTables' own look, a plain-link column picker
+$datatable->jui = true;          // jQuery UI markup instead of Bootstrap
 ```
 
 Two looks, and no route to a third. It is the one component you cannot bring onto a different CSS
@@ -1086,7 +1091,7 @@ $field = new \Pramnos\Html\Form\Field('email', 'Email', 'email', required: true)
 $field->description = 'We never share it.';
 $field->pattern     = '[^@]+@[^@]+';
 $field->title       = 'name@example.com';
-echo $field->render(\Pramnos\Html\Form\FieldStyles::for('bootstrap'));
+echo $field->render(\Pramnos\Html\Form\FieldStyles::for(\Pramnos\Html\Form\FieldStyles::configured()));
 ```
 
 `Field` keeps what is actually about being in a form — the label, the description, the
@@ -1143,7 +1148,7 @@ the most explanation gives none.
 $field        = new Field('email', 'Email', 'email', null, 'Your work address');
 $field->error = 'That address is already registered.';
 
-echo $field->render(FieldStyles::for('tailwind'));
+echo $field->render(FieldStyles::for(FieldStyles::configured()));
 ```
 
 ```html

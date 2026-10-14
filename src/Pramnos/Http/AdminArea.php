@@ -256,12 +256,6 @@ final class AdminArea
     }
 
     /**
-     * Forget the detected state.
-     *
-     * For test isolation: the class is static because the answer is a property of
-     * the request, and a suite runs many requests in one process.
-     */
-    /**
      * The area's own sign-in page, for an application whose administration signs in somewhere
      * other than the site's `login` — called once, beside {@see detect()}.
      */
@@ -292,6 +286,12 @@ final class AdminArea
         return $login . (str_contains($login, '?') ? '&' : '?') . 'return=' . urlencode($requestUri);
     }
 
+    /**
+     * Forget the detected state.
+     *
+     * For test isolation: the class is static because the answer is a property of
+     * the request, and a suite runs many requests in one process.
+     */
     public static function reset(): void
     {
         self::$active      = false;

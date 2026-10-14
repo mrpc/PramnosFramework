@@ -218,7 +218,16 @@ class Datatable extends Base
      */
     public $jui = false;
     /**
-     * Use Bootstrap
+     * Bootstrap's table classes and its dropdown for the column picker.
+     *
+     * Follows the project's UI system: on by default under `scaffold_theme = bootstrap`, or with
+     * no `scaffold_theme` at all; off under tailwind and plain-css, where Bootstrap's classes have
+     * no stylesheet and its dropdown no script, and the table keeps DataTables' own `display`
+     * look and a plain-link column picker. Set it after construction to choose either way.
+     *
+     * The dropdown carries both Bootstrap 3's and Bootstrap 5's attributes and classes, so it
+     * opens under either.
+     *
      * @var boolean
      */
     public $bootstrap = true;
@@ -242,7 +251,17 @@ class Datatable extends Base
         $this->name = trim($name);
         $this->source = trim($source);
         $this->aoData = json_encode($this->aoData);
+        $this->bootstrap = self::projectUsesBootstrap();
         parent::__construct();
+    }
+
+    /** Whether the project's UI system is Bootstrap — or undeclared, as before there was a choice. */
+    private static function projectUsesBootstrap(): bool
+    {
+        $app   = \Pramnos\Application\Application::currentInstance();
+        $theme = is_object($app) ? (string) ($app->applicationInfo['scaffold_theme'] ?? '') : '';
+
+        return $theme === '' || $theme === 'bootstrap';
     }
 
     /**
@@ -313,10 +332,12 @@ class Datatable extends Base
                 $showHide = '<div class="ui-buttonset" style="float: right; '
                     . 'font-size: x-small">' . $lang->_('Show') . ":";
             } elseif ($this->bootstrap == true) {
+                // Bootstrap 3's `btn-default`/`data-toggle` and 5's `btn-secondary`/
+                // `data-bs-toggle`: each reads its own and ignores the other's.
                 $showHide = '<div class="btn-group" style="float: right; '
                     . 'font-size: x-small"><button type="button" '
-                    . 'class="btn btn-default dropdown-toggle" '
-                    . 'data-toggle="dropdown" aria-expanded="false">'
+                    . 'class="btn btn-default btn-secondary btn-sm dropdown-toggle" '
+                    . 'data-toggle="dropdown" data-bs-toggle="dropdown" aria-expanded="false">'
                     . $lang->_('Show')
                     . '<span class="caret"></span></button>'
                     . '<ul class="dropdown-menu" role="menu">';
@@ -336,7 +357,7 @@ class Datatable extends Base
                             . '</span></a>';
 
                     } elseif ($this->bootstrap == true) {
-                        $showHide .= '<li><a href="#" id="' . $btnId . '">'
+                        $showHide .= '<li><a class="dropdown-item" href="#" id="' . $btnId . '">'
                             . $column->label . '</a></li>';
                     } else {
                         $showHide .= $sep . ' <a href="#" id="' . $btnId . '">'

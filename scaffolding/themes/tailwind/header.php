@@ -9,8 +9,10 @@
     $_adminAll    = $_nav[\Pramnos\Application\NavSection::Admin->value] ?? [];
     $_adminTop    = [];
     $_adminSub    = [];
+    // A child whose parent this user may not see goes to the top level, not under nothing.
+    $_adminIds    = array_map(static fn ($i) => $i->id, $_adminAll);
     foreach ($_adminAll as $_ai) {
-        if ($_ai->parent === null) { $_adminTop[] = $_ai; }
+        if ($_ai->parent === null || !in_array($_ai->parent, $_adminIds, true)) { $_adminTop[] = $_ai; }
         else { $_adminSub[$_ai->parent][] = $_ai; }
     }
     ?>

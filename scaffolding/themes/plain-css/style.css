@@ -623,6 +623,24 @@ p.error {
     letter-spacing: 0;
 }
 
+/* The unread count beside a navigation label — NavItem::badgeHtml(). */
+.pf-nav-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.25rem;
+    height: 1.25rem;
+    margin-inline-start: .25rem;
+    padding: 0 .35rem;
+    border-radius: 999px;
+    font-size: .75rem;
+    font-weight: 700;
+    line-height: 1;
+    vertical-align: middle;
+    color: #fff;
+    background: var(--color-error, #b91c1c);
+}
+
 /* What addMessage() and addError() flashed before a redirect — Html\Flash, above every screen. */
 .pf-flash {
     display: grid;

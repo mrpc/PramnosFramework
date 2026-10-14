@@ -68,20 +68,11 @@ class FieldStyles
     ];
 
     /**
-     * The preset for a theme, falling back to `plain`.
-     *
-     * Unknown themes fall back rather than throwing: the theme name reaches this from an
-     * application's configuration, and a settings page that dies because somebody typed
-     * `bootstrap5` is a worse outcome than one that renders unstyled.
-     *
-     * @param  string $theme `plain`, `bootstrap` or `tailwind`
-     * @return array<string, string>
-     */
-    /**
      * The UI framework this application declared, or `plain`.
      *
-     * `app/app.php` carries `scaffold_theme` — the framework a project was generated against, and
-     * the same vocabulary this class is keyed by: `plain`, `bootstrap`, `tailwind`. It was already
+     * `app/app.php` carries `scaffold_theme` — the framework a project was generated against:
+     * `plain-css`, `bootstrap` or `tailwind`. The last two are this class's keys too; `plain-css`,
+     * like any name it does not know, resolves to `plain`. It was already
      * read by `Controller` to resolve views and by `ScaffoldingHelper`; nothing connected it to
      * the presets, so a caller had to name the theme again at every call site and the default when
      * they forgot was `plain`.
@@ -107,6 +98,16 @@ class FieldStyles
         return ($declared !== null && isset(self::PRESETS[$declared])) ? $declared : 'plain';
     }
 
+    /**
+     * The preset for a theme, falling back to `plain`.
+     *
+     * Unknown themes fall back rather than throwing: the theme name reaches this from an
+     * application's configuration, and a settings page that dies because somebody typed
+     * `bootstrap5` is a worse outcome than one that renders unstyled.
+     *
+     * @param  string $theme `plain`, `bootstrap` or `tailwind`
+     * @return array<string, string>
+     */
     public static function for(string $theme): array
     {
         return self::PRESETS[strtolower($theme)] ?? self::PRESETS['plain'];

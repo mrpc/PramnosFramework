@@ -35,7 +35,8 @@ readonly class NavItem
      * @param int             $minUserType  Minimum usertype; 0 means any authenticated user.
      * @param string|null     $permission   RBAC permission name, or null to skip RBAC check.
      * @param string|null     $feature      Required feature key from applicationInfo['features'], or null.
-     * @param string|null     $icon         Optional CSS icon class (e.g. Bootstrap Icons 'bi-journal').
+     * @param string|null     $icon         Optional icon name (`gauge`, `users`, `mail`, `shield`, …) — a
+     *                                      name, not a CSS class: each theme maps it to its own icon set.
      * @param bool            $guestOnly    If true, hidden when a user IS logged in (e.g. Login link).
      * @param string|null     $parent       Parent item id for nested dropdown rendering, or null for top-level.
      * @param string|null     $group        Heading this item sits under in a sidebar, e.g. `System`.
@@ -134,5 +135,20 @@ readonly class NavItem
         $count = $this->badgeCount($userId);
 
         return $count > 99 ? '99+' : (string) $count;
+    }
+
+    /**
+     * The badge as markup, to print after the label — or '' when there is nothing to count.
+     *
+     * A neutral `pf-nav-badge`, which every scaffolded stylesheet styles, named for a screen
+     * reader by its count: "3 unread".
+     */
+    public function badgeHtml(int $userId): string
+    {
+        $count = $this->badgeCount($userId);
+
+        return $count > 0
+            ? ' <span class="pf-nav-badge" aria-label="' . $count . ' unread">' . $this->badgeLabel($userId) . '</span>'
+            : '';
     }
 }

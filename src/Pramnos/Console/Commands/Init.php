@@ -4280,7 +4280,7 @@ PHP;
                 </ul>
                 <ul class="navbar-nav ms-auto">
                     <?php foreach ($_nav[\Pramnos\Application\NavSection::User->value] ?? [] as $_item): ?>
-                    <li class="nav-item"><a class="nav-link" href="<?php echo htmlspecialchars($_item->url, ENT_QUOTES, 'UTF-8'); ?>"><?php echo htmlspecialchars($_item->label, ENT_QUOTES, 'UTF-8'); ?></a></li>
+                    <li class="nav-item"><a class="nav-link" href="<?php echo htmlspecialchars($_item->url, ENT_QUOTES, 'UTF-8'); ?>"><?php echo htmlspecialchars($_item->label, ENT_QUOTES, 'UTF-8'); ?><?php echo $_item->badgeHtml((int) ($_navUser->userid ?? 0)); ?></a></li>
                     <?php endforeach; ?>
                     <?php if (!empty($_nav[\Pramnos\Application\NavSection::Admin->value]) && \Pramnos\Search\Registry::loadDefinitions()): ?>
                     <li class="pf-omnibox-item"><?php echo (new \Pramnos\Html\SearchBox())->render(); ?></li>
@@ -4305,10 +4305,13 @@ HTML,
     <?php
     // Admin items may declare a parent, which renders as a nested submenu. A flat
     // list of thirty administration screens is a list nobody reads.
+    // A child whose parent this user may not see is shown at the top level: allowed the child and
+    // not the parent must not hide the child.
     $_adminTop = [];
     $_adminSub = [];
+    $_adminIds = array_map(static fn ($i) => $i->id, $_nav[\Pramnos\Application\NavSection::Admin->value] ?? []);
     foreach ($_nav[\Pramnos\Application\NavSection::Admin->value] ?? [] as $_item) {
-        if ($_item->parent === null) {
+        if ($_item->parent === null || !in_array($_item->parent, $_adminIds, true)) {
             $_adminTop[] = $_item;
         } else {
             $_adminSub[$_item->parent][] = $_item;
@@ -4419,7 +4422,7 @@ HTML,
             </script>
 
             <?php foreach ($_nav[\Pramnos\Application\NavSection::User->value] ?? [] as $_item): ?>
-            <a href="<?php echo $_e($_item->url); ?>" class="btn btn-ghost btn-sm"><?php echo $_e($_item->label); ?></a>
+            <a href="<?php echo $_e($_item->url); ?>" class="btn btn-ghost btn-sm"><?php echo $_e($_item->label); ?><?php echo $_item->badgeHtml((int) ($_navUser->userid ?? 0)); ?></a>
             <?php endforeach; ?>
         </div>
     </header>
@@ -4434,7 +4437,7 @@ HTML,
                     <li><a href="<?php echo htmlspecialchars($_item->url, ENT_QUOTES, 'UTF-8'); ?>"><?php echo htmlspecialchars($_item->label, ENT_QUOTES, 'UTF-8'); ?></a></li>
                     <?php endforeach; ?>
                     <?php foreach ($_nav[\Pramnos\Application\NavSection::User->value] ?? [] as $_item): ?>
-                    <li><a href="<?php echo htmlspecialchars($_item->url, ENT_QUOTES, 'UTF-8'); ?>"><?php echo htmlspecialchars($_item->label, ENT_QUOTES, 'UTF-8'); ?></a></li>
+                    <li><a href="<?php echo htmlspecialchars($_item->url, ENT_QUOTES, 'UTF-8'); ?>"><?php echo htmlspecialchars($_item->label, ENT_QUOTES, 'UTF-8'); ?><?php echo $_item->badgeHtml((int) ($_navUser->userid ?? 0)); ?></a></li>
                     <?php endforeach; ?>
                     <?php foreach ($_nav[\Pramnos\Application\NavSection::Feature->value] ?? [] as $_item): ?>
                     <li><a href="<?php echo htmlspecialchars($_item->url, ENT_QUOTES, 'UTF-8'); ?>"><?php echo htmlspecialchars($_item->label, ENT_QUOTES, 'UTF-8'); ?></a></li>

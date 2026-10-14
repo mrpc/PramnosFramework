@@ -233,6 +233,76 @@ class ThemeTest extends TestCase
         $this->assertStringContainsString('end', $this->theme->getfoot());
     }
 
+    /**
+     * A layout without `[MODULE]` is all head and no foot: the screen follows the layout, rather
+     * than the head being empty and the foot the layout less its first eight characters.
+     */
+    public function testALayoutWithoutModuleIsAllHead(): void
+    {
+        // Arrange
+        $ref = new \ReflectionProperty($this->theme, 'body');
+        $ref->setValue($this->theme, '<header>Site</header>');
+
+        // Act
+        $head = $this->theme->gethead();
+        $foot = $this->theme->getfoot();
+
+        // Assert
+        $this->assertStringStartsWith('<header>Site</header>', $head);
+        $this->assertStringNotContainsString('Site', $foot);
+    }
+
+    /**
+     * `get_search_form()` includes the theme's `searchform.php`, and `front-page` is an element
+     * by name — the one entry of the table written with a comma for its arrow.
+     */
+    public function testTheSearchFormAndTheFrontPageAreElements(): void
+    {
+        // Arrange
+        $dir = sys_get_temp_dir() . '/pf-theme-' . bin2hex(random_bytes(4));
+        mkdir($dir);
+        file_put_contents($dir . '/searchform.php', '<form role="search"></form>');
+        file_put_contents($dir . '/front-page.php', 'FRONT');
+        (new \ReflectionProperty($this->theme, 'fullpath'))->setValue($this->theme, $dir);
+
+        try {
+            // Act
+            ob_start();
+            $form  = $this->theme->get_search_form();
+            $front = $this->theme->getElement('front-page');
+            $html  = (string) ob_get_clean();
+        } finally {
+            unlink($dir . '/searchform.php');
+            unlink($dir . '/front-page.php');
+            rmdir($dir);
+        }
+
+        // Assert
+        $this->assertTrue($form);
+        $this->assertTrue($front);
+        $this->assertSame('<form role="search"></form>FRONT', $html);
+    }
+
+    /** A theme with no layout says so in the `theme` log, rather than drawing a bare page silently. */
+    public function testAMissingLayoutIsLogged(): void
+    {
+        // Arrange
+        if (!defined('LOG_PATH')) {
+            define('LOG_PATH', ROOT . DS . 'var');
+        }
+        $log    = LOG_PATH . DS . 'logs' . DS . 'theme.log';
+        $before = is_file($log) ? (string) file_get_contents($log) : '';
+        $theme  = new Theme('no-such-theme-' . bin2hex(random_bytes(3)), sys_get_temp_dir(), $this->createMock(\Pramnos\Application\Application::class));
+        (new \ReflectionProperty($theme, 'document'))->setValue($theme, \Pramnos\Framework\Factory::getDocument('html'));
+
+        // Act
+        $theme->loadtheme();
+
+        // Assert
+        $after = is_file($log) ? (string) file_get_contents($log) : '';
+        $this->assertStringContainsString('has no layout at', substr($after, strlen($before)));
+    }
+
     public function testGetThemesReturnsArray(): void
     {
         // Should return an array even if path is invalid or empty

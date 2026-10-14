@@ -1559,7 +1559,9 @@ class Application extends Base
             NavRegistry::register(new NavItem(
                 'admin.help', 'Help', $admin('Help'),
                 NavSection::Admin, 99, requireAuth: true,
-                minUserType: (int) ($this->applicationInfo['admin']['min_usertype'] ?? 0),
+                // The area's floor as the area knows it: from app.php's `admin` block, or from
+                // AdminArea::serve() in an application that is the area.
+                minUserType: \Pramnos\Http\AdminArea::minUserType() ?: (int) ($this->applicationInfo['admin']['min_usertype'] ?? 0),
                 icon: 'question', group: 'System',
             ));
         }

@@ -381,6 +381,36 @@ class HelpLevelsTest extends TestCase
         $this->assertStringContainsString('>Help</a>', $wrong, 'not a HelpButton: the word');
         $this->assertStringContainsString('<a class="pf-ask" href="/admin/Ai" data-pf-assist-open aria-haspopup="dialog">Ask</a>', $askToo);
     }
+
+    /**
+     * The Help menu item takes the area's floor as the area knows it — from `AdminArea::serve()`
+     * in an application that is the area, where app.php may have no `admin` block — rather than
+     * opening to every member while the screen behind it refuses them.
+     */
+    public function testTheHelpItemTakesTheServedAreasFloor(): void
+    {
+        // Arrange
+        $app  = \Pramnos\Application\Application::getInstance();
+        $info = $app->applicationInfo;
+        $app->applicationInfo['namespace'] = 'Pramnos\\Tests\\Unit\\Assist\\Levels';
+        unset($app->applicationInfo['admin']);
+        AdminArea::serve('admin', 90);
+
+        try {
+            // Act
+            \Pramnos\Application\NavRegistry::reset();
+            $app->registerDefaultNavItems(['help']);
+            $items = array_column(array_map(static fn ($i) => ['id' => $i->id, 'item' => $i], \Pramnos\Application\NavRegistry::all()), 'item', 'id');
+            $item  = $items['admin.help'] ?? null;
+        } finally {
+            $app->applicationInfo = $info;
+            \Pramnos\Application\NavRegistry::reset();
+        }
+
+        // Assert
+        $this->assertNotNull($item);
+        $this->assertSame(90, $item->minUserType);
+    }
 }
 
 /** An application's own site help button. */
