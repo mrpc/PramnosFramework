@@ -36,10 +36,21 @@ class WebhookServiceProvider extends ServiceProvider
         $container = $this->app->getContainer();
 
         $container->bind('webhook', function () {
-            $secret   = (string) (Settings::getSetting('webhook.secret') ?? '');
-            $repoDir  = (string) (Settings::getSetting('webhook.repo_dir') ?? '');
-            $channel  = (string) (Settings::getSetting('webhook.log_channel') ?? 'webhook');
-            $timeout  = (int) (Settings::getSetting('webhook.timeout') ?? 120);
+            // `'webhook' => [...]` in app.php, as documented above; a setting named `webhook.<key>`
+            // still answers where the array has no such key.
+            $config = (array) ($this->app->applicationInfo['webhook'] ?? []);
+            $value  = static function (string $key, mixed $default) use ($config): mixed {
+                if (array_key_exists($key, $config)) {
+                    return $config[$key];
+                }
+                $setting = Settings::getSetting('webhook.' . $key);
+
+                return $setting === false || $setting === null || $setting === '' ? $default : $setting;
+            };
+            $secret  = (string) $value('secret', '');
+            $repoDir = (string) $value('repo_dir', '');
+            $channel = (string) $value('log_channel', 'webhook');
+            $timeout = (int) $value('timeout', 120);
 
             return new WebhookHandler(
                 secret:     $secret,

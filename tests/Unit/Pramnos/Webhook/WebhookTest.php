@@ -171,6 +171,33 @@ class WebhookTest extends TestCase
         }
     }
 
+    /**
+     * `'webhook' => [...]` in app.php configures the handler, as the provider documents — a
+     * nested array never matched the `webhook.secret` setting it read, so the documented setup
+     * built no handler at all ("secret must not be empty").
+     */
+    public function testTheProviderReadsTheAppConfig(): void
+    {
+        // Arrange
+        $app = new TestableApp();
+        $app->applicationInfo['webhook'] = ['secret' => 'from_app_php', 'repo_dir' => $this->tempRepoDir, 'log_channel' => 'deploys'];
+        \Pramnos\Application\Settings::setSetting('webhook.secret', 'from_a_setting', false);
+
+        // Act
+        (new WebhookServiceProvider($app))->register();
+        $handler = $app->container->get('webhook');
+        $secret  = (new \ReflectionProperty(WebhookHandler::class, 'secret'))->getValue($handler);
+        $channel = (new \ReflectionProperty(WebhookHandler::class, 'logChannel'))->getValue($handler);
+
+        // Assert
+        $this->assertSame('from_app_php', $secret, 'app.php first');
+        $this->assertSame('deploys', $channel);
+    }
+
+    /**
+     * A setting answers where app.php has no such key, and an unset log channel is `webhook`
+     * rather than the empty string a missing setting reads as.
+     */
     public function testWebhookServiceProvider(): void
     {
         $app = new TestableApp();
@@ -183,5 +210,6 @@ class WebhookTest extends TestCase
         $this->assertTrue($app->container->has('webhook'));
         $handler = $app->container->get('webhook');
         $this->assertInstanceOf(WebhookHandler::class, $handler);
+        $this->assertSame('webhook', (new \ReflectionProperty(WebhookHandler::class, 'logChannel'))->getValue($handler));
     }
 }
