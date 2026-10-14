@@ -1107,6 +1107,18 @@ Register it in a service provider's `boot()`:
 $this->app->getContainer()->get('mcp.server')->addTool(new StationHealthTool());
 ```
 
+Or list it in `app/app.php`, which `mcp:serve` reads without a provider:
+
+```php
+'mcp' => ['tools' => [App\Mcp\StationHealthTool::class]],
+```
+
+The analyst's tools reach MCP from their own list. `'llm' => ['admin_tools' => [...]]` is
+served here as well, but only the tools that implement `ScopedMcpTool`: one list then serves
+Ask and every MCP client holding the scope. An analyst tool without a scope stays Ask's, since
+it was written for administrators and on MCP it would answer any token. A framework tool keeps
+its name; an application's tool of the same name is not added.
+
 !!! warning "The application behind an MCP tool is the console kernel"
     `mcp:serve` is a console command, so the application your tool receives never handled
     an HTTP request. Anything built during HTTP bootstrap is absent — the router being the

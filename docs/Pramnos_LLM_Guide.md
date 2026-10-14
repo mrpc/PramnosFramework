@@ -700,7 +700,9 @@ background. Its `help` tool answers from the installation's help pages. See
 ```
 
 `admin_tools` are `Pramnos\Mcp\McpToolInterface` — class names built with no arguments, or
-instances — beside the framework's, redacted the same way. They should only read; the framework
+instances — beside the framework's, redacted the same way. One that implements `ScopedMcpTool`
+is served to MCP clients holding its scope as well (see the
+[MCP guide](Pramnos_MCP_Guide.md#a-tool)). They should only read; the framework
 cannot check that. An `Analyst\AnalystAssistant` subclass tells the model about the business
 through `about()`, or changes the tools through `tools()`.
 

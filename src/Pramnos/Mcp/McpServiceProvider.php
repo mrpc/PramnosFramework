@@ -255,6 +255,13 @@ class McpServiceProvider extends ServiceProvider
         // nothing back; the lines are on disk.
         $server->addTool(new \Pramnos\Mcp\Tools\RequestDebugTool());
 
+        // The application's own: one list for its analyst and for an MCP client.
+        foreach (self::applicationTools($app) as $tool) {
+            if (!isset($server->getTools()[$tool->name()])) {
+                $server->addTool($tool);
+            }
+        }
+
         $root = defined('ROOT') ? ROOT : getcwd();
 
         foreach (self::defaultResources((string) $root) as [$uri, $name, $path]) {
@@ -262,6 +269,33 @@ class McpServiceProvider extends ServiceProvider
                 $server->addResource(new McpResource($uri, $name, $path));
             }
         }
+    }
+
+    /**
+     * The application's tools: those for MCP (`'mcp' => ['tools' => [...]]`), and its analyst's
+     * (`'llm' => ['admin_tools' => [...]]`) that carry a scope — class names built with no
+     * arguments, or instances. Written once, a scoped analyst tool reaches Ask and every MCP
+     * client holding its scope. An analyst tool without one stays Ask's: it was written for
+     * administrators, and on MCP it would answer any token. A framework tool keeps its name: an
+     * application's of the same name is not added.
+     *
+     * @return list<McpToolInterface>
+     */
+    public static function applicationTools(?\Pramnos\Application\Application $app = null): array
+    {
+        $app  = $app ?? \Pramnos\Application\Application::currentInstance();
+        $info = is_object($app) && is_array($app->applicationInfo ?? null) ? $app->applicationInfo : [];
+        $tools = [];
+        foreach ([[$info['llm']['admin_tools'] ?? [], true], [$info['mcp']['tools'] ?? [], false]] as [$list, $scopedOnly]) {
+            foreach ((array) $list as $tool) {
+                $tool = is_string($tool) && class_exists($tool) ? new $tool() : $tool;
+                if ($tool instanceof McpToolInterface && (!$scopedOnly || $tool instanceof ScopedMcpTool)) {
+                    $tools[$tool->name()] = $tool;
+                }
+            }
+        }
+
+        return array_values($tools);
     }
 
     /**

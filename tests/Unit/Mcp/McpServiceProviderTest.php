@@ -150,6 +150,56 @@ class McpServiceProviderTest extends TestCase
     }
 
     /**
+     * The application's tools — its analyst's and those for MCP alone — reach the MCP server from
+     * one list: class names or instances, anything that is not a tool skipped, and a framework
+     * tool keeping its name.
+     */
+    public function testTheApplicationsToolsAreServedToo(): void
+    {
+        // Arrange
+        $app  = Application::getInstance();
+        $was  = [$app->applicationInfo['llm'] ?? null, $app->applicationInfo['mcp'] ?? null];
+        $mine = new class implements \Pramnos\Mcp\ScopedMcpTool {
+            public function requiredScope(): string { return 'app:admin.read'; }
+            public function name(): string { return 'orders'; }
+            public function description(): string { return 'Orders.'; }
+            public function inputSchema(): array { return ['type' => 'object', 'properties' => []]; }
+            public function execute(array $input): mixed { return 1; }
+        };
+        $clash = new class implements \Pramnos\Mcp\McpToolInterface {
+            public function name(): string { return 'status'; }
+            public function description(): string { return 'Not the framework\'s.'; }
+            public function inputSchema(): array { return ['type' => 'object', 'properties' => []]; }
+            public function execute(array $input): mixed { return 0; }
+        };
+        $unscoped = new class implements \Pramnos\Mcp\McpToolInterface {
+            public function name(): string { return 'askonly'; }
+            public function description(): string { return 'For administrators.'; }
+            public function inputSchema(): array { return ['type' => 'object', 'properties' => []]; }
+            public function execute(array $input): mixed { return 2; }
+        };
+        $app->applicationInfo['llm'] = ['admin_tools' => [$mine, $unscoped, \stdClass::class, 'NoSuchClass']];
+        $app->applicationInfo['mcp'] = ['tools' => [$clash, \Pramnos\Llm\Analyst\Tools\UsersTool::class]];
+        $server = new McpServer('TestApp', '1.0.0');
+
+        try {
+            // Act
+            McpServiceProvider::registerDefaults($server, $app);
+            $listed = array_map(static fn ($t): string => $t->name(), McpServiceProvider::applicationTools($app));
+        } finally {
+            [$app->applicationInfo['llm'], $app->applicationInfo['mcp']] = $was;
+        }
+        $tools = $server->getTools();
+
+        // Assert
+        $this->assertSame(['orders', 'status', 'users'], $listed);
+        $this->assertSame($mine, $tools['orders'], 'the analyst\'s scoped tool, served to MCP as well');
+        $this->assertArrayNotHasKey('askonly', $tools, 'one with no scope would answer any token: it stays Ask\'s');
+        $this->assertArrayHasKey('users', $tools, 'a class name, built');
+        $this->assertNotSame($clash, $tools['status'], 'the framework\'s status tool keeps its name');
+    }
+
+    /**
      * Test boot() does not crash or register tools if mcp.server is missing from the container.
      */
     public function testBootDoesNothingIfServerNotRegistered(): void
