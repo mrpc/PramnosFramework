@@ -37,11 +37,15 @@ class HelpScreenTest extends TestCase
         file_put_contents($this->dir . '/orders.md', "# Orders\n\nEvery <order>.");
         file_put_contents($this->dir . '/images/b.png', "\x89PNG");
         Help::useDirectories([$this->dir]);
+        // An administration that is an application of its own, at /admin/, with no area prefix:
+        // its links are its own URL's, not the site's.
+        \Pramnos\Http\AdminArea::useServingUrl('https://example.com/admin/');
         $_GET = [];
     }
 
     protected function tearDown(): void
     {
+        \Pramnos\Http\AdminArea::useServingUrl(null);
         (new \ReflectionProperty(\Pramnos\Application\FeatureRegistry::class, 'enabled'))->setValue(null, $this->features);
         Help::useDirectories(null);
         foreach (['/images/b.png', '/refunds.md', '/orders.md'] as $file) {
@@ -69,7 +73,7 @@ class HelpScreenTest extends TestCase
 
             // Assert
             $this->assertStringContainsString('>Billing</h2>', $list, $theme . ': by section');
-            $this->assertStringContainsString('/Help/page?p=refunds">Refunds</a>', $list, $theme);
+            $this->assertStringContainsString('https://example.com/admin/Help/page?p=refunds">Refunds</a>', $list, $theme);
             $this->assertStringContainsString('How do I refund?', $list, $theme . ': what each page answers');
             $this->assertStringContainsString('Pages for “refund”', $found, $theme);
             $this->assertStringContainsString('value="refund"', $found, $theme . ': the search kept in its box');
@@ -89,8 +93,8 @@ class HelpScreenTest extends TestCase
 
             // Assert
             $this->assertStringContainsString('· Billing', $page, $theme);
-            $this->assertStringContainsString('<a href="/Help/page?p=orders">orders</a>', $page, $theme . ': a link by name');
-            $this->assertStringContainsString('<img src="/Help/image?f=images%2Fb.png" alt="The button"', $page, $theme);
+            $this->assertStringContainsString('<a href="https://example.com/admin/Help/page?p=orders">orders</a>', $page, $theme . ': a link by name');
+            $this->assertStringContainsString('<img src="https://example.com/admin/Help/image?f=images%2Fb.png" alt="The button"', $page, $theme);
             $this->assertStringContainsString('Updated 2026-10-01', $page, $theme);
             $this->assertStringContainsString('Every &lt;order&gt;.', $orders, $theme . ': escaped like a model\'s answer');
         }
@@ -99,7 +103,7 @@ class HelpScreenTest extends TestCase
         $_GET   = ['p' => 'nothing'];
         $screen = new HelpScreen('plain-css');
         $this->assertNull($screen->page());
-        $this->assertSame(['/Help'], $screen->redirectedTo);
+        $this->assertSame(['https://example.com/admin/Help'], $screen->redirectedTo, 'the administration\'s own address, not the site\'s');
     }
 
     /** A picture from inside the directory is served; anything else is not found. */

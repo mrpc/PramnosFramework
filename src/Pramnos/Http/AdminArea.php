@@ -159,8 +159,11 @@ final class AdminArea
      * `$base` first: the area's URL as the request that started the job saw it (`url()`), handed
      * to the job. A worker runs whichever application started it — often the site's, with no
      * area configured — and has no host of its own, so neither its prefix nor its `sURL` says
-     * where the area is. Then the area's URL, in a request inside it. Last, the configured
-     * prefix under the site root, or from the host's root without one.
+     * where the area is. Then the area's URL, in a request inside it. Then, in a web request with
+     * no area configured, the serving application's own URL ({@see servingUrl()}): an
+     * administration that is an application of its own, mounted at `/admin/`, has `URL` as its
+     * address and `sURL` as the site's. Last — a console process — the configured prefix under the
+     * site root, or from the host's root without one.
      */
     public static function address(string $path, string $base = ''): string
     {
@@ -177,9 +180,29 @@ final class AdminArea
 
         $app    = \Pramnos\Application\Application::currentInstance();
         $prefix = trim((string) (is_object($app) ? ($app->applicationInfo['admin']['prefix'] ?? '') : ''), '/');
+
+        if ($prefix === '' && !\Pramnos\Application\Application::inConsoleContext()) {
+            $serving = self::$servingOverride ?? self::servingUrl();
+            if ($serving !== '') {
+                return rtrim($serving, '/') . '/' . $path;
+            }
+        }
         $path   = ($prefix !== '' ? $prefix . '/' : '') . $path;
 
         return \Pramnos\Http\SiteUrl::get() !== '' ? \Pramnos\Http\SiteUrl::to($path) : '/' . $path;
+    }
+
+    /** @var string|null The serving application's URL, where the constants cannot say it */
+    private static ?string $servingOverride = null;
+
+    /**
+     * The URL of the application serving the request, when `URL` cannot say it — a test of an
+     * application mounted in a subdirectory, where the constants are the suite's. Null for the
+     * constants again.
+     */
+    public static function useServingUrl(?string $url): void
+    {
+        self::$servingOverride = $url;
     }
 
     /**
@@ -197,6 +220,10 @@ final class AdminArea
      */
     public static function servingUrl(): string
     {
+        if (self::$servingOverride !== null) {
+            return rtrim(self::$servingOverride, '/');
+        }
+
         if (self::$prefix !== '') {
             $base = self::$active ? self::url() : (defined('sURL') ? (string) \sURL : '');
         } else {

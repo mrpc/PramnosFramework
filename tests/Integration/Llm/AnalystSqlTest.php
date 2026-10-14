@@ -249,7 +249,14 @@ class AnalystSqlTest extends LlmTestCase
         $this->boot($type, $host, $port, $user);
 
         // Act
-        $made  = (new ExportCsvTool(7))->execute(['sql' => 'SELECT userid, lastname FROM users WHERE userid > 1 ORDER BY userid']);
+        // In the queue worker — a console process — with nothing to build a host on.
+        $console = \Pramnos\Application\Application::inConsoleContext();
+        \Pramnos\Application\Application::markConsoleContext(true);
+        try {
+            $made = (new ExportCsvTool(7))->execute(['sql' => 'SELECT userid, lastname FROM users WHERE userid > 1 ORDER BY userid']);
+        } finally {
+            \Pramnos\Application\Application::markConsoleContext($console);
+        }
         $where = (new ExportCsvTool(7, 'https://example.com/admin/'))->execute(['sql' => 'SELECT 1 AS one']);
         $name  = basename((string) parse_url($made['link'], PHP_URL_PATH));
         $file  = Exports::path($name, 7);
