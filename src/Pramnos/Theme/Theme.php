@@ -534,6 +534,22 @@ class Theme extends \Pramnos\Framework\Base
     }
 
     /**
+     * Where `getTheme()` finds a theme that `getThemes()` listed: `''` for `app/themes` (its
+     * default), `themes` for one that lives in `ROOT/themes` — so each is built from the directory
+     * it was found in, not resolved against `app/themes` regardless.
+     */
+    protected static function directoryOf(string $theme): string
+    {
+        foreach (self::themeDirectories() as $directory) {
+            if (is_dir($directory . DS . $theme)) {
+                return defined('APP_PATH') && $directory === APP_PATH . DS . 'themes' ? '' : 'themes';
+            }
+        }
+
+        return '';
+    }
+
+    /**
      * Returns an array with all theme directories
      *
      * Searched across {@see themeDirectories()} rather than `ROOT/themes` alone. On a
@@ -590,10 +606,7 @@ class Theme extends \Pramnos\Framework\Base
                 continue;
             }
 
-            // `pramnos_theme::getTheme()` until 2026-08-14 — a legacy CMS class name
-            // which, inside this namespace, resolved to Pramnos\Theme\pramnos_theme and
-            // therefore to a fatal. This method could never have run.
-            $return[$theme] = self::getTheme($theme, $path, false);
+            $return[$theme] = self::getTheme($theme, $path !== '' ? $path : self::directoryOf($theme), false);
         }
 
         return $return;

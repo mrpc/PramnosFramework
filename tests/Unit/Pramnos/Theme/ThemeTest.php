@@ -1204,6 +1204,33 @@ class ThemeTest extends TestCase
     }
 
     /**
+     * A theme that lives in `ROOT/themes` is built from there: `getThemes()` lists both
+     * directories, and each theme it found was then resolved against `app/themes` regardless.
+     */
+    public function testAThemeIsBuiltFromWhereItWasFound(): void
+    {
+        // Arrange
+        $root    = ROOT . DIRECTORY_SEPARATOR . 'themes';
+        $made    = !is_dir($root);
+        $theme   = 'zzrootprobe' . bin2hex(random_bytes(3));
+        mkdir($root . DIRECTORY_SEPARATOR . $theme, 0777, true);
+
+        try {
+            // Act
+            $objects = Theme::getThemeObjects();
+        } finally {
+            rmdir($root . DIRECTORY_SEPARATOR . $theme);
+            if ($made) {
+                rmdir($root);
+            }
+        }
+
+        // Assert
+        $this->assertArrayHasKey($theme, $objects);
+        $this->assertSame($root . DIRECTORY_SEPARATOR . $theme, $objects[$theme]->fullpath, 'ROOT/themes, where it is');
+    }
+
+    /**
      * Test addSetting() with a numeric name prefixes with underscore.
      *
      * Field names that start with a digit are invalid PHP identifiers, so

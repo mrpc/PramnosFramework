@@ -275,7 +275,7 @@ Each entry point resolves the directory its own way:
 | `getTheme($name, $path)` | `ROOT/<path>` |
 | `new Theme($name)` | `ROOT/themes` (pass a path to change it) |
 | `getThemes()` | `APP_PATH/themes` **and** `ROOT/themes`, merged — a project may have `app/themes/` for its own and `ROOT/themes/` from an older layout; a missing directory is skipped |
-| `getThemeObjects()` | the names `getThemes()` returns, each built with `getTheme($name, '', false)` — i.e. resolved against `APP_PATH/themes`, even when the theme was found under `ROOT/themes` |
+| `getThemeObjects()` | the names `getThemes()` returns, each built from the directory it was found in (`APP_PATH/themes` or `ROOT/themes`) |
 
 `getThemeObjects()` excludes `default`, which is the fallback rather than a choice.
 
