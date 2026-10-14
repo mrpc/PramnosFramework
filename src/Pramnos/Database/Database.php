@@ -2423,10 +2423,11 @@ class Database extends \Pramnos\Framework\Base
                     if (preg_match('/^(-?\d+(\.\d+)?),\s*(-?\d+(\.\d+)?)$/', $val, $matches)) {
                         $val = $qb->raw('ST_SetSRID(ST_MakePoint(' . $matches[3] . ', ' . $matches[1] . '), 4326)');
                     } else {
-                        $val = $qb->raw('ST_GeomFromText(\'' . $val . '\')');
+                        // A literal, quoted: the text is caller data and must not end the string.
+                        $val = $qb->raw('ST_GeomFromText(\'' . str_replace("'", "''", $val) . '\')');
                     }
                 } elseif (is_array($val) && isset($val['latitude']) && isset($val['longitude'])) {
-                    $val = $qb->raw('ST_SetSRID(ST_MakePoint(' . $val['longitude'] . ', ' . $val['latitude'] . '), 4326)');
+                    $val = $qb->raw('ST_SetSRID(ST_MakePoint(' . (float) $val['longitude'] . ', ' . (float) $val['latitude'] . '), 4326)');
                 }
             } elseif ($type == 'boolean' && $this->type == 'postgresql') {
                 if ($val === null || $val === 'NULL') {
@@ -2493,10 +2494,11 @@ class Database extends \Pramnos\Framework\Base
                     if (preg_match('/^(-?\d+(\.\d+)?),\s*(-?\d+(\.\d+)?)$/', $val, $matches)) {
                         $val = $qb->raw('ST_SetSRID(ST_MakePoint(' . $matches[3] . ', ' . $matches[1] . '), 4326)');
                     } else {
-                        $val = $qb->raw('ST_GeomFromText(\'' . $val . '\')');
+                        // A literal, quoted: the text is caller data and must not end the string.
+                        $val = $qb->raw('ST_GeomFromText(\'' . str_replace("'", "''", $val) . '\')');
                     }
                 } elseif (is_array($val) && isset($val['latitude']) && isset($val['longitude'])) {
-                    $val = $qb->raw('ST_SetSRID(ST_MakePoint(' . $val['longitude'] . ', ' . $val['latitude'] . '), 4326)');
+                    $val = $qb->raw('ST_SetSRID(ST_MakePoint(' . (float) $val['longitude'] . ', ' . (float) $val['latitude'] . '), 4326)');
                 }
             } elseif ($type == 'boolean' && $this->type == 'postgresql') {
                 if ($val === null || $val === 'NULL') {

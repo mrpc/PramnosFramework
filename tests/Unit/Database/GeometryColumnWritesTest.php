@@ -163,6 +163,34 @@ class GeometryColumnWritesTest extends TestCase
     }
 
     /**
+     * Text that is not a point is a string literal inside `ST_GeomFromText()`, quoted — never SQL.
+     * Insert and update alike, and a named array's coordinates are numbers whatever was sent.
+     *
+     * It is caller data — a form field, an API body — and it was put between the quotes as it
+     * came, so a `'` ended the literal and the rest ran as SQL.
+     */
+    public function testTextCannotLeaveItsLiteral(): void
+    {
+        // Arrange
+        $evil     = "POINT(1 2)'); DELETE FROM users; --";
+        $inserted = $this->recorder('postgresql');
+        $updated  = $this->recorder('postgresql');
+        $named    = $this->recorder('postgresql');
+
+        // Act
+        $inserted->insertDataToTable('places', [['fieldName' => 'area', 'value' => $evil, 'type' => 'geometry']]);
+        $updated->updateTableData('places', [['fieldName' => 'area', 'value' => $evil, 'type' => 'geometry']], 'placeid = 1');
+        $named->insertDataToTable('places', [['fieldName' => 'location', 'value' => ['latitude' => '1); DROP TABLE users; --', 'longitude' => '2'], 'type' => 'geometry']]);
+
+        // Assert
+        $quoted = "ST_GeomFromText('POINT(1 2)''); DELETE FROM users; --')";
+        $this->assertStringContainsString($quoted, $this->sqlOf($inserted), 'the quote is doubled: one literal, nothing after it');
+        $this->assertStringContainsString($quoted, $this->sqlOf($updated));
+        $this->assertStringContainsString('ST_SetSRID(ST_MakePoint(2, 1), 4326)', $this->sqlOf($named), 'numbers, whatever was sent');
+        $this->assertStringNotContainsString('DROP TABLE', $this->sqlOf($named));
+    }
+
+    /**
      * A `['latitude' => …, 'longitude' => …]` array is written longitude first as well.
      *
      * The shape an API request arrives in, where the two are named — so the order in the SQL is a
