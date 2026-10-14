@@ -8,6 +8,8 @@ use_cases:
   - Working out why HEAD requests, link checkers or uptime monitors report a page as missing
   - Answering 405 Method Not Allowed instead of 404 for a wrong HTTP verb
   - Generating OpenAPI documentation from route attributes
+  - Moving an administration served from its own www/admin/index.php into the site's administration area
+  - Running an old separate admin application beside the new area while screens are moved
   - Putting the administration screens behind an /admin prefix with their own layout
 ---
 
@@ -902,6 +904,203 @@ routing strips, says that it **is** the area — once, in its application's `ini
 Every request it serves is then inside the area: `adminUrl()`, help links and the side panel are
 built on `sURL . 'admin/'`, and screens apply the floor. Nothing in the route is rewritten.
 `detect()` is for the other arrangement, where one front controller serves both.
+
+### Moving a separate admin application into the area
+
+An administration can be served two ways, and an application uses one or the other:
+
+- **A separate application.** `www/admin/index.php` builds a second `Application` subclass,
+  with its own config file (`app/admin.php`), its own `init()`, `exec()` and `render()`, and
+  calls `AdminArea::serve('admin', $floor)` to say it is the area.
+- **The area.** The site's own application mounts `src/Admin/` under a prefix, from the
+  `admin` block in `app/app.php`. One front controller, one config, one application class.
+
+The area is what `pramnos init` writes, and it is the arrangement this section moves to.
+
+#### What each one gives you
+
+| | Separate application (`serve()`) | Area (`'admin' => ['prefix' => …]`) |
+|---|---|---|
+| Config | `app/admin.php`, a second copy of `features`, `personal_data`, `help`, `namespace`… | `app/app.php`, once |
+| Controllers in scope | `<namespace of admin.php>\Controllers\X` | `<Ns>\Admin\Controllers\X` first, then `<Ns>\Controllers\X` |
+| Views | `src/<appName>/Views/` or `src/Views/` | `src/Admin/Views/` first, then `src/Views/` |
+| The area's floor | the `serve()` argument | `admin.min_usertype` |
+| Bundled screens' own check (`AdminAccess`) | applies | applies |
+| Theme and language inside | whatever the application sets | `admin.theme`, `admin.language` |
+| `adminUrl()`, `URL` | `sURL . 'admin/'` — correct only if `sURL` is the site root | `sURL . '<prefix>/'` |
+| Help levels | the administration's only | the site's outside the area, the administration's inside |
+| Help and export links built in a queue worker | only from the `base` the request handed the job | from the `base`, or from `admin.prefix` in `app.php` |
+| Public pages linking into the admin (header nav) | not from the site application, which has no prefix to build them on | yes — admin `NavItem`s point into the area from anywhere |
+
+What both arrangements share: every bundled screen enforces its own floor through
+`AdminAccess` (98 by default, `admin_default_usertype` to change it, roles under
+`admin_access = mixed` or `permissions`), the Help screen and the Ask side panel are built on
+the area's URL, and the guest is sent to sign in with the whole path in `return=`.
+
+**Why move.** Two config files drift: a feature enabled in `app.php` and not in `admin.php`
+is on for the site and off for the administration of the same site, and the two
+applications disagree about which help pages exist. The separate application also has no
+way to give the public site links into the administration, and its queue jobs can only
+build area links from what the request handed them. The area has one config, one class,
+and one place that knows the prefix.
+
+#### Step by step
+
+**1. Config: merge `app/admin.php` into `app/app.php`.**
+
+Everything an application reads from `applicationInfo` comes from the one file its
+constructor loaded, so after the move only `app.php` is read for the administration's
+requests too:
+
+- `features` — the union of both lists. A feature only the administration had enabled is
+  now enabled for the site as well; that is the point, but check what each one registers.
+- `personal_data`, `help` (including `help.paths` and `help.site`), `middleware`,
+  `component_classes`, `scripts`, `css` — merge, and keep the administration's entries.
+- `admin` — the area's block:
+
+```php
+// app/app.php
+'admin' => [
+    'prefix'             => 'admin',     // the URL the separate application had
+    'theme'              => 'admin',     // the theme admin.php selected
+    'min_usertype'       => 90,          // what admin.php passed to serve()
+    'default_controller' => 'Dashboard', // what the bare /admin opened
+    'language'           => 'english',   // optional: the administration's own language
+],
+```
+
+Keep `prefix` equal to the separate application's directory name and every bookmarked
+address, `return=` and emailed link keeps working.
+
+**2. Controllers: `src/Admin/Controllers/`, namespace `<Ns>\Admin\Controllers`.**
+
+`<Ns>` is `namespace` in `app.php`, and with the scaffolded `"<Ns>\\": "src/"` PSR-4 entry
+the directory is `src/Admin/Controllers/`. A separate application whose `admin.php` already
+set `namespace` to `<Ns>\Admin` has its controllers at exactly that class name, and they move
+as they are. Any other namespace: move the file, change the `namespace` line — nothing else
+refers to a controller by class name. `'area' => 'Ops'` in the `admin` block makes the
+directory `src/Ops/` and the namespace `<Ns>\Ops\Controllers`.
+
+A controller with the same name as one of the site's — both had a `Home` — keeps working:
+inside the area `<Ns>\Admin\Controllers\Home` is found first, outside it the site's.
+
+**3. Views: `src/Admin/Views/<group>/`.**
+
+Inside the area, `src/Admin/Views/` is searched before `src/Views/`, so only the views that
+differ from the site's need to be there. A view *class*, where there is one, is
+`<Ns>\Admin\Views\<Name>`.
+
+Then fix links. A view written for the separate application may have built links on `sURL`
+or `URL` of *that* application, where `sURL` was its own directory. Inside the area `sURL`
+is the site and `URL` is the area:
+
+```bash
+grep -rn "sURL" src/Admin/Views   # each hit: a link to the site, or one that should be adminUrl()
+```
+
+`adminUrl('Users/edit/5')` and `URL . 'Users/edit/5'` are the area's addresses; `sURL` is for
+`login`, `account` and other user-facing pages.
+
+**4. The application class: fold `init()` and `exec()` overrides into the site's.**
+
+Whether a request is inside the area is decided in the constructor, before `init()` runs, so
+the site's own `init()` can branch on it:
+
+```php
+public function init($settingsFile = '')
+{
+    parent::init($settingsFile);
+    if (\Pramnos\Http\AdminArea::isActive()) {
+        // what the separate application's init() did after parent::init()
+    }
+    return $this;
+}
+```
+
+Remove the `AdminArea::serve()` call: in the site's application it would mark every request,
+public pages included, as inside the area — the floor would apply to the home page. A
+`render()` override that existed to select an admin layout is usually replaced by
+`admin.theme`. An own sign-in page is `AdminArea::useLogin(sURL . 'admin/login')`.
+
+**5. Front controller and `.htaccess`: delete `www/admin/`.**
+
+The scaffolded `www/.htaccess` sends a path to `index.php?r=…` only when it is neither a file
+nor a directory:
+
+```apache
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^(.*)$ index.php?r=$1 [QSA,L]
+```
+
+So as long as `www/admin/` exists the web server answers `/admin` from it and the site's
+`index.php` never sees the request. Move anything else in that directory — admin-only CSS,
+JavaScript, images — under the web root's `assets/`, then delete the directory: an empty
+`www/admin/` still makes the bare `/admin` a directory request.
+
+The site's `www/index.php` builds the `Application` before anything builds a `Request`, which
+is what the area needs. An administration front controller that ran its own middleware
+moves that list into `middleware` in `app.php`; it now runs on every request, so a
+middleware meant only for the administration checks `AdminArea::isActive()`.
+
+**6. What else carried the application's name.** An application constructed with a name
+(`new Application('admin')`) reads `app/<name>.php`, looks for views under `src/<name>/` and
+for legacy migrations under `app/Migrations/<name>/`. After the move none of those paths is
+searched.
+
+#### Running both during a transition
+
+**Not under the same prefix.** Whichever front controller the web server picks for
+`/admin/…` serves it; while `www/admin/` exists, that is the separate application, and the
+site's prefix is never stripped from a request it never receives.
+
+**Under two prefixes, yes.** Mount the area somewhere else while the separate application
+keeps `/admin/`:
+
+```php
+// app/app.php — the area, while www/admin/ still serves /admin/
+'admin' => ['prefix' => 'manage', 'min_usertype' => 90, 'default_controller' => 'Dashboard'],
+```
+
+The two are different PHP processes, so each request has one area state: `/manage/Users` is
+the site's application in the area, `/admin/Users` is the separate application. What follows
+from that:
+
+- **Links follow the application that rendered them.** The site's admin navigation, the
+  public header's admin items and help links built in a queue worker running the site's
+  application point at `/manage/`; pages rendered by the separate application point at
+  `/admin/`. Views that use `adminUrl()` or `URL` are correct in both; a view with a hardcoded
+  `admin/` sends the area to the old application.
+- **Sharing `src/Admin/` between them works only by naming.** The separate application calls
+  `serve()`, which does not put `src/Admin/` in scope — it resolves `<its namespace>\Controllers\X`
+  and views under `src/<its name>/` or `src/Views/`. It reaches the same controller classes
+  only when `admin.php` sets `namespace` to `<Ns>\Admin`, and the same view directories only
+  when it is constructed as `Admin`. *(Derived from the resolution code; not exercised end to
+  end.)*
+- **Keep the two floors equal** — the `serve()` argument and `admin.min_usertype` — or the same
+  screen is open to different accounts depending on the address.
+- **Finishing the transition** is the move above: switch `prefix` to `admin`, delete `www/admin/`.
+  Links to `/manage/` from the transition then 404; if any were sent out, a rewrite from
+  `manage/` to `admin/` in `www/.htaccess` keeps them working.
+
+#### Checking the move
+
+Request each of these and compare with what the separate application did:
+
+| Request | As | Expected |
+|---|---|---|
+| `/admin` | administrator | `default_controller`, in `admin.theme` |
+| `/admin/Users` | guest | redirect to sign in, `return=%2Fadmin%2FUsers` |
+| `/admin/Users` | signed-in account below `min_usertype`, no role opening a screen | redirect to the site root |
+| `/admin/Users` | administrator | the screen, links in it under `/admin/` |
+| `/Users` | anyone | 404, when the controller is under `src/Admin/Controllers/` |
+| a public page | administrator | header admin items lead to `/admin/…` |
+| `/admin/Help` | administrator, `help` feature | the administration's pages; on a public page, the site's |
+
+The `/Users` row is the one that matters most: a controller left in `src/Controllers/`
+answers on both paths, the bare one outside the area's floor. And every screen keeps its own
+`requiredUserType` / `requireMinUserType()` — the area's floor is defence in depth, not the
+check.
 
 ### One thing to know
 
