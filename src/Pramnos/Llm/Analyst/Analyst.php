@@ -130,11 +130,15 @@ final class Analyst
             new \Pramnos\Llm\Analyst\Tools\PushTool(),
             new \Pramnos\Llm\Analyst\Tools\QueueTool(),
             new \Pramnos\Llm\Analyst\Tools\LlmSpendTool(),
-            new \Pramnos\Llm\Analyst\Tools\HelpTool($area),
             new \Pramnos\Mcp\Tools\LogAnalyticsTool(),
             new \Pramnos\Mcp\Tools\LogErrorsTool(),
             new \Pramnos\Mcp\Tools\StatusTool(\Pramnos\Application\Application::getInstance()),
         ];
+
+        // The installation's help pages, with the `help` feature.
+        if (\Pramnos\Assist\Help::enabled()) {
+            $tools[] = new \Pramnos\Llm\Analyst\Tools\HelpTool($area);
+        }
 
         $analyst = Llm::config('analyst', []);
         $sql     = is_array($analyst) && !empty($analyst['sql']);

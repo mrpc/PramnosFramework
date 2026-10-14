@@ -1548,8 +1548,9 @@ class Application extends Base
             icon: 'gauge',
         ));
 
-        // The help pages, where the project has the screen — `src/Admin/Controllers/Help.php`.
-        if (\Pramnos\Assist\Help::screen() !== '') {
+        // The help pages, with the `help` feature and where the project has the screen —
+        // `src/Admin/Controllers/Help.php`.
+        if (\Pramnos\Assist\Help::enabled() && \Pramnos\Assist\Help::screen() !== '') {
             NavRegistry::register(new NavItem(
                 'admin.help', 'Help', $admin('Help'),
                 NavSection::Admin, 99, requireAuth: true,

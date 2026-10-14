@@ -5,6 +5,7 @@ use_cases:
   - Telling the side panel which record an admin screen shows
   - Adding the Help screen and the side panel to an existing project
   - Finding a help page from a question in Greek or English
+  - Turning help pages on or off for an installation
 ---
 
 # Administration help and the side panel
@@ -21,6 +22,19 @@ Without the analyst — the `llm` feature off, or an administrator below its flo
 
 The help pages are also a screen of their own, `/admin/Help`, with a search. The analyst reads
 them too, through its `help` tool, so "how do I refund an order?" is answered from your pages.
+
+## The `help` feature
+
+Help pages are a feature, listed in `app/app.php` like any other:
+
+```php
+'features' => ['auth', 'queue', 'help'],
+```
+
+With it, the panel has its Help tab, `/admin/Help` answers, the menu has *Help*, and the analyst has
+the `help` tool and reads a page's help as background. Without it, none of these: the panel is Ask
+alone, and `/admin/Help` is not found. A new project made with `init` has it on; `init
+--features=…` lists it like the rest. Ask in the panel is the `llm` feature's, independently.
 
 ## Help pages
 
@@ -140,6 +154,8 @@ button, the panel inside an inert `<template>`, and `assets/js/pf-assist.js`.
 Without the script the button is a plain link: to Ask, or to the page's help.
 
 ## Adding it to an existing project
+
+Add `'help'` to `features` in `app/app.php`, then publish the scripts:
 
 ```bash
 php bin/pramnos project:resync --js --all      # pf-assist.js, and pf-chat.js it runs on

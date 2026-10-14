@@ -63,6 +63,17 @@ final class Help
         return $slug === '' ? null : (self::pages()[$slug] ?? null);
     }
 
+    /**
+     * Whether the installation uses its help pages: the `help` feature, in `app.php`'s
+     * `features`. Off, the side panel shows no Help tab, `/admin/Help` answers nothing, and the
+     * analyst neither has the `help` tool nor reads a page's help. The pages themselves can
+     * still be read through this class.
+     */
+    public static function enabled(): bool
+    {
+        return \Pramnos\Application\FeatureRegistry::isEnabled('help');
+    }
+
     /** The Markdown of a screen's action, or of the screen, or null. */
     public static function text(string $screen, string $action = ''): ?string
     {
@@ -83,7 +94,16 @@ final class Help
             return null;
         }
 
-        return ($action !== '' && $action !== 'display' ? self::page($screen . '/' . $action) : null) ?? self::page($screen);
+        $forAction = $action !== '' && $action !== 'display' ? self::page($screen . '/' . $action) : null;
+        $forScreen = self::page($screen);
+
+        foreach ([$forAction, $forScreen] as $page) {
+            if ($page !== null && !$page['framework']) {
+                return $page;
+            }
+        }
+
+        return $forAction ?? $forScreen;
     }
 
     /**

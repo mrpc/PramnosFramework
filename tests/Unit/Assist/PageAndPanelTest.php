@@ -30,9 +30,15 @@ class PageAndPanelTest extends LlmTestCase
 {
     private string $help = '';
 
+    /** @var mixed The enabled features before this test */
+    private mixed $features = null;
+
     protected function setUp(): void
     {
         parent::setUp();
+        $enabled        = new \ReflectionProperty(\Pramnos\Application\FeatureRegistry::class, 'enabled');
+        $this->features = $enabled->getValue();
+        \Pramnos\Application\FeatureRegistry::loadFromConfig(['help']);
         Page::reset();
         $this->help = sys_get_temp_dir() . '/pf-page-' . bin2hex(random_bytes(4));
         mkdir($this->help);
@@ -43,6 +49,7 @@ class PageAndPanelTest extends LlmTestCase
 
     protected function tearDown(): void
     {
+        (new \ReflectionProperty(\Pramnos\Application\FeatureRegistry::class, 'enabled'))->setValue(null, $this->features);
         Page::reset();
         Help::useDirectories(null);
         @unlink($this->help . '/posts.md');
@@ -257,5 +264,13 @@ class PageAndPanelTest extends LlmTestCase
         $this->assertStringContainsString('data-pf-assist-pane="ask"', $askOnly);
         $this->assertSame('', $nothing, 'neither: no button');
         $this->assertSame('<a class="pf-ask" href="/admin/Ai">Ask</a>', $onAsk);
+
+        // Without the `help` feature: no Help tab, and no help for the analyst either
+        (new \ReflectionProperty(\Pramnos\Application\FeatureRegistry::class, 'enabled'))->setValue(null, []);
+        $screen->setValue(null, 'posts');
+        $this->assertStringNotContainsString('data-pf-assist-pane="help"', Panel::render(true, '/admin/Ai'), 'Ask alone');
+        $this->assertSame('', Panel::render(false, '/admin/Ai'), 'and without the analyst, nothing');
+        $this->assertStringNotContainsString('help says', Page::prompt(Page::fromInput(['screen' => 'posts'])));
+        $this->assertArrayNotHasKey('help', \Pramnos\Llm\Analyst\Analyst::tools(7));
     }
 }

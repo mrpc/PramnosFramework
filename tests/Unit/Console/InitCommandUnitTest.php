@@ -3279,10 +3279,35 @@ class InitCommandUnitTest extends TestCase
         $this->assertStringContainsString('namespace AdminApp\\Admin\\Controllers;', $dashboard);
         $this->assertStringContainsString('DashboardController', $dashboard,
             'Dashboard wrapper must extend the framework DashboardController');
-        // So is the help screen: the side panel's "All help" and the help pages need it.
+        // The help screen is the `help` feature's: not asked for here, not written.
+        $this->assertFileDoesNotExist($this->tmpDir . '/src/Admin/Controllers/Help.php');
+    }
+
+    /**
+     * With the `help` feature the help screen's wrapper is written — the side panel's "All help",
+     * the menu item and `/admin/Help` need it — and `help` is in the features app.php lists.
+     */
+    public function testTheHelpFeatureWritesItsScreen(): void
+    {
+        // Arrange
+        file_put_contents($this->tmpDir . '/composer.json', json_encode(['name' => 'test/app']));
+        $app = new Application();
+        $app->add($this->command);
+        $tester = new CommandTester($this->command);
+
+        // Act
+        $tester->execute([
+            '--app-name' => 'AdminApp', '--no-install' => true, '--no-download' => true, '--namespace' => 'AdminApp',
+            '--features' => 'help', '--ui-system' => 'plain-css', '--docker' => 'n', '--libraries' => '',
+            '--db-type' => 'mysql', '--db-host' => 'localhost', '--db-name' => 'adminapp_db', '--db-user' => 'adminapp',
+            '--db-pass' => 'pass', '--db-prefix' => '', '--rest-api' => 'n',
+        ], ['interactive' => false]);
+
+        // Assert
         $help = (string) file_get_contents($this->tmpDir . '/src/Admin/Controllers/Help.php');
         $this->assertStringContainsString('namespace AdminApp\\Admin\\Controllers;', $help);
         $this->assertStringContainsString('class Help extends FrameworkHelpController', $help);
+        $this->assertStringContainsString("'features' => ['help']", (string) file_get_contents($this->tmpDir . '/app/app.php'));
     }
 
     /**

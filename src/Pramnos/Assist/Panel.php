@@ -12,6 +12,8 @@ namespace Pramnos\Assist;
  * `assets/js/pf-assist.js`, which opens it beside the page. Without the script the button is the
  * link it always was — to Ask, or to the page's help.
  *
+ * Help is the `help` feature's; Ask, the `llm` feature's, below the analyst's floor.
+ *
  * Ask in the panel is the analyst's own conversation page, fetched and run by `pf-chat.js`, with
  * the page sent along each question (see {@see Page}). Where the analyst is not available — the
  * `llm` feature off, or below its floor — the panel is the help alone; where the page has no help,
@@ -27,7 +29,7 @@ final class Panel
     public static function render(bool $ask, string $askUrl, string $before = '', string $after = ''): string
     {
         $context = Page::context();
-        $help    = Help::forScreen($context['screen'], $context['action']);
+        $help    = Help::enabled() ? Help::forScreen($context['screen'], $context['action']) : null;
 
         // On Ask itself, the panel would be the page twice: the link it always was.
         if ($ask && $context['screen'] === 'ai') {

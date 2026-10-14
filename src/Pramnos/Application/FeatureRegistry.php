@@ -29,6 +29,7 @@ namespace Pramnos\Application;
  * | `authserver` | OAuth Server                        |
  * | `messaging`  | Messaging System                    |
  * | `queue`      | Queue System                        |
+ * | `help`       | Help pages, the admin side panel's Help, `/admin/Help` and the analyst's `help` tool |
  *
  * ## Usage
  *
@@ -300,6 +301,11 @@ class FeatureRegistry
             'migrations'  => [
                 dirname(__DIR__, 3) . '/database/migrations/framework/llm',
             ],
+        ]);
+        // Help pages: `app/help/*.md`, the side panel's Help tab, `/admin/Help` and the analyst's
+        // `help` tool. See docs/Pramnos_Admin_Assistant_Guide.md.
+        static::register('help', [
+            'description' => 'Help pages — the admin side panel\'s Help, /admin/Help and the analyst\'s help tool',
         ]);
         static::register('cache', [
             'description' => 'Cache System (PSR-16, adapters: array/file/redis/memcached)',

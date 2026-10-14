@@ -348,7 +348,7 @@ class AnalystTest extends LlmTestCase
         $this->assertArrayHasKey('posts', $tools);
         $this->assertArrayHasKey('posts_today', $tools);
         $this->assertSame('{"published":12,"by":"e***@e***.com"}', ($tools['posts']['run'])([]));
-        $this->assertCount(15, $tools);
+        $this->assertCount(14, $tools, 'the help tool is the help feature\'s');
     }
 
     /**

@@ -159,7 +159,7 @@ final class Page
             $lines[] = 'When the question says "this" or "here", it means that page.';
         }
 
-        $help = Help::text($page['screen'], $page['action']);
+        $help = Help::enabled() ? Help::text($page['screen'], $page['action']) : null;
         if ($help !== null) {
             $lines[] = "What the page's help says about it:\n" . mb_substr($help, 0, 4000);
         }

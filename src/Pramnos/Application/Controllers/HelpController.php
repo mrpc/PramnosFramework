@@ -29,6 +29,15 @@ class HelpController extends Controller
         parent::__construct($application);
     }
 
+    /** Without the `help` feature there is no such screen. */
+    protected function notHere(): string
+    {
+        http_response_code(404);
+        \Pramnos\Framework\Factory::getDocument('raw');
+
+        return '';
+    }
+
     /** The area's own floor: whoever may enter the administration may read its help. */
     protected function adminFloor(): int
     {
@@ -38,6 +47,10 @@ class HelpController extends Controller
     /** The pages by section, or those that answer `?q=`. */
     public function display(): mixed
     {
+        if (!Help::enabled()) {
+            return $this->notHere();
+        }
+
         $query = trim((string) ($_GET['q'] ?? ''));
 
         \Pramnos\Framework\Factory::getDocument()->title = t('Help');
@@ -60,6 +73,10 @@ class HelpController extends Controller
     /** One page, by `?p=`. */
     public function page(): mixed
     {
+        if (!Help::enabled()) {
+            return $this->notHere();
+        }
+
         $page = Help::page((string) ($_GET['p'] ?? ''));
 
         if ($page === null) {
@@ -82,6 +99,10 @@ class HelpController extends Controller
     /** A picture beside the pages — only inside a help directory, only of a picture's type. */
     public function image(): mixed
     {
+        if (!Help::enabled()) {
+            return $this->notHere();
+        }
+
         $file = Help::image((string) ($_GET['f'] ?? ''));
 
         if ($file === null) {

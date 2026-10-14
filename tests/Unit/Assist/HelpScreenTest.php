@@ -21,8 +21,16 @@ class HelpScreenTest extends TestCase
 
     private string $dir = '';
 
+    /** @var mixed The enabled features before this test */
+    private mixed $features = null;
+
     protected function setUp(): void
     {
+        // The screen is the `help` feature's.
+        $enabled        = new \ReflectionProperty(\Pramnos\Application\FeatureRegistry::class, 'enabled');
+        $this->features = $enabled->getValue();
+        \Pramnos\Application\FeatureRegistry::loadFromConfig(['help']);
+
         $this->dir = sys_get_temp_dir() . '/pf-helpscreen-' . bin2hex(random_bytes(4));
         mkdir($this->dir . '/images', 0777, true);
         file_put_contents($this->dir . '/refunds.md', "---\nsection: Billing\nquestions:\n  - How do I refund?\nupdated: 2026-10-01\n---\n# Refunds\n\nSee [orders](help:orders) and ![The button](images/b.png).");
@@ -34,6 +42,7 @@ class HelpScreenTest extends TestCase
 
     protected function tearDown(): void
     {
+        (new \ReflectionProperty(\Pramnos\Application\FeatureRegistry::class, 'enabled'))->setValue(null, $this->features);
         Help::useDirectories(null);
         foreach (['/images/b.png', '/refunds.md', '/orders.md'] as $file) {
             @unlink($this->dir . $file);
@@ -122,6 +131,22 @@ class HelpScreenTest extends TestCase
         // Assert
         $this->assertSame([], array_diff(['display', 'page', 'image'], $auth));
         $this->assertSame('admin.help', $ability);
+    }
+
+    /** Without the `help` feature there is no such screen: every action is not found. */
+    public function testWithoutTheFeatureThereIsNoScreen(): void
+    {
+        // Arrange
+        (new \ReflectionProperty(\Pramnos\Application\FeatureRegistry::class, 'enabled'))->setValue(null, []);
+        $_GET = ['p' => 'refunds', 'f' => 'images/b.png'];
+
+        // Act
+        $answers = [(new HelpScreen('plain-css'))->display(), (new HelpScreen('plain-css'))->page(), (new HelpScreen('plain-css'))->image()];
+
+        // Assert
+        $this->assertSame(['', '', ''], $answers);
+        $this->assertSame(404, http_response_code());
+        http_response_code(200);
     }
 
     /** Whoever may enter the area may read its help: the area's floor, not a screen's. */

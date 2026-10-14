@@ -191,7 +191,7 @@ class Init extends Command
         $this->setDescription('Initialize a new Pramnos project structure');
         $this->addOption('app-name',      null, InputOption::VALUE_OPTIONAL, 'Application name');
         $this->addOption('namespace',     null, InputOption::VALUE_OPTIONAL, 'PHP namespace');
-        $this->addOption('features',      null, InputOption::VALUE_OPTIONAL, 'Comma-separated feature list (auth,authserver,queue,messaging,devpanel,usergroups)');
+        $this->addOption('features',      null, InputOption::VALUE_OPTIONAL, 'Comma-separated feature list (auth,authserver,queue,messaging,devpanel,usergroups,help)');
         $this->addOption('ui-system',     null, InputOption::VALUE_OPTIONAL, 'UI system (plain-css, bootstrap, tailwind)');
         $this->addOption('docker',        null, InputOption::VALUE_OPTIONAL, 'Setup Docker environment (y/n)');
         $this->addOption('docker-port',   null, InputOption::VALUE_OPTIONAL, 'Local port for Docker mapping');
@@ -745,7 +745,9 @@ class Init extends Command
         $this->scaffoldUsersWiring($namespace);
         $this->scaffoldSettingsWiring($namespace);
         $this->scaffoldDashboardWiring($namespace);
-        $this->scaffoldHelpWiring($namespace);
+        if (in_array('help', $enabledFeatures, true)) {
+            $this->scaffoldHelpWiring($namespace);
+        }
         $this->scaffoldServicesWiring($namespace);
         $this->scaffoldOrganizationsWiring($namespace);
         $this->scaffoldEmailsWiring($namespace);
@@ -1062,6 +1064,11 @@ class Init extends Command
                 $enabled[] = 'usergroups';
             }
         }
+
+        // Help pages are on in a new project without a question: they cost nothing until a page
+        // is written, and the framework's own screens come with theirs. `--features` lists them
+        // explicitly, as every other feature.
+        $enabled[] = 'help';
 
         return $enabled;
     }
