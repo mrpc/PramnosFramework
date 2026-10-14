@@ -1881,6 +1881,32 @@ class InitCommandUnitTest extends TestCase
      * These artifacts form the complete REST API scaffold: the router
      * file, the entry-point PHP file, and the URL rewriting config.
      */
+    /**
+     * `--rest-api` on its own, with no value, is a yes: the API is scaffolded without a question
+     * (which, run non-interactively, would have been answered with its default instead).
+     */
+    public function testABareRestApiFlagIsAYes(): void
+    {
+        // Arrange
+        file_put_contents($this->tmpDir . '/composer.json', json_encode(['name' => 'test/app']));
+        $app = new Application();
+        $app->add($this->command);
+        $tester = new CommandTester($this->command);
+
+        // Act
+        $tester->execute([
+            '--app-name' => 'ApiApp', '--no-install' => true, '--no-download' => true, '--namespace' => 'ApiApp',
+            '--features' => '', '--ui-system' => 'plain-css', '--docker' => 'n', '--libraries' => '',
+            '--rest-api' => null,
+            '--db-type' => 'mysql', '--db-host' => 'localhost', '--db-name' => 'apiapp_db', '--db-user' => 'apiapp',
+            '--db-pass' => 'secret', '--db-prefix' => '',
+        ], ['interactive' => false]);
+
+        // Assert
+        $this->assertFileExists($this->tmpDir . '/src/Api/routes.php', 'the flag alone scaffolds the API');
+        $this->assertStringNotContainsString('Scaffold a REST API layer?', $tester->getDisplay(), 'and asks nothing');
+    }
+
     public function testRestApiOptionScaffoldsApiDirectoryAndRoutesFile(): void
     {
         // Arrange

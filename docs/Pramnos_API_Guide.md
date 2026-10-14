@@ -18,8 +18,8 @@ The Pramnos Framework provides comprehensive support for building REST APIs with
 php vendor/bin/pramnos init --rest-api=y
 ```
 
-`--rest-api` takes a value (`y`/`n`); given without one, `init` asks the question
-interactively. Answering yes creates:
+`--rest-api` takes a value (`y`/`n`); given on its own it means yes. Without the option,
+`init` asks. Answering yes creates:
 
 - `src/Api.php` — the application's API kernel, a subclass of `Pramnos\Application\Api`
 - `src/Api/Controllers/` — API endpoint controllers
@@ -827,9 +827,8 @@ Every answer to an application carries `X-RateLimit-Limit` and `X-RateLimit-Rema
 limit it is `429` with `Retry-After`. See
 [Access and limits](Pramnos_AuthServer_Integration_Guide.md#access-and-limits).
 
-Configure CORS with **top-level** keys in `app/app.php` — `Api::exec()` reads
-`cors_origins` and `cors_from_db` from the top level, and the same keys nested inside
-`'api' => [...]` are ignored:
+Configure CORS with `cors_origins` or `cors_from_db` in `app/app.php`, at the top level or
+inside `'api' => [...]` (where `init` writes them); the top level wins where both are set:
 
 ```php
 'cors_origins' => ['https://spa.example.com'],   // config-based

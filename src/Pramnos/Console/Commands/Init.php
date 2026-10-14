@@ -2434,6 +2434,10 @@ CSS;
         if ($option !== null) {
             return in_array(strtolower($option), ['y', 'yes', '1', 'true'], true);
         }
+        // `--rest-api` on its own, with no value, is a yes — not a question.
+        if ($input->hasParameterOption('--rest-api')) {
+            return true;
+        }
         $output->writeln("\n<comment>Step 2b — REST API</comment>");
         return $helper->ask($input, $output, new ConfirmationQuestion('Scaffold a REST API layer? [Y/n] ', true));
     }
