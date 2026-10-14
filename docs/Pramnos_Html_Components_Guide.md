@@ -997,6 +997,24 @@ whole reason these are paths rather than a query parameter.
   whose content is an image or an ellipsis has no accessible name otherwise — a screen
   reader reads the URL.
 
+### Reading the page from a script
+
+Every link carries `data-page`, the page it goes to, as an integer. That covers the numbered
+links and first, previous, next and last, each with the page it leads to. Read that, not the
+`href`:
+
+```js
+document.querySelectorAll('nav [data-page]').forEach(function (link) {
+    link.addEventListener('click', function (event) {
+        event.preventDefault();
+        loadPage(Number(link.dataset.page));      // jQuery: $(this).data('page')
+    });
+});
+```
+
+The `href` is shaped by the pattern (`/p/:page`, `?page=:page`), and a first page with its own
+`firstPageUrl` has no number in it at all. The ellipsis is not a link and has no `data-page`.
+
 ### A window with no pinned ends
 
 ```php

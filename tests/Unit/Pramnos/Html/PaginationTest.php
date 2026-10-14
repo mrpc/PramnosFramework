@@ -420,4 +420,41 @@ class PaginationTest extends TestCase
         $this->assertSame(1, $fromGarbage->page, '/page/abc from a crawler is page 1, not a TypeError');
         $this->assertSame([1, 1], [$fromNull->pages, $fromNull->page]);
     }
+
+    /**
+     * Every link says the page it goes to in `data-page`, the contract for scripts: the numbers,
+     * and first, previous, next and last with the page each leads to — whatever the URL looks
+     * like, including a first page with its own address. A script that read the page from `alt`
+     * asked for `/page/undefined` once that attribute went.
+     */
+    public function testEveryLinkSaysItsPageForAScript(): void
+    {
+        // Arrange
+        $pagination = new Pagination(10, 5, '/ads/page/:page');
+        $pagination->firstPageUrl     = '/ads';
+        $pagination->displayFirstLast = true;
+        $pagination->firstButtonText  = 'First';
+        $pagination->previousButtonText = 'Prev';
+        $pagination->nextButtonText   = 'Next';
+        $pagination->lastButtonText   = 'Last';
+
+        // Act
+        $dom = new \DOMDocument();
+        @$dom->loadHTML('<?xml encoding="utf-8"?>' . $pagination->render());
+        $links = [];
+        foreach ($dom->getElementsByTagName('a') as $a) {
+            $links[] = [trim($a->textContent), $a->getAttribute('data-page'), $a->getAttribute('href')];
+        }
+
+        // Assert
+        $this->assertNotEmpty($links, 'the sweep found nothing to check');
+        foreach ($links as [$text, $page, $href]) {
+            $this->assertMatchesRegularExpression('/^[1-9]\d*$/', $page, $text . ': an integer, on every link');
+            $this->assertSame($page === '1' ? '/ads' : '/ads/page/' . $page, $href, $text . ': the page its address goes to');
+        }
+        $byText = array_column($links, 1, 0);
+        $this->assertSame(['1', '4', '6', '10'], [$byText['First'], $byText['Prev'], $byText['Next'], $byText['Last']], 'each button, the page it leads to');
+        $this->assertSame('5', $byText['5'], 'the current page too');
+        $this->assertStringNotContainsString('data-page="…"', $pagination->render(), 'the ellipsis is no link');
+    }
 }

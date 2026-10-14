@@ -46,6 +46,14 @@ namespace Pramnos\Html;
  *     the list nested instead of listing;
  *   - each link carried `alt=""`, which is not a valid attribute on `<a>`.
  *
+ * ## For JavaScript: `data-page`
+ *
+ * Every link carries `data-page="N"`, the page it goes to, as an integer: the numbered links,
+ * and first, previous, next and last with the page each leads to. A script reads that —
+ * `link.dataset.page`, `$(this).data('page')` — and not the `href`, whose shape is the
+ * pattern's (`/p/:page`, `?page=:page`) and says nothing on a first page that has its own URL.
+ * The ellipsis is not a link and has none. This is the contract; it does not change.
+ *
  * ## Button text is markup on purpose
  *
  * `previousButtonText` and the rest are **not escaped**, because their documented use is
@@ -338,6 +346,9 @@ class Pagination extends \Pramnos\Framework\Base
             // the URL.
             . ' aria-label="' . $this->attr('Page ' . $page) . '"'
             . ($current ? ' aria-current="page"' : '')
+            // The page for a script: see the class docblock, "For JavaScript". Last, so the
+            // attributes before it read as they always have.
+            . ' data-page="' . $page . '"'
             . '>' . $label . '</a>';
 
         return $this->wrap($anchor, $current);
