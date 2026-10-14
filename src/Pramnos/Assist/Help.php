@@ -62,6 +62,37 @@ final class Help
     /** @var array<string, HelpBook> The books built so far, by level */
     private static array $books = [];
 
+    /** @var HelpGate|false|null The site's gate once built; false for none */
+    private static HelpGate|false|null $gate = null;
+
+    /**
+     * The site's {@see HelpGate}: `'help' => ['site' => ['gate' => Class::class]]`, built once — or
+     * null, when there is none and every requirement is refused.
+     */
+    public static function siteGate(): ?HelpGate
+    {
+        if (self::$gate === null) {
+            $app   = \Pramnos\Application\Application::currentInstance();
+            $class = is_object($app) ? ($app->applicationInfo['help']['site']['gate'] ?? null) : null;
+            if (is_string($class) && class_exists($class) && is_a($class, HelpGate::class, true)) {
+                self::$gate = new $class();
+            } else {
+                if ($class !== null) {
+                    \Pramnos\Logs\Logger::log('help.site.gate is not a HelpGate: every requirement is refused.', 'help');
+                }
+                self::$gate = false;
+            }
+        }
+
+        return self::$gate === false ? null : self::$gate;
+    }
+
+    /** The site's gate, for a test or an application that builds its own; null to read app.php again. */
+    public static function useSiteGate(?HelpGate $gate): void
+    {
+        self::$gate = $gate;
+    }
+
     /**
      * The administration's pages: `app/help` (or `help.paths`), then the framework's — the last
      * directory searched, whichever it is.

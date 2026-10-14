@@ -24,6 +24,9 @@ final class HelpBook
     /** @var array<string, array<string, mixed>>|null Every page, by slug, once read */
     private ?array $pages = null;
 
+    /** Who these pages are for, on the site's level; the request's reader when none was given. */
+    private ?HelpReader $reader = null;
+
     /**
      * @param string      $level       {@see ADMIN} or {@see SITE}
      * @param list<string> $directories Where to look, first match wins
@@ -34,6 +37,22 @@ final class HelpBook
         private readonly array $directories,
         private readonly ?string $framework = null
     ) {
+    }
+
+    /**
+     * These pages as `$reader` may see them. On the site's level a page or a block that
+     * `requires` what the {@see HelpGate} refuses this reader is not there; on the
+     * administration's nothing is gated. Without this, the site's pages are the request's
+     * reader's.
+     */
+    public function for(HelpReader $reader): self
+    {
+        // Read once, here, so every reader's view shares the files rather than reading them again.
+        $this->pages();
+        $view         = clone $this;
+        $view->reader = $reader;
+
+        return $view;
     }
 
     /** {@see ADMIN} or {@see SITE}. */
@@ -62,7 +81,7 @@ final class HelpBook
     {
         $slug = Help::slug($slug);
 
-        return $slug === '' ? null : ($this->pages()[$slug] ?? null);
+        return $slug === '' ? null : ($this->visible()[$slug] ?? null);
     }
 
     /**
@@ -90,7 +109,28 @@ final class HelpBook
             }
         }
 
-        return $forAction ?? $forScreen;
+        return $forAction ?? $forScreen ?? $this->claiming($screen);
+    }
+
+    /**
+     * The page that lists `$screen` under `screens:` — one page for several screens. After a
+     * page named after the screen, so a dedicated page overrides an area's without editing its
+     * list; between two that claim it, the first by name.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function claiming(string $screen): ?array
+    {
+        $pages = $this->visible();
+        ksort($pages);
+
+        foreach ($pages as $page) {
+            if (in_array($screen, $page['screens'], true)) {
+                return $page;
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -100,8 +140,9 @@ final class HelpBook
      */
     public function all(): array
     {
-        $pages = array_values($this->pages());
-        $key = static fn (array $p): array => [$p['framework'], mb_strtolower($p['section']), mb_strtolower($p['title'])];
+        $pages = array_values($this->visible());
+        // `order:` within a section, then the title; a page without one after those with one.
+        $key = static fn (array $p): array => [$p['framework'], mb_strtolower($p['section']), $p['order'] ?? PHP_INT_MAX, mb_strtolower($p['title'])];
         usort($pages, static fn (array $a, array $b): int => $key($a) <=> $key($b));
 
         return $pages;
@@ -121,7 +162,7 @@ final class HelpBook
         }
 
         $found = [];
-        foreach ($this->pages() as $page) {
+        foreach ($this->visible() as $page) {
             $strong = array_count_values(Help::words($page['title'] . ' ' . implode(' ', $page['questions'])));
             $weak   = array_count_values(Help::words($page['body']));
             $score  = 0;
@@ -234,6 +275,82 @@ final class HelpBook
         return ($base !== '' ? rtrim($base, '/') . '/' : (defined('sURL') ? (string) \sURL : '/')) . $path;
     }
 
+    /**
+     * The pages this reader may see, with the blocks they may not cut out — on the site's level.
+     *
+     * Fail closed: a requirement with no gate to answer it, or a gate that throws, is refused.
+     * The search scores what is left, so a hidden block's words cannot make its page match.
+     *
+     * @return array<string, array<string, mixed>>
+     */
+    private function visible(): array
+    {
+        if ($this->level !== self::SITE) {
+            return $this->pages();
+        }
+
+        $reader  = $this->reader ?? HelpReader::fromRequest();
+        $gate    = Help::siteGate();
+        $answers = [];
+        $allows  = static function (string $requirement) use ($reader, $gate, &$answers): bool {
+            if (!isset($answers[$requirement])) {
+                try {
+                    $answers[$requirement] = $gate !== null && $gate->allows($requirement, $reader);
+                } catch (\Throwable $e) {
+                    \Pramnos\Logs\Logger::log('Help gate failed on "' . $requirement . '": ' . $e->getMessage(), 'help');
+                    $answers[$requirement] = false;
+                }
+            }
+
+            return $answers[$requirement];
+        };
+
+        $visible = [];
+        foreach ($this->pages() as $slug => $page) {
+            foreach ($page['requires'] as $requirement) {
+                if (!$allows($requirement)) {
+                    continue 2;
+                }
+            }
+            $page['body']   = self::cut($page['body'], $allows);
+            $visible[$slug] = $page;
+        }
+
+        return $visible;
+    }
+
+    /**
+     * A body without the blocks this reader may not see: from a line `<!-- requires: x -->` to a
+     * line `<!-- /requires -->`. Kept, only the two lines go; refused, everything between them.
+     * An unclosed block is cut to the end — hiding is the safe way to be wrong.
+     *
+     * @param \Closure(string): bool $allows
+     */
+    private static function cut(string $body, \Closure $allows): string
+    {
+        if (!str_contains($body, '<!-- requires:')) {
+            return $body;
+        }
+
+        $kept = [];
+        $open = null;
+        foreach (explode("\n", $body) as $line) {
+            if ($open === null && preg_match('/^\s*<!--\s*requires:\s*([A-Za-z0-9_.:-]+)\s*-->\s*$/', $line, $m) === 1) {
+                $open = $allows($m[1]);
+                continue;
+            }
+            if ($open !== null && preg_match('/^\s*<!--\s*\/requires\s*-->\s*$/', $line) === 1) {
+                $open = null;
+                continue;
+            }
+            if ($open !== false) {
+                $kept[] = $line;
+            }
+        }
+
+        return trim(implode("\n", $kept));
+    }
+
     /** @return array<string, array<string, mixed>> */
     private function pages(): array
     {
@@ -263,7 +380,7 @@ final class HelpBook
         return $this->pages = $pages;
     }
 
-    /** @return array{slug: string, title: string, section: string, questions: list<string>, updated: string, body: string, framework: bool} */
+    /** @return array{slug: string, title: string, section: string, questions: list<string>, updated: string, order: ?int, requires: list<string>, screens: list<string>, body: string, framework: bool} */
     private static function read(string $file, string $slug, bool $framework): array
     {
         $text   = str_replace(["\r\n", "\r"], "\n", (string) file_get_contents($file));
@@ -275,8 +392,12 @@ final class HelpBook
             $key  = '';
             foreach (explode("\n", $m[1]) as $line) {
                 if (preg_match('/^([A-Za-z_]+):\s*(.*)$/', $line, $pair) === 1) {
-                    $key        = strtolower($pair[1]);
-                    $meta[$key] = trim($pair[2], " \"'") === '' ? [] : trim($pair[2], " \"'");
+                    $key   = strtolower($pair[1]);
+                    $value = trim($pair[2]);
+                    // `[a, b]` is a list on one line.
+                    $meta[$key] = preg_match('/^\[(.*)\]$/', $value, $list) === 1
+                        ? array_values(array_filter(array_map(static fn (string $v): string => trim($v, " \"'"), explode(',', $list[1])), static fn (string $v): bool => $v !== ''))
+                        : (trim($value, " \"'") === '' ? [] : trim($value, " \"'"));
                 } elseif ($key !== '' && preg_match('/^\s*-\s+(.*)$/', $line, $item) === 1) {
                     $meta[$key]   = is_array($meta[$key]) ? $meta[$key] : [];
                     $meta[$key][] = trim($item[1], " \"'");
@@ -296,8 +417,25 @@ final class HelpBook
             'section'   => is_string($meta['section'] ?? null) ? $meta['section'] : ($framework ? 'Administration' : ''),
             'questions' => is_array($meta['questions'] ?? null) ? array_values($meta['questions']) : [],
             'updated'   => is_string($meta['updated'] ?? null) ? $meta['updated'] : '',
+            'order'     => is_string($meta['order'] ?? null) && is_numeric($meta['order']) ? (int) $meta['order'] : null,
+            // What the site's gate must allow for the page to exist; every one of them.
+            'requires'  => self::names($meta['requires'] ?? []),
+            // The screens it is the page of, beside the one it is named after.
+            'screens'   => array_values(array_filter(array_map([Help::class, 'slug'], self::names($meta['screens'] ?? [])), static fn (string $s): bool => $s !== '' && !str_contains($s, '/'))),
             'body'      => $body,
             'framework' => $framework,
         ];
+    }
+
+    /**
+     * A front matter value as a list of names: one name, or a list of them.
+     *
+     * @return list<string>
+     */
+    private static function names(mixed $value): array
+    {
+        $names = is_array($value) ? $value : [$value];
+
+        return array_values(array_filter(array_map('trim', array_map('strval', $names)), static fn (string $n): bool => $n !== ''));
     }
 }

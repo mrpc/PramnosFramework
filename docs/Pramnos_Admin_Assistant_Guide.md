@@ -8,6 +8,8 @@ use_cases:
   - Turning help pages on or off for an installation
   - Giving a site's visitors help pages of their own, apart from the administration's
   - Showing help pages in a SPA or a mobile application
+  - Hiding help pages or parts of them from customers whose plan does not include a feature
+  - Letting the application's own assistant answer from the site's help pages
 ---
 
 # Administration help and the side panel
@@ -87,6 +89,14 @@ A refund starts from the order's page. See [orders](help:orders).
 - `questions` — what a reader would ask. A search matches them, and the title, three times as
   strongly as the text.
 - `updated` — shown under the page.
+- `order` — a number that sorts the page within its section, before the title. Pages without one
+  come after those with one.
+- `screens` — `[editorial, draft, sources]`: the screens this page is the help of, beside the
+  one it is named after. A screen's page is the one named `screen/action`, then the one named
+  `screen`, then the first by name that lists the screen. A dedicated page therefore overrides an
+  area's without anyone editing the area's list.
+
+A list can be written on one line, `[a, b]`, or as `- a` lines.
 
 ### Links and pictures
 
@@ -212,6 +222,88 @@ Help::level();                        // 'site' or 'admin'
 
 The static `Help::` methods (`page()`, `forScreen()`, `search()`, `url()` and the rest) are the
 administration's.
+
+### Pages for some customers only
+
+A page, or part of one, can require something the reader's plan includes. The framework cannot
+know what a plan is, so the application answers with a `HelpGate`:
+
+```php
+// app/app.php
+'help' => ['site' => ['gate' => App\Help\PlanGate::class]],
+```
+
+```php
+final class PlanGate implements \Pramnos\Assist\HelpGate
+{
+    public function allows(string $requirement, \Pramnos\Assist\HelpReader $reader): bool
+    {
+        return $reader->organizationId !== null
+            && Plans::of($reader->organizationId)->has($requirement);
+    }
+}
+```
+
+```markdown
+---
+requires: editorial          # or [editorial, series]: every one must hold
+---
+# Editorial
+
+Everybody reads this.
+
+<!-- requires: routines -->
+Routines run the editorial plan every morning.
+<!-- /requires -->
+```
+
+What the gate refuses does not exist for that reader:
+
+- A refused page is not in the list, the search, a page by name, a screen's page, or what the
+  assistant reads.
+- A refused block is cut, markers included. An allowed one loses only its markers.
+- The search scores what is left, so a hidden block's words cannot make its page match.
+
+The markers are whole lines and do not nest. An unclosed block is cut to the end of the page.
+
+**It fails closed.** With no gate configured, every requirement is refused. A gate that throws
+refuses, and the error goes to the `help` log.
+
+`HelpReader` is who is asking:
+
+- In a request, `HelpReader::fromRequest()`. That is the signed-in user, or an API token's user,
+  and the organisation `OrganizationScope::resolveWith()` names.
+- For an assistant, `HelpReader::fromScope($scope)`.
+- `HelpReader::guest()` has neither.
+- `$reader->user()` loads the user when a gate needs more than the id.
+
+`Help::site()` reads as the request's reader. `Help::site()->for($reader)` reads as another. The
+gate applies to the site's pages only; the administration's are not gated.
+
+A picture is served by `/Help/image` to whoever names its path, whatever page shows it. Keep a
+picture that must be gated out of `app/help-site/`.
+
+### The application's assistant
+
+The analyst's `help` tool reads the administration's pages. An application's own assistant, the
+one customers ask, reads the site's with `SiteHelpTool`:
+
+```php
+use Pramnos\Llm\Chat\Tools\SiteHelpTool;
+
+public function tools(Turn $turn): array
+{
+    return ['help' => SiteHelpTool::tool($turn->scope, fn (string $slug): string => '/app/help?p=' . $slug)];
+}
+```
+
+- **One page per call:** the best one for a `question`, or the `page` named. It comes with its
+  link and with `others`, the names of up to three more that may answer.
+- **Gated:** it reads as the scope's person and organisation.
+- **Sized to fit:** the text is cut to 18,000 characters, and further if needed, so the encoded
+  answer fits one tool result (20,000).
+- **Links:** the closure builds a page's address. Without one, it is the site's `/Help`.
+- **MCP:** `SiteHelpTool` is an MCP tool too.
 
 ## Help in a SPA
 
