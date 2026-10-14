@@ -628,6 +628,10 @@
             }
             thinking();
 
+            // The examples were for an empty conversation: gone the moment it is not.
+            var examples = Array.prototype.map.call(root.querySelectorAll('[data-pf-chat-suggestion]'), function (one) { return one.parentNode; });
+            examples.forEach(function (holder) { holder.hidden = true; });
+
             if (box) {
                 box.value = '';
             }
@@ -647,6 +651,7 @@
                 if (button) {
                     button.disabled = false;
                 }
+                examples.forEach(function (holder) { holder.hidden = false; });
                 say(reason, true);
             }
 

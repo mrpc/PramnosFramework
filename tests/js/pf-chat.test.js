@@ -522,6 +522,24 @@ test('a chart that is not one stays as its code; the application\'s own library 
     assert.equal(all(theirs, 'svg').length, 0, 'and not drawn twice');
 });
 
+test('the examples go the moment a question is sent, and come back with a refused one', async () => {
+    // Arrange
+    const sent = run({ answers: [{ status: 202, data: { ask_id: 1 } }], examples: ['One?', 'Two?'] });
+    const refused = run({ answers: [{ status: 403, error: 'No.' }], examples: ['One?'] });
+    sent.box.value = 'Hi';
+    refused.box.value = 'Hi';
+
+    // Act
+    sent.box.dispatch('keydown', { key: 'Enter', shiftKey: false });
+    const atOnce = sent.page.hidden;
+    refused.form.dispatch('submit');
+    await settle();
+
+    // Assert
+    assert.equal(atOnce, true, 'hidden on Enter, before any answer');
+    assert.equal(refused.page.hidden, false, 'the question is back in the box, and so are they');
+});
+
 test('a page without the conversation does nothing', () => {
     // Act / Assert
     assert.doesNotThrow(() => vm.runInNewContext(SOURCE, { window: {}, document: { querySelector: () => null } }));
