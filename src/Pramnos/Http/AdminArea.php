@@ -56,6 +56,9 @@ final class AdminArea
     /** Where a guest signs in for this area; the site's login when empty. */
     private static string $loginUrl = '';
 
+    /** Whether this application **is** the area ({@see serve()}): every request it serves is inside. */
+    private static bool $served = false;
+
     /**
      * Decide whether this request is inside the area, and strip the prefix.
      *
@@ -110,8 +113,22 @@ final class AdminArea
      * This application **is** the area: an administration with a front controller of its own —
      * `www/admin/index.php` — rather than a prefix the site's routing strips. Every request it
      * serves is inside the area, so links, help and the side panel are built on the area's URL
-     * (`sURL . 'admin/'`), and screens apply the area's floor. Called once, from the
-     * application's `init()`, in place of {@see detect()}; nothing is rewritten.
+     * (`sURL . 'admin/'`, or `sURL` itself where the front controller in `www/admin/` made it the
+     * area's), and screens apply the area's floor. Nothing is rewritten.
+     *
+     * Declare it in the application's config rather than calling this:
+     *
+     * ```php
+     * // the administration's app.php
+     * 'admin' => ['serve' => true, 'prefix' => 'admin', 'min_usertype' => 90],
+     * ```
+     *
+     * The application then serves the area from its constructor — before `init()`, so the
+     * navigation and the area's language are built inside it — puts `src/Admin/` in scope as the
+     * area does, and keeps serving it on every request one process handles. Called from `init()`
+     * instead, it still holds for every later request; called after `parent::init()`, it rebuilds
+     * the framework's navigation, which was built on the site's URL, and logs that the config
+     * is the place for it.
      *
      * @param  string $prefix      The path the area is served under, e.g. `admin`
      * @param  int    $minUserType Floor for reaching it, or 0 for none
@@ -123,9 +140,29 @@ final class AdminArea
             return;
         }
 
+        $wasActive         = self::$active && self::$prefix === $prefix;
         self::$prefix      = $prefix;
         self::$minUserType = $minUserType;
         self::$active      = true;
+        self::$served      = true;
+
+        // The framework's navigation is built in init(). Built before this, its admin links were
+        // made on the site's URL: build it again, now that the area is known.
+        $app = \Pramnos\Application\Application::currentInstance();
+        if (!$wasActive && is_object($app) && \Pramnos\Application\NavRegistry::all() !== []) {
+            $app->registerDefaultNavItems((array) ($app->applicationInfo['features'] ?? []));
+            \Pramnos\Logs\Logger::log(
+                'AdminArea::serve() was called after the navigation was built; it has been built again. '
+                . "Declare 'admin' => ['serve' => true, 'prefix' => '{$prefix}'] in the config instead.",
+                'admin'
+            );
+        }
+    }
+
+    /** Whether this application is the area — {@see serve()} — rather than one mounted under a prefix. */
+    public static function served(): bool
+    {
+        return self::$served;
     }
 
     /** Is the current request inside the administration area? */
@@ -169,6 +206,12 @@ final class AdminArea
         $path = ltrim($path, '/');
 
         if (self::$prefix === '') {
+            return $base . $path;
+        }
+
+        // An application that is the area, served from `www/<prefix>/`, has the area's URL as
+        // its `sURL` already: a second prefix would make `/admin/admin/…`.
+        if (self::$served && str_ends_with(rtrim($base, '/'), '/' . self::$prefix)) {
             return $base . $path;
         }
 
@@ -298,5 +341,18 @@ final class AdminArea
         self::$prefix      = '';
         self::$minUserType = 0;
         self::$loginUrl    = '';
+        self::$served      = false;
+    }
+
+    /**
+     * Forget what belongs to the request — whether it is inside the area — and keep what the
+     * application declared: the prefix, the floor, its own sign-in page, and that it **is** the
+     * area. `Application::beginRequest()` calls this between the requests one process serves; a
+     * full {@see reset()} there forgot an area served or a sign-in page set once, in `init()`,
+     * from the second request on.
+     */
+    public static function resetRequest(): void
+    {
+        self::$active = self::$served;
     }
 }

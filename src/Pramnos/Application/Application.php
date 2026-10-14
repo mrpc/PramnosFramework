@@ -1296,7 +1296,9 @@ class Application extends Base
         // page after it.
         $this->area = '';
 
-        \Pramnos\Http\AdminArea::reset();
+        // The request's own state only: what the application declared — an area it serves, its
+        // sign-in page — holds for every request this process handles.
+        \Pramnos\Http\AdminArea::resetRequest();
         // The page the side panel is about is this request's first controller, not the last
         // request's: one process can serve many (TestClient, a long-running runtime).
         \Pramnos\Assist\Page::reset();
@@ -1319,14 +1321,23 @@ class Application extends Base
     protected function enterAdminAreaIfRequested(): void
     {
         $config = $this->applicationInfo['admin'] ?? null;
-        if (!is_array($config)) {
-            return;
+        $config = is_array($config) ? $config : [];
+
+        // An application that is the area — its own front controller — says so here, and serves
+        // it from the first request on: before init(), so the navigation and the area's language
+        // are built inside it.
+        if (!empty($config['serve'])) {
+            \Pramnos\Http\AdminArea::serve(
+                (string) ($config['prefix'] ?? 'admin'),
+                (int) ($config['min_usertype'] ?? 0)
+            );
         }
 
-        $active = \Pramnos\Http\AdminArea::detect(
-            (string) ($config['prefix'] ?? ''),
-            (int) ($config['min_usertype'] ?? 0)
-        );
+        $active = \Pramnos\Http\AdminArea::served()
+            || ($config !== [] && \Pramnos\Http\AdminArea::detect(
+                (string) ($config['prefix'] ?? ''),
+                (int) ($config['min_usertype'] ?? 0)
+            ));
 
         if (!$active) {
             return;

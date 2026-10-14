@@ -895,15 +895,33 @@ cannot answer this, because it is the area's URL on every request, inside the ar
 ### An administration with a front controller of its own
 
 An administration served by its own `www/admin/index.php`, rather than by a prefix the site's
-routing strips, says that it **is** the area — once, in its application's `init()`:
+routing strips, says that it **is** the area, in its config:
 
 ```php
-\Pramnos\Http\AdminArea::serve('admin', 90);   // prefix, floor
+// the administration's config
+'admin' => [
+    'serve'        => true,      // this application is the area
+    'prefix'       => 'admin',
+    'min_usertype' => 90,
+    'theme'        => 'admin',   // optional, as for an area
+],
 ```
 
-Every request it serves is then inside the area: `adminUrl()`, help links and the side panel are
-built on `sURL . 'admin/'`, and screens apply the floor. Nothing in the route is rewritten.
-`detect()` is for the other arrangement, where one front controller serves both.
+Every request it serves is then inside the area, from the constructor on:
+
+- the navigation, the area's language, `adminUrl()`, help links and the side panel are built
+  on the area's URL;
+- screens apply the floor;
+- `src/Admin/Controllers` and `src/Admin/Views` are in scope, as they are for an area;
+- nothing in the route is rewritten.
+
+The area's URL is `sURL . 'admin/'`, or `sURL` itself when the front controller in
+`www/admin/` made `sURL` end in `admin/` already, so links never read `/admin/admin/`.
+
+`AdminArea::serve('admin', 90)` in code does the same and holds for every request one process
+serves. Called after `parent::init()`, though, it finds the framework's navigation already built
+on the site's URL: it builds it again and logs that the config is the place for it. `detect()` is
+for the other arrangement, where one front controller serves both.
 
 ### Moving a separate admin application into the area
 
@@ -911,7 +929,7 @@ An administration can be served two ways, and an application uses one or the oth
 
 - **A separate application.** `www/admin/index.php` builds a second `Application` subclass,
   with its own config file (`app/admin.php`), its own `init()`, `exec()` and `render()`, and
-  calls `AdminArea::serve('admin', $floor)` to say it is the area.
+  `'admin' => ['serve' => true]` (or `AdminArea::serve()`) to say it is the area.
 - **The area.** The site's own application mounts `src/Admin/` under a prefix, from the
   `admin` block in `app/app.php`. One front controller, one config, one application class.
 
@@ -922,12 +940,12 @@ The area is what `pramnos init` writes, and it is the arrangement this section m
 | | Separate application (`serve()`) | Area (`'admin' => ['prefix' => …]`) |
 |---|---|---|
 | Config | `app/admin.php`, a second copy of `features`, `personal_data`, `help`, `namespace`… | `app/app.php`, once |
-| Controllers in scope | `<namespace of admin.php>\Controllers\X` | `<Ns>\Admin\Controllers\X` first, then `<Ns>\Controllers\X` |
-| Views | `src/<appName>/Views/` or `src/Views/` | `src/Admin/Views/` first, then `src/Views/` |
+| Controllers in scope | `<namespace of admin.php>\Admin\Controllers\X` first, then `<namespace of admin.php>\Controllers\X` | `<Ns>\Admin\Controllers\X` first, then `<Ns>\Controllers\X` |
+| Views | `src/Admin/Views/` first, then `src/<appName>/Views/` or `src/Views/` | `src/Admin/Views/` first, then `src/Views/` |
 | The area's floor | the `serve()` argument | `admin.min_usertype` |
 | Bundled screens' own check (`AdminAccess`) | applies | applies |
 | Theme and language inside | whatever the application sets | `admin.theme`, `admin.language` |
-| `adminUrl()`, `URL` | `sURL . 'admin/'` — correct only if `sURL` is the site root | `sURL . '<prefix>/'` |
+| `adminUrl()`, `URL` | `sURL . 'admin/'`, or `sURL` when it already ends in `admin/` | `sURL . '<prefix>/'` |
 | Help levels | the administration's only | the site's outside the area, the administration's inside |
 | Help and export links built in a queue worker | only from the `base` the request handed the job | from the `base`, or from `admin.prefix` in `app.php` |
 | Public pages linking into the admin (header nav) | not from the site application, which has no prefix to build them on | yes — admin `NavItem`s point into the area from anywhere |
@@ -1071,12 +1089,10 @@ from that:
   application point at `/manage/`; pages rendered by the separate application point at
   `/admin/`. Views that use `adminUrl()` or `URL` are correct in both; a view with a hardcoded
   `admin/` sends the area to the old application.
-- **Sharing `src/Admin/` between them works only by naming.** The separate application calls
-  `serve()`, which does not put `src/Admin/` in scope — it resolves `<its namespace>\Controllers\X`
-  and views under `src/<its name>/` or `src/Views/`. It reaches the same controller classes
-  only when `admin.php` sets `namespace` to `<Ns>\Admin`, and the same view directories only
-  when it is constructed as `Admin`. *(Derived from the resolution code; not exercised end to
-  end.)*
+- **Sharing `src/Admin/` between them.** A separate application that serves the area puts
+  `<its namespace>\Admin\Controllers` and `src/Admin/Views` in scope, as the area does. With
+  `admin.php`'s `namespace` the same as `app.php`'s, the two reach the same controllers and views,
+  so screens moved to `src/Admin/` answer at both addresses during the transition.
 - **Keep the two floors equal** — the `serve()` argument and `admin.min_usertype` — or the same
   screen is open to different accounts depending on the address.
 - **Finishing the transition** is the move above: switch `prefix` to `admin`, delete `www/admin/`.

@@ -440,8 +440,8 @@ screen's. Under `admin_access = permissions` it is granted like any screen, by `
 
 The analyst's links to help pages and to its exports are built in the queue worker, under the
 area's URL that the question's request handed it — absolute and in the area, whatever
-application the worker runs. An administration with a front controller of its own calls
-`AdminArea::serve('admin')` in its `init()` (see the [Routing Guide](Pramnos_Routing_Guide.md#an-administration-with-a-front-controller-of-its-own)),
+application the worker runs. An administration with a front controller of its own declares
+`'admin' => ['serve' => true]` in its config (see the [Routing Guide](Pramnos_Routing_Guide.md#an-administration-with-a-front-controller-of-its-own)),
 and its help is linked under the area's URL.
 
 ## See also
