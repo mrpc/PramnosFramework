@@ -1297,6 +1297,9 @@ class Application extends Base
         $this->area = '';
 
         \Pramnos\Http\AdminArea::reset();
+        // The page the side panel is about is this request's first controller, not the last
+        // request's: one process can serve many (TestClient, a long-running runtime).
+        \Pramnos\Assist\Page::reset();
         $this->enterAdminAreaIfRequested();
     }
 

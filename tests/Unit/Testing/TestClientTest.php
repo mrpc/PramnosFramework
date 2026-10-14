@@ -49,6 +49,33 @@ class TestClientTest extends TestCase
         $this->client = new TestClient($stubApp);
     }
 
+    /**
+     * Each request records its own page for the side panel: two requests in one process, the
+     * second sees its own screen and not the first's — which made the panel on any page after
+     * `/admin/Ai` the plain Ask link, since the panel takes `ai` for Ask's own page.
+     */
+    public function testEachRequestSeesItsOwnPage(): void
+    {
+        // Arrange — controllers that answer with the screen the panel would see
+        $stub = new class extends Application {
+            public $initialized = true;
+
+            public function getController($controller, $userPermissions = [])
+            {
+                return $controller === 'Ai' ? new Ai(null) : new Feedback(null);
+            }
+        };
+        $client = new TestClient($stub);
+
+        // Act
+        $first  = (string) $client->get('/Ai')->getResponse()->getBody();
+        $second = (string) $client->get('/Feedback')->getResponse()->getBody();
+
+        // Assert
+        $this->assertStringContainsString('screen:ai', $first);
+        $this->assertStringContainsString('screen:feedback', $second, 'not the first request\'s');
+    }
+
     // ── Constructor ───────────────────────────────────────────────────────────
 
     /**
@@ -613,5 +640,23 @@ class TestClientTest extends TestCase
                 throw new \Exception('Controller not found: ' . $controller);
             }
         };
+    }
+}
+
+/** A screen named `ai`, answering with the page the side panel would see. */
+final class Ai extends \Pramnos\Application\Controller
+{
+    public function display()
+    {
+        return 'screen:' . \Pramnos\Assist\Page::screen();
+    }
+}
+
+/** A screen named `feedback`, answering with the page the side panel would see. */
+final class Feedback extends \Pramnos\Application\Controller
+{
+    public function display()
+    {
+        return 'screen:' . \Pramnos\Assist\Page::screen();
     }
 }
