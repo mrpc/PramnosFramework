@@ -1,6 +1,7 @@
 <script>
     import { api, ApiError } from '../lib/api.js';
     import { t } from '../lib/i18n.svelte.js';
+    import { ui } from '../lib/ui.js';
 
     /**
      * Cross-entity search — one term, several entities, grouped results.
@@ -121,12 +122,12 @@
      that follows a result, so closing there cancels the navigation. -->
 <svelte:window onpointerdown={(e) => { if (!e.target.closest('[data-omnibox]')) close(); }} />
 
-<div class="dropdown dropdown-end" data-omnibox>
-    <label class="sr-only" for="omnibox-input">{t('Search')}</label>
+<div class={ui('dropdown.end')} data-omnibox>
+    <label class={ui('sr-only')} for="omnibox-input">{t('Search')}</label>
     <input
         id="omnibox-input"
         type="search"
-        class="input input-bordered input-sm w-28 sm:w-48"
+        class={ui('omnibox.input')}
         placeholder={placeholder || t('Search')}
         autocomplete="off"
         role="combobox"
@@ -142,24 +143,26 @@
     {#if open}
         <div
             id="omnibox-results"
-            class="dropdown-content menu z-50 mt-1 max-h-96 w-80 max-w-[calc(100vw-2rem)] overflow-y-auto rounded-box bg-base-100 p-0 shadow-lg"
+            class={ui('dropdown.results')}
             role="listbox"
             aria-label={t('Search')}
         >
             {#if loading}
-                <p class="p-3 text-sm opacity-70">{t('Searching…')}</p>
+                <p class={ui('dropdown.note')}>{t('Searching…')}</p>
             {:else if failed}
-                <p class="p-3 text-sm text-error">{t('Search is unavailable right now.')}</p>
+                <p class={ui('dropdown.error')}>{t('Search is unavailable right now.')}</p>
             {:else if flat.length === 0}
-                <p class="p-3 text-sm opacity-70">{t('No results')}</p>
+                <p class={ui('dropdown.note')}>{t('No results')}</p>
             {:else}
                 {#each groups as group}
                     {#if (group.results ?? []).length > 0}
-                        <p class="px-3 pt-2 pb-1 text-xs font-semibold uppercase tracking-wide opacity-60">
+                        <p class={ui('dropdown.heading')}>
                             {group.label}
-                            {#if group.total > group.results.length}
-                                <span class="font-normal normal-case">
-                                    {group.results.length}/{group.total}
+                            <!-- "5/137" from a counted source; "5+" from one that does not count
+                                 ('count' => false) and says only that there are more. -->
+                            {#if group.total == null ? group.more : group.total > group.results.length}
+                                <span class={ui('omnibox.count')}>
+                                    {group.results.length}{group.total == null ? '+' : '/' + group.total}
                                 </span>
                             {/if}
                         </p>
@@ -169,13 +172,12 @@
                                 id={`omnibox-option-${i}`}
                                 role="option"
                                 aria-selected={active === i}
-                                class="block px-3 py-2 hover:bg-base-200"
-                                class:bg-base-200={active === i}
+                                class="{ui('dropdown.item')} {active === i ? ui('dropdown.item.active') : ''}"
                                 href={row.url ?? '#'}
                             >
-                                <span class="block font-medium">{row.title}</span>
+                                <span class={ui('omnibox.title')}>{row.title}</span>
                                 {#if row.subtitle}
-                                    <span class="block text-xs opacity-60">{row.subtitle}</span>
+                                    <span class={ui('omnibox.subtitle')}>{row.subtitle}</span>
                                 {/if}
                             </a>
                         {/each}

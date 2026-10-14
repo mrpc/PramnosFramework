@@ -1,0 +1,319 @@
+/**
+ * The classes the shared components draw with, for the project's UI system.
+ *
+ * The components — DataTable, Pagination, ConfirmDialog, Field, Omnibox, HelpPanel — ask for a
+ * part by name (`ui('btn.sm')`, `ui('card')`) rather than writing one CSS framework's classes, the
+ * way `Html\Form\FieldStyles` does on the server. So a section inside a Bootstrap page draws
+ * Bootstrap's buttons, one inside a plain-css page the plain stylesheet's, and a project that runs
+ * `project:switch-ui` keeps working: the system is read when the page runs, from
+ * `window.__PRAMNOS__.ui` — which the SPA shell and `Controller::spaSection()` take from
+ * `scaffold_theme` in app/app.php — not fixed when the bundle was built.
+ *
+ * Where a system has no class for a part — a layout utility plain CSS does not have, a modal
+ * that is not Bootstrap's own script-driven one — it is a `pf-ui-*` hook, which the scaffolded
+ * stylesheets of those systems style.
+ *
+ * Add a part by adding it to all three maps; `ui()` falls back to the tailwind map, and the
+ * framework's tests check that every part exists in each.
+ */
+
+/** @type {Record<string, Record<string, string>>} */
+export const MAPS = {
+    tailwind: {
+        'omnibox.count': 'font-normal normal-case',
+        'omnibox.title': 'block font-medium',
+        'omnibox.subtitle': 'block text-xs opacity-60',
+        'dropdown.menu.open': '',
+        'menu.item': '',
+        'search.form': 'flex flex-wrap gap-2 mb-3',
+        'search.input': 'input input-bordered input-sm grow max-w-sm',
+        loading: 'flex justify-center py-16',
+        'card.line': 'flex flex-wrap items-baseline gap-2',
+        'card.label': 'text-xs opacity-60 shrink-0',
+        'card.value': 'min-w-0 break-words',
+        'sort.mark': 'text-xs',
+        spaced: 'mt-3',
+        footnote: 'text-xs opacity-60 text-center mt-1',
+        row: 'flex flex-wrap items-center gap-2',
+        stack: 'flex flex-col gap-2',
+        grow: 'grow',
+        center: 'flex justify-center',
+        muted: 'text-sm opacity-70',
+        'muted.xs': 'text-xs opacity-60',
+        'error.text': 'text-error',
+        'sr-only': 'sr-only',
+        code: 'font-mono',
+
+        btn: 'btn',
+        'btn.sm': 'btn btn-sm',
+        'btn.ghost': 'btn btn-ghost',
+        'btn.ghost.sm': 'btn btn-ghost btn-sm',
+        'btn.primary': 'btn btn-primary',
+        'btn.danger': 'btn btn-error',
+        'btn.icon': 'btn btn-ghost btn-sm btn-circle opacity-60 hover:opacity-100',
+
+        input: 'input input-bordered w-full',
+        'input.sm': 'input input-bordered input-sm',
+        'input.error': 'input-error',
+        select: 'select select-bordered w-full',
+        'select.error': 'select-error',
+        textarea: 'textarea textarea-bordered w-full',
+        'textarea.error': 'textarea-error',
+        checkbox: 'checkbox checkbox-primary',
+        fieldset: 'fieldset w-full',
+        label: 'label',
+        'label.check': 'label cursor-pointer justify-start gap-3',
+        'field.error': 'text-xs text-error mt-1',
+        'field.help': 'text-xs opacity-60 mt-1',
+
+        'alert.error': 'alert alert-error',
+        spinner: 'loading loading-spinner loading-sm',
+        'spinner.lg': 'loading loading-spinner loading-lg',
+        card: 'card bg-base-100 border border-base-content/10',
+        'card.body': 'card-body',
+        'card.body.compact': 'card-body p-4 gap-2',
+
+        table: 'table table-sm table-sticky',
+        'table.row': 'hover align-top',
+        'table.sort': 'inline-flex items-center gap-1 hover:opacity-100',
+        'table.sort.idle': 'opacity-70',
+        mobile: 'space-y-3 sm:hidden',
+        desktop: 'hidden sm:block overflow-x-auto card bg-base-100 border border-base-content/10',
+
+        pager: 'flex justify-center',
+        'pager.group': 'join',
+        'pager.item': 'join-item btn btn-sm',
+        'pager.current': 'btn-active',
+        'pager.gap': 'join-item btn btn-sm btn-disabled',
+
+        modal: 'modal modal-open',
+        'modal.box': 'modal-box',
+        'modal.title': 'font-medium text-lg',
+        'modal.body': 'py-3 text-sm opacity-80 whitespace-pre-line',
+        'modal.field': 'w-full mt-2 flex flex-col gap-1',
+        'modal.actions': 'modal-action',
+        'modal.backdrop': 'modal-backdrop',
+
+        dropdown: 'dropdown',
+        'dropdown.end': 'dropdown dropdown-end',
+        'dropdown.open': 'dropdown-open',
+        'dropdown.menu': 'dropdown-content menu bg-base-100 rounded-box z-10 w-full shadow max-h-64 overflow-y-auto',
+        'dropdown.results': 'dropdown-content menu z-50 mt-1 max-h-96 w-80 max-w-[calc(100vw-2rem)] overflow-y-auto rounded-box bg-base-100 p-0 shadow-lg',
+        'dropdown.item': 'block px-3 py-2 hover:bg-base-200',
+        'dropdown.item.active': 'bg-base-200',
+        'dropdown.heading': 'px-3 pt-2 pb-1 text-xs font-semibold uppercase tracking-wide opacity-60',
+        'dropdown.note': 'p-3 text-sm opacity-70',
+        'dropdown.error': 'p-3 text-sm text-error',
+        'omnibox.input': 'input input-bordered input-sm w-28 sm:w-48',
+
+        panel: 'fixed inset-y-0 right-0 z-50 flex w-full max-w-md flex-col bg-base-100 shadow-xl',
+        'panel.header': 'flex items-center gap-2 border-b border-base-300 p-3',
+        'panel.title': 'flex-1 truncate',
+        'panel.body': 'prose max-w-none flex-1 overflow-auto p-4',
+    },
+
+    bootstrap: {
+        'omnibox.count': 'fw-normal text-lowercase',
+        'omnibox.title': 'd-block fw-medium',
+        'omnibox.subtitle': 'd-block small text-body-secondary',
+        'dropdown.menu.open': 'show',
+        'menu.item': 'dropdown-item',
+        'search.form': 'd-flex flex-wrap gap-2 mb-3',
+        'search.input': 'form-control form-control-sm flex-grow-1 pf-ui-search',
+        loading: 'd-flex justify-content-center py-5',
+        'card.line': 'd-flex flex-wrap align-items-baseline gap-2',
+        'card.label': 'small text-body-secondary flex-shrink-0',
+        'card.value': 'text-break',
+        'sort.mark': 'small',
+        spaced: 'mt-3',
+        footnote: 'small text-body-secondary text-center mt-1',
+        row: 'd-flex flex-wrap align-items-center gap-2',
+        stack: 'd-flex flex-column gap-2',
+        grow: 'flex-grow-1',
+        center: 'd-flex justify-content-center',
+        muted: 'small text-body-secondary',
+        'muted.xs': 'small text-body-secondary',
+        'error.text': 'text-danger',
+        'sr-only': 'visually-hidden',
+        code: 'font-monospace',
+
+        btn: 'btn btn-secondary',
+        'btn.sm': 'btn btn-secondary btn-sm',
+        'btn.ghost': 'btn btn-link',
+        'btn.ghost.sm': 'btn btn-link btn-sm',
+        'btn.primary': 'btn btn-primary',
+        'btn.danger': 'btn btn-danger',
+        'btn.icon': 'btn btn-link btn-sm rounded-circle opacity-75',
+
+        input: 'form-control',
+        'input.sm': 'form-control form-control-sm pf-ui-input-sm',
+        'input.error': 'is-invalid',
+        select: 'form-select',
+        'select.error': 'is-invalid',
+        textarea: 'form-control',
+        'textarea.error': 'is-invalid',
+        checkbox: 'form-check-input',
+        fieldset: 'mb-3',
+        label: 'form-label',
+        'label.check': 'form-check-label d-flex align-items-center gap-2',
+        'field.error': 'invalid-feedback d-block',
+        'field.help': 'form-text',
+
+        'alert.error': 'alert alert-danger',
+        spinner: 'spinner-border spinner-border-sm',
+        'spinner.lg': 'spinner-border',
+        card: 'card',
+        'card.body': 'card-body',
+        'card.body.compact': 'card-body p-3',
+
+        table: 'table table-sm table-hover mb-0 table-sticky',
+        'table.row': 'align-top',
+        'table.sort': 'btn btn-link btn-sm p-0 text-reset text-decoration-none d-inline-flex align-items-center gap-1',
+        'table.sort.idle': 'opacity-75',
+        mobile: 'd-sm-none d-flex flex-column gap-3',
+        desktop: 'd-none d-sm-block card table-responsive',
+
+        pager: 'd-flex justify-content-center',
+        'pager.group': 'btn-group',
+        'pager.item': 'btn btn-outline-secondary btn-sm',
+        'pager.current': 'active',
+        'pager.gap': 'btn btn-outline-secondary btn-sm disabled',
+
+        modal: 'pf-ui-modal',
+        'modal.box': 'modal-content pf-ui-modal-box',
+        'modal.title': 'h5 mb-0',
+        'modal.body': 'py-3 small pf-ui-pre-line',
+        'modal.field': 'd-flex flex-column gap-1 mt-2',
+        'modal.actions': 'd-flex justify-content-end gap-2 mt-3',
+        'modal.backdrop': 'pf-ui-backdrop',
+
+        dropdown: 'dropdown pf-ui-dropdown',
+        'dropdown.end': 'dropdown pf-ui-dropdown pf-ui-dropdown-end',
+        'dropdown.open': 'show',
+        'dropdown.menu': 'dropdown-menu w-100 pf-ui-menu',
+        'dropdown.results': 'dropdown-menu show p-0 pf-ui-menu pf-ui-results',
+        'dropdown.item': 'dropdown-item',
+        'dropdown.item.active': 'active',
+        'dropdown.heading': 'dropdown-header text-uppercase',
+        'dropdown.note': 'dropdown-item-text small text-body-secondary',
+        'dropdown.error': 'dropdown-item-text small text-danger',
+        'omnibox.input': 'form-control form-control-sm pf-ui-omnibox-input',
+
+        panel: 'offcanvas offcanvas-end show pf-ui-panel',
+        'panel.header': 'offcanvas-header border-bottom',
+        'panel.title': 'offcanvas-title text-truncate',
+        'panel.body': 'offcanvas-body',
+    },
+
+    'plain-css': {
+        'omnibox.count': 'pf-omnibox-count',
+        'omnibox.title': 'pf-omnibox-title',
+        'omnibox.subtitle': 'pf-omnibox-subtitle',
+        'dropdown.menu.open': 'pf-ui-open',
+        'menu.item': 'dropdown-item',
+        'search.form': 'pf-ui-row pf-ui-gap-below',
+        'search.input': 'form-control pf-ui-input-sm pf-ui-grow pf-ui-search',
+        loading: 'pf-ui-center pf-ui-tall',
+        'card.line': 'pf-ui-row pf-ui-baseline',
+        'card.label': 'pf-muted small',
+        'card.value': 'pf-ui-break',
+        'sort.mark': 'small',
+        spaced: 'pf-ui-gap-above',
+        footnote: 'pf-muted small text-center',
+        row: 'pf-ui-row',
+        stack: 'pf-ui-stack',
+        grow: 'pf-ui-grow',
+        center: 'pf-ui-center',
+        muted: 'pf-muted small',
+        'muted.xs': 'pf-muted small',
+        'error.text': 'pf-ui-error',
+        'sr-only': 'pf-visually-hidden',
+        code: 'pf-ui-code',
+
+        btn: 'btn btn-secondary',
+        'btn.sm': 'btn btn-secondary btn-sm',
+        'btn.ghost': 'btn btn-link',
+        'btn.ghost.sm': 'btn btn-link btn-sm',
+        'btn.primary': 'btn btn-primary',
+        'btn.danger': 'btn btn-danger',
+        'btn.icon': 'btn btn-link btn-sm pf-help-icon',
+
+        input: 'form-control',
+        'input.sm': 'form-control pf-ui-input-sm',
+        'input.error': 'pf-ui-invalid',
+        select: 'form-control',
+        'select.error': 'pf-ui-invalid',
+        textarea: 'form-control',
+        'textarea.error': 'pf-ui-invalid',
+        checkbox: 'form-check-input',
+        fieldset: 'form-group',
+        label: 'pf-ui-label',
+        'label.check': 'form-check-label pf-ui-row',
+        'field.error': 'pf-ui-error small',
+        'field.help': 'form-text',
+
+        'alert.error': 'alert alert-error',
+        spinner: 'pf-ui-spinner',
+        'spinner.lg': 'pf-ui-spinner pf-ui-spinner-lg',
+        card: 'card',
+        'card.body': 'card-body',
+        'card.body.compact': 'card-body pf-ui-compact',
+
+        table: 'table table-hover table-sticky',
+        'table.row': 'pf-ui-top',
+        'table.sort': 'btn btn-link btn-sm pf-ui-sort',
+        'table.sort.idle': 'pf-ui-idle',
+        mobile: 'pf-ui-mobile pf-ui-stack',
+        desktop: 'pf-ui-desktop card table-responsive',
+
+        pager: 'pf-ui-center',
+        'pager.group': 'btn-group',
+        'pager.item': 'btn btn-outline-secondary btn-sm',
+        'pager.current': 'pf-ui-current',
+        'pager.gap': 'btn btn-outline-secondary btn-sm pf-ui-disabled',
+
+        modal: 'pf-ui-modal',
+        'modal.box': 'modal-content pf-ui-modal-box',
+        'modal.title': 'modal-title',
+        'modal.body': 'pf-ui-pre-line small',
+        'modal.field': 'pf-ui-stack',
+        'modal.actions': 'pf-ui-row pf-ui-end',
+        'modal.backdrop': 'pf-ui-backdrop',
+
+        dropdown: 'dropdown pf-ui-dropdown',
+        'dropdown.end': 'dropdown pf-ui-dropdown pf-ui-dropdown-end',
+        'dropdown.open': 'pf-ui-open',
+        'dropdown.menu': 'dropdown-menu pf-ui-menu',
+        'dropdown.results': 'dropdown-menu pf-ui-menu pf-ui-results',
+        'dropdown.item': 'dropdown-item',
+        'dropdown.item.active': 'pf-ui-current',
+        'dropdown.heading': 'pf-omnibox-group-label',
+        'dropdown.note': 'pf-muted small pf-ui-pad',
+        'dropdown.error': 'pf-ui-error small pf-ui-pad',
+        'omnibox.input': 'form-control pf-ui-input-sm pf-ui-omnibox-input',
+
+        panel: 'pf-ui-panel',
+        'panel.header': 'pf-ui-row pf-ui-panel-header',
+        'panel.title': 'pf-ui-grow',
+        'panel.body': 'pf-ui-panel-body',
+    },
+};
+
+/** The UI system this page runs under: `tailwind`, `bootstrap` or `plain-css`. */
+export function system() {
+    const declared = (typeof window !== 'undefined' && window.__PRAMNOS__ && window.__PRAMNOS__.ui) || 'tailwind';
+
+    return Object.prototype.hasOwnProperty.call(MAPS, declared) ? declared : 'tailwind';
+}
+
+/**
+ * The classes for one part, or several joined: `ui('btn', 'btn.sm')`.
+ *
+ * @param {...string} parts
+ * @returns {string}
+ */
+export function ui(...parts) {
+    const map = MAPS[system()];
+
+    return parts.map((part) => map[part] ?? MAPS.tailwind[part] ?? '').filter(Boolean).join(' ');
+}

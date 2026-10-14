@@ -74,6 +74,9 @@ final class SpaSection
 
         $entry  = (string) ($declared['entry'] ?? 'frontend/sections/' . $name . '/main.js');
         $config = [
+            // The page's UI system, so the shared components draw with its classes: the theme
+            // around a section is the project's, whatever the SPA itself is built with.
+            'ui'        => (string) (is_object($app) ? ($app->applicationInfo['scaffold_theme'] ?? 'tailwind') : 'tailwind'),
             'apiPrefix' => self::apiPrefix($app),
             'apiKey'    => md5(str_replace('/api/', '/', (string) getUrl())),
         ];

@@ -1,5 +1,6 @@
 <script>
     import { t, tHtml } from '../lib/i18n.svelte.js';
+    import { ui } from '../lib/ui.js';
 
     /**
      * A confirmation that is proportional to what it confirms.
@@ -141,12 +142,12 @@
 <svelte:window onkeydown={onKeydown} />
 
 {#if open}
-    <div class="modal modal-open" role="dialog" aria-modal="true" aria-labelledby={titleId}>
-        <div class="modal-box" bind:this={dialog}>
-            <h3 class="font-medium text-lg" id={titleId}>{title}</h3>
+    <div class={ui('modal')} role="dialog" aria-modal="true" aria-labelledby={titleId}>
+        <div class={ui('modal.box')} bind:this={dialog}>
+            <h3 class={ui('modal.title')} id={titleId}>{title}</h3>
 
             {#if body}
-                <p class="py-3 text-sm opacity-80 whitespace-pre-line">{body}</p>
+                <p class={ui('modal.body')}>{body}</p>
             {/if}
 
             <!-- Outside the body guard on purpose: a dialog can have extra fields
@@ -162,12 +163,12 @@
                      wrapper stopped stacking and the prompt sat beside a shrunken box.
                      The label still wraps the input, which keeps the association
                      without needing an id. -->
-                <label class="w-full mt-2 flex flex-col gap-1">
+                <label class={ui('modal.field')}>
                     <span>
                         {@html tHtml('Type <code class="font-mono">%s</code> to continue', confirmPhrase)}
                     </span>
                     <input
-                        class="input input-bordered w-full"
+                        class={ui('input')}
                         bind:value={typed}
                         autocomplete="off"
                         disabled={busy}
@@ -175,18 +176,16 @@
                 </label>
             {/if}
 
-            <div class="modal-action">
-                <button class="btn btn-ghost" onclick={oncancel} disabled={busy}>{t('Cancel')}</button>
+            <div class={ui('modal.actions')}>
+                <button class={ui('btn.ghost')} onclick={oncancel} disabled={busy}>{t('Cancel')}</button>
                 <button
-                    class="btn"
-                    class:btn-error={danger}
-                    class:btn-primary={!danger}
+                    class={ui(danger ? 'btn.danger' : 'btn.primary')}
                     data-danger={danger ? 'true' : undefined}
                     onclick={onconfirm}
                     disabled={busy || !ready}
                 >
                     {#if busy}
-                        <span class="loading loading-spinner loading-sm"></span>
+                        <span class={ui('spinner')}></span>
                     {/if}
                     {confirmLabel}
                 </button>
@@ -196,7 +195,7 @@
              serves the keyboard. Leaving it in the tab order would put a second
              "close" between the user and the buttons that matter. -->
         <button
-            class="modal-backdrop"
+            class={ui('modal.backdrop')}
             onclick={oncancel}
             aria-label={t('Close')}
             tabindex="-1"

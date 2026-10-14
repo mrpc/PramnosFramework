@@ -1,0 +1,52 @@
+import { render, screen } from '@testing-library/svelte';
+import { vi, describe, it, expect, afterEach } from 'vitest';
+import Pagination from '../components/Pagination.svelte';
+import ConfirmDialog from '../components/ConfirmDialog.svelte';
+import { ui, system } from '../lib/ui.js';
+
+/**
+ * The shared components on each UI system.
+ *
+ * `lib/ui.js` maps a component's parts to the project's CSS framework — `scaffold_theme`, handed
+ * to the page as `window.__PRAMNOS__.ui` — so a section inside a Bootstrap page draws Bootstrap's
+ * buttons and one inside a plain-css page the plain stylesheet's. These render the components under
+ * each and check the classes they drew with.
+ */
+
+vi.mock('../lib/i18n.svelte.js', () => {
+    const t = (text, ...args) => args.reduce((out, arg) => out.replace('%s', String(arg)), text);
+    return { t, tHtml: t, locale: () => 'en' };
+});
+
+afterEach(() => {
+    delete window.__PRAMNOS__;
+});
+
+describe('the UI system', () => {
+    it('is the page\'s, tailwind when it says nothing', () => {
+        expect(system()).toBe('tailwind');
+        window.__PRAMNOS__ = { ui: 'bootstrap' };
+        expect(system()).toBe('bootstrap');
+        expect(ui('btn.primary')).toBe('btn btn-primary');
+    });
+
+    it.each([
+        ['tailwind', 'join-item btn btn-sm', 'btn-active', 'modal-box'],
+        ['bootstrap', 'btn btn-outline-secondary btn-sm', 'active', 'modal-content pf-ui-modal-box'],
+        ['plain-css', 'btn btn-outline-secondary btn-sm', 'pf-ui-current', 'modal-content pf-ui-modal-box'],
+    ])('draws the pager and the dialog with %s classes', (name, item, current, box) => {
+        // Arrange
+        window.__PRAMNOS__ = { ui: name };
+
+        // Act
+        render(Pagination, { page: 2, totalPages: 3, onpage: () => {} });
+        render(ConfirmDialog, { open: true, title: 'Delete?', confirmLabel: 'Delete', danger: true, onconfirm: () => {}, oncancel: () => {} });
+
+        // Assert
+        const currentPage = screen.getByRole('button', { name: 'Page 2' });
+        expect(currentPage.className).toContain(item);
+        expect(currentPage.className).toContain(current);
+        expect(screen.getByRole('dialog').firstElementChild.className).toBe(box);
+        expect(screen.getByRole('button', { name: 'Delete' }).className).toBe(ui('btn.danger'));
+    });
+});

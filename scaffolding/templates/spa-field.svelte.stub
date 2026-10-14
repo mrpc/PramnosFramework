@@ -1,5 +1,6 @@
 <script>
     import { t } from '../lib/i18n.svelte.js';
+    import { ui } from '../lib/ui.js';
     import { api, ApiError } from '../lib/api.js';
 
     /**
@@ -168,15 +169,15 @@
     rather than a `<legend>`: a legend names a *group*, and a control whose only
     accessible name comes from one has no name of its own.
 -->
-<fieldset class="fieldset w-full">
+<fieldset class={ui('fieldset')}>
     {#if field.type === 'boolean'}
         <!-- The label wraps the input so the whole row is a hit target, and the
              text is a real <label> rather than adjacent text. -->
-        <label class="label cursor-pointer justify-start gap-3" for={id}>
+        <label class={ui('label.check')} for={id}>
             <input
                 {id}
                 type="checkbox"
-                class="checkbox checkbox-primary"
+                class={ui('checkbox')}
                 checked={value === true || value === 1 || value === '1' || value === 't'}
                 {disabled}
                 onchange={(e) => emit(e.currentTarget.checked)}
@@ -184,9 +185,9 @@
             <span>{t(label)}</span>
         </label>
     {:else}
-        <label class="label" for={id}>
+        <label class={ui('label')} for={id}>
             {t(label)}
-            {#if required}<span class="text-error" aria-hidden="true">*</span>{/if}
+            {#if required}<span class={ui('error.text')} aria-hidden="true">*</span>{/if}
         </label>
 
         {#if field.fk && !fkUnavailable}
@@ -195,11 +196,10 @@
                  of ten million. `list`/`<datalist>` was the other option and is
                  not usable — it cannot separate the label shown from the value
                  submitted, which is the entire job here. -->
-            <div class="dropdown w-full" class:dropdown-open={fkOpen && fkRows.length > 0}>
+            <div class="{ui('dropdown')} {fkOpen && fkRows.length > 0 ? ui('dropdown.open') : ''}">
                 <input
                     {id}
-                    class="input input-bordered w-full"
-                    class:input-error={error}
+                    class="{ui('input')} {error ? ui('input.error') : ''}"
                     value={fkOpen ? fkQuery : (fkSelected?.[field.fk.labelKey] ?? (value ?? ''))}
                     placeholder={t('Search %s…', t(label))}
                     autocomplete="off"
@@ -209,11 +209,12 @@
                     onfocus={() => { fkOpen = true; searchFk(fkQuery); }}
                     onblur={() => setTimeout(() => (fkOpen = false), 150)}
                 />
-                <ul class="dropdown-content menu bg-base-100 rounded-box z-10 w-full shadow max-h-64 overflow-y-auto">
+                <ul class="{ui('dropdown.menu')} {fkOpen && fkRows.length > 0 ? ui('dropdown.menu.open') : ''}">
                     {#each fkRows as row (row[field.fk.valueKey])}
                         <li>
                             <button
                                 type="button"
+                                class={ui('menu.item')}
                                 onclick={() => {
                                     emit(row[field.fk.valueKey]);
                                     fkQuery = '';
@@ -229,8 +230,7 @@
         {:else if field.options}
             <select
                 {id}
-                class="select select-bordered w-full"
-                class:select-error={error}
+                class="{ui('select')} {error ? ui('select.error') : ''}"
                 value={value ?? ''}
                 {required}
                 {disabled}
@@ -251,8 +251,7 @@
         {:else if field.type === 'text' || field.type === 'longtext' || field.type === 'json'}
             <textarea
                 {id}
-                class="textarea textarea-bordered w-full font-mono"
-                class:textarea-error={error}
+                class="{ui('textarea', 'code')} {error ? ui('textarea.error') : ''}"
                 rows={field.type === 'longtext' ? 8 : 4}
                 value={value ?? ''}
                 {required}
@@ -263,8 +262,7 @@
             <input
                 {id}
                 type="date"
-                class="input input-bordered w-full"
-                class:input-error={error}
+                class="{ui('input')} {error ? ui('input.error') : ''}"
                 value={(value ?? '').toString().slice(0, 10)}
                 {required}
                 {disabled}
@@ -276,8 +274,7 @@
             <input
                 {id}
                 type="datetime-local"
-                class="input input-bordered w-full"
-                class:input-error={error}
+                class="{ui('input')} {error ? ui('input.error') : ''}"
                 value={(value ?? '').toString().replace(' ', 'T').slice(0, 16)}
                 {required}
                 {disabled}
@@ -289,8 +286,7 @@
                 type={NUMERIC.includes(field.type) ? 'number' : 'text'}
                 step={['decimal', 'float', 'double'].includes(field.type) ? 'any' : undefined}
                 maxlength={field.maxLength ?? undefined}
-                class="input input-bordered w-full"
-                class:input-error={error}
+                class="{ui('input')} {error ? ui('input.error') : ''}"
                 value={value ?? ''}
                 {required}
                 {disabled}
@@ -303,12 +299,12 @@
         <!-- `aria-describedby` would be better still; it needs an id per field
              and the label already carries the name, so the message is placed
              adjacent and marked as an alert so it is announced when it appears. -->
-        <p class="text-xs text-error mt-1" role="alert">{error}</p>
+        <p class={ui('field.error')} role="alert">{error}</p>
     {:else if field.fk && fkUnavailable}
-        <p class="text-xs opacity-60 mt-1">
+        <p class={ui('field.help')}>
             {t('No picker for this reference — enter the id. (%s has no readable list endpoint.)', field.fk.endpoint)}
         </p>
     {:else if field.comment && field.comment !== label}
-        <p class="text-xs opacity-60 mt-1">{t(field.comment)}</p>
+        <p class={ui('field.help')}>{t(field.comment)}</p>
     {/if}
 </fieldset>

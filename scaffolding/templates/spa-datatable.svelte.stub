@@ -2,6 +2,7 @@
     import { untrack } from 'svelte';
     import Pagination from './Pagination.svelte';
     import { locale, t } from '../lib/i18n.svelte.js';
+    import { ui } from '../lib/ui.js';
 
     /**
      * A table on a screen, a list of cards on a phone — from one definition.
@@ -160,9 +161,9 @@
 </script>
 
 {#if onsearch}
-    <form class="flex flex-wrap gap-2 mb-3" onsubmit={submitSearch} role="search">
+    <form class={ui('search.form')} onsubmit={submitSearch} role="search">
         <input
-            class="input input-bordered input-sm grow max-w-sm"
+            class={ui('search.input')}
             type="search"
             bind:value={searchBox}
             aria-label={t(searchLabel)}
@@ -170,13 +171,13 @@
             oninput={searchLive ? (event) => onsearch(event.currentTarget.value) : undefined}
         />
         {#if !searchLive}
-            <button class="btn btn-sm" type="submit">{t('Search')}</button>
+            <button class={ui('btn.sm')} type="submit">{t('Search')}</button>
         {/if}
         {#if search}
             <!-- Clearing is a separate control, not "empty the box and press
                  enter": the second is a thing you have to be told. -->
             <button
-                class="btn btn-ghost btn-sm"
+                class={ui('btn.ghost.sm')}
                 type="button"
                 onclick={() => {
                     searchBox = '';
@@ -194,29 +195,29 @@
 {/if}
 
 {#if error}
-    <div class="alert alert-error" role="alert">{error}</div>
+    <div class={ui('alert.error')} role="alert">{error}</div>
 {:else if loading}
     <!-- A spinner, never an empty table: an empty table reads as "there is
          nothing here", which is a believable and wrong answer. -->
-    <div class="flex justify-center py-16">
-        <span class="loading loading-spinner loading-lg"></span>
+    <div class={ui('loading')}>
+        <span class={ui('spinner.lg')} role="status" aria-label={t('Loading…')}></span>
     </div>
 {:else if rows.length === 0}
-    <div class="card bg-base-100 border border-base-content/10">
-        <div class="card-body">
-            <p class="text-sm opacity-70">{t(empty)}</p>
+    <div class={ui('card')}>
+        <div class={ui('card.body')}>
+            <p class={ui('muted')}>{t(empty)}</p>
         </div>
     </div>
 {:else}
     <!-- Cards: below sm only. -->
-    <div class="space-y-3 sm:hidden">
+    <div class={ui('mobile')}>
         {#each rows as row (rowKey(row))}
-            <div class="card bg-base-100 border border-base-content/10 {rowClass?.(row) ?? ''}">
-                <div class="card-body p-4 gap-2">
+            <div class="{ui('card')} {rowClass?.(row) ?? ''}">
+                <div class={ui('card.body.compact')}>
                     {#each cardColumns as column (column.label)}
-                        <div class="flex flex-wrap items-baseline gap-2">
-                            <span class="text-xs opacity-60 shrink-0">{t(column.label)}</span>
-                            <div class="min-w-0 break-words">{@render column.cell(row, column)}</div>
+                        <div class={ui('card.line')}>
+                            <span class={ui('card.label')}>{t(column.label)}</span>
+                            <div class={ui('card.value')}>{@render column.cell(row, column)}</div>
                         </div>
                     {/each}
                 </div>
@@ -226,8 +227,8 @@
 
     <!-- Table: sm and up. `overflow-x-auto` stays as a backstop for a wide cell
          (a long URL), so the page itself never scrolls sideways. -->
-    <div class="hidden sm:block overflow-x-auto card bg-base-100 border border-base-content/10">
-        <table class="table table-sm table-sticky">
+    <div class={ui('desktop')}>
+        <table class={ui('table')}>
             <thead>
                 <tr>
                     {#each columns as column (column.label)}
@@ -238,8 +239,7 @@
                                      what the current state is: a bare ▲ tells a
                                      screen reader nothing. -->
                                 <button
-                                    class="inline-flex items-center gap-1 hover:opacity-100
-                                           {sort?.field === column.sort ? '' : 'opacity-70'}"
+                                    class="{ui('table.sort')} {sort?.field === column.sort ? '' : ui('table.sort.idle')}"
                                     onclick={() => toggleSort(column.sort)}
                                     aria-label={sort?.field === column.sort
                                         ? sort.direction === 'asc'
@@ -248,7 +248,7 @@
                                         : t('Sort by %s', t(column.label))}
                                 >
                                     <span>{t(column.label)}</span>
-                                    <span aria-hidden="true" class="text-xs">
+                                    <span aria-hidden="true" class={ui('sort.mark')}>
                                         {sort?.field === column.sort
                                             ? sort.direction === 'asc'
                                                 ? '▲'
@@ -274,7 +274,7 @@
             </thead>
             <tbody>
                 {#each rows as row (rowKey(row))}
-                    <tr class="hover align-top {rowClass?.(row) ?? ''}">
+                    <tr class="{ui('table.row')} {rowClass?.(row) ?? ''}">
                         {#each columns as column (column.label)}
                             <td class:cell-num={column.align === 'num'}>
                                 {@render column.cell(row, column)}
@@ -288,14 +288,14 @@
 {/if}
 
 {#if pagination && onpage}
-    <div class="mt-3">
+    <div class={ui('spaced')}>
         <Pagination {page} {totalPages} onpage={(next) => onpage(next)} />
     </div>
 
     <!-- What the pager is moving through. "Page 3 of 41" says nothing about how
          much there is; a queue of 2,000 and one of 60 are different jobs. -->
     {#if Number(pagination.totalitems ?? 0) > 0}
-        <p class="text-xs opacity-60 text-center mt-1">
+        <p class={ui('footnote')}>
             {t('%s records', Number(pagination.totalitems).toLocaleString(locale()))}
         </p>
     {/if}

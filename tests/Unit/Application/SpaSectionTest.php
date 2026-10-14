@@ -91,7 +91,7 @@ class SpaSectionTest extends TestCase
 
         // Assert
         $this->assertStringStartsWith('<div data-pf-section="users" data-base="/admin/Users"', $html);
-        $this->assertStringContainsString('data-config="{&quot;apiPrefix&quot;:&quot;/api/v2&quot;,&quot;apiKey&quot;:&quot;', $html);
+        $this->assertStringContainsString('data-config="{&quot;ui&quot;:&quot;' . (Application::getInstance()->applicationInfo['scaffold_theme'] ?? 'tailwind') . '&quot;,&quot;apiPrefix&quot;:&quot;/api/v2&quot;,&quot;apiKey&quot;:&quot;', $html);
         $this->assertStringContainsString('data-props="{&quot;name&quot;:&quot;&lt;Anna&gt;&quot;}"', $html);
         $this->assertStringContainsString('<link rel="stylesheet" href="/assets/spa/section-users-def.css"><script type="module" src="/assets/spa/section-users-abc.js"></script>', $html);
         $this->assertStringNotContainsString('<script>', $html, 'nothing inline');

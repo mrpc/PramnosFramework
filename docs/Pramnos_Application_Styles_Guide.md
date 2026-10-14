@@ -716,15 +716,28 @@ stack's sections are plain modules under the web root.
 - On the server, a `TestClient` request to a deep link (`/admin/Users/edit/5`) proves the address
   is answered with the mount element inside the area.
 
-### What the shared components do not do
+### The shared components follow the page's UI system
 
-The SPA's shared components (`DataTable`, `Field`, `ConfirmDialog`, `Pagination`) are written in
-Tailwind and daisyUI classes. They do not follow `scaffold_theme` as the server components do.
-Inside a Bootstrap or plain-css theme they render unstyled, and loading Tailwind's own stylesheet
-there would reset the theme's page around them. So a section on a Bootstrap or plain-css theme
-writes its markup in that system's classes, or in classes of its own, and does not use those
-components.
+The shared components (`DataTable`, `Pagination`, `ConfirmDialog`, `Field`, `Omnibox`,
+`HelpPanel`) ask `lib/ui.js` for each part by name, `ui('btn.sm')` or `ui('card')`, instead of
+writing one framework's classes. `lib/ui.js` maps each part per UI system: daisyUI for `tailwind`,
+Bootstrap 5's own classes for `bootstrap`, and the plain stylesheet's for `plain-css`.
 
+A section takes its system from `scaffold_theme`, handed to it in `data-config`. So a section
+inside a Bootstrap page draws Bootstrap's buttons, tables and modals, and follows
+`project:switch-ui` with the page. Where a system has no class for a part (a layout utility plain
+CSS lacks, a modal that is not Bootstrap's script-driven one, the help side panel), the map
+uses a `pf-ui-*` hook, which the scaffolded `bootstrap` and `plain-css` stylesheets style.
+
+```js
+import { ui } from '../lib/ui.js';
+// <button class={ui('btn.primary')}>…   in a component of the application's own, too
+```
+
+A part is added to all three maps. A framework test checks that every part exists in each, and
+that every hook a map uses has a rule.
+
+## Directory layout (Services + API + SPA)
 ## Directory layout (Services + API + SPA)
 
 ```

@@ -1,6 +1,7 @@
 <script>
     import { api } from '../lib/api.js';
     import { t } from '../lib/i18n.svelte.js';
+    import { ui } from '../lib/ui.js';
 
     /**
      * The help page for the screen on show — the SPA's side panel.
@@ -26,9 +27,7 @@
     let { screen, action = '', level = '', compact = false, buttonClass = '', button } = $props();
 
     /** The built-in button's classes. */
-    const classes = $derived(buttonClass || (compact
-        ? 'btn btn-ghost btn-sm btn-circle opacity-60 hover:opacity-100'
-        : 'btn btn-ghost btn-sm'));
+    const classes = $derived(buttonClass || ui(compact ? 'btn.icon' : 'btn.ghost.sm'));
 
     function openPanel() {
         open = true;
@@ -109,15 +108,15 @@
 {/if}
 
 {#if open && page}
-    <div class="fixed inset-y-0 right-0 z-50 flex w-full max-w-md flex-col bg-base-100 shadow-xl" role="dialog" aria-label={page.title}>
-        <header class="flex items-center gap-2 border-b border-base-300 p-3">
-            <strong class="flex-1 truncate">{page.title}</strong>
-            <button class="btn btn-ghost btn-sm" type="button" aria-label={t('Close')} onclick={() => { open = false; }}>✕</button>
+    <div class={ui('panel')} role="dialog" aria-label={page.title}>
+        <header class={ui('panel.header')}>
+            <strong class={ui('panel.title')}>{page.title}</strong>
+            <button class={ui('btn.ghost.sm')} type="button" aria-label={t('Close')} onclick={() => { open = false; }}>✕</button>
         </header>
         <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-        <div class="prose max-w-none flex-1 overflow-auto p-4" onclick={onClick}>
+        <div class={ui('panel.body')} onclick={onClick}>
             {#if failed}
-                <p class="text-error">{t('That help page could not be opened.')}</p>
+                <p class={ui('error.text')}>{t('That help page could not be opened.')}</p>
             {/if}
             <!-- Drawn by the server's Markdown renderer, which escapes before it draws. -->
             {@html page.html}

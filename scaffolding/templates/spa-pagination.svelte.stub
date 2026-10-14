@@ -1,5 +1,6 @@
 <script>
     import { t } from '../lib/i18n.svelte.js';
+    import { ui } from '../lib/ui.js';
 
     /**
      * Numbered pagination, shared by every list in the application.
@@ -78,10 +79,10 @@
 </script>
 
 {#if total > 1}
-    <nav class="flex justify-center" aria-label={t(label)}>
-        <div class="join">
+    <nav class={ui('pager')} aria-label={t(label)}>
+        <div class={ui('pager.group')}>
             <button
-                class="join-item btn btn-sm"
+                class={ui('pager.item')}
                 disabled={current <= 1}
                 aria-label={t('Previous page')}
                 onclick={() => goTo(current - 1)}
@@ -94,11 +95,10 @@
                     <!-- Not a button: there is no single page it could go to, and
                          a disabled button here reads as "broken" rather than
                          "gap". -->
-                    <span class="join-item btn btn-sm btn-disabled" aria-hidden="true">…</span>
+                    <span class={ui('pager.gap')} aria-hidden="true">…</span>
                 {:else}
                     <button
-                        class="join-item btn btn-sm"
-                        class:btn-active={entry === current}
+                        class="{ui('pager.item')} {entry === current ? ui('pager.current') : ''}"
                         aria-current={entry === current ? 'page' : undefined}
                         aria-label={t('Page %s', entry)}
                         onclick={() => goTo(entry)}
@@ -109,7 +109,7 @@
             {/each}
 
             <button
-                class="join-item btn btn-sm"
+                class={ui('pager.item')}
                 disabled={current >= total}
                 aria-label={t('Next page')}
                 onclick={() => goTo(current + 1)}

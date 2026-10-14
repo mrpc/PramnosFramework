@@ -102,6 +102,68 @@ main {
     letter-spacing: 0;
 }
 
+/*
+ * The SPA's shared components on this UI system — lib/ui.js maps their parts to these hooks
+ * where the system has no class of its own: a layout utility, a modal not driven by a script,
+ * the help side panel, a table's sticky header and numeric cells.
+ */
+.pf-ui-row { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+.pf-ui-stack { display: flex; flex-direction: column; gap: .5rem; }
+.pf-ui-grow { flex: 1 1 auto; min-width: 0; }
+.pf-ui-center { display: flex; justify-content: center; }
+.pf-ui-end { justify-content: flex-end; }
+.pf-ui-baseline { align-items: baseline; }
+.pf-ui-tall { padding: 4rem 0; }
+.pf-ui-gap-below { margin-bottom: .75rem; }
+.pf-ui-gap-above { margin-top: .75rem; }
+.pf-ui-pad { padding: .75rem; margin: 0; }
+.pf-ui-break { min-width: 0; overflow-wrap: anywhere; }
+.pf-ui-pre-line { white-space: pre-line; }
+.pf-ui-search { max-width: 24rem; }
+.pf-ui-omnibox-input { width: 12rem; }
+.pf-ui-input-sm { padding: .25rem .5rem; font-size: .875rem; }
+.pf-ui-code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.pf-ui-top { vertical-align: top; }
+.pf-ui-label { display: block; margin-bottom: .25rem; font-weight: 600; }
+.pf-ui-error { color: var(--bs-danger, #dc3545); }
+.pf-ui-invalid { border-color: var(--bs-danger, #dc3545) !important; }
+.pf-ui-idle { opacity: .7; }
+.pf-ui-current { font-weight: 700; text-decoration: underline; }
+.pf-ui-disabled { pointer-events: none; opacity: .5; }
+.pf-ui-sort { padding: 0; text-decoration: none; color: inherit; display: inline-flex; align-items: center; gap: .25rem; }
+.pf-ui-compact { padding: .75rem; }
+
+.pf-ui-mobile { display: flex; }
+.pf-ui-desktop { display: none; overflow-x: auto; }
+@media (min-width: 640px) {
+    .pf-ui-mobile { display: none; }
+    .pf-ui-desktop { display: block; }
+}
+
+.pf-ui-modal { position: fixed; inset: 0; z-index: 1060; display: flex; align-items: flex-start; justify-content: center; padding: 10vh 1rem 1rem; overflow-y: auto; }
+.pf-ui-modal-box { position: relative; z-index: 1; width: 100%; max-width: 32rem; padding: 1.25rem; }
+.pf-ui-backdrop { position: fixed; inset: 0; z-index: 0; border: 0; background: rgba(0, 0, 0, .45); cursor: default; }
+
+.pf-ui-dropdown { position: relative; }
+.pf-ui-menu { position: absolute; z-index: 1050; top: 100%; left: 0; max-height: 16rem; overflow-y: auto; }
+.pf-ui-dropdown-end .pf-ui-menu { left: auto; right: 0; }
+.pf-ui-results { width: 20rem; max-width: calc(100vw - 2rem); max-height: 24rem; }
+.pf-ui-menu:not(.show):not(.pf-ui-open):not(.pf-ui-results) { display: none; }
+.pf-ui-menu.pf-ui-open, .pf-ui-results { display: block; }
+
+.pf-ui-panel { position: fixed; top: 0; right: 0; bottom: 0; z-index: 1070; display: flex; flex-direction: column; width: 100%; max-width: 28rem; background: var(--bs-body-bg, #fff); box-shadow: -4px 0 24px rgba(0, 0, 0, .25); }
+.pf-ui-panel-header { padding: .75rem; border-bottom: 1px solid rgba(128, 128, 128, .3); }
+.pf-ui-panel-body { flex: 1; overflow: auto; padding: 1rem; }
+.offcanvas.pf-ui-panel { visibility: visible; }
+
+.table-sticky thead th { position: sticky; top: 0; z-index: 1; background: var(--bs-body-bg, #fff); }
+.cell-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+@media print { .table-sticky thead th { position: static; } }
+
+.pf-ui-spinner { display: inline-block; width: 1rem; height: 1rem; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: pf-ui-spin .75s linear infinite; }
+.pf-ui-spinner-lg { width: 2.5rem; height: 2.5rem; border-width: 3px; }
+@keyframes pf-ui-spin { to { transform: rotate(360deg); } }
+
 /* The unread count beside a navigation label — NavItem::badgeHtml(). */
 .pf-nav-badge {
     display: inline-flex;

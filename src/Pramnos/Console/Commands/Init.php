@@ -86,6 +86,7 @@ class Init extends Command
         'components/HelpPanel.svelte'     => 'spa-help-panel.svelte',
         'lib/i18n.svelte.js'              => 'spa-i18n.js',
         'lib/section.js'                  => 'spa-section.js',
+        'lib/ui.js'                       => 'spa-ui.js',
         'lib/page.js'                     => 'spa-page.js',
     ];
 
@@ -107,6 +108,7 @@ class Init extends Command
         '__tests__/Field.test.js'         => 'spa-field.test.js',
         '__tests__/Omnibox.test.js'       => 'spa-omnibox.test.js',
         '__tests__/HelpPanel.test.js'     => 'spa-help-panel.test.js',
+        '__tests__/ui.test.js'            => 'spa-ui.test.js',
         '__tests__/i18n.test.js'          => 'spa-i18n.test.js',
         '__tests__/router.test.js'        => 'spa-router.test.js',
     ];
