@@ -320,7 +320,7 @@ which registers all three at these paths:
 | Handle | `local` path |
 | --- | --- |
 | `jquery` | `media/js/jquery/jquery.min.js` |
-| `bootstrap-datepicker` | `plugins/datepicker/bootstrap-datepicker.js` |
+| `bootstrap-datepicker` | `plugins/datepicker/bootstrap-datepicker.js`, and its style `plugins/datepicker/bootstrap-datepicker3.standalone.min.css` |
 | `jquery-inputmask` | `plugins/input-mask/jquery.inputmask.js` |
 
 **Check the files exist before switching.** `local` does not verify anything — it changes a URL,
@@ -329,6 +329,7 @@ and a URL with nothing behind it is a 404 the browser reports and PHP does not:
 ```bash
 ls media/js/jquery/jquery.min.js \
    plugins/datepicker/bootstrap-datepicker.js \
+   plugins/datepicker/bootstrap-datepicker3.standalone.min.css \
    plugins/input-mask/jquery.inputmask.js
 ```
 

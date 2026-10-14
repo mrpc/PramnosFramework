@@ -412,6 +412,7 @@ class Date extends Html
         $document = \Pramnos\Document\Document::getInstance();
         if ($this->addjs == true) {
             $document->enqueueScript('bootstrap-datepicker');
+            $document->enqueueStyle('bootstrap-datepicker');
 
         }
 
@@ -424,21 +425,20 @@ class Date extends Html
         $return = "";
 
         /*
-         * `changeYear` and `changeMonth` come from the properties, and the day is kept when the
-         * month changes.
+         * The options are read by whichever `datepicker` owns `jQuery.fn.datepicker` when the page
+         * loads: bootstrap-datepicker, which this enqueues, or jQuery UI's, on a page that loads
+         * it later. Each ignores the other's options, so both sets are written.
          *
-         * The first was hardcoded `true` while `$changeyear` was declared and never read — a
-         * property that could be set and did nothing. The second did not exist.
+         * bootstrap-datepicker: `format`, `autoclose`, and `startDate` / `endDate` for the year
+         * bounds. Browsing to another month does not change its value, so there is nothing to
+         * clamp.
          *
-         * `onChangeMonthYear` is not optional and not behind a flag. Without it the widget can
-         * land on a date that does not exist: pick the 31st, change the month to February, and
-         * the field says `31/02`. What happens next depends on the receiving end — a `strtotime`
-         * rolls it into March, a database refuses it — and neither is what the visitor chose. The
-         * day is clamped to the last one the new month has, which is the only answer that keeps
-         * their intent.
-         *
-         * Written into the input's value rather than through `setDate()`, because `setDate()`
-         * inside this handler re-enters it.
+         * jQuery UI: `dateFormat` (`yy` is its four-digit year), `changeYear` / `changeMonth` from
+         * the properties, `yearRange`, and `onChangeMonthYear`, which moves the value with the
+         * month and so could land on `31/02` — a `strtotime` rolls it into March, a database
+         * refuses it. The day is clamped to the last one the new month has. Written into the
+         * input's value rather than through `setDate()`, because `setDate()` inside this handler
+         * re-enters it.
          */
         $changeYear  = $this->changeyear ? 'true' : 'false';
         $changeMonth = $this->changemonth ? 'true' : 'false';
@@ -451,8 +451,10 @@ class Date extends Html
                     changeYear: " . $changeYear . ",
                     changeMonth: " . $changeMonth . ",
                     yearRange: \"" . (int) $this->minyear . ":" . (int) $this->maxyear . "\",
-                    dateFormat: 'dd/mm/yyyy',
+                    dateFormat: 'dd/mm/yy',
                     format: 'dd/mm/yyyy',
+                    startDate: '01/01/" . (int) $this->minyear . "',
+                    endDate: '31/12/" . (int) $this->maxyear . "',
                     onChangeMonthYear: function (year, month, inst) {
                         var last = new Date(year, month, 0).getDate();
                         var day = Math.min(inst && inst.selectedDay ? inst.selectedDay : 1, last);

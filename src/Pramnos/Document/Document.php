@@ -170,7 +170,7 @@ class Document extends \Pramnos\Framework\Base
      * | Handle | `local` path |
      * | --- | --- |
      * | `jquery` | `media/js/jquery/jquery.min.js` |
-     * | `bootstrap-datepicker` | `plugins/datepicker/bootstrap-datepicker.js` |
+     * | `bootstrap-datepicker` | `plugins/datepicker/bootstrap-datepicker.js`, and the style `plugins/datepicker/bootstrap-datepicker3.standalone.min.css` |
      * | `jquery-inputmask` | `plugins/input-mask/jquery.inputmask.js` |
      *
      * The files are the application's to provide, as they are for every other local
@@ -438,6 +438,15 @@ class Document extends \Pramnos\Framework\Base
         );
 
         //Register default stylesheets
+
+        // The datepicker's own stylesheet, from where its script comes from. Without it the popup
+        // is an unstyled table: no highlighted day, no greyed days of other months.
+        $this->registerStyle('bootstrap-datepicker',
+            isset($local['bootstrap-datepicker'])
+                ? sURL . 'plugins/datepicker/bootstrap-datepicker3.standalone.min.css'
+                : 'https://cdnjs.cloudflare.com/ajax/libs/bootstrap-datepicker/'
+                  . '1.9.0/css/bootstrap-datepicker3.standalone.min.css'
+        );
 
         // Restored with the scripts above, for the same reason.
         $this->registerStyle(

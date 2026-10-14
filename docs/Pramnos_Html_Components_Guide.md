@@ -644,6 +644,13 @@ One `dd/mm/yyyy` text field with a datepicker attached. `getDate()` reads it bac
 the wire format is deliberately not `type="date"`, because a native date input posts
 `YYYY-MM-DD` and every receiving end already parses the other one.
 
+`render()` enqueues the `bootstrap-datepicker` script **and its stylesheet**, both from the
+source `documentAssetSource` picks. The year bounds (`minyear`, `maxyear`) reach the calendar as
+`startDate` / `endDate`. The same call also carries jQuery UI's options (`dateFormat: 'dd/mm/yy'`,
+`changeYear`, `changeMonth`, `yearRange`, and an `onChangeMonthYear` that keeps the day inside
+the new month), so a page where jQuery UI loads last and owns `jQuery.fn.datepicker` gets a
+working calendar too. Each library ignores the other's options.
+
 The field is `size="10"` and carries Bootstrap's `form-control`, which is `width:100%` — right
 inside a grid column, the whole line outside one. A project that lays its date fields out inline
 drops the class with `'component_classes' => ['date' => '']` in `app.php`; `$date->class` adds

@@ -1040,4 +1040,54 @@ class DateTest extends TestCase
         $this->assertSame(0, $ts,
             'Unparseable non-year value must return 0');
     }
+
+    /**
+     * A calendar widget enqueues the datepicker's stylesheet with its script, and the stylesheet
+     * is registered from the same source as the script — the CDN by default.
+     *
+     * Without it the popup opens as an unstyled table: no highlighted day, no greyed days of
+     * other months — the state an administration saw in its user list's date filter.
+     */
+    public function testTheCalendarBringsItsStylesheet(): void
+    {
+        // Arrange
+        $document = \Pramnos\Document\Document::getInstance();
+        $queue    = new \ReflectionProperty(\Pramnos\Document\Document::class, '_queue');
+        $styles   = new \ReflectionProperty(\Pramnos\Document\Document::class, '_css');
+
+        // Act
+        (new Date('from', mktime(0, 0, 0, 3, 3, 2024)))->render();
+
+        // Assert — queued, and pointing at the 1.9.0 standalone sheet the script version matches
+        $this->assertArrayHasKey('bootstrap-datepicker', (array) ($queue->getValue($document)['css'] ?? []));
+        $this->assertStringContainsString(
+            '1.9.0/css/bootstrap-datepicker3.standalone.min.css',
+            (string) ($styles->getValue($document)['bootstrap-datepicker']['src'] ?? '')
+        );
+    }
+
+    /**
+     * The year bounds reach bootstrap-datepicker as `startDate` / `endDate`, and jQuery UI's
+     * format is its own `dd/mm/yy`.
+     *
+     * `yearRange` is a jQuery UI option that bootstrap-datepicker ignores, so a widget bounded to
+     * 1950–2030 let its own calendar go anywhere. And `yyyy` in jQuery UI's format is the year
+     * twice, so a page where jQuery UI owned `datepicker` wrote `03/03/20242024`.
+     */
+    public function testBothDatepickersReceiveOptionsTheyRead(): void
+    {
+        // Arrange
+        $widget = new Date('from', mktime(0, 0, 0, 3, 3, 2024));
+        $widget->minyear = 1950;
+        $widget->maxyear = 2030;
+
+        // Act
+        $html = $widget->render();
+
+        // Assert
+        $this->assertStringContainsString("startDate: '01/01/1950'", $html);
+        $this->assertStringContainsString("endDate: '31/12/2030'", $html);
+        $this->assertStringContainsString("dateFormat: 'dd/mm/yy',", $html);
+        $this->assertStringContainsString("format: 'dd/mm/yyyy',", $html, 'bootstrap-datepicker keeps its four-y year');
+    }
 }
