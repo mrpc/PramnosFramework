@@ -225,6 +225,39 @@ class PageAndPanelTest extends LlmTestCase
     }
 
     /**
+     * An administration with a front controller of its own says it is the area with `serve()`:
+     * every address — help pages, a picture, the panel's links — is the area's, though nothing
+     * routed a prefix through `r`. `detect()` alone left it inactive, and help linked to the site.
+     */
+    public function testAnApplicationThatIsTheArea(): void
+    {
+        // Arrange
+        \Pramnos\Http\AdminArea::reset();
+        $_GET = ['r' => 'Users/edit/5'];
+
+        try {
+            // Act
+            \Pramnos\Http\AdminArea::serve('/admin/', 90);
+            $help   = Help::url('users');
+            $active = \Pramnos\Http\AdminArea::isActive();
+            $route  = $_GET['r'];
+            $floor  = \Pramnos\Http\AdminArea::minUserType();
+            \Pramnos\Http\AdminArea::reset();
+            \Pramnos\Http\AdminArea::serve('', 90);
+            $none = \Pramnos\Http\AdminArea::isActive();
+        } finally {
+            \Pramnos\Http\AdminArea::reset();
+        }
+
+        // Assert
+        $this->assertTrue($active);
+        $this->assertSame(\sURL . 'admin/Help/page?p=users', $help, 'the area\'s address, not the site\'s');
+        $this->assertSame('Users/edit/5', $route, 'nothing rewritten');
+        $this->assertSame(90, $floor);
+        $this->assertFalse($none, 'no prefix, no area');
+    }
+
+    /**
      * Ask and help, Ask alone, help alone, or nothing — and on Ask's own page the link it
      * always was, since the panel would be the page twice.
      */

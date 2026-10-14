@@ -890,6 +890,19 @@ the area's URL, outside it `sURL`; with no area configured it is `URL`, which an
 mounted as a secondary application defines as its own URL. No trailing slash. `URL` alone
 cannot answer this, because it is the area's URL on every request, inside the area or not.
 
+### An administration with a front controller of its own
+
+An administration served by its own `www/admin/index.php`, rather than by a prefix the site's
+routing strips, says that it **is** the area — once, in its application's `init()`:
+
+```php
+\Pramnos\Http\AdminArea::serve('admin', 90);   // prefix, floor
+```
+
+Every request it serves is then inside the area: `adminUrl()`, help links and the side panel are
+built on `sURL . 'admin/'`, and screens apply the floor. Nothing in the route is rewritten.
+`detect()` is for the other arrangement, where one front controller serves both.
+
 ### One thing to know
 
 Detection happens in `Application::__construct()`, because the prefix has to be

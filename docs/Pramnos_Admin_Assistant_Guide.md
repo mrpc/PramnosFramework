@@ -185,8 +185,9 @@ screen's. Under `admin_access = permissions` it is granted like any screen, by `
 
 The analyst's links to help pages and to its exports are built in the queue worker, under the
 area's URL that the question's request handed it — absolute and in the area, whatever
-application the worker runs. An administration that is an application of its own, mounted at
-`/admin/` with no area prefix, links its help under its own URL (`URL`), not the site's.
+application the worker runs. An administration with a front controller of its own calls
+`AdminArea::serve('admin')` in its `init()` (see the [Routing Guide](Pramnos_Routing_Guide.md#an-administration-with-a-front-controller-of-its-own)),
+and its help is linked under the area's URL.
 
 ## See also
 

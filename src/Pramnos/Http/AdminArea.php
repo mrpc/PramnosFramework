@@ -106,6 +106,28 @@ final class AdminArea
         return false;
     }
 
+    /**
+     * This application **is** the area: an administration with a front controller of its own —
+     * `www/admin/index.php` — rather than a prefix the site's routing strips. Every request it
+     * serves is inside the area, so links, help and the side panel are built on the area's URL
+     * (`sURL . 'admin/'`), and screens apply the area's floor. Called once, from the
+     * application's `init()`, in place of {@see detect()}; nothing is rewritten.
+     *
+     * @param  string $prefix      The path the area is served under, e.g. `admin`
+     * @param  int    $minUserType Floor for reaching it, or 0 for none
+     */
+    public static function serve(string $prefix, int $minUserType = 0): void
+    {
+        $prefix = trim($prefix, '/');
+        if ($prefix === '') {
+            return;
+        }
+
+        self::$prefix      = $prefix;
+        self::$minUserType = $minUserType;
+        self::$active      = true;
+    }
+
     /** Is the current request inside the administration area? */
     public static function isActive(): bool
     {
