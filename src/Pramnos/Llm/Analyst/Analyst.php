@@ -58,9 +58,24 @@ final class Analyst
         }
 
         $ask = \Pramnos\Application\FeatureRegistry::isEnabled('llm')
+            && self::available()
             && \Pramnos\Auth\AdminAccess::allows($user, 'admin.ai', self::floor());
 
         return \Pramnos\Assist\Panel::render($ask, adminUrl('Ai'), $before, $after);
+    }
+
+    /**
+     * Whether the analyst can answer: a key for its connection. Without
+     * one there is no Ask in the header or the side panel, and `/admin/Ai` opens the settings,
+     * where the key is set.
+     */
+    public static function available(): bool
+    {
+        try {
+            return self::assistant()->connection(self::scope(0))->isConfigured();
+        } catch (\Throwable) {
+            return false;
+        }
     }
 
     /**

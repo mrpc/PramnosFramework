@@ -80,6 +80,14 @@ readonly class NavItem
          * @var (callable(int): int)|null
          */
         public ?\Closure $badge = null,
+        /**
+         * Whether the item is shown at all, asked when the menu is drawn — for a link whose
+         * screen can only work once something is set up (the AI's, without a key). Called with
+         * the signed-in user, or null; hidden when it answers false or throws.
+         *
+         * @var (callable(?\Pramnos\User\User): bool)|null
+         */
+        public ?\Closure $when = null,
     ) {}
 
     /**

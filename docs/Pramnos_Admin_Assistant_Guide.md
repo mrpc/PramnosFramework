@@ -17,8 +17,8 @@ with two things:
   last sign in?" means user 5.
 - **Help**: that page's help, written as Markdown.
 
-Without the analyst — the `llm` feature off, or an administrator below its floor — the button is
-**Help** and the panel holds the help alone. A page with no help and no analyst has no button.
+Without the analyst — the `llm` feature off, no provider key set yet, or an administrator below
+its floor — the button is **Help** and the panel holds the help alone. A page with no help and no analyst has no button.
 
 The help pages are also a screen of their own, `/admin/Help`, with a search. The analyst reads
 them too, through its `help` tool, so "how do I refund an order?" is answered from your pages.

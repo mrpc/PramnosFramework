@@ -567,6 +567,19 @@ application's `Admin\Controllers\Ai::$requiredUserType`. The page is the convers
 the analyst's own addresses, with everything `pf-chat.js` does there; its waiting lines are
 `'llm' => ['analyst' => ['waiting_lines' => […]]]`.
 
+**Nothing invites a question that can only fail.** Until a provider's key is set:
+- *Ask AI* is left out of the user menu, and the widget draws nothing (`Chat::available()`, with
+  the asking person's own routing);
+- the admin header has no Ask, and the side panel no Ask tab (`Analyst::available()`);
+- `/admin/Ai` opens the settings, where the key is set. The admin menu's *AI* item stays.
+
+A menu item of an application's own does the same with `when:`, a closure asked each time the
+menu is drawn:
+
+```php
+new NavItem('user.writer', 'Writer', $base . 'writer', NavSection::User, when: static fn (): bool => Chat::available());
+```
+
 An *Ask* link for the admin header, beside the search, drawn only for somebody who may open the
 page:
 

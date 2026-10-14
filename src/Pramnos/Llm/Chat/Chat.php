@@ -19,6 +19,21 @@ namespace Pramnos\Llm\Chat;
  */
 final class Chat
 {
+    /**
+     * Whether Ask AI can answer here: a key for the provider a question from this person would go
+     * to — their organisation's routing included. What decides whether its
+     * menu item, widget and page are offered: without a key every question fails, so nothing
+     * invites one.
+     */
+    public static function available(): bool
+    {
+        try {
+            return (new Conversations(self::assistant()))->as(Scope::current())->connection()->isConfigured();
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
     /** The configured assistant, built once per call. */
     public static function assistant(string $space = Scope::CHAT): Assistant
     {

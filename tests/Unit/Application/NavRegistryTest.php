@@ -794,4 +794,29 @@ class NavRegistryTest extends TestCase
         $this->assertSame('admin.users', $byId['admin.tokenactions']->parent ?? null,
             "a user's activity log belongs under Users");
     }
+
+    /**
+     * An item's own condition, asked when the menu is drawn: shown while it holds, hidden while it
+     * does not or when it throws — Ask AI without a key to answer with is the case it is for.
+     */
+    public function testAnItemsOwnConditionDecidesWhenItIsDrawn(): void
+    {
+        // Arrange
+        $ready = false;
+        NavRegistry::register(new NavItem('main.ask', 'Ask', '/chat', NavSection::Main, when: function () use (&$ready): bool {
+            return $ready;
+        }));
+        NavRegistry::register(new NavItem('main.broken', 'Broken', '/x', NavSection::Main, when: static function (): bool {
+            throw new \RuntimeException('cannot tell');
+        }));
+
+        // Act
+        $before = array_map(static fn ($i) => $i->id, NavRegistry::getForUser(null)[NavSection::Main->value] ?? []);
+        $ready  = true;
+        $after  = array_map(static fn ($i) => $i->id, NavRegistry::getForUser(null)[NavSection::Main->value] ?? []);
+
+        // Assert
+        $this->assertSame([], $before, 'not yet, and one that throws is not shown');
+        $this->assertSame(['main.ask'], $after);
+    }
 }

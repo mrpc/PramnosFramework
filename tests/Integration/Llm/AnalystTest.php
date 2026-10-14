@@ -564,6 +564,8 @@ class AnalystTest extends LlmTestCase
         \Pramnos\Application\FeatureRegistry::loadFromConfig(['llm']);
         try {
             \Pramnos\Http\RequestIdentity::seal((object) ['userid' => 7, 'usertype' => 99]);
+            $keyless = Analyst::headerButton('<li>', '</li>');
+            $this->setting('llm_openai_api_key', 'sk-test');
             $button = Analyst::headerButton('<li>', '</li>');
             \Pramnos\Http\RequestIdentity::seal((object) ['userid' => 8, 'usertype' => 1]);
             $member = Analyst::headerButton();
@@ -573,6 +575,7 @@ class AnalystTest extends LlmTestCase
         }
         $this->assertMatchesRegularExpression('#^<li><a class="pf-ask" href="[^"]*Ai" data-pf-assist-open[^>]*>Ask</a><template data-pf-assist>.*</template><script src="[^"]*pf-assist\.js" defer></script></li>$#s', $button, 'an administrator sees it, and the panel it opens');
         $this->assertSame('', $member, 'below the floor, and no help on this page: no button');
+        $this->assertSame('', $keyless, 'no key: nothing to ask with, and no help here either');
         $app = \Pramnos\Application\Application::getInstance();
         $was = $app->applicationInfo['namespace'] ?? null;
         $app->applicationInfo['namespace'] = 'Pramnos\\Tests\\Integration\\Llm\\Fixture';
@@ -581,6 +584,27 @@ class AnalystTest extends LlmTestCase
         } finally {
             $app->applicationInfo['namespace'] = $was;
         }
+    }
+
+    /** Without a key there is nothing to ask with: Ask opens the settings, where it is set. */
+    public function testWithoutAKeyAskIsTheSettings(): void
+    {
+        // Arrange
+        foreach (['llm_openai_api_key', 'llm_deepseek_api_key', 'llm_provider'] as $name) {
+            $this->setting($name, '');
+        }
+        $screen = new AnalystScreen();
+        $_GET   = [];
+        \Pramnos\Http\Request::resetInstance();
+
+        // Act
+        $page = $screen->display();
+
+        // Assert
+        $this->assertNull($page);
+        $this->assertStringEndsWith('Ai/settings', $screen->redirectedTo[0]);
+        $this->assertSame(['Set a provider\'s API key to use Ask.'], $screen->messages);
+        $this->assertFalse(Analyst::available());
     }
 
     /** Below the screen's usertype nothing happens, whatever is asked. */

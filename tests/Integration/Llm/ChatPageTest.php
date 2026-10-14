@@ -260,6 +260,12 @@ class ChatPageTest extends LlmTestCase
         foreach (self::THEMES as $theme) {
             $file = ROOT . '/scaffolding/themes/' . $theme . '/views/partials/chat_widget.html.php';
             \Pramnos\Llm\Llm::use('router', new SignedIn());
+            // No key yet: a question that can only fail is not invited
+            \Pramnos\Application\Settings::setSetting('llm_openai_api_key', '', false);
+            ob_start();
+            include $file;
+            $this->assertSame('', (string) ob_get_clean(), $theme . ': no key, no widget');
+            \Pramnos\Application\Settings::setSetting('llm_openai_api_key', 'sk-test', false);
             ob_start();
             include $file;
             $widget = (string) ob_get_clean();

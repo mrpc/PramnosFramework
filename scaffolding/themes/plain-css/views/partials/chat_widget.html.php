@@ -5,12 +5,13 @@
  *   <?php $this->insert('../partials/chat_widget'); ?>
  *
  * A floating button that opens a small form; the question goes to /chat, which answers it and
- * opens the conversation. Shown only to somebody signed in.
+ * opens the conversation. Shown only to somebody signed in, once there is a key to answer with.
  */
 $c = ['card' => 'pf-card', 'muted' => 'pf-muted', 'bad' => 'pf-bad', 'btn' => 'btn', 'btnGhost' => 'btn', 'input' => '', 'question' => 'pf-card', 'answer' => 'pf-card'];
 $e = static fn ($v): string => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
 
-if (\Pramnos\Llm\Chat\Scope::current() === null) {
+// Signed in, and a key to answer with: a question that can only fail is not invited.
+if (\Pramnos\Llm\Chat\Scope::current() === null || !\Pramnos\Llm\Chat\Chat::available()) {
     return;
 }
 ?>

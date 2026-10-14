@@ -73,6 +73,14 @@ class AiController extends Controller
             return null;
         }
 
+        // Nothing to ask without a key: the settings, where it is set.
+        if (!\Pramnos\Llm\Analyst\Analyst::available()) {
+            $this->addMessage('Set a provider\'s API key to use Ask.');
+            $this->redirect(adminUrl('Ai/settings'));
+
+            return null;
+        }
+
         $page = $this->analystDesk()->page((int) $request->get('c', 0, 'get', 'int'), (int) $request->get('ask', 0, 'get', 'int'));
 
         $doc        = \Pramnos\Framework\Factory::getDocument();

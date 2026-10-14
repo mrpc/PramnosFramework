@@ -203,6 +203,15 @@ class NavRegistry
             return false;
         }
 
+        // Rule 6 — the item's own condition, asked now: something it needs may not be set up.
+        if ($item->when !== null) {
+            try {
+                return (bool) ($item->when)($user);
+            } catch (\Throwable) {
+                return false;
+            }
+        }
+
         return true;
     }    /**
      * May this user use the thing behind that menu item?

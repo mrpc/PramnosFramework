@@ -1519,6 +1519,8 @@ class Application extends Base
         NavRegistry::register(new NavItem(
             'user.chat', 'Ask AI', $base . 'chat',
             NavSection::User, 6, requireAuth: true, feature: 'llm', icon: 'sparkles',
+            // Not offered until there is a key for it to answer with.
+            when: static fn (): bool => \Pramnos\Llm\Chat\Chat::available(),
         ));
 
         NavRegistry::register(new NavItem(
