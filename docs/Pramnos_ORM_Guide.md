@@ -16,6 +16,9 @@ The **ORM** (Object-Relational Mapping) layer provides an elegant way to work wi
 
 ### Defining a Model
 
+A controller reaches a model with `$this->getModel('User')`; which class that finds, and when
+it does not, is in [How a controller finds its model](Pramnos_Framework_Guide.md#how-a-controller-finds-its-model).
+
 ```php
 <?php
 namespace App\Models;

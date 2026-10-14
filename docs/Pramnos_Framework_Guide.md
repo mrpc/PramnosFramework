@@ -1,6 +1,8 @@
 ---
 use_cases:
   - Writing or changing a controller
+  - Calling getModel() from a controller and getting "Cannot find model"
+  - Using a site model from an administration-area controller
   - Rendering a view or passing data into a template
   - Pointing the framework at views that live in a tpl/ subdirectory
   - Understanding how a request becomes a response (middleware pipeline, Response object)
@@ -99,6 +101,114 @@ class ExampleController extends \Pramnos\Application\Controller
     }
 }
 ```
+
+### How a controller finds its model
+
+`$this->getModel('Name')` turns a name into one class name, checks it with
+`class_exists()`, and builds the model as `new $class($this, $name)`. It reads two things
+from the application: `applicationInfo['namespace']` (the `namespace` key of `app/app.php`)
+and `$application->appName` (`''` for the site; set only when the application is built as
+`Application::getInstance('Sub')`).
+
+#### Lookup order
+
+1. **Build one candidate class name**, from the first rule that applies:
+
+    | `namespace` set? | `appName` | Candidate |
+    |---|---|---|
+    | yes | `''` | `\<namespace>\Models\<name>` |
+    | yes | `'Sub'` | `\<namespace>\Sub\Models\<name>` |
+    | no | `''` | as the first row, with `Pramnos` as the namespace |
+    | no | `'Sub'` | as the second row, with `Pramnos` as the namespace |
+
+2. **Try it as written.** If the class exists, it is constructed with the name exactly as
+   you passed it.
+3. **Try it with the class's first letter upper-cased** (`ucfirst($name)`; the namespace in
+   front of it is kept as it is). If that class exists, it is constructed with the
+   upper-cased name.
+4. **Otherwise throw** a plain `\Exception`: `Cannot find model: <name> (Class: <candidate>)`.
+   The message always shows the candidate from step 2.
+
+That is the whole search. In particular:
+
+- **There is one namespace, not a list.** With `appName` set, the site's
+  `\<namespace>\Models\` is not tried as a fallback.
+- **The administration area is not consulted.** Unlike `getController()` and `getView()`,
+  which try `<namespace>\Admin\…` first, `getModel()` ignores `$application->area`. A
+  controller in `<namespace>\Admin\Controllers\` gets the site's `<namespace>\Models\X`,
+  and a class under `<namespace>\Admin\Models\` is never found.
+- **There is no framework fallback.** With a `namespace` set, nothing under `\Pramnos\`
+  is tried.
+- **Nothing is cached.** Every call constructs a new instance; two calls return two
+  different objects.
+- **The name may contain a sub-namespace.** `getModel('Billing\Invoice')` resolves
+  `\<namespace>\Models\Billing\Invoice`.
+
+The layout `pramnos init` writes — models in `src/Models/`, `namespace <Ns>\Models;`,
+`'namespace' => '<Ns>'` in `app/app.php`, PSR-4 `<Ns>\` → `src/`, and
+`Application::getInstance()` with no name — is the first row of the table, and works
+as-is. `pramnos make model` writes the class to the same place `getModel()` looks.
+
+#### The name you pass is the model's name
+
+The second constructor argument becomes the model's `modelname`, and a model that does not
+declare `$_dbtable` takes its table from it: `'#PREFIX#' . $name . 's'`. So with a class
+`Order` that declares no table:
+
+- `getModel('Order')` → table `#PREFIX#Orders`
+- `getModel('order')` → table `#PREFIX#orders` if `Order` is already loaded,
+  `#PREFIX#Orders` if it is not (see the case notes below): the same call reaches a different
+  table depending on what ran earlier in the request
+- `getModel('Billing\Invoice')` → table `#PREFIX#Billing\Invoices`
+
+Declare `$_dbtable` on every model reached through `getModel()` — the scaffolded and
+`make model` templates already do — and call it with the class's exact short name.
+
+#### Case sensitivity
+
+PHP class names are case-insensitive; the Composer autoloader on a case-sensitive
+filesystem is not (it looks for `src/Models/<name>.php` exactly). Therefore:
+
+- `getModel('Users')` — always works.
+- `getModel('users')` — works through step 3 when the class is not loaded yet
+  (`Users.php` is autoloaded, name passed `'Users'`); if `Users` is already loaded, step 2
+  matches it case-insensitively and the name passed is `'users'`.
+- `getModel('USERS')` / `getModel('uSERS')` — works only if the class is already loaded
+  (name passed as written); otherwise throws. The result therefore depends on what ran
+  earlier in the request.
+
+#### Examples
+
+Application with `'namespace' => 'Shop'`, models in `src/Models/`.
+
+| Call (in controller) | `appName` / area | Class(es) tried | Result |
+|---|---|---|---|
+| `getModel('Order')` | `''` / none | `\Shop\Models\Order` | `Shop\Models\Order`, name `'Order'` |
+| `getModel('order')`, class not yet loaded | `''` / none | `\Shop\Models\order`, `\Shop\Models\Order` | `Shop\Models\Order`, name `'Order'` |
+| `getModel('order')`, class already loaded | `''` / none | `\Shop\Models\order` | `Shop\Models\Order`, name `'order'` |
+| `getModel('ORDER')`, class not yet loaded | `''` / none | `\Shop\Models\ORDER` (twice) | exception |
+| `getModel('Order')` from `Shop\Admin\Controllers\Orders` | `''` / `Admin` | `\Shop\Models\Order` | `Shop\Models\Order` |
+| `getModel('Report')`, class is `Shop\Admin\Models\Report` | `''` / `Admin` | `\Shop\Models\Report` | exception |
+| `getModel('Billing\Invoice')` | `''` / none | `\Shop\Models\Billing\Invoice` | `Shop\Models\Billing\Invoice` |
+| `getModel('Order')` | `'Sub'` / none | `\Shop\Sub\Models\Order` | found only if that class exists; `\Shop\Models\Order` is not tried |
+| `getModel('Order')`, no `namespace` key | `''` / none | `Order` under `Models` in the `Pramnos` namespace | exception: the framework ships no models there |
+| `getModel('')` | any | `\Shop\Models\` | exception |
+| `getModel('list')` | any | `\Shop\Models\list`, `\Shop\Models\List` | exception — no such class can exist |
+
+#### Known gaps
+
+| Unsupported | What happens | Workaround |
+|---|---|---|
+| A model in an area's own namespace (`<Ns>\Admin\Models\X`) | Not searched; exception | `new \Ns\Admin\Models\X($this)` |
+| A site model from a named sub-application (`appName` set) | Only `<Ns>\<appName>\Models\` is searched | `new \Ns\Models\X($this)` |
+| A model class in any other namespace (a package, `\Pramnos\…` when a `namespace` is set) | Exception | `new \Vendor\Pkg\X($this)` |
+| A class name PHP reserves: `String`, `Int`, `Object`, `Mixed`, `Parent`, `Self` (reserved class names) and `List`, `Class`, `Match`, `Readonly`, `Fn` (keywords) | The class cannot be declared at all, so no call can find it | Name the class something else (`StringModel`, `ListModel`), set `$_dbtable` explicitly, and `getModel('StringModel')` |
+| Any capitalisation other than exact or lower-first, before the class is loaded | Exception (or success, if it happens to be loaded) | Pass the class's exact short name |
+| Reusing one instance | Each call builds a new model | Keep the returned object in a variable |
+
+Constructing the model directly is equivalent to what `getModel()` does: the constructor is
+`__construct(Controller $controller, $name = '')`, and an omitted name defaults to the class's
+short name.
 
 ### Controller Conventions
 

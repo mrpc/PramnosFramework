@@ -604,9 +604,11 @@ class Controller extends \Pramnos\Framework\Base
             $model = new $class($this, $name);
             return $model;
         }
-        if (class_exists(str_replace($name, ucfirst($name), $class))) {
-            $class = str_replace($name, ucfirst($name), $class);
-            $model = new $class($this, ucfirst($name));
+        // Only the class's own name is capitalised: the namespace before it — an application
+        // named `shop`, say — is kept as it is, or the retry looks in a directory that is not there.
+        $upper = substr($class, 0, strlen($class) - strlen($name)) . ucfirst($name);
+        if (class_exists($upper)) {
+            $model = new $upper($this, ucfirst($name));
             return $model;
         }
         throw new \Exception(

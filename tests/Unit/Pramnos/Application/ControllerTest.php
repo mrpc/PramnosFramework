@@ -534,6 +534,41 @@ class ControllerTest extends TestCase
         }
     }
 
+    /**
+     * The lower-case retry capitalises the class's own name only, not a namespace segment that
+     * happens to be the same word.
+     *
+     * An application named `shop` with a model `Shop`: `getModel('shop')` retried
+     * `\Fx111\Shop\Models\Shop`, and an autoloader that maps namespaces to directories — as
+     * Composer's PSR-4 does, on a case-sensitive filesystem — looked in `Shop/`, which is not
+     * there. The autoloader here resolves the exact spelling only, as that one does.
+     */
+    public function testTheRetryCapitalisesOnlyTheClassName(): void
+    {
+        // Arrange
+        $app = new Application();
+        $app->applicationInfo['namespace'] = 'Fx111';
+        $app->appName = 'shop';
+        $ctrl = new Controller($app);
+        $loader = static function (string $class): void {
+            if ($class === 'Fx111\\shop\\Models\\Shop') {
+                eval('namespace Fx111\\shop\\Models; final class Shop { public function __construct(public $controller, public $name) {} }');
+            }
+        };
+        spl_autoload_register($loader);
+
+        try {
+            // Act
+            $model = $ctrl->getModel('shop');
+        } finally {
+            spl_autoload_unregister($loader);
+        }
+
+        // Assert — found, under the application's own lower-case namespace
+        $this->assertSame('Fx111\\shop\\Models\\Shop', get_class($model));
+        $this->assertSame('Shop', $model->name);
+    }
+
     // =========================================================================
     // getView()
     // =========================================================================
