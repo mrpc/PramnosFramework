@@ -1061,20 +1061,36 @@ $this->addError('That record no longer exists.');
 $this->redirect(sURL . 'organizations');
 ```
 
+The theme's layout shows them, above every screen:
+
 ```php
-// In a view or layout
-foreach ($this->messages as $message) {
-    echo '<div class="alert alert-success">'
-        . htmlspecialchars($message, ENT_QUOTES, 'UTF-8') . '</div>';
-}
-foreach ($this->flashErrors as $error) {
-    echo '<div class="alert alert-danger">'
-        . htmlspecialchars($error, ENT_QUOTES, 'UTF-8') . '</div>';
-}
+<!-- app/themes/<name>/theme.html.php -->
+<main id="main-content">
+    <?php echo \Pramnos\Html\Flash::render(); ?>
+    [MODULE]
+</main>
+```
+
+`Html\Flash::render()` draws errors then messages, escaped, as `pf-flash-error`
+(`role="alert"`) and `pf-flash-message` (`role="status"`) inside a `pf-flash` block, and draws
+nothing when there is nothing. Every scaffolded layout has the line and every scaffolded
+stylesheet styles the hooks.
+
+It **takes** the flash, and so does a view that shows it itself: `_printMessages()`,
+`_printErrors()`, or `Request::takeMessages()` / `takeFlashErrors()`. The view renders before
+the layout, so a screen that shows the flash in its own place shows it there, and the layout
+repeats nothing. It also takes what the current request added without redirecting, which is
+then shown on this page rather than on the next one.
+
+A view that reads the flash without taking it uses the snapshot the view was built with:
+
+```php
+foreach ($this->messages as $message) { /* … */ }      // not taken: the layout shows it too
+foreach ($this->flashErrors as $error) { /* … */ }
 ```
 
 Outside a view, read them from the request: `$request->messages()` and
-`$request->flashErrors()`.
+`$request->flashErrors()` read; `takeMessages()` and `takeFlashErrors()` read and take.
 
 !!! warning "Do not pass messages as query parameters"
     `redirect(sURL . 'things?error=not_found')` is the shape to avoid. The text ends up in the
@@ -1100,10 +1116,9 @@ Outside a view, read them from the request: `$request->messages()` and
     The gates are non-destructive on purpose: a gate that consumed would leave the printer with
     nothing, which is the same silence by the opposite route.
 
-    One residual: a `View` snapshots the bags when it is constructed, so an application that
-    prints the flash **both** in its theme header and in a template will print it twice. Which
-    one prints is the application's call — the framework cannot make that choice without
-    breaking the other.
+    One residual: a `View` snapshots the bags when it is constructed, so a template that prints
+    `$this->messages` and a layout that prints the flash both print it. A template that takes
+    it, with `_printMessages()` or `takeMessages()`, leaves the layout nothing to repeat.
 
 ### Three things to know about the mechanism
 

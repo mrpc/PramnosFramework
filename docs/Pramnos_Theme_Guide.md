@@ -1239,7 +1239,7 @@ the theme has to load.
 | Call `$this->document->renderCss()` in the head and `$this->document->renderJs()` at the end of the body | Screens enqueue what they need. A datatable, for example, enqueues DataTables, and without these calls the list is an empty table. |
 | Load `assets/js/pf-utils.js` | It handles `data-confirm`, `data-href`, the search box and the other `data-*` behaviours the screens use. The framework's CSP refuses inline handlers, so nothing else can do this work. |
 | Draw the `NavSection::Admin` items from `NavRegistry::getForUser()` | The bundled screens and the application's own register themselves there. Without the menu, a screen can still be opened but there is no link to it. |
-| Show flashed messages and errors | Many admin actions call `addMessage('Saved.')` or `addError(…)` and then redirect. The screen they land on does not print the flash, so the theme's header is the only place it can appear. |
+| Show flashed messages and errors: `Html\Flash::render()` above `[MODULE]` | Many admin actions call `addMessage('Saved.')` or `addError(…)` and then redirect. The screen they land on does not print the flash, so the layout is the only place it can appear. |
 
 ### Optional, and what each adds
 
@@ -1274,9 +1274,9 @@ layout:
 
 ```
 app/themes/admin/
-├── theme.html.php
+├── theme.html.php # the layout: [MODULE] and the flash above it
 ├── head.php       # includes ../default/head.php
-├── header.php     # navigation, search, side panel, flash
+├── header.php     # navigation, search, side panel
 └── footer.php     # includes ../default/footer.php
 ```
 
@@ -1299,6 +1299,7 @@ include __DIR__ . '/../default/footer.php';
 <a class="pf-skip-link" href="#main-content">Skip to content</a>
 <?php $this->get_header(); ?>
 <main id="main-content">
+    <?php echo \Pramnos\Html\Flash::render(); ?>
     [MODULE]
 </main>
 <?php $this->get_footer(); ?>
@@ -1324,9 +1325,6 @@ foreach ($_admin as $_item) {
         $_sub[$_item->parent][] = $_item;
     }
 }
-
-// Read, not consumed: a view that prints the flash itself still sees it.
-$_request = \Pramnos\Http\Request::getInstance();
 ?>
 <header class="admin-header">
     <a href="<?php echo $_e(adminUrl()); ?>"><?php echo $_e((string) ($_app?->applicationInfo['name'] ?? '')); ?></a>
@@ -1354,23 +1352,11 @@ $_request = \Pramnos\Http\Request::getInstance();
         <?php endforeach; ?>
     </ul>
 </nav>
-
-<?php foreach ($_request->messages() as $_message): ?>
-    <div role="status" class="alert alert-success"><?php echo $_e($_message); ?></div>
-<?php endforeach; ?>
-<?php foreach ($_request->flashErrors() as $_error): ?>
-    <div role="alert" class="alert alert-danger"><?php echo $_e($_error); ?></div>
-<?php endforeach; ?>
 ```
 
-The `alert` classes above are Bootstrap's. Under tailwind use `alert alert-success` /
-`alert alert-error` (daisyUI); under plain-css, the `alert` classes in its `style.css`.
-
-!!! warning "Messages are plain text here"
-    `Base::_printMessages()` and `_printErrors()` are also available, because `$this` in a
-    theme file is the theme and the theme extends `Base`. They **consume** the flash and
-    print it without escaping. Use them only when the flashed text is known to be safe
-    HTML.
+The flash is shown by `theme.html.php`, above `[MODULE]`, with `Html\Flash::render()`: escaped,
+taken so that it is shown once, and styled by the scaffolded stylesheets' `pf-flash` rules. See
+[Flash messages and errors](Pramnos_Framework_Guide.md#flash-messages-and-errors).
 
 !!! tip "Follow the palette rather than restating it"
     An admin theme that styles its own chrome should read the same tokens as everything else:

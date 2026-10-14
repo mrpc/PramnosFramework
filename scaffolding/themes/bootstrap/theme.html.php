@@ -21,6 +21,7 @@
 <?php $this->get_Header(); ?>
 <main id="main-content" class="py-5">
     <div class="container">
+        <?php echo \Pramnos\Html\Flash::render(); ?>
         [MODULE]
     </div>
 </main>

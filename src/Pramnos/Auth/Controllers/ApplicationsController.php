@@ -273,8 +273,9 @@ class ApplicationsController extends Controller
         // framework's `View` and its new properties, which cost three `implode(): null given`
         // errors. Non-destructive, so a theme header can still print them.
         $request           = \Pramnos\Http\Request::getInstance();
-        $view->message     = implode(' ', $request->messages());
-        $view->error       = implode(' ', $request->flashErrors());
+        // Taken, not read: shown by this view, the layout's flash then has nothing to repeat.
+        $view->message     = implode(' ', $request->takeMessages());
+        $view->error       = implode(' ', $request->takeFlashErrors());
 
         if ($id > 0) {
             $db     = \Pramnos\Framework\Factory::getDatabase();
