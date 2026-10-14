@@ -5,7 +5,11 @@ declare(strict_types=1);
 namespace Pramnos\Assist;
 
 /**
- * The side panel of the administration: Ask about the page you are on, and that page's help.
+ * The side panel: Ask about the page you are on, and that page's help.
+ *
+ * The help is this request's level (see {@see Help::level()}): the administration's pages inside
+ * the administration, the site's outside it — where a visitor, signed in or not, gets the panel
+ * with the help alone.
  *
  * Drawn by `Analyst::headerButton()`, which every scaffolded header already calls, so a project
  * gets it without touching its layout: the button, the panel as an inert `<template>`, and
@@ -29,7 +33,9 @@ final class Panel
     public static function render(bool $ask, string $askUrl, string $before = '', string $after = ''): string
     {
         $context = Page::context();
-        $help    = Help::enabled() ? Help::forScreen($context['screen'], $context['action']) : null;
+        // This request's level: the site's pages outside the administration, never its own.
+        $book    = Help::book();
+        $help    = Help::enabled() ? $book->forScreen($context['screen'], $context['action']) : null;
 
         // On Ask itself, the panel would be the page twice: the link it always was.
         if ($ask && $context['screen'] === 'ai') {
@@ -41,11 +47,11 @@ final class Panel
         }
 
         $label = $ask ? self::t('Ask') : self::t('Help');
-        $href  = $ask ? $askUrl : (Help::screen() !== '' ? Help::url((string) $help['slug']) : '#');
+        $href  = $ask ? $askUrl : ($book->screen() !== '' ? $book->url((string) $help['slug']) : '#');
 
         return $before
             . '<a class="pf-ask" href="' . self::e($href) . '" data-pf-assist-open aria-haspopup="dialog">' . self::e($label) . '</a>'
-            . '<template data-pf-assist>' . self::panel($ask, $askUrl, $help, $context) . '</template>'
+            . '<template data-pf-assist>' . self::panel($ask, $askUrl, $help, $context, $book) . '</template>'
             . '<script src="' . self::e(function_exists('assetUrl') ? assetUrl('assets/js/pf-assist.js') : 'assets/js/pf-assist.js') . '" defer></script>'
             . $after;
     }
@@ -54,7 +60,7 @@ final class Panel
      * @param array<string, mixed>|null $help
      * @param array<string, string>     $context
      */
-    private static function panel(bool $ask, string $askUrl, ?array $help, array $context): string
+    private static function panel(bool $ask, string $askUrl, ?array $help, array $context, HelpBook $book): string
     {
         $both   = $ask && $help !== null;
         $chat   = function_exists('assetUrl') ? assetUrl('assets/js/pf-chat.js') : 'assets/js/pf-chat.js';
@@ -88,12 +94,12 @@ final class Panel
         }
 
         if ($help !== null) {
-            $page   = Help::screen() !== '';
+            $page   = $book->screen() !== '';
             $html  .= '<section data-pf-assist-pane="help"' . ($ask ? ' hidden' : '') . ' style="flex:1;overflow:auto;padding:12px 16px">'
-                . '<div class="pf-help-page">' . ($page ? Help::pageHtml($help) : Help::html((string) $help['body'])) . '</div>'
+                . '<div class="pf-help-page">' . ($page ? $book->pageHtml($help) : Help::html((string) $help['body'])) . '</div>'
                 . ($page
-                    ? '<p style="margin-top:16px;opacity:.75"><a href="' . self::e(Help::url((string) $help['slug'])) . '">' . self::e(self::t('Open this page')) . '</a>'
-                        . ' · <a href="' . self::e(Help::url()) . '">' . self::e(self::t('All help')) . '</a></p>'
+                    ? '<p style="margin-top:16px;opacity:.75"><a href="' . self::e($book->url((string) $help['slug'])) . '">' . self::e(self::t('Open this page')) . '</a>'
+                        . ' · <a href="' . self::e($book->url()) . '">' . self::e(self::t('All help')) . '</a></p>'
                     : '')
                 . '</section>';
         }

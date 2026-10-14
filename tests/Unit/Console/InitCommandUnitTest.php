@@ -3334,6 +3334,13 @@ class InitCommandUnitTest extends TestCase
         $this->assertStringContainsString('namespace AdminApp\\Admin\\Controllers;', $help);
         $this->assertStringContainsString('class Help extends FrameworkHelpController', $help);
         $this->assertStringContainsString("'features' => ['help']", (string) file_get_contents($this->tmpDir . '/app/app.php'));
+        // And the site's, for visitors, beside the directory its pages go in.
+        $site = (string) file_get_contents($this->tmpDir . '/src/Controllers/Help.php');
+        $this->assertStringContainsString('namespace AdminApp\\Controllers;', $site);
+        $this->assertStringContainsString('class Help extends SiteHelpController', $site);
+        $this->assertDirectoryExists($this->tmpDir . '/app/help-site');
+        // It parses: TOKEN_PARSE throws on a syntax error in the generated file.
+        $this->assertNotEmpty(token_get_all($site, TOKEN_PARSE));
     }
 
     /**

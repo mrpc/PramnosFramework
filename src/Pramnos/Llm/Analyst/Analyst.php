@@ -43,7 +43,8 @@ final class Analyst
      * page you are on, and that page's help. See {@see \Pramnos\Assist\Panel}.
      *
      * Without the analyst — the `llm` feature off, or below its floor — it is "Help" where the
-     * page has help, and nothing where it has none. Nothing for somebody signed out.
+     * page has help, and nothing where it has none. For somebody signed out, the site's help on
+     * a page outside the administration, where the page has one; nothing anywhere else.
      *
      * ```php
      * <?php echo \Pramnos\Llm\Analyst\Analyst::headerButton(); ?>
@@ -54,7 +55,10 @@ final class Analyst
         $user = \Pramnos\User\User::getCurrentUser();
 
         if (!is_object($user) || (int) ($user->userid ?? 0) <= 1) {
-            return '';
+            // A visitor on the site still has the site's help for the page, where it has some.
+            return \Pramnos\Assist\Help::level() === \Pramnos\Assist\HelpBook::SITE
+                ? \Pramnos\Assist\Panel::render(false, '', $before, $after)
+                : '';
         }
 
         $ask = \Pramnos\Application\FeatureRegistry::isEnabled('llm')

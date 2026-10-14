@@ -35,6 +35,15 @@ namespace Pramnos\Assist;
  *
  * `questions` are what a reader would ask; a search matches them before the text. Between pages,
  * `[Refunds](help:billing/refunds)` links by name, so the files are not tied to a host.
+ *
+ * ## Two levels
+ *
+ * The pages above are the **administration's**. A site's visitors have their own, in
+ * `app/help-site/` (or `'help' => ['site' => ['paths' => [...]]]`), written the same way and
+ * never mixed with these: {@see site()} reads only them, and the framework's pages are not among
+ * them. Which level a page is on is {@see level()}: outside the administration area, where an
+ * application has one, it is the site's. The static methods here are the administration's, as
+ * they always were; {@see book()} is the level of the request.
  */
 final class Help
 {
@@ -42,30 +51,65 @@ final class Help
     public const MAX_CHARS = 6000;
 
     /** Picture types a page may show. */
-    private const IMAGES = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'];
+    public const IMAGES = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'];
 
-    /** @var list<string>|null The directories searched, first match wins; null for the defaults */
+    /** @var list<string>|null The administration's directories; null for the defaults */
     private static ?array $directories = null;
 
-    /** @var array<string, array<string, mixed>>|null Every page, by slug, once read */
-    private static ?array $pages = null;
+    /** @var list<string>|null The site's directories; null for the defaults */
+    private static ?array $siteDirectories = null;
+
+    /** @var array<string, HelpBook> The books built so far, by level */
+    private static array $books = [];
 
     /**
-     * One page: `slug`, `title`, `section`, `questions`, `updated`, `body` (without front matter),
-     * `framework` (shipped rather than the application's) — or null.
-     *
-     * @return array{slug: string, title: string, section: string, questions: list<string>, updated: string, body: string, framework: bool}|null
+     * The administration's pages: `app/help` (or `help.paths`), then the framework's — the last
+     * directory searched, whichever it is.
      */
+    public static function admin(): HelpBook
+    {
+        if (!isset(self::$books[HelpBook::ADMIN])) {
+            $directories = self::directories();
+            self::$books[HelpBook::ADMIN] = new HelpBook(HelpBook::ADMIN, $directories, $directories === [] ? null : end($directories));
+        }
+
+        return self::$books[HelpBook::ADMIN];
+    }
+
+    /** The site's pages: `app/help-site` (or `help.site.paths`) — and nothing of the administration's. */
+    public static function site(): HelpBook
+    {
+        return self::$books[HelpBook::SITE] ??= new HelpBook(HelpBook::SITE, self::siteDirectories());
+    }
+
+    /**
+     * The level of this request: the site's outside the administration area, where the
+     * application has one — a prefix it strips, or an administration served from a front
+     * controller of its own. An application with no area at all has one level, the
+     * administration's, as it always had.
+     */
+    public static function level(): string
+    {
+        return \Pramnos\Http\AdminArea::prefix() !== '' && !\Pramnos\Http\AdminArea::isActive()
+            ? HelpBook::SITE
+            : HelpBook::ADMIN;
+    }
+
+    /** The pages of a level — this request's when none is named. */
+    public static function book(?string $level = null): HelpBook
+    {
+        return ($level ?? self::level()) === HelpBook::SITE ? self::site() : self::admin();
+    }
+
+    /** One page of the administration's: see {@see HelpBook::page()}. */
     public static function page(string $slug): ?array
     {
-        $slug = self::slug($slug);
-
-        return $slug === '' ? null : (self::pages()[$slug] ?? null);
+        return self::admin()->page($slug);
     }
 
     /**
      * Whether the installation uses its help pages: the `help` feature, in `app.php`'s
-     * `features`. Off, the side panel shows no Help tab, `/admin/Help` answers nothing, and the
+     * `features`. Off, the side panel shows no Help tab, neither help screen answers, and the
      * analyst neither has the `help` tool nor reads a page's help. The pages themselves can
      * still be read through this class.
      */
@@ -74,84 +118,42 @@ final class Help
         return \Pramnos\Application\FeatureRegistry::isEnabled('help');
     }
 
-    /** The Markdown of a screen's action, or of the screen, or null. */
+    /** The Markdown of a screen's action, or of the screen, or null — the administration's. */
     public static function text(string $screen, string $action = ''): ?string
     {
         return self::forScreen($screen, $action)['body'] ?? null;
     }
 
     /**
-     * The page of a screen's action, or of the screen — the application's before the
-     * framework's, whichever of the two it wrote: an application that wrote `users.md` means it
-     * for the edit form too, and the framework's `users/edit.md` must not win over it.
+     * The administration's page for a screen's action, or the screen: see {@see HelpBook::forScreen()}.
      *
      * @return array<string, mixed>|null
      */
     public static function forScreen(string $screen, string $action = ''): ?array
     {
-        $screen = self::slug($screen);
-        $action = self::slug($action);
-
-        if ($screen === '' || str_contains($screen, '/')) {
-            return null;
-        }
-
-        $forAction = $action !== '' && $action !== 'display' ? self::page($screen . '/' . $action) : null;
-        $forScreen = self::page($screen);
-
-        foreach ([$forAction, $forScreen] as $page) {
-            if ($page !== null && !$page['framework']) {
-                return $page;
-            }
-        }
-
-        return $forAction ?? $forScreen;
+        return self::admin()->forScreen($screen, $action);
     }
 
     /**
-     * Every page, the application's before the framework's, by section and title.
+     * Every page of the administration's, the application's before the framework's.
      *
      * @return list<array<string, mixed>>
      */
     public static function all(): array
     {
-        $pages = array_values(self::pages());
-        $key = static fn (array $p): array => [$p['framework'], mb_strtolower($p['section']), mb_strtolower($p['title'])];
-        usort($pages, static fn (array $a, array $b): int => $key($a) <=> $key($b));
-
-        return $pages;
+        return self::admin()->all();
     }
 
     /**
-     * The pages that answer a question, best first: its title and questions count three times
-     * what its text does. Words are compared folded — case, accents and the final sigma — and
-     * by their first five letters, so `λογαριασμού` finds `λογαριασμός`.
+     * The administration's pages that answer a question, best first: see {@see HelpBook::search()}.
+     * Words are compared folded — case, accents and the final sigma — and by their first five
+     * letters, so `λογαριασμού` finds `λογαριασμός`.
      *
      * @return list<array<string, mixed>> Each page with its `score`
      */
     public static function search(string $question, int $limit = 5): array
     {
-        $asked = array_unique(self::words($question));
-        if ($asked === []) {
-            return [];
-        }
-
-        $found = [];
-        foreach (self::pages() as $page) {
-            $strong = array_count_values(self::words($page['title'] . ' ' . implode(' ', $page['questions'])));
-            $weak   = array_count_values(self::words($page['body']));
-            $score  = 0;
-            foreach ($asked as $word) {
-                $score += 3 * min(3, $strong[$word] ?? 0) + min(3, $weak[$word] ?? 0);
-            }
-            if ($score > 0) {
-                $found[] = $page + ['score' => $score];
-            }
-        }
-
-        usort($found, static fn (array $a, array $b): int => $b['score'] <=> $a['score']);
-
-        return array_slice($found, 0, max(1, $limit));
+        return self::admin()->search($question, $limit);
     }
 
     /**
@@ -180,66 +182,40 @@ final class Help
     }
 
     /**
-     * The help page's address — the list, or one page — in the administration area, from a web
-     * request or a worker alike: `$base` is the area's URL as the asking request saw it.
+     * The administration's help page address — the list, or one page — from a web request or a
+     * worker alike: `$base` is the area's URL as the asking request saw it.
      */
     public static function url(string $slug = '', string $base = ''): string
     {
-        return self::area('Help' . ($slug !== '' ? '/page?p=' . rawurlencode($slug) : ''), $base);
+        return self::admin()->url($slug, $base);
     }
 
     /**
-     * The application's help screen class, or '' when it has none — an installation made before
-     * the screen existed adds `src/Admin/Controllers/Help.php` extending `HelpController`.
+     * The application's administration help screen class, or '' when it has none — an
+     * installation made before the screen existed adds `src/Admin/Controllers/Help.php`
+     * extending `HelpController`.
      */
     public static function screen(): string
     {
-        $app       = \Pramnos\Application\Application::currentInstance();
-        $namespace = trim((string) (is_object($app) ? ($app->applicationInfo['namespace'] ?? '') : ''), '\\');
-
-        foreach ([$namespace . '\\Admin\\Controllers\\Help', $namespace . '\\Controllers\\Help'] as $class) {
-            if ($namespace !== '' && class_exists($class) && is_a($class, \Pramnos\Application\Controllers\HelpController::class, true)) {
-                return $class;
-            }
-        }
-
-        return '';
+        return self::admin()->screen();
     }
 
-    /** A picture's address, for a signed-in reader. */
+    /** A picture's address in the administration, for a signed-in reader. */
     public static function imageUrl(string $path): string
     {
-        return self::area('Help/image?f=' . rawurlencode($path));
+        return self::admin()->imageUrl($path);
     }
 
-    /** A page as HTML, its links and pictures pointing at the help page. */
+    /** An administration page as HTML, its links and pictures pointing at the help page. */
     public static function pageHtml(array $page): string
     {
-        return self::html((string) $page['body'], static fn (string $slug): string => self::url($slug), static fn (string $path): string => self::imageUrl($path), (string) $page['slug']);
+        return self::admin()->pageHtml($page);
     }
 
-    /** An address in the area: see {@see \Pramnos\Http\AdminArea::address()}. */
-    private static function area(string $path, string $base = ''): string
-    {
-        return \Pramnos\Http\AdminArea::address($path, $base);
-    }
-
-    /** The file of a picture a page shows, if it is one and lies inside a help directory. */
+    /** The file of a picture an administration page shows: see {@see HelpBook::image()}. */
     public static function image(string $path): ?string
     {
-        if (!in_array(strtolower(pathinfo($path, PATHINFO_EXTENSION)), self::IMAGES, true)) {
-            return null;
-        }
-
-        foreach (self::directories() as $directory) {
-            $root = realpath($directory);
-            $file = $root === false ? false : realpath($root . '/' . $path);
-            if ($root !== false && $file !== false && str_starts_with($file, $root . DIRECTORY_SEPARATOR) && is_file($file)) {
-                return $file;
-            }
-        }
-
-        return null;
+        return self::admin()->image($path);
     }
 
     /** A page's text, cut to what one tool result may carry. */
@@ -271,7 +247,31 @@ final class Help
     public static function useDirectories(?array $directories): void
     {
         self::$directories = $directories;
-        self::$pages       = null;
+        unset(self::$books[HelpBook::ADMIN]);
+    }
+
+    /**
+     * Where the site's pages are: `'help' => ['site' => ['paths' => …]]` or `app/help-site`.
+     *
+     * @return list<string>
+     */
+    public static function siteDirectories(): array
+    {
+        if (self::$siteDirectories !== null) {
+            return self::$siteDirectories;
+        }
+
+        $app   = \Pramnos\Application\Application::currentInstance();
+        $paths = is_object($app) ? ($app->applicationInfo['help']['site']['paths'] ?? null) : null;
+
+        return is_array($paths) ? array_values(array_map('strval', $paths)) : (defined('ROOT') ? [ROOT . '/app/help-site'] : []);
+    }
+
+    /** @param list<string>|null $directories The site's, in order; null for the defaults */
+    public static function useSiteDirectories(?array $directories): void
+    {
+        self::$siteDirectories = $directories;
+        unset(self::$books[HelpBook::SITE]);
     }
 
     /** The framework's own pages. */
@@ -311,78 +311,9 @@ final class Help
         ));
     }
 
-    /** Forget what was read — for a test, or a worker between requests. */
+    /** Forget what was read, at both levels — for a test, or a worker between requests. */
     public static function forget(): void
     {
-        self::$pages = null;
-    }
-
-    /** @return array<string, array<string, mixed>> */
-    private static function pages(): array
-    {
-        if (self::$pages !== null) {
-            return self::$pages;
-        }
-
-        $pages       = [];
-        $directories = self::directories();
-        // The framework's are the last searched — under every directory of the application's.
-        $framework   = realpath((string) end($directories));
-        foreach ($directories as $directory) {
-            $root = realpath($directory);
-            if ($root === false) {
-                continue;
-            }
-            $files = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($root, \FilesystemIterator::SKIP_DOTS));
-            foreach ($files as $file) {
-                if (strtolower($file->getExtension()) !== 'md') {
-                    continue;
-                }
-                $slug = self::slug(substr((string) $file->getPathname(), strlen($root) + 1, -3));
-                if ($slug !== '' && !isset($pages[$slug])) {
-                    $pages[$slug] = self::read((string) $file->getPathname(), $slug, $root === $framework);
-                }
-            }
-        }
-
-        return self::$pages = $pages;
-    }
-
-    /** @return array{slug: string, title: string, section: string, questions: list<string>, updated: string, body: string, framework: bool} */
-    private static function read(string $file, string $slug, bool $framework): array
-    {
-        $text   = str_replace(["\r\n", "\r"], "\n", (string) file_get_contents($file));
-        $meta   = [];
-        $body   = $text;
-
-        if (preg_match('/^---\n(.*?)\n---\n?(.*)$/s', $text, $m) === 1) {
-            $body = $m[2];
-            $key  = '';
-            foreach (explode("\n", $m[1]) as $line) {
-                if (preg_match('/^([A-Za-z_]+):\s*(.*)$/', $line, $pair) === 1) {
-                    $key        = strtolower($pair[1]);
-                    $meta[$key] = trim($pair[2], " \"'") === '' ? [] : trim($pair[2], " \"'");
-                } elseif ($key !== '' && preg_match('/^\s*-\s+(.*)$/', $line, $item) === 1) {
-                    $meta[$key]   = is_array($meta[$key]) ? $meta[$key] : [];
-                    $meta[$key][] = trim($item[1], " \"'");
-                }
-            }
-        }
-
-        $body  = trim($body);
-        $title = is_string($meta['title'] ?? null) ? $meta['title'] : '';
-        if ($title === '' && preg_match('/^#\s+(.+)$/m', $body, $heading) === 1) {
-            $title = trim($heading[1]);
-        }
-
-        return [
-            'slug'      => $slug,
-            'title'     => $title !== '' ? $title : $slug,
-            'section'   => is_string($meta['section'] ?? null) ? $meta['section'] : ($framework ? 'Administration' : ''),
-            'questions' => is_array($meta['questions'] ?? null) ? array_values($meta['questions']) : [],
-            'updated'   => is_string($meta['updated'] ?? null) ? $meta['updated'] : '',
-            'body'      => $body,
-            'framework' => $framework,
-        ];
+        self::$books = [];
     }
 }

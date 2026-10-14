@@ -683,6 +683,7 @@ the tag is cut — assembled as it happens rather than reconstructed from a mont
 | **`Pagination` number row** | Near either end the window borrows from the other side, so page 1 shows `1 2 3 4 5` rather than `1 2 3` with the default `adjacents = 2`. | Nothing, unless a test or a layout counts the numbered links on the first or last pages. `$pagination->steadyWindow = false` restores the cut window. |
 | **`Html\Date` stylesheet** | A calendar `Date` widget enqueues the `bootstrap-datepicker` style beside the script. Under `documentAssetSource` naming `bootstrap-datepicker` (or `'local'`) it is `plugins/datepicker/bootstrap-datepicker3.standalone.min.css`. | On an installation serving the datepicker locally, put that file next to the script, or the page logs a 404. A theme that styled the bare popup itself may want to drop its rules. |
 | **`Llm\Client::askWithTools()` reply** | The reply is the text of every round, in order, a blank line apart — including rounds that also called a tool. It was the last round's text alone. | Nothing, unless code splits or matches the reply expecting one round's text, or a verifier assumed it saw only the last round. |
+| **Help on site pages** | In an application with an administration area, a page outside it shows the site's help (`app/help-site/`), not the administration's — to an administrator as to a visitor. | An administrator who relied on an `app/help/` page showing on a site page: copy it to `app/help-site/` under the same name, if visitors may read it. |
 
 ### `users` columns without a default
 

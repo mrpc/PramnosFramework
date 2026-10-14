@@ -6,6 +6,7 @@ namespace Pramnos\Application\Controllers;
 
 use Pramnos\Application\Controller;
 use Pramnos\Assist\Help;
+use Pramnos\Assist\HelpBook;
 
 /**
  * `/admin/Help` — the installation's help pages, from `app/help/` and the framework's own.
@@ -27,6 +28,12 @@ class HelpController extends Controller
     {
         $this->addAuthAction(['display', 'page', 'image']);
         parent::__construct($application);
+    }
+
+    /** The pages this screen shows: the administration's. */
+    protected function book(): HelpBook
+    {
+        return Help::admin();
     }
 
     /** Without the `help` feature there is no such screen. */
@@ -57,15 +64,15 @@ class HelpController extends Controller
 
         $view          = $this->getView('help');
         $view->query   = $query;
-        $view->found   = $query === '' ? null : Help::search($query, 20);
+        $view->found   = $query === '' ? null : $this->book()->search($query, 20);
         // Built here and set once: a view's properties are magic, and `[]=` on one is lost.
         $bySection = [];
-        foreach (Help::all() as $page) {
+        foreach ($this->book()->all() as $page) {
             $bySection[$page['section'] !== '' ? $page['section'] : t('Help')][] = $page;
         }
         $view->bySection = $bySection;
-        $view->pageUrl = static fn (string $slug): string => Help::url($slug);
-        $view->listUrl = Help::url();
+        $view->pageUrl = fn (string $slug): string => $this->book()->url($slug);
+        $view->listUrl = $this->book()->url();
 
         return $view->display('help');
     }
@@ -77,11 +84,11 @@ class HelpController extends Controller
             return $this->notHere();
         }
 
-        $page = Help::page((string) ($_GET['p'] ?? ''));
+        $page = $this->book()->page((string) ($_GET['p'] ?? ''));
 
         if ($page === null) {
             $this->addError(t('There is no such help page.'));
-            $this->redirect(Help::url());
+            $this->redirect($this->book()->url());
 
             return null;
         }
@@ -90,8 +97,8 @@ class HelpController extends Controller
 
         $view          = $this->getView('help');
         $view->page    = $page;
-        $view->html    = Help::pageHtml($page);
-        $view->listUrl = Help::url();
+        $view->html    = $this->book()->pageHtml($page);
+        $view->listUrl = $this->book()->url();
 
         return $view->display('page');
     }
@@ -103,7 +110,7 @@ class HelpController extends Controller
             return $this->notHere();
         }
 
-        $file = Help::image((string) ($_GET['f'] ?? ''));
+        $file = $this->book()->image((string) ($_GET['f'] ?? ''));
 
         if ($file === null) {
             http_response_code(404);

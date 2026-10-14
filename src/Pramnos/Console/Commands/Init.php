@@ -9058,7 +9058,8 @@ PHP;
 
     /**
      * `/admin/Help`: the wrapper that puts the framework's help pages on an address here — the
-     * list and search, one page, and the pictures pages show. Pages go in `app/help/`.
+     * list and search, one page, and the pictures pages show. Pages go in `app/help/`. And `/Help`,
+     * the site's own, from `app/help-site/`.
      */
     private function scaffoldHelpWiring(string $namespace): void
     {
@@ -9085,6 +9086,32 @@ class Help extends FrameworkHelpController
 PHP;
 
         $this->writeFile('src/Admin/Controllers/Help.php', $controller);
+
+        // The site's own help, for visitors: `/Help`, from app/help-site/ — never the
+        // administration's pages.
+        $this->mkdir('src/Controllers');
+        $site = <<<PHP
+<?php
+
+declare(strict_types=1);
+
+namespace {$namespace}\\Controllers;
+
+use Pramnos\\Application\\Controllers\\SiteHelpController;
+
+/**
+ * The site's help pages — `app/help-site/*.md` — open to every visitor.
+ *
+ * Kept apart from the administration's (`app/help/`): a page added here appears at `/Help` and in
+ * the help panel of the site page it is named after, and nowhere in the administration.
+ */
+class Help extends SiteHelpController
+{
+}
+PHP;
+
+        $this->writeFile('src/Controllers/Help.php', $site);
+        $this->mkdir('app/help-site');
     }
 
     private function scaffoldServicesWiring(string $namespace): void

@@ -6,6 +6,7 @@ use_cases:
   - Adding the Help screen and the side panel to an existing project
   - Finding a help page from a question in Greek or English
   - Turning help pages on or off for an installation
+  - Giving a site's visitors help pages of their own, apart from the administration's
 ---
 
 # Administration help and the side panel
@@ -156,6 +157,60 @@ button, the panel inside an inert `<template>`, and `assets/js/pf-assist.js`.
 - **New** starts another conversation.
 
 Without the script the button is a plain link: to Ask, or to the page's help.
+
+## The site's help, for visitors
+
+A site has its own help, apart from the administration's: pages for its visitors in
+`app/help-site/`, written exactly as above.
+
+```
+app/help-site/posts.md       the site's Posts page
+app/help-site/faq.md         a page of its own
+app/help-site/images/p.png   a picture a page shows
+```
+
+The two are never mixed. The administration's pages describe settings and workflows a visitor
+has no business reading, so the site's help reads only `app/help-site/`: no page of `app/help/`,
+and none of the framework's, which document its administration screens. `'help' => ['site' =>
+['paths' => [...]]]` in `app/app.php` searches other directories instead.
+
+Which pages a request gets is its **level**. Outside the administration area the site's,
+inside it the administration's. An application with no area at all, no `admin` prefix and no
+`AdminArea::serve()`, has one level, the administration's.
+
+- **The header button** shows the site page's help on a site page, to a visitor signed in or not,
+  where `app/help-site/` has a page named after the screen. A visitor gets the help alone; an
+  administrator on a site page gets Ask beside it.
+- **`/Help`** lists, searches and shows the site's pages, open to everybody, through
+  `src/Controllers/Help.php` extending `SiteHelpController`. `init` writes it with the `help`
+  feature; a project made before adds it:
+
+    ```php
+    <?php
+    // src/Controllers/Help.php
+    declare(strict_types=1);
+
+    namespace App\Controllers;
+
+    class Help extends \Pramnos\Application\Controllers\SiteHelpController
+    {
+    }
+    ```
+
+- **The analyst** reads the administration's pages: it is an administrator's tool, wherever the
+  question was asked from.
+
+```php
+use Pramnos\Assist\Help;
+
+Help::site()->forScreen('posts');     // the site's page for a screen
+Help::site()->search('sign up', 5);   // the site's pages for a question
+Help::book();                         // this request's level: Help::site() or Help::admin()
+Help::level();                        // 'site' or 'admin'
+```
+
+The static `Help::` methods (`page()`, `forScreen()`, `search()`, `url()` and the rest) are the
+administration's.
 
 ## Adding it to an existing project
 
