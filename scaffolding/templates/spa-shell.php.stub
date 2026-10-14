@@ -35,7 +35,7 @@ $runtime = [
     'appName'   => '{{ appName }}',
     'apiPrefix' => '{{ apiPrefix }}',
     'apiKey'    => md5(str_replace('/api/', '/', $siteUrl)),
-    'features'  => ['auth' => {{ hasAuth }}],
+    'features'  => ['auth' => {{ hasAuth }}, 'help' => {{ hasHelp }}],
     // Published so the debug panel can print it next to the current path: a
     // router mounted somewhere the URL does not start with resolves every deep
     // link to the home screen, and nothing on screen says why.

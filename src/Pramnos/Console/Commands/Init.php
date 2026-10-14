@@ -83,6 +83,7 @@ class Init extends Command
         'components/ConfirmDialog.svelte' => 'spa-confirm-dialog.svelte',
         'components/Field.svelte'         => 'spa-field.svelte',
         'components/Omnibox.svelte'       => 'spa-omnibox.svelte',
+        'components/HelpPanel.svelte'     => 'spa-help-panel.svelte',
         'lib/i18n.svelte.js'              => 'spa-i18n.js',
     ];
 
@@ -103,6 +104,7 @@ class Init extends Command
         '__tests__/ConfirmDialog.test.js' => 'spa-confirm-dialog.test.js',
         '__tests__/Field.test.js'         => 'spa-field.test.js',
         '__tests__/Omnibox.test.js'       => 'spa-omnibox.test.js',
+        '__tests__/HelpPanel.test.js'     => 'spa-help-panel.test.js',
         '__tests__/i18n.test.js'          => 'spa-i18n.test.js',
         '__tests__/router.test.js'        => 'spa-router.test.js',
     ];
@@ -1684,6 +1686,7 @@ class Init extends Command
             // Written by the dev server while it runs (see vite.config.js).
             'hotPath'       => self::SPA_BUILD_DIR . '/.vite/hot',
             'hasAuth'       => in_array('auth', $features, true) ? 'true' : 'false',
+            'hasHelp'       => in_array('help', $features, true) ? 'true' : 'false',
             'tokenStorageKey' => strtolower(preg_replace('/[^a-z0-9]+/i', '-', $appName)) . '-token',
             'entryKey'      => $sourceDir . '/main.js',
             'entry'         => $sourceDir . '/main.js',
@@ -3567,6 +3570,14 @@ PHP;
             $lines[] = "        \$r->get('/language', function () {";
             $lines[] = "            return (new {$language}())->show();";
             $lines[] = "        });";
+            $lines[] = "";
+        }
+
+        // The help pages as JSON — the site's to anybody, the administration's to its
+        // administrators — for a front end that draws its own pages.
+        if (in_array('help', $features, true)) {
+            $lines[] = "        // Help pages: GET /help, /help/page?p=, /help/screen?screen=";
+            $lines[] = "        \\Pramnos\\Assist\\HelpApi::routes(\$r);";
             $lines[] = "";
         }
 

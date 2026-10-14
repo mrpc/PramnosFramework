@@ -1,0 +1,92 @@
+import { render, screen, fireEvent, waitFor } from '@testing-library/svelte';
+import { vi, describe, it, expect, beforeEach } from 'vitest';
+import HelpPanel from '../components/HelpPanel.svelte';
+
+/**
+ * Tests for the help panel.
+ *
+ * What matters is what it does *not* show: no button for a screen without a page — the
+ * endpoint's 404 is the normal answer there, not an error — and a link between pages that
+ * opens the page in place rather than navigating the application away.
+ */
+
+/** A page in the shape `HelpApi` answers. */
+const page = (slug, title, html) => ({ slug, title, section: '', questions: [], updated: '', html });
+
+let calls;
+let answers;
+
+vi.mock('../lib/api.js', () => ({
+    api: {
+        get: (path, query) => {
+            calls.push({ path, query });
+            const answer = answers[path + ':' + (query.screen ?? query.p)];
+
+            return answer ? Promise.resolve(answer) : Promise.reject(Object.assign(new Error('404'), { status: 404 }));
+        },
+    },
+}));
+
+vi.mock('../lib/i18n.svelte.js', () => ({ t: (s) => s }));
+
+beforeEach(() => {
+    calls   = [];
+    answers = {};
+});
+
+describe('HelpPanel', () => {
+    it('shows nothing for a screen without a page', async () => {
+        // Arrange / Act
+        render(HelpPanel, { screen: 'orders' });
+
+        // Assert — asked once, and the 404 leaves no button
+        await waitFor(() => expect(calls).toHaveLength(1));
+        expect(calls[0]).toEqual({ path: '/help/screen', query: { screen: 'orders', action: '' } });
+        expect(screen.queryByRole('button', { name: 'Help' })).toBeNull();
+    });
+
+    it('opens the screen\'s page, and a linked page in place', async () => {
+        // Arrange
+        answers['/help/screen:posts'] = page('posts', 'Reading a post', '<p>See <a href="?help=faq">the questions</a>.</p>');
+        answers['/help/page:faq']     = page('faq', 'Questions', '<p>Sign up from the top right.</p>');
+        render(HelpPanel, { screen: 'posts' });
+
+        // Act — open the panel, then follow the link
+        await fireEvent.click(await screen.findByRole('button', { name: 'Help' }));
+        const link  = screen.getByText('the questions');
+        const click = new MouseEvent('click', { bubbles: true, cancelable: true });
+        link.dispatchEvent(click);
+
+        // Assert — the linked page replaced the first, and the address was not followed
+        expect(await screen.findByText('Sign up from the top right.')).toBeTruthy();
+        expect(click.defaultPrevented).toBe(true);
+        expect(screen.getByRole('dialog', { name: 'Questions' })).toBeTruthy();
+    });
+
+    it('asks for the administration\'s pages only when told to, and closes on Escape', async () => {
+        // Arrange
+        answers['/help/screen:users'] = page('users', 'Users', '<p>Every account.</p>');
+        render(HelpPanel, { screen: 'users', level: 'admin' });
+
+        // Act
+        await fireEvent.click(await screen.findByRole('button', { name: 'Help' }));
+        await fireEvent.keyDown(window, { key: 'Escape' });
+
+        // Assert
+        expect(calls[0].query).toEqual({ screen: 'users', action: '', level: 'admin' });
+        expect(screen.queryByRole('dialog')).toBeNull();
+    });
+
+    it('says so when a linked page cannot be opened', async () => {
+        // Arrange
+        answers['/help/screen:posts'] = page('posts', 'Reading a post', '<p><a href="?help=gone">Gone</a></p>');
+        render(HelpPanel, { screen: 'posts' });
+
+        // Act
+        await fireEvent.click(await screen.findByRole('button', { name: 'Help' }));
+        await fireEvent.click(screen.getByText('Gone'));
+
+        // Assert
+        expect(await screen.findByText('That help page could not be opened.')).toBeTruthy();
+    });
+});

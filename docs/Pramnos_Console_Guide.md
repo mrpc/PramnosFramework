@@ -1407,8 +1407,8 @@ background re-read leaves the reader where they were.
 ### The shared components
 
 The shared components are written once per project and **never overwritten**
-afterwards. A generated screen imports the first five; `Omnibox.svelte` is used by
-the application shell:
+afterwards. A generated screen imports the first five; `Omnibox.svelte` and
+`HelpPanel.svelte` are used by the application shell:
 
 | File | What it is |
 |---|---|
@@ -1418,6 +1418,7 @@ the application shell:
 | `components/Field.svelte` | The control-per-type renderer described above |
 | `lib/i18n.svelte.js` | `t()` / `tHtml()`, a client for the framework's own catalogue |
 | `components/Omnibox.svelte` | Cross-entity search over `GET /admin/search` (the entities `app/search.php` registers) |
+| `components/HelpPanel.svelte` | The screen's help page over `GET /help/screen`, shown with the `help` feature ([help in a SPA](Pramnos_Admin_Assistant_Guide.md#help-in-a-spa)) |
 
 With the `llm` feature enabled, the conversation components come with them:
 `components/llm/Chat.svelte`, `components/llm/Scheduled.svelte`,

@@ -540,6 +540,37 @@ class InitSpaScaffoldingTest extends TestCase
         $this->assertArrayHasKey('frontend/components/DataTable.svelte', $shipped);
     }
 
+    /**
+     * With the `help` feature the SPA can show help: the endpoint is routed, the shell says the
+     * feature is on, and the header draws the panel for the screen on show. Without it the shell
+     * says off, and the panel — which is in every Svelte SPA — never asks.
+     */
+    public function testTheHelpFeatureReachesTheSpa(): void
+    {
+        // Act
+        $this->runInit(['--app-style' => 'spa', '--spa-stack' => 'svelte', '--features' => 'auth,help']);
+
+        // Assert
+        $this->assertStringContainsString('\\Pramnos\\Assist\\HelpApi::routes($r);', $this->read('src/Api/routes.php'));
+        $this->assertStringContainsString("'features'  => ['auth' => true, 'help' => true]", $this->read('www/spa.php'));
+        $app = $this->read('frontend/App.svelte');
+        $this->assertStringContainsString("import HelpPanel from './components/HelpPanel.svelte';", $app);
+        $this->assertStringContainsString('<HelpPanel screen={route.name} />', $app);
+        $this->assertStringContainsString("api.get('/help/screen'", $this->read('frontend/components/HelpPanel.svelte'));
+        $this->read('frontend/__tests__/HelpPanel.test.js');
+    }
+
+    /** Without `help`, no route, and the shell says the feature is off. */
+    public function testNoHelpFeatureMeansNoHelpRoute(): void
+    {
+        // Act
+        $this->runInit(['--app-style' => 'spa', '--spa-stack' => 'svelte', '--features' => 'auth']);
+
+        // Assert
+        $this->assertStringNotContainsString('HelpApi', $this->read('src/Api/routes.php'));
+        $this->assertStringContainsString("'help' => false", $this->read('www/spa.php'));
+    }
+
     /** Without the `llm` feature there is no conversation screen and no Markdown package. */
     public function testNoLlmFeatureMeansNoConversationScreens(): void
     {

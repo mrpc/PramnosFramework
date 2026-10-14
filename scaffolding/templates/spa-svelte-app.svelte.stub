@@ -19,8 +19,10 @@
     import { start as startRouter, go, href } from './lib/router.js';
     import { screens } from './screens/registry.js';
     import Omnibox from './components/Omnibox.svelte';
+    import HelpPanel from './components/HelpPanel.svelte';
 
     const hasAuth = Boolean(window.__PRAMNOS__?.features?.auth);
+    const hasHelp = Boolean(window.__PRAMNOS__?.features?.help);
     const appName = window.__PRAMNOS__?.appName ?? '{{ appName }}';
 
     /**
@@ -258,6 +260,11 @@
             </nav>
 
             <div class="ml-auto flex items-center gap-3">
+                {#if hasHelp}
+                    <!-- The site's help page for the screen on show, where it has one;
+                         nothing where it has none. -->
+                    <HelpPanel screen={route.name} />
+                {/if}
                 {#if hasAuth && user && screens.some((s) => s.admin)}
                     <!-- Cross-entity search. Rendered only for a signed-in user who can
                          reach the admin screen: the endpoint is permission-checked, so a

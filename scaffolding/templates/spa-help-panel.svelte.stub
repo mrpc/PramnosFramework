@@ -1,0 +1,93 @@
+<script>
+    import { api } from '../lib/api.js';
+    import { t } from '../lib/i18n.svelte.js';
+
+    /**
+     * The help page for the screen on show — the SPA's side panel.
+     *
+     * The front end of `Pramnos\Assist\HelpApi`: it asks `GET /help/screen` for the screen's
+     * page whenever the screen changes, and shows a Help button only where there is one. The
+     * panel draws the page the server drew; a link to another page (`?help=<slug>`) opens it in
+     * place, and its pictures arrive inline, so nothing here needs a second request per image.
+     *
+     * The site's pages unless `level` is `admin`, which the server grants only to whoever may
+     * open the administration's Help screen.
+     */
+
+    /** @type {{ screen: string, action?: string, level?: string }} */
+    let { screen, action = '', level = '' } = $props();
+
+    let page   = $state(null);
+    let open   = $state(false);
+    let failed = $state(false);
+
+    /** The request's query: the level only when one was asked for. */
+    function query(extra) {
+        return level ? { ...extra, level } : extra;
+    }
+
+    // The screen's page, again whenever the screen changes. A 404 is the normal answer for a
+    // screen without help: no button, and no error.
+    $effect(() => {
+        const asked = screen;
+        page = null;
+        open = false;
+        if (!asked) {
+            return;
+        }
+        api.get('/help/screen', query({ screen: asked, action }))
+            .then((found) => { if (asked === screen) { page = found; } })
+            .catch(() => { if (asked === screen) { page = null; } });
+    });
+
+    /** Another page, by name, in place of the one on show. */
+    async function openPage(slug) {
+        failed = false;
+        try {
+            page = await api.get('/help/page', query({ p: slug }));
+        } catch {
+            failed = true;
+        }
+    }
+
+    /** A click on a link between pages opens the page here, not as an address. */
+    function onClick(event) {
+        const link = event.target.closest?.('a[href^="?help="]');
+        if (!link) {
+            return;
+        }
+        event.preventDefault();
+        openPage(decodeURIComponent(link.getAttribute('href').slice('?help='.length)));
+    }
+
+    function onKeydown(event) {
+        if (event.key === 'Escape') {
+            open = false;
+        }
+    }
+</script>
+
+<svelte:window onkeydown={onKeydown} />
+
+{#if page}
+    <button class="btn btn-ghost btn-sm" type="button" aria-haspopup="dialog" onclick={() => { open = true; }}>
+        {t('Help')}
+    </button>
+{/if}
+
+{#if open && page}
+    <div class="fixed inset-y-0 right-0 z-50 flex w-full max-w-md flex-col bg-base-100 shadow-xl" role="dialog" aria-label={page.title}>
+        <header class="flex items-center gap-2 border-b border-base-300 p-3">
+            <strong class="flex-1 truncate">{page.title}</strong>
+            <button class="btn btn-ghost btn-sm" type="button" aria-label={t('Close')} onclick={() => { open = false; }}>✕</button>
+        </header>
+        <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+        <div class="prose max-w-none flex-1 overflow-auto p-4" onclick={onClick}>
+            {#if failed}
+                <p class="text-error">{t('That help page could not be opened.')}</p>
+            {/if}
+            <!-- Drawn by the server's Markdown renderer, which escapes before it draws. -->
+            {@html page.html}
+        </div>
+    </div>
+{/if}

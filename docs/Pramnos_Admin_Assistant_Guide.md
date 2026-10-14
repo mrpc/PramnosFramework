@@ -7,6 +7,7 @@ use_cases:
   - Finding a help page from a question in Greek or English
   - Turning help pages on or off for an installation
   - Giving a site's visitors help pages of their own, apart from the administration's
+  - Showing help pages in a SPA or a mobile application
 ---
 
 # Administration help and the side panel
@@ -211,6 +212,45 @@ Help::level();                        // 'site' or 'admin'
 
 The static `Help::` methods (`page()`, `forScreen()`, `search()`, `url()` and the rest) are the
 administration's.
+
+## Help in a SPA
+
+A front end that draws its own pages reads the help as JSON. `HelpApi` is mounted with one line
+in the API routes. `init` writes it with the `help` feature:
+
+```php
+// src/Api/routes.php, inside the version group
+\Pramnos\Assist\HelpApi::routes($r);
+```
+
+| Route | Answers |
+|---|---|
+| `GET /help` | every page: `slug`, `title`, `section`, `questions`; with `?q=`, those that answer it |
+| `GET /help/page?p=faq` | one page, with `updated` and `html` |
+| `GET /help/screen?screen=posts&action=edit` | the page for a screen, found as the side panel finds it |
+
+The answers are the site's pages, to anybody. `?level=admin` reads the administration's, and
+only for somebody who may open its Help screen (`admin.help`, above the area's `min_usertype`);
+anybody else gets 403. Without the `help` feature every route answers 404.
+
+A page's `html` is ready to draw:
+
+- **Links to other pages** come as `?help=<slug>`. The front end opens them in place.
+- **Pictures** come inline as `data:` addresses, up to `HelpApi::MAX_IMAGE_BYTES` (1 MB) each,
+  because an `<img>` cannot carry the bearer token the API is called with. A bigger picture
+  shows its alt text.
+
+A Svelte SPA has `components/HelpPanel.svelte`. With the `help` feature, the shell sets
+`features.help` in `window.__PRAMNOS__`, and the header draws the panel for the screen on show:
+
+```svelte
+<HelpPanel screen={route.name} />                 <!-- the site's page for this screen -->
+<HelpPanel screen="users" level="admin" />         <!-- an administration screen's -->
+```
+
+It shows a Help button only where the screen has a page; a 404 there is the normal answer. The
+panel draws the page and opens `?help=` links in place. A screen's page is named after its route,
+`app/help-site/posts.md` for the `posts` screen.
 
 ## Adding it to an existing project
 
