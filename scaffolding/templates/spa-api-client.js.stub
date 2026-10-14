@@ -149,6 +149,14 @@ export async function request(path, { method = 'GET', body = null, query = null,
     if (apiKey) {
         requestHeaders.apiKey = apiKey;
     }
+    // A section inside a server page calls the API with the page's session, and a write with a
+    // session needs the page's CSRF token: the one in <meta name="csrf">, as pfApiHeaders sends.
+    const csrf = typeof document !== 'undefined'
+        ? document.querySelector('meta[name="csrf"]')?.getAttribute('content')
+        : null;
+    if (csrf && !requestHeaders['X-CSRF-Token']) {
+        requestHeaders['X-CSRF-Token'] = csrf;
+    }
     // A stored token is presented on every call EXCEPT the ones whose whole
     // purpose is to obtain one. The API validates the token before routing, so
     // a stale or foreign token (a re-deployed application signs with a new key)

@@ -13,7 +13,7 @@
  * session cookies and no proxy.
  */
 import { defineConfig } from 'vite';
-import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdirSync, writeFileSync, rmSync, readdirSync, existsSync } from 'node:fs';
 import { dirname } from 'node:path';
 {{ pluginImports }}
 const HOT_FILE = '{{ outDir }}/.vite/hot';
@@ -61,6 +61,17 @@ function pramnosHotFile() {
     };
 }
 
+/**
+ * Single-page sections inside server pages: every `{{ sourceDir }}/sections/<name>/main.js` is an
+ * entry of its own, in the same build and the same manifest — what `Controller::spaSection()`
+ * reads to emit a section's tags.
+ */
+const SECTIONS = existsSync('{{ sourceDir }}/sections')
+    ? Object.fromEntries(readdirSync('{{ sourceDir }}/sections', { withFileTypes: true })
+        .filter((entry) => entry.isDirectory() && existsSync(`{{ sourceDir }}/sections/${entry.name}/main.js`))
+        .map((entry) => [`section-${entry.name}`, `{{ sourceDir }}/sections/${entry.name}/main.js`]))
+    : {};
+
 export default defineConfig({
     // Assets are requested from the web root, not from /
     base: '{{ assetBase }}',
@@ -81,7 +92,7 @@ export default defineConfig({
         // The manifest is how the PHP shell learns the hashed filenames.
         manifest: true,
         rollupOptions: {
-            input: '{{ entry }}',
+            input: { main: '{{ entry }}', ...SECTIONS },
         },
     },
     server: {

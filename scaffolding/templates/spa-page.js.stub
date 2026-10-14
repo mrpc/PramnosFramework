@@ -1,0 +1,76 @@
+/**
+ * What a single-page section asks of the page around it — the theme's flash, the page title, and
+ * what the help panel is about.
+ *
+ * The page is the server's, and these are its parts: the flash is the layout's `.pf-flash`, the
+ * title is the document's, and the side panel's Ask and Help are about the record the page shows.
+ * A section that saved a record says so where every server page says so, rather than inventing a
+ * toast of its own that looks like nothing else in the application.
+ */
+
+/**
+ * Say something in the page's flash: `.pf-flash`, the block `Html\Flash` draws above the screen —
+ * created beside the section when the server drew none.
+ *
+ * @param {string} text
+ * @param {'message'|'error'} [kind]
+ * @param {HTMLElement} [near] The section's element, for where to put a new block
+ */
+export function flash(text, kind = 'message', near = null) {
+    let box = document.querySelector('.pf-flash');
+    if (!box) {
+        box = document.createElement('div');
+        box.className = 'pf-flash';
+        const anchor = near || document.querySelector('[data-pf-section]');
+        if (anchor && anchor.parentNode) {
+            anchor.parentNode.insertBefore(box, anchor);
+        } else {
+            document.body.appendChild(box);
+        }
+    }
+
+    const line = document.createElement('p');
+    line.className = kind === 'error' ? 'pf-flash-error' : 'pf-flash-message';
+    line.setAttribute('role', kind === 'error' ? 'alert' : 'status');
+    line.textContent = text;
+    box.appendChild(line);
+
+    return line;
+}
+
+/**
+ * The page's title, and its heading where the theme marks one with `data-pf-page-title`.
+ *
+ * @param {string} text
+ */
+export function title(text) {
+    document.title = text;
+    const heading = document.querySelector('[data-pf-page-title]');
+    if (heading) {
+        heading.textContent = text;
+    }
+}
+
+/**
+ * The record the page shows, for the side panel: its Ask is about it, as on a server page whose
+ * controller declared `$assistSubject`.
+ *
+ * @param {string} kind  `user`, `order`, …
+ * @param {string|number} id
+ * @param {string} [label]
+ */
+export function about(kind, id, label = '') {
+    const panels = [...document.querySelectorAll('[data-page]')];
+    const template = document.querySelector('template[data-pf-assist]');
+    const inTemplate = template && template.content ? [...template.content.querySelectorAll('[data-page]')] : [];
+
+    [...panels, ...inTemplate].forEach((panel) => {
+        let page = {};
+        try {
+            page = JSON.parse(panel.getAttribute('data-page') || '{}');
+        } catch {
+            page = {};
+        }
+        panel.setAttribute('data-page', JSON.stringify({ ...page, kind, id: String(id), label }));
+    });
+}

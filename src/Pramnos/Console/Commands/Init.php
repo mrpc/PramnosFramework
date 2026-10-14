@@ -85,6 +85,8 @@ class Init extends Command
         'components/Omnibox.svelte'       => 'spa-omnibox.svelte',
         'components/HelpPanel.svelte'     => 'spa-help-panel.svelte',
         'lib/i18n.svelte.js'              => 'spa-i18n.js',
+        'lib/section.js'                  => 'spa-section.js',
+        'lib/page.js'                     => 'spa-page.js',
     ];
 
     /**

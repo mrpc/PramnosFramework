@@ -1,0 +1,143 @@
+/**
+ * A single-page section inside a server-rendered page — its mount point and its router.
+ *
+ * The page is the server's: the theme draws the menu, the help panel, the flash and the debug
+ * toolbar, and `Controller::spaSection('users')` puts a mount element in it:
+ *
+ *     <div data-pf-section="users" data-base="/admin/Users" data-config="{…}" data-props="{…}">
+ *
+ * A section's entry (`frontend/sections/users/main.js`) mounts itself there:
+ *
+ *     import { mount } from 'svelte';
+ *     import { section } from '../../lib/section.js';
+ *     import Users from './Users.svelte';
+ *
+ *     const users = section('users');
+ *     mount(Users, { target: users.element, props: { router: users.router, ...users.props } });
+ *
+ * The router works under `data-base`: `/admin/Users/edit/5` is the path `/edit/5`, with segments
+ * `['edit', '5']`. Every address under the base is served the same page by the server, so a deep
+ * link or a reload opens the section on the screen the address names, and back/forward move
+ * between screens. A link outside the base is an ordinary link: the page it leads to is another
+ * server page.
+ *
+ * The section's API calls go through `lib/api.js` with the page's session and CSRF token — the
+ * configuration `section()` puts where the client reads it.
+ */
+
+/**
+ * The section named `name` on this page: its element, its router, and what the server handed it.
+ *
+ * @param {string} name As the controller named it
+ * @returns {{element: HTMLElement, base: string, props: object, router: ReturnType<typeof createRouter>}}
+ */
+export function section(name) {
+    const element = document.querySelector(`[data-pf-section="${name}"]`);
+    if (!element) {
+        throw new Error(`There is no SPA section "${name}" on this page.`);
+    }
+
+    const config = JSON.parse(element.getAttribute('data-config') || '{}');
+    // Where lib/api.js reads its prefix and key: the page's, not a shell's.
+    window.__PRAMNOS__ = { ...(window.__PRAMNOS__ || {}), ...config };
+
+    const base = (element.getAttribute('data-base') || '').replace(/\/+$/, '');
+
+    return {
+        element,
+        base,
+        props: JSON.parse(element.getAttribute('data-props') || '{}'),
+        router: createRouter(base),
+    };
+}
+
+/**
+ * A router under `base`.
+ *
+ * @param {string} base The section's address, without a trailing slash
+ */
+export function createRouter(base) {
+    /** The current route: the path under the base, its segments and its query. */
+    function current() {
+        const url = new URL(window.location.href);
+        let path = url.pathname;
+        if (path.toLowerCase().startsWith(base.toLowerCase())) {
+            path = path.slice(base.length);
+        }
+        path = path.replace(/\/+$/, '') || '/';
+
+        return { path, segments: path.split('/').filter(Boolean), query: url.searchParams };
+    }
+
+    /** An address under the base. Blank query values are left out. */
+    function href(path = '/', query = null) {
+        let url = base + (path.startsWith('/') ? path : '/' + path);
+        url = url.replace(/\/+$/, '') || '/';
+        if (query) {
+            const qs = new URLSearchParams(
+                Object.entries(query).filter(([, v]) => v !== null && v !== undefined && v !== '')
+            ).toString();
+            if (qs) {
+                url += '?' + qs;
+            }
+        }
+
+        return url;
+    }
+
+    const listeners = new Set();
+    const emit = () => listeners.forEach((listener) => listener(current()));
+
+    /** Go to a screen of the section; `replace` for a redirect the back button should skip. */
+    function go(path, query = null, { replace = false } = {}) {
+        const url = href(path, query);
+        if (replace) {
+            window.history.replaceState({}, '', url);
+        } else {
+            window.history.pushState({}, '', url);
+        }
+        emit();
+    }
+
+    /**
+     * Listen, and call back with the current route now and on every change. A same-origin click on
+     * a link under the base is handled here; modified clicks, `target`, `download` and every other
+     * address are left to the browser.
+     *
+     * @returns {() => void} Stop listening
+     */
+    function start(onRoute) {
+        listeners.add(onRoute);
+
+        const onClick = (event) => {
+            if (event.defaultPrevented || event.button > 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+                return;
+            }
+            const link = event.target && event.target.closest ? event.target.closest('a[href]') : null;
+            if (!link || link.getAttribute('target') || link.hasAttribute('download')) {
+                return;
+            }
+            const url = new URL(link.getAttribute('href'), window.location.href);
+            const inside = url.pathname.toLowerCase() === base.toLowerCase()
+                || url.pathname.toLowerCase().startsWith(base.toLowerCase() + '/');
+            if (url.origin !== window.location.origin || !inside) {
+                return;
+            }
+            event.preventDefault();
+            window.history.pushState({}, '', url.pathname + url.search);
+            emit();
+        };
+
+        document.addEventListener('click', onClick);
+        window.addEventListener('popstate', emit);
+        onRoute(current());
+
+        return () => {
+            listeners.delete(onRoute);
+            document.removeEventListener('click', onClick);
+            window.removeEventListener('popstate', emit);
+        };
+    }
+
+    return { base, current, href, go, start };
+}

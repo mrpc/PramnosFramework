@@ -7,6 +7,8 @@ use_cases:
   - Rendering a server-rendered page from a service, without an ActiveRecord model
   - Using a Model from a service, a queue worker or an attribute-routed controller
   - Adapting the scaffolded SPA API client to an app that authenticates differently
+  - Running one part of a server-rendered administration as a small SPA inside the theme
+  - Giving a screen deep links, back/forward and a reload that stays where it was, without a full SPA
 ---
 
 # Pramnos Application Styles Guide
@@ -600,6 +602,128 @@ in the web server by setting `Cache-Control: max-age=31536000, immutable` on the
 versioned assets under `www/assets/spa/`.
 
 ---
+
+## A SPA section inside a server-rendered area
+
+One part of a server-rendered application, all of `/admin/Users` for example, can run as a
+small single-page application **inside the theme's page**. The theme draws the page: the menu,
+the header, the help panel and Ask, the flash, the debug toolbar. The section draws the content.
+
+### Declare it, and return it from a controller
+
+```php
+// app/app.php
+'spa_sections' => [
+    'users' => ['ability' => 'admin.users'],   // entry: frontend/sections/users/main.js
+],
+```
+
+```php
+// src/Admin/Controllers/Users.php
+public function display()
+{
+    return $this->spaSection('users', ['canDelete' => $this->user->usertype >= 99]);
+}
+```
+
+`spaSection()` returns, in place of a view, a mount element and the entry's tags:
+
+```html
+<div data-pf-section="users" data-base="/admin/Users" data-config="{…}" data-props="{…}"></div>
+<script type="module" src="/assets/spa/section-users-3f2a.js"></script>
+```
+
+- **`data-base`** is the controller's own address: inside the area, `/admin/Users`; on the site,
+  `/Users`. A section works under whatever address its controller has.
+- **`data-config`** carries the API's prefix and key, read by `lib/api.js`.
+- **`data-props`** carries the initial data passed to `spaSection()`.
+- **No inline script**, so a nonce-based CSP has nothing to refuse.
+- **`ability`**, when declared, is checked first (`AdminAccess`, the area's floor). A viewer it
+  refuses gets a 403 and nothing.
+- **Never page-cached.** The page is that person's.
+
+The tags come from the same three places as the SPA shell's:
+
+1. the Vite dev server, while its hot file is there (HMR included);
+2. otherwise the build's manifest, hashed;
+3. otherwise, with no build, the entry file under the web root, stamped with its modification
+   time. Declare that one: `'entry' => 'assets/js/sections/users.js'`.
+
+### Deep links, reloads, back and forward
+
+An action a controller does not have falls back to `display()`. So every address under the
+controller (`/admin/Users/edit/5`, `/admin/Users/roles?page=2`) is answered with the same page,
+and the section's router reads the rest of the path. A deep link opens the screen it names, a
+reload stays there, and back/forward move between screens. A link outside the base is an
+ordinary link to another server page; the router does not touch it.
+
+### The section's entry
+
+```js
+// frontend/sections/users/main.js
+import { mount } from 'svelte';
+import { section } from '../../lib/section.js';
+import { flash, title, about } from '../../lib/page.js';
+import Users from './Users.svelte';
+
+const users = section('users');              // the element, base, props, router
+mount(Users, { target: users.element, props: { router: users.router, ...users.props } });
+```
+
+`users.router`:
+
+- `current()` returns `{ path: '/edit/5', segments: ['edit', '5'], query }`.
+- `start(onRoute)` calls back now and on every change, and returns a function that stops it.
+- `go(path, query, { replace })` moves to a screen of the section.
+- `href(path, query)` builds an address under the base.
+
+The vanilla stack uses the same two modules without Svelte.
+
+**Data comes from the API, as the page's.** `lib/api.js` sends the session cookie, the page's
+CSRF token from `<meta name="csrf">`, and the key from `data-config`. `ApiAuthMiddleware` accepts
+that from the same origin. A section has no login and no token of its own, and every endpoint
+checks its own ability.
+
+**The page's parts, from the section** (`lib/page.js`):
+
+| Call | What it does |
+|---|---|
+| `flash(text, 'message'\|'error')` | Adds to the layout's `.pf-flash`, the block `Html\Flash` draws, so a section's "Saved." looks like every server page's. Without one, it draws one beside the section. |
+| `title(text)` | Sets `document.title`, and the theme's heading where it marks one with `data-pf-page-title`. |
+| `about(kind, id, label)` | The record the page shows, for the side panel: Ask is about it, as on a server page whose controller declares `$assistSubject`. |
+
+There is no notifications feed to reach. The framework's unread counts are the navigation badges,
+which the theme draws on every page load.
+
+### One build, many sections
+
+Every `frontend/sections/<name>/main.js` is an entry of the same Vite build. The scaffolded
+`vite.config.js` finds them, and the manifest lists each by its path, which is what `spaSection()`
+reads. A project scaffolded before adds the same to its `rollupOptions.input`:
+
+```js
+input: { main: 'frontend/main.js', 'section-users': 'frontend/sections/users/main.js' },
+```
+
+An application without a Vite setup gets one with `init --app-style=hybrid`. The build-less
+stack's sections are plain modules under the web root.
+
+### Testing a section
+
+- Its router and page calls are plain JavaScript: test them with `test:js` and the
+  `pramnos-testing` helpers (see the [Testing Guide](Pramnos_Testing_Guide.md#testing-the-javascript-of-an-application)).
+- Its components are tested with Vitest, like the SPA's.
+- On the server, a `TestClient` request to a deep link (`/admin/Users/edit/5`) proves the address
+  is answered with the mount element inside the area.
+
+### What the shared components do not do
+
+The SPA's shared components (`DataTable`, `Field`, `ConfirmDialog`, `Pagination`) are written in
+Tailwind and daisyUI classes. They do not follow `scaffold_theme` as the server components do.
+Inside a Bootstrap or plain-css theme they render unstyled, and loading Tailwind's own stylesheet
+there would reset the theme's page around them. So a section on a Bootstrap or plain-css theme
+writes its markup in that system's classes, or in classes of its own, and does not use those
+components.
 
 ## Directory layout (Services + API + SPA)
 

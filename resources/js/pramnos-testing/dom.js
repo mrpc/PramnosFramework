@@ -352,6 +352,11 @@ function createDom({ url = 'https://app.test/', meta = {}, readyState = 'complet
     });
     window.window = window;
     window.self = window;
+    window.dispatchEvent = (event) => {
+        event.target = event.target || window;
+        window._fire(event);
+        return !event.defaultPrevented;
+    };
     document.defaultView = window;
 
     return { window, document };

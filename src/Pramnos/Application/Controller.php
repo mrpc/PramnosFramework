@@ -570,6 +570,30 @@ class Controller extends \Pramnos\Framework\Base
 
 
     /**
+     * A single-page section in place of a view: the theme draws the page around it.
+     *
+     * ```php
+     * public function display() { return $this->spaSection('users'); }
+     * ```
+     *
+     * Its router works under this controller's address — `/admin/Users` inside the area — and
+     * every address below it reaches `display()`, so a deep link opens the section on the screen
+     * it names. See {@see SpaSection}.
+     *
+     * @param string               $name  As declared under `spa_sections` in app/app.php
+     * @param array<string, mixed> $props Initial data the section reads
+     */
+    protected function spaSection(string $name, array $props = []): string
+    {
+        $route = (string) \Pramnos\Http\Request::getInstance()->getController();
+        $base  = \Pramnos\Http\AdminArea::isActive()
+            ? \Pramnos\Http\AdminArea::url($route)
+            : (defined('sURL') ? \sURL : '/') . $route;
+
+        return SpaSection::render($name, (string) parse_url($base, PHP_URL_PATH), $props, $this->application instanceof Application ? $this->application : null);
+    }
+
+    /**
      * Get a model
      * @param string $name Model name
      * @return \Pramnos\Application\Model

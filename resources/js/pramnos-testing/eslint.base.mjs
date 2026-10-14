@@ -59,7 +59,7 @@ const BROWSER = [
 const NODE = [
     'require', 'console', 'process', 'Buffer', '__dirname', '__filename', 'global', 'globalThis',
     'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'setImmediate', 'URL',
-    'URLSearchParams', 'fetch', 'structuredClone',
+    'URLSearchParams', 'fetch', 'structuredClone', 'FormData', 'Blob', 'AbortController',
 ];
 
 const readonly = (names) => Object.fromEntries(names.map((name) => [name, 'readonly']));

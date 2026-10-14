@@ -142,6 +142,9 @@ export default [
                 structuredClone: 'readonly',
                 setImmediate: 'readonly',
                 URLSearchParams: 'readonly',
+                FormData: 'readonly',
+                Blob: 'readonly',
+                AbortController: 'readonly',
             },
         },
         rules: {
