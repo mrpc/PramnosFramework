@@ -653,6 +653,27 @@ are reached through `LogManager` / `Logger` from code (above) or through the web
 /admin/logs/clear          # clear logs
 ```
 
+### Under another address
+
+The screens answer under the controller's own class name. The scaffolded
+`class Logs extends LogController` answers at `/admin/Logs`. An application that
+already has a `Logs` controller of its own mounts the viewer beside it under another name:
+
+```php
+// src/Admin/Controllers/Logfiles.php — every link, redirect and breadcrumb is /admin/Logfiles/…
+class Logfiles extends \Pramnos\Application\Controllers\LogController
+{
+}
+```
+
+Set `protected ?string $logsRoute = 'Logs';` on a subclass that is served at an address
+other than its class name. The views receive the address as `$this->logsRoute`.
+
+Under any address but `Logs`, the bundled `logs` views are searched before the
+application's, because the application's `src/Admin/Views/logs` then belongs to its own
+`Logs` controller. Under `Logs`, a copy written with `project:publish-views` wins, as any
+view does.
+
 ### Log Viewer Features
 
 - **Search and Filter**: Case-insensitive text search, and `key:value` matches on a structured entry's fields

@@ -105,6 +105,24 @@ class SearchBoxTest extends TestCase
     }
 
     /**
+     * A results page shows what was searched for: the term, escaped, in the field. With none,
+     * the field carries no `value` at all.
+     */
+    public function testAResultsPageShowsTheTermInTheBox(): void
+    {
+        // Arrange
+        $box = new SearchBox('/s');
+        $box->value = 'O\'Brien <x>';
+
+        // Act
+        $html = $box->render();
+
+        // Assert
+        $this->assertStringContainsString('value="O&#039;Brien &lt;x&gt;"', $html);
+        $this->assertStringNotContainsString('value=', (new SearchBox('/s'))->render());
+    }
+
+    /**
      * The accessible name is a real label, not an `aria-label`.
      *
      * So it goes through the same translation path as the rest of the page. An

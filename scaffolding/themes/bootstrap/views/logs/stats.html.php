@@ -4,6 +4,7 @@
  *
  * Variables:
  *   $this->toolbar, $this->clearList — toolbar
+ *   $this->logsRoute    — the address the log screens answer under (`Logs`)
  *   $this->stats          — array[] {name, size_formatted, lines, json_percentage,
  *                                    level_distribution[level=>count], modified_formatted, size}
  *   $this->totalSizeHuman — string  formatted total size
@@ -39,7 +40,7 @@ $sURL = adminUrl();
                             <?php foreach ($this->stats as $stat): ?>
                                 <tr>
                                     <td>
-                                        <a href="<?php echo adminUrl('Logs' . '/viewer/' . (htmlspecialchars($stat['name']))); ?>">
+                                        <a href="<?php echo adminUrl(($this->logsRoute ?? 'Logs') . '/viewer/' . (htmlspecialchars($stat['name']))); ?>">
                                             <?php echo htmlspecialchars($stat['name']); ?>
                                         </a>
                                     </td>
@@ -62,12 +63,12 @@ $sURL = adminUrl();
                                     <td><?php echo htmlspecialchars($stat['modified_formatted']); ?></td>
                                     <td>
                                         <div class="d-flex gap-1">
-                                            <a href="<?php echo adminUrl('Logs' . '/viewer/' . (htmlspecialchars($stat['name']))); ?>"
+                                            <a href="<?php echo adminUrl(($this->logsRoute ?? 'Logs') . '/viewer/' . (htmlspecialchars($stat['name']))); ?>"
                                                class="btn btn-sm btn-info" title="View">View</a>
-                                            <form method="post" action="<?php echo adminUrl('Logs' . '/clearFile/' . (htmlspecialchars($stat['name']))); ?>" style="display:inline;margin:0"><?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?><button type="submit"
+                                            <form method="post" action="<?php echo adminUrl(($this->logsRoute ?? 'Logs') . '/clearFile/' . (htmlspecialchars($stat['name']))); ?>" style="display:inline;margin:0"><?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?><button type="submit"
                                                class="btn btn-sm btn-danger" title="Clear"
                                                data-confirm="Are you sure you want to clear this log?">Clear</button></form>
-                                            <a href="<?php echo adminUrl('Logs/raw'); ?>?file=<?php echo htmlspecialchars($stat['name']); ?>"
+                                            <a href="<?php echo adminUrl(($this->logsRoute ?? 'Logs') . '/raw'); ?>?file=<?php echo htmlspecialchars($stat['name']); ?>"
                                                class="btn btn-sm btn-secondary" title="Raw View" target="_blank">Raw</a>
                                         </div>
                                     </td>

@@ -11,6 +11,9 @@ use Pramnos\Logs\LogManager;
 
 class TestableLogController extends LogController
 {
+    /** Answers under `logs`, the address these tests' redirects are asserted against. */
+    protected ?string $logsRoute = 'logs';
+
     public function redirect($url = null, $quit = true, $code = '302')
     {
         echo "REDIRECTED_TO:" . $url;

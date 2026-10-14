@@ -8,6 +8,7 @@
  *
  * Variables:
  *   $this->toolbar, $this->clearList — toolbar
+ *   $this->logsRoute    — the address the log screens answer under (`Logs`)
  *   $this->timespan     — string  active timespan key (1h|6h|24h|7d|30d)
  *   $this->trendLabels  — string[] x-axis labels
  *   $this->trendValues  — int[]    entry counts
@@ -26,7 +27,7 @@ $spans = ['1h' => 'Last Hour', '6h' => '6 Hours', '24h' => '24 Hours', '7d' => '
         <h2 class="text-2xl font-bold text-base-content">Logs Dashboard</h2>
         <div class="inline-flex rounded-md shadow-sm overflow-hidden border border-base-300">
             <?php foreach ($spans as $key => $label): ?>
-                <a href="<?php echo adminUrl('Logs/dashboard'); ?>?timespan=<?php echo $key; ?>"
+                <a href="<?php echo adminUrl(($this->logsRoute ?? 'Logs') . '/dashboard'); ?>?timespan=<?php echo $key; ?>"
                    class="px-3 py-1.5 text-sm <?php echo $this->timespan === $key ? 'bg-primary text-white' : 'bg-base-100 text-base-content hover:bg-base-200'; ?>">
                     <?php echo $label; ?>
                 </a>
@@ -136,7 +137,7 @@ $spans = ['1h' => 'Last Hour', '6h' => '6 Hours', '24h' => '24 Hours', '7d' => '
                                     <span class="badge badge-error badge-sm inline-flex items-center"><?php echo (int) $error['count']; ?></span>
                                 </td>
                                 <td class="px-3 py-2">
-                                    <a class="text-primary hover:underline" href="<?php echo adminUrl('Logs' . '/viewer/' . (htmlspecialchars($error['file']))); ?>">
+                                    <a class="text-primary hover:underline" href="<?php echo adminUrl(($this->logsRoute ?? 'Logs') . '/viewer/' . (htmlspecialchars($error['file']))); ?>">
                                         <?php echo htmlspecialchars($error['file']); ?>
                                     </a>
                                 </td>
@@ -160,7 +161,7 @@ $spans = ['1h' => 'Last Hour', '6h' => '6 Hours', '24h' => '24 Hours', '7d' => '
                             <?php echo strtoupper(substr($file, 0, 1)); ?>
                         </span>
                         <div>
-                            <a class="font-medium text-base-content hover:underline" href="<?php echo adminUrl('Logs' . '/viewer/' . (htmlspecialchars($file))); ?>">
+                            <a class="font-medium text-base-content hover:underline" href="<?php echo adminUrl(($this->logsRoute ?? 'Logs') . '/viewer/' . (htmlspecialchars($file))); ?>">
                                 <?php echo htmlspecialchars($file); ?>
                             </a>
                             <div class="text-xs text-base-content/60">

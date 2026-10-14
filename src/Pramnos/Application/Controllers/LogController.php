@@ -80,6 +80,14 @@ class LogController extends Controller
     protected $logViewer;
 
     /**
+     * The address this controller answers under, in the administration: every link, redirect and
+     * view of the log screens is built from it. Null for the controller's own name — `Logs` for
+     * the scaffolded `class Logs extends LogController`, `Logfiles` for one mounted beside an
+     * application's own `Logs` controller.
+     */
+    protected ?string $logsRoute = null;
+
+    /**
      * Constructor
      * @param \Pramnos\Application\Application|null $application
      */
@@ -184,7 +192,7 @@ class LogController extends Controller
         if ($this->application) {
             $this->application->addBreadcrumb(
                 'Log Files',
-                adminUrl('Logs/viewer')
+                $this->logsUrl('viewer')
             );
 
             $doc = Factory::getDocument();
@@ -204,14 +212,54 @@ class LogController extends Controller
         // `logs` view. The self-contained log-viewer iframe (produced by
         // LogViewer::renderViewer(), already CSP-safe) is passed through as
         // pre-rendered HTML and echoed verbatim by the view.
-        $view = $this->getView('logs');
+        $view = $this->logsView();
         $view->toolbar    = $this->getToolbarLinks();
         $view->clearList  = $this->clearList;
-        $view->viewerHtml = $this->logViewer->renderViewer($file);
+        $view->viewerHtml = $this->logViewer->renderViewer($file, $this->logsUrl());
 
         return $view->display();
     }
     
+    /** The address the log screens answer under: {@see $logsRoute}. */
+    protected function logsRoute(): string
+    {
+        if ($this->logsRoute !== null && $this->logsRoute !== '') {
+            return $this->logsRoute;
+        }
+
+        return static::class === self::class ? 'Logs' : (new \ReflectionClass($this))->getShortName();
+    }
+
+    /** An address of the log screens: `logsUrl('stats')` is `/admin/Logs/stats` under the default route. */
+    protected function logsUrl(string $action = ''): string
+    {
+        return adminUrl($this->logsRoute() . ($action !== '' ? '/' . ltrim($action, '/') : ''));
+    }
+
+    /**
+     * The `logs` view, with the address its links are built from.
+     *
+     * Under its own address — anything but `Logs` — the bundled views come first: an application's
+     * `logs` view then belongs to the application's own `Logs` controller, not to this one. Under
+     * `Logs`, a copy `project:publish-views` wrote wins, as any view does.
+     */
+    protected function logsView(): mixed
+    {
+        if (strcasecmp($this->logsRoute(), 'Logs') !== 0) {
+            $info  = $this->application->applicationInfo ?? [];
+            $theme = \Pramnos\Application\ScaffoldingHelper::getScaffoldTheme(is_array($info) ? $info : []);
+            $dir   = $theme !== null ? \Pramnos\Application\ScaffoldingHelper::getThemeDir($theme) : '';
+            if ($dir !== '' && is_dir($dir) && !in_array($dir, $this->_priorityPaths, true)) {
+                array_unshift($this->_priorityPaths, $dir);
+            }
+        }
+
+        $view = $this->getView('logs');
+        $view->logsRoute = $this->logsRoute();
+
+        return $view;
+    }
+
     /**
      * Return the log-management toolbar links as theme-agnostic data.
      *
@@ -224,8 +272,8 @@ class LogController extends Controller
      */
     protected function getToolbarLinks(): array
     {
-        $base = adminUrl('Logs/');
-        $root = adminUrl('Logs');
+        $base = $this->logsUrl() . '/';
+        $root = $this->logsUrl();
 
         return [
             ['url' => $root,            'label' => 'Dashboard',          'variant' => 'info',      'icon' => 'gauge'],
@@ -255,7 +303,7 @@ class LogController extends Controller
     public function clear()
     {
         LogManager::clearAllLogs($this->clearList);
-        $this->redirect(adminUrl('logs'));
+        $this->redirect($this->logsUrl());
     }
 
     /**
@@ -308,11 +356,11 @@ class LogController extends Controller
         if ($this->application) {
             $this->application->addBreadcrumb(
                 'Log Files',
-                adminUrl('Logs')
+                $this->logsUrl()
             );
             $this->application->addBreadcrumb(
                 'Statistics',
-                adminUrl('Logs/stats')
+                $this->logsUrl('stats')
             );
             
             $doc = Factory::getDocument();
@@ -350,7 +398,7 @@ class LogController extends Controller
             ? round(array_sum(array_column($stats, 'json_percentage')) / $totalFiles, 1)
             : 0;
 
-        $view = $this->getView('logs');
+        $view = $this->logsView();
         $view->toolbar         = $this->getToolbarLinks();
         $view->clearList       = $this->clearList;
         $view->stats           = $stats;
@@ -372,11 +420,11 @@ class LogController extends Controller
         if ($this->application) {
             $this->application->addBreadcrumb(
                 'Log Files',
-                adminUrl('Logs')
+                $this->logsUrl()
             );
             $this->application->addBreadcrumb(
                 'Archive',
-                adminUrl('Logs/archive')
+                $this->logsUrl('archive')
             );
             
             $doc = Factory::getDocument();
@@ -394,7 +442,7 @@ class LogController extends Controller
             $result = LogManager::archiveOldLogs($days);
         }
 
-        $view = $this->getView('logs');
+        $view = $this->logsView();
         $view->toolbar   = $this->getToolbarLinks();
         $view->clearList = $this->clearList;
         $view->days      = $days;
@@ -412,11 +460,11 @@ class LogController extends Controller
         if ($this->application) {
             $this->application->addBreadcrumb(
                 'Log Files',
-                adminUrl('Logs')
+                $this->logsUrl()
             );
             $this->application->addBreadcrumb(
                 'Search',
-                adminUrl('Logs/search')
+                $this->logsUrl('search')
             );
             
             $doc = Factory::getDocument();
@@ -449,7 +497,7 @@ class LogController extends Controller
             $results = LogManager::searchInLogs($searchText, $this->whitelist, $contextLines, $caseSensitive);
         }
 
-        $view = $this->getView('logs');
+        $view = $this->logsView();
         $view->toolbar       = $this->getToolbarLinks();
         $view->clearList     = $this->clearList;
         $view->searchText    = $searchText;
@@ -469,11 +517,11 @@ class LogController extends Controller
         if ($this->application) {
             $this->application->addBreadcrumb(
                 'Log Files',
-                adminUrl('Logs')
+                $this->logsUrl()
             );
             $this->application->addBreadcrumb(
                 'Rotate',
-                adminUrl('Logs/rotate')
+                $this->logsUrl('rotate')
             );
             
             $doc = Factory::getDocument();
@@ -534,7 +582,7 @@ class LogController extends Controller
             }
         }
 
-        $view = $this->getView('logs');
+        $view = $this->logsView();
         $view->toolbar       = $this->getToolbarLinks();
         $view->clearList     = $this->clearList;
         $view->maxSize       = $maxSize;
@@ -562,7 +610,7 @@ class LogController extends Controller
     {
         $file = (string) \Pramnos\Http\Request::staticGetOption();
         if ($file === '' || !in_array($file, $this->whitelist)) {
-            $this->redirect(adminUrl('logs'));
+            $this->redirect($this->logsUrl());
             return;
         }
 
@@ -577,9 +625,9 @@ class LogController extends Controller
         // Redirect back to stats or logs
         $referer = $_SERVER['HTTP_REFERER'] ?? '';
         if (strpos($referer, 'stats') !== false) {
-            $this->redirect(adminUrl('logs/stats'));
+            $this->redirect($this->logsUrl('stats'));
         } else {
-            $this->redirect(adminUrl('logs'));
+            $this->redirect($this->logsUrl());
         }
     }
 
@@ -625,11 +673,11 @@ class LogController extends Controller
         if ($this->application) {
             $this->application->addBreadcrumb(
                 'Log Files',
-                adminUrl('Logs')
+                $this->logsUrl()
             );
             $this->application->addBreadcrumb(
                 'Export',
-                adminUrl('Logs/export')
+                $this->logsUrl('export')
             );
             
             $doc = Factory::getDocument();
@@ -640,7 +688,7 @@ class LogController extends Controller
             $doc->title = 'Export Log Files';
         }
 
-        $view = $this->getView('logs');
+        $view = $this->logsView();
         $view->toolbar   = $this->getToolbarLinks();
         $view->clearList = $this->clearList;
         $view->whitelist = $this->whitelist;
@@ -676,7 +724,7 @@ class LogController extends Controller
         if (!$startTimestamp || !$endTimestamp) {
             Factory::getDocument();
             echo '<div class="alert alert-danger">Invalid date format.</div>';
-            echo '<p><a href="' . (adminUrl('logs/export')) . '" class="btn btn-secondary">Go Back</a></p>';
+            echo '<p><a href="' . ($this->logsUrl('export')) . '" class="btn btn-secondary">Go Back</a></p>';
             return;
         }
         
@@ -999,7 +1047,7 @@ class LogController extends Controller
             if (empty($filenames)) {
                 Factory::getDocument();
                 echo '<div class="alert alert-danger">No log files selected for export.</div>';
-                echo '<p><a href="' . (adminUrl('logs/export')) . '" class="btn btn-secondary">Go Back</a></p>';
+                echo '<p><a href="' . ($this->logsUrl('export')) . '" class="btn btn-secondary">Go Back</a></p>';
                 return;
             }
         }
@@ -1015,7 +1063,7 @@ class LogController extends Controller
         if (empty($validFiles)) {
             Factory::getDocument();
             echo '<div class="alert alert-danger">No valid log files selected for export.</div>';
-            echo '<p><a href="' . (adminUrl('logs/export')) . '" class="btn btn-secondary">Go Back</a></p>';
+            echo '<p><a href="' . ($this->logsUrl('export')) . '" class="btn btn-secondary">Go Back</a></p>';
             return;
         }
         
@@ -1027,7 +1075,7 @@ class LogController extends Controller
         if ($zip->open($zipFile, \ZipArchive::CREATE) !== true) {
             Factory::getDocument();
             echo '<div class="alert alert-danger">Failed to create ZIP archive.</div>';
-            echo '<p><a href="' . (adminUrl('logs/export')) . '" class="btn btn-secondary">Go Back</a></p>';
+            echo '<p><a href="' . ($this->logsUrl('export')) . '" class="btn btn-secondary">Go Back</a></p>';
             return;
         }
         
@@ -1071,11 +1119,11 @@ class LogController extends Controller
         if ($this->application) {
             $this->application->addBreadcrumb(
                 'Log Files',
-                adminUrl('Logs')
+                $this->logsUrl()
             );
             $this->application->addBreadcrumb(
                 'Dashboard',
-                adminUrl('Logs/dashboard')
+                $this->logsUrl('dashboard')
             );
             
             $doc = Factory::getDocument();
@@ -1152,7 +1200,7 @@ class LogController extends Controller
             $doc->enqueueScript('chartjs');
         }
 
-        $view = $this->getView('logs');
+        $view = $this->logsView();
         $view->toolbar      = $this->getToolbarLinks();
         $view->clearList    = $this->clearList;
         $view->timespan     = $timespan;
@@ -1178,11 +1226,11 @@ class LogController extends Controller
         if ($this->application) {
             $this->application->addBreadcrumb(
                 'Log Files',
-                adminUrl('Logs')
+                $this->logsUrl()
             );
             $this->application->addBreadcrumb(
                 'Filter',
-                adminUrl('Logs/filter')
+                $this->logsUrl('filter')
             );
             
             $doc = Factory::getDocument();
@@ -1237,7 +1285,7 @@ class LogController extends Controller
             'debug' => 'Debug'
         ];
 
-        $view = $this->getView('logs');
+        $view = $this->logsView();
         $view->toolbar         = $this->getToolbarLinks();
         $view->clearList       = $this->clearList;
         $view->whitelist       = $this->whitelist;

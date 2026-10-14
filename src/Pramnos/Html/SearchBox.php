@@ -43,6 +43,9 @@ class SearchBox extends \Pramnos\Framework\Base
     /** Visible placeholder. */
     public string $placeholder = 'Search…';
 
+    /** The term already in the box — what a results page searched for. */
+    public string $value = '';
+
     /**
      * Accessible name for the input.
      *
@@ -140,6 +143,7 @@ class SearchBox extends \Pramnos\Framework\Base
         // aria-expanded a screen reader never announces that results appeared.
         $out .= '<input type="search" class="pf-omnibox-input" id="' . $inputId . '"'
             . ' name="q" placeholder="' . $this->attr($this->placeholder) . '"'
+            . ($this->value !== '' ? ' value="' . $this->attr($this->value) . '"' : '')
             . ' autocomplete="off" role="combobox" aria-expanded="false"'
             . ' aria-controls="' . $resultsId . '" aria-autocomplete="list" />';
 

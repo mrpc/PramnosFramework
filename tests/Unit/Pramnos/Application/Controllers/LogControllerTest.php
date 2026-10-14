@@ -59,6 +59,9 @@ class FakeLogsView
  */
 class TestableLogController extends LogController
 {
+    /** Answers under the scaffolded address, as `class Logs extends LogController` does. */
+    protected ?string $logsRoute = 'Logs';
+
     /** @var FakeLogsView|null the last fake view handed out by getView() */
     private ?FakeLogsView $lastView = null;
 
@@ -202,6 +205,26 @@ class BlacklistedLogController extends TestableLogController
 class EmptyWhitelistLogController extends TestableLogController
 {
     protected $whitelist = [];
+}
+
+/**
+ * A log screen mounted beside an application's own `Logs` controller: the route is its class name.
+ */
+class Logfiles extends TestableLogController
+{
+    protected ?string $logsRoute = null;
+
+    /** The protected address builder, for the assertions. */
+    public function url(string $action = ''): string
+    {
+        return $this->logsUrl($action);
+    }
+
+    /** The paths searched before the application's, for the assertions. */
+    public function priorityPaths(): array
+    {
+        return $this->_priorityPaths;
+    }
 }
 
 #[CoversClass(LogController::class)]
@@ -2238,5 +2261,83 @@ class LogControllerTest extends TestCase
         $this->assertStringContainsString('special log', $output);
 
         @unlink($path);
+    }
+
+    // -------------------------------------------------------------------------
+    // The address the screens answer under
+    // -------------------------------------------------------------------------
+
+    /**
+     * A subclass with another name answers under that name, so every link, redirect and the
+     * viewer's own address are its own — not `Logs`, which an application may already own.
+     */
+    public function testASubclassBuildsItsLinksFromItsOwnName(): void
+    {
+        // Arrange
+        $appMock = $this->createMock(Application::class);
+        $appMock->method('getExtraPaths')->willReturn([]);
+        $controller = new Logfiles($appMock);
+
+        // Act
+        $controller->viewer();
+        $view = $controller->lastView();
+        $urls = array_column($view->toolbar, 'url');
+
+        // Assert
+        $this->assertStringEndsWith('Logfiles/stats', $controller->url('stats'));
+        $this->assertNotEmpty(array_filter($urls, fn($u) => str_ends_with($u, 'Logfiles/viewer')));
+        $this->assertEmpty(array_filter($urls, fn($u) => str_contains($u, '/Logs')), 'no link back to Logs');
+        $this->assertSame('Logfiles', $view->logsRoute, 'the views build their links from it too');
+        // The viewer iframe's address is the controller's, not the default `logs`
+        $this->assertStringContainsString('Logfiles', $view->viewerHtml);
+    }
+
+    /**
+     * Under its own address the bundled `logs` views come before the application's: the
+     * application's `logs` view belongs to its own Logs controller. Added once, however many
+     * screens render.
+     */
+    public function testASubclassPrefersTheBundledViews(): void
+    {
+        // Arrange
+        $appMock = $this->createMock(Application::class);
+        $appMock->method('getExtraPaths')->willReturn([]);
+        $appMock->applicationInfo = ['scaffold_theme' => 'bootstrap'];
+        $controller = new Logfiles($appMock);
+
+        // Act
+        $controller->viewer();
+        $controller->stats();
+
+        // Assert
+        $paths = $controller->priorityPaths();
+        $this->assertCount(1, $paths);
+        $this->assertSame(\Pramnos\Application\ScaffoldingHelper::getThemeDir('bootstrap'), $paths[0]);
+    }
+
+    /** Under `Logs`, the application's published copy wins as any view does: nothing is prepended. */
+    public function testTheDefaultRouteKeepsTheApplicationsViewsFirst(): void
+    {
+        // Arrange
+        $this->controller->viewer();
+
+        // Act
+        $paths = (new \ReflectionProperty(\Pramnos\Application\Controller::class, '_priorityPaths'))->getValue($this->controller);
+
+        // Assert
+        $this->assertSame([], $paths);
+    }
+
+    /** The framework's class itself, unsubclassed, answers under `Logs`. */
+    public function testTheBaseClassAnswersUnderLogs(): void
+    {
+        // Arrange
+        $controller = (new \ReflectionClass(LogController::class))->newInstanceWithoutConstructor();
+
+        // Act
+        $url = (new \ReflectionMethod(LogController::class, 'logsUrl'))->invoke($controller, 'search');
+
+        // Assert
+        $this->assertStringEndsWith('Logs/search', $url);
     }
 }

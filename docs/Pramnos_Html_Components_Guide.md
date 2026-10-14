@@ -522,6 +522,7 @@ $box->id                = 'sidebar-search';   // renames the input, label and pa
 $box->minimumCharacters = 3;
 $box->debounce          = 400;
 $box->label             = 'Αναζήτηση';
+$box->value             = $_GET['q'] ?? '';  // a results page shows what was searched for
 ```
 
 The endpoint defaults to `<api_prefix>/admin/search`, read from `app/app.php` rather than

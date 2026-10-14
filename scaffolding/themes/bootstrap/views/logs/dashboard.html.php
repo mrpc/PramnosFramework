@@ -8,6 +8,7 @@
  *
  * Variables:
  *   $this->toolbar, $this->clearList — toolbar
+ *   $this->logsRoute    — the address the log screens answer under (`Logs`)
  *   $this->timespan     — string  active timespan key (1h|6h|24h|7d|30d)
  *   $this->trendLabels  — string[] x-axis labels
  *   $this->trendValues  — int[]    entry counts
@@ -26,7 +27,7 @@ $spans = ['1h' => 'Last Hour', '6h' => '6 Hours', '24h' => '24 Hours', '7d' => '
         <h2 class="mb-0">Logs Dashboard</h2>
         <div class="btn-group" role="group">
             <?php foreach ($spans as $key => $label): ?>
-                <a href="<?php echo adminUrl('Logs/dashboard'); ?>?timespan=<?php echo $key; ?>"
+                <a href="<?php echo adminUrl(($this->logsRoute ?? 'Logs') . '/dashboard'); ?>?timespan=<?php echo $key; ?>"
                    class="btn btn-sm <?php echo $this->timespan === $key ? 'btn-primary' : 'btn-outline-secondary'; ?>">
                     <?php echo $label; ?>
                 </a>
@@ -131,7 +132,7 @@ $spans = ['1h' => 'Last Hour', '6h' => '6 Hours', '24h' => '24 Hours', '7d' => '
                                         <span class="badge rounded-pill bg-danger"><?php echo (int) $error['count']; ?></span>
                                     </td>
                                     <td>
-                                        <a href="<?php echo adminUrl('Logs' . '/viewer/' . (htmlspecialchars($error['file']))); ?>">
+                                        <a href="<?php echo adminUrl(($this->logsRoute ?? 'Logs') . '/viewer/' . (htmlspecialchars($error['file']))); ?>">
                                             <?php echo htmlspecialchars($error['file']); ?>
                                         </a>
                                     </td>
@@ -159,7 +160,7 @@ $spans = ['1h' => 'Last Hour', '6h' => '6 Hours', '24h' => '24 Hours', '7d' => '
                                         <?php echo strtoupper(substr($file, 0, 1)); ?>
                                     </span>
                                     <div>
-                                        <a class="fw-medium" href="<?php echo adminUrl('Logs' . '/viewer/' . (htmlspecialchars($file))); ?>">
+                                        <a class="fw-medium" href="<?php echo adminUrl(($this->logsRoute ?? 'Logs') . '/viewer/' . (htmlspecialchars($file))); ?>">
                                             <?php echo htmlspecialchars($file); ?>
                                         </a>
                                         <div class="small text-muted">
