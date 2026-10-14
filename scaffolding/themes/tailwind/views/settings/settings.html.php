@@ -47,7 +47,10 @@ $btnSec = 'px-4 py-2 border border-base-300 text-base-content text-sm font-mediu
 <div class="px-4 py-6">
     <div class="flex justify-between items-center mb-4">
         <h2 class="text-xl font-semibold">System Settings</h2>
-        <a href="<?php echo adminUrl('settings/list'); ?>" class="<?php echo $btnSec; ?>">Advanced / Raw</a>
+        <div class="flex gap-2">
+            <?php if (\Pramnos\Application\FeatureRegistry::isEnabled('llm')): ?><a href="<?php echo adminUrl('Ai/settings'); ?>" data-settings-ai class="<?php echo $btnSec; ?>">AI: providers &amp; keys</a> <?php endif; ?>
+            <a href="<?php echo adminUrl('settings/list'); ?>" class="<?php echo $btnSec; ?>">Advanced / Raw</a>
+        </div>
     </div>
 
     <?php if (!empty($this->success)): ?>

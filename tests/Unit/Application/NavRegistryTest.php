@@ -819,4 +819,33 @@ class NavRegistryTest extends TestCase
         $this->assertSame([], $before, 'not yet, and one that throws is not shown');
         $this->assertSame(['main.ask'], $after);
     }
+
+    /**
+     * The admin menu's *AI* is Ask, and Ask needs a key: hidden without one (its settings are a
+     * link on Settings), shown once one is set.
+     */
+    public function testTheAdminAiItemWaitsForAKey(): void
+    {
+        // Arrange
+        $features = ['llm'];
+        $this->getMockBuilder(\Pramnos\Application\Application::class)
+            ->disableOriginalConstructor()->onlyMethods([])->getMock()
+            ->registerDefaultNavItems($features);
+        $admin = $this->makeUser(100);
+        $ids   = static fn (): array => array_map(static fn ($i) => $i->id, NavRegistry::getForUser($admin, $features)[NavSection::Admin->value] ?? []);
+
+        try {
+            // Act
+            \Pramnos\Application\Settings::setSetting('llm_openai_api_key', '', false);
+            $without = $ids();
+            \Pramnos\Application\Settings::setSetting('llm_openai_api_key', 'sk-test', false);
+            $with = $ids();
+        } finally {
+            \Pramnos\Application\Settings::setSetting('llm_openai_api_key', '', false);
+        }
+
+        // Assert
+        $this->assertNotContains('admin.ai', $without);
+        $this->assertContains('admin.ai', $with);
+    }
 }

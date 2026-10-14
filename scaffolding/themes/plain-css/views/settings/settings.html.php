@@ -41,7 +41,10 @@ ksort($initialSteps, SORT_NUMERIC);
 <div class="page-section">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
         <h2>System Settings</h2>
-        <a href="<?php echo adminUrl('settings/list'); ?>" class="btn btn-outline-secondary">Advanced / Raw Settings</a>
+        <div style="display:flex;gap:8px">
+            <?php if (\Pramnos\Application\FeatureRegistry::isEnabled('llm')): ?><a href="<?php echo adminUrl('Ai/settings'); ?>" class="btn btn-outline-secondary" data-settings-ai>AI: providers &amp; keys</a> <?php endif; ?>
+            <a href="<?php echo adminUrl('settings/list'); ?>" class="btn btn-outline-secondary">Advanced / Raw Settings</a>
+        </div>
     </div>
 
     <?php if (!empty($this->success)): ?>

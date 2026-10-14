@@ -45,7 +45,10 @@ ksort($initialSteps, SORT_NUMERIC);
 <div class="container-fluid py-4">
     <div class="d-flex justify-content-between align-items-center mb-3">
         <h2 class="mb-0">System Settings</h2>
-        <a href="<?php echo adminUrl('settings/list'); ?>" class="btn btn-outline-secondary btn-sm">Advanced / Raw Settings</a>
+        <div class="d-flex gap-2">
+            <?php if (\Pramnos\Application\FeatureRegistry::isEnabled('llm')): ?><a href="<?php echo adminUrl('Ai/settings'); ?>" class="btn btn-outline-secondary btn-sm" data-settings-ai>AI: providers &amp; keys</a> <?php endif; ?>
+            <a href="<?php echo adminUrl('settings/list'); ?>" class="btn btn-outline-secondary btn-sm">Advanced / Raw Settings</a>
+        </div>
     </div>
 
     <?php if (!empty($this->success)): ?>

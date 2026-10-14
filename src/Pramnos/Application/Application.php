@@ -1698,6 +1698,8 @@ class Application extends Base
                 'admin.ai', 'AI', $admin('Ai'),
                 NavSection::Admin, 31, requireAuth: true, minUserType: $floor,
                 feature: 'llm', icon: 'sparkles', group: 'System',
+                // Ask, once there is a key; until then its settings are a link on Settings.
+                when: static fn (): bool => \Pramnos\Llm\Analyst\Analyst::available(),
             ));
         }
 
