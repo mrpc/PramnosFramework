@@ -78,17 +78,18 @@ class FrameworkScriptsTest extends TestCase
     /** The check is ok with every script published, and degraded — naming them — without. */
     public function testTheHealthCheckNamesWhatIsMissing(): void
     {
-        // Arrange
+        // Arrange — published as resync publishes them: copies of the shipped files
+        $source  = \Pramnos\Application\ScaffoldingHelper::resolveScaffoldingDir() . '/assets/js/';
         $shipped = FrameworkScripts::shipped();
         foreach ($shipped as $name) {
             if ($name !== 'pf-chat.js') {
-                touch($this->root . '/www/assets/js/' . $name);
+                copy($source . $name, $this->root . '/www/assets/js/' . $name);
             }
         }
 
         // Act
         $missing  = (new FrameworkScriptsCheck(FrameworkScripts::webRoot($this->root)))->run();
-        touch($this->root . '/www/assets/js/pf-chat.js');
+        copy($source . 'pf-chat.js', $this->root . '/www/assets/js/pf-chat.js');
         $complete = (new FrameworkScriptsCheck($this->root . '/www'))->run();
 
         // Assert
@@ -98,6 +99,33 @@ class FrameworkScriptsTest extends TestCase
         $this->assertSame('ok', $complete->status->value);
         $this->assertSame('framework_scripts', $complete->name);
         $this->assertSame($this->root . '/nowhere/www', FrameworkScripts::webRoot($this->root . '/nowhere'), 'no front controller: www');
+    }
+
+    /**
+     * A copy older than the framework's — what a `composer update` leaves in the web root — is
+     * named as outdated, with the same fix; a missing one is still named as missing.
+     */
+    public function testTheHealthCheckNamesAnOutdatedCopy(): void
+    {
+        // Arrange — every script current but one, which holds last month's code
+        $source = \Pramnos\Application\ScaffoldingHelper::resolveScaffoldingDir() . '/assets/js/';
+        $shipped = FrameworkScripts::shipped();
+        $this->assertNotEmpty($shipped, 'the sweep found nothing to check');
+        foreach ($shipped as $name) {
+            copy($source . $name, $this->root . '/www/assets/js/' . $name);
+        }
+        file_put_contents($this->root . '/www/assets/js/pf-assist.js', '/* an older pf-assist.js */');
+        unlink($this->root . '/www/assets/js/pf-chat.js');
+
+        // Act
+        $result = (new FrameworkScriptsCheck($this->root . '/www'))->run();
+
+        // Assert
+        $this->assertSame('degraded', $result->status->value);
+        $this->assertSame(['pf-assist.js'], $result->details['outdated']);
+        $this->assertSame(['pf-chat.js'], $result->details['missing']);
+        $this->assertStringContainsString('1 differ from the framework', $result->message);
+        $this->assertStringContainsString('project:resync --js --all', $result->message);
     }
 
     /**

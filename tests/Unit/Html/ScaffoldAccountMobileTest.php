@@ -59,6 +59,10 @@ class ScaffoldAccountMobileTest extends TestCase
 
     private static function read(string $theme, string $relative): string
     {
+        if ($relative === 'style.css') {
+            // As served: with the components.css it imports.
+            return \Pramnos\Tests\Support\ThemeStylesheet::read($theme);
+        }
         $path = dirname(__DIR__, 3) . '/scaffolding/themes/' . $theme . '/' . $relative;
         self::assertFileExists($path);
 

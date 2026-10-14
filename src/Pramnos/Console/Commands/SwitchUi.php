@@ -170,6 +170,7 @@ class SwitchUi extends Command
             $files[] = 'app/themes/default/' . $layout;
         }
         $files[] = $webRoot . '/assets/css/style.css';
+        $files[] = $webRoot . '/assets/css/components.css';
 
         return $files;
     }

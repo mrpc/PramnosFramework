@@ -1269,8 +1269,30 @@ the theme has to load.
 - **A light/dark toggle.** The tailwind `head.php` applies the stored choice before the
   first paint. Reusing that file gives the area the same behaviour.
 
-There is no separate notifications feed for a theme to draw. Unread counts come only from
-navigation badges.
+- **The notification bell.** `Html\NotificationBell::render()` draws the count and the latest
+  notifications; `pf-utils.js` provides the behaviour.
+
+### An area with a Tailwind build of its own
+
+An administration that compiles its own Tailwind and daisyUI, with a layout of its own, takes
+the framework's component styles from `components.css` and leaves `style.css` alone:
+
+```css
+@import "tailwindcss";
+@plugin "daisyui";
+@import "../../vendor/mrpc/pramnosframework/scaffolding/themes/tailwind/components.css";
+```
+
+`components.css` styles only the framework's `pf-*` hooks. These are the search box, the side
+panel, the notification bell, navigation badges, flash messages, the help button, datatable
+actions, breadcrumbs, pagination and stat tiles. `style.css` imports it and adds the page:
+`html, body` as a flex column, the body's background and the home page's typography, which would
+take over the area's own layout. Imported from `vendor/`, the file follows `composer update`
+with no copy to keep in step.
+
+**daisyUI puts its components in the `utilities` layer.** A rule written in `@layer components`
+to change a daisyUI `.btn` therefore loses whatever its specificity, because a later layer wins
+first. Write such an override in `@layer utilities` or outside any layer.
 
 ### A minimal admin theme
 

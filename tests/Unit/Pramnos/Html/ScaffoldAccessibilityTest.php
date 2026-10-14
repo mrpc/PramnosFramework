@@ -43,9 +43,7 @@ class ScaffoldAccessibilityTest extends TestCase
 
     private function style(string $name): string
     {
-        return (string) file_get_contents(
-            dirname(__DIR__, 4) . '/scaffolding/themes/' . $name . '/style.css'
-        );
+        return \Pramnos\Tests\Support\ThemeStylesheet::read($name);
     }
 
     /**

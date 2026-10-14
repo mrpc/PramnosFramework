@@ -100,9 +100,8 @@ class ScaffoldThemeStylesheetTokensTest extends TestCase
     public function testEveryPropertyReadIsOneSomethingDefines(string $theme, array $providedPrefixes): void
     {
         // Arrange
-        $css = (string) file_get_contents(
-            dirname(__DIR__, 3) . '/scaffolding/themes/' . $theme . '/style.css'
-        );
+        // With the components.css it imports, where the theme has one.
+        $css = \Pramnos\Tests\Support\ThemeStylesheet::read($theme);
 
         // The file's own declarations: `--name:` at the start of a declaration.
         preg_match_all('/(--[a-z0-9-]+)\s*:/i', $css, $declared);
@@ -164,7 +163,7 @@ class ScaffoldThemeStylesheetTokensTest extends TestCase
     {
         // Arrange
         $path = dirname(__DIR__, 3) . '/scaffolding/themes/tailwind/style.css';
-        $css  = (string) file_get_contents($path);
+        $css  = \Pramnos\Tests\Support\ThemeStylesheet::read(dirname($path));
 
         // Strip comments, so prose about `html *` is not read as a rule.
         $css = (string) preg_replace('#/\*.*?\*/#s', '', $css);

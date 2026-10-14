@@ -1211,6 +1211,9 @@ class InitCommandUnitTest extends TestCase
         $this->assertStringContainsString('class="pf-logo h-8 w-auto"', $header,
             'the stylesheet targets .pf-logo; without the class nothing swaps');
 
+        // The components' styles beside it, where style.css's @import finds them.
+        $this->assertStringContainsString('.pf-notify', (string) file_get_contents($this->tmpDir . '/www/assets/css/components.css'));
+
         // And the swap itself, in both the ways the theme can end up dark.
         $css = (string) file_get_contents($this->tmpDir . '/www/assets/css/style.css');
         $this->assertStringContainsString(

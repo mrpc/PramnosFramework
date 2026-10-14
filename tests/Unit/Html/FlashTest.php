@@ -122,7 +122,7 @@ class FlashTest extends TestCase
         foreach ($themes as $theme) {
             // Act
             $layout = (string) file_get_contents($theme . '/theme.html.php');
-            $css    = (string) file_get_contents($theme . '/style.css');
+            $css    = \Pramnos\Tests\Support\ThemeStylesheet::read($theme);
 
             // Assert — before [MODULE], so it sits above the screen
             $this->assertMatchesRegularExpression('/Flash::render\(\);.*\[MODULE\]/s', $layout, basename($theme));

@@ -43,6 +43,26 @@ final class FrameworkScripts
     }
 
     /**
+     * The shipped scripts the web root has an older — or otherwise different — copy of.
+     *
+     * The scripts are copied, not linked, so a `composer update` brings the new ones into vendor/
+     * and leaves the web root's as they were: a page then runs last month's behaviour with
+     * nothing on it saying so.
+     *
+     * @return list<string>
+     */
+    public static function outdated(string $webRoot): array
+    {
+        $source = ScaffoldingHelper::resolveScaffoldingDir() . '/assets/js/';
+
+        return array_values(array_filter(self::shipped(), static function (string $name) use ($webRoot, $source): bool {
+            $copy = $webRoot . '/assets/js/' . $name;
+
+            return is_file($copy) && md5_file($copy) !== md5_file($source . $name);
+        }));
+    }
+
+    /**
      * A page asked for `$path` and the web root has no such file: if it is one of the
      * framework's scripts, say once which and how to publish it.
      */

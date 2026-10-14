@@ -372,7 +372,7 @@ class PageAndPanelTest extends LlmTestCase
         $this->assertStringContainsString(' style="', $own);
         // Every scaffolded stylesheet has the rules a themed panel relies on.
         foreach (glob(ROOT . '/scaffolding/themes/*/style.css') ?: [] as $css) {
-            $this->assertStringContainsString('.pf-assist[hidden] { display: none; }', (string) file_get_contents($css), $css);
+            $this->assertStringContainsString('.pf-assist[hidden] { display: none; }', \Pramnos\Tests\Support\ThemeStylesheet::read(dirname($css)), $css);
         }
     }
 }

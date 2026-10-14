@@ -165,7 +165,7 @@ class StatTileTest extends TestCase
     {
         foreach (['bootstrap', 'tailwind', 'plain-css'] as $theme) {
             // Act
-            $css = (string) file_get_contents(dirname(__DIR__, 4) . '/scaffolding/themes/' . $theme . '/style.css');
+            $css = \Pramnos\Tests\Support\ThemeStylesheet::read($theme);
 
             // Assert
             foreach (['.pf-stat-grid', '.pf-stat-tile__value', 'tabular-nums', '.pf-stat-tile--good', '.pf-stat-tile--warning', '.pf-stat-tile--critical'] as $rule) {

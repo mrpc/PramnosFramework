@@ -180,7 +180,12 @@ class InitSearchWiringTest extends TestCase
 
         // Assert
         $this->assertStringContainsString('data-pf-omnibox', $this->read('www/assets/js/pf-utils.js'));
-        $this->assertStringContainsString('.pf-omnibox-results', $this->read('www/assets/css/style.css'));
+        // The styles are in style.css, or in the components.css it imports from beside it
+        $style = $this->read('www/assets/css/style.css');
+        if (str_contains($style, '@import url("components.css")')) {
+            $style .= $this->read('www/assets/css/components.css');
+        }
+        $this->assertStringContainsString('.pf-omnibox-results', $style);
     }
 
     /**

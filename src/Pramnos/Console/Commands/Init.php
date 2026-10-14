@@ -4222,6 +4222,10 @@ PHP;
         if (file_exists($cssFile)) {
             $this->writeFile($this->webRoot . '/assets/css/style.css', file_get_contents($cssFile));
         }
+        // The framework components' styles, which a theme's style.css imports from beside it.
+        if (file_exists($themeDir . '/components.css')) {
+            $this->writeFile($this->webRoot . '/assets/css/components.css', file_get_contents($themeDir . '/components.css'));
+        }
 
         $this->scaffoldPalette($appName);
 
