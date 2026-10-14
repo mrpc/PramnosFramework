@@ -250,6 +250,7 @@ class AnalystSqlTest extends LlmTestCase
 
         // Act
         $made  = (new ExportCsvTool(7))->execute(['sql' => 'SELECT userid, lastname FROM users WHERE userid > 1 ORDER BY userid']);
+        $where = (new ExportCsvTool(7, 'https://example.com/admin/'))->execute(['sql' => 'SELECT 1 AS one']);
         $name  = basename((string) parse_url($made['link'], PHP_URL_PATH));
         $file  = Exports::path($name, 7);
         $theirs = Exports::path($name, 8);
@@ -264,6 +265,7 @@ class AnalystSqlTest extends LlmTestCase
         $this->assertArrayNotHasKey('sample', $made);
         $this->assertMatchesRegularExpression('#^/Ai/export/7-[a-f0-9]{16}$#', $made['link'], 'no .csv, short enough to survive redaction, and from the root with no site root to build on');
         $this->assertSame($made['link'], \Pramnos\Llm\Analyst\Redactor::clean($made['link']));
+        $this->assertMatchesRegularExpression('#^https://example\.com/admin/Ai/export/7-[a-f0-9]{16}$#', $where['link'], 'under the area the asking request saw');
         $this->assertNotNull($file);
         $this->assertNull($theirs, 'another administrator\'s link opens nothing');
         $this->assertSame("\xEF\xBB\xBFuserid,lastname\n7,Γλάρου\n8,Glaros\n9,Glaros\n", (string) file_get_contents((string) $file));

@@ -72,18 +72,13 @@ final class Exports
     }
 
     /**
-     * Where the administrator downloads it: absolute under the site root, or — in the queue
-     * worker of an installation that never set `APP_URL` — from the server's root, which the
-     * conversation page links on its own host. That is right for a site at the root of its
-     * host; one in a subdirectory sets `APP_URL`, as the `site_url` health check says.
+     * Where the administrator downloads it — under `$area`, the area's URL as the request that
+     * asked saw it, so the link is absolute and in the area wherever the job runs. See
+     * {@see \Pramnos\Http\AdminArea::address()} for what it falls back on.
      */
-    public static function url(string $name): string
+    public static function url(string $name, string $area = ''): string
     {
-        $app    = \Pramnos\Application\Application::currentInstance();
-        $prefix = trim((string) (is_object($app) ? ($app->applicationInfo['admin']['prefix'] ?? '') : ''), '/');
-        $path   = ($prefix !== '' ? $prefix . '/' : '') . 'Ai/export/' . $name;
-
-        return \Pramnos\Http\SiteUrl::get() !== '' ? \Pramnos\Http\SiteUrl::to($path) : '/' . $path;
+        return \Pramnos\Http\AdminArea::address('Ai/export/' . $name, $area);
     }
 
     /** Remove the files past their days. */

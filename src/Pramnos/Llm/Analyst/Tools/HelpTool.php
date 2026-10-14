@@ -13,6 +13,11 @@ use Pramnos\Mcp\McpToolInterface;
  */
 final class HelpTool implements McpToolInterface
 {
+    /** @param string $area The area's URL as the asking request saw it: where the links go */
+    public function __construct(private readonly string $area = '')
+    {
+    }
+
     public function name(): string
     {
         return 'help';
@@ -40,7 +45,7 @@ final class HelpTool implements McpToolInterface
         if ($name !== '') {
             $page = Help::page($name);
 
-            return $page === null ? 'There is no help page called ' . $name . '.' : self::shown($page, true);
+            return $page === null ? 'There is no help page called ' . $name . '.' : $this->shown($page, true);
         }
 
         $found = Help::search((string) ($input['question'] ?? ''), 3);
@@ -50,13 +55,13 @@ final class HelpTool implements McpToolInterface
         }
 
         // The best page in full; the others by name, to read if it does not answer.
-        return ['pages' => array_map(static fn (array $page, int $at): array => self::shown($page, $at === 0), $found, array_keys($found))];
+        return ['pages' => array_map(fn (array $page, int $at): array => $this->shown($page, $at === 0), $found, array_keys($found))];
     }
 
     /** @param array<string, mixed> $page @return array<string, mixed> */
-    private static function shown(array $page, bool $whole): array
+    private function shown(array $page, bool $whole): array
     {
-        return ['page' => $page['slug'], 'title' => $page['title'], 'link' => Help::url((string) $page['slug'])]
+        return ['page' => $page['slug'], 'title' => $page['title'], 'link' => Help::url((string) $page['slug'], $this->area)]
             + ($whole ? ['text' => Help::excerpt((string) $page['body'])] : ['questions' => $page['questions']]);
     }
 }

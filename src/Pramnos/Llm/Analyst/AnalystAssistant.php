@@ -58,7 +58,9 @@ class AnalystAssistant extends BaseAssistant
 
     public function tools(Turn $turn): array
     {
-        return Analyst::tools((int) $turn->scope->userId);
+        // Links to files and help under the area as the question's request saw it: the worker
+        // answering it knows neither its host nor, often, its prefix.
+        return Analyst::tools((int) $turn->scope->userId, is_string($turn->extra['area'] ?? null) ? $turn->extra['area'] : '');
     }
 
     /**

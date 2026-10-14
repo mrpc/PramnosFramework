@@ -659,10 +659,11 @@ spreadsheet reads non-Latin text. It is kept seven days outside the web root, in
 `var/analyst-exports/`, and downloads from `/admin/Ai/export/<name>` only for the administrator
 it was made for.
 
-The link is built in the queue worker, which has no request to take a host from. With `APP_URL`
-set it is absolute. Without it, it is from the host's root (`/admin/Ai/export/…`), which the
-conversation page opens on its own host. That is right for a site at the root of its host; a site
-in a subdirectory sets `APP_URL`, and the `site_url` health check says so while exports are on.
+The link is built in the queue worker, which has no request to take a host from and often runs the
+site's application, not the area's. So the question carries the area's URL as its request saw it
+(`Desk::extra()`), and the link is built under it: absolute, and in the area, with nothing to
+configure. Without one — a question not asked through a page — it falls back on the configured
+prefix under `APP_URL`, or from the host's root (`AdminArea::address()`).
 
 A statement is guarded four times, by `Analyst\ReadOnlySql`:
 

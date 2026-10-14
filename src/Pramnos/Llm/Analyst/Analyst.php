@@ -118,7 +118,7 @@ final class Analyst
      *
      * @return list<McpToolInterface>
      */
-    public static function mcpTools(int $adminId = 0): array
+    public static function mcpTools(int $adminId = 0, string $area = ''): array
     {
         $tools = [
             new \Pramnos\Llm\Analyst\Tools\UsersTool(),
@@ -130,7 +130,7 @@ final class Analyst
             new \Pramnos\Llm\Analyst\Tools\PushTool(),
             new \Pramnos\Llm\Analyst\Tools\QueueTool(),
             new \Pramnos\Llm\Analyst\Tools\LlmSpendTool(),
-            new \Pramnos\Llm\Analyst\Tools\HelpTool(),
+            new \Pramnos\Llm\Analyst\Tools\HelpTool($area),
             new \Pramnos\Mcp\Tools\LogAnalyticsTool(),
             new \Pramnos\Mcp\Tools\LogErrorsTool(),
             new \Pramnos\Mcp\Tools\StatusTool(\Pramnos\Application\Application::getInstance()),
@@ -146,7 +146,7 @@ final class Analyst
             $tools[] = new \Pramnos\Llm\Analyst\Tools\SqlTool();
         }
         if ($export) {
-            $tools[] = new \Pramnos\Llm\Analyst\Tools\ExportCsvTool($adminId);
+            $tools[] = new \Pramnos\Llm\Analyst\Tools\ExportCsvTool($adminId, $area);
         }
 
         foreach ((array) Llm::config('admin_tools', []) as $tool) {
@@ -167,9 +167,9 @@ final class Analyst
      *
      * @return array<string, array<string, mixed>>
      */
-    public static function tools(int $adminId = 0): array
+    public static function tools(int $adminId = 0, string $area = ''): array
     {
-        $tools = Tools::fromMcp(self::mcpTools($adminId));
+        $tools = Tools::fromMcp(self::mcpTools($adminId, $area));
 
         foreach ($tools as $name => $tool) {
             if ($name !== 'user') {

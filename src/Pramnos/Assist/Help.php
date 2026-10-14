@@ -159,11 +159,11 @@ final class Help
 
     /**
      * The help page's address — the list, or one page — in the administration area, from a web
-     * request or a worker alike.
+     * request or a worker alike: `$base` is the area's URL as the asking request saw it.
      */
-    public static function url(string $slug = ''): string
+    public static function url(string $slug = '', string $base = ''): string
     {
-        return self::area('Help' . ($slug !== '' ? '/page?p=' . rawurlencode($slug) : ''));
+        return self::area('Help' . ($slug !== '' ? '/page?p=' . rawurlencode($slug) : ''), $base);
     }
 
     /**
@@ -196,16 +196,10 @@ final class Help
         return self::html((string) $page['body'], static fn (string $slug): string => self::url($slug), static fn (string $path): string => self::imageUrl($path), (string) $page['slug']);
     }
 
-    private static function area(string $path): string
+    /** An address in the area: see {@see \Pramnos\Http\AdminArea::address()}. */
+    private static function area(string $path, string $base = ''): string
     {
-        $app    = \Pramnos\Application\Application::currentInstance();
-        $prefix = trim((string) (is_object($app) ? ($app->applicationInfo['admin']['prefix'] ?? '') : ''), '/');
-
-        $path   = ($prefix !== '' ? $prefix . '/' : '') . $path;
-
-        // From the host's root where no site root is known — the queue worker answering the
-        // analyst: see Exports::url().
-        return \Pramnos\Http\SiteUrl::get() !== '' ? \Pramnos\Http\SiteUrl::to($path) : '/' . $path;
+        return \Pramnos\Http\AdminArea::address($path, $base);
     }
 
     /** The file of a picture a page shows, if it is one and lies inside a help directory. */

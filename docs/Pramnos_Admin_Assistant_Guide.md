@@ -163,9 +163,9 @@ class Help extends \Pramnos\Application\Controllers\HelpController
 The Help screen opens for anybody inside the administration area — the area's floor, not a
 screen's. Under `admin_access = permissions` it is granted like any screen, by `admin.help`.
 
-The analyst's links to help pages and to its exports are built in the queue worker. With
-`APP_URL` set they are absolute. Without it they are from the host's root, which is right for a
-site at the root of its host only.
+The analyst's links to help pages and to its exports are built in the queue worker, under the
+area's URL that the question's request handed it — absolute and in the area, whatever
+application the worker runs.
 
 ## See also
 

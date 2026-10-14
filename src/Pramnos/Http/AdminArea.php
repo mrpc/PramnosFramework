@@ -154,6 +154,35 @@ final class AdminArea
     }
 
     /**
+     * An address in the area that holds where no request is inside it — a queue job's link.
+     *
+     * `$base` first: the area's URL as the request that started the job saw it (`url()`), handed
+     * to the job. A worker runs whichever application started it — often the site's, with no
+     * area configured — and has no host of its own, so neither its prefix nor its `sURL` says
+     * where the area is. Then the area's URL, in a request inside it. Last, the configured
+     * prefix under the site root, or from the host's root without one.
+     */
+    public static function address(string $path, string $base = ''): string
+    {
+        $path = ltrim($path, '/');
+
+        // Only an address: anything else handed in is ignored rather than linked to.
+        if (preg_match('#^(https?://[^\s"<>]+|/(?![/\\\\])[^\s"<>]*)$#i', $base) === 1) {
+            return rtrim($base, '/') . '/' . $path;
+        }
+
+        if (self::$active) {
+            return self::url($path);
+        }
+
+        $app    = \Pramnos\Application\Application::currentInstance();
+        $prefix = trim((string) (is_object($app) ? ($app->applicationInfo['admin']['prefix'] ?? '') : ''), '/');
+        $path   = ($prefix !== '' ? $prefix . '/' : '') . $path;
+
+        return \Pramnos\Http\SiteUrl::get() !== '' ? \Pramnos\Http\SiteUrl::to($path) : '/' . $path;
+    }
+
+    /**
      * The base URL of the application serving this request, without a trailing slash.
      *
      * Where a developer page — the DevPanel, Adminer, the debug-toolbar grant — builds its own

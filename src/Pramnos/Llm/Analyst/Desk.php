@@ -33,14 +33,15 @@ class Desk
     }
 
     /**
-     * The page a question was asked from, when the side panel sent one — what the analyst is
-     * told "this" means. Checked and trimmed by {@see \Pramnos\Assist\Page::fromInput()}.
+     * What the answer needs from this request: the area's URL, which the worker cannot know, for
+     * the links it makes; and the page the question was asked from, when the side panel sent one —
+     * what "this" means, checked and trimmed by {@see \Pramnos\Assist\Page::fromInput()}.
      */
     protected function extra(array $input): array
     {
         $page = \Pramnos\Assist\Page::fromInput($input['page'] ?? null);
 
-        return $page === null ? [] : ['page' => $page];
+        return ['area' => \Pramnos\Http\AdminArea::url()] + ($page === null ? [] : ['page' => $page]);
     }
 
     /**

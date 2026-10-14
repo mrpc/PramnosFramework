@@ -25,7 +25,8 @@ final class ExportCsvTool implements McpToolInterface
     /** Rows shown in the answer itself, unless the application says otherwise. */
     public const INLINE = 100;
 
-    public function __construct(private readonly int $adminId)
+    /** @param string $area The area's URL as the asking request saw it: where the link goes */
+    public function __construct(private readonly int $adminId, private readonly string $area = '')
     {
     }
 
@@ -95,7 +96,7 @@ final class ExportCsvTool implements McpToolInterface
         fclose($handle);
 
         $answer = [
-            'link'      => Exports::url($name),
+            'link'      => Exports::url($name, $this->area),
             'rows'      => $count,
             'truncated' => $count >= self::MAX_ROWS,
             'expires'   => gmdate('Y-m-d', time() + Exports::DAYS * 86400),

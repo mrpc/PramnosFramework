@@ -170,7 +170,51 @@ class PageAndPanelTest extends LlmTestCase
 
         // Assert
         $this->assertSame('posts', $with['page']['screen']);
-        $this->assertSame([], $without);
+        $this->assertSame(['area'], array_keys($without), 'only the area\'s URL, for the links the worker makes');
+        $this->assertSame(\Pramnos\Http\AdminArea::url(), $without['area']);
+    }
+
+    /**
+     * A link made in a queue job goes under the area's URL the asking request handed it — the
+     * worker knows neither its host nor, running the site's application, the area's prefix —
+     * and anything handed in that is not an address is not linked to.
+     */
+    public function testAnAddressInTheAreaFromAWorker(): void
+    {
+        // Arrange
+        \Pramnos\Http\AdminArea::reset();
+        \Pramnos\Http\SiteUrl::reset();
+        $app = \Pramnos\Application\Application::getInstance();
+        $was = $app->applicationInfo['admin'] ?? null;
+
+        try {
+            // Act
+            $handed   = \Pramnos\Http\AdminArea::address('Ai/export/7-x', 'https://example.com/admin/');
+            $relative = \Pramnos\Http\AdminArea::address('/Help', '/admin');
+            $bogus    = \Pramnos\Http\AdminArea::address('Help', 'javascript:alert(1)//');
+            $app->applicationInfo['admin'] = ['prefix' => '/manage/'];
+            $prefixed = \Pramnos\Http\AdminArea::address('Help');
+            \Pramnos\Http\AdminArea::detect('manage');
+            $inside   = \Pramnos\Http\AdminArea::address('Help');
+        } finally {
+            $app->applicationInfo['admin'] = $was;
+            \Pramnos\Http\AdminArea::reset();
+        }
+
+        // Assert
+        $this->assertSame('https://example.com/admin/Ai/export/7-x', $handed);
+        $this->assertSame('/admin/Help', $relative);
+        $this->assertStringNotContainsString('javascript', $bogus);
+        $this->assertStringEndsWith('manage/Help', $prefixed, 'no base: the configured prefix');
+        $this->assertStringEndsWith('/manage/Help', $inside, 'inside the area: its own URL');
+        $this->assertSame('https://example.com/admin/Help/page?p=users', Help::url('users', 'https://example.com/admin/'));
+        $this->assertStringStartsWith('https://example.com/admin/Help', (string) ((new \Pramnos\Llm\Analyst\Tools\HelpTool('https://example.com/admin'))->execute(['page' => 'posts'])['link']));
+
+        // And the analyst hands the tools the area its question came with
+        $assistant = new AnalystAssistant();
+        $turn      = new Turn(new Scope(7), null, false, [], [], ['area' => 'https://example.com/admin/'], new Conversations($assistant));
+        $link      = ($assistant->tools($turn)['help']['run'])(['page' => 'posts']);
+        $this->assertStringContainsString('https://example.com/admin/Help/page?p=posts', $link);
     }
 
     /**
