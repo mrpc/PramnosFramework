@@ -12,6 +12,8 @@ use_cases:
   - Styling a screen so it stays readable in the dark theme
   - Building the admin sidebar or header menu from registered screens
   - Adding an application's own page to the site or admin navigation
+  - Giving the administration area its own layout with 'admin' => ['theme' => …]
+  - Diagnosing admin screens that render unstyled, without navigation, or without "Saved." messages
 ---
 
 # Pramnos Framework - Theme System Guide
@@ -46,12 +48,13 @@ and an export filename stay ISO, and `date()` is right there.
 5. [Widget System](#widget-system)
 6. [Menu System](#menu-system)
 7. [Navigation](#navigation)
-8. [Theme Settings](#theme-settings)
-9. [Content Types](#content-types)
-10. [One palette, every UI system](#one-palette-every-ui-system)
-11. [Asset Management](#asset-management)
-12. [Theme Development](#theme-development)
-13. [Best Practices](#best-practices)
+8. [An administration area theme](#an-administration-area-theme)
+9. [Theme Settings](#theme-settings)
+10. [Content Types](#content-types)
+11. [One palette, every UI system](#one-palette-every-ui-system)
+12. [Asset Management](#asset-management)
+13. [Theme Development](#theme-development)
+14. [Best Practices](#best-practices)
 
 ## Architecture Overview
 
@@ -1179,6 +1182,199 @@ nested submenu. Read the menu once per page and pass `$_nav` to every partial th
   flat (Bootstrap, plain CSS) or with parent/child folding only (Tailwind); `group`, `icon` and
   — outside the Tailwind theme header — `badge` are left for the theme to draw.
 - **Labels are not translated** by the registry; pass a translated string at registration.
+
+## An administration area theme
+
+An application can give its administration area a theme of its own:
+
+```php
+// app/app.php
+'admin' => [
+    'prefix' => 'admin',
+    'theme'  => 'admin',   // app/themes/admin/
+],
+```
+
+When a request is inside the area, the area's `theme` replaces the application's `theme` for that
+request, and the theme is loaded the same way as any other: `app/themes/<name>/`, with
+`theme.html.php` as the layout. Without the key the area uses the site's theme, which is what
+`pramnos init` sets up — it writes the `admin` block without a `theme`, and only
+`app/themes/default/`.
+
+The theme is put back at the start of every request, so a worker or a `TestClient` that serves
+`/admin/Users` and then `/` does not draw the public page in the admin theme.
+
+### What the theme provides, and what it does not
+
+**The screens are not the theme's.** Every bundled admin screen — Users, Roles, Organizations,
+Tokens, Settings and the rest — is a view. It is found in `src/Admin/Views/`, then
+`src/Views/`, then in the bundled scaffolding for the project's `scaffold_theme`. The partials
+those views insert are found beside the view that inserts them:
+
+| Partial | Inserted by | What it reads from the view |
+| --- | --- | --- |
+| `partials/admin_breadcrumb` | almost every admin screen | `$this->activeNav` (the page key), and per page `$this->user`, `$this->role`, `$this->org`, `$this->group`, `$this->template`, `$this->token`, `$this->action` |
+| `partials/admin_screens` | a user's page and a role's page | `$this->adminScreens`, from `AdminScreenGrants::adminScreensFor()` |
+| `partials/user_roles` | a user's page | `$this->heldRoles`, from `Role::heldBy()` |
+| `partials/email_preferences` | a user's page | `$this->emailPreferences`, from `UsersController::emailPreferencesFor()` |
+
+So an admin theme writes no views and no partials. To change a screen, publish it with
+`pramnos project:publish-views` and edit the copy under `src/Admin/Views/`.
+
+**The theme provides the page around them** — and the screens are written in a CSS vocabulary
+the theme has to load.
+
+### Checklist
+
+| The theme must… | Because, without it… |
+| --- | --- |
+| Live at `app/themes/<name>/` with a `theme.html.php` | Nothing reports a missing theme. The page renders as the bare screen with no stylesheet, no navigation and no scripts. |
+| Put `[MODULE]` in `theme.html.php`, inside `<body>` | The document splits the layout at `[MODULE]`; the screen's HTML goes there. |
+| Write `<head>…</head>` and `<body>…</body>` in `theme.html.php` | The document moves what is between the `<head>` tags into its real `<head>`. Without them, stylesheet links land in the body and a manifest link is ignored. See [`head.php`](#headphp-and-why-head-has-to-be-in-the-layout). |
+| Load the stylesheet of the project's `scaffold_theme` — Bootstrap, or Tailwind with daisyUI, or the plain-css `style.css` | The bundled admin views are written in that system's classes (`card`, `alert alert-danger`, `btn btn-primary`). With another CSS framework, or none, every screen renders unstyled. |
+| Link `assets/css/theme-tokens.css` before `assets/css/style.css` | The project's palette reaches the screens only through the tokens. `style.css` also styles the search box, the breadcrumb trail and the screens' small layouts. |
+| Call `$this->document->renderCss()` in the head and `$this->document->renderJs()` at the end of the body | Screens enqueue what they need. A datatable, for example, enqueues DataTables, and without these calls the list is an empty table. |
+| Load `assets/js/pf-utils.js` | It handles `data-confirm`, `data-href`, the search box and the other `data-*` behaviours the screens use. The framework's CSP refuses inline handlers, so nothing else can do this work. |
+| Draw the `NavSection::Admin` items from `NavRegistry::getForUser()` | The bundled screens and the application's own register themselves there. Without the menu, a screen can still be opened but there is no link to it. |
+| Show flashed messages and errors | Many admin actions call `addMessage('Saved.')` or `addError(…)` and then redirect. The screen they land on does not print the flash, so the theme's header is the only place it can appear. |
+
+### Optional, and what each adds
+
+- **The cross-entity search box.** Draw it only when the application registered searches:
+  `Search\Registry::loadDefinitions()` reads `app/search.php` and returns false when nothing is
+  registered. `new Html\SearchBox()` defaults to `/<api_prefix>/admin/search`. It renders
+  markup only; `pf-utils.js` provides the behaviour and `style.css` the styling.
+- **The side panel button.** `Llm\Analyst\Analyst::headerButton($before, $after)` returns
+  "Ask" when the person may use the analyst, "Help" when the page has help, and an empty
+  string when there is neither. It includes its own `<template>` and the
+  `assets/js/pf-assist.js` tag, so all the theme does is echo it. `$before` and `$after`
+  wrap it, for example in an `<li>`.
+- **Unread badges.** `NavItem::badgeCount($userId)` and `badgeLabel($userId)` give the
+  count for an item that registered a badge (the inbox does), and 0 for every other item.
+- **`login.php`.** Used only when the area's own front controller shows a sign-in page.
+  A guest inside a prefixed area is redirected to the site's sign-in, which uses the
+  site's theme.
+- **A theme class**, `app/themes/<name>/<name>.php` defining `<name>_theme` (for example
+  `admin_theme`). Needed only for settings, widget areas, menu locations or
+  `$allowViewOverrides`.
+- **A light/dark toggle.** The tailwind `head.php` applies the stored choice before the
+  first paint. Reusing that file gives the area the same behaviour.
+
+There is no separate notifications feed for a theme to draw. Unread counts come only from
+navigation badges.
+
+### A minimal admin theme
+
+The shortest correct theme reuses the site's `head.php` and `footer.php`, which `init`
+generated for the project's UI system and its palette. It writes only its own header and
+layout:
+
+```
+app/themes/admin/
+├── theme.html.php
+├── head.php       # includes ../default/head.php
+├── header.php     # navigation, search, side panel, flash
+└── footer.php     # includes ../default/footer.php
+```
+
+```php
+<?php // app/themes/admin/head.php — $this is the theme object, so the include works as-is
+include __DIR__ . '/../default/head.php';
+```
+
+```php
+<?php // app/themes/admin/footer.php — renderJs(), pf-utils.js and the cookie consent tag
+include __DIR__ . '/../default/footer.php';
+```
+
+```php
+<?php // app/themes/admin/theme.html.php ?>
+<head>
+<?php $this->getElement('head'); ?>
+</head>
+<body>
+<a class="pf-skip-link" href="#main-content">Skip to content</a>
+<?php $this->get_header(); ?>
+<main id="main-content">
+    [MODULE]
+</main>
+<?php $this->get_footer(); ?>
+</body>
+```
+
+```php
+<?php
+// app/themes/admin/header.php
+$_e     = static fn (string $v): string => htmlspecialchars($v, ENT_QUOTES, 'UTF-8');
+$_user  = \Pramnos\User\User::getCurrentUser() ?: null;
+$_app   = \Pramnos\Application\Application::currentInstance();
+$_nav   = \Pramnos\Application\NavRegistry::getForUser($_user, $_app?->applicationInfo['features'] ?? []);
+$_admin = $_nav[\Pramnos\Application\NavSection::Admin->value] ?? [];
+
+// Items may name a parent; nest them rather than listing thirty screens flat.
+$_top = [];
+$_sub = [];
+foreach ($_admin as $_item) {
+    if ($_item->parent === null) {
+        $_top[] = $_item;
+    } else {
+        $_sub[$_item->parent][] = $_item;
+    }
+}
+
+// Read, not consumed: a view that prints the flash itself still sees it.
+$_request = \Pramnos\Http\Request::getInstance();
+?>
+<header class="admin-header">
+    <a href="<?php echo $_e(adminUrl()); ?>"><?php echo $_e((string) ($_app?->applicationInfo['name'] ?? '')); ?></a>
+
+    <?php if ($_admin !== [] && \Pramnos\Search\Registry::loadDefinitions()): ?>
+        <div class="pf-omnibox-item"><?php echo (new \Pramnos\Html\SearchBox())->render(); ?></div>
+    <?php endif; ?>
+
+    <?php echo \Pramnos\Llm\Analyst\Analyst::headerButton(); ?>
+</header>
+
+<nav class="admin-nav" aria-label="Administration">
+    <ul>
+        <?php foreach ($_top as $_item): ?>
+        <li>
+            <a href="<?php echo $_e($_item->url); ?>"><?php echo $_e($_item->label); ?></a>
+            <?php if (!empty($_sub[$_item->id])): ?>
+            <ul>
+                <?php foreach ($_sub[$_item->id] as $_child): ?>
+                <li><a href="<?php echo $_e($_child->url); ?>"><?php echo $_e($_child->label); ?></a></li>
+                <?php endforeach; ?>
+            </ul>
+            <?php endif; ?>
+        </li>
+        <?php endforeach; ?>
+    </ul>
+</nav>
+
+<?php foreach ($_request->messages() as $_message): ?>
+    <div role="status" class="alert alert-success"><?php echo $_e($_message); ?></div>
+<?php endforeach; ?>
+<?php foreach ($_request->flashErrors() as $_error): ?>
+    <div role="alert" class="alert alert-danger"><?php echo $_e($_error); ?></div>
+<?php endforeach; ?>
+```
+
+The `alert` classes above are Bootstrap's. Under tailwind use `alert alert-success` /
+`alert alert-error` (daisyUI); under plain-css, the `alert` classes in its `style.css`.
+
+!!! warning "Messages are plain text here"
+    `Base::_printMessages()` and `_printErrors()` are also available, because `$this` in a
+    theme file is the theme and the theme extends `Base`. They **consume** the flash and
+    print it without escaping. Use them only when the flashed text is known to be safe
+    HTML.
+
+!!! tip "Follow the palette rather than restating it"
+    An admin theme that styles its own chrome should read the same tokens as everything else:
+    `--color-*` directly under tailwind, `--bs-*` under bootstrap, or the plain-css names.
+    `theme-tokens.css` defines all of them from `app/themes/theme.css`. A colour written as a
+    literal stays that colour through every palette change and in dark mode. See
+    [One palette, every UI system](#one-palette-every-ui-system).
 
 ## Theme Settings
 
