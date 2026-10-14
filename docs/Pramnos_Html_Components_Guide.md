@@ -171,6 +171,10 @@ component that did not change when everything else did.
 
 ### What you cannot replace, and why it does not matter
 
+Which components follow `project:switch-ui` and which do not, and how to write an application's
+own templates so they do, is in the Theme Guide's
+[Writing views that survive a UI switch](Pramnos_Theme_Guide.md#writing-views-that-survive-a-ui-switch).
+
 `Icon` emits `pf-icon` and `SearchBox` emits four `pf-omnibox-*` names, with no property for any of
 them. **Restyle them with CSS (route 1)** — they are neutral hooks, so a rule is the whole answer
 and a property would only be a second way to do the same thing.

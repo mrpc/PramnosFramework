@@ -14,6 +14,8 @@ use_cases:
   - Adding an application's own page to the site or admin navigation
   - Giving the administration area its own layout with 'admin' => ['theme' => …]
   - Diagnosing admin screens that render unstyled, without navigation, or without "Saved." messages
+  - Keeping an application's own view templates rendering correctly after project:switch-ui
+  - Choosing between writing Bootstrap markup directly and using the HTML components in many templates
 ---
 
 # Pramnos Framework - Theme System Guide
@@ -52,9 +54,10 @@ and an export filename stay ISO, and `date()` is right there.
 9. [Theme Settings](#theme-settings)
 10. [Content Types](#content-types)
 11. [One palette, every UI system](#one-palette-every-ui-system)
-12. [Asset Management](#asset-management)
-13. [Theme Development](#theme-development)
-14. [Best Practices](#best-practices)
+12. [Writing views that survive a UI switch](#writing-views-that-survive-a-ui-switch)
+13. [Asset Management](#asset-management)
+14. [Theme Development](#theme-development)
+15. [Best Practices](#best-practices)
 
 ## Architecture Overview
 
@@ -1807,6 +1810,195 @@ where a test has no business writing.
 **Bootstrap's Sass variables are not generated.** `theme:build` reaches Bootstrap through its
 CSS custom properties (`--bs-*` and the computed `--bs-*-rgb` triplets above); anything Bootstrap
 only exposes as a Sass variable at build time still means Bootstrap's own Sass.
+
+## Writing views that survive a UI switch
+
+`project:switch-ui` changes which CSS framework a project is dressed in. It does not rewrite a
+single one of your templates. Whether your screens still look right afterwards depends entirely on
+what those templates contain, so it pays to know exactly where the line is.
+
+### What the switch changes, and what it leaves alone
+
+| Changed by `project:switch-ui <system>` | Not touched |
+|---|---|
+| `scaffold_theme` in `app/app.php` | Every template under `src/Views/` (or `src/Admin/…`): yours, and any you copied with `project:publish-views` |
+| CSP `style-src` in `app/app.php` (`'unsafe-inline'` for tailwind, empty otherwise), when the key is already present | `component_classes` in `app/app.php` |
+| `app/themes/default/` `theme.html.php`, `head.php`, `header.php`, `footer.php`, `login.php`, **overwritten** | View overrides under `app/themes/<theme>/views/` |
+| `www/assets/css/style.css`, **overwritten** | `app/themes/theme.css`, the palette (read, never rewritten) |
+| `www/assets/js/pf-*.js`, plus the system's vendored CSS/JS | Any other stylesheet or script of your own |
+| `www/assets/css/theme-tokens.css`, regenerated from your palette | |
+
+Two consequences follow:
+
+- **A bundled screen you never copied switches with the project.** View resolution reads
+  `scaffold_theme` on every request. When neither the application nor the theme has the template,
+  the lookup falls through to `scaffolding/themes/<scaffold_theme>/views/<view>/<tpl>.html.php`,
+  so the inherited screens are always in the current system's markup.
+- **A screen you own does not switch.** That includes a screen you copied with
+  `project:publish-views`. It was copied in the markup of the system that was current when you ran
+  the command, and it keeps that markup. To take the new system's copy, run
+  `project:publish-views --group=<name> --force`. It overwrites the file, so re-apply your changes
+  afterwards. Before you switch, list the groups you published, because every one of them is now a
+  screen you maintain.
+
+!!! warning "The theme chrome and `style.css` are scaffold-owned"
+    The switch rewrites the five layout files in `app/themes/default/` and
+    `www/assets/css/style.css` unconditionally. It makes no backup and gives no warning. Put the
+    application's own rules in a stylesheet of your own, such as `www/assets/css/app.css`, and load
+    it with `assetUrl()` from a place the switch does not write (see
+    [Asset Management](#asset-management)). Keep header and footer changes in version control, so
+    that after a switch you can diff and re-apply them.
+
+### What adapts on its own
+
+These components need nothing from you. A template that uses them renders correctly under all three
+systems.
+
+| Component | Why it adapts |
+|---|---|
+| `Html\Pagination` | Emits the neutral hooks `pf-pagination` and `current`, which every scaffold `style.css` styles |
+| `Html\StatTile` | `pf-stat-tile`, `pf-stat-grid`, and BEM children (`__label`, `__value`, `__progress`) |
+| `Html\SearchBox` | `pf-omnibox` and its `pf-omnibox-*` children |
+| `Html\Icon` and its action links | `pf-icon`, `pf-action`, `pf-action-danger` |
+| `Html\Breadcrumb` | The list is `pf-breadcrumb`. Each item carries `breadcrumb-item` and `active`, and all three stylesheets style both |
+| `Html\Form\Field` | Styled by a per-system preset. It adapts only when you pass the preset the application declared (below) |
+| `Html\Form\SettingsForm` | Defaults to the declared system with no argument |
+| `Html\Input`, `Html\Select` | Emit no framework class at all. Style them from your own CSS, or wrap them in a `Field` |
+
+The `pf-*` hooks adapt because the class name stays the same and only the stylesheet behind it
+changes. A test asserts that every hook has a rule in every scaffold theme, so the switch swaps in a
+stylesheet that already knows them.
+
+`Form\Field::render()` takes the preset as a required argument. Pass the declared one, never a
+literal:
+
+```php
+use Pramnos\Html\Form\FieldStyles;
+
+echo $field->render(FieldStyles::for(FieldStyles::configured()));   // follows scaffold_theme
+echo $field->render(FieldStyles::for('bootstrap'));                 // pinned: will not follow a switch
+```
+
+`FieldStyles::configured()` resolves `scaffold_theme` to a preset (`bootstrap`, `tailwind`, or
+`plain` for anything else, `plain-css` included). Resolve it once per view, in a variable, if you
+render many fields.
+
+### What does not adapt
+
+- **`Html\Datatable` with its defaults.** `$bootstrap` defaults to `true` whatever the UI system.
+  It appends `table table-striped table-bordered table-hover` to the table, and it renders the
+  column picker as a Bootstrap 3 dropdown (`btn btn-default dropdown-toggle`,
+  `data-toggle="dropdown"`, `caret`). Bootstrap 5 reads `data-bs-toggle` and has no `btn-default`,
+  so the picker is broken even on the bootstrap system. Set `$jui = true` and you get jQuery UI
+  markup instead. Turn both off, which is what the framework's own admin controllers do:
+
+    ```php
+    $dt = new \Pramnos\Html\Datatable('dt-orders');
+    $dt->bootstrap = false;   // neutral markup: DataTables' own `display` table, plain-link column picker
+    ```
+
+    With `bootstrap = false` the table keeps DataTables' own `display` class and stylesheet, and the
+    column filters and row actions use `pf-footsearch` and `pf-action`, which every theme styles.
+- **`Html\Date`.** The input carries Bootstrap's `form-control` by default. plain-css has a rule for
+  it and tailwind does not. To change the class, use the `date` key in `component_classes`, but
+  read the next item first.
+- **`component_classes`.** It is one static map, not one map per system, and the switch does not
+  touch it. If you set `'pagination' => 'pagination'` to suit Bootstrap, every system receives
+  that class, and the `pf-pagination` rules no longer apply. Use it only when a script needs a
+  specific class name, as its own docblock says. For anything visual, style the `pf-*` hook instead.
+- **Raw markup in your templates.** The framework cannot see inside it. Every class you write is a
+  promise about which stylesheet is loaded.
+
+### What stays tied to a system no matter what
+
+Some markup has no neutral form, because the framework ships no component for it:
+
+- **Layout grids.** `row` / `col-md-6` is Bootstrap, and `grid grid-cols-2 gap-4` is Tailwind.
+  plain-css has a small compatibility grid (`.row`, `.col-md-2/3/4/6`). The other `col-*` names it
+  covers (`col-md-12`, `col-sm-12`, `col-lg-4`, `col-lg-6`, `col-xl-3`) are always full width, and
+  it has no breakpoints. The tailwind system defines no `.row` or `.col-*` at all.
+- **Cards, alerts, badges, buttons.** daisyUI shares some of Bootstrap's names (`btn`,
+  `btn-primary`, `card`, `card-body`, `table`, `alert`, `badge`), so a Bootstrap template looks
+  roughly right under tailwind. Its modifiers differ, though (`alert-danger` against `alert-error`,
+  `table-striped` against `table-zebra`), and `card-header`, `form-control` and `form-select` do
+  not exist there. plain-css styles a minimal Bootstrap-compatible subset (`card`, `btn-*`,
+  `table`, `alert`, `badge`, `dropdown-menu`, `form-control`) so the framework's own Bootstrap-flavoured
+  screens stay legible. It is not full Bootstrap.
+- **JavaScript behaviour.** Dropdowns, modals and collapses depend on the system's own script and
+  its `data-*` attribute names.
+
+!!! note "Close enough is not the same as equivalent"
+    That overlap is why a Bootstrap template looks almost right after a switch. It renders, nothing
+    errors, and the differences show up as a missing border or an unstyled alert. A test can only
+    catch this by rendering the page.
+
+### Recommended approach
+
+1. **Reach for a component first.** Pagination, breadcrumbs, stat tiles, search, icons, action links
+   and form fields already adapt. Every one you use is markup you no longer port.
+2. **Put your own structure behind your own hooks.** For anything the components do not cover, such
+   as a page header, a panel or a two-column layout, give the element one semantic class (`app-panel`,
+   `app-split`) and style it in your own stylesheet from the palette tokens
+   (`var(--color-primary)`; see [One palette, every UI system](#one-palette-every-ui-system)). The
+   template then stays the same across a switch, and you rewrite one stylesheet, not 300 templates.
+   This is the same convention the framework follows with `pf-*`.
+3. **Pass `FieldStyles::configured()`, never a system name.**
+4. **Set `$dt->bootstrap = false` on every `Datatable`.**
+5. **Keep `component_classes` for script-facing names only.**
+6. **Own as few bundled screens as you can.** Every bundled screen you inherit, rather than
+   publish, switches for free.
+
+### Before and after
+
+A dashboard block written directly against Bootstrap 5:
+
+```php
+<div class="row">
+  <div class="col-md-6">
+    <div class="card"><div class="card-body">
+      <h5 class="card-title">Open orders</h5>
+      <p class="display-6"><?php echo $open; ?></p>
+    </div></div>
+  </div>
+</div>
+<nav><ul class="pagination">…hand-built page links…</ul></nav>
+```
+
+The same block written to survive a switch:
+
+```php
+<?php use Pramnos\Html\StatTile; ?>
+<div class="app-split">
+  <?php echo StatTile::grid([
+      StatTile::render('Open orders', number_format($open), link: URL . 'orders'),
+  ]); ?>
+</div>
+<?php echo (new \Pramnos\Html\Pagination($pages, $page, URL . 'orders/page/:page'))->render(); ?>
+```
+
+```css
+/* www/assets/css/app.css: yours, untouched by project:switch-ui */
+.app-split { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr)); }
+```
+
+The tile and the pager are dressed by whichever system is active. The only layout rule is in a file
+the switch does not write.
+
+### Choosing, for a project with many templates
+
+!!! tip "Decision rule"
+    **Does the project expect to change UI system again?**
+
+    - **No, Bootstrap 5 is the destination.** Write Bootstrap 5 markup directly. It is the most
+      readable option for a team that knows Bootstrap, and nothing here penalises it. Still use the
+      components where they exist, set `Datatable::$bootstrap = false`, and pass
+      `FieldStyles::configured()`. Those three cost nothing and remove the known breakages.
+    - **Yes, or not sure.** Write components plus your own semantic hooks, and keep framework
+      classes out of templates. The cost moves from N templates to one stylesheet per system.
+    - **Already have 300 Bootstrap templates and must switch now.** Switch to tailwind before
+      plain-css, because daisyUI's shared names carry the most. Then fix the grid first, since it
+      is the part that breaks visibly, and convert screens to hooks as you touch them rather than
+      in one pass.
 
 ## Asset Management
 
