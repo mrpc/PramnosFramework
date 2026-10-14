@@ -66,7 +66,7 @@ class McpToken extends Command
                 'user',
                 'u',
                 InputOption::VALUE_REQUIRED,
-                'User id or email the token acts as. Every call it makes is recorded as theirs.'
+                'User id, email or username the token acts as. Every call it makes is recorded as theirs.'
             )
             ->addOption(
                 'scopes',

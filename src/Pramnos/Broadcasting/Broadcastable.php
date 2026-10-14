@@ -7,9 +7,10 @@ namespace Pramnos\Broadcasting;
 /**
  * Trait that adds broadcasting support to OrmModel subclasses.
  *
- * When mixed into a model, `created`, `updated`, and `deleted` events
- * automatically broadcast on the configured channel if the application's
- * BroadcastingManager is registered in the container.
+ * Mixed into a model, it gives the model `broadcastCreated()`, `broadcastUpdated()` and
+ * `broadcastDeleted()`, which broadcast on the model's channel when the application's
+ * BroadcastingManager is registered in the container. They are called by the model's code —
+ * after a save, typically — not by the save itself.
  *
  * ## Usage
  *

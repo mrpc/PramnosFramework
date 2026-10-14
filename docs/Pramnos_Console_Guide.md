@@ -249,8 +249,8 @@ option would be worse than none — a project that looks configured and is broke
 configuration appears to explain — so there is a test that scaffolds with a non-default root and
 asserts on the **tree**, including that nothing was left in `www/`.
 
-The development server is the exception: `serve` runs PHP's built-in server with
-`www/index.php` as its router, whatever `--web-root` was given at scaffold time.
+The development server follows it too: `serve` runs PHP's built-in server with the web root's
+`index.php` as its router.
 
 Slashes and whitespace are trimmed, so `--web-root=/public/` works. An empty value falls back to
 `www` rather than scaffolding a front controller into the repository root, which is easy to
@@ -1890,8 +1890,8 @@ php bin/pramnos serve --port=8080     # or -p 8080
 php bin/pramnos serve --host=0.0.0.0 --port=8080
 ```
 
-`serve` runs PHP's built-in web server (`php -S <host>:<port>`) with `www/index.php` as the
-router script, so every request goes through the application's front controller. It is a
+`serve` runs PHP's built-in web server (`php -S <host>:<port>`) with the web root's `index.php`
+(`www/`, `public/`, …) as the router script, so every request goes through the application's front controller. It is a
 development server only — single-process, with no TLS.
 
 ## Log Migration

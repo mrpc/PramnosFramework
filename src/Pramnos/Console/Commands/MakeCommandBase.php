@@ -6,6 +6,7 @@ use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Input\InputArgument;
+use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Question\Question;
 use Symfony\Component\Console\Question\ChoiceQuestion;
 use Symfony\Component\Console\Question\ConfirmationQuestion;
@@ -161,10 +162,10 @@ abstract class MakeCommandBase extends Command
             'name', InputArgument::OPTIONAL, 'Name of the created object'
         );
         $this->addOption(
-            'schema', 's', InputArgument::OPTIONAL, 'Database schema', null
+            'schema', 's', InputOption::VALUE_REQUIRED, 'Database schema', null
         );
         $this->addOption(
-            'table', 't', InputArgument::OPTIONAL, 'Database table', null
+            'table', 't', InputOption::VALUE_REQUIRED, 'Database table', null
         );
     }
 
@@ -442,8 +443,10 @@ abstract class MakeCommandBase extends Command
      */
     public function createMigration($migrationName)
     {
-        // Slug: lowercase alphanum + underscores only
-        $slug = preg_replace('/[^a-z0-9]+/', '_', strtolower(strip_tags($migrationName ?? '')));
+        // Slug: lowercase alphanum + underscores only. A word boundary in `CreateUsersTable` is
+        // a boundary too, so the class keeps its words (`CreateUsersTable`, not `Createuserstable`).
+        $name = (string) preg_replace('/(?<=[a-z0-9])(?=[A-Z])/', '_', strip_tags($migrationName ?? ''));
+        $slug = preg_replace('/[^a-z0-9]+/', '_', strtolower($name));
         $slug = trim($slug, '_');
 
         $application = $this->getApplication()->internalApplication;
@@ -3087,7 +3090,7 @@ $routeTokens = [
         return "Namespace: {$namespace}\n"
             . "Class: {$className}\n"
             . "File: {$filename}\n"
-            . "API URL: sURL . 'api/v1/{$className}'\n\n"
+            . "API URL: <api root>/<version>/" . strtolower($className) . " — registered inside the APIVERSION group in src/Api/routes.php\n\n"
             . "Controller created. \n";
     }
 

@@ -391,6 +391,24 @@ class MakeCommandGeneratorsTest extends TestCase
         $this->assertCount(1, $files);
     }
 
+    /**
+     * A PascalCase name keeps its words: `CreateUsersTable` becomes the class `CreateUsersTable`
+     * and the file `…_create_users_table.php` — lowercased first, it was `Createuserstable`.
+     */
+    public function testAPascalCaseMigrationNameKeepsItsWords(): void
+    {
+        // Act
+        $output = $this->command->createMigration('CreateWidgetPartsTable');
+        $files  = glob(APP_PATH . '/migrations/*_create_widget_parts_table.php');
+        foreach ($files as $file) {
+            $this->addCleanup($file);
+        }
+
+        // Assert
+        $this->assertStringContainsString('CreateWidgetPartsTable', $output);
+        $this->assertCount(1, $files);
+    }
+
     public function testCreateSeeder(): void
     {
         $columns = [

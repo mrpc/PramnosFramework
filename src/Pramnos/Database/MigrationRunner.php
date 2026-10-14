@@ -458,9 +458,10 @@ class MigrationRunner
      *   Events: 'ran' (success) | 'ran_with_errors' ($errorMessage names the rejected
      *   statements) | 'declined' ($errorMessage is the reason) | 'failed' (error).
      * @return array{ran: string[], failed: array<string,string>, warned: array<string,string>, declined: array<string,string>}
-     *   ran = slugs that completed (including those with rejected statements and
-     *   those that declined); failed = slug → error message; warned = slug → what
-     *   was rejected; declined = slug → why it refused.
+     *   ran = slugs that completed (including those with rejected statements);
+     *   failed = slug → error message; warned = slug → what was rejected;
+     *   declined = slug → why it refused — a declined migration stays pending and is
+     *   not in `ran`.
      */
     public function run(array $migrations, array $options = [], ?callable $onProgress = null): array
     {

@@ -38,7 +38,7 @@ use Pramnos\Mcp\McpServiceProvider;
  * If the 'mcp' feature is registered in app.php and McpServiceProvider has
  * been booted, the server from the container is used (which may have
  * app-specific custom tools added). Otherwise a default server is built with
- * the five built-in tools.
+ * every built-in tool, through McpServiceProvider::registerDefaults().
  */
 class McpServe extends Command
 {

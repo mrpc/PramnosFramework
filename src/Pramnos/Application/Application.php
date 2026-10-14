@@ -597,7 +597,7 @@ class Application extends Base
 
         // Auto-activate the DebugBar in development/debug mode even when the
         // app has not listed 'debug' in its features array.  Mirrors the
-        // Laravel Debugbar experience: just set APP_DEBUG or development=true
+        // Laravel Debugbar experience: set APP_DEBUG (or the DEVELOPMENT constant)
         // and the toolbar appears on every HTML page.
         //
         // A valid debug token counts too, and that is the only way the toolbar

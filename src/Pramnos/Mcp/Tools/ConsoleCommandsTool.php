@@ -55,9 +55,9 @@ class ConsoleCommandsTool implements McpToolInterface
     public function description(): string
     {
         return 'List this application\'s CLI commands with their arguments, options and '
-            . 'whether they generate files. Covers the twenty `create:*` code generators '
+            . 'whether they generate files. Covers the `create:*` code generators '
             . '(controller, model, migration, crud, api, api-client, screen, policy, '
-            . 'webhook, test, seeder …) plus the build, migration, queue and maintenance '
+            . 'test, seeder …) plus the build, migration, queue and maintenance '
             . 'commands. Ask this before writing a class by hand — there is probably a '
             . 'generator for it.';
     }

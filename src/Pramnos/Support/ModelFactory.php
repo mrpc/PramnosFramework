@@ -41,7 +41,7 @@ namespace Pramnos\Support;
  *   User::factory()->create(['usertype' => 90]);  // admin user
  *
  *   // 4. Apply named states
- *   User::factory()->state('admin')->count(3)->create();
+ *   User::factory()->state(['usertype' => 99])->count(3)->create();
  *
  */
 abstract class ModelFactory

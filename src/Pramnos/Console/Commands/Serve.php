@@ -50,7 +50,8 @@ class Serve extends Command
         $output->writeln(
             "Development server started on http://{$host}:{$port}/"
         );
-        $path = ROOT . '/www/index.php';
+        // The project's web root, whatever it is called (`www`, `public`, …).
+        $path = \Pramnos\Application\FrameworkScripts::webRoot((string) ROOT) . '/index.php';
         $this->runServer(
             PHP_BINARY . " -S {$host}:{$port} \"{$path}\" 2>&1"
         );
