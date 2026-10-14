@@ -240,6 +240,78 @@ class MemcachedCounterAndIsolationTest extends TestCase
         // Act + Assert
         $this->assertFalse($adapter->clear());
     }
+
+    /**
+     * A key nobody holds is taken with `add`, which exactly one of two racing callers wins — the
+     * page cache's stampede lock, which the inherited read-then-write let two requests both take.
+     */
+    public function testSwapTakesAnAbsentKeyWithAdd(): void
+    {
+        // Arrange
+        $adapter = $this->adapter(['get' => [false], 'add' => [true]]);
+
+        // Act
+        $previous = $adapter->swap('lock_page', '100');
+
+        // Assert
+        $this->assertNull($previous, 'nobody held it');
+        $this->assertSame(['get', 'add'], $adapter->client->calls);
+        $this->assertSame('100', $adapter->client->argumentsFor('add')[1]['data'], 'stored as load() reads it');
+    }
+
+    /**
+     * A held key is replaced with `cas`, and when somebody wrote in between the swap tries again
+     * — answering what it replaced, never a value that was already overwritten.
+     */
+    public function testSwapReplacesAHeldKeyWithCasAndRetriesARace(): void
+    {
+        // Arrange
+        $adapter = $this->adapter([
+            'get' => [['value' => ['data' => '90', 'time' => 1], 'cas' => 7], ['value' => ['data' => '95', 'time' => 1], 'cas' => 8]],
+            'cas' => [false, true],
+        ]);
+
+        // Act
+        $previous = $adapter->swap('lock_page', '100');
+
+        // Assert
+        $this->assertSame('95', $previous, 'what it actually replaced');
+        $this->assertSame(['get', 'cas', 'get', 'cas'], $adapter->client->calls);
+        $this->assertSame(8, $adapter->client->arguments['cas'][1][0], 'with the token it read last');
+    }
+
+    /** A swap that cannot be done answers "held just now": a request that waits, not two that render. */
+    public function testASwapThatCannotBeDoneReadsAsHeld(): void
+    {
+        // Arrange
+        $adapter = $this->adapter(['get' => array_fill(0, 5, false), 'add' => array_fill(0, 5, false)]);
+
+        // Act
+        $previous = $adapter->swap('lock_page', '100');
+
+        // Assert
+        $this->assertNotNull($previous);
+        $this->assertEqualsWithDelta(time(), (int) $previous, 2);
+    }
+
+    /**
+     * A category seen for the first time joins the list a prefixed `clear('')` walks — nothing
+     * wrote that list before, so the walk found nothing and cleared nothing.
+     */
+    public function testANewCategoryIsListedForClear(): void
+    {
+        // Arrange
+        $adapter = $this->adapter(['set' => [true, true]], 'site1_');
+
+        // Act — what save() does after writing the entry
+        (new \ReflectionMethod(MemcachedAdapter::class, '_trackKeyForCategory'))->invoke($adapter, 'site1_pages_home');
+        $sets = array_map(static fn (array $args): string => (string) $args[0], $adapter->client->arguments['set']);
+
+        // Assert
+        $this->assertContains('site1_memcachedtags', $sets, 'the category list is written');
+        $tags = $adapter->client->arguments['set'][array_search('site1_memcachedtags', $sets, true)][1];
+        $this->assertSame(['pages' => true], $tags);
+    }
 }
 
 /**

@@ -573,8 +573,9 @@ Two details about Redis:
   cache's own prefix, not `dbSize()`, which would include sessions, queue payloads,
   another application's keys and the adapter's own bookkeeping.
 
-The memcached family reads its categories from a `memcachedtags` key that no adapter
-writes, so `getCategories()` there is `[]` in practice.
+`MemcachedAdapter` lists a category in its `memcachedtags` key the first time it tracks a key in
+it, and `getCategories()` reads that list. The legacy `MemcacheAdapter` tracks nothing, so its
+list is empty.
 
 The memcached family genuinely cannot enumerate, and the dashboard says so rather than
 rendering an empty table — see `memcachedLimitation` in the bundled cache view.
@@ -1313,10 +1314,10 @@ server that went away while the application was talking to it.
 Memcached cannot enumerate its keys. So a `clear()` with no category has two very different
 behaviours, and which one you get depends on whether a prefix is configured:
 
-- **With a prefix**, it clears each category listed by `getCategories()` and logs how many. That
-  list is read from a `memcachedtags` key no adapter writes, so in practice it is empty and
-  **nothing is removed**: entries expire on their TTL. Other tenants' keys are untouched. To empty
-  the server deliberately, call `flushEverything()`.
+- **With a prefix**, it clears each category listed by `getCategories()` and logs how many. A key
+  whose name carries no category is in no list and expires on its TTL. Other tenants' keys are
+  untouched. To empty the server deliberately, call `flushEverything()`. (The legacy `memcache`
+  adapter tracks no categories, so it refuses and says so.)
 - **Without one**, it calls `flush()`, which empties the entire server — every co-tenant's data
   included. It writes a line to the log saying so first, and that is the only warning there is.
 

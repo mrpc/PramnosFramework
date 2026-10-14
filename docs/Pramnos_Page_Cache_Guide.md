@@ -410,7 +410,7 @@ So there are two implementations, chosen by `supportsAtomicCounter()`:
 | Store | Lock |
 |---|---|
 | Redis | `swap()` — Redis `GETSET`, one server-side operation |
-| Memcached | `swap()` too, because the adapter counts atomically — but `MemcachedAdapter` has no `swap()` of its own, so it runs `AbstractAdapter`'s read-then-write default, which is **not** atomic. Two concurrent requests can both take the lock and both re-render. |
+| Memcached | `swap()` too: `add` when nobody holds the lock, `cas` when somebody does — each fails if another request wrote in between, so exactly one takes it. |
 | File, Array | a `mkdir()` lock — atomic on Linux, macOS and WSL alike |
 
 Setting `lockTtl` to `0` means a lock is never honoured and every arrival

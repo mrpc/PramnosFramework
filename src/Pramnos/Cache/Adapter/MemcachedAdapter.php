@@ -222,6 +222,56 @@ class MemcachedAdapter extends AbstractAdapter
     }
 
     /**
+     * Set a key and answer what it held — atomically, with Memcached's own primitives.
+     *
+     * Absent, the key is created with `add`, which exactly one of two racing callers wins; held,
+     * it is replaced with `cas`, which fails if anybody wrote in between, and is tried again. The
+     * page cache's stampede lock rests on this: the inherited read-then-write let two requests
+     * both believe they had taken it. Stored in the `{data, time}` shape {@see load()} reads.
+     *
+     * When it cannot be done — the server busy past a few attempts, or an error — the answer is the
+     * current time, which a lock reads as "held just now": better a request that waits than two
+     * that render.
+     *
+     * @param  string $key
+     * @param  string $value
+     * @return string|null The previous value, or null when the key was unset.
+     */
+    public function swap($key, $value)
+    {
+        if (!$this->caching || !$this->connected) {
+            return null;
+        }
+
+        $entry = ['data' => $value, 'time' => time()];
+
+        try {
+            for ($attempt = 0; $attempt < 5; $attempt++) {
+                // GET_EXTENDED (2): the value with its CAS token.
+                $found = $this->memcached->get($key, null, defined('Memcached::GET_EXTENDED') ? \Memcached::GET_EXTENDED : 2);
+
+                if (!is_array($found) || !array_key_exists('cas', $found)) {
+                    if ($this->memcached->add($key, $entry, 0)) {
+                        return null;
+                    }
+                    continue;
+                }
+
+                if ($this->memcached->cas($found['cas'], $key, $entry, 0)) {
+                    $previous = $found['value'] ?? null;
+                    $previous = is_array($previous) && array_key_exists('data', $previous) ? $previous['data'] : $previous;
+
+                    return $previous === null || $previous === false ? null : (string) $previous;
+                }
+            }
+        } catch (\Exception $ex) {
+            \Pramnos\Logs\Logger::logError($ex->getMessage(), $ex);
+        }
+
+        return (string) time();
+    }
+
+    /**
      * @inheritDoc
      */
     public function delete($key)
@@ -395,6 +445,15 @@ class MemcachedAdapter extends AbstractAdapter
                 
                 if (!is_array($existingKeys)) {
                     $existingKeys = array();
+                    // A category seen for the first time joins the list getCategories() reads,
+                    // which a prefixed clear('') walks — nothing wrote that list before, so the
+                    // walk found nothing and cleared nothing.
+                    $categories = $this->memcached->get($this->prefix . $this->tagsKey);
+                    $categories = is_array($categories) ? $categories : [];
+                    if (!isset($categories[$category])) {
+                        $categories[$category] = true;
+                        $this->memcached->set($this->prefix . $this->tagsKey, $categories, 0);
+                    }
                 }
                 
                 // Add this key to the category index
