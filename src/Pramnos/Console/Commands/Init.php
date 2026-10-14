@@ -763,6 +763,7 @@ class Init extends Command
         }
 
         if (in_array('auth', $enabledFeatures, true)) {
+            $this->scaffoldNotificationsWiring($namespace);
             $this->scaffoldTokenActionsWiring($namespace);
         }
 
@@ -9086,6 +9087,37 @@ class Dashboard extends FrameworkDashboardController
 PHP;
 
         $this->writeFile('src/Admin/Controllers/Dashboard.php', $dashboardController);
+    }
+
+    /**
+     * `/Notifications`: the signed-in person's feed as JSON, for `Html\NotificationBell` and
+     * `pf-utils.js` — on the site, so the bell works on every page, inside the area or not.
+     */
+    private function scaffoldNotificationsWiring(string $namespace): void
+    {
+        $this->mkdir('src/Controllers');
+
+        $controller = <<<PHP
+<?php
+
+declare(strict_types=1);
+
+namespace {$namespace}\\Controllers;
+
+use Pramnos\\Application\\Controllers\\NotificationsController;
+
+/**
+ * The signed-in person's notifications, as JSON — what the bell in the header reads and marks read.
+ *
+ * Delegates to the framework controller. Put the bell in a header with
+ * `<?php echo \\Pramnos\\Html\\NotificationBell::render(); ?>`.
+ */
+class Notifications extends NotificationsController
+{
+}
+PHP;
+
+        $this->writeFile('src/Controllers/Notifications.php', $controller);
     }
 
     /**

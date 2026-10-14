@@ -3392,6 +3392,12 @@ class InitCommandUnitTest extends TestCase
             'use Pramnos\\Auth\\Controllers\\TwoFactorAuth as FrameworkTwoFactorAuth',
             $content
         );
+
+        // And the notifications feed the bell reads, which needs users as much as 2FA does.
+        $feed = (string) file_get_contents($this->tmpDir . '/src/Controllers/Notifications.php');
+        $this->assertStringContainsString('namespace AuthApp3\\Controllers;', $feed);
+        $this->assertStringContainsString('class Notifications extends NotificationsController', $feed);
+        $this->assertNotEmpty(token_get_all($feed, TOKEN_PARSE));
     }
 
     /**

@@ -217,6 +217,28 @@ body {
 .pf-assist-pane { flex: 1; overflow: auto; padding: .75rem 1rem; }
 .pf-assist-more { margin-top: 1rem; opacity: .75; }
 
+/* The notification bell — Html\NotificationBell, driven by pf-utils.js. */
+.pf-notify { position: relative; display: inline-block; }
+.pf-notify-toggle { position: relative; display: inline-flex; align-items: center; justify-content: center; background: none; border: 0; color: inherit; cursor: pointer; padding: .375rem; }
+.pf-notify-count { position: absolute; top: 0; right: 0; min-width: 1.1rem; height: 1.1rem; padding: 0 .25rem; border-radius: 999px; font-size: .7rem; font-weight: 700; line-height: 1.1rem; text-align: center; color: #fff; background: var(--color-error, #dc2626); }
+.pf-notify-count[hidden] { display: none; }
+.pf-notify-panel { position: absolute; right: 0; top: 100%; z-index: 1060; width: 22rem; max-width: calc(100vw - 1rem); max-height: 28rem; overflow: auto; border: 1px solid color-mix(in oklab, currentColor 15%, transparent); border-radius: .5rem; background: var(--color-base-100, #fff); color: var(--color-base-content, #111); box-shadow: 0 10px 24px rgba(0,0,0,.18); }
+.pf-notify-panel[hidden] { display: none; }
+.pf-notify-head { display: flex; align-items: center; justify-content: space-between; gap: .5rem; padding: .625rem .75rem; border-bottom: 1px solid color-mix(in oklab, currentColor 15%, transparent); }
+.pf-notify-read-all { background: none; border: 0; color: inherit; opacity: .75; cursor: pointer; font-size: .85rem; text-decoration: underline; }
+.pf-notify-tabs { display: flex; gap: .25rem; padding: .375rem .5rem; border-bottom: 1px solid color-mix(in oklab, currentColor 15%, transparent); }
+.pf-notify-tab { background: none; border: 0; border-radius: .375rem; padding: .25rem .5rem; color: inherit; cursor: pointer; font-size: .85rem; }
+.pf-notify-tab[aria-selected="true"] { font-weight: 600; background: var(--color-base-200, rgba(128,128,128,.12)); }
+.pf-notify-tab-count[hidden] { display: none; }
+.pf-notify-list { list-style: none; margin: 0; padding: 0; }
+.pf-notify-item a { display: block; padding: .5rem .75rem; color: inherit; text-decoration: none; border-bottom: 1px solid color-mix(in oklab, currentColor 15%, transparent); }
+.pf-notify-item a:hover { background: var(--color-base-200, rgba(128,128,128,.12)); }
+.pf-notify-item.is-unread a { font-weight: 600; }
+.pf-notify-title, .pf-notify-message, .pf-notify-time { display: block; }
+.pf-notify-message { font-weight: 400; opacity: .85; font-size: .9rem; }
+.pf-notify-time { font-weight: 400; opacity: .6; font-size: .75rem; }
+.pf-notify-empty { margin: 0; padding: 1rem .75rem; opacity: .7; }
+
 /* The unread count beside a navigation label — NavItem::badgeHtml(). */
 .pf-nav-badge {
     display: inline-flex;

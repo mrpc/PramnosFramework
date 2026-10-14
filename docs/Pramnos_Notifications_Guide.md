@@ -1,5 +1,7 @@
 ---
 use_cases:
+  - Adding a notification bell to an admin theme
+  - Showing a person their notifications, unread count and tabs by group
   - Sending the same message over mail, push and an in-app feed at once
   - Writing a notification class for an event your application raises
   - Sending a one-off message without writing a class for it
@@ -536,18 +538,11 @@ channels, this one does not skip when its prerequisite is missing: it issues an 
 unmigrated installation gets a SQL error rather than a quiet no-op. If `'database'` is the channel
 that breaks a request, check that the table exists before anything else.
 
-Reading and marking read is the application's job — the framework stores, it does not
-render:
+Reading it back is `Pramnos\Notification\Feed` (see [Showing the feed](#showing-the-feed)):
 
 ```php
-$db = \Pramnos\Database\Database::getInstance();
-
-$unread = $db->queryBuilder()->table('notifications')
-    ->where('notifiable_id', (int) $user->userid)
-    ->whereNull('read_at')
-    ->orderBy('created_at', 'desc')
-    ->limit(20)
-    ->get();
+$feed = new \Pramnos\Notification\Feed((int) $user->userid);
+$page = $feed->list(page: 1, perPage: 20, unreadOnly: true);   // items, total, unread, page, pages
 ```
 
 Indexes exist on `(notifiable_type, notifiable_id)`, `type`, `read_at` and `created_at`,
@@ -575,6 +570,117 @@ That last part is the point worth copying into your own screens. An operator who
 is told "sent" is entitled to believe it, and the skip-don't-throw discipline that makes delivery
 robust is exactly what makes a silent non-delivery possible. Check reachability before offering the
 channel, not after.
+
+
+## Showing the feed
+
+What the `database` channel stored, shown in the page: a bell in the header with the unread count,
+a list, tabs by group, and "mark all read".
+
+### Reading it: `Feed`
+
+```php
+use Pramnos\Notification\Feed;
+
+$feed = new Feed((int) $user->userid);
+
+$feed->list(page: 1, perPage: 20, unreadOnly: false, group: 'tasks');
+// ['items' => [...], 'total' => 37, 'unread' => 4, 'page' => 1, 'pages' => 2]
+$feed->unreadCount();            // 4, in all
+$feed->unreadByGroup();          // ['' => 4, 'tasks' => 2, 'system' => 1]
+$feed->markRead($id);            // false for somebody else's, or one already read
+$feed->markAllRead('tasks');     // how many it marked
+```
+
+Each item has `id`, `type`, `group`, `title`, `message` (or `body`), `url`, `read`, `created_at`,
+and the whole stored `data`. The bell draws `title`, `message` and `url` from it, so a
+notification that returns those from `toDatabase()` needs nothing else:
+
+```php
+public function toDatabase(mixed $notifiable): array
+{
+    return ['title' => 'Task assigned', 'message' => $this->task->name, 'url' => '/tasks/' . $this->task->id, 'group' => 'tasks'];
+}
+```
+
+Every read and write is that person's own: the id of somebody else's notification marks
+nothing.
+
+### Groups, for tabs
+
+A notification's group is, first, the one whose classes `app.php` lists for it:
+
+```php
+'notifications' => ['groups' => [
+    'tasks'  => [App\Notifications\TaskAssigned::class, App\Notifications\TaskDue::class],
+    'system' => [App\Notifications\BackupFailed::class],
+]],
+```
+
+Otherwise it is the `group` key the notification stored. A configured group is filtered by
+`type`, which is indexed; any other group by the stored JSON. A notification in neither has no
+group: it shows under "all" and in no tab.
+
+### The endpoint: `/Notifications`
+
+`NotificationsController` answers the signed-in person's feed as JSON, with the page's own session.
+A write needs the page's CSRF token, `X-CSRF-Token` as `pfApiHeaders` sends it. It works in any
+application with a session, including an administration with a front controller of its own. `init`
+writes `src/Controllers/Notifications.php` with the `auth` feature. A project made before adds the
+wrapper:
+
+```php
+namespace App\Controllers;
+
+class Notifications extends \Pramnos\Application\Controllers\NotificationsController {}
+```
+
+| Request | Answer |
+|---|---|
+| `GET /Notifications?page=1&per_page=20&unread=1&group=tasks` | one page |
+| `GET /Notifications/count` | `{unread, groups: {tasks: 2, …}}` |
+| `POST /Notifications/read?id=…` | `{read, unread}` |
+| `POST /Notifications/readall?group=tasks` | `{marked, unread}` |
+
+Nobody signed in gets 401. A write without the token gets 403 and changes nothing.
+
+### The bell: `Html\NotificationBell`
+
+```php
+<?php echo \Pramnos\Html\NotificationBell::render([
+    'url'      => sURL . 'Notifications',          // the default
+    'groups'   => ['' => 'For me', 'tasks' => 'Tasks', 'system' => 'System'],
+    'interval' => 60,                              // seconds between counts
+    'channel'  => 'users.' . $user->userid,        // optional: realtime
+    'class'    => 'btn btn-ghost btn-circle',
+]); ?>
+```
+
+Nothing is drawn for somebody signed out. The unread count is drawn already, so the page never
+shows 0 before the real number. `pf-utils.js` does the rest through the data attributes:
+
+- **Counting:** the count is polled every `interval` seconds while the tab is visible. A tab in
+  the background asks nothing, and is counted at once when it comes back.
+- **Opening:** opening the bell loads the latest ten, and a tab loads its group.
+- **Reading:** a click on an item marks it read, then follows its link. "Mark all read" marks
+  the group.
+- **Closing:** outside the bell, or Esc.
+- **Refreshing at once:** a `pf:notifications:refresh` event on the document refreshes it, as does
+  a `notification.created` event on `channel` where the page has a realtime connection in
+  `window.pfRealtime` (`PramnosRealtime.connect(…)`). A notification sent with the `broadcast`
+  channel to that channel arrives without waiting for the next count.
+
+The scaffolded stylesheets style the `pf-notify-*` hooks. A theme can write its own markup with
+the same `data-pf-notifications*` attributes. Each item can be its own too, as a
+`<template data-pf-notifications-item>` inside the bell whose parts carry
+`data-field="title|message|time"` and whose link gets the item's address.
+
+**In a server-rendered navigation** the count is a badge, without the bell:
+
+```php
+new NavItem('user.notifications', 'Notifications', sURL . 'Notifications', NavSection::User,
+    requireAuth: true, badge: \Pramnos\Notification\Feed::badge());
+```
 
 ## Sending many, and sending later
 

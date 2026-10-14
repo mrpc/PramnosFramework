@@ -27,6 +27,9 @@
  *   data-pf-omnibox             — cross-entity search box (see Html\SearchBox); the
  *                                 endpoint, minimum length, debounce and the loading /
  *                                 empty strings come from data-pf-omnibox-* attributes
+ *   data-pf-notifications       — the notification bell (see Html\NotificationBell): the
+ *                                 count, the list, read and read-all, polled while the tab
+ *                                 is visible and refreshed on `pf:notifications:refresh`
  *
  * Stats modal markup contract (rendered by the view, styled by the theme):
  *   #pf-stats-overlay  — the full-screen overlay (toggled via style.display)
@@ -479,6 +482,184 @@
                 button.removeAttribute('disabled');
                 button.removeAttribute('data-pf-countdown');
             }, 1000);
+        });
+    })();
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // data-pf-notifications — the notification bell
+    //
+    // Markup from \Pramnos\Html\NotificationBell (or a theme's own, with the same data-*), the
+    // feed from the endpoint in data-url (\Pramnos\Application\Controllers\NotificationsController,
+    // answering with the page's session). The count is polled every data-interval seconds while
+    // the tab is visible — a tab in the background asks nothing — and at once when it comes back.
+    // Realtime, where the page has it: a `pf:notifications:refresh` event on the document, or a
+    // connection in window.pfRealtime and a channel in data-channel, refreshes it at once.
+    // ══════════════════════════════════════════════════════════════════════════
+    (function () {
+        var bells = document.querySelectorAll('[data-pf-notifications]');
+        if (!bells.length) { return; }
+
+        Array.prototype.forEach.call(bells, function (bell) {
+            var url      = (bell.getAttribute('data-url') || '').replace(/\/+$/, '');
+            var interval = Math.max(10, parseInt(bell.getAttribute('data-interval') || '60', 10)) * 1000;
+            var toggle   = bell.querySelector('[data-pf-notifications-toggle]');
+            var panel    = bell.querySelector('[data-pf-notifications-panel]');
+            var list     = bell.querySelector('[data-pf-notifications-list]');
+            var count    = bell.querySelector('[data-pf-notifications-count]');
+            var empty    = bell.querySelector('[data-pf-notifications-empty]');
+            var template = bell.querySelector('template[data-pf-notifications-item]');
+            var group    = '';
+            var timer    = null;
+
+            if (!url || !toggle || !panel || !list) { return; }
+
+            function get(path) {
+                return fetch(url + path, { credentials: 'same-origin', headers: pfApiHeaders({ 'Accept': 'application/json' }) })
+                    .then(function (r) { if (!r.ok) { throw new Error('HTTP ' + r.status); } return r.json(); });
+            }
+
+            function post(path) {
+                return fetch(url + path, {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    keepalive: true,
+                    headers: pfApiHeaders({ 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' })
+                }).then(function (r) { return r.ok ? r.json() : {}; });
+            }
+
+            function showCount(n) {
+                if (!count) { return; }
+                count.textContent = n > 99 ? '99+' : String(n);
+                count.hidden = n <= 0;
+                toggle.setAttribute('aria-label', (toggle.getAttribute('data-label') || 'Notifications') + (n > 0 ? ' (' + n + ')' : ''));
+            }
+
+            function refreshCount() {
+                return get('/count').then(function (d) {
+                    showCount(d.unread || 0);
+                    Object.keys(d.groups || {}).forEach(function (name) {
+                        var badge = bell.querySelector('[data-pf-notifications-group-count="' + name + '"]');
+                        if (badge) {
+                            badge.textContent = String(d.groups[name]);
+                            badge.hidden = !d.groups[name];
+                        }
+                    });
+                }).catch(function () {});
+            }
+
+            function item(n) {
+                var li;
+                if (template && template.content && template.content.firstElementChild) {
+                    li = template.content.firstElementChild.cloneNode(true);
+                } else {
+                    li = document.createElement('li');
+                    li.className = 'pf-notify-item';
+                    li.appendChild(document.createElement('a'));
+                    ['title', 'message', 'time'].forEach(function (field) {
+                        var part = document.createElement(field === 'time' ? 'time' : 'span');
+                        part.className = 'pf-notify-' + field;
+                        part.setAttribute('data-field', field);
+                        li.firstElementChild.appendChild(part);
+                    });
+                }
+                var link = li.querySelector('a') || li;
+                link.setAttribute('href', n.url || '#');
+                link.setAttribute('data-pf-notifications-item', n.id);
+                if (!n.read) { li.classList.add('is-unread'); }
+                var fill = { title: n.title || n.message, message: n.title ? n.message : '', time: n.created_at };
+                Object.keys(fill).forEach(function (field) {
+                    var part = li.querySelector('[data-field="' + field + '"]');
+                    if (part) {
+                        part.textContent = fill[field] || '';
+                        if (field === 'time') { part.setAttribute('datetime', n.created_at); }
+                    }
+                });
+                return li;
+            }
+
+            function load() {
+                return get('?per_page=10' + (group ? '&group=' + encodeURIComponent(group) : '')).then(function (d) {
+                    list.textContent = '';
+                    (d.items || []).forEach(function (n) { list.appendChild(item(n)); });
+                    if (empty) { empty.hidden = (d.items || []).length > 0; }
+                    showCount(d.unread || 0);
+                }).catch(function () {});
+            }
+
+            function setOpen(on) {
+                panel.hidden = !on;
+                toggle.setAttribute('aria-expanded', on ? 'true' : 'false');
+                if (on) { load(); }
+            }
+
+            toggle.addEventListener('click', function (e) {
+                e.preventDefault();
+                setOpen(panel.hidden);
+            });
+
+            document.addEventListener('click', function (e) {
+                if (!panel.hidden && !bell.contains(e.target)) { setOpen(false); }
+            });
+
+            document.addEventListener('keydown', function (e) {
+                if (e.key === 'Escape' && !panel.hidden) { setOpen(false); toggle.focus(); }
+            });
+
+            bell.addEventListener('click', function (e) {
+                var link = e.target.closest ? e.target.closest('[data-pf-notifications-item]') : null;
+                if (link) {
+                    var href = link.getAttribute('href');
+                    e.preventDefault();
+                    post('/read?id=' + encodeURIComponent(link.getAttribute('data-pf-notifications-item'))).then(function () {
+                        if (href && href !== '#') { window.location.href = href; } else { load(); }
+                    });
+                    return;
+                }
+                if (e.target.closest && e.target.closest('[data-pf-notifications-read-all]')) {
+                    e.preventDefault();
+                    post('/readall' + (group ? '?group=' + encodeURIComponent(group) : '')).then(function () { load(); refreshCount(); });
+                    return;
+                }
+                var tab = e.target.closest ? e.target.closest('[data-pf-notifications-group]') : null;
+                if (tab) {
+                    e.preventDefault();
+                    group = tab.getAttribute('data-pf-notifications-group') || '';
+                    Array.prototype.forEach.call(bell.querySelectorAll('[data-pf-notifications-group]'), function (one) {
+                        one.setAttribute('aria-selected', one === tab ? 'true' : 'false');
+                    });
+                    load();
+                }
+            });
+
+            function refresh() {
+                refreshCount();
+                if (!panel.hidden) { load(); }
+            }
+
+            function start() {
+                if (timer === null) { timer = window.setInterval(refreshCount, interval); }
+            }
+
+            function stop() {
+                if (timer !== null) { window.clearInterval(timer); timer = null; }
+            }
+
+            document.addEventListener('visibilitychange', function () {
+                if (document.hidden) { stop(); } else { refresh(); start(); }
+            });
+            document.addEventListener('pf:notifications:refresh', refresh);
+
+            var channel = bell.getAttribute('data-channel');
+            var rt = window.pfRealtime;
+            if (channel && rt) {
+                if (rt.transport === 'sse' && rt.on) {
+                    rt.on('notification.created', refresh);
+                } else if (rt.channel) {
+                    rt.channel(channel).listen('notification.created', refresh);
+                }
+            }
+
+            if (!document.hidden) { start(); }
         });
     })();
 

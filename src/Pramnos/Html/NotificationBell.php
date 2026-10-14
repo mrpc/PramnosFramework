@@ -1,0 +1,99 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Pramnos\Html;
+
+/**
+ * The notification bell for a theme's header: a button with the unread count, and a panel with the
+ * latest notifications, tabs by group, and "mark all read".
+ *
+ * ```php
+ * <?php echo \Pramnos\Html\NotificationBell::render(); ?>
+ * <?php echo \Pramnos\Html\NotificationBell::render([
+ *     'url'    => adminUrl('Notifications'),
+ *     'groups' => ['' => 'For me', 'tasks' => 'Tasks', 'system' => 'System'],
+ *     'class'  => 'btn btn-ghost btn-circle',
+ * ]); ?>
+ * ```
+ *
+ * The markup only: `pf-utils.js` does the rest — the count, the list, read and read-all, the
+ * polling — through the data attributes, and the scaffolded stylesheets style the `pf-notify-*`
+ * hooks. A theme may write its own markup instead with the same `data-pf-notifications*`
+ * attributes, and an item of its own with `<template data-pf-notifications-item>` whose parts
+ * carry `data-field="title|message|time"`.
+ *
+ * Nothing for somebody signed out. The count is drawn already, so the page does not show 0 and
+ * then the real number.
+ */
+final class NotificationBell
+{
+    /**
+     * @param array{url?: string, interval?: int, channel?: string, groups?: array<string, string>, class?: string, label?: string, empty?: string, readAll?: string} $options
+     *  - `url` — the feed's address: `/Notifications` on the site by default
+     *  - `interval` — seconds between counts, while the tab is visible (60)
+     *  - `channel` — a realtime channel whose `notification.created` refreshes it at once
+     *  - `groups` — tabs: group => label, `''` for all; none by default
+     *  - `class` — the bell button's classes
+     */
+    public static function render(array $options = []): string
+    {
+        $user = \Pramnos\User\User::current();
+        $id   = is_object($user) ? (int) ($user->userid ?? 0) : 0;
+        if ($id <= 1) {
+            return '';
+        }
+
+        try {
+            $unread = (new \Pramnos\Notification\Feed($id))->unreadCount();
+        } catch (\Throwable) {
+            // No table yet: the bell still draws, and the first count tells the truth.
+            $unread = 0;
+        }
+
+        $url   = (string) ($options['url'] ?? ((defined('sURL') ? \sURL : '/') . 'Notifications'));
+        $label = self::t((string) ($options['label'] ?? 'Notifications'));
+
+        $html = '<div class="pf-notify" data-pf-notifications data-url="' . self::e($url) . '"'
+            . ' data-interval="' . (int) ($options['interval'] ?? 60) . '"'
+            . (isset($options['channel']) ? ' data-channel="' . self::e((string) $options['channel']) . '"' : '') . '>'
+            . '<button type="button" class="pf-notify-toggle ' . self::e((string) ($options['class'] ?? '')) . '"'
+            . ' data-pf-notifications-toggle data-label="' . self::e($label) . '" aria-haspopup="true" aria-expanded="false"'
+            . ' aria-label="' . self::e($label . ($unread > 0 ? ' (' . $unread . ')' : '')) . '">'
+            . '<svg class="pf-notify-icon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>'
+            . '<span class="pf-notify-count" data-pf-notifications-count' . ($unread > 0 ? '' : ' hidden') . '>' . ($unread > 99 ? '99+' : $unread) . '</span>'
+            . '</button>'
+            . '<div class="pf-notify-panel" data-pf-notifications-panel hidden>'
+            . '<div class="pf-notify-head"><strong>' . self::e($label) . '</strong>'
+            . '<button type="button" class="pf-notify-read-all" data-pf-notifications-read-all>' . self::e(self::t((string) ($options['readAll'] ?? 'Mark all read'))) . '</button></div>';
+
+        $groups = (array) ($options['groups'] ?? []);
+        if ($groups !== []) {
+            $html .= '<nav class="pf-notify-tabs" role="tablist">';
+            $first = true;
+            foreach ($groups as $group => $name) {
+                $html .= '<button type="button" role="tab" class="pf-notify-tab" data-pf-notifications-group="' . self::e((string) $group) . '"'
+                    . ' aria-selected="' . ($first ? 'true' : 'false') . '">' . self::e(self::t((string) $name))
+                    . ((string) $group !== '' ? ' <span class="pf-notify-tab-count" data-pf-notifications-group-count="' . self::e((string) $group) . '" hidden></span>' : '')
+                    . '</button>';
+                $first = false;
+            }
+            $html .= '</nav>';
+        }
+
+        return $html
+            . '<ul class="pf-notify-list" data-pf-notifications-list></ul>'
+            . '<p class="pf-notify-empty" data-pf-notifications-empty hidden>' . self::e(self::t((string) ($options['empty'] ?? 'No notifications'))) . '</p>'
+            . '</div></div>';
+    }
+
+    private static function t(string $words): string
+    {
+        return function_exists('t') ? (string) t($words) : $words;
+    }
+
+    private static function e(string $value): string
+    {
+        return htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
+    }
+}
