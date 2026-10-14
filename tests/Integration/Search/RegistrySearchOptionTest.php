@@ -139,8 +139,42 @@ class RegistrySearchOptionTest extends BaseTestCase
         $this->assertSame([3], $this->ids($result));
     }
 
-    /** Registers the probe with the rule and the title pattern. */
-    private function register(): void
+    /**
+     * `count => false`: one row past the limit says there are more, and no COUNT is sent.
+     *
+     * Three rows match "a"; with a limit of one, the group returns one, `more` is true and the
+     * total is null. The control run — counted — does send a COUNT, so the log is shown to see it.
+     */
+    public function testAnUncountedSourceSendsNoCount(): void
+    {
+        // Arrange
+        $this->register(['count' => false]);
+        $this->db->enableQueryLog()->clearQueryLog();
+
+        // Act
+        $group = Registry::query('a', 1)['groups'][0];
+        $uncounted = array_column($this->db->getQueryLog(), 'sql');
+        $this->db->clearQueryLog();
+        $this->register();
+        $counted = Registry::query('a', 1)['groups'][0];
+
+        // Assert
+        $this->assertCount(1, $group['results']);
+        $this->assertNull($group['total']);
+        $this->assertTrue($group['more']);
+        $this->assertNotEmpty($uncounted);
+        $this->assertSame([], array_values(array_filter($uncounted, static fn (string $q): bool => stripos($q, 'count(') !== false)));
+        $this->assertNotSame([], array_values(array_filter(array_column($this->db->getQueryLog(), 'sql'), static fn (string $q): bool => stripos($q, 'count(') !== false)), 'the control counts');
+        $this->assertSame(3, $counted['total']);
+        $this->assertTrue($counted['more']);
+    }
+
+    /**
+     * Registers the probe with the rule and the title pattern.
+     *
+     * @param array<string, mixed> $extra Options added to the defaults
+     */
+    private function register(array $extra = []): void
     {
         $db = $this->db;
         Registry::register('People', static function () use ($db): SearchOptionProbe {
@@ -168,7 +202,7 @@ class RegistrySearchOptionTest extends BaseTestCase
                     ['field' => 'lastname', 'op' => 'LIKE', 'value' => '%' . $term . '%'],
                 ]]];
             },
-        ]);
+        ] + $extra);
     }
 
     /**

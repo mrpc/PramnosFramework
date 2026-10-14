@@ -133,6 +133,11 @@ $page = (new \App\Models\User($this))->_getApiList();
 The second argument is the order. Left out — `null` — the newest come first, by primary key;
 an empty string `''` is no `ORDER BY` at all, the database's own order.
 
+A paginated list runs two statements, a `COUNT` for the total and the page itself. A caller that
+shows no total sets `$model->apiListCountTotal = false` first: the `COUNT` is not sent, the
+envelope's `totalitems` is `null` and there is one page. Worth it where the filter is a
+`LIKE '%term%'`, whose count reads the whole table. `User` has the same property.
+
 `_getList()` returns models with every scope applied — a global scope registered with
 `addGlobalScope()` is merged into the filter here, which is the reason to reach for it
 rather than for the query builder.

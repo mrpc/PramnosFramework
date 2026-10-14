@@ -12,6 +12,20 @@ class User extends \Pramnos\Framework\Base implements
     \Pramnos\Notification\NotifiableInterface
 {
     /**
+     * Whether `apiListPaginate()` counts the matching rows.
+     *
+     * On, a page comes with its total — two queries, a `COUNT` and the page. Off, only the page:
+     * `total` is null and the pages are one. A `LIKE '%term%'` count scans the whole table on every
+     * call, so a caller that shows no "x of y" — the search box's
+     * {@see \Pramnos\Search\Registry} source with `'count' => false` — turns it off for the call.
+     *
+     * Untyped, so a subclass that declares a property of this name keeps loading.
+     *
+     * @var bool
+     */
+    public $apiListCountTotal = true;
+
+    /**
      * `$user->notify($notification)`, which the Notifications Guide has always documented.
      *
      * It said *"`Pramnos\User\User` already is one"* and it was not: the class implemented
@@ -2198,12 +2212,16 @@ class User extends \Pramnos\Framework\Base implements
         $database = \Pramnos\Framework\Factory::getDatabase();
         $where = $this->apiListUsersWhere($filter);
 
-        $countQb = $database->queryBuilder()->table(self::usersTable());
-        if ($where !== '') {
-            $countQb->whereRaw($where);
+        $total = null;
+        $pages = 1;
+        if ($this->apiListCountTotal) {
+            $countQb = $database->queryBuilder()->table(self::usersTable());
+            if ($where !== '') {
+                $countQb->whereRaw($where);
+            }
+            $total = (int) $countQb->count();
+            $pages = $itemsPerPage > 0 ? (int) ceil($total / $itemsPerPage) : 0;
         }
-        $total = (int) $countQb->count();
-        $pages = $itemsPerPage > 0 ? (int) ceil($total / $itemsPerPage) : 0;
 
         $qb = $database->queryBuilder()->table(self::usersTable())->select($selectFields);
         if ($where !== '') {

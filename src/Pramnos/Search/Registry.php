@@ -92,7 +92,8 @@ final class Registry
      *     permission?: string|callable,
      *     search?: callable,
      *     title?: string|callable,
-     *     subtitle?: string|callable
+     *     subtitle?: string|callable,
+     *     count?: bool
      * } $options
      *
      *  - `display` — columns to show. The first is the result title, the rest become the
@@ -117,6 +118,10 @@ final class Registry
      *  - `title` / `subtitle` — a pattern with `:column` placeholders, or `fn (array $row):
      *    string`. With `title` set, every `display` column goes to the subtitle. Without
      *    `fields`, the placeholders are selected.
+     *  - `count` — `false` skips the `COUNT` behind the group's total: one more row than the
+     *    limit is fetched instead, the group's `total` is null and `more` says whether there were
+     *    more rows. A source without `$apiListCountTotal` (anything not a `Model` or `User`)
+     *    still counts, and answers the same way.
      */
     public static function register(string $label, mixed $source, array $options = []): void
     {
@@ -180,7 +185,7 @@ final class Registry
      * @param string $term      What was typed
      * @param int    $perSource Cap per group, unless the source sets its own `limit`
      * @return array{query: string, total: int, groups: list<array{
-     *     label: string, total: int, results: list<array{id: mixed, title: string, subtitle: string, url: ?string}>
+     *     label: string, total: ?int, more: bool, results: list<array{id: mixed, title: string, subtitle: string, url: ?string}>
      * }>}
      */
     public static function query(string $term, int $perSource = 5): array
@@ -201,7 +206,8 @@ final class Registry
                 continue;
             }
             $groups[] = $group;
-            $total   += $group['total'];
+            // An uncounted group adds what it returned: the total is then "at least".
+            $total   += $group['total'] ?? count($group['results']);
         }
 
         return ['query' => $term, 'total' => $total, 'groups' => $groups];
@@ -216,7 +222,7 @@ final class Registry
      * bug this would otherwise hide.
      *
      * @param array{source: mixed, options: array<string, mixed>} $entry
-     * @return array{label: string, total: int, results: list<array<string, mixed>>}|null
+     * @return array{label: string, total: ?int, more: bool, results: list<array<string, mixed>>}|null
      */
     private static function querySource(string $label, array $entry, string $term, int $perSource): ?array
     {
@@ -257,19 +263,35 @@ final class Registry
                 $searchTerm = '';
             }
 
-            $result = ApiListQuery::run(
-                $source,
-                $fields,
-                $searchTerm,
-                (string) ($options['order'] ?? ''),
-                $filter,
-                '',
-                '',
-                null,
-                null,
-                1,
-                $limit
-            );
+            // Uncounted: one row past the limit says whether there are more, without a COUNT
+            // that scans the table on every keystroke.
+            $counted  = ($options['count'] ?? true) !== false;
+            $countFlag = !$counted && property_exists($source, 'apiListCountTotal');
+            if ($countFlag) {
+                $source->apiListCountTotal = false;
+            }
+
+            try {
+                $result = ApiListQuery::run(
+                    $source,
+                    $fields,
+                    $searchTerm,
+                    (string) ($options['order'] ?? ''),
+                    $filter,
+                    '',
+                    '',
+                    null,
+                    null,
+                    1,
+                    $counted ? $limit : $limit + 1
+                );
+            } finally {
+                // A registered instance is searched again on the next term, and is the
+                // application's to use elsewhere.
+                if ($countFlag) {
+                    $source->apiListCountTotal = true;
+                }
+            }
         } catch (\Throwable $exception) {
             \Pramnos\Logs\Logger::log(
                 'Search source "' . $label . '" failed: ' . $exception->getMessage(),
@@ -293,16 +315,26 @@ final class Registry
             return null;
         }
 
-        $rows = is_array($result['data'] ?? null) ? $result['data'] : [];
+        $rows = array_values(array_filter(is_array($result['data'] ?? null) ? $result['data'] : [], 'is_array'));
+
+        if ($counted) {
+            // The engine's own total, so "5 of 137" is available to the UI. Falls back to
+            // the row count when the source could not count.
+            $groupTotal = (int) ($result['pagination']['totalitems'] ?? count($rows));
+            $more       = $groupTotal > count($rows);
+        } else {
+            $groupTotal = null;
+            $more       = count($rows) > $limit;
+            $rows       = array_slice($rows, 0, $limit);
+        }
 
         return [
             'label'   => $label,
-            // The engine's own total, so "5 of 137" is available to the UI. Falls back to
-            // the row count when the source could not count.
-            'total'   => (int) ($result['pagination']['totalitems'] ?? count($rows)),
+            'total'   => $groupTotal,
+            'more'    => $more,
             'results' => array_values(array_map(
                 static fn(array $row): array => self::formatRow($row, $primaryKey, $display, $options),
-                array_filter($rows, 'is_array')
+                $rows
             )),
         ];
     }

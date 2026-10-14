@@ -586,4 +586,48 @@ class UserCharacterizationTest extends TestCase
             $u->deleteuser();
         }
     }
+
+    /**
+     * With `$apiListCountTotal` off, a page comes without its COUNT: the rows, a null total, and
+     * no counting statement sent to the database.
+     *
+     * The search box turns it off because a `LIKE '%term%'` count scans the whole users table on
+     * every keystroke, for a total the box does not show.
+     */
+    public function testAnUncountedPageRunsNoCount(): void
+    {
+        // Arrange
+        $token = 'nocount' . bin2hex(random_bytes(4));
+        $created = [];
+        for ($i = 0; $i < 3; $i++) {
+            $u = new User();
+            $u->username = $token . '_' . $i;
+            $u->email    = $token . '_' . $i . '@example.com';
+            $u->setPassword('pass');
+            $u->save();
+            $created[] = $u;
+        }
+        $probe = new User();
+        $probe->apiListCountTotal = false;
+        $db = \Pramnos\Database\Database::getInstance();
+        $db->enableQueryLog()->clearQueryLog();
+
+        try {
+            // Act
+            $page = $probe->_getApiList(['userid', 'username'], $token, '', '', '', '', null, null, 1, 2);
+
+            // Assert
+            $this->assertCount(2, $page['data']);
+            $this->assertNull($page['pagination']['totalitems']);
+            $sql = array_column($db->getQueryLog(), 'sql');
+            $this->assertNotEmpty($sql, 'the page query itself is logged');
+            foreach ($sql as $statement) {
+                $this->assertStringNotContainsStringIgnoringCase('count(', $statement);
+            }
+        } finally {
+            foreach ($created as $u) {
+                $u->deleteuser();
+            }
+        }
+    }
 }

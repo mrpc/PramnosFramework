@@ -686,6 +686,53 @@ class RegistryTest extends TestCase
         $this->assertSame('3', $groups[2]['results'][0]['title']);
     }
 
+    /**
+     * `count => false` asks for one row past the limit with the source's count turned off, trims
+     * to the limit, says `more`, reports a null total — and turns the count back on, because a
+     * registered instance is searched again on the next term.
+     */
+    public function testAnUncountedSourceFetchesOneMoreAndRestoresTheFlag(): void
+    {
+        // Arrange
+        $rows   = [['id' => 1, 'username' => 'a1'], ['id' => 2, 'username' => 'a2'], ['id' => 3, 'username' => 'a3']];
+        $source = new CountingFakeSource($rows, 340);
+        Registry::register('Users', $source, ['display' => ['username'], 'count' => false, 'limit' => 2]);
+        Registry::register('Fewer', new CountingFakeSource([['id' => 9, 'username' => 'a9']]), ['display' => ['username'], 'count' => false]);
+
+        // Act
+        $result = Registry::query('a');
+
+        // Assert
+        $this->assertSame(3, $source->lastLimit, 'limit + 1');
+        $this->assertFalse($source->countSeen, 'the count was off during the query');
+        $this->assertTrue($source->apiListCountTotal, 'and back on after it');
+        $this->assertSame(['label' => 'Users', 'total' => null, 'more' => true], array_intersect_key($result['groups'][0], ['label' => 1, 'total' => 1, 'more' => 1]));
+        $this->assertCount(2, $result['groups'][0]['results']);
+        $this->assertFalse($result['groups'][1]['more'], 'no row past the limit, no more');
+        // The overall total adds what uncounted groups returned: at least 3.
+        $this->assertSame(3, $result['total']);
+    }
+
+    /**
+     * A source with no `$apiListCountTotal` still counts under `count => false`, and answers in
+     * the uncounted shape, so the box renders it the same way.
+     */
+    public function testASourceThatCannotSkipItsCountAnswersUncounted(): void
+    {
+        // Arrange
+        Registry::register('Users', new FakeSource([['id' => 1, 'username' => 'a1'], ['id' => 2, 'username' => 'a2']], 340), [
+            'display' => ['username'], 'count' => false, 'limit' => 1,
+        ]);
+
+        // Act
+        $group = Registry::query('a')['groups'][0];
+
+        // Assert
+        $this->assertNull($group['total']);
+        $this->assertTrue($group['more']);
+        $this->assertCount(1, $group['results']);
+    }
+
 }
 
 /**
@@ -813,5 +860,27 @@ class CountingSource extends FakeSource
     {
         self::$constructions++;
         parent::__construct([['id' => 1, 'username' => 'annak']]);
+    }
+}
+
+/** A fake that, like a model, can be told not to count — and records whether it was. */
+class CountingFakeSource extends FakeSource
+{
+    /** @var bool Read by the registry, as on a model. */
+    public $apiListCountTotal = true;
+
+    /** The flag's value while the page was fetched. */
+    public ?bool $countSeen = null;
+
+    public function apiListPaginate(
+        $itemsPerPage, $page, $filter, $order, $table, $key, $debug,
+        $join, $selectFields, $group, $returnAsModels, $useGetData, $customGetListMethod, $addedfields
+    ): array {
+        $this->countSeen = $this->apiListCountTotal;
+
+        return parent::apiListPaginate(
+            $itemsPerPage, $page, $filter, $order, $table, $key, $debug,
+            $join, $selectFields, $group, $returnAsModels, $useGetData, $customGetListMethod, $addedfields
+        );
     }
 }

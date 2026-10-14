@@ -58,6 +58,7 @@ a decision about what may surface and some tables should never appear in one.
 | `permission` | Who may see this entity at all — see below. |
 | `filter` | A `WHERE` body applied before the term. As a callable, which rows this viewer may see. |
 | `search` | `fn (string $term, ApiListSource $source)` — how this source matches the term, in place of its own rule. See below. |
+| `count` | `false` skips the `COUNT` behind a group's total — see [Without a count](#without-a-count). |
 | `title` / `subtitle` | A pattern with `:column` placeholders, or `fn (array $row): string`. With `title` set, every `display` column goes to the subtitle. |
 
 The source itself may be an `ApiListSource` instance, the **class name** of one, or a
@@ -188,6 +189,7 @@ Registry::register('Orders', \App\Models\Order::class, [
     {
       "label": "Users",
       "total": 12,
+      "more": true,
       "results": [
         { "id": 1, "title": "annak", "subtitle": "anna@example.com", "url": "/users/edit/1" }
       ]
@@ -195,6 +197,27 @@ Registry::register('Orders', \App\Models\Order::class, [
   ]
 }
 ```
+
+Each group also says `more`: whether rows exist beyond the ones returned.
+
+### Without a count
+
+A group's `total` costs a `COUNT` with the same `WHERE` as the results, and a `LIKE '%term%'`
+count reads the whole table — on every keystroke, in a search box. Where the box needs only
+"there are more", say so:
+
+```php
+Registry::register('Users', \Pramnos\User\User::class, [
+    'display' => ['username', 'email'],
+    'count'   => false,
+]);
+```
+
+The source is asked for one row past its limit, with its count turned off. The group comes back
+with `total: null` and `more: true` when that extra row existed, and the box shows `5+` instead
+of `5/340`. The response's overall `total` then adds what such a group returned, so it reads as
+"at least". A `Model` or `User` source skips the `COUNT`; any other `ApiListSource` still counts,
+and answers in the same shape.
 
 **Grouped, not ranked.** There is no score across sources, deliberately: a relevance
 number comparing a username to an invoice line is invented. `1/12` next to a group is

@@ -329,10 +329,11 @@
                     html += '<div class="pf-omnibox-group">';
                     html += '<p class="pf-omnibox-group-label">' + escapeHtml(group.label);
                     // "5 of 137" — the group total comes from the same count the list
-                    // endpoints use, so it is the real number and not the page size.
-                    if (group.total > rows.length) {
-                        html += ' <span class="pf-omnibox-count">'
-                            + rows.length + '/' + group.total + '</span>';
+                    // endpoints use, so it is the real number and not the page size. A source
+                    // that does not count says only that there are more: "5+".
+                    if (group.total == null ? group.more : group.total > rows.length) {
+                        html += ' <span class="pf-omnibox-count">' + rows.length
+                            + (group.total == null ? '+' : '/' + group.total) + '</span>';
                     }
                     html += '</p>';
 

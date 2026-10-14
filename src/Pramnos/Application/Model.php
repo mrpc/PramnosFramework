@@ -93,6 +93,19 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
      */
     protected $useCacheInLists = false;
     /**
+     * Whether `apiListPaginate()` counts the matching rows.
+     *
+     * On, a page comes with its total — two queries, a `COUNT` and the page. Off, only the page:
+     * `total` is null and the pages are one. A `LIKE '%term%'` count scans the whole table on every
+     * call, so a caller that shows no "x of y" — the search box's
+     * {@see \Pramnos\Search\Registry} source with `'count' => false` — turns it off for the call.
+     *
+     * Untyped, so a subclass that declares a property of this name keeps loading.
+     *
+     * @var bool
+     */
+    public $apiListCountTotal = true;
+    /**
      * Time to live for cache in lists (in seconds)
      * @var int
      */
@@ -1041,7 +1054,9 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
             }
 
             // Get total count
-            if ($group != '') {
+            if (!$this->apiListCountTotal) {
+                $totalItems = null;
+            } elseif ($group != '') {
                 $countQb = clone $qb;
                 $countQb->select('1')->clearOrderingAndPaging();
                 $countSql = "SELECT COUNT(*) as itemscount FROM (" . $countQb->toSql() . ") as grouped_query";
@@ -1052,7 +1067,9 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
                 $countResult = $countQb->get($this->useCacheInLists, $this->cacheInListsTime, $this->_cacheKey);
             }
 
-            $totalItems = $countResult->fields['itemscount'] ?? 0;
+            if ($this->apiListCountTotal) {
+                $totalItems = $countResult->fields['itemscount'] ?? 0;
+            }
 
             if ($totalItems == 0 || $items == 0) {
                 $totalPages = 1;
@@ -1606,6 +1623,7 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
         '_dbtable'         => true,
         'modelname'        => true,
         'prefix'           => true,
+        'apiListCountTotal' => true,
         '_dbschema'        => true,
         '_cacheKey'        => true,
         'cacheInListsTime' => true,
