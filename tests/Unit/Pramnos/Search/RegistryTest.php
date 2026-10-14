@@ -543,6 +543,149 @@ class RegistryTest extends TestCase
         $this->assertFalse(Registry::loadDefinitions('/nonexistent/search.php'));
         $this->assertFalse(Registry::hasSources());
     }
+
+    /**
+     * A `search` callable's WHERE body replaces the source's rule and joins the source's filter.
+     *
+     * The engine is handed no term, so the source's own conditions (`username LIKE '%x%'` in the
+     * fake) never appear; the registered scope still does — a rule must not be a way around it.
+     */
+    public function testASearchRuleReplacesTheSourcesRuleAndKeepsTheFilter(): void
+    {
+        // Arrange
+        $source = new FakeSource([['id' => 1, 'username' => 'annak']]);
+        $seen   = [];
+        Registry::register('Users', $source, [
+            'display' => ['username'],
+            'filter'  => 'deleted = 0',
+            'search'  => static function (string $term, ApiListSource $given) use (&$seen, $source): string {
+                $seen = [$term, $given === $source];
+
+                return "mobile LIKE '%6912%'";
+            },
+        ]);
+
+        // Act
+        Registry::query('6912');
+
+        // Assert
+        $this->assertSame(['6912', true], $seen, 'called with the term and the resolved source');
+        $this->assertStringContainsString("(deleted = 0) AND (mobile LIKE '%6912%')", $source->rawFilter);
+        $this->assertStringNotContainsString("username LIKE '%x%'", $source->rawFilter);
+    }
+
+    /** `null` from the rule is the source's own rule, unchanged. */
+    public function testASearchRuleReturningNullKeepsTheSourcesRule(): void
+    {
+        // Arrange
+        $source = new FakeSource([['id' => 1, 'username' => 'annak']]);
+        Registry::register('Users', $source, ['display' => ['username'], 'search' => static fn (): ?string => null]);
+
+        // Act
+        Registry::query('ann');
+
+        // Assert
+        $this->assertStringContainsString("username LIKE '%x%'", $source->rawFilter);
+    }
+
+    /** `false` from the rule: the source is not queried, and no group appears. */
+    public function testASearchRuleReturningFalseCostsNoQueryAndLeavesNoGroup(): void
+    {
+        // Arrange
+        $source = new FakeSource([['id' => 1, 'username' => 'annak']]);
+        Registry::register('Users', $source, ['display' => ['username'], 'search' => static fn (): bool => false]);
+
+        // Act
+        $result = Registry::query('ann@example.com');
+
+        // Assert
+        $this->assertSame([], $result['groups']);
+        $this->assertSame(0, $source->calls);
+    }
+
+    /**
+     * A rule that produces no condition drops the source rather than searching with none.
+     *
+     * Conditions naming only unknown columns build to nothing, and an empty string is the same
+     * nothing; either would answer every term with the table's first rows. A non-callable
+     * `search` and an answer of the wrong type are configuration errors that fail the same way.
+     */
+    public function testARuleThatProducesNoConditionDropsTheSource(): void
+    {
+        // Arrange
+        $rules = [
+            'unknown columns' => static fn (): array => [['field' => 'nope', 'op' => '=', 'value' => 1]],
+            'empty string'    => static fn (): string => '  ',
+            'wrong type'      => static fn (): int => 1,
+            'not callable'    => 'mobile LIKE 1',
+        ];
+
+        foreach ($rules as $name => $rule) {
+            Registry::reset();
+            $source = new FakeSource([['id' => 1, 'username' => 'annak']]);
+            Registry::register('Users', $source, ['display' => ['username'], 'search' => $rule]);
+
+            // Act
+            $result = Registry::query('ann');
+
+            // Assert
+            $this->assertSame([], $result['groups'], $name);
+            $this->assertSame(0, $source->calls, $name);
+        }
+    }
+
+    /**
+     * A `title` pattern builds the title, its columns are selected without `fields`, and the
+     * `display` columns all become the subtitle.
+     */
+    public function testATitlePatternBuildsTheTitleAndSelectsItsColumns(): void
+    {
+        // Arrange
+        $source = new FakeSource([['id' => 7, 'username' => 'annak', 'email' => 'anna@example.com', 'city' => '']]);
+        Registry::register('Users', $source, [
+            'title'   => '#:id: :username :city (:email)',
+            'display' => ['email'],
+        ]);
+
+        // Act
+        $row = Registry::query('ann')['groups'][0]['results'][0];
+
+        // Assert — the empty city leaves one space, not two
+        $this->assertSame('#7: annak (anna@example.com)', $row['title']);
+        $this->assertSame('anna@example.com', $row['subtitle']);
+        foreach (['username', 'city', 'email'] as $column) {
+            $this->assertStringContainsString($column, $source->lastSelect, $column . ' is selected');
+        }
+    }
+
+    /**
+     * Callables build the title and subtitle; without `display`, a titled source guesses no
+     * subtitle; a pattern that names a PHP function is still a pattern; an empty title is the key.
+     */
+    public function testTitleAndSubtitleCallablesAndTheirFallbacks(): void
+    {
+        // Arrange
+        Registry::register('Called', new FakeSource([['id' => 1, 'username' => 'annak', 'email' => 'a@x']]), [
+            'title'    => static fn (array $row): string => strtoupper($row['username']),
+            'subtitle' => static fn (array $row): string => 'mail: ' . $row['email'],
+        ]);
+        Registry::register('Plain', new FakeSource([['id' => 2, 'username' => 'nikos', 'email' => 'n@x']]), [
+            'title' => 'date',
+        ]);
+        Registry::register('Empty', new FakeSource([['id' => 3, 'username' => '']]), [
+            'title' => ':username',
+        ]);
+
+        // Act
+        $groups = Registry::query('a')['groups'];
+
+        // Assert
+        $this->assertSame(['title' => 'ANNAK', 'subtitle' => 'mail: a@x'], array_intersect_key($groups[0]['results'][0], ['title' => 1, 'subtitle' => 1]));
+        $this->assertSame('date', $groups[1]['results'][0]['title'], 'a string is a pattern, never a function name');
+        $this->assertSame('', $groups[1]['results'][0]['subtitle'], 'no display columns guessed under a title');
+        $this->assertSame('3', $groups[2]['results'][0]['title']);
+    }
+
 }
 
 /**
@@ -557,6 +700,9 @@ class FakeSource implements ApiListSource
     public int $calls = 0;
     public ?int $lastLimit = null;
     public ?string $lastFilter = null;
+    /** The WHERE clause as the engine built it, and the columns it selected. */
+    public string $rawFilter = '';
+    public string $lastSelect = '';
 
     /** @param list<array<string, mixed>> $rows */
     public function __construct(private array $rows = [], private ?int $total = null)
@@ -565,8 +711,8 @@ class FakeSource implements ApiListSource
 
     public function apiListSchemaFields($join = ''): array
     {
-        return ['id' => 'int', 'username' => 'string', 'email' => 'string', 'city' => 'string',
-            'reference' => 'string', 'title' => 'string', 'body' => 'string'];
+        // Column names, as a model reports them: the engine selects only what is listed here.
+        return ['id', 'username', 'email', 'city', 'reference', 'title', 'body'];
     }
 
     public function apiListDefaultFields($join = ''): array
@@ -593,6 +739,8 @@ class FakeSource implements ApiListSource
         // The filter reaches apiListPaginate() folded into the WHERE clause, so the
         // scope is asserted where it actually lands rather than where it was configured.
         $this->lastFilter = self::scopeOf((string) $filter);
+        $this->rawFilter  = (string) $filter;
+        $this->lastSelect = is_array($selectFields) ? implode(',', $selectFields) : (string) $selectFields;
 
         return [
             'items' => $this->rows,

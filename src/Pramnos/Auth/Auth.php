@@ -172,6 +172,7 @@ class Auth extends \Pramnos\Framework\Base
         }
 
         $_SESSION['logged'] = false;
+        \Pramnos\User\User::forgetCurrentUser();
 
         foreach ($this->afterLogoutCallbacks as $fn) {
             $fn();
@@ -462,6 +463,9 @@ class Auth extends \Pramnos\Framework\Base
         if (SecurityPolicy::regeneratesSessionOnLogin()) {
             \Pramnos\Http\Session::getInstance()->regenerateId();
         }
+
+        // Whoever was cached for this request is not who is signing in now.
+        \Pramnos\User\User::forgetCurrentUser();
 
         $userAddons = \Pramnos\Addon\Addon::getaddons('user');
         if (!empty($userAddons)) {

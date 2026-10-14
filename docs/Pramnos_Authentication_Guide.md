@@ -1085,6 +1085,11 @@ $userId = \Pramnos\User\User::current()?->userid;   // null when nobody is signe
 `getCurrentUser()` keeps `false`, because code compares it with `=== false` and
 would read `null` as somebody being signed in.
 
+**The cache is per request, and a sign-in clears it.** `Auth::login()`, `loginById()` and
+`logout()` all call `User::forgetCurrentUser()`, so a process that signs in a second user — a
+test, a worker acting for several accounts — is told about that user, not the first. Code that
+changes `$_SESSION['uid']` by any other route calls `User::forgetCurrentUser()` itself.
+
 ### How a stored password is hashed, and read
 
 Everything that hashes or checks a password goes through `Pramnos\Auth\PasswordHash`.

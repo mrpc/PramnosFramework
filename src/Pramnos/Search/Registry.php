@@ -89,7 +89,10 @@ final class Registry
      *     fields?: list<string>,
      *     order?: string,
      *     filter?: string|callable,
-     *     permission?: string|callable
+     *     permission?: string|callable,
+     *     search?: callable,
+     *     title?: string|callable,
+     *     subtitle?: string|callable
      * } $options
      *
      *  - `display` — columns to show. The first is the result title, the rest become the
@@ -106,6 +109,14 @@ final class Registry
      *  - `filter` — a WHERE body applied before the search term, for rows that must never
      *    surface (soft-deleted, another tenant's). A **callable** receives the current
      *    user and returns that body, which is how a per-viewer scope is expressed.
+     *  - `search` — `fn (string $term, ApiListSource $source)` deciding how this source matches
+     *    the term, in place of the source's own rule. It returns structured conditions (the
+     *    `[field, op, value]` / `['or' => …]` array a list filter takes, escaped for you), a
+     *    WHERE body as a string (yours to escape), `null` for the source's own rule, or `false`
+     *    for "this source has no answer to this term": no query and no group.
+     *  - `title` / `subtitle` — a pattern with `:column` placeholders, or `fn (array $row):
+     *    string`. With `title` set, every `display` column goes to the subtitle. Without
+     *    `fields`, the placeholders are selected.
      */
     public static function register(string $label, mixed $source, array $options = []): void
     {
@@ -224,13 +235,32 @@ final class Registry
             $source     = self::resolve($entry['source']);
             $limit      = max(1, (int) ($options['limit'] ?? $perSource));
             $primaryKey = $source->apiListPrimaryKey();
-            $display    = self::displayColumns($source, $options);
-            $fields     = $options['fields'] ?? array_values(array_unique(array_merge([$primaryKey], $display)));
+            $display    = isset($options['title']) && empty($options['display'])
+                ? []
+                : self::displayColumns($source, $options);
+            $fields     = $options['fields'] ?? array_values(array_unique(array_merge(
+                [$primaryKey],
+                $display,
+                self::placeholders($options['title'] ?? null),
+                self::placeholders($options['subtitle'] ?? null)
+            )));
+
+            // The application's own rule for this term, when it has one: it joins the filter
+            // and the engine is handed no term, so the source's rule never runs.
+            $searchTerm = $term;
+            $condition  = self::searchCondition($options, $term, $source);
+            if ($condition === false) {
+                return null;
+            }
+            if ($condition !== null) {
+                $filter     = trim($filter) === '' ? $condition : '(' . $filter . ') AND (' . $condition . ')';
+                $searchTerm = '';
+            }
 
             $result = ApiListQuery::run(
                 $source,
                 $fields,
-                $term,
+                $searchTerm,
                 (string) ($options['order'] ?? ''),
                 $filter,
                 '',
@@ -271,7 +301,7 @@ final class Registry
             // the row count when the source could not count.
             'total'   => (int) ($result['pagination']['totalitems'] ?? count($rows)),
             'results' => array_values(array_map(
-                static fn(array $row): array => self::formatRow($row, $primaryKey, $display, $options['url'] ?? null),
+                static fn(array $row): array => self::formatRow($row, $primaryKey, $display, $options),
                 array_filter($rows, 'is_array')
             )),
         ];
@@ -282,9 +312,10 @@ final class Registry
      *
      * @param array<string, mixed> $row
      * @param list<string>         $display
+     * @param array<string, mixed> $options
      * @return array{id: mixed, title: string, subtitle: string, url: ?string}
      */
-    private static function formatRow(array $row, string $primaryKey, array $display, ?string $urlPattern): array
+    private static function formatRow(array $row, string $primaryKey, array $display, array $options): array
     {
         $values = [];
         foreach ($display as $column) {
@@ -294,18 +325,103 @@ final class Registry
             }
         }
 
-        $id = $row[$primaryKey] ?? null;
+        $id         = $row[$primaryKey] ?? null;
+        $urlPattern = $options['url'] ?? null;
+
+        // The first non-empty display column, not simply the first: a row whose name
+        // is null would otherwise produce a result with no visible text at all.
+        $title = isset($options['title'])
+            ? self::fill($options['title'], $row)
+            : (string) array_shift($values);
 
         return [
-            'id' => $id,
-            // The first non-empty display column, not simply the first: a row whose name
-            // is null would otherwise produce a result with no visible text at all.
-            'title'    => $values === [] ? (string) $id : (string) array_shift($values),
-            'subtitle' => implode(' · ', $values),
+            'id'       => $id,
+            'title'    => $title === '' ? (string) $id : $title,
+            'subtitle' => isset($options['subtitle']) ? self::fill($options['subtitle'], $row) : implode(' · ', $values),
             'url'      => $urlPattern === null || $id === null
                 ? null
                 : str_replace(':id', rawurlencode((string) $id), $urlPattern),
         ];
+    }
+
+    /**
+     * A `title` / `subtitle` for one row: the callable's answer, or the pattern with each
+     * `:column` replaced. An empty column leaves no double space behind.
+     *
+     * @param array<string, mixed> $row
+     */
+    private static function fill(mixed $template, array $row): string
+    {
+        // A string is always a pattern, even one that happens to name a PHP function.
+        if (!is_string($template) && is_callable($template)) {
+            return trim((string) $template($row));
+        }
+
+        $filled = preg_replace_callback(
+            '/:([A-Za-z_][A-Za-z0-9_]*)/',
+            static fn(array $m): string => is_scalar($row[$m[1]] ?? null) ? (string) $row[$m[1]] : '',
+            (string) $template
+        );
+
+        return trim((string) preg_replace('/\s+/', ' ', (string) $filled));
+    }
+
+    /**
+     * The columns a `title` / `subtitle` pattern names — none for a callable, which cannot say.
+     *
+     * @return list<string>
+     */
+    private static function placeholders(mixed $template): array
+    {
+        if (!is_string($template)) {
+            return [];
+        }
+
+        preg_match_all('/:([A-Za-z_][A-Za-z0-9_]*)/', $template, $m);
+
+        return $m[1];
+    }
+
+    /**
+     * The `search` option's WHERE body for this term: null for the source's own rule, false for
+     * no answer at all.
+     *
+     * Structured conditions go through the list filter's builder, which escapes them. A set of
+     * conditions that builds to nothing — every field unknown to the source — throws rather than
+     * returning '': an empty condition is no condition, and the source would answer the term with
+     * its first rows.
+     *
+     * @param array<string, mixed> $options
+     */
+    private static function searchCondition(array $options, string $term, ApiListSource $source): string|false|null
+    {
+        if (!isset($options['search'])) {
+            return null;
+        }
+        if (!is_callable($options['search'])) {
+            throw new \InvalidArgumentException('A search source `search` option must be a callable.');
+        }
+
+        $condition = $options['search']($term, $source);
+
+        if ($condition === null || $condition === false) {
+            return $condition;
+        }
+
+        if (is_array($condition)) {
+            $condition = \Pramnos\Application\ApiList\ApiListSqlBuilder::buildFilterFromConditions(
+                $condition,
+                $source->apiListSchemaFields('')
+            );
+        }
+
+        if (!is_string($condition) || trim($condition) === '') {
+            throw new \UnexpectedValueException(
+                'A search source `search` callable must return conditions, a WHERE body, null or false.'
+            );
+        }
+
+        return $condition;
     }
 
     /**

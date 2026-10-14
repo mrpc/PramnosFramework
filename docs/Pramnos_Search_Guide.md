@@ -50,18 +50,67 @@ a decision about what may surface and some tables should never appear in one.
 
 | Option | |
 |---|---|
-| `display` | Columns to show. **The first is the result title**, the rest become the subtitle. Defaults to the source's own default fields, which is a guess — set it. |
+| `display` | Columns to show. **The first is the result title** (unless `title` is set), the rest become the subtitle. Defaults to the source's own default fields, which is a guess — set it. |
 | `url` | Link pattern; `:id` is replaced with the primary key, URL-encoded. Omit for a result that is not a link. |
 | `limit` | Cap for this source. Defaults to the query's per-source cap (5). |
-| `fields` | Columns to select. Defaults to the primary key plus `display`. |
+| `fields` | Columns to select. Defaults to the primary key, `display`, and the columns `title` / `subtitle` patterns name. |
 | `order` | Order spec, passed through to `ApiListQuery`. |
 | `permission` | Who may see this entity at all — see below. |
 | `filter` | A `WHERE` body applied before the term. As a callable, which rows this viewer may see. |
+| `search` | `fn (string $term, ApiListSource $source)` — how this source matches the term, in place of its own rule. See below. |
+| `title` / `subtitle` | A pattern with `:column` placeholders, or `fn (array $row): string`. With `title` set, every `display` column goes to the subtitle. |
 
 The source itself may be an `ApiListSource` instance, the **class name** of one, or a
 callable returning one. Prefer the class name: it is not constructed until something
 actually searches, so a registry of six models costs nothing on the requests that never
 use the box.
+
+### Matching the term your own way
+
+By default a source matches the term with its own rule: the model's text columns, `LIKE`. An
+application that knows better says so in `app/search.php`, without a model subclass:
+
+```php
+Registry::register('Users', \Pramnos\User\User::class, [
+    'title'    => '#:userid: :lastname :firstname (:username)',
+    'subtitle' => ':mobile',
+    'url'      => '/admin/users/:id',
+    'search'   => static function (string $term): array|false|null {
+        if (str_contains($term, '@')) {
+            return false;                                   // no answer: no query, no group
+        }
+        if (preg_match('/^\d{7,}$/', $term)) {
+            return [['field' => 'mobile', 'op' => 'LIKE', 'value' => '%' . $term . '%']];
+        }
+
+        return [['or' => [
+            ['field' => 'firstname', 'op' => 'LIKE', 'value' => '%' . $term . '%'],
+            ['field' => 'lastname',  'op' => 'LIKE', 'value' => '%' . $term . '%'],
+        ]]];
+    },
+]);
+```
+
+What the callable returns decides what happens:
+
+| Returns | Meaning |
+|---|---|
+| an array of conditions | The `[field, op, value]` / `['or' => …]` form a list filter takes. Columns are checked against the model and values escaped; `LIKE` becomes `ILIKE` on PostgreSQL. |
+| a string | A `WHERE` body used as it is. **The term is user input**: escape it yourself, with `$db->prepareQuery()`. |
+| `null` | The source's own rule. |
+| `false` | This source has no answer for this term: it is not queried and no group appears. |
+
+The condition is added to `filter`, never in place of it, so a tenant scope holds whatever the
+rule says. A rule that produces no condition — conditions naming only columns the model does
+not have, an empty string — drops the source, because no condition would answer every term with
+the table's first rows.
+
+### Titles from a pattern
+
+`title` and `subtitle` take a pattern, where each `:column` is replaced by that column of the row
+and an empty column leaves no double space, or a callable receiving the row. Without `fields`,
+the columns a pattern names are selected for you. A callable cannot say which columns it reads,
+so it reads `display` and whatever `fields` lists.
 
 ## Permissions
 

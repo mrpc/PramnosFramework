@@ -1418,6 +1418,22 @@ class User extends \Pramnos\Framework\Base implements
     }
 
     /**
+     * Forget the user {@see getCurrentUser()} cached for this request.
+     *
+     * The first call in a request loads the signed-in user and keeps it on the application, so a
+     * process that signs in a second user — a test, a worker, an "act as" — goes on being told
+     * about the first. `Auth` calls this on every login and logout; call it yourself after
+     * changing `$_SESSION['uid']` by any other means.
+     */
+    public static function forgetCurrentUser(): void
+    {
+        $app = \Pramnos\Application\Application::currentInstance();
+        if ($app) {
+            $app->currentUser = null;
+        }
+    }
+
+    /**
      * Return the current logged user
      *
      * Two sources, and the order matters.

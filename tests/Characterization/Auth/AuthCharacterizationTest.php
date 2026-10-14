@@ -519,6 +519,41 @@ class AuthCharacterizationTest extends TestCase
     }
 
     /**
+     * Signing in and signing out both forget the user `getCurrentUser()` cached for the request.
+     *
+     * Without it a second sign-in in the same process — a test, a worker acting for several
+     * users — went on answering with the first user, and a check that a non-administrator sees
+     * nothing passed only when it ran alone.
+     */
+    public function testLoginAndLogoutForgetTheCachedCurrentUser(): void
+    {
+        // Arrange — a user addon on both paths, so neither touches the database
+        $userAddon = new class {
+            public function onLogin($info = []): bool { return true; }
+            public function onLogout(): void {}
+        };
+        $this->setAddonRegistry(['user' => ['u' => $userAddon]]);
+        $auth = new class extends Auth {
+            protected function buildLoginResponse(int $userId, bool $remember): array|false
+            {
+                return ['status' => true, 'uid' => $userId, 'username' => 'u' . $userId, 'auth' => '', 'remember' => false];
+            }
+        };
+        $app = \Pramnos\Application\Application::currentInstance();
+        $this->assertNotNull($app);
+
+        // Act / Assert — login
+        $app->currentUser = (object) ['userid' => 41];
+        $auth->loginById(42);
+        $this->assertNull($app->currentUser, 'login forgets the previous user');
+
+        // Act / Assert — logout
+        $app->currentUser = (object) ['userid' => 42];
+        $auth->logout();
+        $this->assertNull($app->currentUser, 'logout forgets the signed-out user');
+    }
+
+    /**
      * When the response builder returns false (unknown/inactive/deleted/banned
      * user), loginById() returns false and NO login handler fires.
      */
