@@ -244,9 +244,9 @@ test('Ask is the analyst\'s conversation, run by pf-chat.js, with the page sent 
     assert.deepEqual(ui.inits, [chat], 'pf-chat.js loaded, and run over it');
     assert.equal(form.querySelector('input[name="page[screen]"]').value, 'users');
     assert.equal(form.querySelector('input[name="page[id]"]').value, '5', 'the record this page shows');
-    assert.deepEqual(chat.querySelectorAll('nav, aside, h1').map((part) => [part.tagName, part.hidden]),
+    assert.deepEqual(chat.querySelectorAll('nav, aside, h1').map((part) => [part.tagName, part.style.display === 'none']),
         [['NAV', true], ['H1', true], ['NAV', false], ['ASIDE', true]], 'the list and the settings are Ask\'s page\'s; a nav inside an answer stays');
-    assert.equal(chat.querySelector('p').hidden, true, 'the line with the link to Ask\'s settings');
+    assert.equal(chat.querySelector('p').style.display, 'none', 'the line with the link to Ask\'s settings');
     assert.equal(ui.state().c, 9);
 
     // Drawn again after an answer: the fields are not added twice

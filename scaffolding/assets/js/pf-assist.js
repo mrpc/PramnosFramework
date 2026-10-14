@@ -125,8 +125,9 @@
 
         Array.prototype.forEach.call(chat.querySelectorAll('nav, aside, h1, a[href$="/settings"]'), function (part) {
             if (part.closest('[data-pf-chat]') === chat && !part.closest('[data-pf-chat-messages]')) {
-                // A link is hidden with the line it is on: Ask's way to its settings.
-                (part.tagName === 'A' ? part.parentNode : part).hidden = true;
+                // A link is hidden with the line it is on: Ask's way to its settings. By its own
+                // display: a theme's inline `display` would win over `hidden`.
+                (part.tagName === 'A' ? part.parentNode : part).style.display = 'none';
             }
         });
 

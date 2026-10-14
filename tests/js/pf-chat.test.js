@@ -531,13 +531,13 @@ test('the examples go the moment a question is sent, and come back with a refuse
 
     // Act
     sent.box.dispatch('keydown', { key: 'Enter', shiftKey: false });
-    const atOnce = sent.page.hidden;
+    const atOnce = sent.page.style.display;
     refused.form.dispatch('submit');
     await settle();
 
     // Assert
-    assert.equal(atOnce, true, 'hidden on Enter, before any answer');
-    assert.equal(refused.page.hidden, false, 'the question is back in the box, and so are they');
+    assert.equal(atOnce, 'none', 'hidden on Enter, before any answer — by display, which an inline display:flex cannot win over');
+    assert.equal(refused.page.style.display, '', 'the question is back in the box, and so are they');
 });
 
 test('a page without the conversation does nothing', () => {

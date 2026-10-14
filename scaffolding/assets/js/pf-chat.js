@@ -628,9 +628,11 @@
             }
             thinking();
 
-            // The examples were for an empty conversation: gone the moment it is not.
+            // The examples were for an empty conversation: gone the moment it is not. Their own
+            // display, not `hidden`: the theme lays their row out with an inline `display:flex`,
+            // which `[hidden]` loses to.
             var examples = Array.prototype.map.call(root.querySelectorAll('[data-pf-chat-suggestion]'), function (one) { return one.parentNode; });
-            examples.forEach(function (holder) { holder.hidden = true; });
+            examples.forEach(function (holder) { holder.style.display = 'none'; });
 
             if (box) {
                 box.value = '';
@@ -651,7 +653,7 @@
                 if (button) {
                     button.disabled = false;
                 }
-                examples.forEach(function (holder) { holder.hidden = false; });
+                examples.forEach(function (holder) { holder.style.display = ''; });
                 say(reason, true);
             }
 
