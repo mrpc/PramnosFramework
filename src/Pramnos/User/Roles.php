@@ -12,7 +12,7 @@ namespace Pramnos\User;
  *
  * ```php
  * // app/app.php
- * 'roles' => ['admin' => 97, 'super' => 98, 'root' => 99, 'developer' => 99],
+ * 'roles' => ['admin' => 97, 'super' => 98, 'root' => 99],
  * ```
  *
  * | role | default | what asks for it |
@@ -20,8 +20,7 @@ namespace Pramnos\User;
  * | `manager` | 80 | the day-to-day screens: dashboard, queue, emails, organisations, services, a user's own tokens |
  * | `admin` | 90 | what decides for everyone: permissions, roles, applications, every token, phpinfo, GDPR requests |
  * | `super` | 98 | the administration area's floor and its superuser, invitations |
- * | `root` | 99 | Adminer on any deployment, the DevPanel on production |
- * | `developer` | 90 | the DevPanel in development and the debug bar's grants |
+ * | `root` | 99 | the developer tools: the DevPanel, Adminer, the debug bar's grants |
  *
  * A key a tool already had — `devpanel.min_usertype`, `devpanel.adminer_min_usertype`,
  * `debug.grant_min_usertype`, the `admin_*_usertype` settings — still wins over its role.
@@ -36,15 +35,12 @@ final class Roles
 
     public const ROOT = 'root';
 
-    public const DEVELOPER = 'developer';
-
     /** Each role's usertype unless `app.php` says otherwise. */
     public const DEFAULTS = [
-        self::MANAGER   => 80,
-        self::ADMIN     => 90,
-        self::SUPER     => 98,
-        self::ROOT      => 99,
-        self::DEVELOPER => 90,
+        self::MANAGER => 80,
+        self::ADMIN   => 90,
+        self::SUPER   => 98,
+        self::ROOT    => 99,
     ];
 
     /**

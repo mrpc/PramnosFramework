@@ -190,7 +190,7 @@ revisited when a capability is added above it.
 | --- | --- | --- | --- |
 | `99` | Root | danger | `*` — every capability, including ones added later |
 | `98` | Super Administrator | danger | `admin.area` and every administration screen, `admin.users`, `admin.settings`, `admin.permissions`… |
-| `90` | Administrator | warning | `devpanel` (the `developer` role); no administration screen unless a role grants it |
+| `90` | Administrator | warning | no administration screen unless a role grants it |
 | `1` | System User (Client Credentials Grant) | neutral | `api.client_credentials` — **and nothing else**, see below |
 | `0` | Simple User | primary | `account.self` |
 
@@ -225,8 +225,8 @@ The framework's screens and tools never compare a usertype with a number of thei
 `Pramnos\User\Roles` for a role, so an installation moves every line in one place:
 
 ```php
-// app/app.php — administrators at 97, one root account, developer tools for root only
-'roles' => ['admin' => 97, 'super' => 98, 'root' => 99, 'developer' => 99],
+// app/app.php — administrators at 97, one root account
+'roles' => ['admin' => 97, 'super' => 98, 'root' => 99],
 ```
 
 | Role | Default | What asks for it |
@@ -234,8 +234,7 @@ The framework's screens and tools never compare a usertype with a number of thei
 | `manager` | 80 | a dashboard widget's default `allowed()`; one user's tokens, outside the area |
 | `admin` | 90 | `phpinfo` on the Health screen, the GDPR requests screen's administrator view, `auth_trusted_devices_exclude_admins` |
 | `super` | 98 | every administration screen's floor and the superuser (`AdminAccess::defaultUsertype()`, `superuserUsertype()`) |
-| `root` | 99 | Adminer on any deployment, the DevPanel on production |
-| `developer` | 90 | the DevPanel in development, its link in the debug bar, Adminer's development fallback, the debug bar's grants |
+| `root` | 99 | the developer tools: the DevPanel in development and production, its link in the debug bar, Adminer, the debug bar's grants |
 
 ```php
 \Pramnos\User\Roles::level('admin');               // 97 with the config above

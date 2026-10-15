@@ -677,7 +677,7 @@ the framework resolves the controller itself, the way it does `/devpanel`.
 
 | | |
 |---|---|
-| Who | Signed in, **user type ≥ 90** by default |
+| Who | Signed in, of the **`root` role** (99) by default |
 | Raise or lower it | `'debug' => ['grant_min_usertype' => 95]` in `app.php` |
 | Name people | `'debug' => ['grant_usertypes' => [95], 'grant_userids' => [7]]` — unset lists fall back to `devpanel.usertypes` / `devpanel.userids`; see the [DevPanel Guide](Pramnos_DevPanel_Guide.md#all-three-developer-tools-read-the-same-names) |
 | How long | 15 minutes, 1 hour or 4 hours |

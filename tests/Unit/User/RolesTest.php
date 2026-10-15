@@ -61,7 +61,7 @@ class RolesTest extends TestCase
         // Act / Assert
         $this->assertSame(97, Roles::level(Roles::ADMIN), 'the installation\'s');
         $this->assertSame(80, Roles::level(Roles::MANAGER), 'a value that is no number is the default');
-        $this->assertSame([98, 99, 90], [Roles::level(Roles::SUPER), Roles::level(Roles::ROOT), Roles::level(Roles::DEVELOPER)]);
+        $this->assertSame([98, 99], [Roles::level(Roles::SUPER), Roles::level(Roles::ROOT)]);
         $this->expectException(\InvalidArgumentException::class);
         Roles::level('adminn');
     }
@@ -79,25 +79,25 @@ class RolesTest extends TestCase
     }
 
     /**
-     * The developer tools follow the roles — the DevPanel and the debug bar the `developer` role,
-     * Adminer the `root` one, the administration area's floor and superuser the `super` one — and
+     * The developer tools — the DevPanel, Adminer, the debug bar — follow the `root` role, the
+     * administration area's floor and superuser the `super` one — and
      * a key a tool already had still wins over its role.
      */
     public function testTheToolsFollowTheRoles(): void
     {
         // Arrange — one root account, as an installation sets it
-        $this->config(['roles' => ['developer' => 99, 'root' => 100, 'super' => 97]]);
+        $this->config(['roles' => ['root' => 100, 'super' => 97]]);
         $rootFloor = new \ReflectionMethod(\Pramnos\Application\Controllers\Adminer::class, 'rootFloor');
 
         // Act / Assert — by role
-        $this->assertSame(99, \Pramnos\DevPanel\DevPanelController::developerFloor());
+        $this->assertSame(100, \Pramnos\DevPanel\DevPanelController::developerFloor());
         $this->assertSame(100, $rootFloor->invoke(null));
         \Pramnos\Application\Settings::setSetting(\Pramnos\Auth\AdminAccess::DEFAULT_FLOOR_SETTING, 0, false);
         \Pramnos\Application\Settings::setSetting(\Pramnos\Auth\AdminAccess::SUPERUSER_SETTING, 0, false);
         $this->assertSame([97, 97], [\Pramnos\Auth\AdminAccess::defaultUsertype(), \Pramnos\Auth\AdminAccess::superuserUsertype()]);
 
         // A tool's own key wins
-        $this->config(['roles' => ['developer' => 99], 'devpanel' => ['min_usertype' => 95, 'adminer_min_usertype' => 96]]);
+        $this->config(['roles' => ['root' => 100], 'devpanel' => ['min_usertype' => 95, 'adminer_min_usertype' => 96]]);
         $this->assertSame(95, \Pramnos\DevPanel\DevPanelController::developerFloor());
         $this->assertSame(96, $rootFloor->invoke(null));
     }

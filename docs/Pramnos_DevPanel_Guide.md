@@ -37,15 +37,17 @@ Access requires the `devpanel` feature enabled, and then **either** route in:
 
 | Route | What it needs |
 |---|---|
-| Development | a **development environment** — `APP_DEBUG=1` in `.env`, or the `DEVELOPMENT` constant — **and** a signed-in user with `usertype >= 90`, or a policy callback that says yes |
-| Any deployment | a signed-in user named in `app.php`: `usertype >= 99`, or listed in `usertypes`, or listed in `userids` |
+| Development | a **development environment** — `APP_DEBUG=1` in `.env`, or the `DEVELOPMENT` constant — **and** a signed-in user of the `root` role (99 unless `roles` says), or a policy callback that says yes |
+| Any deployment | a signed-in user named in `app.php`: the `root` role, or listed in `usertypes`, or listed in `userids` |
 
-The keys, in `app.php` beside the feature list:
+Every floor below defaults to the **`root` role** — `'roles' => ['root' => 99]`, see
+[Moving the lines](Pramnos_Authentication_Guide.md#moving-the-lines-roles) — so moving root moves
+all three tools. A key set here wins over the role:
 
 ```php
 'devpanel' => [
     'mount'                   => 'devpanel',  // path to mount on
-    'min_usertype'            => 90,          // the development floor
+    'min_usertype'            => 99,          // the development floor
     'production_min_usertype' => 99,          // opens it on any deployment
     'usertypes'               => [95],        // these types too, wherever they are
     'userids'                 => [7],         // and these people, whatever their type
@@ -57,7 +59,7 @@ The keys, in `app.php` beside the feature list:
 ],
 'debug' => [
     // The toolbar grant, at /debugbar. Same fallback.
-    'grant_min_usertype'      => 90,
+    'grant_min_usertype'      => 99,
     'grant_usertypes'         => [],
     'grant_userids'           => [],
 ],
@@ -114,7 +116,7 @@ the panel's**:
 |---|---|---|---|---|
 | `/devpanel` | `devpanel.production_min_usertype` | `devpanel.usertypes` | `devpanel.userids` | 99 |
 | `/adminer` | `devpanel.adminer_min_usertype` | `devpanel.adminer_usertypes` | `devpanel.adminer_userids` | 99 |
-| `/debugbar` | `debug.grant_min_usertype` | `debug.grant_usertypes` | `debug.grant_userids` | 90 |
+| `/debugbar` | `debug.grant_min_usertype` | `debug.grant_usertypes` | `debug.grant_userids` | 99 |
 
 One line gives one person everything:
 
@@ -139,14 +141,11 @@ browses the database, reads the cache and dumps the container.
 Every opening of any of the three outside a development environment goes to the `auth` log,
 naming the tool.
 
-!!! note "Why the toolbar's default floor is 90 and Adminer's is 99"
-    They are different questions. Adminer reads the whole database; the toolbar grant carries
-    the queries, session keys and logs of **one request** in **one browser**, for a bounded
-    time. The gradient is deliberate.
-
-    The 90 is a default, not a decision about your installation: every account at 90 or above
-    can issue itself that grant while the feature is enabled. If that is too wide,
-    `grant_userids` is a narrower answer than raising the floor.
+!!! note "Developer means root"
+    The three tools share one floor, the `root` role, because whoever may use them is whoever
+    owns the deployment. An installation that wants administrators to issue themselves the
+    toolbar grant, which carries one request's queries, session keys and logs for a bounded
+    time, lowers `grant_min_usertype` or names them in `grant_usertypes` / `grant_userids`.
 
 ### There is no setting that opens this panel
 
@@ -260,12 +259,12 @@ if (!FeatureRegistry::isEnabled('devpanel')) {    // the floor below belongs to 
     return false;
 }
 
-return $usertype >= DevPanelController::config('min_usertype', 90);
+return $usertype >= DevPanelController::developerFloor();   // min_usertype, else root
 ```
 
 The third clause reads as belt-and-braces and is not: the floor it is about to apply belongs to
 the DevPanel, and a floor configured for a panel the installation does not have is a number with
-nothing behind it. Letting a usertype-90 account through on the strength of it would be a gate
+nothing behind it. Letting an account through on the strength of it would be a gate
 configured by accident.
 
 And **signed in means both**: `User::getCurrentUser()` and `Session::staticIsLogged()` are

@@ -225,15 +225,21 @@ class AdminerGateTest extends TestCase
      */
     public function testInDevelopmentTheFloorAppliesOnlyWithTheDevPanel(): void
     {
-        // Arrange
+        // Arrange — an installation that opened its DevPanel below root
+        $app   = \Pramnos\Application\Application::getInstance();
+        $saved = $app->applicationInfo;
+        $app->makeCurrentInstance();
+        $app->applicationInfo['devpanel'] = ['min_usertype' => 90];
         $this->signIn(90);
 
+        // Act
+        $withPanel    = $this->openable(developer: true, devpanel: true);
+        $withoutPanel = $this->openable(developer: true, devpanel: false);
+        $app->applicationInfo = $saved;
+
         // Assert
-        $this->assertTrue($this->openable(developer: true, devpanel: true));
-        $this->assertFalse(
-            $this->openable(developer: true, devpanel: false),
-            'the DevPanel floor was honoured without the DevPanel'
-        );
+        $this->assertTrue($withPanel);
+        $this->assertFalse($withoutPanel, 'the DevPanel floor was honoured without the DevPanel');
     }
 
     /** And below that floor, development or not. */

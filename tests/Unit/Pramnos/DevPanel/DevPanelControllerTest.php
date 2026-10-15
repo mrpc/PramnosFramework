@@ -136,7 +136,7 @@ class DevPanelControllerTest extends TestCase
 
     public function testDisplayShowsOverview(): void
     {
-        $this->setMockUser(95);
+        $this->setMockUser(99);
         ob_start();
         $this->controller->display();
         $output = ob_get_clean();
@@ -149,7 +149,7 @@ class DevPanelControllerTest extends TestCase
 
     public function testDbShowsDatabasePanel(): void
     {
-        $this->setMockUser(95);
+        $this->setMockUser(99);
         ob_start();
         $this->controller->db();
         $output = ob_get_clean();
@@ -162,7 +162,7 @@ class DevPanelControllerTest extends TestCase
 
     public function testCacheShowsCachePanel(): void
     {
-        $this->setMockUser(95);
+        $this->setMockUser(99);
         ob_start();
         $this->controller->cache();
         $output = ob_get_clean();
@@ -175,7 +175,7 @@ class DevPanelControllerTest extends TestCase
 
     public function testUsersShowsUsersPanel(): void
     {
-        $this->setMockUser(95);
+        $this->setMockUser(99);
         ob_start();
         $this->controller->users();
         $output = ob_get_clean();
@@ -188,7 +188,7 @@ class DevPanelControllerTest extends TestCase
 
     public function testPerformanceShowsPerformancePanel(): void
     {
-        $this->setMockUser(95);
+        $this->setMockUser(99);
         ob_start();
         $this->controller->performance();
         $output = ob_get_clean();
@@ -200,7 +200,7 @@ class DevPanelControllerTest extends TestCase
 
     public function testGitShowsGitPanel(): void
     {
-        $this->setMockUser(95);
+        $this->setMockUser(99);
         ob_start();
         $this->controller->git();
         $output = ob_get_clean();
@@ -213,7 +213,7 @@ class DevPanelControllerTest extends TestCase
     
     public function testPhpinfoShowsPhpinfoPanel(): void
     {
-        $this->setMockUser(95);
+        $this->setMockUser(99);
         ob_start();
         $this->controller->phpinfo();
         $output = ob_get_clean();
@@ -223,7 +223,7 @@ class DevPanelControllerTest extends TestCase
     
     public function testCustomPanelRegistrationAndRouting(): void
     {
-        $this->setMockUser(95);
+        $this->setMockUser(99);
         
         DevPanelController::registerPanel('mycustom', 'Custom Tab', function() {
             return '<div id="my-custom-content">Hello Custom!</div>';
@@ -264,6 +264,9 @@ class DevPanelControllerTest extends TestCase
         $ctrl = new TestableDevPanelController($app);
         $ref  = new \ReflectionProperty(\Pramnos\DevPanel\DevPanelController::class, 'policyCallback');
         $ref->setValue($ctrl, \Closure::fromCallable($policy));
+        // A floor below root, as an installation that opens its panel to administrators sets it,
+        // so the user the policy refuses is one the floor alone would let in.
+        (new \ReflectionProperty(\Pramnos\DevPanel\DevPanelController::class, 'minUserType'))->setValue($ctrl, 90);
         return $ctrl;
     }
 
@@ -347,7 +350,7 @@ class DevPanelControllerTest extends TestCase
     {
         // Arrange — loadFromConfig() is additive, so a full reset() is needed
         // to actually disable the devpanel feature.
-        $this->setMockUser(95);
+        $this->setMockUser(99);
         \Pramnos\Application\FeatureRegistry::reset();
 
         try {
@@ -386,7 +389,7 @@ class DevPanelControllerTest extends TestCase
     public function testCacheShowsItemBrowserWhenFeatureEnabled(): void
     {
         // Arrange — store one cache item so the browser has a row
-        $this->setMockUser(95);
+        $this->setMockUser(99);
         $cache = $this->enableCacheFeature();
         $cache->category = 'devpaneltest';
         $cache->save('cached-value', 'devpanel_item');
@@ -414,7 +417,7 @@ class DevPanelControllerTest extends TestCase
     public function testCacheFlushEndpointReturnsOkJson(): void
     {
         // Arrange
-        $this->setMockUser(95);
+        $this->setMockUser(99);
         $this->enableCacheFeature();
         $_POST['action'] = 'flush';
 
@@ -439,7 +442,7 @@ class DevPanelControllerTest extends TestCase
     public function testCacheInspectWithEmptyKeyReturnsError(): void
     {
         // Arrange
-        $this->setMockUser(95);
+        $this->setMockUser(99);
         $this->enableCacheFeature();
         $_GET['key'] = '';
 
@@ -464,7 +467,7 @@ class DevPanelControllerTest extends TestCase
     public function testCacheInspectUnknownKeyReturnsNotOk(): void
     {
         // Arrange
-        $this->setMockUser(95);
+        $this->setMockUser(99);
         $this->enableCacheFeature();
         $_GET['key'] = urlencode('definitely-missing-key-xyz');
 
@@ -559,7 +562,7 @@ class DevPanelControllerTest extends TestCase
     public function testAnAdminUserIsAllowedWithoutAGrant(): void
     {
         // Arrange
-        $this->setMockUser(95);
+        $this->setMockUser(99);
         \Pramnos\Debug\DebugAccess::reset();
         $_GET['request'] = str_repeat('cd', 8);
 
@@ -588,7 +591,7 @@ class DevPanelControllerTest extends TestCase
     public function testAMalformedRequestIdIsRefused(): void
     {
         // Arrange
-        $this->setMockUser(95);
+        $this->setMockUser(99);
         $_GET['request'] = '../../etc/passwd';
 
         try {
@@ -617,7 +620,7 @@ class DevPanelControllerTest extends TestCase
     public function testAnAbsentRequestIdRendersTheViewer(): void
     {
         // Arrange
-        $this->setMockUser(95);
+        $this->setMockUser(99);
 
         // Act
         ob_start();
@@ -682,7 +685,7 @@ class DevPanelControllerTest extends TestCase
     public function testTheJsonEndpointStops(): void
     {
         // Arrange — a valid grant and a well-formed request id
-        $this->setMockUser(95);
+        $this->setMockUser(99);
         $_GET['request'] = str_repeat('ab', 8);
 
         // Act
@@ -715,7 +718,7 @@ class DevPanelControllerTest extends TestCase
     public function testTheRejectedJsonEndpointStopsToo(): void
     {
         // Arrange
-        $this->setMockUser(95);
+        $this->setMockUser(99);
         $_GET['request'] = 'not a valid id';
 
         // Act

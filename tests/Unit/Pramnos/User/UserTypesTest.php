@@ -369,7 +369,7 @@ class UserTypesTest extends TestCase
         );
         // The declared floors, plus the area's and the developer panel's, which are facts
         // about screens rather than grants.
-        $this->assertSame([98, 90, 0], array_keys(UserTypes::capabilityMap()));
+        $this->assertSame([99, 98, 90, 0], array_keys(UserTypes::capabilityMap()));
     }
 
     /**

@@ -58,8 +58,8 @@ use Pramnos\Http\Middleware\CsrfMiddleware;
  */
 class DebugGrantController extends Controller
 {
-    /** Who may issue a grant, unless `app.php` says otherwise. */
-    public const DEFAULT_MIN_USERTYPE = 90;
+    /** Who may issue a grant, unless `app.php` says otherwise: the `root` role's default. */
+    public const DEFAULT_MIN_USERTYPE = 99;
 
     /** How long a grant lasts when the form does not say. */
     public const DEFAULT_TTL = 3600;
@@ -293,7 +293,7 @@ class DebugGrantController extends Controller
             ?->applicationInfo['debug']['grant_min_usertype'] ?? null;
 
         return ($configured === null || $configured === '')
-            ? \Pramnos\User\Roles::level(\Pramnos\User\Roles::DEVELOPER)
+            ? \Pramnos\User\Roles::level(\Pramnos\User\Roles::ROOT)
             : (int) $configured;
     }
 

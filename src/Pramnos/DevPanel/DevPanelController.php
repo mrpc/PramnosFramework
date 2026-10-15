@@ -37,15 +37,15 @@ class DevPanelController extends Controller
     protected int $minUserType = 0;
 
     /**
-     * Who opens the panel in development: `devpanel.min_usertype`, else the `developer` role
-     * ({@see \Pramnos\User\Roles}, 90 unless `app.php` says). The debug bar's link and Adminer's
+     * Who opens the panel in development: `devpanel.min_usertype`, else the `root` role
+     * ({@see \Pramnos\User\Roles}, 99 unless `app.php` says). The debug bar's link and Adminer's
      * development fallback ask the same, so none of them disagrees with the panel.
      */
     public static function developerFloor(): int
     {
         $min = (int) static::config('min_usertype', 0);
 
-        return $min > 0 ? $min : \Pramnos\User\Roles::level(\Pramnos\User\Roles::DEVELOPER);
+        return $min > 0 ? $min : \Pramnos\User\Roles::level(\Pramnos\User\Roles::ROOT);
     }
 
     /** Optional policy callback — when set, replaces the usertype check. */
@@ -347,7 +347,7 @@ class DevPanelController extends Controller
      * with the request's id, and this hands back the ones carrying it.
      *
      * **Guarded differently from the rest of the panel, on purpose.** The other
-     * actions require the DevPanel's floor (the `developer` role unless set). The person who opened
+     * actions require the DevPanel's floor (the `root` role unless set). The person who opened
      * the toolbar on a live server with `debug:token` is a developer holding a
      * signed grant, and usually not an admin user at all — so the grant is
      * accepted here, and the admin path is kept for someone browsing the panel
@@ -3452,7 +3452,7 @@ class DevPanelController extends Controller
         }
 
         $user = \Pramnos\User\User::getCurrentUser();
-        $floor = \Pramnos\User\Roles::level(\Pramnos\User\Roles::DEVELOPER);
+        $floor = \Pramnos\User\Roles::level(\Pramnos\User\Roles::ROOT);
         $configured = static::config('grant_min_usertype', null);
 
         if ($configured === null) {
