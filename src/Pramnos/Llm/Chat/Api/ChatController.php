@@ -144,10 +144,15 @@ class ChatController extends \Pramnos\Application\ApiCrudController
 
         $scope = $this->scope();
 
+        $policy = $this->routineService()->policy();
+
         return ['status' => 200, 'data' => $this->routinesAnswer($scope, [
             'routines'  => $scope === null ? [] : $this->routineService()->mine($scope),
             'templates' => Routines::templates(),
             'cadences'  => Routines::CADENCES,
+            'kinds'     => Routines::KINDS,
+            // Whose a task may be, as the policy lets this person: a screen offers only these.
+            'owners'    => $scope === null ? [] : array_values(array_filter(Routines::OWNERS, static fn (string $owner): bool => $policy->canManage($scope, $owner))),
         ])];
     }
 
@@ -405,7 +410,7 @@ class ChatController extends \Pramnos\Application\ApiCrudController
     /**
      * The scheduled-questions answer, decorated — the plan's limit on active ones, say.
      *
-     * @param array{routines: list<array<string, mixed>>, templates: array<string, mixed>, cadences: list<string>} $answer
+     * @param array{routines: list<array<string, mixed>>, templates: array<string, mixed>, cadences: list<string>, kinds: list<string>, owners: list<string>} $answer
      * @return array<string, mixed>
      */
     protected function routinesAnswer(?Scope $scope, array $answer): array

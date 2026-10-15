@@ -1,12 +1,14 @@
 <script>
     /**
-     * Scheduled reports — questions asked on a schedule, each answer kept in its
-     * own conversation (`Pramnos\Llm\Chat\Routines`, run by `llm:routines`).
+     * Scheduled — questions asked again, reminders and reports (`Pramnos\Llm\Chat\Routines`,
+     * run by `llm:routines`), and the reports shared with this person.
      *
-     * A ready-made one from the application's `routine_templates`, or one's own:
-     * a title, what to ask, how often and when. Paused, resumed, run now, deleted.
-     * A pause or a new one the application refuses (a plan, a limit) is said here
-     * as the server says it.
+     * A ready-made one from the application's `routine_templates`, or one's own: what it is, a
+     * title, its words, how often and when — once, daily, weekly, monthly, or a weekday of the
+     * month. A report may be shared with the organisation or everyone when the server says this
+     * person may (`owners`). Each is paused, resumed, run now, deleted, and its runs read; a
+     * report's run opens as a conversation to ask about it. A change the application refuses (a
+     * plan, a limit) is said here as the server says it.
      */
     import { t as translate } from '../../lib/i18n.svelte.js';
     import { failure, resolveClient } from '../../lib/llm/chat.js';
@@ -17,25 +19,34 @@
         client = null,
         api = null,
         paths = {},
-        /** Open the conversation a routine's answers went into. */
+        /** Open a conversation: a routine's answers, or a report's run opened to ask about. */
         onopen = null,
         t = translate,
     } = $props();
 
     const chat = $derived(resolveClient(client, api, paths));
     const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+    const NTHS = { 1: 'first', 2: 'second', 3: 'third', 4: 'fourth', 5: 'last' };
+    const KIND_NAMES = { ask: 'Question', reminder: 'Reminder', report: 'Report' };
+    const CADENCE_NAMES = { daily: 'Every day', weekly: 'Every week', monthly: 'Every month', once: 'Once', monthly_weekday: 'A weekday of each month' };
+    const OWNER_NAMES = { user: 'Me', organization: 'My organisation', global: 'Everyone' };
 
     let routines = $state([]);
+    let reports = $state([]);
     let templates = $state({});
     let cadences = $state(['daily', 'weekly', 'monthly']);
+    let kinds = $state(['ask']);
+    let owners = $state(['user']);
     let loaded = $state(false);
     let error = $state(null);
     let busy = $state(null);
     let deleting = $state(null);
+    let open = $state(null);
+    let runs = $state([]);
     let draft = $state(blank());
 
     function blank() {
-        return { template: '', title: '', prompt: '', cadence: 'weekly', at: '08:00', day: 1 };
+        return { template: '', kind: 'ask', owner: 'user', notify: 'always', title: '', prompt: '', cadence: 'weekly', at: '08:00', day: 1, nth: 1, run_at: '' };
     }
 
     $effect(() => {
@@ -48,8 +59,12 @@
             routines = found.routines ?? [];
             templates = found.templates ?? {};
             cadences = found.cadences ?? cadences;
+            kinds = found.kinds ?? kinds;
+            owners = found.owners ?? owners;
+            // Shared reports are a later addition: a server without them is not an error.
+            reports = chat.reports ? ((await chat.reports().catch(() => null))?.data?.reports ?? []) : [];
         } catch (err) {
-            error = failure(err, t('Scheduled reports could not be read.'));
+            error = failure(err, t('Scheduled tasks could not be read.'));
         } finally {
             loaded = true;
         }
@@ -76,19 +91,71 @@
         }
     }
 
+    /** What the form sends: only the fields its cadence reads. */
+    function body() {
+        const { template, kind, owner, notify, title, prompt, cadence, at } = draft;
+        const sent = { kind, title, prompt, cadence, at, ...(template ? { template } : {}) };
+        if (kind === 'report') {
+            Object.assign(sent, { owner, notify });
+        }
+        if (cadence === 'weekly' || cadence === 'monthly') {
+            sent.day = Number(draft.day);
+        } else if (cadence === 'monthly_weekday') {
+            Object.assign(sent, { day: Number(draft.day), nth: Number(draft.nth) });
+        } else if (cadence === 'once') {
+            sent.run_at = draft.run_at;
+        } else {
+            sent.day = null;
+        }
+        return sent;
+    }
+
     function create(event) {
         event.preventDefault();
-        const body = { ...draft, day: draft.cadence === 'daily' ? null : Number(draft.day) };
 
         return act('new', async () => {
-            await chat.createRoutine(body);
+            await chat.createRoutine(body());
             draft = blank();
         }, t('It could not be saved.'));
     }
 
+    /** Show a task's runs, or hide them. */
+    async function showRuns(one) {
+        if (open === one.routine_id) {
+            open = null;
+            return;
+        }
+        error = null;
+        try {
+            runs = (await chat.routineRuns(one.routine_id)).data?.runs ?? [];
+            open = one.routine_id;
+        } catch (err) {
+            error = failure(err, t('Its runs could not be read.'));
+        }
+    }
+
+    /** A report's run, as a conversation of this person's own, to ask about it. */
+    async function askAbout(run) {
+        error = null;
+        try {
+            const id = (await chat.continueRun(run.run_id)).data?.conversation_id;
+            if (id && onopen) {
+                onopen(id);
+            }
+        } catch (err) {
+            error = failure(err, t('It could not be opened.'));
+        }
+    }
+
     function when(one) {
+        if (one.cadence === 'once') {
+            return t('Once, %s', one.next_run_local ?? one.run_at ?? '');
+        }
         if (one.cadence === 'weekly') {
             return t('Every %s at %s', t(DAYS[(one.day ?? 1) - 1]), one.at);
+        }
+        if (one.cadence === 'monthly_weekday') {
+            return t('The %s %s of each month at %s', t(NTHS[one.nth ?? 1]), t(DAYS[(one.day ?? 1) - 1]), one.at);
         }
 
         return one.cadence === 'monthly' ? t('Monthly on day %s at %s', one.day, one.at) : t('Every day at %s', one.at);
@@ -96,7 +163,7 @@
 </script>
 
 <section class="mx-auto flex w-full max-w-4xl flex-col gap-4">
-    <h1 class="text-2xl font-medium">{t('Scheduled reports')}</h1>
+    <h1 class="text-2xl font-medium">{t('Scheduled')}</h1>
 
     {#if error}
         <div role="alert" class={ui('alert.warning')}><span>{error}</span></div>
@@ -110,7 +177,10 @@
                 <li class="rounded-box border border-base-300 bg-base-100 p-4">
                     <div class="flex flex-wrap items-start gap-2">
                         <div class="min-w-0 flex-1">
-                            <h2 class="font-medium">{one.title}</h2>
+                            <h2 class="font-medium">{one.title}
+                                {#if one.kind && one.kind !== 'ask'}<span class={ui('badge.muted')}>{t(KIND_NAMES[one.kind] ?? one.kind)}</span>{/if}
+                                {#if one.owner && one.owner !== 'user'}<span class={ui('badge.muted')}>{t(OWNER_NAMES[one.owner] ?? one.owner)}</span>{/if}
+                            </h2>
                             <p class="text-sm opacity-70">{when(one)}{one.active && one.next_run_local ? ' · ' + t('next: %s', one.next_run_local) : ''}</p>
                             {#if !one.active}<span class={ui('badge.muted')}>{t('Paused')}</span>{/if}
                             {#if one.last_error}<p class="text-sm text-error">{one.last_error}</p>{/if}
@@ -118,6 +188,9 @@
                         <div class="flex flex-wrap gap-1">
                             {#if one.conversation_id && onopen}
                                 <button type="button" class={ui('btn.ghost.sm')} onclick={() => onopen(one.conversation_id)}>{t('Open')}</button>
+                            {/if}
+                            {#if chat.routineRuns}
+                                <button type="button" class={ui('btn.ghost.sm')} aria-expanded={open === one.routine_id} onclick={() => showRuns(one)}>{t('Runs')}</button>
                             {/if}
                             <button type="button" class={ui('btn.ghost.sm')} disabled={busy !== null}
                                 onclick={() => act(one.routine_id, () => chat.runRoutine(one.routine_id), t('It could not be run.'))}>{t('Run now')}</button>
@@ -129,14 +202,53 @@
                                 aria-label={t('Delete %s', one.title)} onclick={() => { deleting = one; }}>✕</button>
                         </div>
                     </div>
+                    {#if open === one.routine_id}
+                        <ul class="mt-3 space-y-2" aria-label={t('Runs of %s', one.title)}>
+                            {#each runs as run (run.run_id)}
+                                <li class="rounded-box bg-base-200 p-3 text-sm">
+                                    <div class="flex flex-wrap items-center gap-2">
+                                        <span class="opacity-70">{run.finished_at ?? run.started_at}</span>
+                                        <span class={ui('badge.muted')}>{run.status === 'ok' ? t('Done') : t('Failed')}</span>
+                                        {#if run.status === 'ok' && one.kind === 'report' && onopen}
+                                            <button type="button" class={ui('btn.ghost.sm')} onclick={() => askAbout(run)}>{t('Ask about it')}</button>
+                                        {/if}
+                                    </div>
+                                    {#if run.error}<p class="text-error">{run.error}</p>{/if}
+                                    {#if run.content}<p class="whitespace-pre-line">{run.content}</p>{/if}
+                                </li>
+                            {:else}
+                                <li class="text-sm opacity-60">{t('It has not run yet.')}</li>
+                            {/each}
+                        </ul>
+                    {/if}
                 </li>
             {:else}
                 <li class="text-sm opacity-60">{t('Nothing scheduled yet.')}</li>
             {/each}
         </ul>
 
+        {#if reports.length > 0}
+            <section class="space-y-2" aria-labelledby="pf-shared-reports">
+                <h2 id="pf-shared-reports" class="font-medium">{t('Shared reports')}</h2>
+                <ul class="space-y-2">
+                    {#each reports as one (one.routine_id)}
+                        <li class="flex flex-wrap items-center gap-2 rounded-box border border-base-300 bg-base-100 p-3">
+                            <div class="min-w-0 flex-1">
+                                <span class="font-medium">{one.title}</span>
+                                <p class="text-sm opacity-70">{when(one)}</p>
+                            </div>
+                            <button type="button" class={ui(one.subscribed ? 'btn.ghost.sm' : 'btn.primary', one.subscribed ? null : 'size.sm')} disabled={busy !== null}
+                                onclick={() => act(one.routine_id, () => (one.subscribed ? chat.unsubscribe(one.routine_id) : chat.subscribe(one.routine_id)), t('It could not be changed.'))}>
+                                {one.subscribed ? t('Stop receiving') : t('Receive it')}
+                            </button>
+                        </li>
+                    {/each}
+                </ul>
+            </section>
+        {/if}
+
         <form class="space-y-3 rounded-box border border-base-300 bg-base-100 p-4" onsubmit={create}>
-            <h2 class="font-medium">{t('Schedule a report')}</h2>
+            <h2 class="font-medium">{t('Schedule')}</h2>
 
             {#if Object.keys(templates).length > 0}
                 <div class="flex flex-wrap gap-2">
@@ -146,22 +258,57 @@
                 </div>
             {/if}
 
+            <div class="flex flex-wrap gap-3">
+                {#if kinds.length > 1}
+                    <label class="flex flex-col gap-1">
+                        <span>{t('What')}</span>
+                        <select class={ui('select.inline')} bind:value={draft.kind}>
+                            {#each kinds as kind}<option value={kind}>{t(KIND_NAMES[kind] ?? kind)}</option>{/each}
+                        </select>
+                    </label>
+                {/if}
+                {#if draft.kind === 'report'}
+                    {#if owners.length > 1}
+                        <label class="flex flex-col gap-1">
+                            <span>{t('For')}</span>
+                            <select class={ui('select.inline')} bind:value={draft.owner}>
+                                {#each owners as owner}<option value={owner}>{t(OWNER_NAMES[owner] ?? owner)}</option>{/each}
+                            </select>
+                        </label>
+                    {/if}
+                    <label class="flex flex-col gap-1">
+                        <span>{t('Tell readers')}</span>
+                        <select class={ui('select.inline')} bind:value={draft.notify}>
+                            <option value="always">{t('Every time')}</option>
+                            <option value="relevant">{t('Only when there is something new')}</option>
+                        </select>
+                    </label>
+                {/if}
+            </div>
             <label class="flex flex-col gap-1">
                 <span>{t('Title')}</span>
                 <input class={ui('input')} bind:value={draft.title} maxlength="120" required />
             </label>
             <label class="flex flex-col gap-1">
-                <span>{t('What to ask')}</span>
+                <span>{draft.kind === 'reminder' ? t('What to remind you of') : t('What to ask')}</span>
                 <textarea class={ui('textarea')} rows="3" bind:value={draft.prompt} required></textarea>
             </label>
             <div class="flex flex-wrap gap-3">
                 <label class="flex flex-col gap-1">
                     <span>{t('How often')}</span>
                     <select class={ui('select.inline')} bind:value={draft.cadence}>
-                        {#each cadences as cadence}<option value={cadence}>{t(cadence)}</option>{/each}
+                        {#each cadences as cadence}<option value={cadence}>{t(CADENCE_NAMES[cadence] ?? cadence)}</option>{/each}
                     </select>
                 </label>
-                {#if draft.cadence === 'weekly'}
+                {#if draft.cadence === 'monthly_weekday'}
+                    <label class="flex flex-col gap-1">
+                        <span>{t('Which')}</span>
+                        <select class={ui('select.inline')} bind:value={draft.nth}>
+                            {#each Object.entries(NTHS) as [value, name]}<option value={Number(value)}>{t(name)}</option>{/each}
+                        </select>
+                    </label>
+                {/if}
+                {#if draft.cadence === 'weekly' || draft.cadence === 'monthly_weekday'}
                     <label class="flex flex-col gap-1">
                         <span>{t('Day')}</span>
                         <select class={ui('select.inline')} bind:value={draft.day}>
@@ -174,10 +321,17 @@
                         <input class="{ui('input.inline')} w-24" type="number" min="1" max="28" bind:value={draft.day} />
                     </label>
                 {/if}
-                <label class="flex flex-col gap-1">
-                    <span>{t('At')}</span>
-                    <input class={ui('input.inline')} type="time" bind:value={draft.at} required />
-                </label>
+                {#if draft.cadence === 'once'}
+                    <label class="flex flex-col gap-1">
+                        <span>{t('When')}</span>
+                        <input class={ui('input.inline')} type="datetime-local" bind:value={draft.run_at} required />
+                    </label>
+                {:else}
+                    <label class="flex flex-col gap-1">
+                        <span>{t('At')}</span>
+                        <input class={ui('input.inline')} type="time" bind:value={draft.at} required />
+                    </label>
+                {/if}
             </div>
             <button class={ui('btn.primary', 'size.sm')} type="submit" disabled={busy !== null}>{t('Schedule')}</button>
         </form>
@@ -186,7 +340,7 @@
 
 <ConfirmDialog
     open={deleting !== null}
-    title={t('Delete this scheduled report?')}
+    title={t('Delete this scheduled task?')}
     body={t('It stops running. The conversation with its answers stays.')}
     confirmLabel={t('Delete')}
     danger

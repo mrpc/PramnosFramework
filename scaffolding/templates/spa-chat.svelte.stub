@@ -41,7 +41,7 @@
         paths = {},
         conversationId = 0,
         onopen = null,
-        /** Where Scheduled reports lives; without it there is no link. */
+        /** Where Scheduled lives; without it there is no link. */
         scheduledHref = '',
         suggestions = [],
         extra = null,
@@ -449,7 +449,7 @@
         <nav class="flex min-w-0 flex-col gap-2" aria-label={t('Conversations')}>
             <button type="button" class={ui('btn.sm')} onclick={() => { messages = []; opened(0); }}>{t('New conversation')}</button>
             {#if scheduledHref}
-                <a class={ui('btn.ghost.sm')} href={scheduledHref}>{t('Scheduled reports')}</a>
+                <a class={ui('btn.ghost.sm')} href={scheduledHref}>{t('Scheduled')}</a>
             {/if}
             <!-- Not daisyUI's `menu`: its items grow to the whole title and scroll
                  sideways instead of truncating. -->

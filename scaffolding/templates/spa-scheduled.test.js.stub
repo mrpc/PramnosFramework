@@ -4,25 +4,39 @@ import Scheduled from '../../components/llm/Scheduled.svelte';
 import { ApiError } from '../../lib/api.js';
 
 /**
- * Tests for Scheduled reports.
+ * Tests for Scheduled.
  *
- * What has to hold: the routines are listed with when they run; a template
- * fills the form rather than saving; a new one is sent with the day only when
- * the cadence has one; pausing, running and deleting go to the API and the list
- * is read again; and a refusal (a plan that allows no more) is said as the
- * server says it.
+ * What has to hold: the routines are listed with what they are and when they
+ * run; a template fills the form rather than saving; a new one is sent with only
+ * the fields its cadence reads — a day, a weekday of the month, a moment — and a
+ * report with whom it is for and when readers are told; pausing, running and
+ * deleting go to the API and the list is read again; a task's runs are shown and
+ * a report's run opens as a conversation; the reports shared with this person
+ * are received or not; and a refusal is said as the server says it.
  */
 
 const WEEKLY = { routine_id: 1, title: 'Monday numbers', cadence: 'weekly', day: 1, at: '08:00', active: true, next_run_local: 'Mon 19 Oct 2026, 08:00', conversation_id: 9, last_error: null };
 const PAUSED = { routine_id: 2, title: 'Month end', cadence: 'monthly', day: 28, at: '18:00', active: false, conversation_id: null, last_error: 'Out of credit.' };
+const REPORT = { routine_id: 3, title: 'Team week', kind: 'report', owner: 'organization', cadence: 'monthly_weekday', nth: 5, day: 5, at: '17:00', active: true, conversation_id: null, last_error: null };
+const SHARED = { routine_id: 7, title: 'Everyone\'s figures', cadence: 'daily', at: '07:00', subscribed: false };
 
 function fakeClient(overrides = {}) {
     return {
         routines: vi.fn(async () => ({ data: {
-            routines: [WEEKLY, PAUSED],
+            routines: [WEEKLY, PAUSED, REPORT],
             templates: { weekly: { title: 'Weekly summary', prompt: 'Summarise my week', cadence: 'weekly', at: '09:00', day: 5 } },
-            cadences: ['daily', 'weekly', 'monthly'],
+            cadences: ['daily', 'weekly', 'monthly', 'once', 'monthly_weekday'],
+            kinds: ['ask', 'reminder', 'report'],
+            owners: ['user', 'organization'],
         } })),
+        reports: vi.fn(async () => ({ data: { reports: [SHARED] } })),
+        subscribe: vi.fn(async () => ({ data: { subscribed: true } })),
+        unsubscribe: vi.fn(async () => ({ data: { subscribed: false } })),
+        routineRuns: vi.fn(async () => ({ data: { runs: [
+            { run_id: 41, status: 'ok', content: '12 bookings', error: null, finished_at: '2026-10-16 08:00' },
+            { run_id: 40, status: 'failed', content: null, error: 'Overloaded', finished_at: '2026-10-15 08:00' },
+        ] } })),
+        continueRun: vi.fn(async () => ({ data: { conversation_id: 55 } })),
         createRoutine: vi.fn(async () => ({ data: {} })),
         updateRoutine: vi.fn(async () => ({ data: {} })),
         runRoutine: vi.fn(async () => ({ data: {} })),
@@ -43,6 +57,9 @@ describe('Scheduled', () => {
         // Assert
         expect(await screen.findByText('Every Monday at 08:00 · next: Mon 19 Oct 2026, 08:00')).toBeTruthy();
         expect(screen.getByText('Monthly on day 28 at 18:00')).toBeTruthy();
+        expect(screen.getByText('The last Friday of each month at 17:00')).toBeTruthy();
+        expect(screen.getAllByText('Report').some((el) => el.tagName === 'SPAN')).toBe(true);
+        expect(screen.getByText('My organisation')).toBeTruthy();
         expect(screen.getByText('Paused')).toBeTruthy();
         expect(screen.getByText('Out of credit.')).toBeTruthy();
         await fireEvent.click(screen.getByRole('button', { name: 'Open' }));
@@ -109,6 +126,87 @@ describe('Scheduled', () => {
         render(Scheduled, { client: fakeClient({ routines: async () => { throw new Error('offline'); } }) });
 
         // Assert
-        expect((await screen.findByRole('alert')).textContent).toBe('Scheduled reports could not be read.');
+        expect((await screen.findByRole('alert')).textContent).toBe('Scheduled tasks could not be read.');
+    });
+
+    /**
+     * A report is sent with whom it is for and when readers are told; a weekday of the month
+     * with which and what day; a one-off with its moment and no day.
+     */
+    it('sends what each cadence and kind reads', async () => {
+        // Arrange
+        const client = fakeClient();
+        render(Scheduled, { client });
+        const fill = async (title) => {
+            await fireEvent.input(screen.getByLabelText('Title'), { target: { value: title } });
+            await fireEvent.input(screen.getByLabelText(/What to (ask|remind you of)/), { target: { value: 'Words' } });
+        };
+
+        // Act — a shared report on the last Friday
+        await fireEvent.change(await screen.findByLabelText('What'), { target: { value: 'report' } });
+        await fireEvent.change(screen.getByLabelText('For'), { target: { value: 'organization' } });
+        await fireEvent.change(screen.getByLabelText('Tell readers'), { target: { value: 'relevant' } });
+        await fill('Team');
+        await fireEvent.change(screen.getByLabelText('How often'), { target: { value: 'monthly_weekday' } });
+        await fireEvent.change(screen.getByLabelText('Which'), { target: { value: '5' } });
+        await fireEvent.change(screen.getByLabelText('Day'), { target: { value: '5' } });
+        await fireEvent.click(screen.getByRole('button', { name: 'Schedule' }));
+        await waitFor(() => expect(client.createRoutine).toHaveBeenCalledTimes(1));
+        // a reminder, once
+        await fireEvent.change(screen.getByLabelText('What'), { target: { value: 'reminder' } });
+        await fill('Call');
+        await fireEvent.change(screen.getByLabelText('How often'), { target: { value: 'once' } });
+        await fireEvent.input(screen.getByLabelText('When'), { target: { value: '2026-10-20T10:30' } });
+        await fireEvent.click(screen.getByRole('button', { name: 'Schedule' }));
+
+        // Assert
+        await waitFor(() => expect(client.createRoutine).toHaveBeenCalledTimes(2));
+        expect(client.createRoutine.mock.calls[0][0]).toMatchObject({ kind: 'report', owner: 'organization', notify: 'relevant', cadence: 'monthly_weekday', nth: 5, day: 5 });
+        expect(client.createRoutine.mock.calls[1][0]).toEqual({ kind: 'reminder', title: 'Call', prompt: 'Words', cadence: 'once', at: '08:00', run_at: '2026-10-20T10:30' });
+    });
+
+    /** A task's runs: what each produced or why it failed; a report's run opens as a conversation. */
+    it('shows a task\'s runs, and opens a report\'s run to ask about it', async () => {
+        // Arrange
+        const client = fakeClient();
+        const onopen = vi.fn();
+        render(Scheduled, { client, onopen });
+
+        // Act
+        await fireEvent.click((await screen.findAllByRole('button', { name: 'Runs' }))[2]);
+        await screen.findByText('12 bookings');
+        await fireEvent.click(screen.getByRole('button', { name: 'Ask about it' }));
+
+        // Assert
+        expect(client.routineRuns).toHaveBeenCalledWith(3);
+        expect(screen.getByText('Overloaded')).toBeTruthy();
+        await waitFor(() => expect(onopen).toHaveBeenCalledWith(55));
+        expect(client.continueRun).toHaveBeenCalledWith(41);
+        await fireEvent.click(screen.getAllByRole('button', { name: 'Runs' })[2]);
+        expect(screen.queryByText('12 bookings')).toBeNull();
+    });
+
+    /** The reports shared with this person: receiving one goes to the API, and the list is read again. */
+    it('receives a shared report', async () => {
+        // Arrange
+        const client = fakeClient();
+        render(Scheduled, { client });
+
+        // Act
+        await fireEvent.click(await screen.findByRole('button', { name: 'Receive it' }));
+
+        // Assert
+        await waitFor(() => expect(client.subscribe).toHaveBeenCalledWith(7));
+        expect(screen.getByText('Everyone\'s figures')).toBeTruthy();
+    });
+
+    /** A server without shared reports is not an error: the rest of the screen works. */
+    it('works with a server that has no shared reports', async () => {
+        // Arrange / Act
+        render(Scheduled, { client: fakeClient({ reports: vi.fn(async () => { throw new Error('404'); }) }) });
+
+        // Assert
+        expect(await screen.findByText('Monday numbers')).toBeTruthy();
+        expect(screen.queryByRole('alert')).toBeNull();
     });
 });

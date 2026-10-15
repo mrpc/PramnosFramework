@@ -114,7 +114,7 @@ class Init extends Command
     ];
 
     /**
-     * The conversation screens over `Pramnos\Llm\Chat\Api` — Chat, Scheduled reports and the
+     * The conversation screens over `Pramnos\Llm\Chat\Api` — Chat, Scheduled and the
      * agreement — with what they share and their tests.
      *
      * Only for a Svelte SPA with the `llm` feature: at init, and by

@@ -277,7 +277,7 @@ class ChatApiTest extends LlmTestCase
         $this->assertSame('DeepSeek', $limits['provider']);
     }
 
-    /** The scheduled-questions answer passes through the application's hook — a plan's limit. */
+    /** The scheduled-questions answer passes through the application's hook — a plan's limit — and says what may be made. */
     #[DataProvider('databases')]
     public function testTheRoutinesAnswerIsDecorated(string $type, string $host, int $port): void
     {
@@ -290,6 +290,9 @@ class ChatApiTest extends LlmTestCase
         // Assert
         $this->assertSame(3, $answer['data']['limit']);
         $this->assertSame([], $answer['data']['routines']);
+        $this->assertSame(['ask', 'reminder', 'report'], $answer['data']['kinds']);
+        // 7 has no account here, so no standing: only their own
+        $this->assertSame(['user'], $answer['data']['owners'], 'what this person may make, as the policy says');
     }
 
     /**

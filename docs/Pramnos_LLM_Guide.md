@@ -558,7 +558,7 @@ One line in the application's API routes mounts every endpoint:
 | `GET /chat/{id}`, `DELETE /chat/{id}` | one conversation with its messages; forget it |
 | `GET /chat/asks/{id}` | a queued question: `waiting`, `answered` with its `conversation_id`, or `failed` with `says` |
 | `GET /chat/memory`, `DELETE /chat/memory/{id}` | what it remembers; forget one |
-| `GET`/`POST /chat/routines`, `PUT`/`DELETE /chat/routines/{id}`, `POST /chat/routines/{id}/run` | scheduled questions, with the templates and cadences; `active` in a `PUT` pauses or resumes |
+| `GET`/`POST /chat/routines`, `PUT`/`DELETE /chat/routines/{id}`, `POST /chat/routines/{id}/run` | scheduled tasks, with the templates, cadences, `kinds`, and the `owners` this person may use; `active` in a `PUT` pauses or resumes |
 | `GET /chat/routines/{id}/runs?limit=` | a task's runs, newest first: its own, or a shared report the person may read |
 | `GET /chat/runs/{id}`, `POST /chat/runs/{id}/continue` | one run with its task; open it as a conversation of the person's own (`conversation_id`) |
 | `GET /chat/reports` | the shared reports here the person may receive, with `subscribed` and `latest_run` |
@@ -734,7 +734,7 @@ out through `onopen(id)`. Everything else an application changes without editing
 | `waitingLine(ms)` | a line under *Thinking*, asked each second of waiting; `null` shows nothing. By default a sentence after a minute |
 | `onanswer(messages)` | told the conversation each time an answer has been read back — open what it produced |
 | `formatDate`, `numberFormat` | how a conversation's date and the limits' figures are shown |
-| `scheduledHref` | where the scheduled reports live; without it there is no *Scheduled reports* link |
+| `scheduledHref` | where `Scheduled` lives; without it there is no *Scheduled* link |
 | `privacyUrl` | the privacy policy, linked from the consent notice; without it there is no link |
 | `conversationHref(id)` | the conversations become links the application's router follows, and open in a new tab |
 | `header` (snippet) | the title, in place of *Ask AI* |
@@ -745,9 +745,18 @@ out through `onopen(id)`. Everything else an application changes without editing
 
 `AiConsent` wraps what needs agreement and draws nothing of it until agreement is given, when the
 provider in use asks for it; its `consent` is bindable. `kind` names the feature asked about
-(`chat` by default), `notice(consent)` replaces the wording and keeps the buttons. `Scheduled` lists, creates from a template
-or by hand, pauses, runs and deletes scheduled questions, and opens a routine's conversation with
-`onopen(id)`.
+(`chat` by default), `notice(consent)` replaces the wording and keeps the buttons.
+
+`Scheduled` does for a SPA what `/chat/scheduled` does for a page:
+
+- It lists, creates (from a template or by hand), pauses, runs and deletes questions, reminders
+  and reports, with every cadence: once, daily, weekly, monthly, and a weekday of the month.
+- A report offers whom it is for, from the `owners` the API says this person may use, and when
+  readers are told.
+- It shows a task's runs, and opens a report's run as a conversation of the reader's own through
+  `continueRun`, then `onopen(id)`.
+- It lists the reports shared with this person, to receive or stop.
+- It opens a routine's conversation with `onopen(id)`.
 
 ## The administrators' analyst
 
