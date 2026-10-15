@@ -420,4 +420,44 @@ class FieldTest extends TestCase
         $this->assertStringContainsString('value="fallback"', $this->render($untouched));
         $this->assertStringContainsString('value=""', $this->render($cleared));
     }
+
+    /**
+     * What a browser submits for a checkbox reads back as what the box showed.
+     *
+     * The field renders a hidden `0` before the box, so an unchecked box submits `'0'` — and the
+     * check was "anything but empty is on", which saved every unchecked box as checked: a
+     * payment provider's `demo` switch turned itself on. Checked, the box's `1` comes after the
+     * hidden `0` and wins, as PHP keeps the last of two fields with one name.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('submittedCheckboxProvider')]
+    public function testASubmittedCheckboxReadsAsItWasLeft(?string $submitted, string $expected): void
+    {
+        // Arrange
+        $original = $_POST;
+        $_POST = $submitted === null ? [] : ['demo' => $submitted];
+        $field = new Field('demo', 'Demo mode', 'checkbox');
+        $field->value = '1';
+
+        try {
+            // Act
+            $read = $field->readSubmitted('post')->effectiveValue();
+
+            // Assert
+            $this->assertSame($expected, $read);
+        } finally {
+            $_POST = $original;
+        }
+    }
+
+    /** @return array<string, array{?string, string}> */
+    public static function submittedCheckboxProvider(): array
+    {
+        return [
+            'unchecked: the hidden 0'   => ['0', '0'],
+            'absent: off'               => [null, '0'],
+            'empty: off'                => ['', '0'],
+            'checked: the box\'s 1'     => ['1', '1'],
+            'checked, another value'    => ['on', '1'],
+        ];
+    }
 }

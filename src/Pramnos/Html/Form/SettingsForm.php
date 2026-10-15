@@ -45,7 +45,7 @@ namespace Pramnos\Html\Form;
  * echo $form->render();            // the whole form, with a CSRF field
  *
  * if ($form->wasSubmitted()) {
- *     $data = $form->getData();    // [] when the CSRF token does not check out
+ *     $data = $form->getData();    // throws TokenRejected when the CSRF token does not check out
  * }
  * ```
  *
@@ -291,17 +291,17 @@ class SettingsForm
     /**
      * The submitted values, keyed by declared name.
      *
-     * **Returns an empty array when the CSRF token does not check out**, rather than throwing
-     * or returning partial data. A caller that ignores the difference between "nothing was
-     * submitted" and "the token was wrong" saves nothing either way, which is the safe
-     * failure; a caller that cares can ask {@see tokenFailed()}.
+     * **Throws {@see TokenRejected} when the CSRF token does not check out.** An empty array
+     * looks like "every field empty", and a caller that saved it wrote that over the stored
+     * values. Ask {@see tokenFailed()} first to show a message instead.
      *
      * @return array<string, mixed>
+     * @throws TokenRejected
      */
     public function getData(): array
     {
         if ($this->checkToken && !$this->tokenIsValid()) {
-            return [];
+            throw new TokenRejected('The form "' . $this->name . '" was submitted without a token this session issued; nothing was read.');
         }
 
         $data = [];
@@ -439,8 +439,17 @@ class SettingsForm
     private function tokenIsValid(): bool
     {
         try {
-            return (bool) \Pramnos\Framework\Factory::getSession()
-                ->checkToken($this->method);
+            $session = \Pramnos\Framework\Factory::getSession();
+            // Either of the framework's two tokens, as Controller::isVerifiedWrite() accepts:
+            // a page that embeds these fields in a form of its own posts the synchronizer token
+            // (`_csrf_token`, or the `X-CSRF-Token` header), not this form's field.
+            foreach ([$_POST['_csrf_token'] ?? '', $_SERVER['HTTP_X_CSRF_TOKEN'] ?? ''] as $candidate) {
+                if (is_string($candidate) && $candidate !== '' && $session->verifyCsrfToken($candidate)) {
+                    return true;
+                }
+            }
+
+            return (bool) $session->checkToken($this->method);
         } catch (\Throwable $exception) {
             return false;
         }

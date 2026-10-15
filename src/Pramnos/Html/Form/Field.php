@@ -191,7 +191,8 @@ class Field
      *
      * An absent checkbox means unchecked — browsers submit nothing for one — so it reads as
      * `'0'` rather than falling back to the default. Without that, a checkbox could be turned
-     * on and never off.
+     * on and never off. So does the `'0'` of the hidden field rendered before it, which is what
+     * an unchecked box submits.
      *
      * @param  string $method `post`, `get` or `request`
      * @return $this
@@ -201,7 +202,8 @@ class Field
         $request = \Pramnos\Http\Request::getInstance();
 
         if ($this->type === 'checkbox') {
-            $this->value = $request->get($this->name, '', $method) !== '' ? '1' : '0';
+            $submitted   = (string) $request->get($this->name, '', $method);
+            $this->value = in_array($submitted, ['', '0'], true) ? '0' : '1';
 
             return $this;
         }

@@ -379,12 +379,11 @@ class SettingsFormTest extends TestCase
     }
 
     /**
-     * With no session, a token-checking form refuses the submission.
+     * With no session, a token-checking form refuses the submission — by throwing.
      *
-     * The safe direction. `getData()` returning `[]` means a caller that ignores the
-     * difference between "nothing submitted" and "token wrong" writes nothing either way —
-     * and `Theme::saveSettings()` explicitly refuses to write an empty result, so a rejected
-     * submit cannot blank every setting.
+     * An empty array read as "every field empty", and a caller that saved it blanked the stored
+     * settings: a payment provider's, in one application. A refusal that cannot be saved by
+     * mistake is the safe direction.
      *
      * @return void
      */
@@ -394,11 +393,12 @@ class SettingsFormTest extends TestCase
         $form = new SettingsForm('settings_test');
         $form->addField('a', 'A', 'textfield', default: 'd');
 
-        // Act
-        $data = $form->getData();
-
         // Assert
-        $this->assertSame([], $data);
+        $this->expectException(\Pramnos\Html\Form\TokenRejected::class);
+        $this->expectExceptionMessage('settings_test');
+
+        // Act
+        $form->getData();
     }
 
     /**
@@ -717,7 +717,8 @@ class SettingsFormTest extends TestCase
             // Act & Assert — submitted, but the token does not check out
             $_POST = ['settings_test__submitted' => '1'];
             $this->assertTrue($form->tokenFailed());
-            $this->assertSame([], $form->getData());
+            $this->expectException(\Pramnos\Html\Form\TokenRejected::class);
+            $form->getData();
         } finally {
             $_POST = $original;
         }
@@ -766,7 +767,8 @@ class SettingsFormTest extends TestCase
 
         // Assert
         $this->assertStringContainsString('name="settings_test_a"', $markup);
-        $this->assertSame([], $form->getData());
+        $this->expectException(\Pramnos\Html\Form\TokenRejected::class);
+        $form->getData();
     }
 
     /**
@@ -889,6 +891,67 @@ class SettingsFormTest extends TestCase
 
             // And the rendered form carries the field that makes this possible
             $this->assertStringContainsString($_SESSION['token'], $form->render());
+        } finally {
+            $_POST = $original;
+        }
+    }
+
+    /**
+     * A page that embeds the fields in a form of its own posts the synchronizer token —
+     * `_csrf_token`, or the `X-CSRF-Token` header — and the submission is accepted, as
+     * Controller::isVerifiedWrite() accepts it. Refusing it left such a page with nothing but
+     * an empty result, which its caller saved over the settings.
+     *
+     * @return void
+     */
+    public function testTheSynchronizerTokenIsAccepted(): void
+    {
+        // Arrange
+        $session = \Pramnos\Http\Session::getInstance();
+        $session->start();
+        $token = $session->getCsrfToken();
+        $form  = new SettingsForm('settings_test');
+        $form->addField('accent', 'Accent', 'textfield', default: '#000');
+        $original = [$_POST, $_SERVER['HTTP_X_CSRF_TOKEN'] ?? null];
+
+        try {
+            // Act — the field, then the header
+            $_POST = ['settings_test__submitted' => '1', 'settings_test_accent' => '#abcdef', '_csrf_token' => $token];
+            $fromField = $form->getData();
+            $_POST = ['settings_test__submitted' => '1', 'settings_test_accent' => '#123456'];
+            $_SERVER['HTTP_X_CSRF_TOKEN'] = $token;
+            $fromHeader = $form->getData();
+
+            // Assert
+            $this->assertSame(['accent' => '#abcdef'], $fromField);
+            $this->assertSame(['accent' => '#123456'], $fromHeader);
+            $this->assertFalse($form->tokenFailed());
+        } finally {
+            $_POST = $original[0];
+            if ($original[1] === null) {
+                unset($_SERVER['HTTP_X_CSRF_TOKEN']);
+            } else {
+                $_SERVER['HTTP_X_CSRF_TOKEN'] = $original[1];
+            }
+        }
+    }
+
+    /** A synchronizer token this session did not issue is refused like any other. */
+    public function testAForeignSynchronizerTokenIsRefused(): void
+    {
+        // Arrange
+        \Pramnos\Http\Session::getInstance()->start();
+        $form = new SettingsForm('settings_test');
+        $form->addField('accent', 'Accent');
+        $original = $_POST;
+        $_POST = ['settings_test__submitted' => '1', '_csrf_token' => str_repeat('ab', 32)];
+
+        try {
+            // Assert
+            $this->expectException(\Pramnos\Html\Form\TokenRejected::class);
+
+            // Act
+            $form->getData();
         } finally {
             $_POST = $original;
         }

@@ -1489,10 +1489,15 @@ Three behaviours worth relying on:
   administrator-supplied and re-rendered after every save.
 - **A checkbox can be turned off.** Browsers submit nothing for an unchecked box, so each one
   is rendered with a hidden `0` companion that the checkbox overwrites with `1`. Without it a
-  setting could be switched on and never off.
-- **A rejected submit writes nothing.** `saveSettings()` refuses to store an empty result, so a
-  submission whose CSRF token does not check out leaves the existing settings alone instead of
-  blanking every one of them.
+  setting could be switched on and never off. The `0` reads back as off.
+- **Either CSRF token is accepted.** That is the form's own field, or the synchronizer token
+  (`_csrf_token`, or the `X-CSRF-Token` header), as `Controller::isVerifiedWrite()` accepts. A
+  page that embeds the fields in a form of its own therefore needs nothing extra.
+- **A rejected submit writes nothing.** `SettingsForm::getData()` throws
+  `Html\Form\TokenRejected` when the token does not check out, rather than returning an empty
+  array that a caller might save over the stored values. `saveSettings()` catches it and leaves
+  the settings alone. Code of your own that calls `getData()` can ask `tokenFailed()` first, to
+  show a message instead.
 
 ### Where the values live
 

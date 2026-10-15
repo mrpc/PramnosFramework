@@ -719,12 +719,10 @@ class Theme extends \Pramnos\Framework\Base
             return;
         }
 
-        $data = $this->_form->getData();
-
-        // An empty array is what `getData()` returns when the CSRF token does not check out.
-        // Writing it would blank every setting on a rejected submit, which is a worse outcome
-        // than ignoring the request.
-        if ($data === []) {
+        try {
+            $data = $this->_form->getData();
+        } catch (\Pramnos\Html\Form\TokenRejected) {
+            // A rejected submit saves nothing: writing it would blank every setting.
             return;
         }
 
