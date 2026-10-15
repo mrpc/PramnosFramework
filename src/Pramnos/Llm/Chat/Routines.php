@@ -911,14 +911,22 @@ class Routines
                     . 'their own words, and nothing is asked. A task that already does the same is refused with its id: change that one '
                     . 'with update_scheduled_task instead. Confirm what you scheduled in one sentence, with when it runs next.',
                 'parameters'  => ['type' => 'object', 'properties' => [
-                    'kind'   => ['type' => 'string', 'enum' => self::KINDS],
+                    'kind'   => ['type' => 'string', 'enum' => self::KINDS, 'description' => 'Required. reminder: tell them something at a time, '
+                        . 'in their words — "remind me", "tell me to", "don\'t let me forget"; nothing is asked of a model. ask: a question '
+                        . 'answered for them each time. report: a report for its readers.'],
                     'title'  => ['type' => 'string', 'description' => 'A short name, as the person would say it.'],
                     'prompt' => ['type' => 'string', 'description' => 'ask: the question each time, complete on its own. reminder: what to tell them, in their words. report: what the report covers.'],
                     'owner'  => ['type' => 'string', 'enum' => self::OWNERS, 'description' => 'report only: organization shares it with their organisation, '
                         . 'global with the installation — only when they ask to share it. Otherwise user.'],
                     'notify' => ['type' => 'string', 'enum' => ['always', 'relevant'], 'description' => 'report only: relevant tells its readers only when there is something new.'],
-                ] + $when, 'required' => ['title', 'prompt', 'cadence']],
+                ] + $when, 'required' => ['kind', 'title', 'prompt', 'cadence']],
                 'run' => function (array $a) use ($scope, $timezone, $conversationId): string {
+                    // Required in the schema, and refused here too: a model that leaves it out must
+                    // not turn "remind me in two minutes" into a question that costs a call.
+                    if (!in_array($a['kind'] ?? null, self::KINDS, true)) {
+                        return 'Error: say which kind — reminder (tell them something at a time, nothing asked), ask (a question '
+                            . 'answered each time) or report. "Remind me…" is a reminder.';
+                    }
                     $same = $this->duplicateOf($scope, $a);
                     if ($same !== null) {
                         return 'Error: task ' . $same['routine_id'] . ' ("' . $same['title'] . '") already does this, next on '

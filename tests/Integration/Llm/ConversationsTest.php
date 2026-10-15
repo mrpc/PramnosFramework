@@ -107,7 +107,7 @@ class ConversationsTest extends LlmTestCase
         // Arrange
         $this->connectDatabase($type, $host, $port);
         $this->answer([
-            [200, self::calls([['schedule_task', ['title' => 'Daily', 'prompt' => 'p', 'cadence' => 'daily', 'at' => '08:00']]])],
+            [200, self::calls([['schedule_task', ['kind' => 'ask', 'title' => 'Daily', 'prompt' => 'p', 'cadence' => 'daily', 'at' => '08:00']]])],
             [200, self::says('done')],
         ]);
         $assistant = new BaggingAssistant();

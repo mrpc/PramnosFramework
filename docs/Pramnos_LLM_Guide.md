@@ -394,7 +394,7 @@ tasks has no end), the model has four tools:
 
 | Tool | What it does |
 |---|---|
-| `schedule_task` | A question asked again, or a reminder ("remind me in an hour about X": `cadence` `once`, `in_minutes` 60), linked to the conversation it was asked in |
+| `schedule_task` | A question asked again, or a reminder ("remind me in an hour about X": `cadence` `once`, `in_minutes` 60), linked to the conversation it was asked in. `kind` is required, and a call without it is refused: a model that left it out once turned a reminder into a question that cost a call |
 | `update_scheduled_task` | Change one by id: its words, time or cadence, or pause and resume it |
 | `list_scheduled_tasks` | This person's tasks, with when each runs next and any that stopped and why |
 | `cancel_scheduled_task` | Delete one by id |

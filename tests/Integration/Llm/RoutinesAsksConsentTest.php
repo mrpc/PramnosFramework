@@ -170,7 +170,7 @@ class RoutinesAsksConsentTest extends LlmTestCase
         $this->assertTrue($full->setActive($scope, $made['routine_id'], false), 'pausing is never refused');
         $this->assertTrue($full->run($full->find($scope, $made['routine_id']), time())['ok'], 'a run is not adding');
         $this->assertArrayHasKey('schedule_task', $full->tools($scope, 'UTC'), 'the tool stays, and says why when used');
-        $this->assertSame('Error: No room for another.', ($full->tools($scope, 'UTC')['schedule_task']['run'])(['title' => 'x', 'prompt' => 'p', 'cadence' => 'daily', 'at' => '08:00']));
+        $this->assertSame('Error: No room for another.', ($full->tools($scope, 'UTC')['schedule_task']['run'])(['kind' => 'ask', 'title' => 'x', 'prompt' => 'p', 'cadence' => 'daily', 'at' => '08:00']));
     }
 
     /**
@@ -186,8 +186,8 @@ class RoutinesAsksConsentTest extends LlmTestCase
         $tools    = $routines->tools($scope, 'Europe/Athens');
 
         // Act
-        $made   = ($tools['schedule_task']['run'])(['title' => 'Daily', 'prompt' => 'Report', 'cadence' => 'daily', 'at' => '08:00']);
-        $bad    = ($tools['schedule_task']['run'])(['title' => 'x', 'prompt' => 'y', 'cadence' => 'never', 'at' => '08:00']);
+        $made   = ($tools['schedule_task']['run'])(['kind' => 'ask', 'title' => 'Daily', 'prompt' => 'Report', 'cadence' => 'daily', 'at' => '08:00']);
+        $bad    = ($tools['schedule_task']['run'])(['kind' => 'ask', 'title' => 'x', 'prompt' => 'y', 'cadence' => 'never', 'at' => '08:00']);
         $listed = json_decode(($tools['list_scheduled_tasks']['run'])([]), true);
 
         // Assert

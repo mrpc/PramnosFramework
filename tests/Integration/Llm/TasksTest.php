@@ -341,8 +341,10 @@ class TasksTest extends LlmTestCase
         // Act — scheduled, then asked for again
         $made  = $tools['schedule_task']['run'](['kind' => 'reminder', 'title' => 'Invoice', 'prompt' => 'Send the invoice to Acme', 'cadence' => 'once', 'in_minutes' => 60]);
         $again = $tools['schedule_task']['run'](['kind' => 'reminder', 'title' => 'invoice', 'prompt' => 'something else', 'cadence' => 'once', 'in_minutes' => 30]);
-        $daily = $tools['schedule_task']['run'](['title' => 'Morning', 'prompt' => 'Report', 'cadence' => 'daily', 'at' => '8:00']);
-        $twice = $tools['schedule_task']['run'](['title' => 'Other name', 'prompt' => 'report', 'cadence' => 'daily', 'at' => '08:00']);
+        $daily = $tools['schedule_task']['run'](['kind' => 'ask', 'title' => 'Morning', 'prompt' => 'Report', 'cadence' => 'daily', 'at' => '8:00']);
+        $twice = $tools['schedule_task']['run'](['kind' => 'ask', 'title' => 'Other name', 'prompt' => 'report', 'cadence' => 'daily', 'at' => '08:00']);
+        // A reminder asked for with no kind — as one model sent it — is refused, not made a question
+        $kindless = $tools['schedule_task']['run'](['title' => 'Test', 'prompt' => 'Δοκιμή reminder', 'cadence' => 'once', 'in_minutes' => 2]);
         $id    = (int) preg_replace('/\D.*$/s', '', substr($made, strlen('Scheduled as task ')));
         $where = $tasks->byId($id)['conversation_id'];
         $moved = $tools['update_scheduled_task']['run'](['routine_id' => $id, 'in_minutes' => 120, 'cadence' => 'once']);
@@ -356,6 +358,8 @@ class TasksTest extends LlmTestCase
         $this->assertSame(42, $where, 'it leads back to where it was asked');
         $this->assertStringStartsWith('Error: task ' . $id . ' ("Invoice") already does this', $again);
         $this->assertStringStartsWith('Scheduled as task ', $daily);
+        $this->assertStringStartsWith('Error: say which kind', $kindless);
+        $this->assertSame(['kind', 'title', 'prompt', 'cadence'], $tools['schedule_task']['parameters']['required']);
         $this->assertStringContainsString('already does this', $twice, 'the same words at the same time, under another name');
         $this->assertStringStartsWith('Task ' . $id . ' changed. Next run: ', $moved);
         $this->assertSame('Task ' . $id . ' changed. It is paused.', $pause);
