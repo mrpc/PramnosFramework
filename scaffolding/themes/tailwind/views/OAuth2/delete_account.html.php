@@ -4,7 +4,8 @@
  * GDPR Article 17 — right to erasure. Reached from Privacy.
  *
  * Variables:
- *   $this->routeBase — Account controller route base
+ *   $this->routeBase    — Account controller route base
+ *   $this->taskHandover — the scheduled AI tasks to hand over or delete (delete_account_tasks)
  */
 $routeBase = $this->routeBase ?? 'Account';
 $this->activeNav = 'deleteaccount';
@@ -39,6 +40,7 @@ $this->activeNav = 'deleteaccount';
 
                     <form method="post" action="<?php echo sURL . $routeBase; ?>/deleteaccount">
                         <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
+                        <?php $this->insert('delete_account_tasks'); ?>
                         <div class="mb-4">
                             <label for="del_password" class="block text-sm font-medium text-base-content mb-1">Current Password</label>
                             <input type="password" id="del_password" name="password"

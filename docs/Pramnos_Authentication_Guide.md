@@ -1468,7 +1468,16 @@ because none of them has a cascading foreign key to `users` on every installatio
 | Consent and privacy | `authserver.oauth2_user_consents`, `authserver.user_privacy_settings`, `authserver.user_activity_log` |
 | What the person held | role assignments (`Role::assignmentTable()`), organisation memberships (`Role::membershipTable()`), `userstogroups` |
 | Notifications | `notifications` addressed to a user class, `pramnos.pushsubscriptions`, `pramnos.pushlog`, `pramnos.pushtests` |
+| The assistant | `chat_conversations` with every message in them, `chat_memory`, `chat_asks`, `ai_consents`, `user_dashboards`; its scheduled tasks (`ai_routines`) with their runs and readers, and its own report subscriptions. `llm_calls` keeps each call's cost and loses its `userid`, prompt, messages and reply |
 | Elsewhere | invitations it sent or came from, its mailing-list rows, and finally `users` |
+
+**Scheduled tasks meant to outlive the account are handed over first.** The delete-account page
+(`Account::deleteaccount()`) asks, organisation by organisation, who takes over the person's
+tasks there. Reports the organisation receives are proposed for the first member listed. The
+person's own tasks go only if they tick it, and with nobody to take them, they are deleted. The
+choice travels with the deletion form (`tasks[org][to]`, `tasks[org][personal]`), and the
+hand-over runs before the erase, so what was handed over is no longer theirs to delete. See
+[Scheduled tasks](Pramnos_LLM_Guide.md#scheduled-tasks-questions-reminders-reports).
 
 A table the installation does not have is skipped and logged. A notification addressed to
 something else with the same id, such as an organisation, is left alone. The change log is

@@ -1837,6 +1837,8 @@ class Account extends Controller
                         . ' ip=' . \Pramnos\Http\Request::clientIp('unknown'),
                     'auth'
                 );
+                // What is meant to outlive them goes to who they chose, before the rest is erased.
+                $this->handOverTasks((int) $currentUser->userid, is_array($_POST['tasks'] ?? null) ? $_POST['tasks'] : []);
                 $this->eraseUserData((int) $currentUser->userid);
 
                 $auth = \Pramnos\Framework\Factory::getAuth();
@@ -1857,8 +1859,83 @@ class Account extends Controller
         $doc->title = t('Delete Account');
 
         $view = $this->getView('OAuth2');
-        $view->routeBase = $this->routeBase;
+        $view->routeBase    = $this->routeBase;
+        $view->taskHandover = $this->taskHandover((int) $currentUser->userid);
         return $view->display('delete_account');
+    }
+
+    /**
+     * The scheduled AI tasks a leaving person is asked about, by organisation, with the
+     * organisation's name — {@see \Pramnos\Llm\Chat\Routines::handoverChoices()}. Empty where
+     * the installation has no AI tasks.
+     *
+     * @return list<array<string, mixed>>
+     */
+    protected function taskHandover(int $userId): array
+    {
+        $routines = $this->taskRoutines();
+        if ($routines === null) {
+            return [];
+        }
+        try {
+            $choices = $routines->handoverChoices($userId);
+        } catch (\Throwable $e) {
+            \Pramnos\Logs\Logger::log('Scheduled tasks to hand over not read: ' . $e->getMessage(), 'auth');
+
+            return [];
+        }
+        foreach ($choices as $i => $one) {
+            $choices[$i]['name'] = $one['organization_id'] === null ? '' : $this->organizationName((int) $one['organization_id']);
+        }
+
+        return $choices;
+    }
+
+    /** An organisation's name, or `#id` on an installation that keeps no organisations. */
+    protected function organizationName(int $organizationId): string
+    {
+        try {
+            return \Pramnos\Auth\OrganizationAdmin::nameOf($organizationId);
+        } catch (\Throwable $e) {
+            \Pramnos\Logs\Logger::log('Organisation name not read: ' . $e->getMessage(), 'auth');
+
+            return '#' . $organizationId;
+        }
+    }
+
+    /**
+     * Hand a leaving person's tasks to the successors chosen on the form — `tasks[org][to]`,
+     * `tasks[org][personal]`. A failure is logged, not a reason to keep an account its owner
+     * asked to delete: the tasks are then deleted with it.
+     *
+     * @param array<int|string, mixed> $choices
+     */
+    protected function handOverTasks(int $userId, array $choices): void
+    {
+        $routines = $this->taskRoutines();
+        if ($routines === null || $choices === []) {
+            return;
+        }
+        try {
+            $routines->handover($userId, array_filter($choices, 'is_array'));
+        } catch (\Throwable $e) {
+            \Pramnos\Logs\Logger::log('Scheduled tasks not handed over: ' . $e->getMessage(), 'auth');
+        }
+    }
+
+    /** The scheduled AI tasks, or null where the installation keeps none. */
+    protected function taskRoutines(): ?\Pramnos\Llm\Chat\Routines
+    {
+        try {
+            if (!\Pramnos\Framework\Factory::getDatabase()->schema()->hasTable('ai_routines')) {
+                return null;
+            }
+        } catch (\Throwable) {
+            // No database to ask: there are no tasks to hand over, and the erase says the rest.
+            return null;
+        }
+
+        return new \Pramnos\Llm\Chat\Routines(new \Pramnos\Llm\Chat\Conversations(\Pramnos\Llm\Chat\Chat::assistant()));
     }
 
     // ── Privacy settings ──────────────────────────────────────────────────────

@@ -95,6 +95,7 @@ class AccountErasure
         }
 
         $this->eraseNotifications($userId);
+        $this->eraseAiData($userId);
 
         if ($skipped !== []) {
             // Logged, because "this installation has no such table" and "the erase missed
@@ -154,7 +155,59 @@ class AccountErasure
             'pramnos.pushsubscriptions'        => 'userid',
             'pramnos.pushlog'                  => 'userid',
             \Pramnos\Push\TestPush::TABLE      => 'userid',
+            // What they arranged and agreed to, and what the assistant remembers about them.
+            'user_dashboards'                  => 'userid',
+            'chat_memory'                      => 'userid',
+            'chat_asks'                        => 'userid',
+            'ai_consents'                      => 'userid',
+            'ai_task_subscriptions'            => 'userid',
         ];
+    }
+
+    /**
+     * What they said to the assistant and what it answered, and the tasks they made.
+     *
+     * Their conversations go with every message in them. Their scheduled tasks go with each run's
+     * record and each reader's subscription — a task meant to outlive them is handed over first
+     * ({@see \Pramnos\Llm\Chat\Routines::handover()}), and is not theirs by then. The call log
+     * keeps what each call cost, for the installation's accounts, but loses who made it and what
+     * was said.
+     */
+    protected function eraseAiData(int $userId): void
+    {
+        $schema = $this->database->schema();
+        $qb     = fn (string $table) => $this->database->queryBuilder()->table($table);
+        $ids    = static function ($result, string $column): array {
+            $found = [];
+            while ($result && ($row = $result->fetch()) !== null) {
+                $found[] = (int) $row[$column];
+            }
+
+            return $found;
+        };
+
+        if ($schema->hasTable('chat_conversations')) {
+            $conversations = $ids($qb('chat_conversations')->select(['conversation_id'])->where('userid', $userId)->get(), 'conversation_id');
+            if ($conversations !== [] && $schema->hasTable('chat_messages')) {
+                $qb('chat_messages')->whereIn('conversation_id', $conversations)->delete();
+            }
+            $qb('chat_conversations')->where('userid', $userId)->delete();
+        }
+
+        if ($schema->hasTable('ai_routines')) {
+            $tasks = $ids($qb('ai_routines')->select(['routine_id'])->where('userid', $userId)->get(), 'routine_id');
+            foreach (['ai_task_runs', 'ai_task_subscriptions'] as $table) {
+                if ($tasks !== [] && $schema->hasTable($table)) {
+                    $qb($table)->whereIn('routine_id', $tasks)->delete();
+                }
+            }
+            $qb('ai_routines')->where('userid', $userId)->delete();
+        }
+
+        if ($schema->hasTable('llm_calls')) {
+            $qb('llm_calls')->where('userid', $userId)
+                ->update(['userid' => null, 'system_prompt' => null, 'messages' => null, 'reply' => null]);
+        }
     }
 
     /**

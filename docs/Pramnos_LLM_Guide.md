@@ -9,6 +9,7 @@ use_cases:
   - Scheduling a question to a model every morning, as its owner
   - Sending an organisation a scheduled AI report its members subscribe to
   - Giving people a page to see, pause and receive their scheduled AI tasks and reports
+  - Handing a leaving member's scheduled AI tasks to someone else
   - Asking users' agreement before their data goes to a provider
   - Turning an attached Word, OpenDocument or email file into text for a model
   - Adding an Ask AI page, widget or SPA screen to an application
@@ -513,6 +514,26 @@ those tasks to another member:
 ```php
 // before removing a member, once somebody chose who takes over
 $tasks->transfer($orgId, $leaving, $successor);
+```
+
+**Asking who takes over.** `handoverChoices($userId)` answers what a leaving person is asked,
+organisation by organisation: their `shared` tasks (reports their organisation or the installation
+receives), their `personal` ones, and the `successors` who may take them,
+`TaskPolicy::successors($orgId, $leaving)`. By default that is the organisation's other active
+members, and nobody outside an organisation. `handover($userId, [$orgId => ['to' => $id,
+'personal' => true]])` performs the choice: shared tasks go to the successor, the person's own
+only with `personal`, and a successor the policy does not offer moves nothing.
+
+The account's delete page asks this and hands over before the erase (see the Authentication
+Guide). An application whose member removal is its own flow does the same with two calls:
+
+```php
+// app/Controllers/OrganizationMembers.php — removing a member who was asked who takes over
+$tasks   = new \Pramnos\Llm\Chat\Routines(new \Pramnos\Llm\Chat\Conversations(\Pramnos\Llm\Chat\Chat::assistant()));
+$offered = $tasks->handoverChoices($leaving);        // draw a choice of successor per organisation
+$tasks->handover($leaving, [$orgId => ['to' => (int) $_POST['successor'], 'personal' => !empty($_POST['personal'])]]);
+// then remove the membership; what was not handed over stays the leaver's, paused by
+// TaskPolicy::stillAllowed() at its next run if the application checks membership there
 ```
 
 ### Agreement to a provider

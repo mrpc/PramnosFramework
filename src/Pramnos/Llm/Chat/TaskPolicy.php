@@ -206,6 +206,36 @@ class TaskPolicy
         return $this->assistant->conversationUrl($run['conversation_id'] ?? $task['conversation_id'] ?? null);
     }
 
+    /**
+     * Who may take over a leaving person's tasks in an organisation, as `userid => name`: its other
+     * active members, by default, from the framework's memberships. Nobody outside an
+     * organisation, and nobody when there are no memberships to read — then the tasks can only be
+     * deleted. An application with its own memberships answers here.
+     *
+     * @return array<int, string>
+     */
+    public function successors(?int $organizationId, int $leavingUserId): array
+    {
+        if ($organizationId === null) {
+            return [];
+        }
+        try {
+            $members = (new \Pramnos\Auth\OrganizationAdmin($leavingUserId))->members($organizationId);
+        } catch (\Throwable $e) {
+            \Pramnos\Logs\Logger::log('Task successors not read: ' . $e->getMessage());
+
+            return [];
+        }
+        $who = [];
+        foreach ($members as $member) {
+            if ((int) $member['userid'] !== $leavingUserId) {
+                $who[(int) $member['userid']] = $member['name'] !== '' ? $member['name'] : $member['username'];
+            }
+        }
+
+        return $who;
+    }
+
     /** A person's usertype, 0 for nobody. */
     protected function usertype(int $userId): int
     {

@@ -553,6 +553,59 @@ class Routines
         return ['moved' => $moved, 'paused' => $paused];
     }
 
+    /**
+     * What a leaving person is asked about, organisation by organisation: their tasks there,
+     * which of them are shared (an organisation's or the installation's reports) and which their
+     * own, and who may take them over ({@see TaskPolicy::successors()}). Shared ones are proposed
+     * for a successor by default; one's own go with them only if they choose; with nobody to take
+     * them, they can only be deleted.
+     *
+     * @return list<array{organization_id: int|null, shared: list<array<string, mixed>>, personal: list<array<string, mixed>>, successors: array<int, string>}>
+     */
+    public function handoverChoices(int $userId): array
+    {
+        $byOrganization = [];
+        foreach ($this->forUser($userId)['tasks'] as $task) {
+            $key = $task['organization_id'] === null ? 'none' : (string) $task['organization_id'];
+            $byOrganization[$key] ??= ['organization_id' => $task['organization_id'], 'shared' => [], 'personal' => [], 'successors' => []];
+            $byOrganization[$key][$task['owner'] === self::OWNER_USER ? 'personal' : 'shared'][] = $task;
+        }
+        foreach ($byOrganization as $key => $one) {
+            $byOrganization[$key]['successors'] = $this->policy()->successors($one['organization_id'], $userId);
+        }
+
+        return array_values($byOrganization);
+    }
+
+    /**
+     * Hand a leaving person's tasks to the successors they chose, per organisation —
+     * `[orgId => ['to' => userid, 'personal' => bool]]`, `none` for outside any. Shared tasks go
+     * to the successor; one's own only with `personal`. A successor the policy does not offer is
+     * refused; what is not handed over is left for the erasure to delete.
+     *
+     * @param array<int|string, array{to?: mixed, personal?: mixed}> $choices
+     * @return list<int> The tasks handed over
+     */
+    public function handover(int $userId, array $choices): array
+    {
+        $moved = [];
+        foreach ($this->handoverChoices($userId) as $one) {
+            $key    = $one['organization_id'] === null ? 'none' : (string) $one['organization_id'];
+            $choice = $choices[$key] ?? [];
+            $to     = (int) ($choice['to'] ?? 0);
+            if ($to <= 0 || !isset($one['successors'][$to])) {
+                continue;
+            }
+            $tasks = !empty($choice['personal']) ? [...$one['shared'], ...$one['personal']] : $one['shared'];
+            if ($tasks === []) {
+                continue;
+            }
+            $moved = [...$moved, ...$this->transfer($one['organization_id'], $userId, $to, array_column($tasks, 'routine_id'))['moved']];
+        }
+
+        return $moved;
+    }
+
     /** @return list<int> The shared tasks of an organisation a person reads */
     private function subscriptionsIn(?int $organizationId, int $userId): array
     {
