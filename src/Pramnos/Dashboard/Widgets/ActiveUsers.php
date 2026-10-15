@@ -20,6 +20,12 @@ final class ActiveUsers extends Widget
         return 'Active users';
     }
 
+    /** What it shows, for the list cards are chosen from. */
+    public function description(): string
+    {
+        return 'Accounts signed in now, and in the last hour, day, week and month.';
+    }
+
     public function link(): ?string
     {
         return adminUrl('Users/sessions');

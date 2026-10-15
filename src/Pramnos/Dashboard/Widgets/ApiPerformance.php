@@ -23,6 +23,12 @@ final class ApiPerformance extends Widget
         return 'API (24 hours)';
     }
 
+    /** What it shows, for the list cards are chosen from. */
+    public function description(): string
+    {
+        return 'Calls to the API in the last 24 hours: how many, how fast, how many failed.';
+    }
+
     public function link(): ?string
     {
         return adminUrl('TokenActions');

@@ -138,13 +138,13 @@ class DashboardLayoutsMySQLTest extends TestCase
 
         // Assert
         $this->assertSame(Layouts::defaults($me), $before);
-        $this->assertSame([['id' => 'health', 'size' => 'half'], ['id' => 'database', 'size' => 'full']], $kept);
+        $this->assertSame([['id' => 'health', 'size' => 'm', 'settings' => []], ['id' => 'database', 'size' => 'full', 'settings' => []]], $kept);
         $this->assertSame($kept, $after, 'read back as kept');
         $this->assertSame(Layouts::defaults($me), $other, 'another area starts from the default');
-        $this->assertSame([['id' => 'users.active', 'size' => 'half']], $again, 'a second save replaces the first');
+        $this->assertSame([['id' => 'users.active', 'size' => 'm', 'settings' => []]], $again, 'a second save replaces the first');
         $this->assertSame(Layouts::defaults($me), $reset);
         $this->assertSame(Layouts::defaults($me), $layouts->for($me), 'forgotten');
-        $this->assertSame([['id' => 'database', 'size' => 'half']], $layouts->for($me, 'partners'), 'the other area kept its own');
+        $this->assertSame([['id' => 'database', 'size' => 'm', 'settings' => []]], $layouts->for($me, 'partners'), 'the other area kept its own');
     }
 
     /**
@@ -168,17 +168,56 @@ class DashboardLayoutsMySQLTest extends TestCase
 
         // Assert
         $this->assertSame(401, $refused->getStatusCode());
-        $this->assertSame(['layout' => [['id' => 'database', 'size' => 'full']]], $saved);
+        $this->assertSame(['layout' => [['id' => 'database', 'size' => 'full', 'settings' => []]]], $saved);
         $this->assertSame('admin_dashboard', $view->shown);
         $this->assertSame(['database'], array_column($view->widgets, 'id'));
         $this->assertSame('full', $view->widgets[0]['size']);
+        $this->assertSame([], $view->widgets[0]['options'], 'the framework\'s cards have nothing to set');
         $this->assertStringContainsString('pf-stat-tile', $view->widgets[0]['html'], 'drawn from the real figures');
         $this->assertSame(['users.active', 'api.performance', 'health'], array_keys($view->addable));
+        $this->assertNotSame('', $view->catalogue['health']['description'], 'each offered with what it shows');
+        $this->assertStringEndsWith('LayoutDashboardController/card', $view->cardUrl);
         // The controller's own address — this subclass's name — as a wrapper's would be
         $this->assertStringEndsWith('LayoutDashboardController/savelayout', $view->saveUrl);
         $this->assertIsArray($view->dbStats, 'the figures a view of the older shape reads');
         $this->assertStringEndsWith('LayoutDashboardController', (string) $controller->redirectedTo);
         $this->assertSame(Layouts::defaults(self::me()), (new Layouts($this->db))->for(self::me()));
+    }
+
+    /**
+     * One card alone: drawn with this person's saved width and settings, its inside drawn with
+     * them; one they have not placed, with the widget's own; one they may not have, or nobody
+     * signed in, is 404.
+     */
+    public function testOneCardIsDrawnAlone(): void
+    {
+        // Arrange
+        WidgetRegistry::register(\Pramnos\Tests\Unit\Dashboard\SalesWidget::class);
+        $controller = new LayoutDashboardController(null);
+        $anonymous  = $controller->card('sales');
+        \Pramnos\Http\RequestIdentity::seal(self::me(), 'test');
+        (new Layouts($this->db))->save(self::me(), [['id' => 'sales', 'size' => 'full', 'settings' => ['period' => '90']]]);
+
+        // Act
+        $placed    = $controller->card('sales');
+        $saved     = $controller->view->widget;
+        $_GET      = ['id' => 'health'];
+        $notPlaced = $controller->card();
+        $health    = $controller->view->widget;
+        $_GET      = [];
+        $unknown   = $controller->card('nope');
+
+        // Assert
+        $this->assertSame(404, $anonymous->getStatusCode());
+        $this->assertSame([200, 'no-store'], [$placed->getStatusCode(), $placed->getHeaderLine('Cache-Control')]);
+        $this->assertSame('card', $controller->view->shown);
+        $this->assertSame(['full', ['period' => '90', 'market' => 'all']], [$saved['size'], $saved['settings']]);
+        $this->assertSame('<p>sales over 90</p>', $saved['html'], 'drawn with the settings');
+        $this->assertSame(['7' => 'Last 7 days', '30' => 'Last 30 days', '90' => 'Last 90 days'], $saved['options']['period']);
+        $this->assertSame(['all' => 'all', 'gr' => 'gr', 'cy' => 'cy'], $saved['options']['market'], 'a plain list, valued by itself');
+        $this->assertNull($saved['options']['title'], 'a free value');
+        $this->assertSame([200, 'full'], [$notPlaced->getStatusCode(), $health['size']], 'the widget\'s own width');
+        $this->assertSame(404, $unknown->getStatusCode());
     }
 
     /** A widget that throws is a short note on its card, not a dashboard that fails to draw. */

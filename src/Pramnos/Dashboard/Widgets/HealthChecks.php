@@ -22,6 +22,12 @@ final class HealthChecks extends Widget
         return 'Health';
     }
 
+    /** What it shows, for the list cards are chosen from. */
+    public function description(): string
+    {
+        return 'Every health check, and what each says now.';
+    }
+
     public function size(): string
     {
         return self::FULL;

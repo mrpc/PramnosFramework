@@ -11,14 +11,15 @@ use Pramnos\Database\Database;
  *
  * ```php
  * $layouts = new Layouts();
- * $layouts->for($user);                         // [['id' => 'users.active', 'size' => 'half'], …]
- * $layouts->save($user, [['id' => 'health', 'size' => 'full']]);
+ * $layouts->for($user);                         // [['id' => 'users.active', 'size' => 'm', 'settings' => []], …]
+ * $layouts->save($user, [['id' => 'health', 'size' => 'full'], ['id' => 'sales', 'size' => 's', 'settings' => ['period' => '30']]]);
  * $layouts->save($user, null);                  // back to the default
  * ```
  *
  * A layout is cleaned whenever it is read or written: a widget nobody registers any more, one this
- * person may not have, a second copy of one, an unknown width — each is dropped or put right, not
- * an error. So a saved layout can never show what its owner's permissions do not allow.
+ * person may not have, a second copy of one, an unknown width, a setting the widget does not
+ * declare — each is dropped or put right, not an error. A width saved as the older `half` reads as
+ * `m`. So a saved layout can never show what its owner's permissions do not allow.
  *
  * Kept in `user_dashboards` (`userid`, `area`, `layout` as JSON): a layout of a dozen widgets does
  * not fit the 255 characters of a user setting, and an area — the administration, a partner
@@ -33,7 +34,7 @@ final class Layouts
     /**
      * This person's layout: the one they saved, cleaned, or the default.
      *
-     * @return list<array{id: string, size: string}>
+     * @return list<array{id: string, size: string, settings: array<string, mixed>}>
      */
     public function for(object $user, string $area = 'admin'): array
     {
@@ -53,8 +54,8 @@ final class Layouts
     /**
      * Keep a layout, cleaned; null forgets it, so the default applies again.
      *
-     * @param mixed $layout As a page sends it: `[{id, size}, …]`
-     * @return list<array{id: string, size: string}> What applies now
+     * @param mixed $layout As a page sends it: `[{id, size, settings}, …]`
+     * @return list<array{id: string, size: string, settings: array<string, mixed>}> What applies now
      */
     public function save(object $user, mixed $layout, string $area = 'admin'): array
     {
@@ -79,14 +80,14 @@ final class Layouts
      * The layout of somebody who has saved none: every widget they may have that is on by default,
      * at its own width, in the registry's order.
      *
-     * @return list<array{id: string, size: string}>
+     * @return list<array{id: string, size: string, settings: array<string, mixed>}>
      */
     public static function defaults(?object $user): array
     {
         $layout = [];
         foreach (WidgetRegistry::available($user) as $id => $widget) {
             if ($widget->byDefault()) {
-                $layout[] = ['id' => (string) $id, 'size' => self::size($widget->size())];
+                $layout[] = ['id' => (string) $id, 'size' => self::size($widget->size()), 'settings' => Widget::cleanSettings($widget, [])];
             }
         }
 
@@ -96,7 +97,7 @@ final class Layouts
     /**
      * A layout as it may be kept: widgets this person may have, each once, at a known width.
      *
-     * @return list<array{id: string, size: string}>
+     * @return list<array{id: string, size: string, settings: array<string, mixed>}>
      */
     public static function clean(mixed $layout, ?object $user): array
     {
@@ -107,16 +108,21 @@ final class Layouts
             if (!isset($available[$id]) || isset($clean[$id])) {
                 continue;
             }
-            $size       = is_array($item) ? (string) ($item['size'] ?? '') : '';
-            $clean[$id] = ['id' => $id, 'size' => in_array($size, [Widget::HALF, Widget::FULL], true) ? $size : self::size($available[$id]->size())];
+            $size       = Widget::normalSize(is_array($item) ? ($item['size'] ?? null) : null);
+            $clean[$id] = [
+                'id'       => $id,
+                'size'     => $size ?? self::size($available[$id]->size()),
+                'settings' => Widget::cleanSettings($available[$id], is_array($item) ? ($item['settings'] ?? []) : []),
+            ];
         }
 
         return array_values($clean);
     }
 
+    /** A widget's own width, or {@see Widget::MEDIUM} for one it does not know. */
     private static function size(string $size): string
     {
-        return $size === Widget::FULL ? Widget::FULL : Widget::HALF;
+        return Widget::normalSize($size) ?? Widget::MEDIUM;
     }
 
     private function table(): \Pramnos\Database\QueryBuilder

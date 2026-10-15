@@ -20,6 +20,12 @@ final class DatabaseOverview extends Widget
         return 'Database';
     }
 
+    /** What it shows, for the list cards are chosen from. */
+    public function description(): string
+    {
+        return 'The database: its size, connections and cache hit ratio.';
+    }
+
     public function link(): ?string
     {
         return adminUrl('Dashboard/database');

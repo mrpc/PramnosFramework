@@ -47,7 +47,7 @@ class DashboardController extends Controller
 
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
-        $this->addAuthAction(['display', 'activeusers', 'apistats', 'dbstats', 'database', 'cache', 'cacheitem', 'clearcache', 'savelayout', 'resetlayout']);
+        $this->addAuthAction(['display', 'card', 'activeusers', 'apistats', 'dbstats', 'database', 'cache', 'cacheitem', 'clearcache', 'savelayout', 'resetlayout']);
         // POST with the session's token, or refused before the action runs: see Controller::exec().
         $this->addWriteAction(['clearcache', 'savelayout', 'resetlayout']);
         parent::__construct($application);
@@ -80,19 +80,15 @@ class DashboardController extends Controller
         // in place is lost.
         $drawn = [];
         foreach ($layout as $item) {
-            $widget = $widgets[$item['id']];
-            $drawn[] = [
-                'id'    => $item['id'],
-                'size'  => $item['size'],
-                'title' => $widget->title(),
-                'link'  => $widget->link(),
-                'html'  => $this->drawWidget($widget),
-            ];
+            $drawn[] = $this->cardFor($widgets[$item['id']], $item);
         }
         $view->widgets    = $drawn;
         $placed           = array_column($layout, 'id');
         $view->addable    = array_map(static fn ($w) => $w->title(), array_diff_key($widgets, array_flip($placed)));
+        // The same cards with what each shows, for a catalogue that can be searched.
+        $view->catalogue  = array_map(static fn ($w) => ['title' => $w->title(), 'description' => $w->description()], array_diff_key($widgets, array_flip($placed)));
         $view->saveUrl    = adminUrl($this->dashboardRoute() . '/savelayout');
+        $view->cardUrl    = adminUrl($this->dashboardRoute() . '/card');
         $view->resetUrl   = adminUrl($this->dashboardRoute() . '/resetlayout');
 
         // The figures as views of the older shape read them, worked out once with the widgets'.
@@ -129,6 +125,63 @@ class DashboardController extends Controller
             $this->layouts()->save($user, null, $this->dashboardArea);
         }
         $this->redirect(adminUrl($this->dashboardRoute()));
+    }
+
+    /**
+     * One card, frame and all, as the dashboard draws it — `GET …/card?id=…`: for a card just added,
+     * or redrawn after its settings changed, without reloading the page. Drawn with this person's
+     * saved width and settings for it, or the widget's own for a card not yet in their layout; a
+     * card they may not have is 404.
+     */
+    public function card(mixed $id = null): mixed
+    {
+        if ($this->requireMinUserType($this->adminFloor())) {
+            return null;
+        }
+        $user    = \Pramnos\User\User::current();
+        $id      = (string) ($id ?: ($_GET['id'] ?? ''));
+        $widgets = \Pramnos\Dashboard\WidgetRegistry::available(is_object($user) ? $user : null);
+        if (!is_object($user) || !isset($widgets[$id])) {
+            return \Pramnos\Http\Response::make('', 404);
+        }
+
+        $saved = array_column($this->layouts()->for($user, $this->dashboardArea), null, 'id')[$id]
+            ?? \Pramnos\Dashboard\Layouts::clean([['id' => $id]], $user)[0];
+        $view         = $this->getView('dashboard');
+        $view->widget = $this->cardFor($widgets[$id], $saved);
+
+        return \Pramnos\Http\Response::make((string) $view->display('card'), 200)
+            ->withHeader('Content-Type', 'text/html; charset=utf-8')
+            ->withHeader('Cache-Control', 'no-store');
+    }
+
+    /**
+     * What a view needs to draw one card: its place in the layout, its heading, its settings and
+     * the choices for them, and its inside drawn with those settings.
+     *
+     * @param array{id: string, size: string, settings?: array<string, mixed>} $item
+     * @return array<string, mixed>
+     */
+    protected function cardFor(\Pramnos\Dashboard\Widget $widget, array $item): array
+    {
+        $settings = (array) ($item['settings'] ?? []);
+        $options  = [];
+        foreach ($widget->options() as $name => $allowed) {
+            $options[$name] = is_callable($allowed)
+                ? null
+                : (array_is_list($allowed) ? array_combine(array_map('strval', $allowed), array_map('strval', $allowed)) : $allowed);
+        }
+
+        return [
+            'id'       => $item['id'],
+            'size'     => $item['size'],
+            'title'    => $widget->title(),
+            'link'     => $widget->link(),
+            'settings' => $settings,
+            // name => [value => label], or null for a free value
+            'options'  => $options,
+            'html'     => $this->drawWidget($widget->configure($settings)),
+        ];
     }
 
     /** The store of layouts. */

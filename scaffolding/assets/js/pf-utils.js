@@ -992,11 +992,12 @@
     // ══════════════════════════════════════════════════════════════════════════
     // data-pf-dashboard — a dashboard each person arranges (DashboardController)
     //
-    // "Customise" shows each card's tools: move up and down, wide or narrow, hide — buttons, so a
-    // keyboard does all of it — and in the same mode a card can be dragged into place. Each change
-    // is saved at once (POST data-save, JSON, with the page's CSRF token); adding a card saves and
-    // reloads, because its contents are drawn on the server. The server keeps only what this
-    // person may have, so nothing here is a gate.
+    // "Customise" shows each card's tools: move up and down, its width (s, m, l, full in turn), its
+    // settings, hide — buttons, so a keyboard does all of it — and in the same mode a card can be
+    // dragged into place. Each change is saved at once (POST data-save, JSON, with the page's CSRF
+    // token). A card added, or whose settings changed, is drawn by the server (GET data-card?id=)
+    // and put in place without a reload; without data-card the page reloads instead. The server
+    // keeps only what this person may have, so nothing here is a gate.
     // ══════════════════════════════════════════════════════════════════════════
     (function () {
         var board = document.querySelector('[data-pf-dashboard]');
@@ -1008,12 +1009,46 @@
         var editing = false;
         var dragged = null;
 
+        var SIZES   = ['s', 'm', 'l', 'full'];
+        var NAMES   = { s: 'small', m: 'medium', l: 'large', full: 'full width' };
+        var cardUrl = board.getAttribute('data-card') || '';
+
         function cards() { return Array.prototype.slice.call(board.querySelectorAll('[data-pf-widget]')); }
         function say(text) { if (status) { status.textContent = text; } }
+        function sizeOf(card) {
+            var size = card.getAttribute('data-size');
+            return size === 'half' ? 'm' : (SIZES.indexOf(size) >= 0 ? size : 'm');
+        }
+        function settingsOf(card) {
+            try { var parsed = JSON.parse(card.getAttribute('data-settings') || '{}'); return parsed && typeof parsed === 'object' ? parsed : {}; } catch (err) { return {}; }
+        }
         function layout() {
             return cards().map(function (card) {
-                return { id: card.getAttribute('data-pf-widget'), size: card.getAttribute('data-size') === 'full' ? 'full' : 'half' };
+                return { id: card.getAttribute('data-pf-widget'), size: sizeOf(card), settings: settingsOf(card) };
             });
+        }
+
+        /** The server's drawing of one card, as an element — or null. */
+        function fetchCard(id) {
+            var url = cardUrl + (cardUrl.indexOf('?') >= 0 ? '&' : '?') + 'id=' + encodeURIComponent(id);
+            return window.fetch(url, { credentials: 'same-origin', headers: { Accept: 'text/html' } })
+                .then(function (r) { if (!r.ok) { throw new Error('HTTP ' + r.status); } return r.text(); })
+                .then(function (html) {
+                    var holder = document.createElement('div');
+                    holder.innerHTML = html;
+                    return holder.querySelector('[data-pf-widget]');
+                });
+        }
+
+        /** Put a freshly drawn card where `old` was, or at the end; tools as the mode has them. */
+        function place(fresh, old) {
+            if (!fresh) { return; }
+            if (old && old.parentNode) { old.parentNode.insertBefore(fresh, old); old.parentNode.removeChild(old); } else { board.insertBefore(fresh, empty || null); }
+            var tools = fresh.querySelector('[data-pf-widget-tools]');
+            if (tools) { tools.hidden = !editing; }
+            if (editing) { fresh.setAttribute('draggable', 'true'); }
+            if (empty) { empty.hidden = true; }
+            if (window.pfCharts && window.pfCharts.draw) { window.pfCharts.draw(fresh); }
         }
 
         function save(then) {
@@ -1025,6 +1060,9 @@
                 if (!r.ok) { throw new Error('HTTP ' + r.status); }
                 return r.json();
             }).then(function () {
+                if (then && then.redraw) {
+                    return fetchCard(then.redraw.id).then(function (fresh) { place(fresh, then.redraw.card); });
+                }
                 if (then && then.reload) { window.location.reload(); }
             }).catch(function () {
                 say('The dashboard could not be saved.');
@@ -1047,10 +1085,18 @@
         if (done) { done.addEventListener('click', function () { setEditing(false); if (editButton && editButton.focus) { editButton.focus(); } }); }
 
         board.addEventListener('click', function (e) {
-            var button = e.target.closest ? e.target.closest('[data-pf-widget-move], [data-pf-widget-resize], [data-pf-widget-hide]') : null;
+            var button = e.target.closest ? e.target.closest('[data-pf-widget-move], [data-pf-widget-resize], [data-pf-widget-hide], [data-pf-widget-settings-toggle]') : null;
             if (!button) { return; }
             var card  = button.closest('[data-pf-widget]');
             var title = card.getAttribute('aria-label') || '';
+            if (button.hasAttribute('data-pf-widget-settings-toggle')) {
+                var form = card.querySelector('[data-pf-widget-settings]');
+                if (form) {
+                    form.hidden = !form.hidden;
+                    button.setAttribute('aria-expanded', form.hidden ? 'false' : 'true');
+                }
+                return;
+            }
             if (button.hasAttribute('data-pf-widget-move')) {
                 var list = cards();
                 var at   = list.indexOf(card) + parseInt(button.getAttribute('data-pf-widget-move'), 10);
@@ -1060,10 +1106,10 @@
                 if (button.focus) { button.focus(); }
                 say(title + ': ' + (at + 1) + ' / ' + list.length);
             } else if (button.hasAttribute('data-pf-widget-resize')) {
-                var full = card.getAttribute('data-size') !== 'full';
-                card.setAttribute('data-size', full ? 'full' : 'half');
-                card.classList.toggle('pf-dashboard-full', full);
-                say(title + ': ' + (full ? 'wide' : 'narrow'));
+                var size = SIZES[(SIZES.indexOf(sizeOf(card)) + 1) % SIZES.length];
+                card.setAttribute('data-size', size);
+                card.classList.toggle('pf-dashboard-full', size === 'full');
+                say(title + ': ' + NAMES[size]);
             } else {
                 var next = cards()[cards().indexOf(card) + 1] || cards()[cards().indexOf(card) - 1];
                 card.parentNode.removeChild(card);
@@ -1074,11 +1120,28 @@
             save();
         });
 
+        // A card's settings: kept on the card, saved with the layout, and the card drawn again.
+        board.addEventListener('submit', function (e) {
+            var form = e.target && e.target.hasAttribute && e.target.hasAttribute('data-pf-widget-settings') ? e.target : null;
+            if (!form) { return; }
+            e.preventDefault();
+            var card = form.closest('[data-pf-widget]');
+            var settings = {};
+            Array.prototype.forEach.call(form.querySelectorAll('[name]'), function (field) { settings[field.getAttribute('name')] = field.value; });
+            card.setAttribute('data-settings', JSON.stringify(settings));
+            say((card.getAttribute('aria-label') || '') + ': saved');
+            save(cardUrl ? { redraw: { id: card.getAttribute('data-pf-widget'), card: card } } : { reload: true });
+        });
+
         var add = document.querySelector('[data-pf-dashboard-add]');
         if (add) {
             add.addEventListener('change', function () {
                 if (!add.value) { return; }
-                save({ add: { id: add.value, size: 'half' }, reload: true });
+                var id = add.value;
+                var chosen = add.querySelector('option[value="' + id + '"]');
+                if (chosen && chosen.parentNode) { chosen.parentNode.removeChild(chosen); }
+                add.value = '';
+                save(cardUrl ? { add: { id: id }, redraw: { id: id, card: null } } : { add: { id: id }, reload: true });
             });
         }
 

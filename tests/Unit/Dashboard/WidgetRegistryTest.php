@@ -35,6 +35,35 @@ final class OrdersWidget extends Widget
     public function byDefault(): bool { return false; }
 }
 
+/** An application's widget with settings: a period (labelled), a market (a plain list), a free title. */
+final class SalesWidget extends Widget
+{
+    /** Its id. */
+    public function id(): string { return 'sales'; }
+
+    /** Its heading. */
+    public function title(): string { return 'Sales'; }
+
+    /** Its inside, by the period chosen. */
+    public function render(): string { return '<p>sales over ' . (string) $this->setting('period') . '</p>'; }
+
+    /** Small. */
+    public function size(): string { return self::SMALL; }
+
+    /** What it shows. */
+    public function description(): string { return 'Sales: the money in, by period.'; }
+
+    /** What may be set. */
+    public function options(): array
+    {
+        return [
+            'period' => ['7' => 'Last 7 days', '30' => 'Last 30 days', '90' => 'Last 90 days'],
+            'market' => ['all', 'gr', 'cy'],
+            'title'  => static fn (mixed $v): ?string => is_string($v) && trim($v) !== '' ? trim($v) : null,
+        ];
+    }
+}
+
 /** A widget whose rule throws: offered to nobody. */
 final class BrokenRuleWidget extends Widget
 {
@@ -160,10 +189,10 @@ class WidgetRegistryTest extends TestCase
 
         // Assert
         $this->assertSame([
-            ['id' => 'users.active', 'size' => 'half'],
-            ['id' => 'api.performance', 'size' => 'half'],
-            ['id' => 'database', 'size' => 'half'],
-            ['id' => 'health', 'size' => 'full'],
+            ['id' => 'users.active', 'size' => 'm', 'settings' => []],
+            ['id' => 'api.performance', 'size' => 'm', 'settings' => []],
+            ['id' => 'database', 'size' => 'm', 'settings' => []],
+            ['id' => 'health', 'size' => 'full', 'settings' => []],
         ], $admin);
         $this->assertSame([], $staff);
     }
@@ -192,15 +221,15 @@ class WidgetRegistryTest extends TestCase
 
         // Assert
         $this->assertSame([
-            ['id' => 'orders', 'size' => 'half'],
-            ['id' => 'health', 'size' => 'full'],
-            ['id' => 'database', 'size' => 'half'],
+            ['id' => 'orders', 'size' => 'm', 'settings' => []],
+            ['id' => 'health', 'size' => 'full', 'settings' => []],
+            ['id' => 'database', 'size' => 'm', 'settings' => []],
         ], $admin);
-        $this->assertSame([['id' => 'orders', 'size' => 'half']], $staff, 'what they may not have is gone');
+        $this->assertSame([['id' => 'orders', 'size' => 'm', 'settings' => []]], $staff, 'what they may not have is gone');
         $this->assertSame([], Layouts::clean('not a list', self::user(90)));
     }
 
-    /** A widget's defaults: half width, on a new dashboard, no link, and nobody signed out. */
+    /** A widget's defaults: medium width, nothing to set, on a new dashboard, no link, and nobody signed out. */
     public function testAWidgetsDefaults(): void
     {
         // Arrange
@@ -214,12 +243,43 @@ class WidgetRegistryTest extends TestCase
         };
 
         // Assert
-        $this->assertSame(Widget::HALF, $widget->size());
+        $this->assertSame(Widget::MEDIUM, $widget->size());
+        $this->assertSame([], $widget->options());
+        $this->assertSame('', $widget->description());
+        $this->assertNull($widget->configure(['anything' => 1])->setting('anything'), 'nothing declared, nothing kept');
         $this->assertTrue($widget->byDefault());
         $this->assertNull($widget->link());
         $this->assertFalse($widget->allowed(null));
         $this->assertFalse($widget->allowed(self::user(79)));
         $this->assertTrue($widget->allowed(self::user(80)));
+    }
+
+    /**
+     * Four widths, the older `half` read as medium and anything else refused; and a card's
+     * settings kept as its options allow — a list's value or its first, a function's answer, or
+     * nothing when the function refuses — in a layout as in the widget itself.
+     */
+    public function testWidthsAndSettings(): void
+    {
+        // Arrange
+        WidgetRegistry::register(SalesWidget::class);
+        $user = self::user(90);
+
+        // Act
+        $sizes  = array_map([Widget::class, 'normalSize'], ['s', 'm', 'l', 'full', 'half', 'xl', null]);
+        $chosen = Layouts::clean([['id' => 'sales', 'size' => 'l', 'settings' => ['period' => '30', 'market' => 'gr', 'title' => '  Ours  ', 'extra' => 'x']]], $user);
+        $wrong  = Layouts::clean([['id' => 'sales', 'settings' => ['period' => '365', 'title' => '']]], $user);
+        $none   = Layouts::clean([['id' => 'sales', 'settings' => 'not settings']], $user);
+        $widget = (new SalesWidget())->configure(['period' => '90']);
+
+        // Assert
+        $this->assertSame(['s', 'm', 'l', 'full', 'm', null, null], $sizes);
+        $this->assertSame([['id' => 'sales', 'size' => 'l', 'settings' => ['period' => '30', 'market' => 'gr', 'title' => 'Ours']]], $chosen, 'undeclared dropped');
+        $this->assertSame(['period' => '7', 'market' => 'all'], $wrong[0]['settings'], 'an unknown value is the first; a refused one is absent');
+        $this->assertSame('s', $wrong[0]['size'], 'the widget\'s own width');
+        $this->assertSame(['period' => '7', 'market' => 'all'], $none[0]['settings']);
+        $this->assertSame('90', $widget->setting('period'));
+        $this->assertSame('Sales: the money in, by period.', $widget->description());
     }
 
     /**

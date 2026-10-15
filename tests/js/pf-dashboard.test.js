@@ -27,8 +27,34 @@ const settle = async () => { for (let i = 0; i < 6; i++) { await new Promise((r)
  *
  * @param {boolean} ok Whether the server accepts the saves
  */
-function page(ok = true) {
+function page(ok = true, cardUrl = '') {
     const { window, document } = createDom({ meta: { csrf: 't0ken' } });
+    // The fake DOM does not parse HTML: a div given the server's card builds the one element it
+    // names — `<section data-pf-widget="x" data-size="m">` — enough for the script to place it.
+    const create = document.createElement;
+    document.createElement = (tag) => {
+        const node = create(tag);
+        if (tag !== 'div') { return node; }
+        let html = '';
+        Object.defineProperty(node, 'innerHTML', {
+            get: () => html,
+            set: (value) => {
+                html = String(value);
+                const found = html.match(/data-pf-widget="([^"]+)" data-size="([^"]+)"/);
+                if (found) {
+                    const section = create('section');
+                    section.setAttribute('data-pf-widget', found[1]);
+                    section.setAttribute('data-size', found[2]);
+                    section.setAttribute('data-drawn', 'server');
+                    const tools = create('div');
+                    tools.setAttribute('data-pf-widget-tools', '');
+                    section.appendChild(tools);
+                    node.appendChild(section);
+                }
+            },
+        });
+        return node;
+    };
     const el = (tag, attrs = {}, parent = null) => {
         const node = document.createElement(tag);
         Object.entries(attrs).forEach(([k, v]) => node.setAttribute(k, v));
@@ -41,7 +67,7 @@ function page(ok = true) {
     const add    = el('select', { 'data-pf-dashboard-add': '' }, bar);
     const done   = el('button', { 'data-pf-dashboard-done': '' }, bar);
     const status = el('p', { 'data-pf-dashboard-status': '' });
-    const board  = el('div', { 'data-pf-dashboard': '', 'data-save': '/admin/Dashboard/savelayout' });
+    const board  = el('div', cardUrl ? { 'data-pf-dashboard': '', 'data-save': '/admin/Dashboard/savelayout', 'data-card': cardUrl } : { 'data-pf-dashboard': '', 'data-save': '/admin/Dashboard/savelayout' });
     const card = (id, size) => {
         const section = el('section', { 'data-pf-widget': id, 'data-size': size, 'aria-label': id.toUpperCase() }, board);
         const tools = el('div', { 'data-pf-widget-tools': '' }, section);
@@ -55,17 +81,26 @@ function page(ok = true) {
     el('p', { 'data-pf-dashboard-empty': '' }, board).hidden = true;
 
     const saves = [];
+    const drawn = [];
+    const charted = [];
     window.fetch = (url, init) => {
+        if (init.method !== 'POST') {
+            drawn.push(url);
+            const id = decodeURIComponent(String(url).split('id=')[1] || '');
+            return Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve('<section class="card" data-pf-widget="' + id + '" data-size="s">drawn</section>') });
+        }
         saves.push({ url, headers: init.headers, body: JSON.parse(init.body) });
         return Promise.resolve({ ok, status: ok ? 200 : 403, json: () => Promise.resolve({}) });
     };
     loadScript(SOURCE, window);
+    // After pf-utils, which defines its own: a card drawn in is handed to it.
+    window.pfCharts = { draw: (root) => charted.push(root) };
 
     const order = () => board.querySelectorAll('[data-pf-widget]').map((one) => one.getAttribute('data-pf-widget'));
     const click = (node) => node.dispatchEvent(new Event('click', { bubbles: true }));
     const tool  = (id, attr, value = null) => cards[id].querySelector(value === null ? `[${attr}]` : `[${attr}="${value}"]`);
 
-    return { window, document, edit, bar, add, done, status, board, cards, saves, order, click, tool };
+    return { window, document, edit, bar, add, done, status, board, cards, saves, drawn, charted, order, click, tool, el };
 }
 
 /** Customise shows the tools and makes the cards draggable; Done puts them away. */
@@ -122,19 +157,27 @@ test('the first card does not move up', () => {
     assert.equal(p.saves.length, 0);
 });
 
-/** Wide or narrow toggles the card's width and saves it. */
-test('resizing a card saves its width', async () => {
+/**
+ * The width goes round the four — s, m, l, full — and each is saved; a card of the older `half`
+ * is m, so its next width is l.
+ */
+test('resizing a card goes round the four widths and saves each', async () => {
     // Arrange
     const p = page();
+    const sizes = [];
 
-    // Act
-    p.click(p.tool('a', 'data-pf-widget-resize'));
-    await settle();
+    // Act — four presses on a card saved as half
+    for (let i = 0; i < 4; i++) {
+        p.click(p.tool('a', 'data-pf-widget-resize'));
+        await settle();
+        sizes.push(p.cards.a.getAttribute('data-size'));
+    }
 
     // Assert
-    assert.equal(p.cards.a.getAttribute('data-size'), 'full');
-    assert.ok(p.cards.a.classList.contains('pf-dashboard-full'));
-    assert.deepEqual(p.saves[0].body.layout[0], { id: 'a', size: 'full' });
+    assert.deepEqual(sizes, ['l', 'full', 's', 'm']);
+    assert.ok(!p.cards.a.classList.contains('pf-dashboard-full'), 'full no longer');
+    assert.deepEqual(p.saves[1].body.layout[0], { id: 'a', size: 'full', settings: {} });
+    assert.equal(p.status.textContent, 'A: medium');
 });
 
 /** Hiding a card takes it off the page and out of the saved layout, focus moving to the next. */
@@ -201,4 +244,72 @@ test('a refused save is said', async () => {
 
     // Assert
     assert.equal(p.status.textContent, 'The dashboard could not be saved.');
+});
+
+/**
+ * With the address of one card, choosing a card to add saves it and draws it from the server in
+ * place — no reload — with its tools as the mode has them, its charts drawn, and the option gone.
+ */
+test('adding a card draws it in place', async () => {
+    // Arrange
+    const p = page(true, '/admin/Dashboard/card');
+    const option = p.el('option', { value: 'health' }, p.add);
+    p.click(p.edit);
+    p.add.value = 'health';
+
+    // Act
+    p.add.dispatchEvent(new Event('change'));
+    await settle();
+
+    // Assert
+    assert.deepEqual(p.saves[0].body.layout.map((w) => w.id), ['a', 'b', 'c', 'health']);
+    assert.deepEqual(p.drawn, ['/admin/Dashboard/card?id=health']);
+    assert.deepEqual(p.order(), ['a', 'b', 'c', 'health']);
+    const fresh = p.board.querySelector('[data-pf-widget="health"]');
+    assert.equal(fresh.getAttribute('data-drawn'), 'server');
+    assert.equal(fresh.querySelector('[data-pf-widget-tools]').hidden, false, 'customising: its tools shown');
+    assert.deepEqual(p.charted, [fresh]);
+    assert.equal(p.window.reloaded, undefined);
+    assert.equal(option.parentNode, null, 'no longer offered');
+});
+
+/**
+ * A card's settings: the gear shows its form; applying keeps the choices on the card, saves them
+ * with the layout, and draws the card again from the server in its place.
+ */
+test('applying a card\'s settings saves them and redraws it', async () => {
+    // Arrange
+    const p = page(true, '/admin/Dashboard/card?x=1');
+    const toggle = p.el('button', { 'data-pf-widget-settings-toggle': '', 'aria-expanded': 'false' }, p.tool('a', 'data-pf-widget-tools') ? p.cards.a.querySelector('[data-pf-widget-tools]') : p.cards.a);
+    const form = p.el('form', { 'data-pf-widget-settings': '' }, p.cards.a);
+    form.hidden = true;
+    const period = p.el('select', { name: 'period' }, form);
+    period.value = '30';
+
+    // Act
+    p.click(toggle);
+    const opened = [form.hidden, toggle.getAttribute('aria-expanded')];
+    form.dispatchEvent(new Event('submit', { bubbles: true }));
+    await settle();
+
+    // Assert
+    assert.deepEqual(opened, [false, 'true']);
+    assert.deepEqual(p.saves[0].body.layout[0], { id: 'a', size: 'm', settings: { period: '30' } });
+    assert.deepEqual(p.drawn, ['/admin/Dashboard/card?x=1&id=a']);
+    assert.deepEqual(p.order(), ['a', 'b', 'c'], 'redrawn in its place');
+    assert.equal(p.board.querySelector('[data-pf-widget="a"]').getAttribute('data-drawn'), 'server');
+});
+
+/** A card whose settings cannot be read is saved with none, rather than breaking the layout. */
+test('unreadable settings are saved as none', async () => {
+    // Arrange
+    const p = page();
+    p.cards.a.setAttribute('data-settings', '{broken');
+
+    // Act
+    p.click(p.tool('b', 'data-pf-widget-hide'));
+    await settle();
+
+    // Assert
+    assert.deepEqual(p.saves[0].body.layout[0], { id: 'a', size: 'm', settings: {} });
 });

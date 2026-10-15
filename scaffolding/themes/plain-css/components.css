@@ -464,7 +464,7 @@ a.pf-stat-tile:hover { border-color: var(--primary-color, #2563eb); }
 /* The dashboard each person arranges — DashboardController, edited by pf-utils.js. Two columns
    from 1024px, one below; a wide card spans both. The tools appear while customising. */
 .pf-dashboard { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; }
-.pf-dashboard-full { grid-column: 1 / -1; }
+.pf-dashboard-full, .pf-dashboard > [data-size="full"] { grid-column: 1 / -1; }
 .pf-dashboard-head { display: flex; align-items: center; gap: .5rem; }
 .pf-dashboard-tools { margin-left: auto; display: inline-flex; gap: .25rem; }
 .pf-dashboard-tools[hidden], .pf-dashboard-bar[hidden] { display: none; }
@@ -481,9 +481,19 @@ a.pf-stat-tile:hover { border-color: var(--primary-color, #2563eb); }
 .pf-dashboard-status--notice { background: #0284c7; color: #fff; }
 .pf-dashboard-status--degraded { background: #d97706; color: #fff; }
 .pf-dashboard-status--down { background: #dc2626; color: #fff; }
-@media (min-width: 1024px) {
+/* Four widths on four columns (s 1, m 2, l 3, full 4); two columns on a tablet, where anything
+   wider than s spans both; one on a phone. `half`, from layouts of the older shape, is m. */
+@media (min-width: 640px) {
     .pf-dashboard { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .pf-dashboard > [data-size="m"], .pf-dashboard > [data-size="half"], .pf-dashboard > [data-size="l"] { grid-column: span 2; }
 }
+@media (min-width: 1024px) {
+    .pf-dashboard { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .pf-dashboard > [data-size="s"] { grid-column: span 1; }
+    .pf-dashboard > [data-size="m"], .pf-dashboard > [data-size="half"] { grid-column: span 2; }
+    .pf-dashboard > [data-size="l"] { grid-column: span 3; }
+}
+.pf-dashboard-settings[hidden] { display: none; }
 
 /* The column picker — Html\Datatable's "Show" button under tailwind and plain-css: a list that
    scrolls, so a table of sixty columns is one button and not lines of links. */

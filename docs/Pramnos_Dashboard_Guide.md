@@ -4,6 +4,8 @@ use_cases:
   - Letting each administrator arrange, resize, hide and add dashboard cards
   - Hiding a dashboard card from people who may not see its figures
   - Replacing or removing the framework's own dashboard cards
+  - Letting each person set a card's period, market or chart type
+  - Adding or redrawing a dashboard card without reloading the page
 ---
 
 # Dashboard Guide
@@ -46,10 +48,16 @@ final class OpenOrders extends Widget
 | `id()` | A unique name, kept in the layouts people save: do not rename it | — |
 | `title()` | The card's heading | — |
 | `render()` | The card's inside, as HTML; `''` is "nothing to show today" | — |
-| `allowed($user)` | Whether this person may have it | usertype ≥ 80, the dashboard's level |
-| `size()` | `Widget::HALF` or `Widget::FULL` | half |
+| `allowed($user)` | Whether this person may have it | the `manager` role |
+| `size()` | The width it starts at: `Widget::SMALL`, `MEDIUM`, `LARGE` or `FULL` | medium |
+| `options()` | What a person may set on it — see [Settings](#settings) | nothing |
+| `description()` | A line on what it shows, for the list cards are chosen from | `''` |
 | `byDefault()` | Whether a new dashboard has it | yes |
 | `link()` | Where the heading leads | none |
+
+**Widths.** The grid has four columns. `s` spans one, `m` two, `l` three and `full` all four. On a
+tablet the grid has two columns, and anything wider than `s` spans both. On a phone it has one. A
+layout saved with the older `half` reads as `m`, and `Widget::HALF` remains an alias for it.
 
 `render()` returns the card's inside, and the dashboard draws the card around it in the theme's
 classes. A widget that needs a model has the controller drawing it:
@@ -57,6 +65,36 @@ classes. A widget that needs a model has the controller drawing it:
 application's own dashboard controller hands it over with `$widget->setController($this)`. Draw figures with `Html\StatTile`, which every theme styles, or with the theme's own
 classes. A widget that throws becomes a short note on its card and a line in the
 `dashboard` log, and the rest of the dashboard still draws.
+
+## Settings
+
+A card that people tune declares what may be set, by name, and reads the choice with `setting()`:
+
+```php
+public function options(): array
+{
+    return [
+        'period' => ['7' => 'Last 7 days', '30' => 'Last 30 days', '90' => 'Last 90 days'],
+        'market' => ['all', 'gr', 'cy'],
+        'title'  => static fn (mixed $v): ?string => is_string($v) && trim($v) !== '' ? mb_substr(trim($v), 0, 80) : null,
+    ];
+}
+
+public function render(): string
+{
+    return Sales::chart((int) $this->setting('period'), (string) $this->setting('market'));
+}
+```
+
+- **A list** is the values allowed. It can be `[value => label]` or a plain list, and its first
+  value is the default. The card's form shows it as a select.
+- **A function** answers the value as it is kept, or null to refuse it. The form shows a text
+  field, and a refused or empty value is simply absent.
+
+Each person's choices are kept in their layout, cleaned against `options()` whenever it is read.
+A setting the widget does not declare is dropped, and a value outside a list becomes the list's
+first. The dashboard hands a widget its settings with `configure()` before `render()`.
+`Widget::cleanSettings($widget, $given)` is that cleaning, for code of its own.
 
 ## Registering widgets
 
@@ -89,14 +127,23 @@ request:
 "Customise" shows each card's tools:
 
 - move up or move down;
-- wide or narrow;
+- its width, s, m, l and full in turn;
+- its settings (a gear, for a card that declares options);
 - hide;
-- a list of the cards this person may add.
+- a list of the cards this person may add, each with its `description()` as a hint.
 
 In the same mode a card can be dragged into place. The tools are buttons, so a keyboard can do
-all of it, and each change is announced in a live region. Each change is saved at once. Adding
-a card saves and reloads the page, because its contents are drawn on the server. "Back to the
-default" forgets the layout.
+all of it, and each change is announced in a live region. Each change is saved at once. A card
+added, or one whose settings changed, is drawn by the server alone, through `card?id=…`, and put
+in place without a reload. Its charts are drawn as it arrives. "Back to the default" forgets the
+layout.
+
+**One card alone.** `GET …/Dashboard/card?id=…` (`DashboardController::card()`) answers a card's
+HTML, frame and all, with this person's saved width and settings, or the widget's own for a card
+not yet placed. A card they may not have is 404. The bundled views draw every card through
+`dashboard/card.html.php`, the same file the action renders, so the dashboard and the action
+cannot draw a card differently. A view published before this has no `data-card` on the board,
+and adding a card reloads the page as before.
 
 `pf-utils.js` does the editing over the `data-pf-dashboard*` attributes the bundled views draw.
 It posts the layout, as JSON with the page's CSRF token, to `savelayout`. `resetlayout` forgets
@@ -117,7 +164,7 @@ migration. `Dashboard\Layouts` reads and writes them:
 ```php
 $layouts = new \Pramnos\Dashboard\Layouts();
 $layouts->for($user);                // the saved layout, cleaned, or the default
-$layouts->save($user, $layout);      // [{id, size}, …]
+$layouts->save($user, $layout);      // [{id, size, settings}, …]
 $layouts->save($user, null);         // back to the default
 ```
 
