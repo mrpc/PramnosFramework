@@ -312,7 +312,11 @@ class DatatableTest extends TestCase
 
         // Assert — the markup
         $this->assertStringStartsWith('<div class="pf-datatable">', $html);
-        $this->assertStringContainsString('class="display table table-sm table-zebra "', $html, 'DataTables\' own display class, and daisyUI\'s');
+        $this->assertStringContainsString('class="display table table-zebra "', $html, 'DataTables\' own display class, and daisyUI\'s, at the page\'s size');
+        // The column picker as daisyUI's dropdown, its links keeping their ids
+        $this->assertStringContainsString('<details class="pf-datatable-columns dropdown dropdown-end"><summary class="btn btn-sm">', $html);
+        $this->assertStringContainsString('<li><a href="#" id="psh_orders_0">Name</a></li>', $html);
+        $this->assertStringNotContainsString('Show: [', $html);
         // The classes handed to DataTables, once per page, before the table is drawn
         $this->assertStringContainsString('jQuery.extend(jQuery.fn.dataTable.ext.classes, {"sFilterInput":"input input-sm input-bordered"', $js);
         $this->assertStringContainsString('"sPageButton":"paginate_button btn btn-sm"', $js);
@@ -322,6 +326,32 @@ class DatatableTest extends TestCase
         // No Bootstrap integration's renderer or grid
         $this->assertStringContainsString('"renderer": "pf",', $js);
         $this->assertStringContainsString('"dom": \'lfrtip\',', $js);
+    }
+
+    /**
+     * `size = 'sm'` makes a tailwind table compact, for a wide table that has to fit; the default
+     * is the size the rest of the page reads at.
+     */
+    public function testATailwindTableCanBeCompact(): void
+    {
+        // Arrange
+        $app  = \Pramnos\Application\Application::getInstance();
+        $info = $app->applicationInfo;
+        $app->applicationInfo['scaffold_theme'] = 'tailwind';
+
+        try {
+            $dt = new Datatable('wide');
+            $dt->size = 'sm';
+            $dt->addColumn('Name');
+
+            // Act
+            $html = $dt->renderTable();
+        } finally {
+            $app->applicationInfo = $info;
+        }
+
+        // Assert
+        $this->assertStringContainsString('class="display table table-zebra table-sm "', $html);
     }
 
     /**
@@ -679,9 +709,11 @@ class DatatableTest extends TestCase
     }
 
     /**
-     * renderTable() with showHide=true, bootstrap=false, and jui=false produces
-     * a plain-HTML show/hide widget (no Bootstrap or jQuery UI classes).
-     * This covers the else-branch of the jui/bootstrap condition.
+     * Without Bootstrap or jQuery UI the column picker is a "Show" button with the columns in a
+     * list — not a line of links in brackets, which grew into four lines of text over a table of
+     * sixty columns. A `<details>`, so it opens with no script and from the keyboard; the links
+     * keep the ids the show/hide handlers bind by. With no UI system declared it takes the plain
+     * stylesheet's classes.
      */
     public function testRenderTableShowHidePlainVariant(): void
     {
@@ -695,12 +727,12 @@ class DatatableTest extends TestCase
         // Act
         $html = $dt->renderTable();
 
-        // Assert — plain show/hide uses "[" separator, no Bootstrap or jui classes
-        $this->assertStringContainsString('psh_plainTable_0', $html);
-        $this->assertStringNotContainsString('btn-group', $html);
+        // Assert
+        $this->assertStringContainsString('<details class="pf-datatable-columns ">', $html);
+        $this->assertStringContainsString('<summary class="btn btn-outline-secondary btn-sm">Show &#9662;</summary>', $html);
+        $this->assertStringContainsString('<ul class="pf-datatable-columns-menu "><li><a href="#" id="psh_plainTable_0">Name</a></li></ul></details>', $html);
+        $this->assertStringNotContainsString('Show: [', $html, 'no line of links');
         $this->assertStringNotContainsString('ui-buttonset', $html);
-        // Plain variant appends " ]" at the end of the list
-        $this->assertStringContainsString(']', $html);
     }
 
     /**

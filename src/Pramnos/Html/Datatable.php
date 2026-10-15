@@ -233,6 +233,14 @@ class Datatable extends Base
     public $bootstrap = true;
 
     /**
+     * How dense the table is under tailwind: `md`, the size the rest of a page reads at, or `sm`
+     * for a wide table that has to fit. Bootstrap and plain-css draw as they always have.
+     *
+     * @var string
+     */
+    public $size = 'md';
+
+    /**
      * Column index (0-based) to group rows by client-side.
      * null means no grouping. Set directly or let the user pick via $groupBySelector.
      * @var int|null
@@ -275,8 +283,10 @@ class Datatable extends Base
                 'sProcessing'         => 'dataTables_processing pf-datatable-processing',
                 'sWrapper'            => 'dataTables_wrapper',
             ],
-            'button' => 'btn btn-sm',
-            'table'  => 'table table-sm table-zebra',
+            'button'   => 'btn btn-sm',
+            'table'    => 'table table-zebra',
+            'table-sm' => 'table-sm',
+            'picker'   => ['details' => 'dropdown dropdown-end', 'summary' => 'btn btn-sm', 'menu' => 'menu menu-sm flex-nowrap bg-base-100 rounded-box shadow'],
         ],
         'plain-css' => [
             'classes' => [
@@ -288,8 +298,10 @@ class Datatable extends Base
                 'sProcessing'         => 'dataTables_processing pf-datatable-processing',
                 'sWrapper'            => 'dataTables_wrapper',
             ],
-            'button' => 'btn btn-secondary btn-sm',
-            'table'  => 'table table-hover',
+            'button'   => 'btn btn-secondary btn-sm',
+            'table'    => 'table table-hover',
+            'table-sm' => '',
+            'picker'   => ['details' => '', 'summary' => 'btn btn-outline-secondary btn-sm', 'menu' => ''],
         ],
     ];
 
@@ -380,7 +392,7 @@ class Datatable extends Base
             $this->tableClass .= ' table table-striped table-bordered '
                 . 'table-hover ';
         } elseif ($controls !== null && !str_contains(' ' . $this->tableClass . ' ', ' table ')) {
-            $this->tableClass .= ' ' . $controls['table'] . ' ';
+            $this->tableClass .= ' ' . $controls['table'] . ($this->size === 'sm' ? ' ' . $controls['table-sm'] : '') . ' ';
         }
         $this->fixColumnSearch();
         $lang = \Pramnos\Framework\Factory::getLanguage();
@@ -402,10 +414,17 @@ class Datatable extends Base
                     . '<span class="caret"></span></button>'
                     . '<ul class="dropdown-menu" role="menu">';
             } else {
-                $showHide = '<div style="float: right; font-size: x-small">'
-                    . $lang->_('Show') . ": [ ";
+                /*
+                 * A "Show" button with the columns in a list, as Bootstrap's dropdown is: a line
+                 * of links grew into four lines of text over a table of sixty columns. A
+                 * `<details>`, so it opens with no script and from the keyboard; the links keep
+                 * their ids, which the show/hide handlers bind by.
+                 */
+                $picker   = $this->pickerClasses();
+                $showHide = '<details class="pf-datatable-columns ' . $picker['details'] . '">'
+                    . '<summary class="' . $picker['summary'] . '">' . $lang->_('Show') . ' &#9662;</summary>'
+                    . '<ul class="pf-datatable-columns-menu ' . $picker['menu'] . '">';
             }
-            $sep = "";
             foreach ($this->aoColumns as $column) {
 
                 if ($column->showHide == true && trim($column->label) != "") {
@@ -420,22 +439,21 @@ class Datatable extends Base
                         $showHide .= '<li><a class="dropdown-item" href="#" id="' . $btnId . '">'
                             . $column->label . '</a></li>';
                     } else {
-                        $showHide .= $sep . ' <a href="#" id="' . $btnId . '">'
-                            . $column->label . '</a> ';
+                        $showHide .= '<li><a href="#" id="' . $btnId . '">'
+                            . $column->label . '</a></li>';
                     }
                     $t+=1;
-                    $sep = $this->separateChar;
                 }
                 $n+=1;
             }
 
-            if ($this->jui != true && $this->bootstrap == false) {
-                $showHide .= " ]";
+            if ($this->jui == true) {
+                $showHide .= '</div>';
+            } elseif ($this->bootstrap == true) {
+                $showHide .= '</ul></div>';
+            } else {
+                $showHide .= '</ul></details>';
             }
-            if ($this->bootstrap == true) {
-                $showHide .= '</ul>';
-            }
-            $showHide.="</div>";
             if ($t != 0) {
                 $return .= $showHide;
             }
@@ -505,10 +523,20 @@ class Datatable extends Base
     }
 
     /**
+     * The column picker's classes: the UI system's, or the plain stylesheet's where it has none.
+     *
+     * @return array{details: string, summary: string, menu: string}
+     */
+    private function pickerClasses(): array
+    {
+        return (self::CONTROL_CLASSES[self::uiSystem()] ?? self::CONTROL_CLASSES['plain-css'])['picker'];
+    }
+
+    /**
      * The control classes for this table's UI system, or null where DataTables keeps its own:
      * Bootstrap (its integration has them) and jQuery UI.
      *
-     * @return array{classes: array<string, string>, button: string, table: string}|null
+     * @return array{classes: array<string, string>, button: string, table: string, table-sm: string, picker: array<string, string>}|null
      */
     private function controlClasses(): ?array
     {

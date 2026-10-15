@@ -781,8 +781,14 @@ the classes to DataTables. It does so once per page, before the table is drawn, 
 | `scaffold_theme` | Table | Controls |
 |---|---|---|
 | `bootstrap`, or none | `table table-striped table-bordered table-hover` | DataTables' own, or its Bootstrap integration's |
-| `tailwind` | `table table-sm table-zebra` | daisyUI: `input input-sm`, `select select-sm`, `btn btn-sm` page buttons with `btn-active`, Buttons' buttons `btn btn-sm` |
+| `tailwind` | `table table-zebra` (`table-sm` with `size = 'sm'`) | daisyUI: `input input-sm`, `select select-sm`, `btn btn-sm` page buttons with `btn-active`, Buttons' buttons `btn btn-sm` |
 | `plain-css` | `table table-hover` | the plain stylesheet's `form-control`, `btn btn-outline-secondary btn-sm`, `pf-ui-current` |
+
+Under `tailwind` the table is drawn at the size the rest of the page reads at. Set
+`$table->size = 'sm';` for a compact `table-sm`, for a wide table that has to fit. The column
+picker (`showHide`) is a "Show ▾" button with the columns in a list that scrolls, in the system's
+dropdown classes. It is a `<details>`, so it opens with no script and from the keyboard, as
+Bootstrap's dropdown does under `bootstrap`.
 
 Under `tailwind` and `plain-css`, the table also uses DataTables' own pager renderer and the
 `lfrtip` layout. Those replace a Bootstrap integration's renderer and grid, where the page loads
