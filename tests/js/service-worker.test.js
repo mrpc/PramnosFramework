@@ -41,8 +41,9 @@ function fakeCache(store, fetch) {
  *
  * @param {object} routes url → Response body (string), or an Error to fail with
  * @param {string} location The worker's own URL
+ * @param {string} scope    The registration's scope
  */
-function worker(routes = {}, location = 'https://app.test/sw.js') {
+function worker(routes = {}, location = 'https://app.test/sw.js', scope = 'https://app.test/') {
     const listeners = {};
     const names = new Map();
     const posted = [];
@@ -63,7 +64,7 @@ function worker(routes = {}, location = 'https://app.test/sw.js') {
     const clients = [{ postMessage: (m) => posted.push(m) }, { postMessage: (m) => posted.push(m) }];
     const self = {
         location: new URL(location),
-        registration: { scope: 'https://app.test/', pushManager: {}, showNotification: async () => {} },
+        registration: { scope, pushManager: {}, showNotification: async () => {} },
         clients: { claim: async () => {}, matchAll: async () => clients, openWindow: async () => {} },
         skipWaiting: () => {},
         addEventListener: (type, fn) => { listeners[type] = fn; },
@@ -137,6 +138,33 @@ test('a page is never stored, and the offline page stands in without a network',
     assert.equal(await offline.text(), 'you are offline');
     const stored = [...(await sw.caches.open('app-assets')).store.keys()];
     assert.deepEqual(stored, [], 'no page in the asset cache');
+});
+
+/**
+ * The administration area and the API are left to the browser by default — no page, no asset
+ * handled — so a deploy never pairs an admin page with last release's admin.js; `skip` names
+ * other prefixes, relative to the scope, and `skip=` none.
+ */
+test('the administration area and the API are left to the browser', async () => {
+    // Arrange
+    const sw = worker({ 'https://app.test/admin/assets/admin.js': 'new', 'https://app.test/assets/app.css': 'css' });
+    const fire = (instance, url, mode = 'no-cors') => instance.fire('fetch', { request: { url, method: 'GET', mode } });
+
+    // Act / Assert — by default
+    assert.equal(await fire(sw, 'https://app.test/admin/assets/admin.js'), null, 'an admin asset is not handled');
+    assert.equal(await fire(sw, 'https://app.test/admin', 'navigate'), null, 'the area\'s own root too');
+    assert.equal(await fire(sw, 'https://app.test/api/v1/users'), null);
+    assert.equal(await (await fire(sw, 'https://app.test/assets/app.css')).text(), 'css', 'the rest as before');
+    assert.notEqual(await fire(sw, 'https://app.test/administrators', 'navigate'), null, 'a prefix, not a substring');
+
+    // Another prefix, under a scope of its own
+    const sub = worker({}, 'https://app.test/shop/sw.js?skip=/backoffice/', 'https://app.test/shop/');
+    assert.equal(await fire(sub, 'https://app.test/shop/backoffice/x.js'), null);
+    assert.notEqual(await fire(sub, 'https://app.test/shop/admin/', 'navigate'), null, 'the default replaced');
+
+    // None
+    const none = worker({ 'https://app.test/admin/a.css': 'a' }, 'https://app.test/sw.js?skip=');
+    assert.equal(await (await fire(none, 'https://app.test/admin/a.css')).text(), 'a');
 });
 
 /** Without an offline page, a failed navigation is the browser's own error. */

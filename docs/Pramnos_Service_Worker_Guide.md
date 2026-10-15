@@ -8,6 +8,7 @@ use_cases:
   - Deciding whether to cache HTML in the browser as well as on the server
   - Replacing a service worker of your own with the framework's, offline page included
   - Seeing the errors the service worker itself hits
+  - Keeping the service worker out of the administration area or the API
 ---
 
 # Service Worker Guide
@@ -41,6 +42,7 @@ What makes it safe to say yes to is the boundary below.
 | Origin | same-origin only |
 | Paths | anything ending `.css .js .mjs .woff .woff2 .ttf .otf .eot .png .jpg .jpeg .gif .svg .webp .avif .ico` |
 | A page (a navigation) | always from the network, **never stored**; with no network at all, the offline page |
+| `admin/` and `api/` under the scope | **not intercepted at all**, assets and pages alike — see [Paths left to the browser](#paths-left-to-the-browser) |
 | Everything else | **not intercepted at all** — no `respondWith`, so the browser behaves as if there were no worker |
 
 **HTML is never stored.** That is the whole design. Once a worker caches HTML it needs a
@@ -240,6 +242,28 @@ for itself.
 
 An image with no cached copy and no network is drawn as a grey box that says "offline", rather
 than as a broken image.
+
+---
+
+## Paths left to the browser
+
+A worker registered at the site root controls every page under it, the administration area and
+the API included, and a scope cannot leave a sub-path out. Served stale-while-revalidate, an
+administrator gets last release's `admin.js` beside this release's HTML once after every deploy,
+and that can break the page.
+
+So the worker leaves some path prefixes entirely to the browser, before anything else, with no
+asset cached and no offline page. By default these are `admin/` and `api/`, relative to the
+worker's scope. `admin/` also covers `/admin` itself, and it is a prefix, so `/administrators` is
+not covered. An area under another prefix names its own in the registration:
+
+```js
+navigator.serviceWorker.register('/sw.js?skip=backoffice/,api/');   // other prefixes
+navigator.serviceWorker.register('/sw.js?skip=');                   // none
+navigator.serviceWorker.register('/sw.js?offline=errors/offline.html&skip=admin/,api/');
+```
+
+A `skip` list replaces the default rather than adding to it, so name every prefix you want.
 
 ---
 

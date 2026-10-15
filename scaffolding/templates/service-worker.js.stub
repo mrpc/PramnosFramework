@@ -74,6 +74,25 @@ const OFFLINE_CACHE = CACHE + '-offline';
 const OFFLINE_PAGE  = new URL(self.location).searchParams.get('offline') || 'offline.html';
 
 /**
+ * Paths left to the browser entirely — pages and assets alike, as if there were no worker.
+ *
+ * A worker registered at the site root controls every page under it, and a scope cannot leave a
+ * sub-path out, so the exclusion lives here. By default the administration area and the API:
+ * after a deploy, an administrator served last release's `admin.js` beside this release's HTML
+ * gets a broken page. Prefixes are relative to the worker's scope, comma-separated, in the
+ * registration: `register('sw.js?skip=backoffice/,api/')`; `?skip=` leaves out nothing.
+ */
+const SKIP = (new URL(self.location).searchParams.has('skip') ? new URL(self.location).searchParams.get('skip') : 'admin/,api/')
+    .split(',').map((prefix) => prefix.trim().replace(/^\/+/, '')).filter(Boolean);
+
+/** Whether a path of this origin is one {@link SKIP} leaves to the browser: `admin/` takes `/admin` too. */
+function skipped(pathname) {
+    const scope = new URL(self.registration.scope).pathname;
+
+    return SKIP.some((prefix) => pathname.startsWith(scope + prefix) || pathname + '/' === scope + prefix);
+}
+
+/**
  * Caches a previous worker left behind, deleted when this one activates.
  *
  * The usual hand-versioned names — `v1.32::static`, `v1.32::pages`, `v1.32::images`. Left in
@@ -191,6 +210,11 @@ self.addEventListener('fetch', (event) => {
     }
 
     const url = new URL(request.url);
+
+    // The administration area and the API, by default: not handled at all, offline page included.
+    if (url.origin === self.location.origin && skipped(url.pathname)) {
+        return;
+    }
 
     // A page: always the network, never stored. Only when there is no network at all does the
     // offline page stand in — the browser's own error page otherwise.
