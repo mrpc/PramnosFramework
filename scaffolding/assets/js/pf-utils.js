@@ -32,6 +32,8 @@
  *                                 is visible and refreshed on `pf:notifications:refresh`
  *   meta[name=pf-client-errors] — where uncaught errors and rejections are reported
  *                                 (see Logs\ClientErrors); window.pfReportError(error)
+ *   data-pf-dashboard           — the dashboard each person arranges (DashboardController):
+ *                                 move, resize, hide, add, drag; each change saved at once
  *   data-pf-chart-figure        — a chart (see Html\Chart): drawn with Chart.js in the
  *                                 theme's colours, again when the theme changes
  *
@@ -874,6 +876,122 @@
             var scheme = window.matchMedia('(prefers-color-scheme: dark)');
             if (scheme.addEventListener) { scheme.addEventListener('change', drawAll); }
         }
+    })();
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // data-pf-dashboard — a dashboard each person arranges (DashboardController)
+    //
+    // "Customise" shows each card's tools: move up and down, wide or narrow, hide — buttons, so a
+    // keyboard does all of it — and in the same mode a card can be dragged into place. Each change
+    // is saved at once (POST data-save, JSON, with the page's CSRF token); adding a card saves and
+    // reloads, because its contents are drawn on the server. The server keeps only what this
+    // person may have, so nothing here is a gate.
+    // ══════════════════════════════════════════════════════════════════════════
+    (function () {
+        var board = document.querySelector('[data-pf-dashboard]');
+        if (!board) { return; }
+        var editButton = document.querySelector('[data-pf-dashboard-edit]');
+        var bar    = document.querySelector('[data-pf-dashboard-bar]');
+        var status = document.querySelector('[data-pf-dashboard-status]');
+        var empty  = board.querySelector('[data-pf-dashboard-empty]');
+        var editing = false;
+        var dragged = null;
+
+        function cards() { return Array.prototype.slice.call(board.querySelectorAll('[data-pf-widget]')); }
+        function say(text) { if (status) { status.textContent = text; } }
+        function layout() {
+            return cards().map(function (card) {
+                return { id: card.getAttribute('data-pf-widget'), size: card.getAttribute('data-size') === 'full' ? 'full' : 'half' };
+            });
+        }
+
+        function save(then) {
+            var headers = window.pfApiHeaders ? window.pfApiHeaders({ 'Content-Type': 'application/json' }) : { 'Content-Type': 'application/json' };
+            if (empty) { empty.hidden = cards().length > 0; }
+            return window.fetch(board.getAttribute('data-save'), {
+                method: 'POST', credentials: 'same-origin', headers: headers, body: JSON.stringify({ layout: then && then.add ? layout().concat([then.add]) : layout() }),
+            }).then(function (r) {
+                if (!r.ok) { throw new Error('HTTP ' + r.status); }
+                return r.json();
+            }).then(function () {
+                if (then && then.reload) { window.location.reload(); }
+            }).catch(function () {
+                say('The dashboard could not be saved.');
+            });
+        }
+
+        function setEditing(on) {
+            editing = on;
+            if (editButton) { editButton.setAttribute('aria-pressed', on ? 'true' : 'false'); }
+            if (bar) { bar.hidden = !on; }
+            cards().forEach(function (card) {
+                var tools = card.querySelector('[data-pf-widget-tools]');
+                if (tools) { tools.hidden = !on; }
+                if (on) { card.setAttribute('draggable', 'true'); } else { card.removeAttribute('draggable'); }
+            });
+        }
+
+        if (editButton) { editButton.addEventListener('click', function () { setEditing(!editing); }); }
+        var done = document.querySelector('[data-pf-dashboard-done]');
+        if (done) { done.addEventListener('click', function () { setEditing(false); if (editButton && editButton.focus) { editButton.focus(); } }); }
+
+        board.addEventListener('click', function (e) {
+            var button = e.target.closest ? e.target.closest('[data-pf-widget-move], [data-pf-widget-resize], [data-pf-widget-hide]') : null;
+            if (!button) { return; }
+            var card  = button.closest('[data-pf-widget]');
+            var title = card.getAttribute('aria-label') || '';
+            if (button.hasAttribute('data-pf-widget-move')) {
+                var list = cards();
+                var at   = list.indexOf(card) + parseInt(button.getAttribute('data-pf-widget-move'), 10);
+                if (at < 0 || at >= list.length) { return; }
+                var other = list[at];
+                if (at < list.indexOf(card)) { board.insertBefore(card, other); } else { board.insertBefore(card, other.nextSibling); }
+                if (button.focus) { button.focus(); }
+                say(title + ': ' + (at + 1) + ' / ' + list.length);
+            } else if (button.hasAttribute('data-pf-widget-resize')) {
+                var full = card.getAttribute('data-size') !== 'full';
+                card.setAttribute('data-size', full ? 'full' : 'half');
+                card.classList.toggle('pf-dashboard-full', full);
+                say(title + ': ' + (full ? 'wide' : 'narrow'));
+            } else {
+                var next = cards()[cards().indexOf(card) + 1] || cards()[cards().indexOf(card) - 1];
+                card.parentNode.removeChild(card);
+                say(title + ': hidden');
+                var focus = next ? next.querySelector('[data-pf-widget-hide]') : editButton;
+                if (focus && focus.focus) { focus.focus(); }
+            }
+            save();
+        });
+
+        var add = document.querySelector('[data-pf-dashboard-add]');
+        if (add) {
+            add.addEventListener('change', function () {
+                if (!add.value) { return; }
+                save({ add: { id: add.value, size: 'half' }, reload: true });
+            });
+        }
+
+        // Dragging: the same order the buttons give, for a mouse.
+        board.addEventListener('dragstart', function (e) {
+            dragged = e.target.closest ? e.target.closest('[data-pf-widget]') : null;
+            if (!editing || !dragged) { dragged = null; return; }
+            dragged.classList.add('pf-dashboard-dragging');
+            if (e.dataTransfer) { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', dragged.getAttribute('data-pf-widget')); }
+        });
+        board.addEventListener('dragover', function (e) {
+            if (!dragged) { return; }
+            e.preventDefault();
+            var over = e.target.closest ? e.target.closest('[data-pf-widget]') : null;
+            if (!over || over === dragged) { return; }
+            var list = cards();
+            if (list.indexOf(over) < list.indexOf(dragged)) { board.insertBefore(dragged, over); } else { board.insertBefore(dragged, over.nextSibling); }
+        });
+        board.addEventListener('dragend', function () {
+            if (!dragged) { return; }
+            dragged.classList.remove('pf-dashboard-dragging');
+            dragged = null;
+            save();
+        });
     })();
 
 })();

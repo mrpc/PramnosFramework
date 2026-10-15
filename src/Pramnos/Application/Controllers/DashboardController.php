@@ -14,8 +14,10 @@ use Pramnos\Database\Inspector\TimescaleInspector;
 /**
  * Admin/ops overview dashboard controller.
  *
- * Provides eight actions:
- *   - display      — full HTML overview (active users + DB stats + API performance + health badges)
+ * Provides ten actions:
+ *   - display      — the signed-in person's dashboard: their widgets, in their order and widths
+ *   - savelayout   — JSON: keep the person's layout (POST)
+ *   - resetlayout  — forget it, back to the default (POST)
  *   - activeusers  — JSON: authenticated user counts per time window
  *   - apistats     — JSON: API performance summary (error rate, avg/p95/p99 latency)
  *   - dbstats      — JSON: database server metrics (size, connections, cache hit ratio)
@@ -24,7 +26,7 @@ use Pramnos\Database\Inspector\TimescaleInspector;
  *   - cacheitem    — JSON: single cache item content (GET ?key=…)
  *   - clearcache   — JSON: clear all cache entries (POST)
  *
- * All eight actions require authentication (manager level: usertype >= 80).
+ * All of them require authentication (manager level: usertype >= 80).
  *
  * Note: This controller is distinct from \Pramnos\Auth\Controllers\Account, which
  * handles the end-user account management view. This controller is admin/ops-focused.
@@ -40,11 +42,14 @@ class DashboardController extends Controller
     /** Minimum usertype to access any dashboard action. */
     protected int $requiredUserType = 80;
 
+    /** Whose layouts these are: an application with dashboards in two areas names each its own. */
+    protected string $dashboardArea = 'admin';
+
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
-        $this->addAuthAction(['display', 'activeusers', 'apistats', 'dbstats', 'database', 'cache', 'cacheitem', 'clearcache']);
+        $this->addAuthAction(['display', 'activeusers', 'apistats', 'dbstats', 'database', 'cache', 'cacheitem', 'clearcache', 'savelayout', 'resetlayout']);
         // POST with the session's token, or refused before the action runs: see Controller::exec().
-        $this->addWriteAction(['clearcache']);
+        $this->addWriteAction(['clearcache', 'savelayout', 'resetlayout']);
         parent::__construct($application);
     }
 
@@ -67,12 +72,90 @@ class DashboardController extends Controller
 
         $view = $this->getView('dashboard');
 
-        $view->activeUsers   = (new ActiveUsersService())->getCounts();
-        $view->dbStats       = (new DatabaseStatsService())->getStats();
-        $view->apiStats      = (new ApiPerformanceService())->getSummary(ApiPerformanceService::WINDOW_24H);
-        $view->healthResults = \Pramnos\Health\HealthRegistry::runAll()['checks'] ?? [];
+        // This person's widgets, in their order and widths, each drawn — and the ones they may add.
+        $user    = \Pramnos\User\User::current();
+        $layout  = is_object($user) ? $this->layouts()->for($user, $this->dashboardArea) : [];
+        $widgets = \Pramnos\Dashboard\WidgetRegistry::available(is_object($user) ? $user : null);
+        // Built here and assigned once: a View's properties are magic, and appending to one
+        // in place is lost.
+        $drawn = [];
+        foreach ($layout as $item) {
+            $widget = $widgets[$item['id']];
+            $drawn[] = [
+                'id'    => $item['id'],
+                'size'  => $item['size'],
+                'title' => $widget->title(),
+                'link'  => $widget->link(),
+                'html'  => $this->drawWidget($widget),
+            ];
+        }
+        $view->widgets    = $drawn;
+        $placed           = array_column($layout, 'id');
+        $view->addable    = array_map(static fn ($w) => $w->title(), array_diff_key($widgets, array_flip($placed)));
+        $view->saveUrl    = adminUrl($this->dashboardRoute() . '/savelayout');
+        $view->resetUrl   = adminUrl($this->dashboardRoute() . '/resetlayout');
+
+        // The figures as views of the older shape read them, worked out once with the widgets'.
+        $view->activeUsers   = \Pramnos\Dashboard\Widgets\Figures::activeUsers();
+        $view->dbStats       = \Pramnos\Dashboard\Widgets\Figures::database();
+        $view->apiStats      = \Pramnos\Dashboard\Widgets\Figures::api();
+        $view->healthResults = \Pramnos\Dashboard\Widgets\Figures::health();
 
         return $view->display('admin_dashboard');
+    }
+
+    /**
+     * Keep the signed-in person's layout: a POST of `layout`, `[{id, size}, …]` as JSON. Answers
+     * the layout as kept — cleaned of what they may not have.
+     */
+    public function savelayout(): mixed
+    {
+        \Pramnos\Framework\Factory::getDocument('json');
+        $user = \Pramnos\User\User::current();
+        if (!is_object($user)) {
+            return \Pramnos\Http\Response::json(['error' => 'Sign in first.'], 401);
+        }
+        $body   = json_decode((string) file_get_contents('php://input'), true);
+        $layout = is_array($body) && array_key_exists('layout', $body) ? $body['layout'] : json_decode((string) ($_POST['layout'] ?? ''), true);
+
+        return \Pramnos\Http\Response::json(['layout' => $this->layouts()->save($user, is_array($layout) ? $layout : [], $this->dashboardArea)]);
+    }
+
+    /** Forget the signed-in person's layout, so the default applies again, and go back to it. */
+    public function resetlayout(): void
+    {
+        $user = \Pramnos\User\User::current();
+        if (is_object($user)) {
+            $this->layouts()->save($user, null, $this->dashboardArea);
+        }
+        $this->redirect(adminUrl($this->dashboardRoute()));
+    }
+
+    /** The store of layouts. */
+    protected function layouts(): \Pramnos\Dashboard\Layouts
+    {
+        return new \Pramnos\Dashboard\Layouts();
+    }
+
+    /**
+     * One widget's inside. A widget that throws is a short note, logged — not a dashboard that
+     * fails to draw because one card could not.
+     */
+    protected function drawWidget(\Pramnos\Dashboard\Widget $widget): string
+    {
+        try {
+            return $widget->render();
+        } catch (\Throwable $e) {
+            \Pramnos\Logs\Logger::log('Dashboard widget ' . $widget->id() . ' failed: ' . $e->getMessage(), 'dashboard');
+
+            return '<p class="pf-muted">This card could not be drawn: the log has why.</p>';
+        }
+    }
+
+    /** The address the dashboard answers under: the controller's own name. */
+    protected function dashboardRoute(): string
+    {
+        return static::class === self::class ? 'Dashboard' : (new \ReflectionClass($this))->getShortName();
     }
 
     /**

@@ -231,6 +231,10 @@ class DashboardControllerTest extends TestCase
         $this->assertNotEmpty($output);
         $this->assertEmpty($this->controller->redirectedTo);
         $this->assertSame('Admin Dashboard', $doc->title);
+        // The widgets reach the real view: assigned once, not appended to a magic property,
+        // which a View drops without a word
+        $this->assertStringContainsString('data-pf-widget="users.active"', (string) $output);
+        $this->assertStringContainsString('data-pf-dashboard data-save=', (string) $output);
     }
 
     public function testActiveUsersReturnsJson(): void

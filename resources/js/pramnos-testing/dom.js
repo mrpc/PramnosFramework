@@ -172,6 +172,17 @@ function createElement(document, tag, attributes = {}) {
             return child;
         },
         append(...nodes) { nodes.forEach((node) => this.appendChild(node)); },
+        /** The element after this one under the same parent, or null. */
+        get nextSibling() {
+            const siblings = this.parentNode && this.parentNode.children ? this.parentNode.children : [];
+            return siblings[siblings.indexOf(this) + 1] || null;
+        },
+        /** The element before this one under the same parent, or null. */
+        get previousSibling() {
+            const siblings = this.parentNode && this.parentNode.children ? this.parentNode.children : [];
+            const at = siblings.indexOf(this);
+            return at > 0 ? siblings[at - 1] : null;
+        },
         insertBefore(child, before) {
             if (child.parentNode) {
                 child.parentNode.removeChild(child);

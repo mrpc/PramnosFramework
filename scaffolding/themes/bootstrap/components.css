@@ -459,6 +459,30 @@ a.pf-stat-tile:hover { border-color: var(--bs-primary, #0d6efd); }
 .pf-datatable table.dataTable thead > tr > th.sorting_asc::before,
 .pf-datatable table.dataTable thead > tr > th.sorting_desc::after { opacity: .9; }
 
+/* The dashboard each person arranges — DashboardController, edited by pf-utils.js. Two columns
+   from 1024px, one below; a wide card spans both. The tools appear while customising. */
+.pf-dashboard { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; }
+.pf-dashboard-full { grid-column: 1 / -1; }
+.pf-dashboard-head { display: flex; align-items: center; gap: .5rem; }
+.pf-dashboard-tools { margin-left: auto; display: inline-flex; gap: .25rem; }
+.pf-dashboard-tools[hidden], .pf-dashboard-bar[hidden] { display: none; }
+.pf-dashboard-bar { margin-bottom: 1rem; }
+.pf-dashboard-dragging { opacity: .5; }
+.pf-dashboard [draggable="true"] { cursor: move; }
+.pf-dashboard-health { list-style: none; margin: 0; padding: 0; }
+.pf-dashboard-health li { display: flex; align-items: flex-start; gap: .75rem; padding: .5rem 0; border-bottom: 1px solid color-mix(in oklab, currentColor 12%, transparent); }
+.pf-dashboard-health li:last-child { border-bottom: 0; }
+.pf-dashboard-health-name { font-weight: 600; flex-shrink: 0; }
+.pf-dashboard-health-message { flex: 1; font-size: .85rem; opacity: .75; text-align: right; }
+.pf-dashboard-status { margin-left: auto; flex-shrink: 0; padding: .05rem .5rem; border-radius: 999px; font-size: .75rem; font-weight: 700; background: color-mix(in oklab, currentColor 12%, transparent); }
+.pf-dashboard-status--ok { background: var(--bs-success, #198754); color: #fff; }
+.pf-dashboard-status--notice { background: var(--bs-info, #0dcaf0); color: #fff; }
+.pf-dashboard-status--degraded { background: var(--bs-warning, #ffc107); color: #fff; }
+.pf-dashboard-status--down { background: var(--bs-danger, #dc3545); color: #fff; }
+@media (min-width: 1024px) {
+    .pf-dashboard { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
 @media (max-width: 639px) {
     /* A 12rem search box and a 20rem panel anchored to its right edge are wider
        than what is left of a 390px header: the input shrinks, and the results

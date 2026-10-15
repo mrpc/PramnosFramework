@@ -82,6 +82,7 @@ nav:
     - Validation: Pramnos_Validation_System_Guide.md
     - Theming: Pramnos_Theme_Guide.md
     - HTML Components: Pramnos_Html_Components_Guide.md
+    - Dashboard: Pramnos_Dashboard_Guide.md
     - Cross-Entity Search: Pramnos_Search_Guide.md
     - Internationalization: Pramnos_Internationalization_Guide.md
     - Document Output: Pramnos_Document_Output_Guide.md

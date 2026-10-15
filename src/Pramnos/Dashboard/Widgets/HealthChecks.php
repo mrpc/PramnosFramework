@@ -1,0 +1,53 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Pramnos\Dashboard\Widgets;
+
+use Pramnos\Dashboard\Widget;
+
+/**
+ * Every health check, with its status and — when it is not ok — what it said. The full width: the
+ * messages are sentences.
+ */
+final class HealthChecks extends Widget
+{
+    public function id(): string
+    {
+        return 'health';
+    }
+
+    public function title(): string
+    {
+        return 'Health';
+    }
+
+    public function size(): string
+    {
+        return self::FULL;
+    }
+
+    public function render(): string
+    {
+        $checks = Figures::health();
+        if ($checks === []) {
+            return '';
+        }
+
+        $html = '<ul class="pf-dashboard-health">';
+        foreach ($checks as $name => $result) {
+            $status  = (string) ($result['status'] ?? 'unknown');
+            $message = $status !== 'ok' ? (string) ($result['message'] ?? '') : '';
+            $html   .= '<li><span class="pf-dashboard-health-name">' . self::e((string) $name) . '</span>'
+                . ($message !== '' ? '<span class="pf-dashboard-health-message">' . self::e($message) . '</span>' : '')
+                . '<span class="pf-dashboard-status pf-dashboard-status--' . self::e($status) . '">' . self::e(strtoupper($status)) . '</span></li>';
+        }
+
+        return $html . '</ul>';
+    }
+
+    private static function e(string $value): string
+    {
+        return htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
+    }
+}

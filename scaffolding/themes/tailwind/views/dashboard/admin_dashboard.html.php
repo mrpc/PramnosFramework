@@ -1,155 +1,60 @@
 <?php
 /**
- * Admin Operations Dashboard (Tailwind theme).
+ * The administration dashboard (Tailwind theme): the signed-in person's widgets, in their order and
+ * widths, and the controls to change them — Customise, then move, resize, hide or add a card.
+ * pf-utils.js does the editing through the data-pf-dashboard* attributes and saves each change.
  *
  * Variables:
- *   $this->activeUsers  — array {now, last_1h, last_24h, last_7d, last_30d}
- *   $this->dbStats      — array from DatabaseStatsService::getStats()
- *   $this->apiStats     — array from ApiPerformanceService::getSummary()
- *   $this->healthResults — array from HealthRegistry::runAll()
+ *   $this->widgets  — array[] {id, size (half|full), title, link|null, html}
+ *   $this->addable  — array   id => title: the widgets this person may add
+ *   $this->saveUrl  — string  where a layout is saved (POST, JSON)
+ *   $this->resetUrl — string  where it goes back to the default (POST)
+ *   ($this->activeUsers, dbStats, apiStats, healthResults — the figures, for a view of the older shape)
  */
+$e = static fn ($v): string => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
+$t = static fn (string $words): string => function_exists('t') ? (string) t($words) : $words;
 ?>
 <div class="px-4 py-6">
-    <h2 class="mb-6">Admin Dashboard</h2>
+    <div class="flex items-center gap-2 mb-4">
+        <h2 class="text-2xl font-semibold"><?php echo $e($t('Dashboard')); ?></h2>
+        <button type="button" class="btn btn-sm btn-ghost ms-auto" data-pf-dashboard-edit aria-pressed="false"><?php echo $e($t('Customise')); ?></button>
+    </div>
 
-    <?php
-    /*
-     * The four figures are links to the screen each one comes from.
-     *
-     * A number on a dashboard is the start of a question — "why is that high", "which
-     * accounts" — and a box that cannot be clicked makes the reader hunt through the sidebar
-     * for the screen that answers it. They were four boxes and four dead ends.
-     *
-     * Each one points at the screen its own figure is *read from*, which is not the same as
-     * the screen that sounds related. The active-users count comes from the sessions table,
-     * so it opens the sessions list — not the account list, which answers "who exists"
-     * rather than "who is here". The request figures come from `tokenactions`, so they open
-     * the token-action list — not the application log, which is a different record entirely
-     * and would have sent the reader looking for numbers that are not in it.
-     *
-     * `TokenActions/stats` is where those numbers are *computed*, and it is a JSON endpoint
-     * feeding a widget. A dashboard box that opens a JSON document is a link that looks
-     * broken, so the boxes point at the screen a person can read.
-     */
-    ?>
+    <div class="card bg-base-100 border border-dashed border-primary mb-4 pf-dashboard-bar" data-pf-dashboard-bar hidden>
+        <div class="card-body p-3 flex-row flex-wrap items-center gap-3">
+            <span class="text-sm"><?php echo $e($t('Move, resize or hide each card; add the ones you want.')); ?></span>
+            <?php if (!empty($this->addable)): ?>
+            <label class="flex items-center gap-2 text-sm"><?php echo $e($t('Add')); ?>
+                <select class="select select-sm select-bordered" data-pf-dashboard-add>
+                    <option value=""><?php echo $e($t('Choose a card')); ?></option>
+                    <?php foreach ($this->addable as $id => $title): ?><option value="<?php echo $e($id); ?>"><?php echo $e($t($title)); ?></option><?php endforeach; ?>
+                </select>
+            </label>
+            <?php endif; ?>
+            <span class="ms-auto"><?php echo \Pramnos\Html\Icon::postControl($this->resetUrl, $e($t('Back to the default')), ['class' => 'btn btn-sm btn-ghost', 'data-confirm' => $t('Go back to the default dashboard?')]); ?></span>
+            <button type="button" class="btn btn-sm btn-primary" data-pf-dashboard-done><?php echo $e($t('Done')); ?></button>
+        </div>
+    </div>
 
-    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        <a href="<?php echo adminUrl('Users/sessions'); ?>" class="card bg-primary text-primary-content transition hover:brightness-110" title="The sessions this number counts">
-            <div class="p-5">
-                <div class="text-xs opacity-75">Active Users (now)</div>
-                <div class="text-3xl font-bold"><?php echo (int)($this->activeUsers['now'] ?? 0); ?></div>
-                <div class="text-xs opacity-75">Last 24h: <?php echo (int)($this->activeUsers['last_24h'] ?? 0); ?></div>
-            </div>
-        </a>
-        <a href="<?php echo adminUrl('TokenActions'); ?>" class="card bg-success text-success-content transition hover:brightness-110" title="The requests this number counts">
-            <div class="p-5">
-                <div class="text-xs opacity-75">API Requests (24h)</div>
-                <div class="text-3xl font-bold"><?php echo (int)($this->apiStats['total_requests'] ?? 0); ?></div>
-                <div class="text-xs opacity-75">Errors: <?php echo number_format(($this->apiStats['error_rate'] ?? 0) * 100, 1); ?>%</div>
-            </div>
-        </a>
-        <a href="<?php echo adminUrl('TokenActions'); ?>" class="card bg-info text-info-content transition hover:brightness-110" title="Where the time goes, per request">
-            <div class="p-5">
-                <div class="text-xs opacity-75">Avg Latency (24h)</div>
-                <div class="text-3xl font-bold"><?php echo number_format($this->apiStats['avg_execution_time'] ?? 0, 0); ?> ms</div>
-                <div class="text-xs opacity-75">p95: <?php echo number_format($this->apiStats['p95_execution_time'] ?? 0, 0); ?> ms</div>
-            </div>
-        </a>
-        <a href="<?php echo adminUrl('Dashboard/database'); ?>" class="card bg-secondary text-secondary-content transition hover:brightness-110" title="Tables, sizes and connections">
-            <div class="p-5">
-                <div class="text-xs opacity-75">DB Size</div>
-                <div class="text-3xl font-bold">
-                    <?php
-                    $bytes = $this->dbStats['db_size_bytes'] ?? 0;
-                    echo $bytes > 1048576
-                        ? number_format($bytes / 1048576, 1) . ' MB'
-                        : number_format($bytes / 1024, 1) . ' KB';
-                    ?>
+    <p class="sr-only" data-pf-dashboard-status aria-live="polite"></p>
+    <div class="pf-dashboard" data-pf-dashboard data-save="<?php echo $e($this->saveUrl); ?>">
+        <?php foreach ($this->widgets as $widget): ?>
+        <section class="card bg-base-100 border border-base-300 min-w-0<?php echo $widget['size'] === 'full' ? ' pf-dashboard-full' : ''; ?>"
+                 data-pf-widget="<?php echo $e($widget['id']); ?>" data-size="<?php echo $e($widget['size']); ?>" aria-label="<?php echo $e($t($widget['title'])); ?>">
+            <div class="card-body p-4 gap-3">
+                <div class="pf-dashboard-head">
+                    <h3 class="card-title text-base"><?php if ($widget['link']): ?><a class="hover:underline" href="<?php echo $e($widget['link']); ?>"><?php echo $e($t($widget['title'])); ?></a><?php else: echo $e($t($widget['title'])); endif; ?></h3>
+                    <div class="pf-dashboard-tools join" data-pf-widget-tools hidden>
+                        <button type="button" class="btn btn-xs join-item" data-pf-widget-move="-1" aria-label="<?php echo $e($t('Move up')); ?>">&uarr;</button>
+                        <button type="button" class="btn btn-xs join-item" data-pf-widget-move="1" aria-label="<?php echo $e($t('Move down')); ?>">&darr;</button>
+                        <button type="button" class="btn btn-xs join-item" data-pf-widget-resize aria-label="<?php echo $e($t('Wide or narrow')); ?>">&harr;</button>
+                        <button type="button" class="btn btn-xs join-item" data-pf-widget-hide aria-label="<?php echo $e($t('Hide')); ?>">&times;</button>
+                    </div>
                 </div>
-                <div class="text-xs opacity-75">Connections: <?php echo (int)($this->dbStats['connections_active'] ?? 0); ?></div>
+                <?php echo $widget['html'] !== '' ? $widget['html'] : '<p class="text-sm opacity-60">' . $e($t('Nothing to show today.')) . '</p>'; ?>
             </div>
-        </a>
+        </section>
+        <?php endforeach; ?>
+        <p class="opacity-70 pf-dashboard-full" data-pf-dashboard-empty<?php echo $this->widgets ? ' hidden' : ''; ?>><?php echo $e($t('Your dashboard is empty: choose Customise, then add a card.')); ?></p>
     </div>
-
-    <div class="card bg-base-100 border border-base-300 shadow-xs mb-6">
-        <div class="px-5 py-3 bg-base-200 border-b border-base-300 font-semibold text-sm flex justify-between items-center">
-            <span>Database</span>
-            <a href="<?php echo adminUrl('dashboard/database'); ?>" class="text-primary text-xs font-normal hover:underline">View Details &rarr;</a>
-        </div>
-        <div class="p-5">
-            <table class="table table-sm text-sm">
-                <tbody>
-                    <tr>
-                        <td class="py-1 pr-4 text-base-content/70 w-2/5">Server</td>
-                        <td class="py-1 font-semibold"><?php $__t=$this->dbStats['type']??''; echo htmlspecialchars($this->dbStats['version'] ?? (['postgresql'=>'PostgreSQL','mysql'=>'MySQL'][$__t] ?? ($__t ?: '—'))); ?></td>
-                    </tr>
-                    <tr>
-                        <td class="py-1 pr-4 text-base-content/70">Database size</td>
-                        <td class="py-1"><?php
-                            $bytes = $this->dbStats['db_size_bytes'] ?? 0;
-                            echo $bytes > 1048576 ? number_format($bytes / 1048576, 2) . ' MB' : number_format($bytes / 1024, 1) . ' KB';
-                        ?></td>
-                    </tr>
-                    <tr>
-                        <td class="py-1 pr-4 text-base-content/70">Connections</td>
-                        <td class="py-1"><?php echo (int)($this->dbStats['connections_active'] ?? 0); ?> active / <?php echo (int)($this->dbStats['connections_total'] ?? 0); ?> total</td>
-                    </tr>
-                    <?php if (isset($this->dbStats['cache_hit_ratio'])): ?>
-                    <tr>
-                        <td class="py-1 pr-4 text-base-content/70">Cache hit ratio</td>
-                        <td class="py-1"><?php echo number_format((float)$this->dbStats['cache_hit_ratio'], 1); ?>%</td>
-                    </tr>
-                    <?php endif; ?>
-                </tbody>
-            </table>
-        </div>
-    </div>
-
-    <div class="card bg-base-100 border border-base-300 shadow-xs mb-6">
-        <div class="px-5 py-3 bg-base-200 border-b border-base-300 font-semibold text-sm flex justify-between items-center">
-            <span>Cache</span>
-            <a href="<?php echo adminUrl('dashboard/cache'); ?>" class="text-primary text-xs font-normal hover:underline">View Details &rarr;</a>
-        </div>
-        <div class="px-5 py-4 text-base-content/70 text-sm">
-            Cache management: view namespaces, browse items, and clear the cache.
-        </div>
-    </div>
-
-    <?php if (!empty($this->healthResults)): ?>
-    <div class="card bg-base-100 border border-base-300 shadow-xs mb-6">
-        <div class="px-5 py-3 bg-base-200 border-b border-base-300 font-semibold text-sm">Health Checks</div>
-        <div >
-            <ul class="divide-y divide-base-300">
-                <?php foreach ($this->healthResults as $name => $result): ?>
-                <?php
-                    /*
-                     * The badge carries the *status*; the message goes beside it.
-                     *
-                     * This had three branches for `ok`, `warn` and everything else — and
-                     * `warn` is not a status this framework produces, so `degraded` fell
-                     * through to the `else` and rendered as a red badge with the whole
-                     * message crammed inside it. A correct installation was being shown a
-                     * paragraph in an alarm colour.
-                     */
-                    $healthBadge = [
-                        'ok'       => 'badge-success',
-                        'notice'   => 'badge-info',
-                        'degraded' => 'badge-warning',
-                        'down'     => 'badge-error',
-                    ][$result['status']] ?? 'badge-ghost';
-                ?>
-                <li class="flex justify-between items-start gap-4 px-5 py-3">
-                    <span class="font-medium shrink-0"><?php echo htmlspecialchars($name); ?></span>
-                    <span class="flex items-center gap-2 justify-end text-right">
-                        <?php if (!empty($result['message']) && $result['status'] !== 'ok'): ?>
-                            <span class="text-xs text-base-content/70"><?php echo htmlspecialchars($result['message']); ?></span>
-                        <?php endif; ?>
-                        <span class="badge <?php echo $healthBadge; ?> shrink-0"><?php echo strtoupper(htmlspecialchars($result['status'])); ?></span>
-                    </span>
-                </li>
-                <?php endforeach; ?>
-            </ul>
-        </div>
-    </div>
-    <?php endif; ?>
 </div>
