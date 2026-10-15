@@ -24,6 +24,10 @@
  * Same-origin API calls made from here send `X-CSRF-Token` from `<meta name="csrf">`
  * (window.pfApiHeaders) — that is what authenticates a page against its own API.
  *
+ *   meta[name=csrf-refresh]     — where a page ten minutes old asks for the session's current
+ *                                 CSRF token, on coming back into view and before a form is
+ *                                 sent; window.pfRefreshCsrf()
+ *
  *   data-pf-omnibox             — cross-entity search box (see Html\SearchBox); the
  *                                 endpoint, minimum length, debounce and the loading /
  *                                 empty strings come from data-pf-omnibox-* attributes
@@ -65,6 +69,96 @@
     }
 
     window.pfApiHeaders = pfApiHeaders;
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // <meta name="csrf-refresh" content="…/Csrf"> — a page open a while takes the current token
+    //
+    // A form keeps the token it was drawn with. Signing in in another tab, or a session that
+    // expired while the page sat open, gives the session a new one, and the form is then refused
+    // with what was typed lost. So once the page's token is ten minutes old, it is asked for again
+    // when the tab comes back into view, and before a form carrying one is sent, and every
+    // `_csrf_token` field, `<meta name="csrf">` and form-token field (Session::getTokenField(): a
+    // hidden input named by the session's 64-hex token) takes the answer. Never on a timer: a page that
+    // polled would keep an idle session alive for ever. `window.pfRefreshCsrf()` asks now.
+    // ══════════════════════════════════════════════════════════════════════════
+    (function () {
+        var meta = document.querySelector('meta[name="csrf-refresh"]');
+        var url  = meta ? meta.getAttribute('content') : '';
+        if (!url || typeof window.fetch !== 'function') { return; }
+
+        var STALE     = 10 * 60 * 1000;
+        var fetchedAt = Date.now();
+        var pending   = null;
+
+        /** Everything on the page that carries the synchronizer token. */
+        function holders() {
+            return document.querySelectorAll('input[name="_csrf_token"], meta[name="csrf"]');
+        }
+
+        /** The form-token fields within `root`: hidden, and named by the session's token. */
+        function formFields(root) {
+            return Array.prototype.filter.call((root || document).querySelectorAll('input[type="hidden"]'), function (input) {
+                return /^[0-9a-f]{64}$/.test(input.getAttribute('name') || '');
+            });
+        }
+
+        /** Whether `root` carries a token of either kind. */
+        function carries(root) {
+            return (root === document ? holders() : root.querySelectorAll('input[name="_csrf_token"]')).length > 0 || formFields(root).length > 0;
+        }
+
+        /** Whether the page holds a token, and it is old enough to ask about. */
+        function stale() {
+            return Date.now() - fetchedAt >= STALE && carries(document);
+        }
+
+        /** Ask for the current token and put it everywhere; a failure leaves the page as it was. */
+        function refresh() {
+            if (pending) { return pending; }
+            pending = window.fetch(url, { credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'application/json' } })
+                .then(function (response) { return response.ok ? response.json() : null; })
+                .then(function (body) {
+                    if (!body || typeof body.token !== 'string' || body.token === '') { return; }
+                    Array.prototype.forEach.call(holders(), function (holder) {
+                        if (holder.tagName === 'META') { holder.setAttribute('content', body.token); } else { holder.value = body.token; }
+                    });
+                    var form = body.form;
+                    if (form && /^[0-9a-f]{64}$/.test(form.name || '')) {
+                        formFields(document).forEach(function (field) {
+                            // A form pinned to the address keeps being pinned: its value says which.
+                            var pinned = field.value === form.value_ip && form.value_ip !== form.value;
+                            field.setAttribute('name', form.name);
+                            field.value = pinned ? form.value_ip : form.value;
+                        });
+                    }
+                    fetchedAt = Date.now();
+                })
+                .catch(function () { /* offline, or the site is down: the form goes as it is */ })
+                .then(function () { pending = null; });
+            return pending;
+        }
+
+        document.addEventListener('visibilitychange', function () {
+            if (document.visibilityState === 'visible' && stale()) { refresh(); }
+        });
+
+        // Captured, and held from every other handler, so a form a script sends itself does not go
+        // once with the old token and again with the new one.
+        document.addEventListener('submit', function (event) {
+            var form = event.target;
+            if (!form || form.pfCsrfFresh || !form.querySelectorAll || !carries(form) || !stale()) { return; }
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            var submitter = event.submitter && event.submitter.form === form ? event.submitter : undefined;
+            refresh().then(function () {
+                form.pfCsrfFresh = true;
+                if (typeof form.requestSubmit === 'function') { form.requestSubmit(submitter); } else { form.submit(); }
+                form.pfCsrfFresh = false;
+            });
+        }, true);
+
+        window.pfRefreshCsrf = refresh;
+    })();
 
     // ══════════════════════════════════════════════════════════════════════════
     // <meta name="pf-client-errors" content="…/ClientErrors"> — errors the page hits, reported

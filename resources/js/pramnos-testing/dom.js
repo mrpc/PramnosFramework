@@ -101,6 +101,9 @@ class Event {
     preventDefault() { this.defaultPrevented = true; }
 
     stopPropagation() { this._stopped = true; }
+
+    /** Stop here: no further listener, on this target or above it. */
+    stopImmediatePropagation() { this._stopped = true; this._immediate = true; }
 }
 
 class CustomEvent extends Event {}
@@ -114,7 +117,12 @@ function eventTarget(target) {
     };
     target._fire = (event) => {
         event.currentTarget = target;
-        (listeners[event.type] || []).slice().forEach((handler) => handler.call(target, event));
+        for (const handler of (listeners[event.type] || []).slice()) {
+            if (event._immediate) {
+                break;
+            }
+            handler.call(target, event);
+        }
     };
     return target;
 }

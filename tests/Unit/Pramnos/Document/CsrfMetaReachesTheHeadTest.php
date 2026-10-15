@@ -119,4 +119,28 @@ class CsrfMetaReachesTheHeadTest extends TestCase
         $this->assertStringNotContainsString('onload="alert(1)"', $output);
         $this->assertStringContainsString('&quot; onload=', $output);
     }
+
+    /**
+     * Every page names where a form left open asks for the current token — an anonymous one
+     * too, since a sign-in form sits open as long as any — without minting a token to do it.
+     */
+    public function testEveryPageNamesWhereToRefreshTheToken(): void
+    {
+        // Arrange — one anonymous render, one signed in
+        $anonymous = (new Html())->render();
+        $token            = new \Pramnos\User\Token();
+        $token->tokentype = \Pramnos\User\Token::TYPE_WEB_SESSION;
+        $token->status    = 1;
+        $_SESSION['usertoken']  = $token;
+        $_SESSION['csrf_token'] = 'a1b2c3d4';
+
+        // Act
+        $signedIn = (new Html())->render();
+
+        // Assert
+        foreach ([$anonymous, $signedIn] as $output) {
+            $this->assertMatchesRegularExpression('#<meta name="csrf-refresh" content="[^"]*Csrf" />#', $output);
+        }
+        $this->assertStringNotContainsString('name="csrf" ', $anonymous, 'still no token for an anonymous page');
+    }
 }

@@ -1,6 +1,7 @@
 ---
 use_cases:
   - Protecting a form or endpoint (CSRF, XSS, SQL injection, uploads)
+  - Keeping a form left open from being refused for a stale CSRF token
   - Hardening accounts: session fixation, rate limits, session lifetimes, notices
   - Hardening sessions, passwords or security headers
   - Configuring a Content Security Policy or trusted proxies
@@ -137,6 +138,36 @@ fetch('/api/data', {
 `pf-utils.js`, `pf-auth.js` and `pf-consent.js` read the same tag. On an anonymous page there is
 no tag — reading the token would start a session on every public URL — so a page that must post
 without a sign-in prints the field itself with `CsrfMiddleware::tokenField()`.
+
+### A page left open: the token is refreshed
+
+A form keeps the token it was drawn with. If somebody signs in in another tab, or the session
+expires while the page sits open, the session gets new tokens. The form is then refused (419, or
+`TokenRejected`), and what was typed is lost.
+
+`pf-utils.js` prevents that on its own. Every page's head names where the current tokens are, in
+`<meta name="csrf-refresh" content="…/Csrf">`. That includes an anonymous page, because a sign-in
+form sits open as long as any. Once a page's tokens are ten minutes old, the script asks for them
+again:
+
+- when the tab comes back into view;
+- before a form carrying a token is sent. The form is held, refreshed, and then sent once, and no
+  other submit handler sees the first attempt.
+
+The answer goes into every `_csrf_token` field, into `<meta name="csrf">`, and into every
+form-token field, renamed as well, because a form token's name is the session's token.
+`window.pfRefreshCsrf()` asks at once.
+
+- **Never on a timer.** A page that polled would keep an idle session alive for ever, which
+  defeats its lifetime.
+- **`GET /Csrf`** (`Pramnos\Application\Controllers\Csrf`) is served by the framework, so the
+  application adds nothing. It answers
+  `{"token", "form": {"name", "value", "value_ip"}}` with `Cache-Control: no-store`.
+- **Another site cannot read it.** It sends no CORS headers, and it refuses a request the browser
+  marks `Sec-Fetch-Site: cross-site`.
+- **A refresh that fails sends the form as it was.**
+- **A session that ended still ends.** The refreshed tokens belong to the new, signed-out session,
+  so a form behind sign-in is still sent to sign in.
 
 ### The form token
 

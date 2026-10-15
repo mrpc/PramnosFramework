@@ -855,18 +855,24 @@ class Document extends \Pramnos\Framework\Base
      */
     protected function csrfHeadMarkup()
     {
+        // Where a page open a while asks for the session's current token
+        // ({@see \Pramnos\Application\Controllers\Csrf}) — on every page, a sign-in form too,
+        // because a form left open is refused once its session has moved on.
+        $refresh = "\n        " . '<meta name="csrf-refresh" content="'
+            . $this->escapeHeadValue(\Pramnos\Http\SiteUrl::to('Csrf')) . '" />';
+
         if (session_status() !== PHP_SESSION_ACTIVE || !isset($_SESSION['usertoken'])) {
-            return '';
+            return $refresh;
         }
 
         try {
             $token = \Pramnos\Http\Session::getInstance()->getCsrfToken();
         } catch (\Throwable) {
             // A page is not worth failing over a token it may not even use.
-            return '';
+            return $refresh;
         }
 
-        return "\n        " . '<meta name="csrf" content="'
+        return $refresh . "\n        " . '<meta name="csrf" content="'
             . $this->escapeHeadValue($token) . '" />';
     }
 
