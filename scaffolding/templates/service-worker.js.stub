@@ -6,9 +6,10 @@
  * ## What it does, and what it deliberately does not
  *
  * It caches **static assets only** — stylesheets, scripts, fonts and images under
- * the same origin. HTML, API responses, anything non-GET and anything cross-origin
- * are not handled at all: no `respondWith`, so the browser does exactly what it
- * would without a service worker.
+ * the same origin. HTML is never stored: a page always comes from the network, and only
+ * when there is no network does the offline page (one static file) stand in. API
+ * responses, anything non-GET and anything cross-origin are not handled at all: no
+ * `respondWith`, so the browser does exactly what it would without a service worker.
  *
  * That boundary is the whole design, and it is drawn from a service worker in a
  * production application that crossed it. Once a worker caches HTML it needs a list
@@ -64,6 +65,24 @@
 const CACHE = '{{ APP_SLUG }}-assets';
 
 /**
+ * The page shown when a navigation fails for want of a network — the one HTML this worker keeps,
+ * stored on install in a cache of its own so the asset cap never evicts it. `offline.html` beside
+ * the worker, or the page named in the registration: `register('sw.js?offline=errors/offline.html')`.
+ * No such file, no fallback: the browser shows its own.
+ */
+const OFFLINE_CACHE = CACHE + '-offline';
+const OFFLINE_PAGE  = new URL(self.location).searchParams.get('offline') || 'offline.html';
+
+/**
+ * Caches a previous worker left behind, deleted when this one activates.
+ *
+ * The usual hand-versioned names — `v1.32::static`, `v1.32::pages`, `v1.32::images`. Left in
+ * place they are not just storage: `pages` holds signed-in pages, and anything that read across
+ * every cache would serve their stale copies first. Add a pattern here for names of another shape.
+ */
+const LEGACY_CACHES = [/::(?:static|pages|images)$/];
+
+/**
  * How many entries to keep.
  *
  * ponytail: FIFO, not LRU — `cache.keys()` is in insertion order and the oldest
@@ -79,17 +98,34 @@ const IMMUTABLE = [
     /\/{{ SPA_BUILD_DIR_REGEX }}\//
 ];
 
-/** The only thing this worker will touch. Anything else falls through to the browser. */
+/** What an image that cannot be fetched or found shows instead. */
+const OFFLINE_IMAGE = '<svg role="img" aria-label="Offline" viewBox="0 0 400 300" xmlns="http://www.w3.org/2000/svg">'
+    + '<path fill="#d8d8d8" d="M0 0h400v300H0z"/><text x="200" y="165" text-anchor="middle" fill="#9b9b9b"'
+    + ' font-family="Helvetica Neue,Arial,sans-serif" font-size="56" font-weight="bold">offline</text></svg>';
+
+/** The only thing this worker will touch, besides a failed navigation. Anything else falls through to the browser. */
 const ASSET = /\.(?:css|m?js|woff2?|ttf|otf|eot|png|jpe?g|gif|svg|webp|avif|ico)$/i;
 
-self.addEventListener('install', () => {
+self.addEventListener('install', (event) => {
     // No pre-cache list. One would have to name files by hand and go stale the first
     // time a build renamed one — and every asset here is cached on first use anyway.
+    // The offline page is the exception, and optional: a missing one is no failure.
+    event.waitUntil(
+        caches.open(OFFLINE_CACHE)
+            .then((cache) => cache.add(new URL(OFFLINE_PAGE, self.registration.scope).href))
+            .catch(() => {})
+    );
     self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {
-    event.waitUntil(self.clients.claim());
+    event.waitUntil((async () => {
+        const keys = await caches.keys();
+        await Promise.all(keys
+            .filter((key) => LEGACY_CACHES.some((pattern) => pattern.test(key)))
+            .map((key) => caches.delete(key)));
+        await self.clients.claim();
+    })());
 });
 
 self.addEventListener('message', (event) => {
@@ -97,6 +133,14 @@ self.addEventListener('message', (event) => {
 
     if (command === 'purge') {
         event.waitUntil(caches.delete(CACHE));
+    }
+
+    // Relay a page's message to every page this worker controls — a tab telling the others it
+    // signed out, say. They receive `{command: 'broadcastOnRequest', message}`.
+    if (command === 'broadcast') {
+        event.waitUntil(self.clients.matchAll().then((clients) => clients.forEach((client) => {
+            client.postMessage({ command: 'broadcastOnRequest', message: event.data.message });
+        })));
     }
 
     if (command === 'unregister') {
@@ -148,14 +192,27 @@ self.addEventListener('fetch', (event) => {
 
     const url = new URL(request.url);
 
+    // A page: always the network, never stored. Only when there is no network at all does the
+    // offline page stand in — the browser's own error page otherwise.
+    if (request.mode === 'navigate') {
+        event.respondWith(fetch(request).catch(async () => {
+            const offline = await (await caches.open(OFFLINE_CACHE)).match(new URL(OFFLINE_PAGE, self.registration.scope).href);
+            return offline || Response.error();
+        }));
+        return;
+    }
+
     if (url.origin !== self.location.origin || !ASSET.test(url.pathname)) {
         return;
     }
 
     const immutable = IMMUTABLE.some((pattern) => pattern.test(url.pathname));
+    const image = /\.(?:png|jpe?g|gif|svg|webp|avif)$/i.test(url.pathname);
 
     event.respondWith((async () => {
-        const cached = await caches.match(request);
+        // This worker's cache only: `caches.match()` reads every cache on the origin, and a copy
+        // another worker stored would be served before this one's, however stale.
+        const cached = await (await caches.open(CACHE)).match(request);
 
         if (cached && immutable) {
             return cached;
@@ -165,6 +222,11 @@ self.addEventListener('fetch', (event) => {
             await store(request, fresh.clone());
             return fresh;
         });
+
+        if (!cached && image) {
+            // No copy and no network: a grey "offline" box rather than a broken image.
+            return network.catch(() => new Response(OFFLINE_IMAGE, { headers: { 'Content-Type': 'image/svg+xml', 'Cache-Control': 'no-store' } }));
+        }
 
         if (cached) {
             // waitUntil *before* returning the cached copy: the event stays alive only

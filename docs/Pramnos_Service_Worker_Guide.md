@@ -6,6 +6,8 @@ use_cases:
   - Working out why a stylesheet change is not showing up for some visitors
   - Removing a service worker from a site that already has one
   - Deciding whether to cache HTML in the browser as well as on the server
+  - Replacing a service worker of your own with the framework's, offline page included
+  - Seeing the errors the service worker itself hits
 ---
 
 # Service Worker Guide
@@ -38,9 +40,10 @@ What makes it safe to say yes to is the boundary below.
 | Method | `GET` only |
 | Origin | same-origin only |
 | Paths | anything ending `.css .js .mjs .woff .woff2 .ttf .otf .eot .png .jpg .jpeg .gif .svg .webp .avif .ico` |
+| A page (a navigation) | always from the network, **never stored**; with no network at all, the offline page |
 | Everything else | **not intercepted at all** — no `respondWith`, so the browser behaves as if there were no worker |
 
-**HTML is never touched.** That is the whole design. Once a worker caches HTML it needs a
+**HTML is never stored.** That is the whole design. Once a worker caches HTML it needs a
 list of URLs never to cache — the signed-in pages, the checkout, the profile editor — and
 that list is maintained by hand, one line at a time:
 
@@ -218,6 +221,52 @@ deleting the file alone is **not** enough for visitors who already have it: a 40
 worker script causes the browser to unregister it, but only when it next checks — which
 is on navigation, and up to 24 hours later. Sending an explicit `unregister` from the
 page is what makes it immediate.
+
+---
+
+## The offline page, and an image with no network
+
+A navigation that fails for want of a network shows **the offline page**, one static file. That
+is `offline.html` beside the worker, or the page named in the registration:
+
+```js
+navigator.serviceWorker.register('/sw.js?offline=errors/offline.html');
+```
+
+It is stored on install, in a cache of its own (`<app>-assets-offline`) that the asset cap never
+evicts. Without such a file there is no fallback, and the browser shows its own error. Pages
+themselves are still never stored. The offline page stands in for every page; no page stands in
+for itself.
+
+An image with no cached copy and no network is drawn as a grey box that says "offline", rather
+than as a broken image.
+
+---
+
+## Replacing a worker of your own
+
+A worker this one replaces has usually left caches behind, the hand-versioned
+`v1.32::static`, `v1.32::pages` and `v1.32::images`. On activation this worker deletes every
+cache matching `LEGACY_CACHES` (`/::(?:static|pages|images)$/`). Add a pattern there if yours
+had names of another shape.
+
+That matters for two reasons:
+
+- **Privacy.** A `pages` cache holds signed-in pages.
+- **Stale copies.** `caches.match()` reads every cache on the origin, so an older worker's stale
+  copy of a stylesheet would be served first. This worker reads only its own cache.
+
+**Messages a page can send it:**
+
+| Message | What the worker does |
+|---|---|
+| `{command: 'purge'}` | Empties its asset cache |
+| `{command: 'unregister'}` | Unregisters and empties the cache |
+| `{command: 'broadcast', message}` | Sends `{command: 'broadcastOnRequest', message}` to every page it controls |
+
+**Its own errors** are reported to `ClientErrors` as kind `worker`, beside the pages' errors. A
+page cannot see what fails inside the worker. See
+[Errors in the browser](Pramnos_Logging_Guide.md#errors-in-the-browser).
 
 ---
 
