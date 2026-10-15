@@ -323,6 +323,12 @@ class PageFixture extends ChatPageController
         return $this->conversations();
     }
 
+    /** The theme this page draws in. */
+    public function themeName(): string
+    {
+        return $this->theme;
+    }
+
     protected function scope(): ?Scope
     {
         return $this->as;

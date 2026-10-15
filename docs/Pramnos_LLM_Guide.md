@@ -8,6 +8,7 @@ use_cases:
   - Giving users conversations with a model that remember them
   - Scheduling a question to a model every morning, as its owner
   - Sending an organisation a scheduled AI report its members subscribe to
+  - Giving people a page to see, pause and receive their scheduled AI tasks and reports
   - Asking users' agreement before their data goes to a provider
   - Turning an attached Word, OpenDocument or email file into text for a model
   - Adding an Ask AI page, widget or SPA screen to an application
@@ -607,6 +608,33 @@ answer, ⧉ Copy puts its Markdown on the clipboard, not its HTML. Over each tab
 Bootstrap the question's bubble also carries its colour inline, for an admin theme still on
 Bootstrap 3, which has no `bg-body-tertiary`. A question asked in place is drawn
 the same way at once.
+
+#### The scheduled page
+
+`/chat/scheduled` (`ChatPageController::scheduled()`, linked from the conversations page, with a
+view in each theme under `views/chat/scheduled.html.php`) shows a person what is scheduled for
+them, without asking the model:
+
+- **Their tasks:** what each is (question, reminder, report), when it runs and next, whether it is
+  paused and why it stopped. Each has buttons to see its runs, run it now, pause or resume, and
+  delete it.
+- **The shared reports they may receive** (`Routines::reports()`), each with a button to receive
+  it or stop.
+- **One task's runs**, with `?task=`, newest first. A report's runs have an *Ask about it* link to
+  `chat/report/{run}`.
+- **A form to schedule one:**
+    - what it is and, when the policy lets them share, for whom (`TaskPolicy::canManage()`);
+    - whether readers are told every time or only when something is new;
+    - a template;
+    - the title and the words;
+    - how often, at what time, the weekday or the day of the month, which weekday of the month,
+      or a moment for a one-off.
+
+A one-off further than ten years ahead is refused.
+
+Its POST actions are `schedule`, `scheduledupdate` (`active`), `scheduleddelete`, `scheduledrun`
+and `scheduledsubscribe` (`on`). Each carries the session's token and says what it did, or why
+not, as a flash message.
 
 #### Charts
 

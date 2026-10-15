@@ -9,7 +9,7 @@
  *   $this->memories      — what it remembers: memory_id, kind, content
  *   $this->limits        — provider, model, turns, rounds, memory
  *   $this->consent       — provider, label, place, required, given
- *   $this->urls          — optional: page, ask, asked, consent, delete, forget (the analyst's)
+ *   $this->urls          — optional: page, ask, asked, consent, delete, forget, scheduled (the analyst's)
  *   $this->heading       — optional: the title when no conversation is open
  *   $this->suggestions   — optional: example questions, shown while no conversation is open
  *   $this->assistantName — optional: the name over an answer, "Assistant" by default
@@ -56,6 +56,9 @@ $window  = (int) ($limits['context_window'] ?? 0);
 $u       = (is_array($this->urls ?? null) ? $this->urls : []) + [
     'page' => $url('chat'), 'ask' => $url('chat/ask'), 'asked' => $url('chat/asked/'), 'consent' => $url('chat/consent'),
     'delete' => $url('chat/delete/'), 'forget' => $url('chat/forget/'),
+    // The scheduled tasks, for the conversations page itself; a page that names its own addresses
+    // (the analyst's) names this one too, or has none.
+    'scheduled' => is_array($this->urls ?? null) ? '' : $url('chat/scheduled'),
 ];
 ?>
 <?php if ($waiting): ?><noscript><meta http-equiv="refresh" content="4"></noscript><?php endif; ?>
@@ -63,6 +66,7 @@ $u       = (is_array($this->urls ?? null) ? $this->urls : []) + [
     <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start">
         <nav class="<?php echo $c['card']; ?>" style="flex:0 0 240px;padding:12px" aria-label="<?php echo $e(t('Conversations')); ?>">
             <a href="<?php echo $e($u['page']); ?>" class="<?php echo $c['btn']; ?>"><?php echo $e(t('New conversation')); ?></a>
+            <?php if ($u['scheduled'] !== ''): ?><a href="<?php echo $e($u['scheduled']); ?>" class="<?php echo $c['btnGhost']; ?>"><?php echo $e(t('Scheduled')); ?></a><?php endif; ?>
             <ul style="list-style:none;padding:0;margin:12px 0 0">
                 <?php if ($list === []): ?>
                     <li class="<?php echo $c['muted']; ?>"><?php echo $e(t('Nothing asked yet.')); ?></li>

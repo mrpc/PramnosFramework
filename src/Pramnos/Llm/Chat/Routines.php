@@ -1138,11 +1138,17 @@ class Routines
             if (isset($wanted['in_minutes']) && is_numeric($wanted['in_minutes']) && (int) $wanted['in_minutes'] > 0) {
                 $runAt = time() + 60 * (int) $wanted['in_minutes'];
             } else {
-                $parsed = \DateTimeImmutable::createFromFormat('!Y-m-d H:i', trim((string) ($wanted['run_at'] ?? '')), new \DateTimeZone($timezone));
+                // `2026-10-16 17:00`, or `2026-10-16T17:00` as a datetime-local field sends it.
+                $parsed = \DateTimeImmutable::createFromFormat('!Y-m-d H:i', str_replace('T', ' ', trim((string) ($wanted['run_at'] ?? ''))), new \DateTimeZone($timezone));
                 if ($parsed === false) {
                     return 'A one-off needs when: run_at as YYYY-MM-DD HH:MM on the person\'s clock, or in_minutes.';
                 }
                 $runAt = $parsed->getTimestamp();
+            }
+            // A MySQL TIMESTAMP ends in January 2038; a one-off further than ten years on is a typo
+            // more often than a plan.
+            if ($runAt > time() + 10 * 366 * 86400) {
+                return 'That is too far ahead: give a time within ten years.';
             }
             $local = (new \DateTimeImmutable('@' . $runAt))->setTimezone(new \DateTimeZone($timezone));
 
