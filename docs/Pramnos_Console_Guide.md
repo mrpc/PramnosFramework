@@ -1463,6 +1463,12 @@ file at the same path — is `kept (not written by the framework)`. Both stay as
 are unless `--overwrite` is given. A file identical to the framework's is recorded
 as it passes, so an older project gains its record on the first resync.
 
+**What a synced file imports comes with it.** When a file the project has will, once synced,
+import another file of the same sync that the project lacks, that file is created without
+`--all`, and so is whatever it imports in turn. A newer `HelpPanel.svelte` imports `lib/ui.js`,
+and updating the one without creating the other breaks the build ("Could not resolve
+../lib/ui.js"). A file that nothing present imports is still only offered.
+
 It is **not** included in a plain `project:resync`, for the same reason.
 
 Two conditions decide whether it writes anything at all:

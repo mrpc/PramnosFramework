@@ -165,10 +165,11 @@ class ProjectResync extends Command
             : "<info>Resyncing framework-owned files…</info>");
 
         $tally = ['created' => 0, 'updated' => 0, 'unchanged' => 0, 'kept' => 0, 'skipped' => 0, 'failed' => 0];
+        $needed = $this->importedByPresent($base, $files);
 
         foreach ($files as $file) {
             $action = ($file['protect'] ?? false)
-                ? $this->applyProjectFile($base, $file['dest'], $file['content'], $dryRun, $copyAll, $overwrite, $output)
+                ? $this->applyProjectFile($base, $file['dest'], $file['content'], $dryRun, $copyAll || isset($needed[$file['dest']]), $overwrite, $output)
                 : $this->applyFile(
                     $base, $file['dest'], $file['content'], $file['exec'], $dryRun, $copyAll,
                     $output, $file['onlyIfMissing'] ?? false
@@ -392,6 +393,55 @@ class ProjectResync extends Command
         }
 
         return $action;
+    }
+
+    /**
+     * The files of this sync that a file the project already has will import once synced, and the
+     * project lacks — created without `--all`, because otherwise the update just made breaks the
+     * build: a newer `HelpPanel.svelte` importing a `lib/ui.js` nothing wrote.
+     *
+     * Followed through: what a created file imports is created too.
+     *
+     * @param list<array{content: string, dest: string}> $files
+     * @return array<string, true> By destination
+     */
+    private function importedByPresent(string $base, array $files): array
+    {
+        $byDest = array_column($files, 'content', 'dest');
+        $needed = [];
+        $from   = array_filter(array_keys($byDest), static fn (string $dest): bool => is_file($base . '/' . $dest));
+
+        while ($from !== []) {
+            $next = [];
+            foreach ($from as $dest) {
+                preg_match_all('/(?:from|import)\s*[\'"](\.{1,2}\/[^\'"]+)[\'"]/', (string) $byDest[$dest], $found);
+                foreach ($found[1] as $relative) {
+                    $target = self::resolveRelative(dirname($dest), $relative);
+                    if (isset($byDest[$target]) && !isset($needed[$target]) && !is_file($base . '/' . $target)) {
+                        $needed[$target] = true;
+                        $next[] = $target;
+                    }
+                }
+            }
+            $from = $next;
+        }
+
+        return $needed;
+    }
+
+    /** A relative import resolved against the importing file's directory: `components` + `../lib/ui.js` is `lib/ui.js`. */
+    private static function resolveRelative(string $dir, string $relative): string
+    {
+        $parts = $dir === '.' ? [] : explode('/', $dir);
+        foreach (explode('/', $relative) as $part) {
+            if ($part === '..') {
+                array_pop($parts);
+            } elseif ($part !== '.' && $part !== '') {
+                $parts[] = $part;
+            }
+        }
+
+        return implode('/', $parts);
     }
 
     /**

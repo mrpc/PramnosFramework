@@ -142,4 +142,39 @@ class ResyncKeepsProjectFilesTest extends TestCase
         // Act / Assert
         $this->assertNull(ShippedFiles::recorded($this->base, 'frontend/components/DataTable.svelte'));
     }
+
+    /**
+     * A file the project has, once synced, imports framework files the project lacks: those are
+     * created without `--all`, followed through what they import in turn — otherwise the update
+     * breaks the build ("Could not resolve ../lib/ui.js"). Files nothing present imports are still
+     * only offered.
+     */
+    public function testWhatAnUpdatedFileImportsIsCreated(): void
+    {
+        // Arrange — a Svelte project with an older HelpPanel and none of lib/
+        @mkdir($this->base . '/app');
+        file_put_contents($this->base . '/app/app.php', "<?php return ['name' => 'Shop', 'app_style' => 'spa', 'spa_stack' => 'svelte', 'spa_source_dir' => 'frontend/'];");
+        $this->put('frontend/components/HelpPanel.svelte', 'old');
+        ShippedFiles::record($this->base, 'frontend/components/HelpPanel.svelte', 'old');
+        $command = new ProjectResync();
+        $command->targetBaseDir  = $this->base;
+        $command->scaffoldingDir = ROOT . '/scaffolding';
+        $tester = new \Symfony\Component\Console\Tester\CommandTester($command);
+
+        // Act
+        $tester->execute(['--spa-components' => true]);
+        $said = $tester->getDisplay();
+
+        // Assert
+        $this->assertNotSame('old', $this->onDisk('frontend/components/HelpPanel.svelte'));
+        preg_match_all('/from\s*[\'"]\.\.\/lib\/([^\'"]+)[\'"]/', $this->onDisk('frontend/components/HelpPanel.svelte'), $libs);
+        $this->assertNotEmpty($libs[1], 'the newer panel imports from lib/');
+        // The ones this sync ships; lib/api.js is the project's own, written by init.
+        foreach (array_intersect($libs[1], ['ui.js', 'i18n.svelte.js', 'section.js', 'page.js']) as $lib) {
+            $this->assertFileExists($this->base . '/frontend/lib/' . $lib, 'imported, so created');
+        }
+        $this->assertContains('ui.js', $libs[1]);
+        $this->assertFileDoesNotExist($this->base . '/frontend/components/DataTable.svelte', 'nothing present imports it');
+        $this->assertStringContainsString('skip', $said);
+    }
 }
