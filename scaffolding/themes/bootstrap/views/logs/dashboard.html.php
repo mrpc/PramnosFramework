@@ -2,9 +2,9 @@
 /**
  * Logs analytics dashboard (Bootstrap theme).
  *
- * Charts are drawn with Chart.js v4, enqueued by the controller from the
- * locally-bundled asset (CSP-safe). If Chart.js is unavailable the canvases
- * stay empty but the tables below still render every metric.
+ * Charts are Html\Chart figures: drawn by pf-utils.js with the locally-bundled
+ * Chart.js in the theme's colours, with no inline script. Without Chart.js each
+ * one is a table of the same numbers.
  *
  * Variables:
  *   $this->toolbar, $this->clearList — toolbar
@@ -70,14 +70,9 @@ $spans = ['1h' => 'Last Hour', '6h' => '6 Hours', '24h' => '24 Hours', '7d' => '
             <div class="card shadow-sm h-100">
                 <div class="card-body">
                     <h3 class="h6 fw-semibold mb-3">Log Entry Trends</h3>
-                    <?php if ($hasCharts): ?>
-                    <div style="height:300px"><canvas id="log_trends_chart"></canvas></div>
-                    <?php else: ?>
-                    <div class="table-responsive" style="max-height:300px">
-                        <table class="table table-sm"><thead><tr><th>When</th><th class="text-end">Entries</th></tr></thead>
-                        <tbody><?php echo $pairs($trendLabels, $trendValues); ?></tbody></table>
-                    </div>
-                    <?php endif; ?>
+                    <?php echo \Pramnos\Html\Chart::render('line', $trendLabels, [
+                ['label' => 'Log Entries', 'data' => $trendValues],
+            ], ['decimals' => 0]); ?>
                 </div>
             </div>
         </div>
@@ -85,14 +80,9 @@ $spans = ['1h' => 'Last Hour', '6h' => '6 Hours', '24h' => '24 Hours', '7d' => '
             <div class="card shadow-sm h-100">
                 <div class="card-body">
                     <h3 class="h6 fw-semibold mb-3">Log Levels Distribution</h3>
-                    <?php if ($hasCharts): ?>
-                    <div style="height:300px"><canvas id="log_levels_chart"></canvas></div>
-                    <?php else: ?>
-                    <div class="table-responsive" style="max-height:300px">
-                        <table class="table table-sm"><thead><tr><th>Level</th><th class="text-end">Entries</th></tr></thead>
-                        <tbody><?php echo $pairs($levelLabels, $levelValues); ?></tbody></table>
-                    </div>
-                    <?php endif; ?>
+                    <?php echo \Pramnos\Html\Chart::render('doughnut', $levelLabels, [
+                ['label' => 'Entries', 'data' => $levelValues, 'colors' => (array) ($this->chartColors ?? [])],
+            ], ['decimals' => 0, 'chart' => ['cutout' => '60%', 'plugins' => ['legend' => ['position' => 'bottom']]]]); ?>
                 </div>
             </div>
         </div>
@@ -187,55 +177,3 @@ $spans = ['1h' => 'Last Hour', '6h' => '6 Hours', '24h' => '24 Hours', '7d' => '
     </div>
 </div>
 
-<script>
-    document.addEventListener('DOMContentLoaded', function () {
-        if (typeof Chart === 'undefined') { return; }
-
-        var trendCanvas = document.getElementById('log_trends_chart');
-        if (trendCanvas) {
-            new Chart(trendCanvas.getContext('2d'), {
-                type: 'line',
-                data: {
-                    labels: <?php echo json_encode($this->trendLabels); ?>,
-                    datasets: [{
-                        label: 'Log Entries',
-                        data: <?php echo json_encode($this->trendValues); ?>,
-                        backgroundColor: 'rgba(37, 99, 235, 0.1)',
-                        borderColor: 'rgba(37, 99, 235, 1)',
-                        borderWidth: 2,
-                        pointRadius: 3,
-                        tension: 0.3,
-                        fill: true
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: { legend: { position: 'top' } },
-                    scales: { y: { beginAtZero: true } }
-                }
-            });
-        }
-
-        var levelsCanvas = document.getElementById('log_levels_chart');
-        if (levelsCanvas) {
-            new Chart(levelsCanvas.getContext('2d'), {
-                type: 'doughnut',
-                data: {
-                    labels: <?php echo json_encode($this->levelLabels); ?>,
-                    datasets: [{
-                        data: <?php echo json_encode($this->levelValues); ?>,
-                        backgroundColor: <?php echo json_encode($this->chartColors); ?>,
-                        borderWidth: 0
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    cutout: '60%',
-                    plugins: { legend: { position: 'bottom' } }
-                }
-            });
-        }
-    });
-</script>

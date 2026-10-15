@@ -30,6 +30,8 @@
  *   data-pf-notifications       — the notification bell (see Html\NotificationBell): the
  *                                 count, the list, read and read-all, polled while the tab
  *                                 is visible and refreshed on `pf:notifications:refresh`
+ *   data-pf-chart-figure        — a chart (see Html\Chart): drawn with Chart.js in the
+ *                                 theme's colours, again when the theme changes
  *
  * Stats modal markup contract (rendered by the view, styled by the theme):
  *   #pf-stats-overlay  — the full-screen overlay (toggled via style.display)
@@ -661,6 +663,157 @@
 
             if (!document.hidden) { start(); }
         });
+    })();
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // data-pf-chart-figure — a chart from \Pramnos\Html\Chart
+    //
+    // The data is in the figure's <script type="application/json">, so there is no inline script
+    // for a CSP to block. Colours are read from the theme's tokens when the chart is drawn —
+    // daisyUI's --color-*, Bootstrap's --bs-*, the plain theme's --primary-color — so it is drawn
+    // again when the theme changes (data-theme, or the OS colour scheme). Numbers are formatted
+    // with Intl.NumberFormat in the page's language. Without Chart.js nothing is drawn and the
+    // table of the same numbers stays; with it, the table is kept for screen readers only.
+    // ══════════════════════════════════════════════════════════════════════════
+    (function () {
+        var figures = document.querySelectorAll('[data-pf-chart-figure]');
+        if (!figures.length) { return; }
+
+        // Each theme colour, by the names the three UI systems give it, and a last resort.
+        var NAMED = {
+            primary:   [['--color-primary', '--bs-primary', '--primary-color'], '#2563eb'],
+            secondary: [['--color-secondary', '--bs-secondary'], '#7c3aed'],
+            accent:    [['--color-accent', '--bs-pink'], '#db2777'],
+            info:      [['--color-info', '--bs-info'], '#0891b2'],
+            success:   [['--color-success', '--bs-success'], '#16a34a'],
+            warning:   [['--color-warning', '--bs-warning'], '#d97706'],
+            error:     [['--color-error', '--bs-danger'], '#dc2626'],
+        };
+        NAMED.danger = NAMED.error;
+        var ORDER = ['primary', 'secondary', 'accent', 'info', 'success', 'warning', 'error'];
+
+        function token(el, names, fallback) {
+            var style = window.getComputedStyle ? window.getComputedStyle(el) : null;
+            for (var i = 0; style && i < names.length; i++) {
+                var value = (style.getPropertyValue(names[i]) || '').trim();
+                if (value) { return value; }
+            }
+            return fallback;
+        }
+
+        // A colour at an opacity. Any CSS colour the canvas understands — daisyUI's are oklch() —
+        // is resolved to rgb by painting it, which is the one parser every browser shares.
+        var probe = null;
+        function alpha(color, a) {
+            if (!probe && document.createElement) {
+                var c = document.createElement('canvas');
+                probe = c.getContext ? c.getContext('2d', { willReadFrequently: true }) : null;
+            }
+            if (!probe) { return color; }
+            probe.clearRect(0, 0, 1, 1);
+            probe.fillStyle = color;
+            probe.fillRect(0, 0, 1, 1);
+            var d = probe.getImageData(0, 0, 1, 1).data;
+            return 'rgba(' + d[0] + ',' + d[1] + ',' + d[2] + ',' + a + ')';
+        }
+
+        function color(fig, name, index) {
+            var known = NAMED[name || ORDER[index % ORDER.length]];
+            return known ? token(fig, known[0], known[1]) : name;
+        }
+
+        function merge(target, source) {
+            Object.keys(source || {}).forEach(function (key) {
+                var value = source[key];
+                if (value && typeof value === 'object' && !Array.isArray(value)) {
+                    target[key] = merge(target[key] && typeof target[key] === 'object' ? target[key] : {}, value);
+                } else {
+                    target[key] = value;
+                }
+            });
+            return target;
+        }
+
+        function draw(fig) {
+            if (typeof window.Chart === 'undefined') { return; }
+            var source = fig.querySelector('script[data-pf-chart-config]');
+            var box    = fig.querySelector('.pf-chart-canvas');
+            var canvas = box ? box.querySelector('canvas') : null;
+            if (!source || !canvas) { return; }
+            var cfg = JSON.parse(source.textContent);
+
+            var round = /^(pie|doughnut|polarArea)$/.test(cfg.type);
+            var text  = token(fig, ['--color-base-content', '--bs-body-color', '--text-main'], (window.getComputedStyle && window.getComputedStyle(fig).color) || '#374151');
+            var fmt   = new Intl.NumberFormat(document.documentElement.getAttribute('lang') || undefined, {
+                style: cfg.format.style || 'decimal',
+                currency: cfg.format.currency,
+                maximumFractionDigits: cfg.format.decimals,
+            });
+
+            var datasets = cfg.datasets.map(function (set, i) {
+                var out = { label: set.label, data: set.data };
+                if (set.type) { out.type = set.type; }
+                if (round) {
+                    out.backgroundColor = set.data.map(function (_, j) { return color(fig, set.colors ? set.colors[j] : null, j); });
+                    out.borderColor = token(fig, ['--color-base-100', '--bs-body-bg'], '#ffffff');
+                } else {
+                    var c = color(fig, set.color, i);
+                    var line = (set.type || cfg.type) === 'line' || cfg.type === 'radar';
+                    out.borderColor = c;
+                    out.backgroundColor = line ? alpha(c, 0.15) : c;
+                    out.fill = line && cfg.stacked;
+                }
+                return out;
+            });
+
+            var grid = alpha(text, 0.12);
+            var options = {
+                responsive: true,
+                maintainAspectRatio: false,
+                color: text,
+                plugins: {
+                    legend: { display: datasets.length > 1 || round, labels: { color: text } },
+                    tooltip: { callbacks: { label: function (item) {
+                        var value = round || cfg.type === 'radar' ? item.raw : item.parsed.y;
+                        return (item.dataset.label ? item.dataset.label + ': ' : '') + fmt.format(value);
+                    } } },
+                },
+            };
+            if (cfg.type === 'radar') {
+                options.scales = { r: { ticks: { color: text, backdropColor: 'transparent', callback: function (v) { return fmt.format(v); } }, grid: { color: grid }, angleLines: { color: grid }, pointLabels: { color: text } } };
+            } else if (!round) {
+                options.scales = {
+                    x: { stacked: cfg.stacked, ticks: { color: text }, grid: { color: grid } },
+                    y: { stacked: cfg.stacked, beginAtZero: true, ticks: { color: text, callback: function (v) { return fmt.format(v); } }, grid: { color: grid } },
+                };
+            }
+
+            if (fig._pfChart) { fig._pfChart.destroy(); }
+            box.hidden = false;
+            box.style.height = cfg.height + 'px';
+            fig._pfChart = new window.Chart(canvas, {
+                type: cfg.type,
+                data: { labels: cfg.labels, datasets: datasets },
+                options: merge(options, cfg.options),
+            });
+            var table = fig.querySelector('.pf-chart-data');
+            if (table) { table.classList.add('pf-visually-hidden'); }
+        }
+
+        function drawAll() { Array.prototype.forEach.call(figures, draw); }
+
+        drawAll();
+        // Chart.js may arrive after this script: the page's load event comes after both.
+        window.addEventListener('load', function () {
+            Array.prototype.forEach.call(figures, function (fig) { if (!fig._pfChart) { draw(fig); } });
+        });
+        if (window.MutationObserver) {
+            new window.MutationObserver(drawAll).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'class'] });
+        }
+        if (window.matchMedia) {
+            var scheme = window.matchMedia('(prefers-color-scheme: dark)');
+            if (scheme.addEventListener) { scheme.addEventListener('change', drawAll); }
+        }
     })();
 
 })();

@@ -1,6 +1,7 @@
 ---
 use_cases:
   - Showing figures on an administration dashboard as tiles
+  - Drawing a chart without an inline script, in the theme's colours
   - Rendering a dropdown filter outside any form
   - Rendering a search box, checkbox or textarea with no form around it
   - Placing the cross-entity search box somewhere other than the header
@@ -579,6 +580,56 @@ theme's `style.css` dresses them from its own colours, in light and dark. A them
 rules can copy the `Stat tiles` block from the framework's
 `scaffolding/themes/<ui>/style.css` into it, or rename the hooks with `stat_tile` and
 `stat_grid` in `component_classes`.
+
+## Chart
+
+A chart drawn with the page's Chart.js, in the theme's colours, with no inline script.
+
+```php
+echo \Pramnos\Html\Chart::render('bar', ['Jan', 'Feb', 'Mar'], [
+    ['label' => 'Revenue', 'data' => [1200, 1850, 990]],
+    ['label' => 'Target',  'data' => [1500, 1500, 1500], 'type' => 'line', 'color' => 'warning'],
+], ['title' => 'Revenue by month', 'format' => 'currency', 'currency' => 'EUR']);
+```
+
+**Types:** `line`, `bar`, `pie`, `doughnut`, `radar` and `polarArea`. Other types are refused.
+
+**Datasets:** each is `['label' => …, 'data' => [numbers]]`, and each can also take:
+
+- `color` — a theme colour (`primary`, `secondary`, `accent`, `info`, `success`, `warning`,
+  `error`) or any CSS colour.
+- `colors` — one colour per slice, for a pie or a doughnut.
+- `type` — to mix a line into bars.
+
+**Options:**
+
+| Option | What it sets |
+|---|---|
+| `title` | The caption, and the table's caption |
+| `height` | The height in pixels (300) |
+| `format` | `number`, `currency` (with `currency`, `EUR` by default) or `percent` |
+| `decimals` | The most fraction digits shown (2) |
+| `stacked` | Stack the bars or areas |
+| `chart` | Chart.js options merged over the drawn ones, for anything not modelled here |
+| `id` | The figure's id |
+
+**What the markup holds.** The figure carries the data as `<script type="application/json">`.
+A browser does not run that, so a CSP without `'unsafe-inline'` lets it through. `pf-utils.js`
+draws every `[data-pf-chart-figure]` once Chart.js is on the page; rendering enqueues the
+`chartjs` asset when the document has it registered.
+
+**Colours.** They are read from the theme when the chart is drawn: daisyUI's `--color-*`,
+Bootstrap's `--bs-*`, or the plain theme's `--primary-color`. Axes and text take the theme's
+text colour. A change of `data-theme`, or of the OS colour scheme, draws the chart again.
+
+**Numbers.** Tooltips and axis labels use `Intl.NumberFormat` in the page's `<html lang>`.
+
+**The table.** Under the chart is a table of the same numbers. It is what a screen reader reads,
+and what a page without Chart.js shows. Once the chart is drawn, the table is hidden visually and
+kept for screen readers.
+
+The `pf-chart-*` classes are styled in every theme's `components.css`. A chart in an assistant's
+answer is a different thing: `data-pf-chart`, which `pf-chat.js` draws as SVG.
 
 ## Breadcrumb
 

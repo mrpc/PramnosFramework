@@ -56,7 +56,8 @@ class LogChartFallbackTest extends TestCase
     }
 
     /**
-     * And the view draws a table instead of an empty canvas.
+     * And the view draws through Html\Chart, whose table of the same numbers is what shows
+     * without Chart.js — with no inline script, which a CSP without 'unsafe-inline' would block.
      *
      * The three bundled themes each carry this screen; a fallback in one of them is a fallback
      * two thirds of installations do not get.
@@ -71,18 +72,13 @@ class LogChartFallbackTest extends TestCase
 
         foreach ($themes as $theme) {
             $view = (string) file_get_contents($theme);
+            $name = basename(dirname($theme, 3));
 
-            // Tailwind is the one with the fallback so far; the others must at least not render
-            // a canvas nothing can draw into without saying so.
-            if (str_contains($view, 'hasCharts')) {
-                $this->assertStringContainsString(
-                    'trendValues',
-                    $view,
-                    basename(dirname($theme, 3)) . ': the fallback has to show the numbers'
-                );
-            }
-
-            $this->assertStringContainsString('log_trends_chart', $view);
+            // Both charts, each of which renders its own table
+            $this->assertSame(2, substr_count($view, '\\Pramnos\\Html\\Chart::render('), $name . ': both charts are Html\\Chart');
+            $this->assertStringContainsString('$trendValues', $view, $name . ': the trend numbers reach the chart');
+            // No script of its own: the data travels as JSON inside the figure
+            $this->assertStringNotContainsString('<script', $view, $name . ': no inline script');
         }
     }
 }

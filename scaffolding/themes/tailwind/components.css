@@ -417,6 +417,17 @@ a.pf-stat-tile:hover { border-color: var(--color-primary, #2563eb); }
 .pf-stat-tile--warning { border-left-color: var(--color-warning, #d97706); }
 .pf-stat-tile--critical { border-left-color: var(--color-error, #dc2626); }
 
+/* Charts — Pramnos\Html\Chart, drawn by pf-utils.js. The canvas box is shown, and given its
+   height, when the chart is drawn; until then — or without Chart.js — the table is the chart. */
+.pf-chart-figure { margin: 0 0 1rem; }
+.pf-chart-title { font-weight: 600; margin-bottom: .5rem; }
+.pf-chart-canvas { position: relative; height: 300px; }
+.pf-chart-canvas[hidden] { display: none; }
+.pf-chart-data { width: 100%; border-collapse: collapse; font-size: .875rem; font-variant-numeric: tabular-nums; }
+.pf-chart-data caption { text-align: left; font-weight: 600; padding-bottom: .25rem; }
+.pf-chart-data th, .pf-chart-data td { padding: .25rem .5rem; border-bottom: 1px solid color-mix(in oklab, currentColor 15%, transparent); text-align: left; }
+.pf-chart-data td { text-align: right; }
+
 @media (max-width: 639px) {
     /* A 12rem search box and a 20rem panel anchored to its right edge are wider
        than what is left of a 390px header: the input shrinks, and the results

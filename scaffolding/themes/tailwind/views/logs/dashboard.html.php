@@ -2,9 +2,9 @@
 /**
  * Logs analytics dashboard (Tailwind theme).
  *
- * Charts are drawn with Chart.js v4, enqueued by the controller from the
- * locally-bundled asset (CSP-safe). If Chart.js is unavailable the canvases
- * stay empty but the tables below still render every metric.
+ * Charts are Html\Chart figures: drawn by pf-utils.js with the locally-bundled
+ * Chart.js in the theme's colours, with no inline script. Without Chart.js each
+ * one is a table of the same numbers.
  *
  * Variables:
  *   $this->toolbar, $this->clearList — toolbar
@@ -65,39 +65,15 @@ $spans = ['1h' => 'Last Hour', '6h' => '6 Hours', '24h' => '24 Hours', '7d' => '
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
         <div class="card bg-base-100 border border-base-300 shadow-sm p-5">
             <h3 class="font-semibold text-base-content mb-3">Log Entry Trends</h3>
-            <?php if ($hasCharts): ?>
-            <div style="height:300px"><canvas id="log_trends_chart"></canvas></div>
-            <?php else: ?>
-            <div class="overflow-x-auto max-h-72">
-                <table class="table table-sm text-sm">
-                    <thead><tr class="text-left text-base-content/70"><th class="px-2 py-1">When</th><th class="px-2 py-1 text-right">Entries</th></tr></thead>
-                    <tbody>
-                    <?php foreach ($trendLabels as $i => $label): ?>
-                        <tr><td class="px-2 py-1"><?php echo htmlspecialchars((string) $label, ENT_QUOTES, 'UTF-8'); ?></td>
-                            <td class="px-2 py-1 text-right font-mono"><?php echo (int) ($trendValues[$i] ?? 0); ?></td></tr>
-                    <?php endforeach; ?>
-                    </tbody>
-                </table>
-            </div>
-            <?php endif; ?>
+            <?php echo \Pramnos\Html\Chart::render('line', $trendLabels, [
+                ['label' => 'Log Entries', 'data' => $trendValues],
+            ], ['decimals' => 0]); ?>
         </div>
         <div class="card bg-base-100 border border-base-300 shadow-sm p-5">
             <h3 class="font-semibold text-base-content mb-3">Log Levels Distribution</h3>
-            <?php if ($hasCharts): ?>
-            <div style="height:300px"><canvas id="log_levels_chart"></canvas></div>
-            <?php else: ?>
-            <div class="overflow-x-auto max-h-72">
-                <table class="table table-sm text-sm">
-                    <thead><tr class="text-left text-base-content/70"><th class="px-2 py-1">Level</th><th class="px-2 py-1 text-right">Entries</th></tr></thead>
-                    <tbody>
-                    <?php foreach ($levelLabels as $i => $label): ?>
-                        <tr><td class="px-2 py-1"><?php echo htmlspecialchars((string) $label, ENT_QUOTES, 'UTF-8'); ?></td>
-                            <td class="px-2 py-1 text-right font-mono"><?php echo (int) ($levelValues[$i] ?? 0); ?></td></tr>
-                    <?php endforeach; ?>
-                    </tbody>
-                </table>
-            </div>
-            <?php endif; ?>
+            <?php echo \Pramnos\Html\Chart::render('doughnut', $levelLabels, [
+                ['label' => 'Entries', 'data' => $levelValues, 'colors' => (array) ($this->chartColors ?? [])],
+            ], ['decimals' => 0, 'chart' => ['cutout' => '60%', 'plugins' => ['legend' => ['position' => 'bottom']]]]); ?>
         </div>
     </div>
 
@@ -185,55 +161,3 @@ $spans = ['1h' => 'Last Hour', '6h' => '6 Hours', '24h' => '24 Hours', '7d' => '
     </div>
 </div>
 
-<script>
-    document.addEventListener('DOMContentLoaded', function () {
-        if (typeof Chart === 'undefined') { return; }
-
-        var trendCanvas = document.getElementById('log_trends_chart');
-        if (trendCanvas) {
-            new Chart(trendCanvas.getContext('2d'), {
-                type: 'line',
-                data: {
-                    labels: <?php echo json_encode($this->trendLabels); ?>,
-                    datasets: [{
-                        label: 'Log Entries',
-                        data: <?php echo json_encode($this->trendValues); ?>,
-                        backgroundColor: 'rgba(37, 99, 235, 0.1)',
-                        borderColor: 'rgba(37, 99, 235, 1)',
-                        borderWidth: 2,
-                        pointRadius: 3,
-                        tension: 0.3,
-                        fill: true
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: { legend: { position: 'top' } },
-                    scales: { y: { beginAtZero: true } }
-                }
-            });
-        }
-
-        var levelsCanvas = document.getElementById('log_levels_chart');
-        if (levelsCanvas) {
-            new Chart(levelsCanvas.getContext('2d'), {
-                type: 'doughnut',
-                data: {
-                    labels: <?php echo json_encode($this->levelLabels); ?>,
-                    datasets: [{
-                        data: <?php echo json_encode($this->levelValues); ?>,
-                        backgroundColor: <?php echo json_encode($this->chartColors); ?>,
-                        borderWidth: 0
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    cutout: '60%',
-                    plugins: { legend: { position: 'bottom' } }
-                }
-            });
-        }
-    });
-</script>
