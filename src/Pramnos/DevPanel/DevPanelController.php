@@ -48,7 +48,13 @@ class DevPanelController extends Controller
         return $min > 0 ? $min : \Pramnos\User\Roles::level(\Pramnos\User\Roles::ROOT);
     }
 
-    /** Optional policy callback — when set, replaces the usertype check. */
+    /**
+     * Optional policy callback — when set, replaces the development route's usertype floor.
+     *
+     * It decides that route only. Whoever `app.php` names for any deployment — the `root` role,
+     * `usertypes`, `userids` ({@see allowedOnAnyDeployment()}) — is let in before it is asked,
+     * because those lists widen and never narrow. To keep someone out, narrow the lists.
+     */
     protected ?\Closure $policyCallback = null;
 
     /**

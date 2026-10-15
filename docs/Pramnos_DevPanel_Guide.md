@@ -40,6 +40,11 @@ Access requires the `devpanel` feature enabled, and then **either** route in:
 | Development | a **development environment** — `APP_DEBUG=1` in `.env`, or the `DEVELOPMENT` constant — **and** a signed-in user of the `root` role (99 unless `roles` says), or a policy callback that says yes |
 | Any deployment | a signed-in user named in `app.php`: the `root` role, or listed in `usertypes`, or listed in `userids` |
 
+The routes are alternatives, and the second is checked first. A policy callback replaces the
+development route's floor only, so it cannot refuse somebody the second route admits: root
+opens the panel whatever the callback says. To keep an account out, narrow the lists, for
+example by raising `production_min_usertype` out of reach and naming people in `userids`.
+
 Every floor below defaults to the **`root` role** — `'roles' => ['root' => 99]`, see
 [Moving the lines](Pramnos_Authentication_Guide.md#moving-the-lines-roles) — so moving root moves
 all three tools. A key set here wins over the role:
