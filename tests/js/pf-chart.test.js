@@ -208,3 +208,37 @@ test('the page\'s own Chart.js options win', () => {
     assert.equal(options.plugins.legend.position, 'bottom');
     assert.equal(options.plugins.legend.display, true, 'the drawn keys beside it are kept');
 });
+
+/**
+ * A figure inserted after the page loaded — a dashboard card fetched after a change — is drawn
+ * as it arrives, and `pfCharts.draw(root)` draws one a page inserted itself; a figure already
+ * drawn is not drawn twice.
+ */
+test('a figure inserted later is drawn as it arrives', () => {
+    // Arrange — the page, then a second figure brought in by a fetch
+    const { window, figure, observers, charts } = page(BARS, {});
+    const doc = window.document;
+    const later = doc.createElement('figure');
+    later.setAttribute('data-pf-chart-figure', '');
+    const box = doc.createElement('div');
+    box.setAttribute('class', 'pf-chart-canvas');
+    box.appendChild(doc.createElement('canvas'));
+    later.appendChild(box);
+    const json = doc.createElement('script');
+    json.setAttribute('data-pf-chart-config', '');
+    json.textContent = JSON.stringify(Object.assign({ format: { decimals: 2 }, stacked: false, height: 200, options: {} }, BARS));
+    later.appendChild(json);
+    doc.body.appendChild(later);
+
+    // Act — the observer of the page's body sees it added (the last one registered; the other
+    // watches the theme, and redraws everything by design)
+    observers[observers.length - 1]([{ addedNodes: [later] }]);
+    const afterObserver = charts.drawn.length;
+    window.pfCharts.draw(doc.body);
+
+    // Assert
+    assert.equal(afterObserver, 2, 'drawn as it arrived');
+    assert.equal(charts.drawn.length, 2, 'not drawn again');
+    assert.equal(charts.drawn[1].canvas.parentNode, box);
+    assert.equal(figure._pfChart, charts.drawn[0]);
+});

@@ -624,6 +624,10 @@ text colour. A change of `data-theme`, or of the OS colour scheme, draws the cha
 
 **Numbers.** Tooltips and axis labels use `Intl.NumberFormat` in the page's `<html lang>`.
 
+**Charts added later.** A figure inserted after the page loaded, such as a dashboard card
+fetched after a change, is drawn as it arrives. `window.pfCharts.draw(root)` draws the figures
+under `root` that are not drawn yet, for a page that wants to say so itself.
+
 **The table.** Under the chart is a table of the same numbers. It is what a screen reader reads,
 and what a page without Chart.js shows. Once the chart is drawn, the table is hidden visually and
 kept for screen readers.

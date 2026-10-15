@@ -738,8 +738,13 @@
     // table of the same numbers stays; with it, the table is kept for screen readers only.
     // ══════════════════════════════════════════════════════════════════════════
     (function () {
-        var figures = document.querySelectorAll('[data-pf-chart-figure]');
-        if (!figures.length) { return; }
+        // Read when needed, not once: a card fetched into the page later brings its own figures.
+        function figures(root) {
+            var scope = root || document;
+            var found = Array.prototype.slice.call(scope.querySelectorAll ? scope.querySelectorAll('[data-pf-chart-figure]') : []);
+            if (scope.matches && scope.matches('[data-pf-chart-figure]')) { found.unshift(scope); }
+            return found;
+        }
 
         // Each theme colour, by the names the three UI systems give it, and a last resort.
         var NAMED = {
@@ -862,15 +867,27 @@
             if (table) { table.classList.add('pf-visually-hidden'); }
         }
 
-        function drawAll() { Array.prototype.forEach.call(figures, draw); }
+        function drawAll() { figures().forEach(draw); }
+
+        // The figures under `root` not drawn yet — a card a page inserted after it loaded.
+        function drawNew(root) { figures(root).forEach(function (fig) { if (!fig._pfChart) { draw(fig); } }); }
+        window.pfCharts = { draw: drawNew };
 
         drawAll();
         // Chart.js may arrive after this script: the page's load event comes after both.
-        window.addEventListener('load', function () {
-            Array.prototype.forEach.call(figures, function (fig) { if (!fig._pfChart) { draw(fig); } });
-        });
+        window.addEventListener('load', function () { drawNew(document); });
         if (window.MutationObserver) {
             new window.MutationObserver(drawAll).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'class'] });
+            // Figures inserted later — a dashboard card fetched after a change — are drawn as they arrive.
+            if (document.body) {
+                new window.MutationObserver(function (records) {
+                    (records || []).forEach(function (record) {
+                        Array.prototype.forEach.call(record.addedNodes || [], function (node) {
+                            if (node.nodeType === 1) { drawNew(node); }
+                        });
+                    });
+                }).observe(document.body, { childList: true, subtree: true });
+            }
         }
         if (window.matchMedia) {
             var scheme = window.matchMedia('(prefers-color-scheme: dark)');

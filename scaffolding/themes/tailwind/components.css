@@ -419,7 +419,9 @@ a.pf-stat-tile:hover { border-color: var(--color-primary, #2563eb); }
 
 /* Charts — Pramnos\Html\Chart, drawn by pf-utils.js. The canvas box is shown, and given its
    height, when the chart is drawn; until then — or without Chart.js — the table is the chart. */
-.pf-chart-figure { margin: 0 0 1rem; }
+/* Relative and clipped: the table kept for screen readers is visually hidden, and a hidden table
+   still lays out at its full width — on a phone it widened the page. */
+.pf-chart-figure { position: relative; overflow: hidden; margin: 0 0 1rem; }
 .pf-chart-title { font-weight: 600; margin-bottom: .5rem; }
 .pf-chart-canvas { position: relative; height: 300px; }
 .pf-chart-canvas[hidden] { display: none; }
