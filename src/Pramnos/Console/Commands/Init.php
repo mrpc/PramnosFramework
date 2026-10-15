@@ -757,6 +757,8 @@ class Init extends Command
         $this->scaffoldServicesWiring($namespace);
         $this->scaffoldOrganizationsWiring($namespace);
         $this->scaffoldEmailsWiring($namespace);
+        // Every theme's head names /ClientErrors, so the address exists whatever the features.
+        $this->scaffoldClientErrorsWiring($namespace);
 
         if ($withWebhook) {
             $this->scaffoldWebhookWiring($cliName);
@@ -4643,6 +4645,9 @@ HTML,
         $tokens = "    <link rel=\"stylesheet\" href=\"<?php echo sURL; ?>assets/css/theme-tokens.css\">\n";
 
         return "    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n"
+            // Where pf-utils.js reports the errors a page hits — ClientErrorsController, which
+            // this command wires at /ClientErrors.
+            . "    <meta name=\"pf-client-errors\" content=\"<?php echo sURL; ?>ClientErrors\">\n"
             . $this->faviconLinks()
             . $themeCss
             . $tokens
@@ -9149,6 +9154,36 @@ class Notifications extends NotificationsController
 PHP;
 
         $this->writeFile('src/Controllers/Notifications.php', $controller);
+    }
+
+    /**
+     * `/ClientErrors`: where pf-utils.js and the service worker report the errors pages hit.
+     */
+    private function scaffoldClientErrorsWiring(string $namespace): void
+    {
+        $this->mkdir('src/Controllers');
+
+        $controller = <<<PHP
+<?php
+
+declare(strict_types=1);
+
+namespace {$namespace}\\Controllers;
+
+use Pramnos\\Application\\Controllers\\ClientErrorsController;
+
+/**
+ * Where the pages report the errors they hit in the browser — `pf-utils.js`, through
+ * `<meta name="pf-client-errors">` in the theme's head, and the service worker for its own.
+ *
+ * Delegates to the framework controller; the errors are listed under the log screens.
+ */
+class ClientErrors extends ClientErrorsController
+{
+}
+PHP;
+
+        $this->writeFile('src/Controllers/ClientErrors.php', $controller);
     }
 
     /**

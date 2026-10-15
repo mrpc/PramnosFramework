@@ -242,6 +242,7 @@ final class LogControllerCharacterizationTest extends TestCase
                 'Export Logs',
                 'Rotate Logs',
                 'Archive Logs',
+                'Browser Errors',
                 'Clear Logs',
             ],
             $labels

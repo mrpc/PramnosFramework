@@ -7,6 +7,7 @@ use_cases:
   - Getting the log dashboard's numbers from code, a command or an MCP tool
   - Finding which command or request ran out of memory or died of a fatal error
   - Logging an exception without writing the arguments its calls carried
+  - Finding out which JavaScript errors visitors hit in the browser
 ---
 
 # Pramnos Framework - Logging System Guide
@@ -26,9 +27,10 @@ The Pramnos Framework includes a comprehensive logging system with structured lo
 9. [Log Migration and Format Conversion](#log-migration-and-format-conversion)
 10. [Console Commands](#console-commands)
 11. [Web Interface](#web-interface)
-12. [Performance and Best Practices](#performance-and-best-practices)
-13. [Configuration](#configuration)
-14. [Advanced Features](#advanced-features)
+12. [Errors in the browser](#errors-in-the-browser)
+13. [Performance and Best Practices](#performance-and-best-practices)
+14. [Configuration](#configuration)
+15. [Advanced Features](#advanced-features)
 
 ## Architecture Overview
 
@@ -693,6 +695,76 @@ The dashboard provides:
 - **Per-file Status**: last entry, error rate and entry count for each log file
 
 These are the figures `LogAnalytics::summary()` returns (see above).
+
+## Errors in the browser
+
+Errors the application's pages hit in the browser are kept one row per distinct error. A row
+holds:
+
+- a count;
+- when the error was first and last seen;
+- the latest page, browser and signed-in user;
+- the stack.
+
+The same message from the same script and line is the same error in any browser and on any page,
+so an error every visitor hits is one row with a large count.
+
+| What reports | How |
+|---|---|
+| Every server-rendered page | `pf-utils.js`, when the head names the address: `<meta name="pf-client-errors" content="<?php echo sURL; ?>ClientErrors">` (add `data-release="…"` to record the build) |
+| A page's own `catch` | `window.pfReportError(error)` |
+| The service worker | Its own errors, to `sitePath('ClientErrors')`, as kind `worker` |
+
+The client sends uncaught errors and unhandled promise rejections with `sendBeacon()`. Each
+distinct error goes once per page, and at most ten per page. A cross-origin `Script error.`
+carries nothing and is skipped.
+
+The address is `Pramnos\Application\Controllers\ClientErrorsController`, put on `/ClientErrors`
+by a `src/Controllers/ClientErrors.php` that extends it. It is open to visitors who are not
+signed in, because an error hit before signing in is worth knowing about. It is protected in
+three ways instead:
+
+- only the site's own origin (`Origin`, or else `Referer`);
+- a 16 KB body;
+- 30 reports a minute per address, where APCu is available.
+
+It answers `204`. Bodies are JSON:
+
+```json
+{"kind": "error", "message": "x is undefined", "source": "/assets/js/app.js", "line": 12,
+ "column": 3, "stack": "…", "page": "https://example.com/orders", "release": "v1.4.0"}
+```
+
+The older shape, `{"error": "…", "agent": "…"}`, is accepted too, as a form or as JSON.
+`Logs\ClientErrors` stores it under `md5(error . agent)`, the hash applications computed before
+this existed.
+
+**Reading them.** The log screens have a **Browser Errors** page (`Logs/jserrors`), with delete
+and clear. In code:
+
+```php
+$errors = new \Pramnos\Logs\ClientErrors();
+$errors->list(page: 1);   // ['items' => newest first, 'total' => …]
+$errors->delete($hash);
+$errors->clear();
+```
+
+**The table** is `javascripterrors`, from a framework migration:
+
+- **No such table:** the migration creates it.
+- **The application already has one** (`idhash`, `firstseen`, `lastseen`, `seentimes`, `error`,
+  `agent`): the migration adds only the new columns (`kind`, `message`, `source`, `line`, `col`,
+  `stack`, `page`, `release`, `userid`). The rows stay, and an admin screen written against the
+  old columns keeps working.
+
+**In an existing project:**
+
+1. Run `migrate`.
+2. Add the wrapper `src/Controllers/ClientErrors.php`, which `init` writes for a new project.
+3. Add the meta tag to the theme's `head.php`.
+4. Run `project:resync --js --all` for the new `pf-utils.js`.
+5. Copy the error listeners from the scaffolded `sw.js` into your own service worker, if you
+   have one.
 
 ## Performance and Best Practices
 

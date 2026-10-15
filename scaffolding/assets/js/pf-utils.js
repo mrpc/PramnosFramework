@@ -30,6 +30,8 @@
  *   data-pf-notifications       — the notification bell (see Html\NotificationBell): the
  *                                 count, the list, read and read-all, polled while the tab
  *                                 is visible and refreshed on `pf:notifications:refresh`
+ *   meta[name=pf-client-errors] — where uncaught errors and rejections are reported
+ *                                 (see Logs\ClientErrors); window.pfReportError(error)
  *   data-pf-chart-figure        — a chart (see Html\Chart): drawn with Chart.js in the
  *                                 theme's colours, again when the theme changes
  *
@@ -61,6 +63,64 @@
     }
 
     window.pfApiHeaders = pfApiHeaders;
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // <meta name="pf-client-errors" content="…/ClientErrors"> — errors the page hits, reported
+    //
+    // An uncaught error and an unhandled promise rejection are sent to the address in the meta
+    // tag (\Pramnos\Application\Controllers\ClientErrorsController), which keeps one row per
+    // distinct error with a count. Without the tag nothing is sent. Each distinct error is sent
+    // once per page, and at most ten per page, so a loop that throws costs ten requests, not a
+    // flood. `window.pfReportError(error)` reports one the page caught itself.
+    // ══════════════════════════════════════════════════════════════════════════
+    (function () {
+        var meta = document.querySelector('meta[name="pf-client-errors"]');
+        var url  = meta ? meta.getAttribute('content') : '';
+        if (!url) { return; }
+        var release = meta.getAttribute('data-release') || '';
+        var sent = {};
+        var count = 0;
+
+        function send(report) {
+            // A script from another origin reports only this, with nothing to act on.
+            if (!report.message || report.message === 'Script error.') { return; }
+            var key = report.kind + '|' + report.message + '|' + (report.source || '') + '|' + (report.line || '');
+            if (sent[key] || count >= 10) { return; }
+            sent[key] = true;
+            count++;
+            report.page = location.origin + location.pathname;
+            if (release) { report.release = release; }
+            var body = JSON.stringify(report);
+            try {
+                if (navigator.sendBeacon && navigator.sendBeacon(url, new Blob([body], { type: 'application/json' }))) { return; }
+            } catch (e) { /* fall through to fetch */ }
+            if (window.fetch) {
+                window.fetch(url, { method: 'POST', credentials: 'same-origin', keepalive: true, headers: { 'Content-Type': 'application/json' }, body: body })
+                    .catch(function () { /* a report that cannot be sent is dropped */ });
+            }
+        }
+
+        function describe(kind, error, extra) {
+            return Object.assign({
+                kind: kind,
+                message: error && error.message ? String(error.message) : String(error),
+                stack: error && error.stack ? String(error.stack) : '',
+            }, extra || {});
+        }
+
+        window.addEventListener('error', function (e) {
+            send(describe('error', e.error || e.message, {
+                message: String(e.message || (e.error && e.error.message) || ''),
+                source: e.filename || '',
+                line: e.lineno || null,
+                column: e.colno || null,
+            }));
+        });
+        window.addEventListener('unhandledrejection', function (e) {
+            send(describe('rejection', e.reason));
+        });
+        window.pfReportError = function (error) { send(describe('error', error)); };
+    })();
 
     document.addEventListener('click', function (e) {
         // ── data-confirm ──────────────────────────────────────────────────────

@@ -106,11 +106,14 @@ class LogController extends Controller
             'export',
             'dashboard',
             'filter',
-            'viewer'
+            'viewer',
+            'jserrors',
+            'deletejserror',
+            'clearjserrors',
         ]);
 
         // POST with the session's token, or refused before the action runs: see Controller::exec().
-        $this->addWriteAction(['clear', 'clearFile']);
+        $this->addWriteAction(['clear', 'clearFile', 'deletejserror', 'clearjserrors']);
         parent::__construct($application);
         
         // Auto-populate the whitelist with any missing log files
@@ -284,6 +287,7 @@ class LogController extends Controller
             ['url' => $base . 'export',    'label' => 'Export Logs',        'variant' => 'secondary', 'icon' => 'download'],
             ['url' => $base . 'rotate',    'label' => 'Rotate Logs',        'variant' => 'warning',   'icon' => 'sync'],
             ['url' => $base . 'archive',   'label' => 'Archive Logs',       'variant' => 'secondary', 'icon' => 'archive'],
+            ['url' => $base . 'jserrors',  'label' => 'Browser Errors',     'variant' => 'secondary', 'icon' => 'bug'],
             [
                 'url'     => $base . 'clear',
                 'label'   => 'Clear Logs',
@@ -294,6 +298,69 @@ class LogController extends Controller
                 'post'    => true,
             ],
         ];
+    }
+
+    /**
+     * The errors the application's pages hit in the browser, one row per distinct error — what
+     * `pf-utils.js` and the service worker report to `ClientErrorsController`.
+     *
+     * @return string
+     */
+    public function jserrors()
+    {
+        if ($this->application) {
+            $this->application->addBreadcrumb('Log Files', $this->logsUrl());
+            $this->application->addBreadcrumb('Browser Errors', $this->logsUrl('jserrors'));
+            $doc = Factory::getDocument();
+            if (isset($doc->themeObject)) {
+                $doc->themeObject->activemenu = 'logs';
+            }
+            $doc->title = 'Browser Errors';
+        }
+
+        $page = max(1, (int) Request::staticGet('page', 1, 'get'));
+        try {
+            $list  = $this->clientErrors()->list($page, 50);
+            $error = null;
+        } catch (\Throwable $e) {
+            // No table yet: `migrate` has not run since the framework added it.
+            $list  = ['items' => [], 'total' => 0];
+            $error = 'The javascripterrors table is not there yet: run the migrations.';
+        }
+
+        $view = $this->logsView();
+        $view->toolbar   = $this->getToolbarLinks();
+        $view->clearList = $this->clearList;
+        $view->jsErrors  = $list['items'];
+        $view->total     = $list['total'];
+        $view->page      = $page;
+        $view->pages     = max(1, (int) ceil($list['total'] / 50));
+        $view->notice    = $error;
+
+        return $view->display('jserrors');
+    }
+
+    /** Forget one browser error: `jserrors/delete` with its hash. */
+    public function deletejserror(mixed $hash = null)
+    {
+        $hash = (string) ($hash ?? Request::staticGetOption());
+        if ($hash !== '') {
+            $this->clientErrors()->delete($hash);
+        }
+        $this->redirect($this->logsUrl('jserrors'));
+    }
+
+    /** Forget every browser error. */
+    public function clearjserrors()
+    {
+        $this->clientErrors()->clear();
+        $this->redirect($this->logsUrl('jserrors'));
+    }
+
+    /** The browser errors' store. */
+    protected function clientErrors(): \Pramnos\Logs\ClientErrors
+    {
+        return new \Pramnos\Logs\ClientErrors();
     }
 
     /**

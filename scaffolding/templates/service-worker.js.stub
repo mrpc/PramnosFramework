@@ -355,3 +355,32 @@ self.addEventListener('pushsubscriptionchange', (event) => {
         }
     })());
 });
+
+/*
+ * ─── The worker's own errors ────────────────────────────────────────────────
+ *
+ * A page cannot see what fails in here — the worker is another context — so it reports its own,
+ * to the same `ClientErrors` address the pages report to, as kind `worker`. Best effort: a report
+ * that cannot be sent is dropped rather than queued, so an error while offline costs nothing.
+ */
+function reportWorkerError(error, message) {
+    try {
+        fetch(sitePath('ClientErrors'), {
+            method: 'POST',
+            credentials: 'include',
+            keepalive: true,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                kind: 'worker',
+                message: String(message || (error && error.message) || error || 'Unknown error'),
+                source: self.location.pathname,
+                stack: error && error.stack ? String(error.stack) : '',
+            }),
+        }).catch(() => {});
+    } catch (e) {
+        // Nothing to report to.
+    }
+}
+
+self.addEventListener('error', (event) => reportWorkerError(event.error, event.message));
+self.addEventListener('unhandledrejection', (event) => reportWorkerError(event.reason, event.reason && event.reason.message));

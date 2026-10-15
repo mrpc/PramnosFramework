@@ -1211,6 +1211,10 @@ class InitCommandUnitTest extends TestCase
         $this->assertStringContainsString('class="pf-logo h-8 w-auto"', $header,
             'the stylesheet targets .pf-logo; without the class nothing swaps');
 
+        // Browser errors: the address every theme's head names, and the wrapper that answers it.
+        $this->assertStringContainsString('<meta name="pf-client-errors" content="<?php echo sURL; ?>ClientErrors">', (string) file_get_contents($this->tmpDir . '/app/themes/default/head.php'));
+        $this->assertStringContainsString('class ClientErrors extends ClientErrorsController', (string) file_get_contents($this->tmpDir . '/src/Controllers/ClientErrors.php'));
+
         // The components' styles beside it, where style.css's @import finds them.
         $this->assertStringContainsString('.pf-notify', (string) file_get_contents($this->tmpDir . '/www/assets/css/components.css'));
 

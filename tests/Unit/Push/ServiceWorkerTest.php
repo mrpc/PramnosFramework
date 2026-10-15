@@ -61,6 +61,24 @@ class ServiceWorkerTest extends TestCase
     }
 
     /**
+     * The scaffolded worker reports its own errors where the pages report theirs.
+     *
+     * A page cannot see what fails inside the worker, so without these listeners an error in the
+     * push or fetch handlers is invisible. Asserted on the stub, as the handlers above are.
+     */
+    public function testTheScaffoldedWorkerReportsItsOwnErrors(): void
+    {
+        // Arrange
+        $stub = (string) file_get_contents(dirname(__DIR__, 3) . '/scaffolding/templates/service-worker.js.stub');
+
+        // Assert
+        $this->assertStringContainsString("self.addEventListener('error'", $stub);
+        $this->assertStringContainsString("self.addEventListener('unhandledrejection'", $stub);
+        $this->assertStringContainsString("fetch(sitePath('ClientErrors')", $stub, 'the address the pages report to');
+        $this->assertStringContainsString("kind: 'worker'", $stub);
+    }
+
+    /**
      * `pushManager` is not a `push` listener.
      *
      * The word appears in a subscribing page, in a cache name, in a comment. What decides
