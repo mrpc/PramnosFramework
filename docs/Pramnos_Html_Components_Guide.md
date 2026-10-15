@@ -763,6 +763,34 @@ set `$calendar` says to expect.
 `Datatable` renders the table and its JavaScript; `Datatable\Datasource` answers the AJAX
 requests DataTables makes. This section covers what a caller configures, not a full tour.
 
+### It draws with the project's UI system
+
+DataTables writes its own DOM: the search box, the page-length select, the page buttons and the
+"processing" note. A theme's classes cannot reach that DOM from the markup, so `Datatable` hands
+the classes to DataTables. It does so once per page, before the table is drawn, according to
+`scaffold_theme`:
+
+| `scaffold_theme` | Table | Controls |
+|---|---|---|
+| `bootstrap`, or none | `table table-striped table-bordered table-hover` | DataTables' own, or its Bootstrap integration's |
+| `tailwind` | `table table-sm table-zebra` | daisyUI: `input input-sm`, `select select-sm`, `btn btn-sm` page buttons with `btn-active`, Buttons' buttons `btn btn-sm` |
+| `plain-css` | `table table-hover` | the plain stylesheet's `form-control`, `btn btn-outline-secondary btn-sm`, `pf-ui-current` |
+
+Under `tailwind` and `plain-css`, the table also uses DataTables' own pager renderer and the
+`lfrtip` layout. Those replace a Bootstrap integration's renderer and grid, where the page loads
+one.
+
+The table sits in a `.pf-datatable` wrapper, and every theme's `components.css` styles the rest
+under it:
+
+- the controls on two lines;
+- the processing note over the table;
+- sort marks that need no icon font. The Bootstrap integration's marks expect Glyphicons, which
+  draw as empty boxes on a page without them.
+
+`jQuery.fn.dataTable.ext.classes` is global. So the classes also reach a table that the page
+starts with its own `dataTable()` call, provided an `Html\Datatable` was rendered on the same page.
+
 ### Post-processing the rows
 
 `Datasource::getList($table, $fields, false)` returns the array instead of the JSON, for a caller

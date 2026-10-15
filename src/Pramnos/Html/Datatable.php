@@ -255,6 +255,53 @@ class Datatable extends Base
         parent::__construct();
     }
 
+    /**
+     * The classes DataTables draws its own controls with, per UI system — the search box, the
+     * page-length select, the page buttons, the processing note and Buttons' buttons.
+     *
+     * DataTables writes its own DOM, so a theme's classes cannot reach it from the markup. Under
+     * tailwind and plain-css these replace DataTables' defaults — and a Bootstrap integration's,
+     * where the page loads one — so the controls draw as the rest of the page does. Bootstrap
+     * keeps what its integration sets.
+     */
+    private const CONTROL_CLASSES = [
+        'tailwind' => [
+            'classes' => [
+                'sFilterInput'        => 'input input-sm input-bordered',
+                'sLengthSelect'       => 'select select-sm select-bordered',
+                'sPageButton'         => 'paginate_button btn btn-sm',
+                'sPageButtonActive'   => 'current btn-active',
+                'sPageButtonDisabled' => 'disabled btn-disabled',
+                'sProcessing'         => 'dataTables_processing pf-datatable-processing',
+                'sWrapper'            => 'dataTables_wrapper',
+            ],
+            'button' => 'btn btn-sm',
+            'table'  => 'table table-sm table-zebra',
+        ],
+        'plain-css' => [
+            'classes' => [
+                'sFilterInput'        => 'form-control pf-ui-input-sm',
+                'sLengthSelect'       => 'form-control pf-ui-input-sm',
+                'sPageButton'         => 'paginate_button btn btn-outline-secondary btn-sm',
+                'sPageButtonActive'   => 'current pf-ui-current',
+                'sPageButtonDisabled' => 'disabled pf-ui-disabled',
+                'sProcessing'         => 'dataTables_processing pf-datatable-processing',
+                'sWrapper'            => 'dataTables_wrapper',
+            ],
+            'button' => 'btn btn-secondary btn-sm',
+            'table'  => 'table table-hover',
+        ],
+    ];
+
+    /** The project's UI system: `scaffold_theme`, or bootstrap where none is declared. */
+    private static function uiSystem(): string
+    {
+        $app   = \Pramnos\Application\Application::currentInstance();
+        $theme = is_object($app) ? (string) ($app->applicationInfo['scaffold_theme'] ?? '') : '';
+
+        return $theme === '' ? 'bootstrap' : $theme;
+    }
+
     /** Whether the project's UI system is Bootstrap — or undeclared, as before there was a choice. */
     private static function projectUsesBootstrap(): bool
     {
@@ -318,9 +365,12 @@ class Datatable extends Base
      */
     public function renderTable()
     {
+        $controls = $this->controlClasses();
         if ($this->bootstrap == true) {
             $this->tableClass .= ' table table-striped table-bordered '
                 . 'table-hover ';
+        } elseif ($controls !== null && !str_contains(' ' . $this->tableClass . ' ', ' table ')) {
+            $this->tableClass .= ' ' . $controls['table'] . ' ';
         }
         $this->fixColumnSearch();
         $lang = \Pramnos\Framework\Factory::getLanguage();
@@ -439,7 +489,50 @@ class Datatable extends Base
     </table>" . $this->footer . "<br /><br />
         ";
 
-        return $return;
+        // A hook the themes' components.css styles DataTables' own DOM under: the wrapper, the
+        // page buttons, the processing note, the sort marks.
+        return '<div class="pf-datatable">' . $return . '</div>';
+    }
+
+    /**
+     * The control classes for this table's UI system, or null where DataTables keeps its own:
+     * Bootstrap (its integration has them) and jQuery UI.
+     *
+     * @return array{classes: array<string, string>, button: string, table: string}|null
+     */
+    private function controlClasses(): ?array
+    {
+        if ($this->bootstrap == true || $this->jui == true) {
+            return null;
+        }
+
+        return self::CONTROL_CLASSES[self::uiSystem()] ?? null;
+    }
+
+    /**
+     * The script that hands DataTables the UI system's classes, once per page, before the table
+     * is drawn — and the options that keep a Bootstrap integration's renderer and grid out.
+     *
+     * @return array{0: string, 1: string} The script, and the table's extra options
+     */
+    private function controlScript(): array
+    {
+        $controls = $this->controlClasses();
+        if ($controls === null) {
+            return ['', ''];
+        }
+        $classes = json_encode($controls['classes'], JSON_UNESCAPED_SLASHES);
+        $button  = json_encode($controls['button']);
+        $script  = "if (jQuery.fn.dataTable && !jQuery.fn.dataTable.pfClasses) {\n"
+            . "        jQuery.fn.dataTable.pfClasses = true;\n"
+            . "        jQuery.extend(jQuery.fn.dataTable.ext.classes, {$classes});\n"
+            . "        if (jQuery.fn.dataTable.Buttons) { jQuery.fn.dataTable.Buttons.defaults.dom.button.className = {$button}; }\n"
+            . "    }";
+        // A renderer no integration registered falls back to DataTables' own; and the layout
+        // without a Bootstrap grid's rows and columns, unless the table asked for one of its own.
+        $options = '"renderer": "pf",' . ($this->tableTools ? '' : "\n            \"dom\": 'lfrtip',");
+
+        return [$script, $options];
     }
 
     /**
@@ -804,6 +897,7 @@ table;
 
         $tableId   = $this->name;
         $tableVar  = $jsVar;
+        [$controlScript, $controlOptions] = $this->controlScript();
         // Cast at the boundary: this lands inside a <script>, so a non-numeric
         // value would be markup rather than a number.
         $searchDelay = max(0, (int) $this->searchDelay);
@@ -821,9 +915,11 @@ table;
 
     window.addEventListener("load", function () {
 
+    {$controlScript}
 
             var {$tableVar} = jQuery('#{$tableId}').dataTable( {
             $language
+            $controlOptions
             $jui
             $fnDrawCallback
             "scrollX": true,

@@ -425,6 +425,40 @@ a.pf-stat-tile:hover { border-color: var(--bs-primary, #0d6efd); }
 .pf-chart-data th, .pf-chart-data td { padding: .25rem .5rem; border-bottom: 1px solid color-mix(in oklab, currentColor 15%, transparent); text-align: left; }
 .pf-chart-data td { text-align: right; }
 
+/* Data tables — Pramnos\Html\Datatable. DataTables writes its own DOM, so these reach it under
+   the table's .pf-datatable wrapper: the length and search controls on one line, the count and
+   the page buttons on the next, a processing note over the table, and sort marks that need no
+   icon font — the Bootstrap integration's expect Glyphicons, which a page without them shows as
+   empty boxes. */
+.pf-datatable .dataTables_wrapper { position: relative; }
+.pf-datatable .dataTables_wrapper::after { content: ""; display: block; clear: both; }
+.pf-datatable .dataTables_length, .pf-datatable .dataTables_filter { margin-bottom: .75rem; }
+.pf-datatable .dataTables_length label, .pf-datatable .dataTables_filter label { display: inline-flex; align-items: center; gap: .5rem; font-weight: 400; }
+.pf-datatable .dataTables_length select { width: auto; }
+.pf-datatable .dataTables_filter { float: right; }
+.pf-datatable .dataTables_filter input { width: auto; margin-left: 0; }
+.pf-datatable .dataTables_info { float: left; padding-top: .75rem; font-size: .875rem; opacity: .7; }
+.pf-datatable .dataTables_paginate { float: right; display: flex; flex-wrap: wrap; gap: .25rem; padding-top: .5rem; }
+.pf-datatable .dataTables_paginate .ellipsis { padding: 0 .25rem; }
+.pf-datatable-processing { position: absolute; top: 50%; left: 50%; z-index: 10; transform: translate(-50%, -50%); padding: .5rem 1rem; border-radius: .5rem; background: var(--bs-body-bg, #fff); box-shadow: 0 4px 12px rgba(0, 0, 0, .15); }
+.pf-datatable table.dataTable thead > tr > th.sorting,
+.pf-datatable table.dataTable thead > tr > th.sorting_asc,
+.pf-datatable table.dataTable thead > tr > th.sorting_desc { position: relative; padding-right: 1.75rem; cursor: pointer; }
+.pf-datatable table.dataTable thead > tr > th.sorting::before,
+.pf-datatable table.dataTable thead > tr > th.sorting_asc::before,
+.pf-datatable table.dataTable thead > tr > th.sorting_desc::before,
+.pf-datatable table.dataTable thead > tr > th.sorting::after,
+.pf-datatable table.dataTable thead > tr > th.sorting_asc::after,
+.pf-datatable table.dataTable thead > tr > th.sorting_desc::after { position: absolute; right: .6rem; display: block; font-family: inherit; font-size: .7em; line-height: .9; opacity: .25; }
+.pf-datatable table.dataTable thead > tr > th.sorting::before,
+.pf-datatable table.dataTable thead > tr > th.sorting_asc::before,
+.pf-datatable table.dataTable thead > tr > th.sorting_desc::before { content: "\25B2"; bottom: 50%; top: auto; }
+.pf-datatable table.dataTable thead > tr > th.sorting::after,
+.pf-datatable table.dataTable thead > tr > th.sorting_asc::after,
+.pf-datatable table.dataTable thead > tr > th.sorting_desc::after { content: "\25BC"; top: 50%; bottom: auto; }
+.pf-datatable table.dataTable thead > tr > th.sorting_asc::before,
+.pf-datatable table.dataTable thead > tr > th.sorting_desc::after { opacity: .9; }
+
 @media (max-width: 639px) {
     /* A 12rem search box and a 20rem panel anchored to its right edge are wider
        than what is left of a 390px header: the input shrinks, and the results

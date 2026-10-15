@@ -244,6 +244,74 @@ class DatatableTest extends TestCase
     }
 
     /**
+     * A table built under `$theme`, its markup and its script.
+     *
+     * @return array{0: string, 1: string}
+     */
+    private function builtUnder(?string $theme, bool $tableTools = false): array
+    {
+        $app  = \Pramnos\Application\Application::getInstance();
+        $info = $app->applicationInfo;
+        try {
+            $app->applicationInfo['scaffold_theme'] = $theme;
+            $dt = new Datatable('orders');
+            $dt->tableTools = $tableTools;
+            $dt->addColumn('Name');
+
+            return [$dt->renderTable(), $dt->renderJs()];
+        } finally {
+            $app->applicationInfo = $info;
+        }
+    }
+
+    /**
+     * Under tailwind DataTables draws its own controls with daisyUI's classes — the search box,
+     * the length select, the page buttons, Buttons' buttons — and with its own renderer and layout,
+     * not a Bootstrap integration's; the table gets daisyUI's table classes and the wrapper the
+     * themes style the rest under.
+     */
+    public function testTailwindDrawsDataTablesControlsWithDaisyUi(): void
+    {
+        // Act
+        [$html, $js] = $this->builtUnder('tailwind');
+
+        // Assert — the markup
+        $this->assertStringStartsWith('<div class="pf-datatable">', $html);
+        $this->assertStringContainsString('class="display table table-sm table-zebra "', $html, 'DataTables\' own display class, and daisyUI\'s');
+        // The classes handed to DataTables, once per page, before the table is drawn
+        $this->assertStringContainsString('jQuery.extend(jQuery.fn.dataTable.ext.classes, {"sFilterInput":"input input-sm input-bordered"', $js);
+        $this->assertStringContainsString('"sPageButton":"paginate_button btn btn-sm"', $js);
+        $this->assertStringContainsString('Buttons.defaults.dom.button.className = "btn btn-sm"', $js);
+        $this->assertStringContainsString('!jQuery.fn.dataTable.pfClasses', $js, 'once per page');
+        $this->assertLessThan(strpos($js, '.dataTable( {'), strpos($js, 'ext.classes'), 'before the table is drawn');
+        // No Bootstrap integration's renderer or grid
+        $this->assertStringContainsString('"renderer": "pf",', $js);
+        $this->assertStringContainsString('"dom": \'lfrtip\',', $js);
+    }
+
+    /**
+     * plain-css hands DataTables the plain stylesheet's classes; a table with Buttons keeps its own
+     * layout; Bootstrap, and no declared system, keep what DataTables or its integration sets.
+     */
+    public function testEachSystemGetsItsOwnControlClasses(): void
+    {
+        // Act
+        [$plainHtml, $plainJs] = $this->builtUnder('plain-css', true);
+        [$bsHtml, $bsJs]       = $this->builtUnder('bootstrap');
+        [, $noneJs]            = $this->builtUnder(null);
+
+        // Assert
+        $this->assertStringContainsString('"sFilterInput":"form-control pf-ui-input-sm"', $plainJs);
+        $this->assertStringContainsString('table table-hover', $plainHtml);
+        $this->assertStringNotContainsString('"dom": \'lfrtip\'', $plainJs, 'Buttons\' own layout stands');
+        $this->assertStringContainsString('dom: \'<"right">B', $plainJs);
+        $this->assertStringNotContainsString('ext.classes', $bsJs);
+        $this->assertStringNotContainsString('"renderer": "pf"', $bsJs);
+        $this->assertStringContainsString('table table-striped table-bordered', $bsHtml);
+        $this->assertStringNotContainsString('ext.classes', $noneJs);
+    }
+
+    /**
      * The column picker's dropdown opens under Bootstrap 5 as well as 3: each reads its own toggle
      * attribute and button class, and the items carry 5's `dropdown-item`.
      */
