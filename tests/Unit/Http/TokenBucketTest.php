@@ -98,7 +98,7 @@ class TokenBucketTest extends TestCase
         $this->assertFalse($bucket->take($key, 1, 10, 1)['allowed'], 'the one token is spent');
 
         // Act
-        usleep(150000);
+        self::wait(0.15);
         $later = $bucket->take($key, 1, 10, 1);
 
         // Assert
@@ -165,5 +165,49 @@ class TokenBucketTest extends TestCase
         // Assert
         $this->assertTrue($take['allowed']);
         $this->assertSame(0, $take['remaining']);
+    }
+
+    /**
+     * The refill holds whatever the `precision` ini setting is. phpredis writes a float into a
+     * script's arguments by that setting, and at a low one the time reached Redis rounded to whole
+     * seconds, so a token due a tenth of a second later did not come back within the same second —
+     * this test's sibling failed that way under a full run.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('stores')]
+    public function testTheRefillDoesNotDependOnTheIniPrecision(string $store): void
+    {
+        // Arrange
+        $bucket   = $this->bucket($store);
+        $key      = 'test:' . bin2hex(random_bytes(6));
+        $previous = ini_get('precision');
+        ini_set('precision', '8');
+
+        try {
+            $bucket->take($key, 1, 10, 1);
+
+            // Act
+            self::wait(0.15);
+            $later = $bucket->take($key, 1, 10, 1);
+
+            // Assert
+            $this->assertTrue($later['allowed'], 'a token came back after a tenth of a second');
+        } finally {
+            ini_set('precision', (string) $previous);
+        }
+    }
+
+    /**
+     * Wait at least `$seconds`.
+     *
+     * Not one `usleep()`: a signal interrupts it early — the suite has workers that install
+     * handlers with async signals on — and a refill test that slept 40ms of its 150 failed under a
+     * full run and passed alone.
+     */
+    private static function wait(float $seconds): void
+    {
+        $until = microtime(true) + $seconds;
+        while (microtime(true) < $until) {
+            usleep(10000);
+        }
     }
 }

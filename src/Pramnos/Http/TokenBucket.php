@@ -64,7 +64,9 @@ LUA;
 
         $redis = $this->redisOf($cache);
         if ($redis !== null) {
-            [$allowed, $tokens] = $redis->eval(self::SCRIPT, ['tokenbucket:' . $key, $capacity, $perSecond, $now], 1);
+            // Formatted here: phpredis turns a float into text by the `precision` ini setting, and at
+            // a low one `now` reaches the script rounded to whole seconds — no refill within one.
+            [$allowed, $tokens] = $redis->eval(self::SCRIPT, ['tokenbucket:' . $key, $capacity, sprintf('%.6F', $perSecond), sprintf('%.6F', $now)], 1);
             $tokens = (float) $tokens;
             $allowed = (int) $allowed === 1;
         } else {
