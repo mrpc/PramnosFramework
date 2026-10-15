@@ -1294,6 +1294,11 @@ components draw with on `bootstrap` and `plain-css`. Those hooks stay in `style.
 have to come after the classes they adjust. Imported from `vendor/`, the file follows `composer update`
 with no copy to keep in step.
 
+**Import `components.css` outside any layer**, as above. Its rules adjust daisyUI's: table cell
+padding, the alignment of a data table's cells, the size of a button. Imported into
+`@layer components`, every one of them loses to daisyUI's `utilities` layer, whatever its
+selector. `layer(utilities)` keeps them in force too.
+
 **daisyUI puts its components in the `utilities` layer.** A rule written in `@layer components`
 to change a daisyUI `.btn` therefore loses whatever its specificity, because a later layer wins
 first. Write such an override in `@layer utilities` or outside any layer.
