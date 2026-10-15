@@ -588,15 +588,22 @@ class DatatableTest extends TestCase
         $this->assertStringContainsString('value="searchme"', $html);
         $this->assertStringContainsString('mySearchTable.fnFilter( "searchme", 0 )', $html, 'a JSON string: see testValuesInTheScriptCannotBreakOutOfIt');
         $this->assertStringContainsString('jQuery(\'#emailsearch\').change', $html);
-        $this->assertStringContainsString('jQuery(document.getElementById("mySearchTable")).find("tfoot input").keyup(', $html);
+        $this->assertStringContainsString('jQuery(mySearchTable.api().table().container()).on( "keyup", "tfoot input"', $html);
     }
 
     /**
-     * The footer search binds to its own table's boxes and reads nothing undeclared.
+     * The footer search listens on its own table's wrapper and reads nothing undeclared.
      *
      * Its blur handler restored `asInitVals[…]`, which nothing declared — a ReferenceError each
      * time an empty box lost focus — and `$("tfoot input")` bound every footer box on the page,
      * so with two tables, typing under one filtered both.
+     *
+     * And it is delegated from the wrapper DataTables draws, not bound to the boxes: with
+     * `scrollX` the visible footer is a table of its own in `.dataTables_scrollFoot`, and the
+     * table's own footer is a copy rebuilt on every draw — a handler bound there was gone at the
+     * first draw, and typing in the boxes on screen sent nothing. Run against DataTables 1.13.8 in
+     * jsdom, typing in the visible box sent no request before and one, with the column's search
+     * value, after.
      */
     public function testTheFooterSearchStaysWithinItsTable(): void
     {
@@ -615,7 +622,8 @@ class DatatableTest extends TestCase
         // Assert
         $this->assertStringNotContainsString('asInitVals', $html, 'nothing reads an undeclared variable');
         $this->assertStringNotContainsString('$("tfoot input")', $html, 'no page-wide selector');
-        $this->assertStringContainsString('jQuery(document.getElementById("first")).find("tfoot input")', $html);
+        $this->assertStringContainsString('jQuery(first.api().table().container()).on( "keyup", "tfoot input", DataTableDelay(', $html, 'its own wrapper, delegated');
+        $this->assertStringNotContainsString('.find("tfoot input").keyup(', $html, 'never bound to the copy under the table');
     }
 
     public function testRenderJsServerSideAndEditable(): void

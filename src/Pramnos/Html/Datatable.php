@@ -650,10 +650,16 @@ embed;
              * No focus/blur pair: the boxes carry a `placeholder`, which is what that pair
              * imitated by writing the label into the value — and its blur read an `asInitVals`
              * nothing declared, a ReferenceError on every empty box left.
+             *
+             * Delegated from the table's wrapper, not bound to the boxes: with `scrollX` —
+             * always on here — DataTables moves the visible footer into a table of its own and
+             * leaves under this one a copy for the widths, rebuilt on every draw. Bound to the
+             * table's own footer, the handler sat on that copy and was gone at the first draw,
+             * and typing in the boxes on screen filtered nothing. The wrapper holds both and is
+             * never rebuilt.
              */
-            $tableId = json_encode((string) $this->name, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP);
             $this->codeEmbed.=<<<embed
-   jQuery(document.getElementById({$tableId})).find("tfoot input").keyup( DataTableDelay( function () {
+   jQuery({$jsVar}.api().table().container()).on( "keyup", "tfoot input", DataTableDelay( function () {
         /* Filter on the column (the index) of this element */
 
         /*
@@ -802,11 +808,12 @@ embed;
             "fnInitComplete": function() {
 
                 var oSettings = this.fnSettings();
+                // The visible footer: with scrollX the id is also on the copy under the table,
+                // which comes first and is not on screen.
+                var footer = jQuery(this.api().table().footer());
                 for ( var i=0 ; i<oSettings.aoPreSearchCols.length ; i++ ){
                     if(oSettings.aoPreSearchCols[i].sSearch.length>0){
-                        $("#autofootsearch_"+i).val(oSettings.aoPreSearchCols[i].sSearch);
-                        $("#autofootsearch_"+i).className = "";
-
+                        footer.find("#autofootsearch_"+i).val(oSettings.aoPreSearchCols[i].sSearch);
                     }
                 }
                 },
