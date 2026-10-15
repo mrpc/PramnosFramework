@@ -289,8 +289,13 @@ class Conversations
         $turn->conversationId = $conversationId;
 
         $this->store($conversationId, 'user', $question, [], null, $stamp);
-        $message = $this->store($conversationId, 'assistant', self::withoutMark((string) $answer['reply']),
-            (array) ($answer['calls'] ?? []), $answer['cost'], $stamp, $answer['context'] ?? null);
+        // The answer alone, and what the model said while it called tools beside it: those lines
+        // ("Let me check…") are steps, not the start of the answer — kept, folded away, and left out
+        // of the copy and of the history the next question replays.
+        $steps   = array_values(array_filter(array_map('strval', (array) ($answer['steps'] ?? [])), static fn (string $one): bool => trim($one) !== ''));
+        $message = $this->store($conversationId, 'assistant', self::withoutMark((string) ($answer['final'] ?? $answer['reply'])),
+            (array) ($answer['calls'] ?? []), $answer['cost'], $stamp, $answer['context'] ?? null,
+            $steps === [] ? [] : ['steps' => $steps]);
 
         return ['ok' => true, 'says' => '', 'why' => '', 'conversation_id' => $conversationId,
             'message' => $this->assistant->answered($turn, $message)];
@@ -377,7 +382,7 @@ class Conversations
      * @param list<array<string, mixed>> $tools
      * @return array<string, mixed>
      */
-    private function store(int $conversationId, string $role, string $content, array $tools, mixed $cost, string $stamp, ?int $context = null): array
+    private function store(int $conversationId, string $role, string $content, array $tools, mixed $cost, string $stamp, ?int $context = null, array $extra = []): array
     {
         $row = [
             'conversation_id' => $conversationId,
@@ -387,6 +392,7 @@ class Conversations
             'tools'           => $tools === [] ? null : (string) json_encode($tools, JSON_UNESCAPED_UNICODE | JSON_PARTIAL_OUTPUT_ON_ERROR),
             'cost'            => $cost,
             'context_tokens'  => $context ?: null,
+            'extra'           => $extra === [] ? null : (string) json_encode($extra, JSON_UNESCAPED_UNICODE | JSON_PARTIAL_OUTPUT_ON_ERROR),
             'created_at'      => $stamp,
             'updated_at'      => $stamp,
         ];

@@ -106,7 +106,7 @@ class ChatPageTest extends LlmTestCase
         $qb('chat_conversations')->insert(['organization_id' => null, 'userid' => 7, 'title' => 'Spend', 'space' => 'chat', 'created_at' => $stamp, 'updated_at' => $stamp]);
         $id = (int) $qb('chat_conversations')->first()->fields['conversation_id'];
         $qb('chat_messages')->insert(['conversation_id' => $id, 'role' => 'user', 'content' => "Read this\n\n---\n📎 brief.md\n\nThe brief", 'created_at' => $stamp, 'updated_at' => $stamp]);
-        $qb('chat_messages')->insert(['conversation_id' => $id, 'role' => 'assistant', 'content' => 'Done.', 'tools' => json_encode([['name' => 'best-posts', 'arguments' => ['days' => 30]]]), 'context_tokens' => 64000, 'created_at' => $stamp, 'updated_at' => $stamp]);
+        $qb('chat_messages')->insert(['conversation_id' => $id, 'role' => 'assistant', 'content' => 'Done.', 'tools' => json_encode([['name' => 'best-posts', 'arguments' => ['days' => 30]]]), 'context_tokens' => 64000, 'extra' => json_encode(['steps' => ['Let me **check** the posts.']]), 'created_at' => $stamp, 'updated_at' => $stamp]);
         $_GET = ['c' => (string) $id];
         \Pramnos\Http\Request::resetInstance();
 
@@ -118,6 +118,9 @@ class ChatPageTest extends LlmTestCase
             $this->assertStringContainsString('<summary>📎 brief.md</summary>', $page, $theme . ': the document folded away');
             $this->assertStringContainsString('Read 1 times from your data', $page, $theme);
             $this->assertStringContainsString('best-posts (days: 30)', $page, $theme);
+            // What the model said while it called tools: folded away beside the answer, not in it
+            $this->assertStringContainsString('<summary>What it did on the way</summary>', $page, $theme);
+            $this->assertStringContainsString('<div class="pf-chat-step"><p>Let me <strong>check</strong> the posts.</p>', $page, $theme);
             $this->assertStringContainsString('<progress value="50" max="100"', $page, $theme . ': half the context');
             $this->assertStringContainsString('Model, limits and memory', $page, $theme);
             $this->assertStringContainsString('chat/delete/' . $id, $page, $theme . ': a ✕ for the conversation');

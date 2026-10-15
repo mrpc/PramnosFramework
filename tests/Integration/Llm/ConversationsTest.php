@@ -156,6 +156,38 @@ class ConversationsTest extends LlmTestCase
     }
 
     /**
+     * What the model said while it called tools is kept apart from the answer: the message's
+     * content is the answer alone, the steps are in `extra`, and the next question's history
+     * carries the answer without them. A Greek question was answered after ten lines of
+     * "Let me check…" in English, copied and replayed with it.
+     */
+    #[DataProvider('databases')]
+    public function testStepsAreKeptApartFromTheAnswer(string $type, string $host, int $port): void
+    {
+        // Arrange — a round that says something and calls a tool, then the answer
+        $this->connectDatabase($type, $host, $port);
+        $this->answer([
+            [200, self::calls([['remember', ['kind' => 'fact', 'content' => 'x']]], ['content' => 'Let me check your notes.'])],
+            [200, self::says('Έχετε μία σημείωση.')],
+        ]);
+        $scope = new Scope(7, null);
+
+        // Act
+        $first   = $this->chat($scope)->ask(null, 'Τι σημειώσεις έχω;');
+        $stored  = $this->chat($scope)->find($first['conversation_id'])['messages'][1];
+        $this->sent = [];
+        $this->answer([[200, self::says('Τίποτε άλλο.')]]);
+        $this->chat($scope)->ask($first['conversation_id'], 'Κάτι άλλο;');
+        $history = array_column(array_slice($this->sent[0]['body']['messages'], 1), 'content');
+
+        // Assert
+        $this->assertStringStartsWith('Έχετε μία σημείωση.', $stored['content'], 'the answer alone');
+        $this->assertStringNotContainsString('Let me check', $stored['content']);
+        $this->assertSame(['Let me check your notes.'], $stored['extra']['steps']);
+        $this->assertStringNotContainsString('Let me check', $history[1], 'not replayed with the answer');
+    }
+
+    /**
      * One person's conversations never show to another, nor one organisation's in another, nor
      * a row without an organisation inside one — and deleting is only of one's own.
      */

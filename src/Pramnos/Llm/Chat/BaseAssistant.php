@@ -20,7 +20,7 @@ class BaseAssistant implements Assistant
     public function systemPrompt(Turn $turn): string
     {
         return 'You are a helpful assistant. Today is ' . gmdate('l j F Y') . ' (UTC). '
-            . 'Answer in the language the question was asked in. Never claim to have done anything no tool result says was done.';
+            . 'Answer in the language the question was asked in, and write anything you say while you call tools in that language too. Never claim to have done anything no tool result says was done.';
     }
 
     public function context(Turn $turn): string

@@ -307,6 +307,9 @@ class ClientTest extends LlmTestCase
         // Assert — both texts, in order, a blank line apart; a round with no text adds nothing
         $this->assertTrue($answer['ok']);
         $this->assertSame("212 parents search more than one pillar.\n\nAnd the chart: ...", $answer['reply']);
+        // And apart, for a screen that folds the steps away: the answer alone, and what was said on the way
+        $this->assertSame('And the chart: ...', $answer['final']);
+        $this->assertSame(['212 parents search more than one pillar.'], $answer['steps']);
         $this->assertSame("212 parents search more than one pillar.\n\ntool calls: parents", $log->entries[1]['reply']);
         $this->assertSame('tool calls: parents', $log->entries[0]['reply']);
     }

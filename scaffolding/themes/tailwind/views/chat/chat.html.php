@@ -117,6 +117,13 @@ $u       = (is_array($this->urls ?? null) ? $this->urls : []) + [
                             <?php endif; ?>
                         <?php else: ?>
                             <div class="pf-chat-answer"><?php echo \Pramnos\Llm\Chat\Markdown::toHtml((string) $m['content']); ?></div>
+                            <?php $steps = array_values(array_filter((array) (($m['extra'] ?? [])['steps'] ?? []), 'is_string')); ?>
+                            <?php if ($steps !== []): ?>
+                                <details class="<?php echo $c['muted']; ?>">
+                                    <summary><?php echo $e(t('What it did on the way')); ?></summary>
+                                    <?php foreach ($steps as $step): ?><div class="pf-chat-step"><?php echo \Pramnos\Llm\Chat\Markdown::toHtml($step); ?></div><?php endforeach; ?>
+                                </details>
+                            <?php endif; ?>
                             <?php $tools = (array) ($m['tools'] ?? []); ?>
                             <?php if ($tools === []): ?>
                                 <p class="<?php echo $c['muted']; ?>"><?php echo $e(t('No data was read for this answer')); ?></p>

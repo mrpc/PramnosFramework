@@ -145,7 +145,12 @@ The loop: the model answers `tool_calls`, each is run, its result goes back, unt
 words. **Text the model writes in a round that also calls a tool is part of the reply**: the
 reply is every such text, in order, then the last round's, a blank line apart. A model can write
 its whole answer and call a tool once more in the same turn, and its last round is then a
-postscript. The call log records that text beside the `tool calls:` line. The **last round forbids tools** and tells the model not to claim anything no tool did —
+postscript. The same texts are also returned apart: `final` is the last round's alone, and `steps`
+the texts written beside tool calls. A chat stores `final` as the message and the `steps` in its
+`extra`, and the bundled chat screens fold them into a closed "What it did on the way", so lines
+such as "Let me check…" are neither the start of the answer, nor in its copy, nor in the history
+the next question replays. The call log records that text beside the `tool calls:` line. The
+**last round forbids tools** and tells the model not to claim anything no tool did —
 without it a model that spent every round researching writes as if the work were done. Two more
 handles for tasks that must end in a write:
 

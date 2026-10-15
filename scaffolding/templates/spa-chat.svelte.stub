@@ -524,6 +524,15 @@
                                     {@render messageExtra(one, (patch) => change(one, patch))}
                                 {/if}
                                 <div class="chat-footer mt-1 text-xs opacity-60">
+                                    {#if one.extra?.steps?.length}
+                                        <!-- What the model said while it called tools: steps, folded away, not the answer's opening lines. -->
+                                        <details>
+                                            <summary class="cursor-pointer">{t('What it did on the way')}</summary>
+                                            {#each one.extra.steps as step}
+                                                <div class="markdown mt-1">{@html markdown(step)}</div>
+                                            {/each}
+                                        </details>
+                                    {/if}
                                     {#if one.tools?.length}
                                         <details>
                                             <summary class="cursor-pointer">{t('Read %s times from your data', one.tools.length)}</summary>

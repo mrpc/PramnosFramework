@@ -53,7 +53,7 @@ class AnalystAssistant extends BaseAssistant
             . (($charts = trim($this->charts())) !== '' ? "\n\n" . $charts : '')
             . ($about !== '' ? "\n\nAbout this application: " . $about : '')
             . (($page = \Pramnos\Assist\Page::prompt(is_array($turn->extra['page'] ?? null) ? $turn->extra['page'] : null)) !== '' ? "\n\n" . $page : '')
-            . "\n\nAnswer in the language the question was asked in.";
+            . "\n\nAnswer in the language the question was asked in, and write anything you say while you call tools in that language too.";
     }
 
     public function tools(Turn $turn): array

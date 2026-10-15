@@ -365,7 +365,12 @@ class Client
 
             return [
                 'ok'       => true,
+                // The whole text, as callers have read it. `final` is the answer alone and
+                // `steps` what the model said while it called tools — a chat screen shows those
+                // apart, folded away, instead of as the start of the answer.
                 'reply'    => $answer,
+                'final'    => $reply,
+                'steps'    => $said,
                 'says'     => '',
                 'usage'    => $usage,
                 'cost'     => $priced ? $cost : null,
