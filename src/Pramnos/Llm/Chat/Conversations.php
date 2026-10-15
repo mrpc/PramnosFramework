@@ -255,7 +255,7 @@ class Conversations
         $memory = new Memory($this->scope);
         $tools  = $this->assistant->tools($turn) + $memory->tools($this, $conversationId)
             // Not from a scheduled run: a task that schedules tasks has no end.
-            + ($this->scheduled ? [] : (new Routines($this))->tools($this->scope, $this->assistant->timezone($this->scope)));
+            + ($this->scheduled ? [] : (new Routines($this))->toolsFor($this->scope, $this->assistant->timezone($this->scope), $conversationId));
 
         $answer = $client->askWithTools(
             $this->assistant->systemPrompt($turn) . "\n\n" . $this->context($turn, $memory),

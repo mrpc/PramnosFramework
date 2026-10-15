@@ -207,6 +207,10 @@ class ChatApiTest extends LlmTestCase
         $this->assertSame(422, $this->call('POST', '/routines', ['title' => 'x'], $old)['status']);
         $this->assertSame(['Daily'], array_column($this->call('GET', '/routines', [], $old)['data']['routines'], 'title'));
         $this->assertFalse($this->call('PUT', '/routines/' . $id, ['active' => 'false'], $old)['data']['active']);
+        // An edit: the time and the words change, what is left out stays
+        $edited = $this->call('PUT', '/routines/' . $id, ['at' => '09:30', 'title' => 'Later'], $old)['data'];
+        $this->assertSame(['09:30', 'Later', false], [$edited['at'], $edited['title'], $edited['active']]);
+        $this->assertSame(422, $this->call('PUT', '/routines/' . $id, ['at' => '99:00'], $old)['status'], 'a bad time is said');
         $this->assertSame(404, $this->call('PUT', '/routines/999', ['active' => true], $old)['status']);
         $this->assertTrue($this->call('POST', '/routines/' . $id . '/run', [], $old)['data']['ok']);
         $this->assertSame(404, $this->call('POST', '/routines/999/run', [], $old)['status']);

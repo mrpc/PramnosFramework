@@ -48,12 +48,15 @@ class TaskPolicy
     /**
      * Why a task of this kind may not be added (`$adding`) or run in this scope, or null.
      *
-     * A reminder costs nothing — no model is asked — so by default nothing refuses one; a question
-     * or a report is the assistant's {@see Assistant::routineRefusal()}, as before there were kinds.
+     * The assistant's {@see Assistant::routineRefusal()}, as before there were kinds — so an
+     * assistant that schedules nothing gets no reminders either. A reminder asks no model, so it is
+     * asked as a run, never as adding: it does not count against a limit on active tasks. An
+     * application that offers reminders where it offers no scheduled questions returns null for
+     * them here.
      */
     public function refusal(Scope $scope, string $kind, bool $adding = false): ?string
     {
-        return $kind === Routines::REMINDER ? null : $this->assistant->routineRefusal($scope, $adding);
+        return $this->assistant->routineRefusal($scope, $kind === Routines::REMINDER ? false : $adding);
     }
 
     /**

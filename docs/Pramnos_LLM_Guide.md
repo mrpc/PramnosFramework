@@ -386,6 +386,22 @@ that has passed is refused. A template in `chat.routine_templates` fills in what
 out. `mine()`, `find()`, `setActive()` and `delete()` act within a person's scope. `runs($id)` is
 a task's history: each run's outcome, content, cost and conversation, newest first.
 
+**What the model can do.** In a conversation, never in a scheduled run (a task that schedules
+tasks has no end), the model has four tools:
+
+| Tool | What it does |
+|---|---|
+| `schedule_task` | A question asked again, or a reminder ("remind me in an hour about X": `cadence` `once`, `in_minutes` 60), linked to the conversation it was asked in |
+| `update_scheduled_task` | Change one by id: its words, time or cadence, or pause and resume it |
+| `list_scheduled_tasks` | This person's tasks, with when each runs next and any that stopped and why |
+| `cancel_scheduled_task` | Delete one by id |
+
+**A duplicate is refused by the tool itself.** A task that already does the same thing (same
+kind, same words or title, same time) comes back as an error that names its id and points to
+`update_scheduled_task`. A description asking the model not to duplicate is one it can ignore.
+`Routines::update($scope, $id, $changes)` is the same change in code, and `PUT …/routines/{id}`
+in the chat API takes the same fields.
+
 **How runs happen.** `llm:routines` runs every minute.
 
 1. It **claims** what is due. One statement moves the next run on and holds the task, only if
@@ -413,7 +429,7 @@ method has a default, so an application overrides only what it has:
 
 | Method | Default |
 |---|---|
-| `refusal($scope, $kind, $adding)` | The assistant's `routineRefusal()` for a question; nothing for a reminder |
+| `refusal($scope, $kind, $adding)` | The assistant's `routineRefusal()`. A reminder is asked as a run, never as adding, so it does not count against a limit on active tasks. An application that offers reminders without scheduled questions returns null for them |
 | `scope($task)` | The maker, in the organisation and space it was made in |
 | `timezone($task)` | The zone it was made in; a task about a site returns that site's |
 | `stillAllowed($task)` | `true`. An application with organisations checks the maker is still a member: false pauses the task and tells its maker |

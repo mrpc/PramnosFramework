@@ -628,44 +628,182 @@ class Routines
      */
     public function tools(Scope $scope, string $timezone): array
     {
-        if ($this->chat->assistant()->routineRefusal($scope) !== null) {
+        return $this->toolsFor($scope, $timezone, null);
+    }
+
+    /**
+     * The scheduling tools for a conversation: schedule, change, list and cancel this person's
+     * tasks — questions asked again and reminders, recurring or once. A reminder links back to the
+     * conversation it was asked in.
+     *
+     * Never in a scheduled run (a task that schedules tasks has no end), and a duplicate is refused
+     * by the tool itself, with the id to change instead: a description asking the model not to
+     * duplicate is a description it can ignore.
+     *
+     * @return array<string, array<string, mixed>>
+     */
+    public function toolsFor(Scope $scope, string $timezone, ?int $conversationId): array
+    {
+        if ($this->policy()->refusal($scope, self::ASK) !== null && $this->policy()->refusal($scope, self::REMINDER) !== null) {
             return [];
         }
 
+        $when = [
+            'cadence'    => ['type' => 'string', 'enum' => self::CADENCES, 'description' => 'once for a single time; monthly_weekday for "the second Tuesday", "the last Friday".'],
+            'at'         => ['type' => 'string', 'description' => 'Time of day, HH:MM, 24-hour. Morning means 08:00 unless they say.'],
+            'day'        => ['type' => 'integer', 'description' => 'weekly and monthly_weekday: 1 Monday … 7 Sunday. monthly: 1 to 28.'],
+            'nth'        => ['type' => 'integer', 'description' => 'monthly_weekday: 1–4, or 5 for the last.'],
+            'run_at'     => ['type' => 'string', 'description' => 'once: YYYY-MM-DD HH:MM on the person\'s clock (' . $timezone . ').'],
+            'in_minutes' => ['type' => 'integer', 'description' => 'once: minutes from now — "in an hour" is 60.'],
+        ];
+
         return [
             'schedule_task' => [
-                'description' => 'Schedule a question to be asked again automatically — "every morning give me a report", '
-                    . '"each Monday summarise last week". Each run is answered into its own conversation and the person is '
-                    . 'notified. Confirm what you scheduled in one sentence, with when it runs next.',
+                'description' => 'Schedule something for this person. kind "ask": a question asked again automatically — "every morning give me '
+                    . 'a report", "each Monday summarise last week" — answered into its own conversation, and they are notified. '
+                    . 'kind "reminder": "remind me in an hour about X", "on Friday at 9 tell me to call Maria" — they are notified in '
+                    . 'their own words, and nothing is asked. A task that already does the same is refused with its id: change that one '
+                    . 'with update_scheduled_task instead. Confirm what you scheduled in one sentence, with when it runs next.',
                 'parameters'  => ['type' => 'object', 'properties' => [
-                    'title'   => ['type' => 'string', 'description' => 'A short name, as the person would say it.'],
-                    'prompt'  => ['type' => 'string', 'description' => 'The question to ask each time, complete on its own.'],
-                    'cadence' => ['type' => 'string', 'enum' => self::CADENCES],
-                    'at'      => ['type' => 'string', 'description' => 'Time of day, HH:MM, 24-hour. Morning means 08:00 unless they say.'],
-                    'day'     => ['type' => 'integer', 'description' => 'Weekly: 1 Monday … 7 Sunday. Monthly: 1 to 28.'],
-                ], 'required' => ['title', 'prompt', 'cadence', 'at']],
-                'run' => function (array $a) use ($scope, $timezone): string {
-                    $made = $this->create($scope, $a + ['timezone' => $timezone]);
+                    'kind'   => ['type' => 'string', 'enum' => self::KINDS],
+                    'title'  => ['type' => 'string', 'description' => 'A short name, as the person would say it.'],
+                    'prompt' => ['type' => 'string', 'description' => 'ask: the question each time, complete on its own. reminder: what to tell them, in their words.'],
+                ] + $when, 'required' => ['title', 'prompt', 'cadence']],
+                'run' => function (array $a) use ($scope, $timezone, $conversationId): string {
+                    $same = $this->duplicateOf($scope, $a);
+                    if ($same !== null) {
+                        return 'Error: task ' . $same['routine_id'] . ' ("' . $same['title'] . '") already does this, next on '
+                            . ($same['next_run_local'] ?? 'no date') . '. Change it with update_scheduled_task, or say why a second is wanted.';
+                    }
+                    $made = $this->create($scope, $a + ['timezone' => $timezone, 'conversation_id' => $conversationId]);
 
                     return is_string($made)
                         ? 'Error: ' . $made
                         : 'Scheduled as task ' . $made['routine_id'] . '. Next run: ' . $made['next_run_local'] . ' (' . $made['timezone'] . ').';
                 },
             ],
+            'update_scheduled_task' => [
+                'description' => 'Change one of this person\'s scheduled tasks by id — its words, its time, how often, or pause and resume it.',
+                'parameters'  => ['type' => 'object', 'properties' => [
+                    'routine_id' => ['type' => 'integer'],
+                    'title'      => ['type' => 'string'],
+                    'prompt'     => ['type' => 'string'],
+                    'active'     => ['type' => 'boolean', 'description' => 'false pauses it, true resumes it.'],
+                ] + $when, 'required' => ['routine_id']],
+                'run' => function (array $a) use ($scope, $timezone): string {
+                    $changed = $this->update($scope, (int) ($a['routine_id'] ?? 0), $a + ['timezone' => $timezone]);
+
+                    return is_string($changed)
+                        ? 'Error: ' . $changed
+                        : 'Task ' . $changed['routine_id'] . ' changed. ' . ($changed['active'] ? 'Next run: ' . $changed['next_run_local'] . '.' : 'It is paused.');
+                },
+            ],
             'list_scheduled_tasks' => [
-                'description' => 'This person\'s scheduled tasks, with when each runs next.',
+                'description' => 'This person\'s scheduled tasks and reminders, with when each runs next, and any that stopped and why.',
                 'parameters'  => ['type' => 'object', 'properties' => new \stdClass()],
                 'run'         => fn (): string => (string) json_encode(array_map(
-                    static fn (array $r): array => array_intersect_key($r, array_flip(['routine_id', 'title', 'cadence', 'at', 'day', 'timezone', 'active', 'next_run_local'])),
+                    static fn (array $r): array => array_intersect_key($r, array_flip(['routine_id', 'kind', 'title', 'cadence', 'at', 'day', 'nth', 'timezone', 'active', 'next_run_local', 'last_error'])),
                     $this->mine($scope)
                 ), JSON_UNESCAPED_UNICODE),
             ],
             'cancel_scheduled_task' => [
-                'description' => 'Delete one of this person\'s scheduled tasks by id, when they ask.',
+                'description' => 'Delete one of this person\'s scheduled tasks or reminders by id, when they ask. List them first to find the id.',
                 'parameters'  => ['type' => 'object', 'properties' => ['routine_id' => ['type' => 'integer']], 'required' => ['routine_id']],
                 'run' => fn (array $a): string => $this->delete($scope, (int) ($a['routine_id'] ?? 0)) ? 'Deleted.' : 'Error: there is no such task.',
             ],
         ];
+    }
+
+    /**
+     * An active task of this person's that already does what a request asks: the same kind, and
+     * the same words or the same title, at the same time.
+     *
+     * @param array<string, mixed> $wanted
+     * @return array<string, mixed>|null
+     */
+    private function duplicateOf(Scope $scope, array $wanted): ?array
+    {
+        $kind   = (string) ($wanted['kind'] ?? self::ASK);
+        $title  = mb_strtolower(trim((string) ($wanted['title'] ?? '')));
+        $prompt = mb_strtolower(trim((string) ($wanted['prompt'] ?? '')));
+        $at     = (string) ($wanted['at'] ?? '');
+
+        foreach ($this->mine($scope) as $task) {
+            if (!$task['active'] || $task['kind'] !== $kind) {
+                continue;
+            }
+            $sameWords = ($prompt !== '' && mb_strtolower($task['prompt']) === $prompt) || ($title !== '' && mb_strtolower($task['title']) === $title);
+            $sameTime  = ($wanted['cadence'] ?? '') === 'once' || $at === '' || $task['at'] === sprintf('%05s', $at);
+            if ($sameWords && $sameTime && ($wanted['cadence'] ?? $task['cadence']) === $task['cadence']) {
+                return $task;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Change one of this person's tasks: its words, schedule, or whether it is active. What is not
+     * given stays; a new schedule is checked as a new task's is, and its next run worked out again.
+     *
+     * @param array<string, mixed> $changes title, prompt, cadence, at, day, nth, run_at, in_minutes, timezone, active
+     * @return array<string, mixed>|string The task as changed, or why not
+     */
+    public function update(Scope $scope, int $routineId, array $changes): array|string
+    {
+        $found = $this->find($scope, $routineId);
+        if ($found === null) {
+            return 'There is no such task.';
+        }
+
+        $set = [];
+        foreach (['title' => 120, 'prompt' => Conversations::CHARS] as $field => $max) {
+            if (isset($changes[$field]) && trim((string) $changes[$field]) !== '') {
+                $set[$field] = mb_substr(trim((string) $changes[$field]), 0, $max);
+            }
+        }
+
+        $scheduling = array_intersect_key($changes, array_flip(['cadence', 'at', 'day', 'nth', 'run_at', 'in_minutes']));
+        $task       = $found;
+        if ($scheduling !== []) {
+            $cadence = (string) ($changes['cadence'] ?? $found['cadence']);
+            if (!in_array($cadence, self::CADENCES, true)) {
+                return 'How often: once, daily, weekly, monthly, or monthly_weekday (the 2nd Tuesday, the last Friday).';
+            }
+            $zone     = (string) ($changes['timezone'] ?? $found['timezone']);
+            $schedule = self::schedule($cadence, (string) ($changes['at'] ?? $found['at']), $changes['day'] ?? $found['day'], $zone,
+                $changes + ['nth' => $found['nth']]);
+            if (is_string($schedule)) {
+                return $schedule;
+            }
+            $task = ['cadence' => $cadence] + $schedule + $found;
+            $set += [
+                'cadence'  => $cadence,
+                'at'       => $schedule['at'],
+                'day'      => $schedule['day'],
+                'nth'      => $schedule['nth'],
+                'run_at'   => $schedule['run_at'] === null ? null : CallLog::instant($schedule['run_at']),
+                'timezone' => $schedule['timezone'],
+            ];
+        }
+
+        $active = array_key_exists('active', $changes) ? (bool) $changes['active'] : $found['active'];
+        if ($active && !$found['active'] && $this->policy()->refusal($scope, $found['kind'], true) !== null) {
+            return (string) $this->policy()->refusal($scope, $found['kind'], true);
+        }
+        $next = self::nextFor($task, time());
+        if ($active && $next === null) {
+            return 'That time has passed: give one still to come.';
+        }
+
+        $this->scoped($scope, $routineId)->update($set + [
+            'is_active'   => $active,
+            'failures'    => $active && !$found['active'] ? 0 : $found['failures'],
+            'next_run_at' => $active && $next !== null ? CallLog::instant($next) : null,
+            'updated_at'  => CallLog::instant(time()),
+        ]);
+
+        return $this->find($scope, $routineId) ?? [];
     }
 
     /** @return array{content: string, at: string}|null The last answer a routine produced */

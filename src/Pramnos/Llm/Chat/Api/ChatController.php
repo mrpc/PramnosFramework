@@ -166,7 +166,10 @@ class ChatController extends \Pramnos\Application\ApiCrudController
         return is_string($made) ? self::error(422, $made) : ['status' => 201, 'data' => $made];
     }
 
-    /** Pause or resume one; `active` in the body. */
+    /**
+     * Change one: `active` to pause or resume it, and any of `title`, `prompt`, `cadence`, `at`,
+     * `day`, `nth`, `run_at`, `in_minutes` — what is left out stays.
+     */
     public function updateRoutine($routine_id): array
     {
         if (($stop = $this->refusal('routines')) !== null) {
@@ -180,13 +183,24 @@ class ChatController extends \Pramnos\Application\ApiCrudController
             return self::error(404, 'There is no such scheduled task.');
         }
 
-        $input = $this->input();
+        $input   = $this->input();
+        $changes = array_intersect_key($input, array_flip(['title', 'prompt', 'cadence', 'at', 'day', 'nth', 'run_at', 'in_minutes']));
 
-        if (array_key_exists('active', $input) && !$this->routineService()->setActive($scope, (int) $routine_id, filter_var($input['active'], FILTER_VALIDATE_BOOLEAN))) {
-            return self::error(409, (string) ($this->conversations()->assistant()->routineRefusal($scope, true) ?? 'It could not be resumed.'));
+        if (array_key_exists('active', $input) && $changes === []) {
+            // Only pausing or resuming: as before, a refusal to resume is a conflict.
+            if (!$this->routineService()->setActive($scope, (int) $routine_id, filter_var($input['active'], FILTER_VALIDATE_BOOLEAN))) {
+                return self::error(409, (string) ($this->conversations()->assistant()->routineRefusal($scope, true) ?? 'It could not be resumed.'));
+            }
+
+            return ['status' => 200, 'data' => $this->routineService()->find($scope, (int) $routine_id)];
         }
 
-        return ['status' => 200, 'data' => $this->routineService()->find($scope, (int) $routine_id)];
+        if (array_key_exists('active', $input)) {
+            $changes['active'] = filter_var($input['active'], FILTER_VALIDATE_BOOLEAN);
+        }
+        $changed = $changes === [] ? $found : $this->routineService()->update($scope, (int) $routine_id, $changes + ['timezone' => $found['timezone']]);
+
+        return is_string($changed) ? self::error(422, $changed) : ['status' => 200, 'data' => $changed];
     }
 
     /** Delete one. */

@@ -325,6 +325,70 @@ class TasksTest extends LlmTestCase
     }
 
     /**
+     * The model schedules a reminder in the conversation it was asked in, once, an hour on; asked
+     * the same again, the tool refuses with the id of the one there is; it changes that one's time
+     * and pauses and resumes it; it lists what there is; and it cancels by id.
+     */
+    #[DataProvider('databases')]
+    public function testTheModelManagesTasksThroughItsTools(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        $tasks = $this->tasks();
+        $scope = new Scope(7, null);
+        $tools = $tasks->toolsFor($scope, 'Europe/Athens', 42);
+
+        // Act — scheduled, then asked for again
+        $made  = $tools['schedule_task']['run'](['kind' => 'reminder', 'title' => 'Invoice', 'prompt' => 'Send the invoice to Acme', 'cadence' => 'once', 'in_minutes' => 60]);
+        $again = $tools['schedule_task']['run'](['kind' => 'reminder', 'title' => 'invoice', 'prompt' => 'something else', 'cadence' => 'once', 'in_minutes' => 30]);
+        $daily = $tools['schedule_task']['run'](['title' => 'Morning', 'prompt' => 'Report', 'cadence' => 'daily', 'at' => '8:00']);
+        $twice = $tools['schedule_task']['run'](['title' => 'Other name', 'prompt' => 'report', 'cadence' => 'daily', 'at' => '08:00']);
+        $id    = (int) preg_replace('/\D.*$/s', '', substr($made, strlen('Scheduled as task ')));
+        $where = $tasks->byId($id)['conversation_id'];
+        $moved = $tools['update_scheduled_task']['run'](['routine_id' => $id, 'in_minutes' => 120, 'cadence' => 'once']);
+        $pause = $tools['update_scheduled_task']['run'](['routine_id' => $id, 'active' => false]);
+        $back  = $tools['update_scheduled_task']['run'](['routine_id' => $id, 'active' => true, 'title' => 'Invoice to Acme']);
+        $list  = json_decode($tools['list_scheduled_tasks']['run']([]), true);
+        $gone  = $tools['cancel_scheduled_task']['run'](['routine_id' => $id]);
+
+        // Assert
+        $this->assertStringStartsWith('Scheduled as task ' . $id . '. Next run: ', $made);
+        $this->assertSame(42, $where, 'it leads back to where it was asked');
+        $this->assertStringStartsWith('Error: task ' . $id . ' ("Invoice") already does this', $again);
+        $this->assertStringStartsWith('Scheduled as task ', $daily);
+        $this->assertStringContainsString('already does this', $twice, 'the same words at the same time, under another name');
+        $this->assertStringStartsWith('Task ' . $id . ' changed. Next run: ', $moved);
+        $this->assertSame('Task ' . $id . ' changed. It is paused.', $pause);
+        $this->assertStringStartsWith('Task ' . $id . ' changed. Next run: ', $back);
+        $this->assertSame(['reminder', 'Invoice to Acme', true], [$list[0]['kind'], $list[0]['title'], $list[0]['active']]);
+        $this->assertArrayHasKey('last_error', $list[0]);
+        $this->assertSame('Deleted.', $gone);
+        $this->assertSame('Error: there is no such task.', $tools['cancel_scheduled_task']['run'](['routine_id' => $id]));
+    }
+
+    /** What a change refuses: no such task, an unknown cadence, a bad time, a time already gone, a plan that will not resume it. */
+    #[DataProvider('databases')]
+    public function testWhatAChangeRefuses(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        $tasks = $this->tasks();
+        $scope = new Scope(7, null);
+        $made  = $tasks->create($scope, ['title' => 'Morning', 'prompt' => 'Report', 'cadence' => 'daily', 'at' => '08:00']);
+        $tasks->setActive($scope, $made['routine_id'], false);
+
+        // Act & Assert
+        $this->assertSame('There is no such task.', $tasks->update($scope, 999999, ['title' => 'x']));
+        $this->assertStringStartsWith('How often', $tasks->update($scope, $made['routine_id'], ['cadence' => 'hourly']));
+        $this->assertSame('The time is HH:MM, for example 08:00.', $tasks->update($scope, $made['routine_id'], ['at' => '25:00']));
+        $this->assertSame('That time has passed: give one still to come.', $tasks->update($scope, $made['routine_id'], ['cadence' => 'once', 'run_at' => '2001-01-01 10:00', 'active' => true]));
+        $this->assertSame('Not on this plan.', $this->tasks(new NoRoutines())->update($scope, $made['routine_id'], ['active' => true]));
+        $this->assertSame([], $this->tasks(new NoRoutines())->toolsFor($scope, 'UTC', null), 'a plan with nothing scheduled offers no tools');
+        $kept = $tasks->update($scope, $made['routine_id'], ['prompt' => 'A fuller report']);
+        $this->assertSame(['A fuller report', false, null], [$kept['prompt'], $kept['active'], $kept['next_run_at']]);
+    }
+
+    /**
      * A reminder's notification: in the person's notifications always, as a push where they have
      * a browser subscribed; the push carries the words, cut to a title, the rest as its body.
      */
