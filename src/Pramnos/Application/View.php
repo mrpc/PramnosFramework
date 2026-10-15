@@ -690,6 +690,45 @@ class View extends \Pramnos\Framework\Base
         return null;
     }
 
+    /**
+     * The variables a template sees besides `$this`: copies, so nothing it assigns reaches the
+     * render that included it.
+     *
+     * @return array<string, mixed>
+     */
+    private function templateScope(mixed $url, mixed $doc, mixed $tpl, mixed $type): array
+    {
+        return [
+            'lang'  => \Pramnos\Framework\Factory::getLanguage(),
+            'model' => $this->model,
+            '_url'  => $url,
+            'doc'   => $doc,
+            'tpl'   => $tpl,
+            'type'  => $type,
+        ];
+    }
+
+    /**
+     * Include a template in a scope of its own.
+     *
+     * Included inside getTpl(), a template could assign that method's locals — a `$render = …`
+     * of its own made getTpl() return the page instead of keeping it, and the page came out
+     * blank with nothing in any log. Here it sees `$this` and {@see templateScope()}, and what
+     * it assigns stays here — handed back, for the layout it asked for.
+     *
+     * @param array<string, mixed> $__scope
+     * @return array<string, mixed> The variables the template ended with
+     */
+    private function includeTemplate(string $__file, array $__scope): array
+    {
+        extract($__scope, EXTR_SKIP);
+        include $__file;
+        $__vars = get_defined_vars();
+        unset($__vars['__file'], $__vars['__scope']);
+
+        return $__vars;
+    }
+
     public function getTpl($tpl='', $type='', $render=false)
     {
         $doc = \Pramnos\Framework\Factory::getDocument();
@@ -767,10 +806,8 @@ class View extends \Pramnos\Framework\Base
             $_pdb_view_start = microtime(true);
             ob_start();
             try {
-                $lang  = \Pramnos\Framework\Factory::getLanguage();
-                $model = $this->model;
                 $this->renderingFile = $tplfile;
-                include $this->getIncludePath($tplfile);
+                $templateVars = $this->includeTemplate($this->getIncludePath($tplfile), $this->templateScope($_url, $doc, $tpl, $type));
             } catch (\Exception $ex) {
                 ob_end_clean();
                 try {
@@ -813,9 +850,9 @@ class View extends \Pramnos\Framework\Base
                 if ($layoutFile !== null) {
                     ob_start();
                     try {
-                        $lang  = \Pramnos\Framework\Factory::getLanguage();
-                        $model = $this->model;
-                        include $this->getIncludePath($layoutFile);
+                        // What the template set — a `$title`, say — reaches its layout, as it did when
+                        // both were included in one scope.
+                        $this->includeTemplate($this->getIncludePath($layoutFile), ($templateVars ?? []) + $this->templateScope($_url, $doc, $tpl, $type));
                     } catch (\Exception $ex) {
                         ob_end_clean();
                         \Pramnos\Logs\Logger::log(

@@ -464,4 +464,62 @@ class ViewTest extends TestCase
             $doc->themeObject = $originalThemeObject;
         }
     }
+
+    /**
+     * A template's own variables stay in the template.
+     *
+     * Included inside getTpl(), a template that assigned `$render` — an ordinary name for a
+     * template to use — made getTpl() return the page instead of keeping it, and the page came
+     * out blank with nothing in any log. It still sees `$this`, `$lang`, `$model`, `$type` and the
+     * other names templates have read, as copies.
+     */
+    public function testATemplateCannotChangeTheRenderThatIncludedIt(): void
+    {
+        // Arrange — a template that writes the names getTpl() works with, and reads the ones it lends
+        $tempDir = sys_get_temp_dir() . '/view_test_scope_' . uniqid();
+        mkdir($tempDir);
+        file_put_contents($tempDir . '/scope.html.php', '<?php '
+            . '$render = ["rows"]; $tplfile = "/nowhere"; $cacheTtl = 60; $childOutput = "x"; '
+            . 'echo "BODY:" . $type . ":" . (is_object($lang) ? "lang" : "none") . ":" . ($model === $this->model ? "model" : "other"); ?>');
+        $view = new View($this->getController(), $tempDir, 'scope', 'html');
+
+        try {
+            // Act — kept, not returned
+            $result = $view->getTpl('scope', 'html', false);
+
+            // Assert
+            $this->assertTrue($result, 'getTpl() kept the page, whatever the template assigned');
+            $this->assertStringContainsString('BODY:html:lang:model', $view->output);
+        } finally {
+            unlink($tempDir . '/scope.html.php');
+            rmdir($tempDir);
+        }
+    }
+
+    /**
+     * A variable the template sets still reaches the layout it asked for: the two shared one
+     * scope, and a layout reading the child's `$title` is a pattern applications have.
+     */
+    public function testATemplatesVariablesReachItsLayout(): void
+    {
+        // Arrange
+        $tempDir = sys_get_temp_dir() . '/view_test_layoutvars_' . uniqid();
+        mkdir($tempDir);
+        file_put_contents($tempDir . '/page.html.php', '<?php $title = "Orders"; $render = true; $this->layout("frame"); ?>child');
+        file_put_contents($tempDir . '/frame.html.php', '<h1><?php echo $title; ?></h1><?php echo $type; ?>');
+        $view = new View($this->getController(), $tempDir, 'page', 'html');
+
+        try {
+            // Act
+            $result = $view->getTpl('page', 'html', false);
+
+            // Assert — the layout read the child's $title, and the child's $render changed nothing
+            $this->assertTrue($result);
+            $this->assertStringContainsString('<h1>Orders</h1>html', $view->output);
+        } finally {
+            unlink($tempDir . '/page.html.php');
+            unlink($tempDir . '/frame.html.php');
+            rmdir($tempDir);
+        }
+    }
 }

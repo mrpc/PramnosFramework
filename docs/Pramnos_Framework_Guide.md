@@ -644,6 +644,21 @@ Templates are stored in `/src/Views/ViewName/template_name.html.php`:
 </div>
 ```
 
+### What a template sees
+
+A template runs in a scope of its own. It sees:
+
+- `$this`, the view, with everything the controller assigned to it;
+- `$lang`, the current language;
+- `$model`, the view's model;
+- `$_url`, the controller's address;
+- `$doc`, the document;
+- `$tpl` and `$type`, the template's name and type.
+
+Those are copies. A variable a template assigns stays in the template, so a template can name
+its own variables `$render` or `$type` without changing how the view is rendered. Its variables
+do reach the layout it declares, so a layout can read a `$title` the template set.
+
 ### When a template is not found
 
 `getTpl()` returns `false`, logs *"Cannot find view template"* and leaves the view's
