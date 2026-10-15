@@ -27,6 +27,13 @@ class LlmTablesCheck implements HealthCheck
         'chat_asks'          => true,
         'ai_consents'        => false,
         'ai_routines'        => true,
+        'ai_task_runs'       => false,
+        'ai_task_subscriptions' => false,
+    ];
+
+    /** Columns added to a table after it was first written, which the code reads. */
+    private const ADDED = [
+        'ai_routines' => ['kind', 'locked_until'],
     ];
 
     public function getName(): string
@@ -60,6 +67,11 @@ class LlmTablesCheck implements HealthCheck
             }
             if ($spaced && !isset($columns['space'])) {
                 $problems[] = $table . '.space: missing';
+            }
+            foreach (self::ADDED[$table] ?? [] as $column) {
+                if (!isset($columns[$column])) {
+                    $problems[] = $table . '.' . $column . ': missing';
+                }
             }
         }
 

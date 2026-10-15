@@ -19,7 +19,7 @@ trait ChatDatabase
     private ?Database $previousSingleton = null;
 
     /** The tables the `llm` migrations create, child tables first. */
-    private const LLM_TABLES = ['chat_messages', 'chat_conversations', 'chat_memory', 'chat_asks', 'ai_consents', 'ai_routines', 'llm_calls'];
+    private const LLM_TABLES = ['chat_messages', 'chat_conversations', 'chat_memory', 'chat_asks', 'ai_consents', 'ai_task_subscriptions', 'ai_task_runs', 'ai_routines', 'llm_calls'];
 
     /** @return array<string, array{string, string, int}> */
     public static function databases(): array

@@ -355,16 +355,86 @@ answers without being registered — as its author, through `acting()` — and m
 failed. The screen follows it with `find($scope, $askId)`. `Asks::onAnswered(callable)` is told
 each answer with the job, `extra` included — where else the answer should go.
 
-### Questions on a schedule
+### Scheduled tasks: questions, reminders, one-offs
 
-`Chat\Routines` keeps questions asked again daily, weekly or monthly, at a time on the owner's
-clock: `create($scope, ['title', 'prompt', 'cadence', 'at', 'day', 'timezone'])` or from a
-template in `chat.routine_templates`, `mine()`, `setActive()`, `delete()`. The model can schedule
-one itself (`schedule_task`), except from a scheduled run. `llm:routines`, every minute, asks
-what is due as its owner into the routine's own conversation, moves its next run on whether it
-worked or not, and tells the owner with `Chat\RoutineReady` — or the class
-`chat.routine_notification` names, constructed with the title, whether it worked, why not, and
-the link.
+`Chat\Routines` keeps every scheduled AI task in `ai_routines`. There are two kinds:
+
+- **`ask`**, a question asked again into its owner's conversation;
+- **`reminder`**, the owner's own words sent back as a notification with no model asked, so it
+  costs nothing.
+
+```php
+$tasks = new \Pramnos\Llm\Chat\Routines(new \Pramnos\Llm\Chat\Conversations(\Pramnos\Llm\Chat\Chat::assistant()));
+$tasks->create($scope, ['title' => 'Morning', 'prompt' => 'What should I know today?', 'cadence' => 'daily', 'at' => '08:00']);
+$tasks->create($scope, ['kind' => 'reminder', 'title' => 'Invoice', 'prompt' => 'Send the invoice to Acme',
+    'cadence' => 'once', 'in_minutes' => 60, 'conversation_id' => $asked]);
+$tasks->create($scope, ['title' => 'Board pack', 'prompt' => '…', 'cadence' => 'monthly_weekday', 'nth' => 2, 'day' => 2, 'at' => '09:00']);
+```
+
+**Cadences:**
+
+| Cadence | When |
+|---|---|
+| `daily` | Every day at `at` |
+| `weekly` | Every week, on `day` 1 (Monday) to 7 (Sunday) |
+| `monthly` | Every month, on `day` 1 to 28 |
+| `monthly_weekday` | The `nth` (1–4, or 5 for the last) `day` of the month: the second Tuesday, the last Friday |
+| `once` | At `run_at` (`YYYY-MM-DD HH:MM`), or `in_minutes` from now |
+
+Times are on the task's clock, its `timezone`. A `run_at` is read on the asker's clock, and one
+that has passed is refused. A template in `chat.routine_templates` fills in what a request leaves
+out. `mine()`, `find()`, `setActive()` and `delete()` act within a person's scope. `runs($id)` is
+a task's history: each run's outcome, content, cost and conversation, newest first.
+
+**How runs happen.** `llm:routines` runs every minute.
+
+1. It **claims** what is due. One statement moves the next run on and holds the task, only if
+   the task is still due as it was read, so a second tick or a second host claims nothing and no
+   task runs twice.
+2. It runs what it claimed there and then. With `'llm' => ['chat' => ['task_queue' => true]]` it
+   queues each one instead, and a worker runs it, so a report that reads for a minute holds up no
+   other.
+
+After each run:
+
+- The run is recorded in `ai_task_runs` and the owner is told.
+- A question tells the owner with `Chat\RoutineReady`, or the class `chat.routine_notification`
+  names, constructed with the title, whether it worked, why not, and the link.
+- A reminder tells the owner with `Chat\TaskReminder`, or `chat.reminder_notification`, given the
+  words and the link.
+- A one-off is done once it ran.
+- Three failed runs in a row pause a task, and the owner is told why. Resuming it starts the
+  count again.
+
+The question a run asks carries the day on the owner's clock.
+
+**`Chat\TaskPolicy`**, or the class `chat.task_policy` names, holds the rules around tasks. Every
+method has a default, so an application overrides only what it has:
+
+| Method | Default |
+|---|---|
+| `refusal($scope, $kind, $adding)` | The assistant's `routineRefusal()` for a question; nothing for a reminder |
+| `scope($task)` | The maker, in the organisation and space it was made in |
+| `timezone($task)` | The zone it was made in; a task about a site returns that site's |
+| `stillAllowed($task)` | `true`. An application with organisations checks the maker is still a member: false pauses the task and tells its maker |
+| `audience($task)` | The maker |
+| `link($task, $run)` | The conversation |
+| `onRan($task, $run)` | Nothing. For a Discord or Slack message, or for charging; what it throws is logged |
+| `maxFailures()` | 3 |
+
+**When a member leaves.** `ownedBy($orgId, $userId)` lists what a person has in an organisation:
+their tasks, and the shared tasks they read. `transfer($orgId, $from, $to, $only = null)` hands
+those tasks to another member:
+
+- Each task keeps its schedule and history, but not its conversation.
+- Each is checked again as the new owner's, and one they may not run stays paused, saying why.
+- The leaver's subscriptions are removed.
+- The new owner is told.
+
+```php
+// before removing a member, once somebody chose who takes over
+$tasks->transfer($orgId, $leaving, $successor);
+```
 
 ### Agreement to a provider
 

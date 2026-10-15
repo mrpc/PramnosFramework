@@ -945,6 +945,7 @@ Full reference: [v1.1 release notes](version-history/posts/2026-04-19-v1-1-relea
 | **Content-Security-Policy** | CSP headers with nonce injection are emitted for inline scripts/styles. | Move inline `<script>`/`<style>` to nonce-aware output or enqueue them; declare allowed external hosts in `app.php` → `csp`. |
 | **PostgreSQL** | Schema-qualified table names and corrected NULL comparisons. | If targeting PostgreSQL, review raw SQL for unqualified names and `= NULL` comparisons. |
 | **Cache** | Cache layer became pluggable (File/Memcache/Memcached/Redis). | Select and configure a cache adapter explicitly. |
+| **Scheduled AI tasks (`ai_routines`)** | Three failed runs in a row now pause a routine and tell its owner; it ran and failed every day before. New tables `ai_task_runs` and `ai_task_subscriptions` and new `ai_routines` columns; the `llm_tables` health check is degraded until they exist. | Run `php bin/pramnos migrate`. A routine paused this way resumes with `setActive(…, true)`, or from the scheduled-tasks screen. |
 
 ### `app.php` configuration
 

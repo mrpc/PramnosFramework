@@ -89,6 +89,8 @@ class LegacyChatTablesTest extends LlmTestCase
             $t->dropColumn('space');
         });
         $schema->dropTableIfExists('ai_routines');
+        // And no run history yet
+        $schema->dropTableIfExists('ai_task_runs');
 
         // Act
         $found = (new LlmTablesCheck())->run();
@@ -96,7 +98,17 @@ class LegacyChatTablesTest extends LlmTestCase
         $off   = (new LlmTablesCheck())->run();
 
         // Assert
-        $this->assertSame(['chat_memory.space: missing', 'ai_routines: missing'], $found->details['problems']);
+        $this->assertSame(['chat_memory.space: missing', 'ai_routines: missing', 'ai_task_runs: missing'], $found->details['problems']);
+
+        // A routines table of the older shape: the columns the code reads since are named
+        (new \ReflectionProperty(\Pramnos\Application\FeatureRegistry::class, 'enabled'))->setValue(null, ['llm' => true]);
+        $app = $this->getMockBuilder(\Pramnos\Application\Application::class)->disableOriginalConstructor()->getMock();
+        $app->database = $this->db;
+        (new \Pramnos\Framework\Migrations\Llm\CreateAiRoutinesTable($app))->up();
+        (new \Pramnos\Framework\Migrations\Llm\AddSpaceToChatTables($app))->up();
+        $older = (new LlmTablesCheck())->run();
+        $this->assertContains('ai_routines.kind: missing', $older->details['problems']);
+        $this->assertContains('ai_routines.locked_until: missing', $older->details['problems']);
         $this->assertSame(['ok', 'The llm feature is off'], [$off->status->value, $off->message]);
         $this->assertSame('llm_tables', $off->name);
     }

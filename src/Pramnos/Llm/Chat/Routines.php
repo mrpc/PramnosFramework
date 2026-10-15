@@ -21,13 +21,36 @@ use Pramnos\Llm\CallLog;
  */
 class Routines
 {
-    public const CADENCES = ['daily', 'weekly', 'monthly'];
+    public const CADENCES = ['daily', 'weekly', 'monthly', 'once', 'monthly_weekday'];
+
+    /** A question asked again, into its owner's conversation — what every routine was at first. */
+    public const ASK = 'ask';
+
+    /** A reminder in its owner's words: no model is asked. */
+    public const REMINDER = 'reminder';
+
+    /** What a task may be. */
+    public const KINDS = [self::ASK, self::REMINDER];
+
+    /** The queue task a claimed run is handed to — {@see TaskRunTask}. */
+    public const TASK = 'ai_task_run';
 
     /** Due routines run per pass. */
     public const BATCH = 20;
 
-    public function __construct(private readonly Conversations $chat)
+    /** How long a claimed run holds its task, in seconds: a worker that died frees it after this. */
+    public const LEASE = 900;
+
+    private ?TaskPolicy $policy = null;
+
+    public function __construct(private readonly Conversations $chat, private readonly ?\Pramnos\Queue\QueueManager $queue = null)
     {
+    }
+
+    /** The rules around tasks — {@see TaskPolicy}, or the application's. */
+    public function policy(): TaskPolicy
+    {
+        return $this->policy ??= TaskPolicy::for($this->chat->assistant());
     }
 
     /**
@@ -71,7 +94,12 @@ class Routines
      */
     public function create(Scope $scope, array $wanted): array|string
     {
-        if (($why = $this->chat->assistant()->routineRefusal($scope, true)) !== null) {
+        $kind = (string) ($wanted['kind'] ?? self::ASK);
+        if (!in_array($kind, self::KINDS, true)) {
+            return 'A task is a question asked again (ask) or a reminder (reminder).';
+        }
+
+        if (($why = $this->policy()->refusal($scope, $kind, true)) !== null) {
             return $why;
         }
 
@@ -84,17 +112,22 @@ class Routines
         $cadence = (string) ($wanted['cadence'] ?? '');
 
         if ($title === '' || $prompt === '') {
-            return 'A scheduled task needs a title and what to ask.';
+            return $kind === self::REMINDER ? 'A reminder needs a title and what to say.' : 'A scheduled task needs a title and what to ask.';
         }
 
         if (!in_array($cadence, self::CADENCES, true)) {
-            return 'How often: daily, weekly or monthly.';
+            return 'How often: once, daily, weekly, monthly, or monthly_weekday (the 2nd Tuesday, the last Friday).';
         }
 
-        $schedule = self::schedule($cadence, (string) ($wanted['at'] ?? '08:00'), $wanted['day'] ?? null, (string) ($wanted['timezone'] ?? ''));
+        $schedule = self::schedule($cadence, (string) ($wanted['at'] ?? '08:00'), $wanted['day'] ?? null, (string) ($wanted['timezone'] ?? ''), $wanted);
 
         if (is_string($schedule)) {
             return $schedule;
+        }
+
+        $next = self::nextFor($schedule + ['cadence' => $cadence], time());
+        if ($next === null) {
+            return 'That time has passed: give one still to come.';
         }
 
         $stamp = CallLog::instant(time());
@@ -102,12 +135,18 @@ class Routines
             'title'       => $title,
             'prompt'      => $prompt,
             'template'    => $base === null ? null : $template,
+            'kind'        => $kind,
+            'owner'       => 'user',
             'cadence'     => $cadence,
             'at'          => $schedule['at'],
             'day'         => $schedule['day'],
+            'nth'         => $schedule['nth'],
+            'run_at'      => $schedule['run_at'] === null ? null : CallLog::instant($schedule['run_at']),
             'timezone'    => $schedule['timezone'],
+            'notify'      => 'always',
+            'conversation_id' => isset($wanted['conversation_id']) ? (int) $wanted['conversation_id'] : null,
             'is_active'   => true,
-            'next_run_at' => CallLog::instant(self::nextRun($cadence, $schedule['at'], $schedule['day'], $schedule['timezone'], time())),
+            'next_run_at' => CallLog::instant($next),
             'created_at'  => $stamp,
             'updated_at'  => $stamp,
         ]);
@@ -125,13 +164,21 @@ class Routines
     {
         $found = $this->find($scope, $routineId);
 
-        if ($found === null || ($active && !$found['active'] && $this->chat->assistant()->routineRefusal($scope, true) !== null)) {
+        if ($found === null || ($active && !$found['active'] && $this->policy()->refusal($scope, $found['kind'], true) !== null)) {
+            return false;
+        }
+
+        $next = self::nextFor($found, time());
+        if ($active && $next === null) {
+            // A one-off whose moment has passed has nothing to resume to.
             return false;
         }
 
         $this->scoped($scope, $routineId)->update([
             'is_active'   => $active,
-            'next_run_at' => CallLog::instant(self::nextRun($found['cadence'], $found['at'], $found['day'], $found['timezone'], time())),
+            // Resumed, it starts counting failures again.
+            'failures'    => 0,
+            'next_run_at' => $next === null ? null : CallLog::instant($next),
             'updated_at'  => CallLog::instant(time()),
         ]);
 
@@ -159,61 +206,347 @@ class Routines
     }
 
     /**
-     * Run everything due, each as its owner.
+     * Run everything due, each as its owner — or, with `'task_queue' => true`, hand each to the
+     * queue and let a worker run it.
      *
-     * @return int How many ran
+     * Each is claimed first: its next run is moved on in the same statement that checks it is
+     * still the one read, so a second tick, or a second host, finds nothing to claim and nothing
+     * runs twice.
+     *
+     * @return int How many were claimed
      */
     public function runDue(int $now): int
     {
         $result = $this->table()->where('is_active', true)->where('next_run_at', '<=', CallLog::instant($now))
+            ->where(static function ($q) use ($now): void {
+                $q->whereNull('locked_until')->orWhere('locked_until', '<', CallLog::instant($now));
+            })
             ->orderBy('next_run_at')->limit(self::BATCH)->get();
         $due = [];
 
         while (($row = $result->fetch()) !== null) {
-            $due[] = self::shape($row);
+            $due[] = $row;
         }
 
-        foreach ($due as $routine) {
-            $this->run($routine, $now);
+        $claimed = 0;
+        foreach ($due as $row) {
+            $task = self::shape($row);
+            if (!$this->claim($task, (string) $row['next_run_at'], $now)) {
+                continue;
+            }
+            $claimed++;
+
+            if ($this->queued()) {
+                $this->queue()->addTask(self::TASK, [
+                    'routine_id' => $task['routine_id'],
+                    'space'      => $task['space'],
+                    'due_at'     => $task['next_run_at'],
+                ], 5, 1);
+            } else {
+                $this->run($task, $now);
+            }
         }
 
-        return count($due);
+        return $claimed;
     }
 
     /**
-     * Run one now, whatever its schedule — and move its next run on either way.
+     * Take a due task for one run: move its next run on and hold it, only if it is still due as it
+     * was read. False when another tick or host took it first.
+     *
+     * @param array<string, mixed> $task
+     */
+    private function claim(array $task, string $readDue, int $now): bool
+    {
+        $next = $task['cadence'] === 'once' ? null : self::nextFor($task, $now);
+
+        $result = $this->table()->where('routine_id', $task['routine_id'])->where('next_run_at', $readDue)
+            ->update([
+                'next_run_at'  => $next === null ? null : CallLog::instant($next),
+                'locked_until' => CallLog::instant($now + self::LEASE),
+                'updated_at'   => CallLog::instant(time()),
+            ]);
+
+        return is_object($result) && (int) $result->getAffectedRows() === 1;
+    }
+
+    /** Whether runs go to the queue: `'llm' => ['chat' => ['task_queue' => true]]`. */
+    private function queued(): bool
+    {
+        $chat = \Pramnos\Llm\Llm::config('chat', []);
+
+        return is_array($chat) && !empty($chat['task_queue']);
+    }
+
+    /** The queue runs are handed to. */
+    protected function queue(): \Pramnos\Queue\QueueManager
+    {
+        return $this->queue ?? new \Pramnos\Queue\QueueManager(
+            \Pramnos\Queue\QueueManager::controllerOrPlain(\Pramnos\Application\Application::currentInstance(), 'queue')
+        );
+    }
+
+    /**
+     * Run one now, whatever its schedule, as its owner — and record it, tell its audience, count
+     * its failures, and move its next run on.
+     *
+     * A task whose maker may no longer run it ({@see TaskPolicy::stillAllowed()}) is paused and its
+     * maker told, rather than run on data they may no longer see. A task that fails
+     * {@see TaskPolicy::maxFailures()} times in a row is paused, and its owner told.
      *
      * @param array<string, mixed> $routine As {@see find()} answers
      * @return array{ok: bool, says: string, conversation_id: int|null}
      */
     public function run(array $routine, int $now): array
     {
-        $scope     = new Scope((int) $routine['userid'], $routine['organization_id'], (string) ($routine['space'] ?? Scope::CHAT));
-        $assistant = $this->chat->assistant();
-        $chat      = $this->chat->as($scope, true);
-        $question  = 'Scheduled task "' . $routine['title'] . '", run on ' . gmdate('l j F Y', $now) . ": \n\n" . $routine['prompt'];
+        $policy    = $this->policy();
+        $scope     = $policy->scope($routine);
+        $timezone  = $policy->timezone($routine);
+        $started   = time();
 
-        $answer = ($why = $assistant->routineRefusal($scope)) !== null
-            ? ['ok' => false, 'says' => $why, 'why' => 'limit', 'conversation_id' => null]
-            : $assistant->acting($scope, static function () use ($chat, $routine, $question): array {
-                $answer = $chat->ask($routine['conversation_id'], $question);
+        if (!$policy->stillAllowed($routine)) {
+            $this->pause($routine, 'Its maker may no longer run it.');
+            $this->tell($scope->userId, (string) $routine['title'], false, 'It was paused: you may no longer run it here.', $routine['conversation_id']);
 
-                // A conversation its owner deleted is started again, not an error for ever.
-                return !$answer['ok'] && $answer['why'] === 'missing' ? $chat->ask(null, $question) : $answer;
-            });
+            return ['ok' => false, 'says' => 'Paused: its maker may no longer run it.', 'conversation_id' => $routine['conversation_id']];
+        }
 
-        $this->scoped($scope, (int) $routine['routine_id'])->update([
+        if ($routine['kind'] === self::REMINDER) {
+            $answer = ['ok' => true, 'says' => '', 'conversation_id' => $routine['conversation_id'], 'content' => (string) $routine['prompt']];
+        } else {
+            $assistant = $this->chat->assistant();
+            $chat      = $this->chat->as($scope, true);
+            // The day as the owner reads it, not as UTC has it.
+            $day       = (new \DateTimeImmutable('@' . $now))->setTimezone(new \DateTimeZone($timezone))->format('l j F Y');
+            $question  = 'Scheduled task "' . $routine['title'] . '", run on ' . $day . ": \n\n" . $routine['prompt'];
+
+            $answer = ($why = $policy->refusal($scope, (string) $routine['kind'])) !== null
+                ? ['ok' => false, 'says' => $why, 'why' => 'limit', 'conversation_id' => null]
+                : $assistant->acting($scope, static function () use ($chat, $routine, $question): array {
+                    $answer = $chat->ask($routine['conversation_id'], $question);
+
+                    // A conversation its owner deleted is started again, not an error for ever.
+                    return !$answer['ok'] && ($answer['why'] ?? '') === 'missing' ? $chat->ask(null, $question) : $answer;
+                });
+        }
+
+        $ok             = (bool) $answer['ok'];
+        $conversationId = $answer['conversation_id'] ?? $routine['conversation_id'];
+        $failures       = $ok ? 0 : (int) $routine['failures'] + 1;
+        $once           = $routine['cadence'] === 'once';
+        $pause          = !$ok && $failures >= $policy->maxFailures();
+        $next           = $once ? null : self::nextFor($routine, $now);
+
+        $this->table()->where('routine_id', (int) $routine['routine_id'])->update([
             'last_run_at'     => CallLog::instant($now),
-            'last_error'      => $answer['ok'] ? null : mb_substr((string) $answer['says'], 0, 500),
-            'conversation_id' => $answer['conversation_id'] ?? $routine['conversation_id'],
-            'next_run_at'     => CallLog::instant(self::nextRun($routine['cadence'], $routine['at'], $routine['day'], $routine['timezone'], $now)),
+            'last_error'      => $ok ? null : mb_substr((string) $answer['says'], 0, 500),
+            'conversation_id' => $conversationId,
+            'failures'        => $failures,
+            'locked_until'    => null,
+            // A one-off is done once it ran; a task that keeps failing waits for its owner.
+            'is_active'       => !$once && !$pause && $routine['active'],
+            'next_run_at'     => $next === null ? null : CallLog::instant($next),
             'updated_at'      => CallLog::instant(time()),
         ]);
 
-        $conversationId = $answer['conversation_id'] ?? $routine['conversation_id'];
-        $this->tell($scope->userId, (string) $routine['title'], (bool) $answer['ok'], (string) $answer['says'], $conversationId);
+        $run = $this->record($routine, $answer, $conversationId, $started);
 
-        return ['ok' => (bool) $answer['ok'], 'says' => (string) $answer['says'], 'conversation_id' => $conversationId];
+        if ($routine['kind'] === self::REMINDER) {
+            $this->remind($policy->audience($routine), (string) $routine['prompt'], $policy->link($routine, $run));
+        } else {
+            $why = $ok ? '' : (string) $answer['says'] . ($pause ? ' It was paused after ' . $failures . ' failures in a row; resume it when this is fixed.' : '');
+            foreach ($policy->audience($routine) as $userId) {
+                $this->tell($userId, (string) $routine['title'], $ok, $why, $conversationId);
+            }
+        }
+
+        try {
+            $policy->onRan($routine, $run);
+        } catch (\Throwable $e) {
+            \Pramnos\Logs\Logger::log('llm task onRan: ' . $e->getMessage());
+        }
+
+        return ['ok' => $ok, 'says' => (string) $answer['says'], 'conversation_id' => $conversationId];
+    }
+
+    /**
+     * Keep a run in `ai_task_runs`, and answer it as {@see runs()} does.
+     *
+     * @param array<string, mixed> $routine
+     * @param array<string, mixed> $answer
+     * @return array<string, mixed>
+     */
+    private function record(array $routine, array $answer, ?int $conversationId, int $started): array
+    {
+        $message = is_array($answer['message'] ?? null) ? $answer['message'] : [];
+        $row     = [
+            'routine_id'      => (int) $routine['routine_id'],
+            'organization_id' => $routine['organization_id'],
+            'kind'            => (string) $routine['kind'],
+            'status'          => $answer['ok'] ? 'ok' : 'failed',
+            'content'         => (string) ($answer['content'] ?? $message['content'] ?? '') ?: null,
+            'cost'            => $message['cost'] ?? null,
+            'error'           => $answer['ok'] ? null : mb_substr((string) $answer['says'], 0, 500),
+            'conversation_id' => $conversationId,
+            'due_at'          => $routine['next_run_at'],
+            'started_at'      => CallLog::instant($started),
+            'finished_at'     => CallLog::instant(time()),
+        ];
+
+        try {
+            $this->runsTable()->insert($row);
+            $row['run_id'] = (int) \Pramnos\Framework\Factory::getDatabase()->getInsertId();
+        } catch (\Throwable $e) {
+            // No runs table yet — `migrate` has not run since it was added. The run still counts.
+            \Pramnos\Logs\Logger::log('llm task run not recorded: ' . $e->getMessage());
+            $row['run_id'] = null;
+        }
+
+        return $row;
+    }
+
+    /** Pause a task, saying why. */
+    private function pause(array $routine, string $why): void
+    {
+        $this->table()->where('routine_id', (int) $routine['routine_id'])->update([
+            'is_active'    => false,
+            'locked_until' => null,
+            'last_error'   => $why,
+            'updated_at'   => CallLog::instant(time()),
+        ]);
+    }
+
+    /**
+     * What one person has in one organisation — or outside any, with null — across spaces: the
+     * tasks they made and the shared reports they read. What a page asks about before a member
+     * leaves: "these go to whom?".
+     *
+     * @return array{tasks: list<array<string, mixed>>, subscriptions: list<int>}
+     */
+    public function ownedBy(?int $organizationId, int $userId): array
+    {
+        $query = $this->table()->where('userid', $userId)->orderBy('routine_id');
+        $organizationId === null ? $query->whereNull('organization_id') : $query->where('organization_id', $organizationId);
+        $result = $query->get();
+        $tasks  = [];
+        while (($row = $result->fetch()) !== null) {
+            $tasks[] = self::shape($row);
+        }
+
+        return ['tasks' => $tasks, 'subscriptions' => $this->subscriptionsIn($organizationId, $userId)];
+    }
+
+    /**
+     * Hand one person's tasks in an organisation to another — when they leave, and whoever is
+     * asked chose a successor.
+     *
+     * Each moves with its schedule and history, but not its conversation: the new owner does not
+     * inherit the old one's, and the next run starts one of theirs. Each is checked again as the
+     * new owner's ({@see TaskPolicy::stillAllowed()} and {@see TaskPolicy::refusal()}); one they
+     * may not run stays theirs but paused, saying why. The leaver's subscriptions are removed, not
+     * passed on. The new owner is told what they received.
+     *
+     * @param list<int>|null $only The tasks to hand over; all of them when null
+     * @return array{moved: list<int>, paused: array<int, string>}
+     */
+    public function transfer(?int $organizationId, int $fromUserId, int $toUserId, ?array $only = null): array
+    {
+        $policy = $this->policy();
+        $moved  = [];
+        $paused = [];
+
+        foreach ($this->ownedBy($organizationId, $fromUserId)['tasks'] as $task) {
+            if ($only !== null && !in_array($task['routine_id'], array_map('intval', $only), true)) {
+                continue;
+            }
+            $this->table()->where('routine_id', $task['routine_id'])->update([
+                'userid'          => $toUserId,
+                'conversation_id' => null,
+                'updated_at'      => CallLog::instant(time()),
+            ]);
+            $moved[] = $task['routine_id'];
+
+            $theirs = ['userid' => $toUserId, 'conversation_id' => null] + $task;
+            $why    = !$policy->stillAllowed($theirs)
+                ? 'Its new owner may not run it here.'
+                : $policy->refusal($policy->scope($theirs), (string) $task['kind']);
+            if ($why !== null && $task['active']) {
+                $this->pause($theirs, $why);
+                $paused[$task['routine_id']] = $why;
+            }
+        }
+
+        foreach ($this->subscriptionsIn($organizationId, $fromUserId) as $routineId) {
+            $this->subscriptionsTable()->where('routine_id', $routineId)->where('userid', $fromUserId)->delete();
+        }
+
+        if ($moved !== []) {
+            $words = count($moved) === 1 ? 'A scheduled task was passed to you.' : count($moved) . ' scheduled tasks were passed to you.';
+            $this->remind([$toUserId], $words . ($paused === [] ? '' : ' ' . count($paused) . ' of them are paused: open them to see why.'), $this->chat->assistant()->conversationUrl(null));
+        }
+
+        return ['moved' => $moved, 'paused' => $paused];
+    }
+
+    /** @return list<int> The shared tasks of an organisation a person reads */
+    private function subscriptionsIn(?int $organizationId, int $userId): array
+    {
+        try {
+            $result = $this->subscriptionsTable()->where('userid', $userId)->get();
+        } catch (\Throwable) {
+            return [];
+        }
+        $ids = [];
+        while (($row = $result->fetch()) !== null) {
+            $task = $this->byId((int) $row['routine_id']);
+            if ($task !== null && $task['organization_id'] === $organizationId) {
+                $ids[] = (int) $row['routine_id'];
+            }
+        }
+
+        return $ids;
+    }
+
+    private function subscriptionsTable(): \Pramnos\Database\QueryBuilder
+    {
+        return \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('#PREFIX#ai_task_subscriptions');
+    }
+
+    /**
+     * A task by id, whoever owns it — for the worker that runs it, never for a person's request.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function byId(int $routineId): ?array
+    {
+        $result = $this->table()->where('routine_id', $routineId)->first();
+
+        return $result && (int) $result->numRows > 0 ? self::shape($result->fields) : null;
+    }
+
+    /**
+     * A task's runs, the newest first.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function runs(int $routineId, int $limit = 20): array
+    {
+        $result = $this->runsTable()->where('routine_id', $routineId)->orderBy('run_id', 'desc')->limit(max(1, $limit))->get();
+        $runs   = [];
+        while (($row = $result->fetch()) !== null) {
+            $runs[] = [
+                'run_id'          => (int) $row['run_id'],
+                'status'          => (string) $row['status'],
+                'content'         => $row['content'] === null ? null : (string) $row['content'],
+                'cost'            => $row['cost'] === null ? null : (float) $row['cost'],
+                'error'           => $row['error'] === null ? null : (string) $row['error'],
+                'conversation_id' => $row['conversation_id'] === null ? null : (int) $row['conversation_id'],
+                'started_at'      => $row['started_at'] === null ? null : (string) $row['started_at'],
+                'finished_at'     => $row['finished_at'] === null ? null : (string) $row['finished_at'],
+            ];
+        }
+
+        return $runs;
     }
 
     /**
@@ -243,6 +576,48 @@ class Routines
         // @codeCoverageIgnoreStart
         // Unreachable with a valid schedule, which create() insists on.
         return $after + 86400;
+        // @codeCoverageIgnoreEnd
+    }
+
+    /**
+     * When a task next fires after a moment, whatever its cadence — null for a one-off whose
+     * moment has passed. `monthly_weekday` is the `nth` (1–4, or 5 for the last) `day` (1 Monday …
+     * 7 Sunday) of the month: the second Tuesday, the last Friday.
+     *
+     * @param array<string, mixed> $task cadence, at, day, nth, run_at, timezone
+     */
+    public static function nextFor(array $task, int $after): ?int
+    {
+        $cadence  = (string) $task['cadence'];
+        $timezone = in_array((string) ($task['timezone'] ?? ''), \DateTimeZone::listIdentifiers(), true) ? (string) $task['timezone'] : 'UTC';
+
+        if ($cadence === 'once') {
+            $at = $task['run_at'] ?? null;
+            $at = is_int($at) ? $at : ($at === null ? null : strtotime((string) $at));
+
+            return $at !== null && $at !== false && $at > $after ? $at : null;
+        }
+
+        if ($cadence !== 'monthly_weekday') {
+            return self::nextRun($cadence, (string) $task['at'], $task['day'] === null ? null : (int) $task['day'], $timezone, $after);
+        }
+
+        [$hour, $minute] = array_map('intval', explode(':', (string) $task['at']) + [1 => 0]);
+        $zone  = new \DateTimeZone($timezone);
+        $month = (new \DateTimeImmutable('@' . $after))->setTimezone($zone)->modify('first day of this month')->setTime($hour, $minute);
+        $names = [1 => 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+        $order = [1 => 'first', 'second', 'third', 'fourth', 5 => 'last'];
+
+        for ($i = 0; $i < 24; $i++) {
+            $candidate = $month->modify($order[(int) $task['nth']] . ' ' . $names[(int) $task['day']] . ' of this month')->setTime($hour, $minute);
+            if ($candidate->getTimestamp() > $after) {
+                return $candidate->getTimestamp();
+            }
+            $month = $month->modify('first day of next month');
+        }
+
+        // @codeCoverageIgnoreStart
+        return null;
         // @codeCoverageIgnoreEnd
     }
 
@@ -309,15 +684,48 @@ class Routines
             : null;
     }
 
-    /** @return array{at: string, day: int|null, timezone: string}|string */
-    private static function schedule(string $cadence, string $at, mixed $day, string $timezone): array|string
+    /**
+     * A schedule as it is kept, or a sentence saying what is wrong with it.
+     *
+     * A one-off is `run_at`, a date and time on the asker's clock (`2026-10-16 17:00`), or
+     * `in_minutes` from now.
+     *
+     * @param array<string, mixed> $wanted The whole request, for run_at, in_minutes and nth
+     * @return array{at: string, day: int|null, nth: int|null, run_at: int|null, timezone: string}|string
+     */
+    private static function schedule(string $cadence, string $at, mixed $day, string $timezone, array $wanted = []): array|string
     {
+        $timezone = in_array($timezone, \DateTimeZone::listIdentifiers(), true) ? $timezone : 'UTC';
+
+        if ($cadence === 'once') {
+            if (isset($wanted['in_minutes']) && is_numeric($wanted['in_minutes']) && (int) $wanted['in_minutes'] > 0) {
+                $runAt = time() + 60 * (int) $wanted['in_minutes'];
+            } else {
+                $parsed = \DateTimeImmutable::createFromFormat('!Y-m-d H:i', trim((string) ($wanted['run_at'] ?? '')), new \DateTimeZone($timezone));
+                if ($parsed === false) {
+                    return 'A one-off needs when: run_at as YYYY-MM-DD HH:MM on the person\'s clock, or in_minutes.';
+                }
+                $runAt = $parsed->getTimestamp();
+            }
+            $local = (new \DateTimeImmutable('@' . $runAt))->setTimezone(new \DateTimeZone($timezone));
+
+            return ['at' => $local->format('H:i'), 'day' => null, 'nth' => null, 'run_at' => $runAt, 'timezone' => $timezone];
+        }
+
         if (!preg_match('/^([01]?\d|2[0-3]):([0-5]\d)$/', trim($at), $time)) {
             return 'The time is HH:MM, for example 08:00.';
         }
 
-        $timezone = in_array($timezone, \DateTimeZone::listIdentifiers(), true) ? $timezone : 'UTC';
         $day      = $day === null || $day === '' ? null : (int) $day;
+
+        if ($cadence === 'monthly_weekday') {
+            $nth = isset($wanted['nth']) && is_numeric($wanted['nth']) ? (int) $wanted['nth'] : 0;
+            if ($nth < 1 || $nth > 5 || $day === null || $day < 1 || $day > 7) {
+                return 'Monthly on a weekday needs nth (1–4, or 5 for the last) and day (1 Monday … 7 Sunday).';
+            }
+
+            return ['at' => sprintf('%02d:%02d', (int) $time[1], (int) $time[2]), 'day' => $day, 'nth' => $nth, 'run_at' => null, 'timezone' => $timezone];
+        }
 
         if ($cadence === 'weekly' && ($day === null || $day < 1 || $day > 7)) {
             return 'Weekly needs a day, 1 (Monday) to 7 (Sunday).';
@@ -327,7 +735,7 @@ class Routines
             return 'Monthly needs a day of the month, 1 to 28.';
         }
 
-        return ['at' => sprintf('%02d:%02d', (int) $time[1], (int) $time[2]), 'day' => $cadence === 'daily' ? null : $day, 'timezone' => $timezone];
+        return ['at' => sprintf('%02d:%02d', (int) $time[1], (int) $time[2]), 'day' => $cadence === 'daily' ? null : $day, 'nth' => null, 'run_at' => null, 'timezone' => $timezone];
     }
 
     /** Tell the owner, by the configured notification. */
@@ -342,6 +750,22 @@ class Routines
         } catch (\Throwable $why) {
             // A dead push endpoint must not undo a report that was written.
             \Pramnos\Logs\Logger::log('llm routine notification: ' . $why->getMessage());
+        }
+    }
+
+    /** A reminder, in its owner's words, to each of its audience. */
+    private function remind(array $audience, string $words, string $link): void
+    {
+        $chat  = \Pramnos\Llm\Llm::config('chat', []);
+        $class = is_array($chat) && is_string($chat['reminder_notification'] ?? null) && class_exists($chat['reminder_notification'])
+            ? $chat['reminder_notification'] : TaskReminder::class;
+
+        foreach ($audience as $userId) {
+            try {
+                $this->deliver((int) $userId, new $class($words, $link));
+            } catch (\Throwable $why) {
+                \Pramnos\Logs\Logger::log('llm reminder notification: ' . $why->getMessage());
+            }
         }
     }
 
@@ -377,6 +801,14 @@ class Routines
             'title'           => (string) $f['title'],
             'prompt'          => (string) $f['prompt'],
             'template'        => $f['template'] === null ? null : (string) $f['template'],
+            'kind'            => (string) ($f['kind'] ?? self::ASK),
+            'owner'           => (string) ($f['owner'] ?? 'user'),
+            'resource_type'   => ($f['resource_type'] ?? null) === null ? null : (string) $f['resource_type'],
+            'resource_id'     => ($f['resource_id'] ?? null) === null ? null : (int) $f['resource_id'],
+            'notify'          => (string) ($f['notify'] ?? 'always'),
+            'failures'        => (int) ($f['failures'] ?? 0),
+            'nth'             => ($f['nth'] ?? null) === null ? null : (int) $f['nth'],
+            'run_at'          => ($f['run_at'] ?? null) === null ? null : (string) $f['run_at'],
             'cadence'         => (string) $f['cadence'],
             'at'              => (string) $f['at'],
             'day'             => $f['day'] === null ? null : (int) $f['day'],
@@ -393,5 +825,10 @@ class Routines
     private function table(): \Pramnos\Database\QueryBuilder
     {
         return \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('#PREFIX#ai_routines');
+    }
+
+    private function runsTable(): \Pramnos\Database\QueryBuilder
+    {
+        return \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('#PREFIX#ai_task_runs');
     }
 }

@@ -66,7 +66,7 @@ class RoutinesAsksConsentTest extends LlmTestCase
 
         // Act / Assert — refusals, each with a reason
         $this->assertSame('A scheduled task needs a title and what to ask.', $routines->create($scope, ['cadence' => 'daily']));
-        $this->assertSame('How often: daily, weekly or monthly.', $routines->create($scope, ['title' => 't', 'prompt' => 'p', 'cadence' => 'hourly']));
+        $this->assertSame('How often: once, daily, weekly, monthly, or monthly_weekday (the 2nd Tuesday, the last Friday).', $routines->create($scope, ['title' => 't', 'prompt' => 'p', 'cadence' => 'hourly']));
         $this->assertSame('The time is HH:MM, for example 08:00.', $routines->create($scope, ['title' => 't', 'prompt' => 'p', 'cadence' => 'daily', 'at' => '25:00']));
         $this->assertSame('Weekly needs a day, 1 (Monday) to 7 (Sunday).', $routines->create($scope, ['title' => 't', 'prompt' => 'p', 'cadence' => 'weekly', 'at' => '08:00']));
         $this->assertSame('Monthly needs a day of the month, 1 to 28.', $routines->create($scope, ['title' => 't', 'prompt' => 'p', 'cadence' => 'monthly', 'at' => '08:00', 'day' => 31]));
@@ -192,7 +192,7 @@ class RoutinesAsksConsentTest extends LlmTestCase
 
         // Assert
         $this->assertMatchesRegularExpression('/^Scheduled as task \d+\. Next run: .+ \(Europe\/Athens\)\.$/', $made);
-        $this->assertSame('Error: How often: daily, weekly or monthly.', $bad);
+        $this->assertSame('Error: How often: once, daily, weekly, monthly, or monthly_weekday (the 2nd Tuesday, the last Friday).', $bad);
         $this->assertSame(['Daily'], array_column($listed, 'title'));
         $this->assertSame('Deleted.', ($tools['cancel_scheduled_task']['run'])(['routine_id' => $listed[0]['routine_id']]));
         $this->assertSame('Error: there is no such task.', ($tools['cancel_scheduled_task']['run'])(['routine_id' => 999]));

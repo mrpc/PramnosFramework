@@ -329,6 +329,7 @@ class Worker
      */
     public const FRAMEWORK_HANDLERS = [
         \Pramnos\Llm\Chat\Asks::TASK => \Pramnos\Llm\Chat\AskTask::class,
+        \Pramnos\Llm\Chat\Routines::TASK => \Pramnos\Llm\Chat\TaskRunTask::class,
     ];
 
     // ── Factory hook ──────────────────────────────────────────────────────────
