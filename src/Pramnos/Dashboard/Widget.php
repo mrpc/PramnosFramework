@@ -38,6 +38,20 @@ abstract class Widget
     /** Half the grid's width. */
     public const HALF = 'half';
 
+    /**
+     * The controller drawing the dashboard, for a widget that needs one — a model is built with
+     * one: `$this->controller?->getModel('Orders')`. Null outside a dashboard.
+     */
+    protected ?\Pramnos\Application\Controller $controller = null;
+
+    /** Hand the widget the controller drawing it. */
+    public function setController(?\Pramnos\Application\Controller $controller): static
+    {
+        $this->controller = $controller;
+
+        return $this;
+    }
+
     /** The grid's whole width. */
     public const FULL = 'full';
 

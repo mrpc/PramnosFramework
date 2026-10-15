@@ -190,8 +190,8 @@ class DashboardLayoutsMySQLTest extends TestCase
             public function id(): string { return 'fails'; }
             /** Its heading. */
             public function title(): string { return 'Fails'; }
-            /** Its inside: it throws. */
-            public function render(): string { throw new \RuntimeException('no figures'); }
+            /** Its inside: it throws, naming the controller it was handed. */
+            public function render(): string { throw new \RuntimeException('no figures from ' . get_class($this->controller)); }
         });
         \Pramnos\Http\RequestIdentity::seal(self::me(), 'test');
         (new Layouts($this->db))->save(self::me(), [['id' => 'fails'], ['id' => 'users.active']]);
@@ -202,6 +202,8 @@ class DashboardLayoutsMySQLTest extends TestCase
 
         // Assert
         $this->assertStringContainsString('could not be drawn', $controller->view->widgets[0]['html']);
+        // The widget was handed the controller drawing it: the log line names it
+        $this->assertStringContainsString('LayoutDashboardController', (string) file_get_contents(LOG_PATH . DS . 'logs' . DS . 'dashboard.log'));
         $this->assertStringContainsString('pf-stat-tile', $controller->view->widgets[1]['html'], 'the next card still drawn');
     }
 

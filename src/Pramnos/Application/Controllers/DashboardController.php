@@ -144,7 +144,7 @@ class DashboardController extends Controller
     protected function drawWidget(\Pramnos\Dashboard\Widget $widget): string
     {
         try {
-            return $widget->render();
+            return $widget->setController($this)->render();
         } catch (\Throwable $e) {
             \Pramnos\Logs\Logger::log('Dashboard widget ' . $widget->id() . ' failed: ' . $e->getMessage(), 'dashboard');
 

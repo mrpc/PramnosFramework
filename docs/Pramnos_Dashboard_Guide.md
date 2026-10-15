@@ -52,7 +52,9 @@ final class OpenOrders extends Widget
 | `link()` | Where the heading leads | none |
 
 `render()` returns the card's inside, and the dashboard draws the card around it in the theme's
-classes. Draw figures with `Html\StatTile`, which every theme styles, or with the theme's own
+classes. A widget that needs a model has the controller drawing it:
+`$this->controller?->getModel('Orders')`. The controller is null outside a dashboard, and an
+application's own dashboard controller hands it over with `$widget->setController($this)`. Draw figures with `Html\StatTile`, which every theme styles, or with the theme's own
 classes. A widget that throws becomes a short note on its card and a line in the
 `dashboard` log, and the rest of the dashboard still draws.
 
@@ -123,6 +125,10 @@ An area with a dashboard of its own sets `protected string $dashboardArea = 'par
 subclass of `DashboardController`, and its layouts are kept apart. The controller's links and
 redirects follow its own class name. Until `migrate` creates the table, everybody sees the
 default.
+
+**Do not cache the dashboard page.** It carries the session's CSRF token, which `savelayout`
+checks, and a cached copy hands one session's token to every other session, so their saves are
+refused with 403. Each card can cache its own figures inside `render()` instead.
 
 ## A view of the older shape
 
