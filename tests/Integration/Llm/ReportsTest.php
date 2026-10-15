@@ -1,0 +1,537 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Pramnos\Tests\Integration\Llm;
+
+use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
+use Pramnos\Http\Request;
+use Pramnos\Llm\Chat\Api\ChatController;
+use Pramnos\Llm\Chat\Api\Routes;
+use Pramnos\Llm\Chat\BaseAssistant;
+use Pramnos\Llm\Chat\Conversations;
+use Pramnos\Llm\Chat\Routines;
+use Pramnos\Llm\Chat\Scope;
+use Pramnos\Llm\Chat\TaskPolicy;
+use Pramnos\Llm\Chat\Turn;
+use Pramnos\Routing\Router;
+use Pramnos\Tests\Unit\Llm\LlmTestCase;
+
+/**
+ * Shared AI reports: who may make one for an organisation or the installation, a run asked
+ * headless with read-only tools and kept, its readers told — only those who may still read it,
+ * and only when it matters if so asked — subscriptions, a report opened as a reader's own
+ * conversation, and the JSON API over all of it; on MySQL and PostgreSQL.
+ */
+#[CoversClass(Routines::class)]
+#[CoversClass(TaskPolicy::class)]
+#[CoversClass(Conversations::class)]
+#[CoversClass(ChatController::class)]
+#[CoversClass(Routes::class)]
+#[CoversClass(\Pramnos\Llm\Chat\Web\ChatPageController::class)]
+class ReportsTest extends LlmTestCase
+{
+    use ChatDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $this->setting('llm_openai_api_key', 'sk-test');
+        ReportPolicy::$types   = [7 => 80, 8 => 80, 9 => 20, 10 => 99, 11 => 90];
+        ReportPolicy::$members = [3 => [7, 8, 9]];
+        ReportPolicy::$exists  = true;
+        ApiFixture::$scope     = new Scope(8, 3);
+        ApiFixture::$input     = [];
+        ApiFixture::$stop      = null;
+    }
+
+    protected function tearDown(): void
+    {
+        $this->disconnectDatabase();
+        parent::tearDown();
+    }
+
+    /** Reports over an assistant with a read tool and a write tool, deliveries recorded. */
+    private function tasks(?BaseAssistant $assistant = null): RecordingTasks
+    {
+        return new RecordingTasks(new Conversations($assistant ?? new ReadingAssistant()));
+    }
+
+    /** The policy of this test, with notifications captured. */
+    private function policy(): void
+    {
+        $this->configure(['chat' => ['task_policy' => ReportPolicy::class, 'routine_notification' => CapturedNotice::class]]);
+    }
+
+    /** An organisation's report, made by 7. */
+    private function report(RecordingTasks $tasks, array $more = []): array
+    {
+        $made = $tasks->create(new Scope(7, 3), $more + ['kind' => 'report', 'owner' => 'organization', 'title' => 'Weekly',
+            'prompt' => 'Bookings this week', 'cadence' => 'weekly', 'day' => 1, 'at' => '08:00', 'resource_type' => 'property', 'resource_id' => 42]);
+        $this->assertIsArray($made, is_string($made) ? $made : '');
+
+        return $made;
+    }
+
+    /** One request through the routes. */
+    private function call(string $method, string $uri, array $input = []): mixed
+    {
+        ApiFixture::$input = $input;
+        $router = new Router(null);
+        Routes::register($router, ApiFixture::class);
+
+        return $router->dispatch(Request::create($uri, $method));
+    }
+
+    /**
+     * Only a report is shared, and only by those the policy lets: an organisation's at the
+     * administration level inside one, the installation's by its administrators; an unknown owner
+     * and a shared question are refused.
+     */
+    #[DataProvider('databases')]
+    public function testWhoMayShareAReport(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        $this->policy();
+        $tasks = $this->tasks();
+        $base  = ['kind' => 'report', 'title' => 'R', 'prompt' => 'p', 'cadence' => 'daily', 'at' => '08:00'];
+
+        // Act
+        $low        = $tasks->create(new Scope(9, 3), $base + ['owner' => 'organization']);
+        $noOrg      = $tasks->create(new Scope(7, null), $base + ['owner' => 'organization']);
+        $orgOk      = $tasks->create(new Scope(7, 3), $base + ['owner' => 'organization', 'notify' => 'relevant']);
+        $globalLow  = $tasks->create(new Scope(7, 3), $base + ['owner' => 'global']);
+        $globalOk   = $tasks->create(new Scope(11, null), $base + ['owner' => 'global']);
+        $unknown    = $tasks->create(new Scope(7, 3), $base + ['owner' => 'team']);
+        $sharedAsk  = $tasks->create(new Scope(7, 3), ['kind' => 'ask', 'owner' => 'organization'] + $base);
+        $badKind    = $tasks->create(new Scope(7, 3), ['kind' => 'poem'] + $base);
+
+        // Assert
+        $this->assertSame('You may not make a report for the whole organisation.', $low);
+        $this->assertSame('You may not make a report for the whole organisation.', $noOrg, 'an organisation report needs an organisation');
+        $this->assertSame(['organization', 'relevant'], [$orgOk['owner'], $orgOk['notify']]);
+        $this->assertSame('You may not make a report for the whole installation.', $globalLow);
+        $this->assertSame('global', $globalOk['owner']);
+        $this->assertStringStartsWith('Only a report is shared', $unknown);
+        $this->assertStringStartsWith('Only a report is shared', $sharedAsk);
+        $this->assertStringContainsString('a report (report)', $badKind);
+    }
+
+    /**
+     * A report runs headless: no conversation is kept, the assistant's write tools, the memory's
+     * and the scheduling tools are not offered, the maker's memory is not in the prompt; the run
+     * is kept; its maker and each subscriber who may still read it are told, with a link that
+     * opens the run, under a title naming what it is about.
+     */
+    #[DataProvider('databases')]
+    public function testAReportRunsHeadlessAndReachesItsReaders(string $type, string $host, int $port): void
+    {
+        // Arrange — 8 may read it, 9 is of lower standing, 10 is not a member
+        $this->connectDatabase($type, $host, $port);
+        $this->policy();
+        $this->answer([[200, self::says('12 bookings, 3 more than last week.')]]);
+        $tasks = $this->tasks();
+        $made  = $this->report($tasks);
+        (new \Pramnos\Llm\Chat\Memory(new Scope(7, 3)))->remember('preference', 'My wife is called Eleni');
+        foreach ([8, 9, 10] as $userId) {
+            $this->db->queryBuilder()->table('ai_task_subscriptions')->insert(['routine_id' => $made['routine_id'], 'userid' => $userId, 'email' => false]);
+        }
+
+        // Act
+        $ran = $tasks->run($tasks->byId($made['routine_id']), time());
+        $run = $tasks->runs($made['routine_id'])[0];
+
+        // Assert — asked once, read-only, without the memory
+        $this->assertTrue($ran['ok']);
+        $offered = array_column(array_column($this->sent[0]['body']['tools'], 'function'), 'name');
+        $this->assertSame(['read_figures'], $offered, 'no write, memory or scheduling tool');
+        $this->assertStringNotContainsString('Eleni', $this->sent[0]['raw'], 'the maker\'s memory stays theirs');
+        $this->assertStringStartsWith('Scheduled report "Weekly" about Villa 42', $this->sent[0]['body']['messages'][1]['content']);
+        $this->assertSame([], $this->rows('chat_conversations'), 'nothing is kept as a conversation');
+        $this->assertSame(['ok', '12 bookings, 3 more than last week.', [7, 8]], [$run['status'], $run['content'], $run['extra']['notified']]);
+        $this->assertSame([7, 8], array_column($tasks->delivered, 0), 'the maker, and the reader who may still read it');
+        $this->assertSame('Weekly — Villa 42', $tasks->delivered[0][1]->title);
+        $this->assertStringEndsWith('chat/report/' . $run['run_id'], $tasks->delivered[1][1]->link);
+        $this->assertNull($ran['conversation_id']);
+    }
+
+    /**
+     * Asked to tell only what matters, a report that decides there is nothing new tells nobody
+     * and is still kept; one that never decides tells, rather than staying silent by omission.
+     */
+    #[DataProvider('databases')]
+    public function testARelevantReportTellsOnlyWhenItMatters(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        $this->policy();
+        $tasks = $this->tasks();
+        $made  = $this->report($tasks, ['notify' => 'relevant']);
+
+        // Act — decided not relevant; then answered without deciding
+        $this->answer([[200, self::calls([['report_relevance', ['relevant' => false, 'why' => 'Same as last week.']]])], [200, self::says('Nothing new.')]]);
+        $tasks->run($tasks->byId($made['routine_id']), time());
+        $quiet = $tasks->delivered;
+        $offered = array_column(array_column($this->sent[0]['body']['tools'], 'function'), 'name');
+        $this->answer([[200, self::says('Something new.')]]);
+        $tasks->run($tasks->byId($made['routine_id']), time());
+        $runs = $tasks->runs($made['routine_id']);
+
+        // Assert
+        $this->assertContains('report_relevance', $offered);
+        $this->assertSame([], $quiet, 'nothing new, nobody told');
+        $this->assertSame(['Nothing new.', false], [$runs[1]['content'], $runs[1]['extra']['relevant']], 'kept all the same');
+        $this->assertArrayNotHasKey('notified', $runs[1]['extra']);
+        $this->assertSame([7], array_column($tasks->delivered, 0), 'no decision: told');
+    }
+
+    /**
+     * A report that fails tells its maker only — readers get reports, not errors — and a report
+     * about something gone is paused without counting a failure, its maker told why.
+     */
+    #[DataProvider('databases')]
+    public function testFailuresAndWhatIsGone(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        $this->policy();
+        $this->answer([[500, ['error' => ['message' => 'Overloaded']]]]);
+        $tasks = $this->tasks();
+        $made  = $this->report($tasks);
+        $this->db->queryBuilder()->table('ai_task_subscriptions')->insert(['routine_id' => $made['routine_id'], 'userid' => 8, 'email' => false]);
+
+        // Act
+        $failed = $tasks->run($tasks->byId($made['routine_id']), time());
+        $told   = $tasks->delivered;
+        ReportPolicy::$exists = false;
+        $gone   = $tasks->run($tasks->byId($made['routine_id']), time());
+        $after  = $tasks->byId($made['routine_id']);
+
+        // Assert
+        $this->assertFalse($failed['ok']);
+        $this->assertSame([7], array_column($told, 0));
+        $this->assertFalse($told[0][1]->ok);
+        $this->assertSame('Paused: what it is about no longer exists.', $gone['says']);
+        $this->assertSame([false, 1, 'What it is about no longer exists.'], [$after['active'], $after['failures'], $after['last_error']], 'one failure, from the run before');
+        $this->assertSame('It was paused: what it is about no longer exists.', end($tasks->delivered)[1]->why);
+        $this->assertCount(1, $tasks->runs($made['routine_id']), 'nothing ran on what is gone');
+    }
+
+    /**
+     * A reader subscribes to a report they may see — again, to change the email choice — and not
+     * to one they may not, nor to anything but a report; the shared reports here are listed with
+     * whether they read each; they unsubscribe; an export holds what a person made and reads.
+     */
+    #[DataProvider('databases')]
+    public function testSubscriptions(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        $this->policy();
+        $tasks  = $this->tasks();
+        $made   = $this->report($tasks);
+        $mine   = $tasks->create(new Scope(8, 3), ['title' => 'Mine', 'prompt' => 'x', 'cadence' => 'daily', 'at' => '08:00']);
+        $global = $tasks->create(new Scope(11, null), ['kind' => 'report', 'owner' => 'global', 'title' => 'Everywhere', 'prompt' => 'x', 'cadence' => 'daily', 'at' => '08:00']);
+        $id     = $made['routine_id'];
+
+        // Act
+        $first    = $tasks->subscribe(8, $id);
+        $again    = $tasks->subscribe(8, $id, true);
+        $lower    = $tasks->subscribe(9, $id);
+        $outsider = $tasks->subscribe(10, $id);
+        $notOne   = $tasks->subscribe(7, $mine['routine_id']);
+        $listed   = $tasks->reports(new Scope(8, 3));
+        $email    = $this->rows('ai_task_subscriptions')[0]['email'];
+        $off      = $tasks->unsubscribe(8, $id);
+        $offAgain = $tasks->unsubscribe(8, $id);
+        $tasks->subscribe(7, $id);
+        $export   = $tasks->forUser(7);
+        $above    = $tasks->subscribe(7, $global['routine_id']);
+
+        // Assert
+        $this->assertNull($first);
+        $this->assertNull($again);
+        $this->assertTrue(in_array($email, [true, 1, '1', 't'], true), 'subscribing again changed the email choice');
+        $this->assertSame('There is no such report you may read.', $lower, 'a reader of lower standing than its maker');
+        $this->assertSame('There is no such report you may read.', $outsider, 'not a member of its organisation');
+        $this->assertSame('There is no such report you may read.', $notOne, 'only a report has readers');
+        $this->assertSame([$id], array_column($listed, 'routine_id'), 'the installation\'s is above 8\'s standing');
+        $this->assertTrue($listed[0]['subscribed']);
+        $this->assertNull($listed[0]['latest_run']);
+        $this->assertTrue($off);
+        $this->assertFalse($offAgain);
+        $this->assertSame([7], $tasks->subscribers($id), 'only the maker, who subscribed after');
+        $this->assertSame([$id], array_column($export['tasks'], 'routine_id'));
+        $this->assertSame([$id], $export['subscriptions'], 'a maker may read their own');
+        $this->assertSame('There is no such report you may read.', $above, 'the installation\'s, made above 7\'s standing');
+    }
+
+    /**
+     * A run opens as a conversation of the reader's own, holding the report: the same one when
+     * opened again, a new one when that was deleted; nothing for a reader who may not see it, a
+     * failed run, or no run at all.
+     */
+    #[DataProvider('databases')]
+    public function testAReportContinuesInAsk(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        $this->policy();
+        $this->answer([[200, self::says('12 bookings.')]]);
+        $tasks = $this->tasks();
+        $made  = $this->report($tasks);
+        $tasks->run($tasks->byId($made['routine_id']), time());
+        $runId = $tasks->runs($made['routine_id'])[0]['run_id'];
+        $this->answer([[500, []]]);
+        $tasks->run($tasks->byId($made['routine_id']), time());
+        $failedId = $tasks->runs($made['routine_id'])[0]['run_id'];
+        $reader   = new Scope(8, 3);
+
+        // Act
+        $opened = $tasks->continueRun($reader, $runId);
+        $again  = $tasks->continueRun($reader, $runId);
+        (new Conversations(new ReadingAssistant()))->as($reader)->delete($opened);
+        $fresh  = $tasks->continueRun($reader, $runId);
+
+        // Assert
+        $held = (new Conversations(new ReadingAssistant()))->as($reader)->find($fresh);
+        $this->assertSame($opened, $again, 'opened again, the same conversation');
+        $this->assertNotSame($opened, $fresh, 'deleted, a new one');
+        $this->assertSame(['user', 'assistant'], array_column($held['messages'], 'role'));
+        $this->assertSame('12 bookings.', $held['messages'][1]['content']);
+        $this->assertSame($fresh, $tasks->opened($runId, 8));
+        $this->assertNull($tasks->continueRun(new Scope(9, 3), $runId), 'may not see it');
+        $this->assertNull($tasks->continueRun($reader, $failedId), 'a failure is nothing to ask about');
+        $this->assertNull($tasks->continueRun($reader, 999999));
+        $this->assertNull($tasks->opened(999999, 8));
+    }
+
+    /**
+     * The model shares a report when asked — refused for someone the policy does not let — lists
+     * the reports here, and subscribes and unsubscribes a person by id.
+     */
+    #[DataProvider('databases')]
+    public function testTheModelSharesAndSubscribes(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        $this->policy();
+        $tasks  = $this->tasks();
+        $maker  = $tasks->toolsFor(new Scope(7, 3), 'Europe/Athens', null);
+        $reader = $tasks->toolsFor(new Scope(8, 3), 'Europe/Athens', null);
+        $lower  = $tasks->toolsFor(new Scope(9, 3), 'Europe/Athens', null);
+
+        // Act
+        $shared  = $maker['schedule_task']['run'](['kind' => 'report', 'owner' => 'organization', 'title' => 'Weekly', 'prompt' => 'Bookings', 'cadence' => 'daily', 'at' => '08:00']);
+        $refused = $lower['schedule_task']['run'](['kind' => 'report', 'owner' => 'organization', 'title' => 'Other', 'prompt' => 'x', 'cadence' => 'daily', 'at' => '08:00']);
+        $id      = (int) preg_replace('/\D.*$/s', '', substr($shared, strlen('Scheduled as task ')));
+        $list    = json_decode($reader['list_reports']['run']([]), true);
+        $on      = $reader['subscribe_report']['run'](['routine_id' => $id]);
+        $no      = $lower['subscribe_report']['run'](['routine_id' => $id]);
+        $off     = $reader['unsubscribe_report']['run'](['routine_id' => $id]);
+        $offNo   = $reader['unsubscribe_report']['run'](['routine_id' => $id]);
+
+        // Assert
+        $this->assertStringStartsWith('Scheduled as task ', $shared);
+        $this->assertSame('Error: You may not make a report for the whole organisation.', $refused);
+        $this->assertSame([[$id, 'Weekly', false]], array_map(static fn (array $r): array => [$r['routine_id'], $r['title'], $r['subscribed']], $list));
+        $this->assertSame('Subscribed.', $on);
+        $this->assertSame('Error: There is no such report you may read.', $no);
+        $this->assertSame('Unsubscribed.', $off);
+        $this->assertSame('Error: they do not receive it.', $offNo);
+    }
+
+    /**
+     * Through the API: a reader lists the reports, subscribes and unsubscribes, reads a run and
+     * the runs of the report, and opens a run as a conversation; what they may not read is
+     * answered as if it did not exist.
+     */
+    #[DataProvider('databases')]
+    public function testTheApi(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        $this->policy();
+        $this->answer([[200, self::says('12 bookings.')]]);
+        $tasks = $this->tasks();
+        $made  = $this->report($tasks);
+        $id    = $made['routine_id'];
+        $tasks->run($tasks->byId($id), time());
+        $runId = $tasks->runs($id)[0]['run_id'];
+
+        // Act
+        $reports = $this->call('GET', '/chat/reports');
+        $on      = $this->call('POST', '/chat/routines/' . $id . '/subscribe', ['email' => '1']);
+        $runs    = $this->call('GET', '/chat/routines/' . $id . '/runs');
+        $run     = $this->call('GET', '/chat/runs/' . $runId);
+        $opened  = $this->call('POST', '/chat/runs/' . $runId . '/continue');
+        $off     = $this->call('DELETE', '/chat/routines/' . $id . '/subscribe');
+        $offNo   = $this->call('DELETE', '/chat/routines/' . $id . '/subscribe');
+        ApiFixture::$scope = new Scope(9, 3);
+        $hidden  = [$this->call('GET', '/chat/runs/' . $runId)['status'], $this->call('GET', '/chat/routines/' . $id . '/runs')['status'],
+            $this->call('POST', '/chat/routines/' . $id . '/subscribe')['status'], $this->call('POST', '/chat/runs/' . $runId . '/continue')['status']];
+        ApiFixture::$scope = null;
+        $nobody  = [$this->call('GET', '/chat/reports')['data']['reports'], $this->call('GET', '/chat/routines/' . $id . '/runs')['status'],
+            $this->call('POST', '/chat/routines/' . $id . '/subscribe')['status'], $this->call('DELETE', '/chat/routines/' . $id . '/subscribe')['status']];
+
+        // Assert
+        $this->assertSame([$id], array_column($reports['data']['reports'], 'routine_id'));
+        $this->assertSame(['subscribed' => true], $on['data']);
+        $this->assertSame([$runId], array_column($runs['data']['runs'], 'run_id'));
+        $this->assertSame($id, $runs['data']['task']['routine_id']);
+        $this->assertSame(['12 bookings.', $id], [$run['data']['content'], $run['data']['task']['routine_id']]);
+        $this->assertSame(200, $opened['status']);
+        $this->assertSame($opened['data']['conversation_id'], $tasks->opened($runId, 8));
+        $this->assertSame(['subscribed' => false], $off['data']);
+        $this->assertSame(404, $offNo['status']);
+        $this->assertSame([404, 404, 404, 404], $hidden);
+        $this->assertSame([[], 404, 404, 404], $nobody);
+    }
+
+    /**
+     * A plan with nothing scheduled refuses a report's run, its maker told; nobody signed in has
+     * no report and no conversation to seed.
+     */
+    #[DataProvider('databases')]
+    public function testWhatRefusesARun(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        $this->policy();
+        $made    = $this->report($this->tasks());
+        $refused = $this->tasks(new NoRoutines());
+        $nobody  = new Conversations(new ReadingAssistant());
+
+        // Act
+        $ran = $refused->run($refused->byId($made['routine_id']), time());
+
+        // Assert
+        $this->assertSame([false, 'Not on this plan.'], [$ran['ok'], $ran['says']]);
+        $this->assertSame([7], array_column($refused->delivered, 0));
+        $this->assertSame([], $this->sent, 'no model was asked');
+        $this->assertSame([false, 'scope'], [($r = $nobody->report('x'))['ok'], $r['why']]);
+        $this->assertNull($nobody->seed('x', []));
+    }
+
+    /**
+     * A notification's link — `chat/report/{run}` — opens the run as the reader's conversation;
+     * for a reader who may not see it, it says so and goes to the page.
+     */
+    #[DataProvider('databases')]
+    public function testTheNotificationsLinkOpensTheRun(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        $this->policy();
+        $this->configure(['chat' => ['task_policy' => ReportPolicy::class]]);
+        $this->answer([[200, self::says('12 bookings.')]]);
+        $tasks = $this->tasks();
+        $made  = $this->report($tasks);
+        $tasks->run($tasks->byId($made['routine_id']), time());
+        $runId = $tasks->runs($made['routine_id'])[0]['run_id'];
+        $page  = new PageFixture(new Scope(8, 3), 'plain-css');
+        $other = new PageFixture(new Scope(9, 3), 'plain-css');
+
+        // Act
+        $page->report($runId);
+        $other->report($runId);
+
+        // Assert
+        $this->assertStringEndsWith('chat?c=' . $tasks->opened($runId, 8), $page->redirectedTo[0]);
+        $this->assertSame([], $page->errors);
+        $this->assertSame(['There is no such report you may read.'], $other->errors);
+        $this->assertStringEndsWith('/chat', $other->redirectedTo[0]);
+    }
+
+    /**
+     * The default policy, with nobody's standing known to an application: a person's own task is
+     * theirs to make; a shared one needs a standing nobody signed out has; a member is anybody;
+     * a task is about nothing in particular, which always exists; a non-report links to its
+     * conversation.
+     */
+    #[DataProvider('databases')]
+    public function testTheDefaultPolicy(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        $policy = new TaskPolicy(new ReadingAssistant());
+        $task   = ['routine_id' => 1, 'userid' => 1, 'organization_id' => 3, 'owner' => 'organization', 'kind' => 'report', 'conversation_id' => 4];
+
+        // Act / Assert
+        $this->assertTrue($policy->canManage(new Scope(0, 3), 'user'));
+        $this->assertFalse($policy->canManage(new Scope(0, 3), 'organization'), 'standing 0');
+        $this->assertFalse($policy->canManage(new Scope(0, null), 'global'));
+        $this->assertFalse($policy->canManage(new Scope(999999, 3), 'organization'), 'nobody by that id');
+        $this->assertTrue($policy->canSee(1, $task), 'its maker');
+        $this->assertTrue($policy->canSee(0, $task), 'same standing as a maker nobody knows');
+        $this->assertFalse($policy->canSee(5, ['owner' => 'user'] + $task), 'one person\'s task');
+        $this->assertTrue($policy->member(5, 3));
+        $this->assertSame('', $policy->resourceLabel($task));
+        $this->assertTrue($policy->resourceExists($task));
+        $this->assertSame([1], $policy->audience($task + ['subscribers' => [1]]), 'the maker once');
+        $this->assertStringEndsWith('chat/report/9', $policy->link($task, ['run_id' => 9]));
+        $this->assertStringContainsString('c=4', $policy->link(['kind' => 'ask'] + $task, ['conversation_id' => 4]));
+    }
+}
+
+/** An assistant with a read tool and a write tool. */
+final class ReadingAssistant extends BaseAssistant
+{
+    /** One tool that reads, one that writes. */
+    public function tools(Turn $turn): array
+    {
+        $tool = static fn (string $name): array => ['description' => $name, 'parameters' => ['type' => 'object', 'properties' => new \stdClass()], 'run' => static fn (): string => 'ok'];
+
+        return ['read_figures' => $tool('read_figures'), 'publish' => $tool('publish')];
+    }
+
+    /** The write tool, beside the framework's. */
+    public function writes(): array
+    {
+        return [...parent::writes(), 'publish'];
+    }
+
+    /** Where conversations are. */
+    public function conversationUrl(?int $conversationId): string
+    {
+        return 'https://app.test/chat' . ($conversationId ? '?c=' . $conversationId : '');
+    }
+}
+
+/** Standing and membership as the test sets them, and what a report is about. */
+final class ReportPolicy extends TaskPolicy
+{
+    /** @var array<int, int> */
+    public static array $types = [];
+
+    /** @var array<int, list<int>> */
+    public static array $members = [];
+
+    public static bool $exists = true;
+
+    /** A member of the organisations the test lists. */
+    public function member(int $userId, ?int $organizationId): bool
+    {
+        return in_array($userId, self::$members[(int) $organizationId] ?? [], true);
+    }
+
+    /** The property's name. */
+    public function resourceLabel(array $task): string
+    {
+        return $task['resource_id'] === null ? '' : 'Villa ' . $task['resource_id'];
+    }
+
+    /** Whether the property is still there. */
+    public function resourceExists(array $task): bool
+    {
+        return self::$exists;
+    }
+
+    /** The standing the test gave. */
+    protected function usertype(int $userId): int
+    {
+        return self::$types[$userId] ?? 0;
+    }
+}

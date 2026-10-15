@@ -302,6 +302,94 @@ class Conversations
     }
 
     /**
+     * Start a conversation that already holds an exchange — a report opened to ask about, say —
+     * without asking anything. Answers its id, or null with nobody to own it.
+     *
+     * @param list<array{role: string, content: string}> $messages
+     */
+    public function seed(string $title, array $messages): ?int
+    {
+        if ($this->scope === null) {
+            return null;
+        }
+
+        $stamp = CallLog::instant(time());
+        $this->table('#PREFIX#chat_conversations')->insert($this->scope->columns() + [
+            'title' => self::titleFor($title), 'created_at' => $stamp, 'updated_at' => $stamp,
+        ]);
+        $conversationId = (int) \Pramnos\Framework\Factory::getDatabase()->getInsertId();
+
+        foreach ($messages as $message) {
+            $this->store($conversationId, $message['role'] === 'assistant' ? 'assistant' : 'user', (string) $message['content'], [], null, $stamp);
+        }
+
+        return $conversationId;
+    }
+
+    /**
+     * Ask once, headless, for a report: no conversation is kept, nothing is written — the
+     * assistant's write tools ({@see Assistant::writes()}), the memory — its tools and what it holds —
+     * and the scheduling tools are left out — and the answer is handed back for the run to record.
+     *
+     * With `$relevant`, the model also decides whether the result is worth telling anybody about,
+     * through a tool it is made to call on the round before the last: a decision it was only
+     * asked for in words is one it forgets. No decision means tell.
+     *
+     * @param array<string, mixed> $extra The application's, for its assistant — the task, say
+     * @return array{ok: bool, says: string, why: string, content: string, steps: list<string>, cost: mixed, relevant: bool|null}
+     */
+    public function report(string $question, array $extra = [], bool $relevant = false): array
+    {
+        if ($this->scope === null) {
+            return self::refusal('scope', 'This needs somebody signed in.') + ['content' => '', 'steps' => [], 'cost' => null, 'relevant' => null];
+        }
+
+        $messages = [['role' => 'user', 'content' => mb_substr(trim($question), 0, self::CHARS)]];
+        $turn     = new Turn($this->scope, null, true, $messages, [], $extra, $this);
+        $client   = ($this->client ?? new Client($this->assistant->connection($this->scope)))
+            ->about(['purpose' => $this->scope->purpose()] + $this->scope->context());
+        $tools    = array_diff_key($this->assistant->tools($turn), array_flip($this->assistant->writes()));
+        $decided  = null;
+        $due      = [];
+
+        if ($relevant) {
+            $tools['report_relevance'] = [
+                'description' => 'Say whether this report is worth telling its readers about: true when something changed or needs '
+                    . 'attention, false when there is nothing new. Call it once, before your final answer.',
+                'parameters'  => ['type' => 'object', 'properties' => [
+                    'relevant' => ['type' => 'boolean'],
+                    'why'      => ['type' => 'string', 'description' => 'One sentence.'],
+                ], 'required' => ['relevant']],
+                'run' => static function (array $a) use (&$decided): string {
+                    $decided = filter_var($a['relevant'] ?? true, FILTER_VALIDATE_BOOLEAN);
+
+                    return 'Noted.';
+                },
+            ];
+            $due['report_relevance'] = static fn (array $calls): bool => !in_array('report_relevance', array_column($calls, 'name'), true);
+        }
+
+        $answer = $client->askWithTools(
+            // Not the maker's memory: a shared report is read by others, and what the maker told
+            // the assistant about themselves is not theirs to read.
+            trim($this->assistant->systemPrompt($turn) . "\n\n" . trim($this->assistant->context($turn))),
+            $messages,
+            $tools,
+            $this->assistant->rounds(),
+            $due + $this->assistant->due($turn)
+        );
+
+        if (!$answer['ok']) {
+            return self::refusal(isset($answer['limited']) ? 'limit' : 'provider', (string) $answer['says'])
+                + ['content' => '', 'steps' => [], 'cost' => null, 'relevant' => null];
+        }
+
+        return ['ok' => true, 'says' => '', 'why' => '', 'content' => self::withoutMark((string) ($answer['final'] ?? $answer['reply'])),
+            'steps' => array_values(array_filter(array_map('strval', (array) ($answer['steps'] ?? [])), static fn (string $one): bool => trim($one) !== '')),
+            'cost' => $answer['cost'] ?? null, 'relevant' => $decided];
+    }
+
+    /**
      * The documents attached in a conversation, by name, the latest last — each question
      * carries one after `---` and `📎 name`.
      *

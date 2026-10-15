@@ -946,6 +946,7 @@ Full reference: [v1.1 release notes](version-history/posts/2026-04-19-v1-1-relea
 | **PostgreSQL** | Schema-qualified table names and corrected NULL comparisons. | If targeting PostgreSQL, review raw SQL for unqualified names and `= NULL` comparisons. |
 | **Cache** | Cache layer became pluggable (File/Memcache/Memcached/Redis). | Select and configure a cache adapter explicitly. |
 | **Scheduled AI tasks (`ai_routines`)** | Three failed runs in a row now pause a routine and tell its owner; it ran and failed every day before. New tables `ai_task_runs` and `ai_task_subscriptions` and new `ai_routines` columns; the `llm_tables` health check is degraded until they exist. | Run `php bin/pramnos migrate`. A routine paused this way resumes with `setActive(…, true)`, or from the scheduled-tasks screen. |
+| **New public methods on `Chat\Api\ChatController` and `Chat\Web\ChatPageController`** | `routineRuns()`, `readRun()`, `continueRun()`, `reports()`, `subscribe()` and `unsubscribe()` were added to the API controller and `report()` to the page controller, and `Routes::register()` mounts `/chat/runs` and `/chat/reports` ahead of `/chat/{conversation_id}`. | A subclass of either controller (the application's `Chat` controller, say) with a method of one of these names and another signature fails to load: rename yours. An application route of its own at `/chat/runs…` or `/chat/reports` is now answered by the framework's; pass `paths: ['runs' => …, 'reports' => …]` to move them. |
 
 ### `app.php` configuration
 

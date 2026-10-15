@@ -7,6 +7,7 @@ use_cases:
   - Working out what model calls cost, which failed, and why
   - Giving users conversations with a model that remember them
   - Scheduling a question to a model every morning, as its owner
+  - Sending an organisation a scheduled AI report its members subscribe to
   - Asking users' agreement before their data goes to a provider
   - Turning an attached Word, OpenDocument or email file into text for a model
   - Adding an Ask AI page, widget or SPA screen to an application
@@ -355,13 +356,15 @@ answers without being registered — as its author, through `acting()` — and m
 failed. The screen follows it with `find($scope, $askId)`. `Asks::onAnswered(callable)` is told
 each answer with the job, `extra` included — where else the answer should go.
 
-### Scheduled tasks: questions, reminders, one-offs
+### Scheduled tasks: questions, reminders, reports
 
-`Chat\Routines` keeps every scheduled AI task in `ai_routines`. There are two kinds:
+`Chat\Routines` keeps every scheduled AI task in `ai_routines`. There are three kinds:
 
 - **`ask`**, a question asked again into its owner's conversation;
 - **`reminder`**, the owner's own words sent back as a notification with no model asked, so it
-  costs nothing.
+  costs nothing;
+- **`report`**, asked without a conversation, with read-only tools, kept as a run and sent to its
+  readers — see [Shared reports](#shared-reports).
 
 ```php
 $tasks = new \Pramnos\Llm\Chat\Routines(new \Pramnos\Llm\Chat\Conversations(\Pramnos\Llm\Chat\Chat::assistant()));
@@ -395,6 +398,12 @@ tasks has no end), the model has four tools:
 | `update_scheduled_task` | Change one by id: its words, time or cadence, or pause and resume it |
 | `list_scheduled_tasks` | This person's tasks, with when each runs next and any that stopped and why |
 | `cancel_scheduled_task` | Delete one by id |
+| `list_reports` | The shared reports here this person may receive, and whether they do |
+| `subscribe_report`, `unsubscribe_report` | Receive a shared report by id, or stop |
+
+`schedule_task` also makes a report (`kind` `report`), shared with the organisation or the
+installation (`owner`) when the person asks and the policy lets them, and told only when there is
+something new (`notify` `relevant`).
 
 **A duplicate is refused by the tool itself.** A task that already does the same thing (same
 kind, same words or title, same time) comes back as an error that names its id and points to
@@ -433,10 +442,63 @@ method has a default, so an application overrides only what it has:
 | `scope($task)` | The maker, in the organisation and space it was made in |
 | `timezone($task)` | The zone it was made in; a task about a site returns that site's |
 | `stillAllowed($task)` | `true`. An application with organisations checks the maker is still a member: false pauses the task and tells its maker |
-| `audience($task)` | The maker |
-| `link($task, $run)` | The conversation |
+| `canManage($scope, $owner)` | `user` always; `organization` inside an organisation at usertype 80 or more; `global` at 90 or more |
+| `canSee($userId, $task)` | Whether a person may read a shared report and subscribe: its maker; for an organisation's, a `member()` of it; and in both cases a usertype no lower than the maker's, because a report runs with the maker's rights |
+| `member($userId, $orgId)` | `true`. An application with organisations answers here |
+| `audience($task)` | The maker, and each subscriber `canSee()` still allows, checked at every run |
+| `resourceLabel($task)` | `''`. What a task is about as people read it ("GeekDom", not "property 42"), for the notification's title and the report's question |
+| `resourceExists($task)` | `true`. False pauses a report and tells its maker, without counting a failure |
+| `link($task, $run)` | A report's run: `chat/report/{run}`. Otherwise the conversation |
 | `onRan($task, $run)` | Nothing. For a Discord or Slack message, or for charging; what it throws is logged |
 | `maxFailures()` | 3 |
+
+#### Shared reports
+
+A report is a task of `kind` `report`. Its `owner` says who may read it:
+
+| `owner` | Readers | Who may make one (default) |
+|---|---|---|
+| `user` | Its maker | Anybody |
+| `organization` | Members of its organisation, by subscription | usertype 80 or more, inside an organisation |
+| `global` | The whole installation, by subscription | usertype 90 or more |
+
+```php
+$tasks->create($scope, ['kind' => 'report', 'owner' => 'organization', 'notify' => 'relevant',
+    'title' => 'Weekly bookings', 'prompt' => 'Bookings this week against last week, by property',
+    'cadence' => 'weekly', 'day' => 1, 'at' => '08:00', 'resource_type' => 'property', 'resource_id' => 42]);
+$tasks->subscribe($userId, $reportId);           // null, or why not
+$tasks->reports($scope);                          // the shared reports here, with `subscribed` and `latest_run`
+```
+
+**How a report runs.** `Conversations::report()` asks once, as its maker, and keeps nothing as a
+conversation:
+
+- The assistant's write tools (`Assistant::writes()`), the memory and the scheduling tools are
+  left out. What the maker told the assistant about themselves is not in the prompt either, since
+  others read the result.
+- The run is kept in `ai_task_runs`: content, cost, the model's steps, and who was told.
+- The run is charged once, however many people read it.
+- A failure tells the maker only. Readers get reports, not errors.
+
+**Told only when it matters.** With `notify` `relevant`, the model decides through a
+`report_relevance` tool. It is forced on the round before the last, because a decision asked for
+only in words is one a model forgets. A run that decides there is nothing new tells nobody and is
+still kept. A run with no decision tells everyone, so a report is never silent by omission.
+
+**Who reads it.** Readers are re-checked at every run through `audience()`, so a member who lost
+the right stops receiving it. The default `canSee()` is strict: a reader of lower standing than
+the maker would see what the maker's rights read. An application with roles says here who may
+read, such as the readers of the property the report is about.
+
+**Asking about a report.** A report's notification links to `chat/report/{run}`
+(`ChatPageController::report()`, or `POST …/runs/{id}/continue`). That opens the run as a
+conversation of the reader's own, holding the report, through `Routines::continueRun($viewer,
+$runId)`. What they ask next runs with their own rights, not the maker's. Opening the same run
+again continues the same conversation while it exists (kept per reader in the run's
+`extra.opened`).
+
+**Personal data.** `Routines::forUser($userId)` answers what is kept about a person: the tasks
+they made, everywhere, and the reports they read.
 
 **When a member leaves.** `ownedBy($orgId, $userId)` lists what a person has in an organisation:
 their tasks, and the shared tasks they read. `transfer($orgId, $from, $to, $only = null)` hands
@@ -496,6 +558,10 @@ One line in the application's API routes mounts every endpoint:
 | `GET /chat/asks/{id}` | a queued question: `waiting`, `answered` with its `conversation_id`, or `failed` with `says` |
 | `GET /chat/memory`, `DELETE /chat/memory/{id}` | what it remembers; forget one |
 | `GET`/`POST /chat/routines`, `PUT`/`DELETE /chat/routines/{id}`, `POST /chat/routines/{id}/run` | scheduled questions, with the templates and cadences; `active` in a `PUT` pauses or resumes |
+| `GET /chat/routines/{id}/runs?limit=` | a task's runs, newest first: its own, or a shared report the person may read |
+| `GET /chat/runs/{id}`, `POST /chat/runs/{id}/continue` | one run with its task; open it as a conversation of the person's own (`conversation_id`) |
+| `GET /chat/reports` | the shared reports here the person may receive, with `subscribed` and `latest_run` |
+| `POST`/`DELETE /chat/routines/{id}/subscribe` | receive a shared report (`email` in the body), or stop |
 | `GET`/`POST`/`DELETE /chat/consent?feature=` | a feature's provider (`chat` by default), whether it needs agreement and whether it was given; agree; withdraw |
 
 A refusal is `{status, error}`; one for want of agreement adds `consent_required` and `provider`,

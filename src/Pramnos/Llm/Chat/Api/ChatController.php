@@ -27,6 +27,10 @@ use Pramnos\Llm\Providers;
  * | `routinesAnswer($scope, $answer)` | the scheduled-questions list, decorated — a plan's limit |
  * | `scope()`, `conversations()`, `asks()`, `routineService()` | where everything comes from |
  *
+ * Shared reports: `GET routines/{id}/runs`, `GET runs/{id}`, `POST runs/{id}/continue` (a
+ * conversation of the reader's own, seeded with the run), `GET reports`, and
+ * `POST`/`DELETE routines/{id}/subscribe` — each checked by {@see \Pramnos\Llm\Chat\TaskPolicy::canSee()}.
+ *
  * Answers are `['status' => …, 'data' => …]` or `['status' => …, 'error' => …]`.
  */
 class ChatController extends \Pramnos\Application\ApiCrudController
@@ -234,6 +238,104 @@ class ChatController extends \Pramnos\Application\ApiCrudController
         $ran = $this->routineService()->run($found, time());
 
         return $ran['ok'] ? ['status' => 200, 'data' => $ran] : ['status' => 409, 'error' => $ran['says'], 'data' => $ran];
+    }
+
+    /** A task's runs, the newest first — one of this person's, or a shared report they may read. */
+    public function routineRuns($routine_id): array
+    {
+        if (($stop = $this->refusal('routines')) !== null) {
+            return $stop;
+        }
+
+        $task = $this->readable((int) $routine_id);
+
+        return $task === null
+            ? self::error(404, 'There is no such scheduled task.')
+            : ['status' => 200, 'data' => ['task' => $task, 'runs' => $this->routineService()->runs((int) $routine_id, min(100, max(1, (int) ($_GET['limit'] ?? 20))))]];
+    }
+
+    /** One run, with its task — for a reader of the report it belongs to. */
+    public function readRun($run_id): array
+    {
+        if (($stop = $this->refusal('routines')) !== null) {
+            return $stop;
+        }
+
+        $run = $this->routineService()->runById((int) $run_id);
+
+        return $run === null || $this->readable($run['task']['routine_id']) === null
+            ? self::error(404, 'There is no such run.')
+            : ['status' => 200, 'data' => $run];
+    }
+
+    /** Open a run as a conversation of this person's own, to ask about it: `conversation_id`. */
+    public function continueRun($run_id): array
+    {
+        if (($stop = $this->refusal('ask')) !== null) {
+            return $stop;
+        }
+
+        $scope = $this->scope();
+        $id    = $scope === null ? null : $this->routineService()->continueRun($scope, (int) $run_id);
+
+        return $id === null ? self::error(404, 'There is no such run.') : ['status' => 200, 'data' => ['conversation_id' => $id]];
+    }
+
+    /** The shared reports this person may receive here, and whether they do. */
+    public function reports(): array
+    {
+        if (($stop = $this->refusal('routines')) !== null) {
+            return $stop;
+        }
+
+        $scope = $this->scope();
+
+        return ['status' => 200, 'data' => ['reports' => $scope === null ? [] : $this->routineService()->reports($scope)]];
+    }
+
+    /** Receive a shared report — `email` too, if the application sends it. */
+    public function subscribe($routine_id): array
+    {
+        if (($stop = $this->refusal('routines')) !== null) {
+            return $stop;
+        }
+
+        $scope = $this->scope();
+        $why   = $scope === null ? 'This needs somebody signed in.'
+            : $this->routineService()->subscribe($scope->userId, (int) $routine_id, filter_var($this->input()['email'] ?? false, FILTER_VALIDATE_BOOLEAN));
+
+        return $why === null ? ['status' => 200, 'data' => ['subscribed' => true]] : self::error(404, $why);
+    }
+
+    /** Stop receiving a shared report. */
+    public function unsubscribe($routine_id): array
+    {
+        if (($stop = $this->refusal('routines')) !== null) {
+            return $stop;
+        }
+
+        $scope = $this->scope();
+
+        return $scope !== null && $this->routineService()->unsubscribe($scope->userId, (int) $routine_id)
+            ? ['status' => 200, 'data' => ['subscribed' => false]]
+            : self::error(404, 'You do not receive it.');
+    }
+
+    /**
+     * A task this person may read: theirs here, or a shared one the policy lets them see.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function readable(int $routineId): ?array
+    {
+        $scope = $this->scope();
+        if ($scope === null) {
+            return null;
+        }
+        $service = $this->routineService();
+        $task    = $service->find($scope, $routineId) ?? $service->byId($routineId);
+
+        return $task !== null && $service->policy()->canSee($scope->userId, $task) ? $task : null;
     }
 
     /**

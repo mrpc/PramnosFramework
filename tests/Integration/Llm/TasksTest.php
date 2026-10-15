@@ -379,7 +379,7 @@ class TasksTest extends LlmTestCase
 
         // Act & Assert
         $this->assertSame('There is no such task.', $tasks->update($scope, 999999, ['title' => 'x']));
-        $this->assertStringStartsWith('How often', $tasks->update($scope, $made['routine_id'], ['cadence' => 'hourly']));
+        $this->assertStringStartsWith('There is no such cadence', $tasks->update($scope, $made['routine_id'], ['cadence' => 'hourly']));
         $this->assertSame('The time is HH:MM, for example 08:00.', $tasks->update($scope, $made['routine_id'], ['at' => '25:00']));
         $this->assertSame('That time has passed: give one still to come.', $tasks->update($scope, $made['routine_id'], ['cadence' => 'once', 'run_at' => '2001-01-01 10:00', 'active' => true]));
         $this->assertSame('Not on this plan.', $this->tasks(new NoRoutines())->update($scope, $made['routine_id'], ['active' => true]));

@@ -99,25 +99,122 @@ class TaskPolicy
     }
 
     /**
-     * Who is told about a run. The maker, by default.
+     * Whether a person may make a task with this owner: their own (`user`) always; one their
+     * organisation shares (`organization`) at the administration level, inside an organisation;
+     * one for the whole installation (`global`) only as one of its administrators.
+     */
+    public function canManage(Scope $scope, string $owner): bool
+    {
+        if ($owner === Routines::OWNER_USER) {
+            return true;
+        }
+        $type = $this->usertype($scope->userId);
+
+        return $owner === Routines::OWNER_ORGANIZATION
+            ? $scope->organizationId !== null && $type >= 80
+            : $owner === Routines::OWNER_GLOBAL && $type >= 90;
+    }
+
+    /**
+     * Whether a person may read a shared task's runs, and so subscribe to it.
+     *
+     * A report runs with its maker's rights ({@see scope()}), so whoever reads it sees what they
+     * see. By default, then, strictly: a member of its organisation ({@see member()}) of the
+     * maker's standing or more. One person's task is theirs alone. An application with roles says
+     * here who may — the readers of the site the report is about, say.
+     *
+     * @param array<string, mixed> $task
+     */
+    public function canSee(int $userId, array $task): bool
+    {
+        if ((int) $task['userid'] === $userId) {
+            return true;
+        }
+        if (($task['owner'] ?? Routines::OWNER_USER) === Routines::OWNER_USER) {
+            return false;
+        }
+        if (($task['owner'] ?? '') === Routines::OWNER_ORGANIZATION && !$this->member($userId, $task['organization_id'])) {
+            return false;
+        }
+
+        return $this->usertype($userId) >= $this->usertype((int) $task['userid']);
+    }
+
+    /**
+     * Whether a person belongs to an organisation. True by default — the framework does not know
+     * an application's memberships — so an application with organisations answers here.
+     */
+    public function member(int $userId, ?int $organizationId): bool
+    {
+        return true;
+    }
+
+    /**
+     * Who is told about a run: its maker, and for a shared report each subscriber who may still
+     * read it — checked at every run, so a reader who lost the right stops receiving it.
      *
      * @param array<string, mixed> $task
      * @return list<int>
      */
     public function audience(array $task): array
     {
-        return [(int) $task['userid']];
+        $audience = [(int) $task['userid']];
+        foreach ($task['subscribers'] ?? [] as $userId) {
+            if (!in_array((int) $userId, $audience, true) && $this->canSee((int) $userId, $task)) {
+                $audience[] = (int) $userId;
+            }
+        }
+
+        return $audience;
     }
 
     /**
-     * Where a run's notification leads: the conversation it went into, or the one it was set in.
+     * What a task is about, as people read it — "GeekDom" rather than "property 42" — for a
+     * notification's title and a screen. '' when it is about nothing in particular.
+     *
+     * @param array<string, mixed> $task
+     */
+    public function resourceLabel(array $task): string
+    {
+        return '';
+    }
+
+    /**
+     * Whether what a task is about still exists. False pauses it and tells its maker, rather
+     * than failing at every run; true by default.
+     *
+     * @param array<string, mixed> $task
+     */
+    public function resourceExists(array $task): bool
+    {
+        return true;
+    }
+
+    /**
+     * Where a run's notification leads: a report's run, opened as a conversation of the reader's
+     * own; otherwise the conversation it went into, or the one it was set in.
      *
      * @param array<string, mixed> $task
      * @param array<string, mixed> $run  As {@see Routines::runs()} answers
      */
     public function link(array $task, array $run): string
     {
+        if (($task['kind'] ?? '') === Routines::REPORT && !empty($run['run_id'])) {
+            return \Pramnos\Http\SiteUrl::to('chat/report/' . (int) $run['run_id']);
+        }
+
         return $this->assistant->conversationUrl($run['conversation_id'] ?? $task['conversation_id'] ?? null);
+    }
+
+    /** A person's usertype, 0 for nobody. */
+    protected function usertype(int $userId): int
+    {
+        if ($userId <= 1) {
+            return 0;
+        }
+        $user = new \Pramnos\User\User($userId);
+
+        return (int) ($user->userid ?? 0) === $userId ? (int) ($user->usertype ?? 0) : 0;
     }
 
     /**

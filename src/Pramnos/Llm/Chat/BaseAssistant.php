@@ -45,7 +45,7 @@ class BaseAssistant implements Assistant
 
     public function writes(): array
     {
-        return ['remember', 'forget', 'schedule_task', 'update_scheduled_task', 'cancel_scheduled_task'];
+        return ['remember', 'forget', 'schedule_task', 'update_scheduled_task', 'cancel_scheduled_task', 'subscribe_report', 'unsubscribe_report'];
     }
 
     public function question(Turn $turn, string $question): string

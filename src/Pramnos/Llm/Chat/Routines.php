@@ -29,8 +29,23 @@ class Routines
     /** A reminder in its owner's words: no model is asked. */
     public const REMINDER = 'reminder';
 
+    /** A report: asked headless with read-only tools, recorded, and sent to its readers. */
+    public const REPORT = 'report';
+
     /** What a task may be. */
-    public const KINDS = [self::ASK, self::REMINDER];
+    public const KINDS = [self::ASK, self::REMINDER, self::REPORT];
+
+    /** One person's task. */
+    public const OWNER_USER = 'user';
+
+    /** A report an organisation shares: its members may subscribe. */
+    public const OWNER_ORGANIZATION = 'organization';
+
+    /** A report for the whole installation. */
+    public const OWNER_GLOBAL = 'global';
+
+    /** Whose a task may be. */
+    public const OWNERS = [self::OWNER_USER, self::OWNER_ORGANIZATION, self::OWNER_GLOBAL];
 
     /** The queue task a claimed run is handed to — {@see TaskRunTask}. */
     public const TASK = 'ai_task_run';
@@ -96,7 +111,15 @@ class Routines
     {
         $kind = (string) ($wanted['kind'] ?? self::ASK);
         if (!in_array($kind, self::KINDS, true)) {
-            return 'A task is a question asked again (ask) or a reminder (reminder).';
+            return 'A task is a question asked again (ask), a reminder (reminder) or a report (report).';
+        }
+
+        $owner = (string) ($wanted['owner'] ?? self::OWNER_USER);
+        if (!in_array($owner, self::OWNERS, true) || ($owner !== self::OWNER_USER && $kind !== self::REPORT)) {
+            return 'Only a report is shared: owner is user, or organization or global for a report.';
+        }
+        if (!$this->policy()->canManage($scope, $owner)) {
+            return 'You may not make a report for the whole ' . ($owner === self::OWNER_GLOBAL ? 'installation' : 'organisation') . '.';
         }
 
         if (($why = $this->policy()->refusal($scope, $kind, true)) !== null) {
@@ -116,7 +139,7 @@ class Routines
         }
 
         if (!in_array($cadence, self::CADENCES, true)) {
-            return 'How often: once, daily, weekly, monthly, or monthly_weekday (the 2nd Tuesday, the last Friday).';
+            return 'There is no such cadence. How often: daily, weekly, monthly, monthly_weekday (the 2nd Tuesday, the last Friday) or once.';
         }
 
         $schedule = self::schedule($cadence, (string) ($wanted['at'] ?? '08:00'), $wanted['day'] ?? null, (string) ($wanted['timezone'] ?? ''), $wanted);
@@ -136,14 +159,16 @@ class Routines
             'prompt'      => $prompt,
             'template'    => $base === null ? null : $template,
             'kind'        => $kind,
-            'owner'       => 'user',
+            'owner'       => $owner,
             'cadence'     => $cadence,
             'at'          => $schedule['at'],
             'day'         => $schedule['day'],
             'nth'         => $schedule['nth'],
             'run_at'      => $schedule['run_at'] === null ? null : CallLog::instant($schedule['run_at']),
             'timezone'    => $schedule['timezone'],
-            'notify'      => 'always',
+            'notify'      => ($wanted['notify'] ?? '') === 'relevant' ? 'relevant' : 'always',
+            'resource_type' => isset($wanted['resource_type']) && $wanted['resource_type'] !== '' ? mb_substr((string) $wanted['resource_type'], 0, 32) : null,
+            'resource_id' => isset($wanted['resource_id']) && is_numeric($wanted['resource_id']) ? (int) $wanted['resource_id'] : null,
             'conversation_id' => isset($wanted['conversation_id']) ? (int) $wanted['conversation_id'] : null,
             'is_active'   => true,
             'next_run_at' => CallLog::instant($next),
@@ -311,8 +336,26 @@ class Routines
             return ['ok' => false, 'says' => 'Paused: its maker may no longer run it.', 'conversation_id' => $routine['conversation_id']];
         }
 
+        if ($routine['kind'] === self::REPORT && !$policy->resourceExists($routine)) {
+            // What it is about is gone: not a failure to count, but nothing to run on again.
+            $this->pause($routine, 'What it is about no longer exists.');
+            $this->tell($scope->userId, (string) $routine['title'], false, 'It was paused: what it is about no longer exists.', $routine['conversation_id']);
+
+            return ['ok' => false, 'says' => 'Paused: what it is about no longer exists.', 'conversation_id' => $routine['conversation_id']];
+        }
+
         if ($routine['kind'] === self::REMINDER) {
             $answer = ['ok' => true, 'says' => '', 'conversation_id' => $routine['conversation_id'], 'content' => (string) $routine['prompt']];
+        } elseif ($routine['kind'] === self::REPORT) {
+            $chat     = $this->chat->as($scope, true);
+            $day      = (new \DateTimeImmutable('@' . $now))->setTimezone(new \DateTimeZone($timezone))->format('l j F Y');
+            $about    = $policy->resourceLabel($routine);
+            $question = 'Scheduled report "' . $routine['title'] . '"' . ($about !== '' ? ' about ' . $about : '') . ', run on ' . $day
+                . ". It is read by others, not answered: write the report itself, complete on its own.\n\n" . $routine['prompt'];
+            $answer   = ($why = $policy->refusal($scope, self::REPORT)) !== null
+                ? ['ok' => false, 'says' => $why, 'why' => 'limit']
+                : $this->chat->assistant()->acting($scope, static fn (): array => $chat->report($question, ['task' => $routine], $routine['notify'] === 'relevant'));
+            $answer['conversation_id'] = $routine['conversation_id'];
         } else {
             $assistant = $this->chat->assistant();
             $chat      = $this->chat->as($scope, true);
@@ -349,13 +392,26 @@ class Routines
             'updated_at'      => CallLog::instant(time()),
         ]);
 
-        $run = $this->record($routine, $answer, $conversationId, $started);
+        $audience = $policy->audience($routine + ['subscribers' => $this->subscribers((int) $routine['routine_id'])]);
+        if ($routine['kind'] === self::REPORT) {
+            // A failure is its maker's to fix; a report with nothing new, when asked for only
+            // what matters, tells nobody — it is still recorded.
+            $audience = !$ok ? [$scope->userId] : ($routine['notify'] === 'relevant' && ($answer['relevant'] ?? null) === false ? [] : $audience);
+        }
 
-        if ($routine['kind'] === self::REMINDER) {
-            $this->remind($policy->audience($routine), (string) $routine['prompt'], $policy->link($routine, $run));
+        $run = $this->record($routine, $answer, $conversationId, $started, $audience);
+
+        if ($routine['kind'] === self::REPORT) {
+            $title = (string) $routine['title'] . (($label = $policy->resourceLabel($routine)) !== '' ? ' — ' . $label : '');
+            $why   = $ok ? '' : (string) $answer['says'] . ($pause ? ' It was paused after ' . $failures . ' failures in a row; resume it when this is fixed.' : '');
+            foreach ($audience as $userId) {
+                $this->tell($userId, $title, $ok, $why, $conversationId, $ok ? $policy->link($routine, $run) : null);
+            }
+        } elseif ($routine['kind'] === self::REMINDER) {
+            $this->remind($audience, (string) $routine['prompt'], $policy->link($routine, $run));
         } else {
             $why = $ok ? '' : (string) $answer['says'] . ($pause ? ' It was paused after ' . $failures . ' failures in a row; resume it when this is fixed.' : '');
-            foreach ($policy->audience($routine) as $userId) {
+            foreach ($audience as $userId) {
                 $this->tell($userId, (string) $routine['title'], $ok, $why, $conversationId);
             }
         }
@@ -376,16 +432,22 @@ class Routines
      * @param array<string, mixed> $answer
      * @return array<string, mixed>
      */
-    private function record(array $routine, array $answer, ?int $conversationId, int $started): array
+    private function record(array $routine, array $answer, ?int $conversationId, int $started, array $notified = []): array
     {
         $message = is_array($answer['message'] ?? null) ? $answer['message'] : [];
+        $extra   = array_filter([
+            'steps'    => $answer['steps'] ?? [],
+            'relevant' => $answer['relevant'] ?? null,
+            'notified' => $notified,
+        ], static fn ($v): bool => $v !== null && $v !== []);
         $row     = [
             'routine_id'      => (int) $routine['routine_id'],
             'organization_id' => $routine['organization_id'],
             'kind'            => (string) $routine['kind'],
             'status'          => $answer['ok'] ? 'ok' : 'failed',
             'content'         => (string) ($answer['content'] ?? $message['content'] ?? '') ?: null,
-            'cost'            => $message['cost'] ?? null,
+            'cost'            => $answer['cost'] ?? $message['cost'] ?? null,
+            'extra'           => $extra === [] ? null : json_encode($extra, JSON_UNESCAPED_UNICODE),
             'error'           => $answer['ok'] ? null : mb_substr((string) $answer['says'], 0, 500),
             'conversation_id' => $conversationId,
             'due_at'          => $routine['next_run_at'],
@@ -534,19 +596,202 @@ class Routines
         $result = $this->runsTable()->where('routine_id', $routineId)->orderBy('run_id', 'desc')->limit(max(1, $limit))->get();
         $runs   = [];
         while (($row = $result->fetch()) !== null) {
-            $runs[] = [
-                'run_id'          => (int) $row['run_id'],
-                'status'          => (string) $row['status'],
-                'content'         => $row['content'] === null ? null : (string) $row['content'],
-                'cost'            => $row['cost'] === null ? null : (float) $row['cost'],
-                'error'           => $row['error'] === null ? null : (string) $row['error'],
-                'conversation_id' => $row['conversation_id'] === null ? null : (int) $row['conversation_id'],
-                'started_at'      => $row['started_at'] === null ? null : (string) $row['started_at'],
-                'finished_at'     => $row['finished_at'] === null ? null : (string) $row['finished_at'],
-            ];
+            $runs[] = self::runShape($row);
         }
 
         return $runs;
+    }
+
+    /**
+     * One run, with the task it belongs to — null when there is no such run. Whether the person
+     * asking may read it is {@see TaskPolicy::canSee()}'s to say, over `task`.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function runById(int $runId): ?array
+    {
+        $result = $this->runsTable()->where('run_id', $runId)->first();
+        if (!$result || (int) $result->numRows === 0) {
+            return null;
+        }
+        $run  = self::runShape($result->fields);
+        $task = $this->byId((int) $result->fields['routine_id']);
+
+        return $task === null ? null : $run + ['task' => $task];
+    }
+
+    /**
+     * The conversation a reader opened from a run, kept so opening it again continues it — or,
+     * given one, keep it.
+     */
+    public function opened(int $runId, int $userId, ?int $conversationId = null): ?int
+    {
+        $found = $this->runById($runId);
+        if ($found === null) {
+            return null;
+        }
+        $extra = $found['extra'];
+        if ($conversationId === null) {
+            return isset($extra['opened'][(string) $userId]) ? (int) $extra['opened'][(string) $userId] : null;
+        }
+        $extra['opened'][(string) $userId] = $conversationId;
+        $this->runsTable()->where('run_id', $runId)->update(['extra' => json_encode($extra, JSON_UNESCAPED_UNICODE)]);
+
+        return $conversationId;
+    }
+
+    /**
+     * Open a report's run as a conversation of the reader's own, to ask about it — the same one
+     * each time they open it again, while it lasts. Null when there is no such run they may read.
+     *
+     * The conversation is theirs, in their scope: what they ask next runs with their rights, not
+     * the report's maker's.
+     */
+    public function continueRun(Scope $viewer, int $runId): ?int
+    {
+        $found = $this->runById($runId);
+        if ($found === null || $found['status'] !== 'ok' || !$this->policy()->canSee($viewer->userId, $found['task'])) {
+            return null;
+        }
+
+        $chat = $this->chat->as($viewer);
+        $kept = $this->opened($runId, $viewer->userId);
+        if ($kept !== null && $chat->find($kept) !== null) {
+            return $kept;
+        }
+
+        $day  = $found['finished_at'] === null ? '' : ' (' . substr((string) $found['finished_at'], 0, 10) . ')';
+        $made = $chat->seed($found['task']['title'] . $day, [
+            ['role' => 'user', 'content' => 'Report "' . $found['task']['title'] . '"' . $day . ': ' . $found['task']['prompt']],
+            ['role' => 'assistant', 'content' => (string) $found['content']],
+        ]);
+
+        return $made === null ? null : $this->opened($runId, $viewer->userId, $made);
+    }
+
+    /**
+     * Subscribe a person to a shared report — or their own — so each run reaches them. Answers
+     * null, or why not.
+     */
+    public function subscribe(int $userId, int $routineId, bool $email = false): ?string
+    {
+        $task = $this->byId($routineId);
+        if ($task === null || $task['kind'] !== self::REPORT || !$this->policy()->canSee($userId, $task)) {
+            return 'There is no such report you may read.';
+        }
+        if (in_array($userId, $this->subscribers($routineId), true)) {
+            $this->subscriptionsTable()->where('routine_id', $routineId)->where('userid', $userId)->update(['email' => $email]);
+
+            return null;
+        }
+        $this->subscriptionsTable()->insert(['routine_id' => $routineId, 'userid' => $userId, 'email' => $email, 'created_at' => CallLog::instant(time())]);
+
+        return null;
+    }
+
+    /** Stop a person receiving a report. False when they were not subscribed. */
+    public function unsubscribe(int $userId, int $routineId): bool
+    {
+        if (!in_array($userId, $this->subscribers($routineId), true)) {
+            return false;
+        }
+        $this->subscriptionsTable()->where('routine_id', $routineId)->where('userid', $userId)->delete();
+
+        return true;
+    }
+
+    /** @return list<int> Who subscribed to a report — before {@see TaskPolicy::audience()} checks each */
+    public function subscribers(int $routineId): array
+    {
+        try {
+            $result = $this->subscriptionsTable()->select(['userid'])->where('routine_id', $routineId)->orderBy('userid')->get();
+        } catch (\Throwable) {
+            return [];
+        }
+        $ids = [];
+        while (($row = $result->fetch()) !== null) {
+            $ids[] = (int) $row['userid'];
+        }
+
+        return $ids;
+    }
+
+    /**
+     * The shared reports a person may read here — their organisation's and the installation's —
+     * each with `subscribed` and its latest run.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function reports(Scope $scope): array
+    {
+        $result = $this->table()->where('kind', self::REPORT)->where('space', $scope->space)
+            ->whereIn('owner', [self::OWNER_ORGANIZATION, self::OWNER_GLOBAL])->orderBy('routine_id')->get();
+        $found  = [];
+        while (($row = $result->fetch()) !== null) {
+            $found[] = self::shape($row);
+        }
+
+        $list = [];
+        foreach ($found as $task) {
+            $here = $task['owner'] === self::OWNER_GLOBAL || $task['organization_id'] === $scope->organizationId;
+            if ($here && $this->policy()->canSee($scope->userId, $task)) {
+                $list[] = $task + [
+                    'subscribed' => in_array($scope->userId, $this->subscribers($task['routine_id']), true),
+                    'latest_run' => $this->runs($task['routine_id'], 1)[0] ?? null,
+                ];
+            }
+        }
+
+        return $list;
+    }
+
+    /**
+     * Everything kept about one person, for an export: the tasks they made, everywhere, and the
+     * reports they read.
+     *
+     * @return array{tasks: list<array<string, mixed>>, subscriptions: list<int>}
+     */
+    public function forUser(int $userId): array
+    {
+        $result = $this->table()->where('userid', $userId)->orderBy('routine_id')->get();
+        $tasks  = [];
+        while (($row = $result->fetch()) !== null) {
+            $tasks[] = self::shape($row);
+        }
+        $subscriptions = [];
+        try {
+            $subs = $this->subscriptionsTable()->select(['routine_id'])->where('userid', $userId)->orderBy('routine_id')->get();
+            while (($row = $subs->fetch()) !== null) {
+                $subscriptions[] = (int) $row['routine_id'];
+            }
+        } catch (\Throwable $e) {
+            // No subscriptions table yet — `migrate` has not run: there is nothing to export.
+            \Pramnos\Logs\Logger::log('llm task subscriptions not read: ' . $e->getMessage());
+        }
+
+        return ['tasks' => $tasks, 'subscriptions' => $subscriptions];
+    }
+
+    /**
+     * A run as it is answered.
+     *
+     * @param array<string, mixed> $row
+     * @return array<string, mixed>
+     */
+    private static function runShape(array $row): array
+    {
+        return [
+            'run_id'          => (int) $row['run_id'],
+            'routine_id'      => (int) $row['routine_id'],
+            'status'          => (string) $row['status'],
+            'content'         => $row['content'] === null ? null : (string) $row['content'],
+            'cost'            => $row['cost'] === null ? null : (float) $row['cost'],
+            'error'           => $row['error'] === null ? null : (string) $row['error'],
+            'extra'           => is_array($extra = json_decode((string) ($row['extra'] ?? ''), true)) ? $extra : [],
+            'conversation_id' => $row['conversation_id'] === null ? null : (int) $row['conversation_id'],
+            'started_at'      => $row['started_at'] === null ? null : (string) $row['started_at'],
+            'finished_at'     => $row['finished_at'] === null ? null : (string) $row['finished_at'],
+        ];
     }
 
     /**
@@ -659,7 +904,8 @@ class Routines
 
         return [
             'schedule_task' => [
-                'description' => 'Schedule something for this person. kind "ask": a question asked again automatically — "every morning give me '
+                'description' => 'Schedule something for this person. kind "report": a report its readers receive, written without a '
+                    . 'conversation and changing nothing — "every Monday send the team the week\'s figures". kind "ask": a question asked again automatically — "every morning give me '
                     . 'a report", "each Monday summarise last week" — answered into its own conversation, and they are notified. '
                     . 'kind "reminder": "remind me in an hour about X", "on Friday at 9 tell me to call Maria" — they are notified in '
                     . 'their own words, and nothing is asked. A task that already does the same is refused with its id: change that one '
@@ -667,7 +913,10 @@ class Routines
                 'parameters'  => ['type' => 'object', 'properties' => [
                     'kind'   => ['type' => 'string', 'enum' => self::KINDS],
                     'title'  => ['type' => 'string', 'description' => 'A short name, as the person would say it.'],
-                    'prompt' => ['type' => 'string', 'description' => 'ask: the question each time, complete on its own. reminder: what to tell them, in their words.'],
+                    'prompt' => ['type' => 'string', 'description' => 'ask: the question each time, complete on its own. reminder: what to tell them, in their words. report: what the report covers.'],
+                    'owner'  => ['type' => 'string', 'enum' => self::OWNERS, 'description' => 'report only: organization shares it with their organisation, '
+                        . 'global with the installation — only when they ask to share it. Otherwise user.'],
+                    'notify' => ['type' => 'string', 'enum' => ['always', 'relevant'], 'description' => 'report only: relevant tells its readers only when there is something new.'],
                 ] + $when, 'required' => ['title', 'prompt', 'cadence']],
                 'run' => function (array $a) use ($scope, $timezone, $conversationId): string {
                     $same = $this->duplicateOf($scope, $a);
@@ -705,6 +954,24 @@ class Routines
                     static fn (array $r): array => array_intersect_key($r, array_flip(['routine_id', 'kind', 'title', 'cadence', 'at', 'day', 'nth', 'timezone', 'active', 'next_run_local', 'last_error'])),
                     $this->mine($scope)
                 ), JSON_UNESCAPED_UNICODE),
+            ],
+            'list_reports' => [
+                'description' => 'The reports shared here that this person may receive, and whether they already do.',
+                'parameters'  => ['type' => 'object', 'properties' => new \stdClass()],
+                'run'         => fn (): string => (string) json_encode(array_map(
+                    static fn (array $r): array => array_intersect_key($r, array_flip(['routine_id', 'title', 'owner', 'cadence', 'at', 'day', 'next_run_local', 'subscribed'])),
+                    $this->reports($scope)
+                ), JSON_UNESCAPED_UNICODE),
+            ],
+            'subscribe_report' => [
+                'description' => 'Have this person receive a shared report by id, when they ask. List them first to find the id.',
+                'parameters'  => ['type' => 'object', 'properties' => ['routine_id' => ['type' => 'integer']], 'required' => ['routine_id']],
+                'run' => fn (array $a): string => ($why = $this->subscribe($scope->userId, (int) ($a['routine_id'] ?? 0))) === null ? 'Subscribed.' : 'Error: ' . $why,
+            ],
+            'unsubscribe_report' => [
+                'description' => 'Stop this person receiving a shared report by id.',
+                'parameters'  => ['type' => 'object', 'properties' => ['routine_id' => ['type' => 'integer']], 'required' => ['routine_id']],
+                'run' => fn (array $a): string => $this->unsubscribe($scope->userId, (int) ($a['routine_id'] ?? 0)) ? 'Unsubscribed.' : 'Error: they do not receive it.',
             ],
             'cancel_scheduled_task' => [
                 'description' => 'Delete one of this person\'s scheduled tasks or reminders by id, when they ask. List them first to find the id.',
@@ -768,7 +1035,7 @@ class Routines
         if ($scheduling !== []) {
             $cadence = (string) ($changes['cadence'] ?? $found['cadence']);
             if (!in_array($cadence, self::CADENCES, true)) {
-                return 'How often: once, daily, weekly, monthly, or monthly_weekday (the 2nd Tuesday, the last Friday).';
+                return 'There is no such cadence. How often: daily, weekly, monthly, monthly_weekday (the 2nd Tuesday, the last Friday) or once.';
             }
             $zone     = (string) ($changes['timezone'] ?? $found['timezone']);
             $schedule = self::schedule($cadence, (string) ($changes['at'] ?? $found['at']), $changes['day'] ?? $found['day'], $zone,
@@ -877,14 +1144,14 @@ class Routines
     }
 
     /** Tell the owner, by the configured notification. */
-    private function tell(int $userId, string $title, bool $ok, string $says, ?int $conversationId): void
+    private function tell(int $userId, string $title, bool $ok, string $says, ?int $conversationId, ?string $link = null): void
     {
         $chat  = \Pramnos\Llm\Llm::config('chat', []);
         $class = is_array($chat) && is_string($chat['routine_notification'] ?? null) && class_exists($chat['routine_notification'])
             ? $chat['routine_notification'] : RoutineReady::class;
 
         try {
-            $this->deliver($userId, new $class($title, $ok, $ok ? '' : $says, $this->chat->assistant()->conversationUrl($conversationId)));
+            $this->deliver($userId, new $class($title, $ok, $ok ? '' : $says, $link ?? $this->chat->assistant()->conversationUrl($conversationId)));
         } catch (\Throwable $why) {
             // A dead push endpoint must not undo a report that was written.
             \Pramnos\Logs\Logger::log('llm routine notification: ' . $why->getMessage());

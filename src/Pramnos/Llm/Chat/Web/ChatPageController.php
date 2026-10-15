@@ -26,7 +26,7 @@ class ChatPageController extends Controller
 
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
-        $this->addAuthAction(['display', 'ask', 'asked', 'delete', 'forget', 'consent']);
+        $this->addAuthAction(['display', 'ask', 'asked', 'delete', 'forget', 'consent', 'report']);
         // POST with the session's token: each of these spends, or forgets.
         $this->addWriteAction(['ask', 'delete', 'forget', 'consent']);
         parent::__construct($application);
@@ -139,6 +139,25 @@ class ChatPageController extends Controller
         }
 
         $this->redirect($this->pageUrl((int) ($_POST['conversation_id'] ?? 0)));
+
+        return null;
+    }
+
+    /**
+     * `chat/report/{run}` — where a report's notification leads: the run, opened as a
+     * conversation of the reader's own to ask about it, the same one each time. A GET, because a
+     * notification's link is one; opening it again creates nothing new.
+     */
+    public function report(mixed $id = null): mixed
+    {
+        $scope = $this->scope();
+        $runId = (int) ($id ?: \Pramnos\Http\Request::staticGetOption());
+        $made  = $scope === null ? null : (new \Pramnos\Llm\Chat\Routines($this->conversations()))->continueRun($scope, $runId);
+
+        if ($made === null) {
+            $this->addError('There is no such report you may read.');
+        }
+        $this->redirect($this->pageUrl((int) $made));
 
         return null;
     }
