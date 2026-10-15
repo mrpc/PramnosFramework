@@ -1272,10 +1272,12 @@ the theme has to load.
 - **The notification bell.** `Html\NotificationBell::render()` draws the count and the latest
   notifications; `pf-utils.js` provides the behaviour.
 
-### An area with a Tailwind build of its own
+### An area with a build of its own
 
-An administration that compiles its own Tailwind and daisyUI, with a layout of its own, takes
-the framework's component styles from `components.css` and leaves `style.css` alone:
+An administration that compiles its own stylesheet, with a layout of its own, takes the
+framework's component styles from its UI system's `components.css` and leaves `style.css`
+alone. Each of `tailwind`, `bootstrap` and `plain-css` has one, styling the same components;
+a framework test keeps the three in step. With Tailwind and daisyUI:
 
 ```css
 @import "tailwindcss";
@@ -1285,9 +1287,11 @@ the framework's component styles from `components.css` and leaves `style.css` al
 
 `components.css` styles only the framework's `pf-*` hooks. These are the search box, the side
 panel, the notification bell, navigation badges, flash messages, the help button, datatable
-actions, breadcrumbs, pagination and stat tiles. `style.css` imports it and adds the page:
-`html, body` as a flex column, the body's background and the home page's typography, which would
-take over the area's own layout. Imported from `vendor/`, the file follows `composer update`
+actions, breadcrumbs, pagination and stat tiles. `style.css` imports it and adds the page, which
+would take over the area's own layout: the `body` rules and, per theme, the home page's
+typography, the plain theme's header and forms, and the `pf-ui-*` hooks the SPA's shared
+components draw with on `bootstrap` and `plain-css`. Those hooks stay in `style.css` because they
+have to come after the classes they adjust. Imported from `vendor/`, the file follows `composer update`
 with no copy to keep in step.
 
 **daisyUI puts its components in the `utilities` layer.** A rule written in `@layer components`

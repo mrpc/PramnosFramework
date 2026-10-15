@@ -1,0 +1,429 @@
+/*
+ * The styles of the framework's own components, for the plain-css scaffold theme: the search
+ * box, the side panel, the notification bell, navigation badges, flash messages, the help
+ * button, datatable actions, breadcrumbs, pagination and stat tiles.
+ *
+ * No page rules — nothing for `html`, `body`, the layout or the theme's own screens — so an
+ * application with a build of its own imports this file alone and keeps its own layout:
+ *
+ *     @import "../../vendor/mrpc/pramnosframework/scaffolding/themes/plain-css/components.css";
+ *
+ * The scaffolded style.css imports it, from beside it in the web root.
+ */
+
+/* ── Cross-entity search box (Html\SearchBox + data-pf-omnibox) ──────────────
+   Namespaced so it does not collide with a UI framework's own classes, and
+   written with fallbacks so the same block works in all three scaffold themes.
+   The results panel is positioned, not laid out inline: an omnibox that pushes
+   the header taller when results arrive moves the thing you were clicking. */
+.pf-omnibox {
+    position: relative;
+    display: inline-block;
+}
+
+/* One recipe, two users: the omnibox label and a Datatable's caption are both text that
+   must be read and not seen. */
+.pf-omnibox-label,
+.pf-visually-hidden {
+    /* Visually hidden, not display:none — a screen reader must still read it. */
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+.pf-omnibox-input {
+    width: 100%;
+    min-width: 12rem;
+    padding: 0.45rem 0.75rem;
+    font: inherit;
+    color: var(--text-main, #1e293b);
+    background: var(--surface, #fff);
+    border: 1px solid var(--border-color, #d1d5db);
+    border-radius: 0.375rem;
+}
+
+.pf-omnibox-input:focus {
+    outline: 2px solid var(--primary-color, #2563eb);
+    outline-offset: 1px;
+}
+
+.pf-omnibox-results {
+    position: absolute;
+    top: calc(100% + 0.25rem);
+    right: 0;
+    z-index: 60;
+    min-width: 20rem;
+    max-height: 24rem;
+    overflow-y: auto;
+    background: var(--surface, #fff);
+    border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: 0.375rem;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.12);
+}
+
+.pf-omnibox-results[hidden] {
+    /* Explicit, because a `display` rule above would otherwise beat the
+       attribute and leave the panel permanently open. */
+    display: none;
+}
+
+.pf-omnibox-group + .pf-omnibox-group {
+    border-top: 1px solid var(--border-color, #f1f5f9);
+}
+
+.pf-omnibox-group-label {
+    margin: 0;
+    padding: 0.5rem 0.75rem 0.25rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-muted, #64748b);
+}
+
+.pf-omnibox-count {
+    font-weight: 400;
+    text-transform: none;
+    letter-spacing: 0;
+}
+
+/*
+ * The side panel — Ask about the page, and its help — when the theme styles it:
+ * 'assist' => ['styles' => 'theme'] in app.php. Without that key it carries inline styles.
+ */
+.pf-assist { position: fixed; top: 0; right: 0; bottom: 0; z-index: 1080; display: flex; flex-direction: column; width: min(460px, 100vw); font-size: .95rem; background: var(--color-base-100, #fff); color: var(--color-base-content, #111); box-shadow: -4px 0 24px rgba(0,0,0,.25); }
+.pf-assist[hidden] { display: none; }
+.pf-assist-header { display: flex; gap: .5rem; align-items: center; padding: .625rem .75rem; border-bottom: 1px solid rgba(128,128,128,.3); }
+.pf-assist-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pf-assist-button { background: none; border: 1px solid rgba(128,128,128,.3); border-radius: .375rem; padding: .125rem .5rem; color: inherit; cursor: pointer; }
+.pf-assist-tabs { display: flex; gap: .375rem; padding: .5rem .75rem 0; }
+.pf-assist-tab[aria-selected="true"] { font-weight: 600; background: rgba(128,128,128,.18); }
+.pf-assist-pane { flex: 1; overflow: auto; padding: .75rem 1rem; }
+.pf-assist-more { margin-top: 1rem; opacity: .75; }
+
+/* The notification bell — Html\NotificationBell, driven by pf-utils.js. */
+.pf-notify { position: relative; display: inline-block; }
+.pf-notify-toggle { position: relative; display: inline-flex; align-items: center; justify-content: center; background: none; border: 0; color: inherit; cursor: pointer; padding: .375rem; }
+.pf-notify-count { position: absolute; top: 0; right: 0; min-width: 1.1rem; height: 1.1rem; padding: 0 .25rem; border-radius: 999px; font-size: .7rem; font-weight: 700; line-height: 1.1rem; text-align: center; color: #fff; background: var(--color-error, #b91c1c); }
+.pf-notify-count[hidden] { display: none; }
+.pf-notify-panel { position: absolute; right: 0; top: 100%; z-index: 1060; width: 22rem; max-width: calc(100vw - 1rem); max-height: 28rem; overflow: auto; border: 1px solid rgba(128,128,128,.25); border-radius: .5rem; background: var(--color-base-100, #fff); color: var(--color-base-content, #111); box-shadow: 0 10px 24px rgba(0,0,0,.18); }
+.pf-notify-panel[hidden] { display: none; }
+.pf-notify-head { display: flex; align-items: center; justify-content: space-between; gap: .5rem; padding: .625rem .75rem; border-bottom: 1px solid rgba(128,128,128,.25); }
+.pf-notify-read-all { background: none; border: 0; color: inherit; opacity: .75; cursor: pointer; font-size: .85rem; text-decoration: underline; }
+.pf-notify-tabs { display: flex; gap: .25rem; padding: .375rem .5rem; border-bottom: 1px solid rgba(128,128,128,.25); }
+.pf-notify-tab { background: none; border: 0; border-radius: .375rem; padding: .25rem .5rem; color: inherit; cursor: pointer; font-size: .85rem; }
+.pf-notify-tab[aria-selected="true"] { font-weight: 600; background: rgba(128,128,128,.12); }
+.pf-notify-tab-count[hidden] { display: none; }
+.pf-notify-list { list-style: none; margin: 0; padding: 0; }
+.pf-notify-item a { display: block; padding: .5rem .75rem; color: inherit; text-decoration: none; border-bottom: 1px solid rgba(128,128,128,.25); }
+.pf-notify-item a:hover { background: rgba(128,128,128,.12); }
+.pf-notify-item.is-unread a { font-weight: 600; }
+.pf-notify-title, .pf-notify-message, .pf-notify-time { display: block; }
+.pf-notify-message { font-weight: 400; opacity: .85; font-size: .9rem; }
+.pf-notify-time { font-weight: 400; opacity: .6; font-size: .75rem; }
+.pf-notify-empty { margin: 0; padding: 1rem .75rem; opacity: .7; }
+
+/* The unread count beside a navigation label — NavItem::badgeHtml(). */
+.pf-nav-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.25rem;
+    height: 1.25rem;
+    margin-inline-start: .25rem;
+    padding: 0 .35rem;
+    border-radius: 999px;
+    font-size: .75rem;
+    font-weight: 700;
+    line-height: 1;
+    vertical-align: middle;
+    color: #fff;
+    background: var(--color-error, #b91c1c);
+}
+
+/* What addMessage() and addError() flashed before a redirect — Html\Flash, above every screen. */
+.pf-flash {
+    display: grid;
+    gap: .5rem;
+    margin-bottom: 1rem;
+}
+
+.pf-flash-message,
+.pf-flash-error {
+    margin: 0;
+    padding: .75rem 1rem;
+    border-radius: .375rem;
+    border-left: 4px solid currentColor;
+}
+
+.pf-flash-message {
+    color: var(--color-success, #15803d);
+    background: color-mix(in oklab, var(--color-success, #15803d) 12%, transparent);
+}
+
+.pf-flash-error {
+    color: var(--color-error, #b91c1c);
+    background: color-mix(in oklab, var(--color-error, #b91c1c) 12%, transparent);
+}
+
+/* The site's help button as a small, muted question mark — 'help' => ['site' => ['button' => 'icon']]. */
+.pf-help-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    border-radius: 50%;
+    font-weight: 600;
+    line-height: 1;
+    text-decoration: none;
+    color: inherit;
+    opacity: .6;
+}
+
+.pf-help-icon:hover,
+.pf-help-icon:focus-visible {
+    opacity: 1;
+}
+
+.pf-omnibox-option {
+    display: block;
+    padding: 0.5rem 0.75rem;
+    color: var(--text-main, #1e293b);
+    text-decoration: none;
+    cursor: pointer;
+}
+
+.pf-omnibox-option:hover,
+.pf-omnibox-option.is-active {
+    background: var(--bg-subtle, #f1f5f9);
+}
+
+.pf-omnibox-title {
+    display: block;
+    font-weight: 500;
+}
+
+.pf-omnibox-subtitle {
+    display: block;
+    font-size: 0.8125rem;
+    color: var(--text-muted, #64748b);
+}
+
+.pf-omnibox-empty,
+.pf-omnibox-loading {
+    margin: 0;
+    padding: 0.75rem;
+    font-size: 0.875rem;
+    color: var(--text-muted, #64748b);
+}
+
+/*
+ * Datatable row actions, column filters and state pills.
+ *
+ * The markup comes from the framework — `Html\Icon` and `Html\Datatable` render it into
+ * the JSON a table inserts — so the classes have to be styled by the theme rather than
+ * carried as inline styles: a project whose CSP has no `'unsafe-inline'` for styles would
+ * strip those, and the actions would be unreadable in exactly the strictest deployments.
+ *
+ * Two of these exist because a CSS reset removed something. A modern CSS reset sets
+ * `svg { display: block }`, which made a row of icons stack one per line; and a bare
+ * `<input>` has no border, no padding and no background, which made a column filter a box
+ * that was there and invisible.
+ */
+.pf-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.75rem;
+    height: 1.75rem;
+    border-radius: 0.375rem;
+    color: inherit;
+    opacity: 0.7;
+    transition: opacity 0.15s, background-color 0.15s, color 0.15s;
+}
+
+.pf-action:hover,
+.pf-action:focus-visible {
+    opacity: 1;
+    background-color: color-mix(in oklab, currentColor 12%, transparent);
+}
+
+.pf-action + .pf-action {
+    margin-inline-start: 0.125rem;
+}
+
+.pf-action-danger:hover,
+.pf-action-danger:focus-visible {
+    color: #dc2626;
+}
+
+.pf-icon {
+    display: inline-block;
+    width: 1.05em;
+    height: 1.05em;
+}
+
+.pf-footsearch {
+    width: 100%;
+    min-width: 6rem;
+    padding: 0.25rem 0.5rem;
+    font-size: 0.8125rem;
+    font-weight: 400;
+    border: 1px solid #d4d4d8;
+    border-radius: 0.375rem;
+    background-color: #fff;
+    color: inherit;
+}
+
+.pf-footsearch:focus {
+    outline: 2px solid #2563eb;
+    outline-offset: -1px;
+}
+
+.pf-state {
+    display: inline-block;
+    padding: 0.0625rem 0.5rem;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    line-height: 1.4;
+}
+
+.pf-state-on {
+    background-color: color-mix(in oklab, #16a34a 15%, transparent);
+    color: #16a34a;
+}
+
+.pf-state-off {
+    background-color: color-mix(in oklab, currentColor 10%, transparent);
+    opacity: 0.7;
+}
+
+.pf-muted {
+    opacity: 0.55;
+    font-size: 0.8125rem;
+}
+
+/* The two components that used to emit no themeable hook at all.
+   `Breadcrumb` emitted Bootstrap's own `breadcrumb`, which read as neutral and was not;
+   `Pagination` emitted no class, so nothing here could reach it. Both are `pf-*` now, the
+   same convention the omnibox and the rest already use — and written in the same tokens,
+   so a palette change in app/themes/theme.css reaches them like everything else. */
+.pf-breadcrumb {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    list-style: none;
+    margin: 0 0 1rem;
+    padding: 0;
+    font-size: 0.875rem;
+    color: var(--text-muted, #64748b);
+}
+
+.pf-breadcrumb a {
+    color: var(--primary-color, #2563eb);
+}
+
+.pf-breadcrumb li + li::before {
+    content: "/";
+    padding-right: 0.5rem;
+    color: var(--text-muted, #64748b);
+}
+
+.pf-pagination {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    align-items: center;
+}
+
+.pf-pagination a,
+.pf-pagination span {
+    padding: 0.375rem 0.75rem;
+    border: 1px solid var(--border-color, #cbd5e1);
+    border-radius: 0.25rem;
+    text-decoration: none;
+    color: var(--text-main, #1e293b);
+    background: var(--surface, #fff);
+    /* Large enough to hit on a touch screen: WCAG 2.5.8 asks for 24px, and a pager is
+       the control people tap most often on a phone. */
+    min-width: 2.25rem;
+    text-align: center;
+}
+
+.pf-pagination a:hover {
+    border-color: var(--primary-color, #2563eb);
+    color: var(--primary-color, #2563eb);
+}
+
+.pf-pagination .current,
+.pf-pagination [aria-current="page"] {
+    background: var(--primary-color, #2563eb);
+    border-color: var(--primary-color, #2563eb);
+    color: var(--surface, #fff);
+    font-weight: 600;
+    /* Not colour alone: WCAG 1.4.1. The weight carries it where colour cannot. */
+    text-decoration: underline;
+}
+
+/* Stat tiles — Pramnos\Html\StatTile. A figure with a label, the tile every dashboard draws.
+   Tabular digits so a number that changes does not shift its neighbours; the state is a left
+   border, so it reads without colour too (the data-state is on the element for scripts). */
+.pf-stat-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr));
+    gap: 0.75rem;
+    margin: 0 0 1rem;
+}
+.pf-stat-tile {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    padding: 0.875rem 1rem;
+    background: var(--surface, #fff);
+    color: var(--text-main, #1e293b);
+    border: 1px solid color-mix(in oklab, var(--text-main, #1e293b) 15%, transparent);
+    border-left-width: 4px;
+    border-radius: 0.5rem;
+    text-decoration: none;
+}
+a.pf-stat-tile:hover { border-color: var(--primary-color, #2563eb); }
+.pf-stat-tile__label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    opacity: 0.65;
+}
+.pf-stat-tile__value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.2;
+}
+.pf-stat-tile__note { font-size: 0.8125rem; opacity: 0.65; }
+.pf-stat-tile__progress { width: 100%; height: 0.5rem; accent-color: var(--primary-color, #2563eb); }
+.pf-stat-tile--good { border-left-color: #16a34a; }
+.pf-stat-tile--good .pf-stat-tile__progress { accent-color: #16a34a; }
+.pf-stat-tile--warning { border-left-color: #d97706; }
+.pf-stat-tile--critical { border-left-color: #dc2626; }
+
+@media (max-width: 639px) {
+    /* A 12rem search box and a 20rem panel anchored to its right edge are wider
+       than what is left of a 390px header: the input shrinks, and the results
+       span the screen instead of hanging off its left side. */
+    .pf-omnibox-input { min-width: 7rem; }
+    .pf-omnibox-results {
+        position: fixed;
+        top: 4rem;
+        left: 0.5rem;
+        right: 0.5rem;
+        min-width: 0;
+    }
+}

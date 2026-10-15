@@ -11,7 +11,7 @@
 /* The framework's components — the search box, the bell, flash messages, tiles, … — in a file of
    their own, so an application with its own Tailwind build can import them without these page
    rules. Before every rule, as CSS requires of an @import. */
-@import url("components.css");
+@import "components.css";
 
 html, body {
     min-height: 100vh;

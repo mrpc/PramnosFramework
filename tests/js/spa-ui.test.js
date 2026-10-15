@@ -121,13 +121,15 @@ test('every pf-* hook a map uses is styled by that system\'s stylesheet', async 
     let checked = 0;
 
     for (const system of ['bootstrap', 'plain-css']) {
-        const css = fs.readFileSync(path.join(__dirname, '..', '..', 'scaffolding', 'themes', system, 'style.css'), 'utf8');
+        // As served: style.css and the components.css it imports.
+        const dir = path.join(__dirname, '..', '..', 'scaffolding', 'themes', system);
+        const css = ['style.css', 'components.css'].map((f) => fs.readFileSync(path.join(dir, f), 'utf8')).join('\n');
         const hooks = new Set(Object.values(MAPS[system]).flatMap((classes) => classes.split(/\s+/)).filter((c) => c.startsWith('pf-')));
 
         // Assert
         for (const hook of hooks) {
             checked++;
-            assert.match(css, new RegExp('\\.' + hook.replace(/[-]/g, '\\-') + '[\\s,{:.]'), `${system}: .${hook} has no rule in its style.css`);
+            assert.match(css, new RegExp('\\.' + hook.replace(/[-]/g, '\\-') + '[\\s,{:.]'), `${system}: .${hook} has no rule in its stylesheet`);
         }
     }
     assert.ok(checked > 40, 'the sweep found the hooks');
