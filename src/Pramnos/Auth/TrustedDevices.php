@@ -86,7 +86,7 @@ class TrustedDevices
         }
 
         if ((string) Settings::getSetting(self::EXCLUDE_ADMINS_SETTING, '0') === '1'
-            && $this->usertypeOf($userId) >= self::ADMIN_USERTYPE
+            && $this->usertypeOf($userId) >= \Pramnos\User\Roles::level(\Pramnos\User\Roles::ADMIN)
         ) {
             return false;
         }

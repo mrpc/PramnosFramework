@@ -358,7 +358,7 @@ final class UserTypes
         $floors['admin.area'] = $area > 0 ? $area : \Pramnos\Auth\AdminAccess::defaultUsertype();
 
         $devpanel = is_array($info) ? (int) ($info['devpanel']['min_usertype'] ?? 0) : 0;
-        $floors['devpanel'] = $devpanel > 0 ? $devpanel : 90;
+        $floors['devpanel'] = $devpanel > 0 ? $devpanel : Roles::level(Roles::DEVELOPER);
 
         return $floors;
     }

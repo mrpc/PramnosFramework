@@ -23,7 +23,7 @@ use Pramnos\Application\Controller;
  *   - clear()      — bulk-delete jobs by status (POST: status filter required)
  *   - stats()      — JSON: counts by status, throughput, avg processing time
  *
- * All actions require authentication + usertype >= 80.
+ * All actions require authentication the administration floor (the `super` role, 98, unless set).
  *
  * Scaffold wrappers at `src/Controllers/Queue.php` (queue feature only).
  *
@@ -36,8 +36,8 @@ class QueueController extends Controller
     /** One record of this screen, for the side panel: see Controller::$assistSubject. */
     protected string $assistSubject = 'queue task';
 
-    /** Minimum usertype to access any queue action. */
-    protected int $requiredUserType = 80;
+    /** The usertype floor; 0 is the administration area's — {@see \Pramnos\Auth\AdminAccess::defaultUsertype()}, the `super` role unless set. */
+    protected int $requiredUserType = 0;
 
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
@@ -55,7 +55,7 @@ class QueueController extends Controller
      */
     public function display(): mixed
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return null;
         }
 
@@ -94,7 +94,7 @@ class QueueController extends Controller
      */
     public function retry(mixed $id = null): void
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return;
         }
 
@@ -127,7 +127,7 @@ class QueueController extends Controller
      */
     public function retryall(): void
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return;
         }
 
@@ -152,7 +152,7 @@ class QueueController extends Controller
      */
     public function delete(mixed $id = null): void
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return;
         }
 
@@ -180,7 +180,7 @@ class QueueController extends Controller
      */
     public function clear(): void
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return;
         }
 
@@ -214,7 +214,7 @@ class QueueController extends Controller
      */
     public function stats(): void
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return;
         }
 

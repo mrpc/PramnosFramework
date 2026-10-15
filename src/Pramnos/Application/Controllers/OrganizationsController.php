@@ -24,7 +24,7 @@ use Pramnos\Html\Icon;
  *   - addmember($orgId)           — POST: assign a user to an organization
  *   - removemember($orgId, $userId) — remove a user from an organization
  *
- * All actions require authentication + usertype >= 80.
+ * All actions require authentication the administration floor (the `super` role, 98, unless set).
  *
  * Scaffold wrappers at `src/Controllers/Organizations.php`.
  *
@@ -37,8 +37,8 @@ class OrganizationsController extends Controller
     /** One record of this screen, for the side panel: see Controller::$assistSubject. */
     protected string $assistSubject = 'organization';
 
-    /** Minimum usertype to access any organizations action. */
-    protected int $requiredUserType = 80;
+    /** The usertype floor; 0 is the administration area's — {@see \Pramnos\Auth\AdminAccess::defaultUsertype()}, the `super` role unless set. */
+    protected int $requiredUserType = 0;
 
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
@@ -58,7 +58,7 @@ class OrganizationsController extends Controller
      */
     public function display(): mixed
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return null;
         }
 
@@ -104,7 +104,7 @@ class OrganizationsController extends Controller
      */
     public function data(): mixed
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return null;
         }
         \Pramnos\Framework\Factory::getDocument('json');
@@ -163,7 +163,7 @@ class OrganizationsController extends Controller
      */
     public function view(mixed $id = null): mixed
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return null;
         }
 
@@ -220,7 +220,7 @@ class OrganizationsController extends Controller
 
     public function edit(mixed $id = null): mixed
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return null;
         }
 
@@ -256,7 +256,7 @@ class OrganizationsController extends Controller
      */
     public function save(): void
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return;
         }
 
@@ -327,7 +327,7 @@ class OrganizationsController extends Controller
      */
     public function delete(mixed $id = null): void
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return;
         }
 
@@ -354,7 +354,7 @@ class OrganizationsController extends Controller
      */
     public function members(mixed $id = null): mixed
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return null;
         }
 
@@ -414,7 +414,7 @@ class OrganizationsController extends Controller
      */
     public function addmember(mixed $orgId = null): void
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return;
         }
 
@@ -463,7 +463,7 @@ class OrganizationsController extends Controller
      */
     public function removemember(mixed $orgId = null, mixed $userId = null): void
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return;
         }
 

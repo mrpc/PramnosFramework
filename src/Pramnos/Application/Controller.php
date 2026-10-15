@@ -1023,7 +1023,9 @@ class Controller extends \Pramnos\Framework\Base
      */
     protected function adminFloor(): int
     {
-        return property_exists($this, 'requiredUserType')
+        // 0 is "the administration floor", never "anybody": a screen that leaves it unset, or
+        // an application that set it to 0, is not opened to every account.
+        return property_exists($this, 'requiredUserType') && (int) $this->requiredUserType > 0
             ? (int) $this->requiredUserType
             : \Pramnos\Auth\AdminAccess::defaultUsertype();
     }

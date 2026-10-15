@@ -16,13 +16,13 @@ use Pramnos\Application\Controller;
  * This is the single controller for all token management. It serves two tiers:
  *
  *   Global (cross-user) — the OAuth/authserver admin view. Sensitive because it
- *   exposes every user's tokens at once, so it requires usertype >= 90:
+ *   exposes every user's tokens at once, so it requires the administration floor:
  *     - display()    — paginated list of active tokens (with user and app info)
  *     - revoke($id)  — revoke a single token by tokenid
  *     - revokeall()  — POST: bulk revoke by filters (userid and/or applicationid)
  *
  *   Per-user — token management for one user, part of the base `auth` User
- *   admin, so it requires only usertype >= 80 (same tier as the Users admin):
+ *   admin, so outside the area it requires only the `manager` role:
  *     - userid($id)     — all tokens for one user (any status) with management actions
  *     - deactivate()    — POST: set a user's token to inactive (status=0)
  *     - delete()        — POST: soft-delete a user's token (status=2)
@@ -41,11 +41,11 @@ class TokensController extends Controller
     /** One record of this screen, for the side panel: see Controller::$assistSubject. */
     protected string $assistSubject = 'token';
 
-    /** Minimum usertype for the global, cross-user token views (display/revoke). */
-    protected int $requiredUserType = 90;
+    /** The usertype floor; 0 is the administration area's — {@see \Pramnos\Auth\AdminAccess::defaultUsertype()}, the `super` role unless set. */
+    protected int $requiredUserType = 0;
 
     /** Minimum usertype for per-user token management (userid/deactivate/delete). */
-    protected int $perUserUserType = 80;
+    protected int $perUserUserType = 0;
 
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
@@ -67,7 +67,7 @@ class TokensController extends Controller
      */
     public function display(): mixed
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return null;
         }
 
@@ -124,7 +124,7 @@ class TokensController extends Controller
      */
     public function view(mixed $id = null): mixed
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return null;
         }
 
@@ -183,7 +183,7 @@ class TokensController extends Controller
      */
     public function revoke(mixed $id = null): void
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return;
         }
 
@@ -220,7 +220,7 @@ class TokensController extends Controller
      */
     public function revokeall(): void
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return;
         }
 
@@ -252,7 +252,7 @@ class TokensController extends Controller
         $this->redirect(adminUrl('tokens'));
     }
 
-    // ── Per-user token management (base auth tier, usertype >= 80) ──────────────
+    // ── Per-user token management (the `manager` role) ──────────────
 
     /**
      * List every token (any status) belonging to a single user, with per-token
@@ -262,7 +262,7 @@ class TokensController extends Controller
      */
     public function userid(mixed $id = null): mixed
     {
-        if ($this->requireMinUserType($this->perUserUserType)) {
+        if ($this->requireMinUserType($this->perUserUserType ?: \Pramnos\User\Roles::level(\Pramnos\User\Roles::MANAGER))) {
             return null;
         }
         // The id here is a user's, not a token's.
@@ -319,7 +319,7 @@ class TokensController extends Controller
      */
     private function tokenStatusAction(string $method): void
     {
-        if ($this->requireMinUserType($this->perUserUserType)) {
+        if ($this->requireMinUserType($this->perUserUserType ?: \Pramnos\User\Roles::level(\Pramnos\User\Roles::MANAGER))) {
             return;
         }
 

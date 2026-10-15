@@ -20,7 +20,7 @@ use Pramnos\Html\Icon;
  *   - show($id)   — HTML preview of email content (body rendered in iframe)
  *   - resend($id) — re-queue a failed email for re-delivery
  *
- * All actions require authentication + usertype >= 80.
+ * All actions require authentication the administration floor (the `super` role, 98, unless set).
  *
  * Scaffold wrappers at `src/Controllers/Emails.php` (always scaffolded).
  *
@@ -33,8 +33,8 @@ class EmailsController extends Controller
     /** One record of this screen, for the side panel: see Controller::$assistSubject. */
     protected string $assistSubject = 'email';
 
-    /** Minimum usertype to access any emails action. */
-    protected int $requiredUserType = 80;
+    /** The usertype floor; 0 is the administration area's — {@see \Pramnos\Auth\AdminAccess::defaultUsertype()}, the `super` role unless set. */
+    protected int $requiredUserType = 0;
 
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
@@ -50,7 +50,7 @@ class EmailsController extends Controller
      */
     public function display(): mixed
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return null;
         }
 
@@ -176,7 +176,7 @@ class EmailsController extends Controller
      */
     public function data(): mixed
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return null;
         }
 
@@ -306,7 +306,7 @@ class EmailsController extends Controller
      */
     public function show(mixed $id = null): mixed
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return null;
         }
 
@@ -358,7 +358,7 @@ class EmailsController extends Controller
      */
     public function resend(mixed $id = null): void
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return;
         }
 

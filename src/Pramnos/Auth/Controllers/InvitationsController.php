@@ -24,7 +24,8 @@ class InvitationsController extends Controller
     /** The administration ability that opens this screen — its menu item's id. */
     protected string $adminAbility = 'admin.invitations';
 
-    protected int $requiredUserType = 98;
+    /** The usertype floor; 0 is the administration area's — {@see \Pramnos\Auth\AdminAccess::defaultUsertype()}, the `super` role unless set. */
+    protected int $requiredUserType = 0;
 
     /** Where the link just made waits for the page that shows it. */
     private const FRESH_LINK_KEY = 'invitations_fresh_link';
@@ -37,7 +38,7 @@ class InvitationsController extends Controller
 
     public function display(): mixed
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return null;
         }
 
@@ -60,7 +61,7 @@ class InvitationsController extends Controller
     /** POST: invite an address. */
     public function invite(): void
     {
-        if ($this->requireMinUserType($this->requiredUserType) || !$this->validPost()) {
+        if ($this->requireMinUserType($this->adminFloor()) || !$this->validPost()) {
             return;
         }
 
@@ -101,7 +102,7 @@ class InvitationsController extends Controller
     /** POST: mail a new link for a waiting (or expired) invitation. */
     public function resend(): void
     {
-        if ($this->requireMinUserType($this->requiredUserType) || !$this->validPost()) {
+        if ($this->requireMinUserType($this->adminFloor()) || !$this->validPost()) {
             return;
         }
 
@@ -118,7 +119,7 @@ class InvitationsController extends Controller
     /** POST: withdraw an invitation that was not used. */
     public function revoke(): void
     {
-        if ($this->requireMinUserType($this->requiredUserType) || !$this->validPost()) {
+        if ($this->requireMinUserType($this->adminFloor()) || !$this->validPost()) {
             return;
         }
 

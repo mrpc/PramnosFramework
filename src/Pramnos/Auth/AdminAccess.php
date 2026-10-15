@@ -73,17 +73,17 @@ final class AdminAccess
      */
     public static function defaultUsertype(): int
     {
-        $value = (int) Settings::getSetting(self::DEFAULT_FLOOR_SETTING, self::DEFAULT_FLOOR);
+        $value = (int) Settings::getSetting(self::DEFAULT_FLOOR_SETTING, 0);
 
-        return $value > 0 ? $value : self::DEFAULT_FLOOR;
+        return $value > 0 ? $value : \Pramnos\User\Roles::level(\Pramnos\User\Roles::SUPER);
     }
 
     /** The usertype that opens every screen. */
     public static function superuserUsertype(): int
     {
-        $value = (int) Settings::getSetting(self::SUPERUSER_SETTING, self::DEFAULT_SUPERUSER);
+        $value = (int) Settings::getSetting(self::SUPERUSER_SETTING, 0);
 
-        return $value > 0 ? $value : self::DEFAULT_SUPERUSER;
+        return $value > 0 ? $value : \Pramnos\User\Roles::level(\Pramnos\User\Roles::SUPER);
     }
 
     /**

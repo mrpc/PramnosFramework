@@ -40,8 +40,8 @@ class AiController extends Controller
     /** The administration ability that opens this screen — its menu item's id. */
     protected string $adminAbility = 'admin.ai';
 
-    /** Minimum usertype: these settings spend the installation's money. */
-    protected int $requiredUserType = 90;
+    /** The usertype floor; 0 is the administration area's — {@see \Pramnos\Auth\AdminAccess::defaultUsertype()}, the `super` role unless set. */
+    protected int $requiredUserType = 0;
 
     /** The parts of the screen a form can save. */
     public const SECTIONS = ['general', 'key', 'provider', 'features', 'prices', 'openai'];
@@ -61,7 +61,7 @@ class AiController extends Controller
      */
     public function display(): mixed
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return null;
         }
 
@@ -113,7 +113,7 @@ class AiController extends Controller
      */
     public function settings(): mixed
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return null;
         }
 
@@ -148,7 +148,7 @@ class AiController extends Controller
      */
     public function save(): void
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return;
         }
 
@@ -176,7 +176,7 @@ class AiController extends Controller
      */
     public function check(): void
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return;
         }
 
@@ -207,7 +207,7 @@ class AiController extends Controller
      */
     public function ask(): mixed
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return null;
         }
 
@@ -232,7 +232,7 @@ class AiController extends Controller
     /** A question the analyst is answering, for `pf-chat.js`. */
     public function asked(mixed $id = null): mixed
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return null;
         }
 
@@ -244,7 +244,7 @@ class AiController extends Controller
     /** Forget one analyst conversation. */
     public function delete(mixed $id = null): mixed
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return null;
         }
 
@@ -259,7 +259,7 @@ class AiController extends Controller
     /** Forget one thing the analyst remembers. */
     public function forget(mixed $id = null): mixed
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return null;
         }
 
@@ -274,7 +274,7 @@ class AiController extends Controller
     /** Agree to the analyst's provider, or withdraw — `give` in the form. */
     public function consent(): mixed
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return null;
         }
 
@@ -293,7 +293,7 @@ class AiController extends Controller
      */
     public function api(): mixed
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return null;
         }
 
@@ -312,7 +312,7 @@ class AiController extends Controller
      */
     public function export(mixed $name = null): mixed
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return null;
         }
 
@@ -416,7 +416,7 @@ class AiController extends Controller
      */
     public function call(): mixed
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return null;
         }
 

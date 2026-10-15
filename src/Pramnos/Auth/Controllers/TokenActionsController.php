@@ -19,7 +19,7 @@ use Pramnos\Application\Controller;
  *   - stats()     — JSON: top endpoints, error rate, avg/p95/p99 latency
  *   - export()    — CSV download with applied filters (compliance/auditing)
  *
- * All actions require authentication + usertype >= 80.
+ * All actions require authentication the administration floor (the `super` role, 98, unless set).
  * Write operations (delete/update) are intentionally absent to protect audit integrity.
  *
  * Scaffold wrappers at `src/Controllers/TokenActions.php` (auth feature).
@@ -33,8 +33,8 @@ class TokenActionsController extends Controller
     /** One record of this screen, for the side panel: see Controller::$assistSubject. */
     protected string $assistSubject = 'token action';
 
-    /** Minimum usertype to access any token-actions action. */
-    protected int $requiredUserType = 80;
+    /** The usertype floor; 0 is the administration area's — {@see \Pramnos\Auth\AdminAccess::defaultUsertype()}, the `super` role unless set. */
+    protected int $requiredUserType = 0;
 
     /** Maximum rows returned by the CSV export action. */
     protected int $maxExportRows = 10000;
@@ -54,7 +54,7 @@ class TokenActionsController extends Controller
      */
     public function display(): mixed
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return null;
         }
 
@@ -91,7 +91,7 @@ class TokenActionsController extends Controller
      */
     public function show(mixed $id = null): mixed
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return null;
         }
 
@@ -143,7 +143,7 @@ class TokenActionsController extends Controller
      */
     public function stats(): mixed
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return null;
         }
 
@@ -210,7 +210,7 @@ class TokenActionsController extends Controller
      */
     public function export(): void
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return;
         }
 

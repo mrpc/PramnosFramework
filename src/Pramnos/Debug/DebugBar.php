@@ -363,8 +363,7 @@ HTML;
                 // The panel's own resolution — `app.php` first, then the legacy settings row.
                 // Asked directly here once, which meant this link and the panel itself could
                 // disagree about who may open it: the link appeared, and the panel answered 403.
-                $min = (int) \Pramnos\DevPanel\DevPanelController::config('min_usertype', 90);
-                $minUserType = $min > 0 ? $min : 90;
+                $minUserType = \Pramnos\DevPanel\DevPanelController::developerFloor();
 
                 if ($user === null || (int) ($user->usertype ?? 0) < $minUserType) {
                     return false;

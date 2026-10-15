@@ -64,10 +64,10 @@ abstract class Widget
     /** The card's inside, as HTML. */
     abstract public function render(): string;
 
-    /** Whether this person may have it. Administrators of the dashboard's level, by default. */
+    /** Whether this person may have it. The dashboard's role, `manager`, by default. */
     public function allowed(?object $user): bool
     {
-        return $user !== null && (int) ($user->usertype ?? 0) >= 80;
+        return \Pramnos\User\Roles::atLeast($user, \Pramnos\User\Roles::MANAGER);
     }
 
     /** The width it starts at: {@see HALF} or {@see FULL}. */

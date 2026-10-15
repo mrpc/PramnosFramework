@@ -37,8 +37,8 @@ class UsersController extends Controller
 
     use \Pramnos\Auth\Controllers\AdminScreenGrants;
 
-    /** Minimum usertype required to access this controller. */
-    protected int $requiredUserType = 80;
+    /** The usertype floor; 0 is the administration area's — {@see \Pramnos\Auth\AdminAccess::defaultUsertype()}, the `super` role unless set. */
+    protected int $requiredUserType = 0;
 
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
@@ -84,7 +84,7 @@ class UsersController extends Controller
     {
         $doc = Factory::getDocument();
 
-        $this->requireMinUserType($this->requiredUserType);
+        $this->requireMinUserType($this->adminFloor());
 
         $id = (int) \Pramnos\Http\Request::staticGetOption();
         if ($id < 1) {
@@ -368,7 +368,7 @@ class UsersController extends Controller
      */
     public function types(): mixed
     {
-        $this->requireMinUserType($this->requiredUserType);
+        $this->requireMinUserType($this->adminFloor());
 
         $doc        = Factory::getDocument();
         $doc->title = 'User types';
@@ -402,7 +402,7 @@ class UsersController extends Controller
         $doc = Factory::getDocument();
         $doc->title = 'Users';
 
-        $this->requireMinUserType($this->requiredUserType);
+        $this->requireMinUserType($this->adminFloor());
 
         $dt = new \Pramnos\Html\Datatable('dt-users');
         $dt->source    = adminUrl('users/data');
@@ -480,7 +480,7 @@ class UsersController extends Controller
      */
     public function data(): mixed
     {
-        $this->requireMinUserType($this->requiredUserType);
+        $this->requireMinUserType($this->adminFloor());
         \Pramnos\Framework\Factory::getDocument('json');
 
         $fields = ['userid', 'username', 'email', 'usertype', 'active', 'regdate'];
@@ -550,7 +550,7 @@ class UsersController extends Controller
     {
         $doc = Factory::getDocument();
 
-        $this->requireMinUserType($this->requiredUserType);
+        $this->requireMinUserType($this->adminFloor());
 
         $id    = (int) \Pramnos\Http\Request::staticGetOption();
         $user  = new User();
@@ -609,7 +609,7 @@ class UsersController extends Controller
      */
     public function save(): void
     {
-        $this->requireMinUserType($this->requiredUserType);
+        $this->requireMinUserType($this->adminFloor());
 
         // CSRF validation — token must match the session token.
         $session = \Pramnos\Http\Session::getInstance();
@@ -692,7 +692,7 @@ class UsersController extends Controller
      */
     public function delete(mixed $id = null): void
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return;
         }
 
@@ -714,7 +714,7 @@ class UsersController extends Controller
      */
     public function lock(mixed $id = null): void
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return;
         }
         $id = (int) \Pramnos\Http\Request::staticGetOption();
@@ -731,7 +731,7 @@ class UsersController extends Controller
      */
     public function unlock(mixed $id = null): void
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return;
         }
         $id = (int) \Pramnos\Http\Request::staticGetOption();
@@ -756,7 +756,7 @@ class UsersController extends Controller
      */
     public function signinalerts(mixed $id = null): void
     {
-        $this->requireMinUserType($this->requiredUserType);
+        $this->requireMinUserType($this->adminFloor());
         $id      = (int) \Pramnos\Http\Request::staticGetOption();
         $enabled = (string) \Pramnos\Http\Request::staticGet('enabled', '', 'get') === '1';
 
@@ -915,7 +915,7 @@ class UsersController extends Controller
      */
     public function notify(mixed $id = null): mixed
     {
-        $this->requireMinUserType($this->requiredUserType);
+        $this->requireMinUserType($this->adminFloor());
         $id = (int) \Pramnos\Http\Request::staticGetOption();
 
         $user = new User();
@@ -1080,7 +1080,7 @@ class UsersController extends Controller
      */
     public function sendnotification(mixed $id = null): void
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return;
         }
         $id      = (int) \Pramnos\Http\Request::staticGetOption();
@@ -1262,7 +1262,7 @@ class UsersController extends Controller
      */
     public function savesetting(mixed $id = null): void
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return;
         }
         $id      = (int) \Pramnos\Http\Request::staticGetOption();
@@ -1304,7 +1304,7 @@ class UsersController extends Controller
      */
     public function deletesetting(mixed $id = null): void
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return;
         }
         $id      = (int) \Pramnos\Http\Request::staticGetOption();
@@ -1337,7 +1337,7 @@ class UsersController extends Controller
      */
     public function grantpermission(mixed $id = null): void
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return;
         }
         $id         = (int) \Pramnos\Http\Request::staticGetOption();
@@ -1400,7 +1400,7 @@ class UsersController extends Controller
      */
     public function revokepermission(mixed $id = null): void
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return;
         }
         $id           = (int) \Pramnos\Http\Request::staticGetOption();
@@ -1452,7 +1452,7 @@ class UsersController extends Controller
      */
     public function unlocklogin(mixed $id = null): void
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return;
         }
         $id = (int) \Pramnos\Http\Request::staticGetOption();
@@ -1496,7 +1496,7 @@ class UsersController extends Controller
      */
     public function disabletwofactor(mixed $id = null): void
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return;
         }
         $id = (int) \Pramnos\Http\Request::staticGetOption();
@@ -1535,7 +1535,7 @@ class UsersController extends Controller
      */
     public function revokepasskey(mixed $id = null): void
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return;
         }
         $id           = (int) \Pramnos\Http\Request::staticGetOption();
@@ -1582,7 +1582,7 @@ class UsersController extends Controller
      */
     public function activity(mixed $id = null): mixed
     {
-        $this->requireMinUserType($this->requiredUserType);
+        $this->requireMinUserType($this->adminFloor());
         $id = (int) \Pramnos\Http\Request::staticGetOption();
         if ($id < 1) {
             $this->redirect(adminUrl('users'));
@@ -1622,7 +1622,7 @@ class UsersController extends Controller
      */
     public function activitydata(mixed $id = null): mixed
     {
-        $this->requireMinUserType($this->requiredUserType);
+        $this->requireMinUserType($this->adminFloor());
         Factory::getDocument('json');
 
         $id = (int) \Pramnos\Http\Request::staticGetOption();
@@ -1672,7 +1672,7 @@ class UsersController extends Controller
      */
     public function resetpassword(mixed $id = null): void
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return;
         }
 
@@ -1760,7 +1760,7 @@ class UsersController extends Controller
     {
         $doc = Factory::getDocument();
 
-        $this->requireMinUserType($this->requiredUserType);
+        $this->requireMinUserType($this->adminFloor());
 
         $id = (int) \Pramnos\Http\Request::staticGetOption();
         $user = new User();
@@ -1820,7 +1820,7 @@ class UsersController extends Controller
      */
     public function tokens(mixed $id = null): void
     {
-        $this->requireMinUserType($this->requiredUserType);
+        $this->requireMinUserType($this->adminFloor());
         $id = (int) \Pramnos\Http\Request::staticGetOption();
         $this->redirect(adminUrl('Tokens/userid/') . $id);
     }
@@ -1832,7 +1832,7 @@ class UsersController extends Controller
      */
     public function deactivateToken(): void
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return;
         }
 
@@ -1857,7 +1857,7 @@ class UsersController extends Controller
      */
     public function deleteToken(): void
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return;
         }
 

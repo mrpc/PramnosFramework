@@ -21,10 +21,10 @@ use Pramnos\User\User;
  *   status()  — the same verdict, flattened: `{"status":"healthy|unhealthy",…}`.
  *               For monitors that cannot read a nested document, and for a public
  *               endpoint that should give away nothing about what is inside.
- *   phpinfo() — phpinfo() output (superadmin only: usertype >= 90).
+ *   phpinfo() — phpinfo() output (the `admin` role only).
  *
  * All actions require an authenticated user.  phpinfo() additionally requires
- * usertype >= 90 to prevent info leakage.
+ * the `admin` role to prevent info leakage.
  *
  * Scaffold wrapper:
  *   pramnos init generates `src/Controllers/Health.php` extending this class.
@@ -203,12 +203,12 @@ class Health extends Controller
     /**
      * PHP Info page — admin-only.
      *
-     * Requires usertype >= 90 to prevent PHP configuration leakage.
+     * Requires the `admin` role ({@see \Pramnos\User\Roles}) to prevent PHP configuration leakage.
      */
     public function phpinfo(): mixed
     {
         $user = \Pramnos\User\User::getCurrentUser();
-        if ($user === null || (int) ($user->usertype ?? 0) < 90) {
+        if (!\Pramnos\User\Roles::atLeast($user ?: null, \Pramnos\User\Roles::ADMIN)) {
             http_response_code(403);
             return '<p>Access denied.</p>';
         }

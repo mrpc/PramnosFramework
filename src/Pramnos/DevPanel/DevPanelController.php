@@ -34,7 +34,19 @@ use Pramnos\Application\Settings;
 class DevPanelController extends Controller
 {
     /** Minimum usertype required to access any DevPanel action. */
-    protected int $minUserType = 90;
+    protected int $minUserType = 0;
+
+    /**
+     * Who opens the panel in development: `devpanel.min_usertype`, else the `developer` role
+     * ({@see \Pramnos\User\Roles}, 90 unless `app.php` says). The debug bar's link and Adminer's
+     * development fallback ask the same, so none of them disagrees with the panel.
+     */
+    public static function developerFloor(): int
+    {
+        $min = (int) static::config('min_usertype', 0);
+
+        return $min > 0 ? $min : \Pramnos\User\Roles::level(\Pramnos\User\Roles::DEVELOPER);
+    }
 
     /** Optional policy callback — when set, replaces the usertype check. */
     protected ?\Closure $policyCallback = null;
@@ -117,8 +129,9 @@ class DevPanelController extends Controller
 
         $min = (int) static::config('min_usertype', 0);
 
-        if ($min > 0) {
-            $this->minUserType = $min;
+        if ($min > 0 || $this->minUserType <= 0) {
+            // A subclass's own floor stands unless app.php sets one.
+            $this->minUserType = $min > 0 ? $min : static::developerFloor();
         }
     }
 
@@ -334,7 +347,7 @@ class DevPanelController extends Controller
      * with the request's id, and this hands back the ones carrying it.
      *
      * **Guarded differently from the rest of the panel, on purpose.** The other
-     * actions require an admin user (`usertype >= 90`). The person who opened
+     * actions require the DevPanel's floor (the `developer` role unless set). The person who opened
      * the toolbar on a live server with `debug:token` is a developer holding a
      * signed grant, and usually not an admin user at all — so the grant is
      * accepted here, and the admin path is kept for someone browsing the panel
@@ -3439,7 +3452,7 @@ class DevPanelController extends Controller
         }
 
         $user = \Pramnos\User\User::getCurrentUser();
-        $floor = (int) \Pramnos\Debug\DebugGrantController::DEFAULT_MIN_USERTYPE;
+        $floor = \Pramnos\User\Roles::level(\Pramnos\User\Roles::DEVELOPER);
         $configured = static::config('grant_min_usertype', null);
 
         if ($configured === null) {
@@ -3760,7 +3773,7 @@ class DevPanelController extends Controller
          */
         if (!DeveloperAccess::permits(
             DeveloperAccess::DEVPANEL,
-            (int) static::config('production_min_usertype', 99)
+            (int) static::config('production_min_usertype', 0) ?: \Pramnos\User\Roles::level(\Pramnos\User\Roles::ROOT)
         )) {
             return false;
         }

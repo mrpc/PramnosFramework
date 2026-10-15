@@ -29,7 +29,7 @@ use Pramnos\Auth\WebhookService;
  *   - delete($id)       — remove a permission entry
  *   - assign($userId)   — POST: quickly assign a named permission to a user
  *
- * All actions require authentication + usertype >= 90 (admin).
+ * All actions require authentication the administration floor (the `super` role, 98, unless set) (admin).
  *
  * Scaffold wrappers at `src/Controllers/Permissions.php` (authserver feature).
  *
@@ -42,8 +42,8 @@ class PermissionsController extends Controller
     /** One record of this screen, for the side panel: see Controller::$assistSubject. */
     protected string $assistSubject = 'permission';
 
-    /** Minimum usertype to access any permissions action. */
-    protected int $requiredUserType = 90;
+    /** The usertype floor; 0 is the administration area's — {@see \Pramnos\Auth\AdminAccess::defaultUsertype()}, the `super` role unless set. */
+    protected int $requiredUserType = 0;
 
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
@@ -61,7 +61,7 @@ class PermissionsController extends Controller
      */
     public function display(): mixed
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return null;
         }
 
@@ -99,7 +99,7 @@ class PermissionsController extends Controller
      */
     public function edit(mixed $id = null): mixed
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return null;
         }
 
@@ -136,7 +136,7 @@ class PermissionsController extends Controller
      */
     public function save(): void
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return;
         }
 
@@ -244,7 +244,7 @@ class PermissionsController extends Controller
      */
     public function delete(mixed $id = null): void
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return;
         }
 
@@ -331,7 +331,7 @@ class PermissionsController extends Controller
      */
     public function assign(mixed $userId = null): void
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return;
         }
 

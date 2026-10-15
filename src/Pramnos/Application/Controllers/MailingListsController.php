@@ -24,8 +24,8 @@ class MailingListsController extends Controller
     /** The administration ability that opens this screen — its menu item's id. */
     protected string $adminAbility = 'admin.mailinglists';
 
-    /** The framework's default floor; see AdminAccess::defaultUsertype(). */
-    protected int $requiredUserType = 98;
+    /** The usertype floor; 0 is the administration area's — {@see \Pramnos\Auth\AdminAccess::defaultUsertype()}, the `super` role unless set. */
+    protected int $requiredUserType = 0;
 
     /** Subscribers on one page. */
     public const PAGE = 50;
@@ -46,7 +46,7 @@ class MailingListsController extends Controller
      */
     public function display(): mixed
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return null;
         }
 
@@ -107,7 +107,7 @@ class MailingListsController extends Controller
      */
     public function export(): mixed
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return null;
         }
 

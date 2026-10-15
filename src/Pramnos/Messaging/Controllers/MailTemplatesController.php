@@ -41,8 +41,8 @@ class MailTemplatesController extends Controller
     /** One record of this screen, for the side panel: see Controller::$assistSubject. */
     protected string $assistSubject = 'message template';
 
-    /** Minimum usertype for any of this. Templates are the words the system says. */
-    protected int $requiredUserType = 80;
+    /** The usertype floor; 0 is the administration area's — {@see \Pramnos\Auth\AdminAccess::defaultUsertype()}, the `super` role unless set. */
+    protected int $requiredUserType = 0;
 
     /**
      * The channels a template can be written for, as the model numbers them.
@@ -68,7 +68,7 @@ class MailTemplatesController extends Controller
      */
     public function display(): mixed
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return null;
         }
 
@@ -107,7 +107,7 @@ class MailTemplatesController extends Controller
      */
     public function view(mixed $id = null): mixed
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return null;
         }
 
@@ -135,7 +135,7 @@ class MailTemplatesController extends Controller
      */
     public function edit(mixed $id = null): mixed
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return null;
         }
 
@@ -176,7 +176,7 @@ class MailTemplatesController extends Controller
      */
     public function save(): void
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return;
         }
 
@@ -224,7 +224,7 @@ class MailTemplatesController extends Controller
      */
     public function delete(mixed $id = null): void
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return;
         }
 
@@ -254,7 +254,7 @@ class MailTemplatesController extends Controller
      */
     public function test(mixed $id = null): void
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return;
         }
 

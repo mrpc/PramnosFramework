@@ -214,9 +214,7 @@ class Adminer extends \Pramnos\Application\Controller
             return false;
         }
 
-        $floor = (int) \Pramnos\DevPanel\DevPanelController::config('min_usertype', 90);
-
-        return $usertype >= ($floor > 0 ? $floor : 90);
+        return $usertype >= \Pramnos\DevPanel\DevPanelController::developerFloor();
     }
 
     /**
@@ -226,7 +224,12 @@ class Adminer extends \Pramnos\Application\Controller
     {
         $configured = \Pramnos\DevPanel\DevPanelController::config('adminer_min_usertype', 0);
 
-        return (int) $configured > 0 ? (int) $configured : static::ROOT_USERTYPE;
+        if ((int) $configured > 0) {
+            return (int) $configured;
+        }
+
+        // A subclass's own constant stands; otherwise the `root` role.
+        return static::ROOT_USERTYPE !== self::ROOT_USERTYPE ? static::ROOT_USERTYPE : \Pramnos\User\Roles::level(\Pramnos\User\Roles::ROOT);
     }
 
     /**

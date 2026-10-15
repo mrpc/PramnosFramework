@@ -26,7 +26,7 @@ use Pramnos\Database\Inspector\TimescaleInspector;
  *   - cacheitem    — JSON: single cache item content (GET ?key=…)
  *   - clearcache   — JSON: clear all cache entries (POST)
  *
- * All of them require authentication (manager level: usertype >= 80).
+ * All of them require authentication and the administration floor.
  *
  * Note: This controller is distinct from \Pramnos\Auth\Controllers\Account, which
  * handles the end-user account management view. This controller is admin/ops-focused.
@@ -39,8 +39,8 @@ class DashboardController extends Controller
     /** The administration ability that opens this screen — its menu item's id. */
     protected string $adminAbility = 'admin.dashboard';
 
-    /** Minimum usertype to access any dashboard action. */
-    protected int $requiredUserType = 80;
+    /** The usertype floor; 0 is the administration area's — {@see \Pramnos\Auth\AdminAccess::defaultUsertype()}, the `super` role unless set. */
+    protected int $requiredUserType = 0;
 
     /** Whose layouts these are: an application with dashboards in two areas names each its own. */
     protected string $dashboardArea = 'admin';
@@ -63,7 +63,7 @@ class DashboardController extends Controller
      */
     public function display(): mixed
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return null;
         }
 
@@ -167,7 +167,7 @@ class DashboardController extends Controller
      */
     public function activeusers(): void
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return;
         }
 
@@ -189,7 +189,7 @@ class DashboardController extends Controller
      */
     public function apistats(): void
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return;
         }
 
@@ -220,7 +220,7 @@ class DashboardController extends Controller
      */
     public function dbstats(): void
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return;
         }
 
@@ -243,7 +243,7 @@ class DashboardController extends Controller
      */
     public function database(): mixed
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return null;
         }
 
@@ -299,7 +299,7 @@ class DashboardController extends Controller
      */
     public function cache(): mixed
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return null;
         }
 
@@ -361,7 +361,7 @@ class DashboardController extends Controller
      */
     public function cacheitem(): void
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return;
         }
 
@@ -445,7 +445,7 @@ class DashboardController extends Controller
      */
     public function clearcache(): void
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return;
         }
 

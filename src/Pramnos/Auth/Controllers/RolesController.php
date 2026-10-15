@@ -39,7 +39,7 @@ use Pramnos\Html\Icon;
  * does not re-implement the check, because an API caller reaching the model
  * directly has to get the same answer as somebody using this screen.
  *
- * Requires usertype >= 90, matching `PermissionsController`: deciding what a role
+ * Requires the administration floor, matching `PermissionsController`: deciding what a role
  * *is* is the same order of privilege as deciding what it may do.
  *
  * Scaffold wrappers at `src/Controllers/Roles.php` (authserver feature).
@@ -54,8 +54,8 @@ class RolesController extends Controller
 
     use AdminScreenGrants;
 
-    /** Minimum usertype to access any roles action. */
-    protected int $requiredUserType = 90;
+    /** The usertype floor; 0 is the administration area's — {@see \Pramnos\Auth\AdminAccess::defaultUsertype()}, the `super` role unless set. */
+    protected int $requiredUserType = 0;
 
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
@@ -83,7 +83,7 @@ class RolesController extends Controller
     /** DataTable of roles — shell only; rows come from data(). */
     public function display(): mixed
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return null;
         }
 
@@ -126,7 +126,7 @@ class RolesController extends Controller
     /** AJAX rows for the roles DataTable. */
     public function data(): mixed
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return null;
         }
         \Pramnos\Framework\Factory::getDocument('json');
@@ -188,7 +188,7 @@ class RolesController extends Controller
      */
     public function view(mixed $id = null): mixed
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return null;
         }
 
@@ -225,7 +225,7 @@ class RolesController extends Controller
     /** Create/edit form. No id, or 0, opens the create form. */
     public function edit(mixed $id = null): mixed
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return null;
         }
 
@@ -252,7 +252,7 @@ class RolesController extends Controller
     /** POST: create or update a role. */
     public function save(): void
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return;
         }
 
@@ -318,7 +318,7 @@ class RolesController extends Controller
      */
     public function delete(mixed $id = null): void
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return;
         }
 
@@ -342,7 +342,7 @@ class RolesController extends Controller
     /** Who holds this role. */
     public function members(mixed $id = null): mixed
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return null;
         }
 
@@ -378,7 +378,7 @@ class RolesController extends Controller
      */
     public function addmember(mixed $id = null): void
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return;
         }
 
@@ -418,7 +418,7 @@ class RolesController extends Controller
     /** Take this role away from a user. */
     public function removemember(mixed $id = null): void
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return;
         }
 

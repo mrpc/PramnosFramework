@@ -293,7 +293,7 @@ class DebugGrantController extends Controller
             ?->applicationInfo['debug']['grant_min_usertype'] ?? null;
 
         return ($configured === null || $configured === '')
-            ? self::DEFAULT_MIN_USERTYPE
+            ? \Pramnos\User\Roles::level(\Pramnos\User\Roles::DEVELOPER)
             : (int) $configured;
     }
 

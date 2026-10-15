@@ -407,7 +407,7 @@ class Gdpr extends Controller
     /**
      * Is this an administrator?
      *
-     * The framework's admin tier is `usertype >= 90`, which is what the Users,
+     * The framework's `admin` role ({@see \Pramnos\User\Roles}), which is what the Users,
      * Applications and Permissions admin controllers all require. This
      * controller previously read a boolean `is_admin` column that exists in no
      * migration and no schema, so its admin branch could never be reached: on a
@@ -419,7 +419,7 @@ class Gdpr extends Controller
      */
     protected function isAdmin(object $user): bool
     {
-        return (int) ($user->usertype ?? 0) >= 90;
+        return \Pramnos\User\Roles::atLeast($user, \Pramnos\User\Roles::ADMIN);
     }
 
     // ── DB helpers ────────────────────────────────────────────────────────────

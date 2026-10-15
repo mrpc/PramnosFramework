@@ -23,7 +23,7 @@ use Pramnos\Application\Controller;
  *
  * Actions: display, stop, start, restart, restartall, logs, status,
  *          poolsave, poolstop, poolstart, pooldelete
- * All actions require authentication + usertype >= 80; every change is a POST with the
+ * All actions require authentication the administration floor (the `super` role, 98, unless set); every change is a POST with the
  * session's token, and is written to the `auth` log with who made it.
  *
  * Scaffolded wrappers live at `src/Controllers/Services.php`.
@@ -40,8 +40,8 @@ class ServicesController extends Controller
     /** Maximum lines returned by the logs() action. */
     protected int $maxLogLines = 200;
 
-    /** Minimum usertype to access any services action. */
-    protected int $requiredUserType = 80;
+    /** The usertype floor; 0 is the administration area's — {@see \Pramnos\Auth\AdminAccess::defaultUsertype()}, the `super` role unless set. */
+    protected int $requiredUserType = 0;
 
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
@@ -61,7 +61,7 @@ class ServicesController extends Controller
      */
     public function display(): mixed
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return null;
         }
 
@@ -97,7 +97,7 @@ class ServicesController extends Controller
      */
     public function stop(mixed $name = null): void
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return;
         }
 
@@ -139,7 +139,7 @@ class ServicesController extends Controller
      */
     public function start(mixed $name = null): void
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return;
         }
 
@@ -162,7 +162,7 @@ class ServicesController extends Controller
      */
     public function restart(mixed $name = null): void
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return;
         }
 
@@ -192,7 +192,7 @@ class ServicesController extends Controller
      */
     public function restartall(): void
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return;
         }
 
@@ -218,7 +218,7 @@ class ServicesController extends Controller
      */
     public function poolsave(): void
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return;
         }
 
@@ -265,7 +265,7 @@ class ServicesController extends Controller
      */
     public function pooldelete(): void
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return;
         }
 
@@ -287,7 +287,7 @@ class ServicesController extends Controller
      */
     public function logs(mixed $name = null): mixed
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return null;
         }
 
@@ -320,7 +320,7 @@ class ServicesController extends Controller
      */
     public function status(): void
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return;
         }
 
@@ -552,7 +552,7 @@ class ServicesController extends Controller
     /** Stop or start the pool named in the URL. */
     private function setPool(bool $enabled): void
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return;
         }
 

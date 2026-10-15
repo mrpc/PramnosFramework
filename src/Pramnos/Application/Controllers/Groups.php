@@ -36,7 +36,8 @@ class Groups extends Controller
     /** One record of this screen, for the side panel: see Controller::$assistSubject. */
     protected string $assistSubject = 'group';
 
-    protected int $requiredUserType = 80;
+    /** The usertype floor; 0 is the administration area's — {@see \Pramnos\Auth\AdminAccess::defaultUsertype()}, the `super` role unless set. */
+    protected int $requiredUserType = 0;
 
     /** The SQL-cache category `User::getGroups()` reads under, flushed on every membership change. */
     public const CACHE_CATEGORY = 'usergroups';
@@ -443,7 +444,7 @@ class Groups extends Controller
      */
     protected function refused(): bool
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return true;
         }
 

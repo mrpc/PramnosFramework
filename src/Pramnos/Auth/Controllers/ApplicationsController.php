@@ -24,7 +24,7 @@ use Pramnos\Html\Icon;
  *   - webhookrotate($id)   — POST: a new signing secret for one endpoint
  *   - webhookdelete($id)   — POST: remove one endpoint
  *
- * All actions require authentication + usertype >= 90 (admin).
+ * All actions require authentication the administration floor (the `super` role, 98, unless set) (admin).
  *
  * Scaffold wrappers at `src/Controllers/Applications.php` (authserver feature only).
  *
@@ -37,8 +37,8 @@ class ApplicationsController extends Controller
     /** One record of this screen, for the side panel: see Controller::$assistSubject. */
     protected string $assistSubject = 'OAuth application';
 
-    /** Minimum usertype to access any applications action. */
-    protected int $requiredUserType = 90;
+    /** The usertype floor; 0 is the administration area's — {@see \Pramnos\Auth\AdminAccess::defaultUsertype()}, the `super` role unless set. */
+    protected int $requiredUserType = 0;
 
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
@@ -61,7 +61,7 @@ class ApplicationsController extends Controller
      */
     public function view(mixed $id = null): mixed
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return null;
         }
 
@@ -150,7 +150,7 @@ class ApplicationsController extends Controller
      */
     public function display(): mixed
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return null;
         }
 
@@ -197,7 +197,7 @@ class ApplicationsController extends Controller
      */
     public function data(): void
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return;
         }
         \Pramnos\Framework\Factory::getDocument('json');
@@ -256,7 +256,7 @@ class ApplicationsController extends Controller
      */
     public function edit(mixed $id = null): mixed
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return null;
         }
 
@@ -307,7 +307,7 @@ class ApplicationsController extends Controller
      */
     public function save(): void
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return;
         }
 
@@ -357,7 +357,7 @@ class ApplicationsController extends Controller
      */
     public function delete(mixed $id = null): void
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return;
         }
 
@@ -383,7 +383,7 @@ class ApplicationsController extends Controller
      */
     public function tokens(mixed $id = null): mixed
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return null;
         }
 
@@ -426,7 +426,7 @@ class ApplicationsController extends Controller
      */
     public function rotate(mixed $id = null): void
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return;
         }
 
@@ -467,7 +467,7 @@ class ApplicationsController extends Controller
      */
     public function webhook(): void
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return;
         }
 
@@ -529,7 +529,7 @@ class ApplicationsController extends Controller
      */
     public function webhookrotate(mixed $id = null): void
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return;
         }
 
@@ -561,7 +561,7 @@ class ApplicationsController extends Controller
      */
     public function webhookdelete(mixed $id = null): void
     {
-        if ($this->requireMinUserType($this->requiredUserType)) {
+        if ($this->requireMinUserType($this->adminFloor())) {
             return;
         }
 

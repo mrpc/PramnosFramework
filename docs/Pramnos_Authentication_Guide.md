@@ -1,6 +1,7 @@
 ---
 use_cases:
   - Signing a user in or out, or checking who is signed in
+  - Moving who counts as an administrator, a superuser or root, in one place
   - Creating or managing user accounts
   - Issuing, validating or revoking JWT / bearer tokens
   - Requiring authentication in a controller
@@ -167,8 +168,8 @@ page.
 ### What a usertype is, what each one may do, and how to change them
 
 `users.usertype` is an **integer read as a threshold**, not an enum. Every framework
-administration screen opens at **98** — `AdminAccess::defaultUsertype()`, moved with the
-`admin_default_usertype` setting — and the administration area's own floor is whatever
+administration screen opens at **98** — `AdminAccess::defaultUsertype()`, the `super` role,
+moved with `roles` or the `admin_default_usertype` setting — and the administration area's own floor is whatever
 `admin.min_usertype` says. A comparison, not an equality, is what the framework's own guards
 are written in.
 
@@ -189,7 +190,7 @@ revisited when a capability is added above it.
 | --- | --- | --- | --- |
 | `99` | Root | danger | `*` — every capability, including ones added later |
 | `98` | Super Administrator | danger | `admin.area` and every administration screen, `admin.users`, `admin.settings`, `admin.permissions`… |
-| `90` | Administrator | warning | `devpanel`; no administration screen unless a role grants it |
+| `90` | Administrator | warning | `devpanel` (the `developer` role); no administration screen unless a role grants it |
 | `1` | System User (Client Credentials Grant) | neutral | `api.client_credentials` — **and nothing else**, see below |
 | `0` | Simple User | primary | `account.self` |
 
@@ -217,6 +218,41 @@ Three rules make the numbers behave:
 \Pramnos\User\UserTypes::tone(99);             // 'danger' — a meaning, for a theme to colour
 \Pramnos\User\UserTypes::options();            // value => label, for Html\Select::addOptions()
 ```
+
+#### Moving the lines: `roles`
+
+The framework's screens and tools never compare a usertype with a number of their own. They ask
+`Pramnos\User\Roles` for a role, so an installation moves every line in one place:
+
+```php
+// app/app.php — administrators at 97, one root account, developer tools for root only
+'roles' => ['admin' => 97, 'super' => 98, 'root' => 99, 'developer' => 99],
+```
+
+| Role | Default | What asks for it |
+| --- | --- | --- |
+| `manager` | 80 | a dashboard widget's default `allowed()`; one user's tokens, outside the area |
+| `admin` | 90 | `phpinfo` on the Health screen, the GDPR requests screen's administrator view, `auth_trusted_devices_exclude_admins` |
+| `super` | 98 | every administration screen's floor and the superuser (`AdminAccess::defaultUsertype()`, `superuserUsertype()`) |
+| `root` | 99 | Adminer on any deployment, the DevPanel on production |
+| `developer` | 90 | the DevPanel in development, its link in the debug bar, Adminer's development fallback, the debug bar's grants |
+
+```php
+\Pramnos\User\Roles::level('admin');               // 97 with the config above
+\Pramnos\User\Roles::atLeast($user, Roles::ROOT);   // whether this person holds it
+```
+
+A role nobody defined throws rather than answering 0, because a typo must not open a screen to
+everybody.
+
+**A key a tool already has still wins over its role:** `devpanel.min_usertype`,
+`devpanel.adminer_min_usertype`, `devpanel.production_min_usertype`, `debug.grant_min_usertype`,
+and the `admin_default_usertype` and `admin_superuser_usertype` settings. A screen's own
+`$requiredUserType`, set in an application's subclass, wins too. `0` there means "the
+administration floor", never "anybody".
+
+A test, `RolesTest::testNoBundledCodeWritesAUsertypeNumber`, fails when bundled code compares a
+usertype with a literal, so a new screen cannot quietly keep a line of its own.
 
 #### Declaring your own
 
