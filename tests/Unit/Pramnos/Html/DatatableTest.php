@@ -1724,6 +1724,10 @@ class DatatableTest extends TestCase
         $this->assertStringContainsString('this.value.length > 0', $js,
             'an empty box must still clear the filter — otherwise the column stays '
             . 'filtered on a term no longer on screen');
+        // A number passes at any length: an id of 7 is a whole answer, and with a minimum of
+        // three an id column could never be searched. Run against DataTables 1.13.8 in jsdom:
+        // "7" sent one request, "ab" none, "anna" one.
+        $this->assertStringContainsString('!/^\d+$/.test(this.value)', $js);
     }
 
     /**

@@ -665,9 +665,10 @@ embed;
         /*
          * Below the minimum, and not empty: too little to be worth a query on
          * every table this filters. Empty always passes — clearing the box has to
-         * clear the filter.
+         * clear the filter. So does a number at any length: an id of 7 is a whole
+         * answer, and a minimum of three made an id column unsearchable.
          */
-        if (this.value.length > 0 && this.value.length < {$minSearchLength}) {
+        if (this.value.length > 0 && this.value.length < {$minSearchLength} && !/^\\d+\$/.test(this.value)) {
             return;
         }
 
