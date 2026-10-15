@@ -293,6 +293,16 @@ class Datatable extends Base
         ],
     ];
 
+    /**
+     * A value as a JavaScript string literal, safe inside a `<script>`: quotes, `<`, `>` and `&`
+     * escaped, so a value cannot end the string or the element it is written into.
+     */
+    private static function js(string $value): string
+    {
+        // Slashes left as they are: `<` is escaped, so `</script>` cannot form, and a URL reads as one.
+        return (string) json_encode($value, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    }
+
     /** The project's UI system: `scaffold_theme`, or bootstrap where none is declared. */
     private static function uiSystem(): string
     {
@@ -590,17 +600,21 @@ class Datatable extends Base
                     ) . '…" />';
                 $this->footerTextSearch = true;
                 if ($column->searchvalue != "") {
-                    $s = $column->searchvalue;
+                    // A JavaScript string, encoded: the value often comes from the address, and a
+                    // quote in it ended the string and ran what followed on the admin's page.
+                    $s = self::js((string) $column->searchvalue);
                     $this->codeEmbed .=<<<embed
-            {$jsVar}.fnFilter( '$s', $c );
+            {$jsVar}.fnFilter( $s, $c );
 embed;
                 }
             } elseif ($column->footsearch !== false) {
                 $id = $column->footsearch;
                 if ($column->searchvalue != "") {
-                    $s = $column->searchvalue;
+                    // A JavaScript string, encoded: the value often comes from the address, and a
+                    // quote in it ended the string and ran what followed on the admin's page.
+                    $s = self::js((string) $column->searchvalue);
                     $this->codeEmbed .=<<<embed
-            {$jsVar}.fnFilter( '$s', $c );
+            {$jsVar}.fnFilter( $s, $c );
 embed;
                 }
 
@@ -780,7 +794,7 @@ embed;
         $sf = "";
         $search = "";
         if ($this->search != "") {
-            $search = '"oSearch": {"sSearch": "' . trim($this->search) . '"},';
+            $search = '"oSearch": {"sSearch": ' . self::js(trim((string) $this->search)) . '},';
         }
         $ss = "";
         if ($this->stateSave == 'true') {
@@ -806,7 +820,7 @@ ss;
             $extraDataJson = json_encode($this->aoData ?: []);
             $sortDir       = strtolower($this->sortOrder) === 'asc' ? 'asc' : 'desc';
             $ajaxsource    = '"serverSide": true,' . "\n"
-                . '"ajax": {"url": "' . $this->source . '", "type": "POST",'
+                . '"ajax": {"url": ' . self::js($this->source) . ', "type": "POST",'
                 . '"data": function(d){'
                 . 'var e=' . $extraDataJson . ';'
                 . 'for(var i=0;i<e.length;i++){d[e[i].name]=e[i].value;}'

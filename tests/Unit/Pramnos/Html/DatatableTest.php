@@ -244,6 +244,41 @@ class DatatableTest extends TestCase
     }
 
     /**
+     * A value written into the table's script cannot end the string it sits in, or the element.
+     *
+     * A column's search value often comes from the address — a list filtered by a link — and it
+     * was written between single quotes as it came: `…?typeSelect=');alert(document.cookie);//`
+     * ran script on the page of the administrator who opened it. The same held for the table's
+     * own search and its data address. Each is now a JSON string, with quotes, `<`, `>` and `&`
+     * escaped, for the footer search box, a search field of the page's own, the table's search
+     * and the source alike.
+     */
+    public function testValuesInTheScriptCannotBreakOutOfIt(): void
+    {
+        // Arrange — the payload in every place a value reaches the script
+        $payload = "');alert(1);//</script><script>alert(2)</script>\"";
+        $dt = new Datatable('users', '/admin/Users/list?x=' . $payload);
+        $dt->addColumn('Type', true, true, true, '', '', true, 'left', true, $payload);
+        $dt->addColumn('Town', true, true, true, '', '', true, 'left', 'townSelect', $payload);
+        $dt->search = $payload;
+
+        // Act
+        $dt->renderTable();
+        $js = $dt->renderJs();
+
+        // Assert — nothing of the payload is code
+        $this->assertStringNotContainsString("');alert", $js);
+        $this->assertStringNotContainsString('</script><script>', $js);
+        $this->assertSame(1, substr_count($js, '</script>'), 'only the element\'s own end tag');
+        // And the value still reaches DataTables, as the string it was
+        $flags   = JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_UNESCAPED_SLASHES;
+        $encoded = json_encode($payload, $flags);
+        $this->assertSame(2, substr_count($js, '.fnFilter( ' . $encoded . ', '), 'both column searches');
+        $this->assertStringContainsString('"oSearch": {"sSearch": ' . $encoded . '}', $js);
+        $this->assertStringContainsString('"ajax": {"url": ' . json_encode('/admin/Users/list?x=' . $payload, $flags) . ',', $js);
+    }
+
+    /**
      * A table built under `$theme`, its markup and its script.
      *
      * @return array{0: string, 1: string}
@@ -551,7 +586,7 @@ class DatatableTest extends TestCase
         
         $this->assertStringContainsString('id="autofootsearch_0"', $html);
         $this->assertStringContainsString('value="searchme"', $html);
-        $this->assertStringContainsString('mySearchTable.fnFilter( \'searchme\', 0 )', $html);
+        $this->assertStringContainsString('mySearchTable.fnFilter( "searchme", 0 )', $html, 'a JSON string: see testValuesInTheScriptCannotBreakOutOfIt');
         $this->assertStringContainsString('jQuery(\'#emailsearch\').change', $html);
         $this->assertStringContainsString('jQuery(document.getElementById("mySearchTable")).find("tfoot input").keyup(', $html);
     }
@@ -790,7 +825,7 @@ class DatatableTest extends TestCase
         $this->assertStringContainsString("jQuery('#mySelect').change", $html);
         $this->assertStringContainsString('DataTableDelay', $html);
         // No fnFilter injection because searchvalue is empty
-        $this->assertStringNotContainsString("extSearch.fnFilter( '', 0 )", $html);
+        $this->assertStringNotContainsString('extSearch.fnFilter( "", 0 )', $html);
     }
 
     /**
@@ -843,10 +878,10 @@ class DatatableTest extends TestCase
 
         // Assert — input rendered in tfoot, no pre-filter call injected
         // (the general tfoot keyup handler does call fnFilter but that is expected;
-        // what must be absent is the codeEmbed pre-filter like "fnFilter( '', 0 )")
+        // what must be absent is the codeEmbed pre-filter like 'fnFilter( "", 0 )')
         $this->assertStringContainsString('id="autofootsearch_0"', $html);
         // The codeEmbed pre-filter with a quoted empty value must not be injected
-        $this->assertStringNotContainsString("footNoVal.fnFilter( '', 0 )", $html);
+        $this->assertStringNotContainsString('footNoVal.fnFilter( "", 0 )', $html);
     }
 
     // =========================================================================
@@ -1777,6 +1812,6 @@ class DatatableTest extends TestCase
         $js = $table->codeEmbed;
 
         // Assert — column 1, the value chosen
-        $this->assertStringContainsString("fnFilter( '90', 1 )", $js);
+        $this->assertStringContainsString('fnFilter( "90", 1 )', $js, 'a JSON string literal');
     }
 }

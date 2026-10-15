@@ -763,6 +763,14 @@ set `$calendar` says to expect.
 `Datatable` renders the table and its JavaScript; `Datatable\Datasource` answers the AJAX
 requests DataTables makes. This section covers what a caller configures, not a full tour.
 
+### Values from the request are safe to pass
+
+A column's search value (`addColumn(…, $searchvalue)`), the table's `$search` and its source
+address are written into the table's script as JSON string literals, with quotes, `<`, `>` and `&`
+escaped. A value taken from the address, such as a list filtered by a link, cannot end the string
+or the `<script>`. `$codeEmbed` is the exception: it is written as given, so anything put there
+from a request has to be encoded by whoever puts it there.
+
 ### It draws with the project's UI system
 
 DataTables writes its own DOM: the search box, the page-length select, the page buttons and the
