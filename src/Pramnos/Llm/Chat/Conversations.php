@@ -252,10 +252,11 @@ class Conversations
             }
         }
 
-        $memory = new Memory($this->scope);
-        $tools  = $this->assistant->tools($turn) + $memory->tools($this, $conversationId)
+        $memory   = new Memory($this->scope);
+        $routines = new Routines($this);
+        $tools    = $this->assistant->tools($turn) + $memory->tools($this, $conversationId)
             // Not from a scheduled run: a task that schedules tasks has no end.
-            + ($this->scheduled ? [] : (new Routines($this))->toolsFor($this->scope, $this->assistant->timezone($this->scope), $conversationId));
+            + ($this->scheduled ? [] : $routines->toolsFor($this->scope, $this->assistant->timezone($this->scope), $conversationId));
 
         $answer = $client->askWithTools(
             $this->assistant->systemPrompt($turn) . "\n\n" . $this->context($turn, $memory),
@@ -287,6 +288,8 @@ class Conversations
         }
 
         $turn->conversationId = $conversationId;
+        // A reminder asked for in a first question leads back to the conversation it started.
+        $routines->linkMade($conversationId);
 
         $this->store($conversationId, 'user', $question, [], null, $stamp);
         // The answer alone, and what the model said while it called tools beside it: those lines

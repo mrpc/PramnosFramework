@@ -58,6 +58,9 @@ class Routines
 
     private ?TaskPolicy $policy = null;
 
+    /** @var list<int> Tasks this instance's tools made with no conversation to name yet */
+    private array $madeUnlinked = [];
+
     public function __construct(private readonly Conversations $chat, private readonly ?\Pramnos\Queue\QueueManager $queue = null)
     {
     }
@@ -933,6 +936,9 @@ class Routines
                             . ($same['next_run_local'] ?? 'no date') . '. Change it with update_scheduled_task, or say why a second is wanted.';
                     }
                     $made = $this->create($scope, $a + ['timezone' => $timezone, 'conversation_id' => $conversationId]);
+                    if (is_array($made) && $conversationId === null) {
+                        $this->madeUnlinked[] = (int) $made['routine_id'];
+                    }
 
                     return is_string($made)
                         ? 'Error: ' . $made
@@ -987,6 +993,24 @@ class Routines
                 'run' => fn (array $a): string => $this->delete($scope, (int) ($a['routine_id'] ?? 0)) ? 'Deleted.' : 'Error: there is no such task.',
             ],
         ];
+    }
+
+    /**
+     * Name the conversation the tasks these tools just made belong to — for a first question,
+     * whose conversation exists only once it is answered, so a reminder asked for there leads
+     * back to it. Answers how many were linked.
+     */
+    public function linkMade(int $conversationId): int
+    {
+        $linked = 0;
+        foreach ($this->madeUnlinked as $routineId) {
+            $result = $this->table()->where('routine_id', $routineId)->whereNull('conversation_id')
+                ->update(['conversation_id' => $conversationId, 'updated_at' => CallLog::instant(time())]);
+            $linked += is_object($result) ? (int) $result->getAffectedRows() : 0;
+        }
+        $this->madeUnlinked = [];
+
+        return $linked;
     }
 
     /**

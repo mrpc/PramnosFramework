@@ -370,6 +370,35 @@ class TasksTest extends LlmTestCase
         $this->assertSame('Error: there is no such task.', $tools['cancel_scheduled_task']['run'](['routine_id' => $id]));
     }
 
+    /**
+     * A reminder asked for in the first question of a conversation leads back to it: the
+     * conversation exists only once the question is answered, and the task the model made during
+     * the answer is given its id then. A task made elsewhere with no conversation is left alone.
+     */
+    #[DataProvider('databases')]
+    public function testAReminderInANewConversationLeadsBackToIt(string $type, string $host, int $port): void
+    {
+        // Arrange — a task of another turn, with no conversation, that must stay so
+        $this->connectDatabase($type, $host, $port);
+        $tasks = $this->tasks();
+        $other = $tasks->create(new Scope(7, null), ['kind' => 'reminder', 'title' => 'Other', 'prompt' => 'x', 'cadence' => 'once', 'in_minutes' => 30]);
+        $this->answer([
+            [200, self::calls([['schedule_task', ['kind' => 'reminder', 'title' => 'Test', 'prompt' => 'Δοκιμή reminder', 'cadence' => 'once', 'in_minutes' => 2]]])],
+            [200, self::says('Θα σου το θυμίσω.')],
+        ]);
+
+        // Act
+        $answer = (new Conversations(new BaseAssistant()))->as(new Scope(7, null))->ask(null, 'Θύμισέ μου σε 2 λεπτά: Δοκιμή reminder');
+        $made   = array_values(array_filter($tasks->ownedBy(null, 7)['tasks'], static fn (array $t): bool => $t['title'] === 'Test'));
+
+        // Assert
+        $this->assertTrue($answer['ok']);
+        $this->assertSame('reminder', $made[0]['kind']);
+        $this->assertSame($answer['conversation_id'], $made[0]['conversation_id'], 'linked to the conversation it was asked in');
+        $this->assertNull($tasks->byId($other['routine_id'])['conversation_id'], 'another turn\'s task untouched');
+        $this->assertSame(0, $tasks->linkMade(5), 'nothing this instance made');
+    }
+
     /** What a change refuses: no such task, an unknown cadence, a bad time, a time already gone, a plan that will not resume it. */
     #[DataProvider('databases')]
     public function testWhatAChangeRefuses(string $type, string $host, int $port): void
