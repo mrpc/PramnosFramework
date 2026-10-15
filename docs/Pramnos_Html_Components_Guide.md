@@ -836,9 +836,14 @@ each keystroke is one AJAX request and one server-side query: typing `papadopoul
 column filter sends twelve, and the first of them is `LIKE '%p%'` across the whole table.
 
 An **empty** box is always let through, whatever the minimum — clearing a filter has to clear
-the filter, or the column stays filtered on a term no longer on screen. So is a **number** at any
-length: an id of `7` is a whole answer, and a minimum of three would make an id column
-unsearchable.
+the filter, or the column stays filtered on a term no longer on screen.
+
+A column can have its own minimum, which applies to that column instead of the table's:
+
+```php
+$table->addColumn('ID', ['minSearchLength' => 1, 'footsearch' => true]);   // an id of 7 is a whole answer
+$table->addColumn('Phone', true, true, true, '', '', true, 'left', true);  // the table's 3: every mobile starts 69
+```
 
 ### Filtering one column
 

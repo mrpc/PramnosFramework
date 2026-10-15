@@ -1717,17 +1717,40 @@ class DatatableTest extends TestCase
         $js = $table->renderJs() . $table->codeEmbed;
 
         // Assert
-        $this->assertStringContainsString('this.value.length < 3', $js,
+        $this->assertStringContainsString('this.value.length < (pfMin === undefined ? 3 : pfMin)', $js,
             'the filter must not fire on one or two characters');
         $this->assertStringContainsString('DataTableDelay( function ()', $js,
             'and the handler must go through the debounce the class already has');
         $this->assertStringContainsString('this.value.length > 0', $js,
             'an empty box must still clear the filter — otherwise the column stays '
             . 'filtered on a term no longer on screen');
-        // A number passes at any length: an id of 7 is a whole answer, and with a minimum of
-        // three an id column could never be searched. Run against DataTables 1.13.8 in jsdom:
-        // "7" sent one request, "ab" none, "anna" one.
-        $this->assertStringContainsString('!/^\d+$/.test(this.value)', $js);
+    }
+
+    /**
+     * Each footer search box has its column's minimum, or the table's.
+     *
+     * One rule cannot serve every column. An id column wants 1 — an id of 7 is a whole answer,
+     * and with the table's three an id column under 100 could never be searched — while a phone
+     * column wants the table's, since every Greek mobile number starts with 69 and two digits
+     * would query the whole table. Run against DataTables 1.13.8 in jsdom: "7" in the id column
+     * sent one request, "69" in the phone column none, "697" one.
+     */
+    public function testEachFooterSearchHasItsColumnsMinimum(): void
+    {
+        // Arrange
+        $table = new \Pramnos\Html\Datatable('people');
+        $table->addColumn('ID', ['minSearchLength' => 1, 'footsearch' => true]);
+        $table->addColumn('Phone', true, true, true, '', '', true, 'left', true);
+        $table->addColumn('Bad', ['minSearchLength' => '2; alert(1)', 'footsearch' => true]);
+
+        // Act
+        $table->renderTable();
+        $js = $table->renderJs() . $table->codeEmbed;
+
+        // Assert — by the box's name, its column's index; the table's where none was given
+        $this->assertStringContainsString('var pfMin = {"0":1,"1":3,"2":2}[jQuery(this).attr(\'name\')];', $js);
+        $this->assertStringContainsString('this.value.length < (pfMin === undefined ? 3 : pfMin)', $js);
+        $this->assertStringNotContainsString('alert(1)', $js, 'cast at the boundary');
     }
 
     /**
@@ -1749,7 +1772,7 @@ class DatatableTest extends TestCase
         $js = $table->renderJs() . $table->codeEmbed;
 
         // Assert — a zero-length guard can never block anything
-        $this->assertStringContainsString('this.value.length < 0', $js);
+        $this->assertStringContainsString('{"0":0}', $js);
     }
 
     /**
@@ -1771,7 +1794,7 @@ class DatatableTest extends TestCase
         $js = $table->renderJs() . $table->codeEmbed;
 
         // Assert
-        $this->assertStringContainsString('this.value.length < 3', $js);
+        $this->assertStringContainsString('{"0":3}', $js);
         $this->assertStringNotContainsString('alert(1)', $js);
     }
 

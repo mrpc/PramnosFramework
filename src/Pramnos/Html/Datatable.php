@@ -573,8 +573,13 @@ class Datatable extends Base
         // The JS identifier, not the table id: see jsVar().
         $jsVar = $this->jsVar();
         $c = 0;
+        // Each search box's minimum, by its column's index — the box's `name`.
+        $minimums = [];
         foreach ($this->aoColumns as $key => $column) {
             if ($column->footsearch === true) {
+                $minimums[$c] = $column->minSearchLength === null
+                    ? $minSearchLength
+                    : max(0, (int) $column->minSearchLength);
 
                 /**
                  * The column's own search box.
@@ -658,17 +663,18 @@ embed;
              * and typing in the boxes on screen filtered nothing. The wrapper holds both and is
              * never rebuilt.
              */
+            $minimumsJs = json_encode((object) $minimums);
             $this->codeEmbed.=<<<embed
    jQuery({$jsVar}.api().table().container()).on( "keyup", "tfoot input", DataTableDelay( function () {
         /* Filter on the column (the index) of this element */
 
         /*
-         * Below the minimum, and not empty: too little to be worth a query on
-         * every table this filters. Empty always passes — clearing the box has to
-         * clear the filter. So does a number at any length: an id of 7 is a whole
-         * answer, and a minimum of three made an id column unsearchable.
+         * Below the column's minimum, and not empty: too little to be worth a query
+         * on every table this filters. Empty always passes — clearing the box has to
+         * clear the filter.
          */
-        if (this.value.length > 0 && this.value.length < {$minSearchLength} && !/^\\d+\$/.test(this.value)) {
+        var pfMin = {$minimumsJs}[jQuery(this).attr('name')];
+        if (this.value.length > 0 && this.value.length < (pfMin === undefined ? {$minSearchLength} : pfMin)) {
             return;
         }
 

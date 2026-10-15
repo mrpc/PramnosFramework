@@ -24,6 +24,15 @@ class Column extends Base {
     public $searchvalue="";
     public $js="";
 
+    /**
+     * Characters before this column's footer search box sends a query; null for the table's
+     * `minSearchLength`. An id column wants 1 — an id of 7 is a whole answer — while a phone
+     * column keeps the table's, since every mobile number starts with the same two digits.
+     *
+     * @var int|null
+     */
+    public $minSearchLength = null;
+
     public $parent=NULL;
 
 
