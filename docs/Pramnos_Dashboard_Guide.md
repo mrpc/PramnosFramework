@@ -132,7 +132,19 @@ request:
 - hide;
 - a list of the cards this person may add, each with its `description()` as a hint.
 
-In the same mode a card can be dragged into place. The tools are buttons, so a keyboard can do
+In the same mode a card is dragged by its grip and resized by its corner, with pointer events,
+so a finger does it as a mouse does. While a card is being dragged:
+
+- it follows the pointer, and a dashed placeholder of its size, at most a third of the window
+  tall, shows where it will land;
+- the placeholder moves to the side of the card under the pointer: above or below a card that
+  fills its row, left or right of any other. It moves only after the pointer has moved a few
+  pixels, so it does not flicker;
+- the window scrolls near its top and bottom.
+
+The corner resizes by whole columns, with the width written on the card as it is reached. The
+arithmetic, `sizeForSpan`, `dropBefore`, `placeAt` and `autoScrollStep`, is on
+`window.pfDashboard`. The tools are buttons, so a keyboard can do
 all of it, and each change is announced in a live region. Each change is saved at once. A card
 added, or one whose settings changed, is drawn by the server alone, through `card?id=…`, and put
 in place without a reload. Its charts are drawn as it arrives. "Back to the default" forgets the

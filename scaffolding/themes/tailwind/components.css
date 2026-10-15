@@ -472,8 +472,6 @@ a.pf-stat-tile:hover { border-color: var(--color-primary, #2563eb); }
 .pf-dashboard-tools { margin-left: auto; display: inline-flex; gap: .25rem; }
 .pf-dashboard-tools[hidden], .pf-dashboard-bar[hidden] { display: none; }
 .pf-dashboard-bar { margin-bottom: 1rem; }
-.pf-dashboard-dragging { opacity: .5; }
-.pf-dashboard [draggable="true"] { cursor: move; }
 .pf-dashboard-health { list-style: none; margin: 0; padding: 0; }
 .pf-dashboard-health li { display: flex; align-items: flex-start; gap: .75rem; padding: .5rem 0; border-bottom: 1px solid color-mix(in oklab, currentColor 12%, transparent); }
 .pf-dashboard-health li:last-child { border-bottom: 0; }
@@ -497,6 +495,29 @@ a.pf-stat-tile:hover { border-color: var(--color-primary, #2563eb); }
     .pf-dashboard > [data-size="l"] { grid-column: span 3; }
 }
 .pf-dashboard-settings[hidden] { display: none; }
+/* Dragging by the grip and resizing by the corner (pf-utils.js, pointer events). The lifted card
+   follows the pointer above the page; a dashed placeholder keeps its place. */
+.pf-dashboard > [data-pf-widget] { position: relative; }
+.pf-dashboard-grip { cursor: grab; touch-action: none; user-select: none; }
+.pf-dashboard > .pf-dashboard-dragging {
+    position: fixed; z-index: 60; margin: 0; pointer-events: none;
+    transform: rotate(1deg) scale(1.02); opacity: .92; box-shadow: 0 18px 40px rgb(0 0 0 / .25);
+}
+.pf-dashboard-dragging .pf-dashboard-grip { cursor: grabbing; }
+.pf-dashboard-placeholder {
+    border: 2px dashed color-mix(in oklab, currentColor 45%, transparent); border-radius: .5rem;
+    background: color-mix(in oklab, currentColor 6%, transparent);
+}
+.pf-dashboard > .pf-dashboard-resizing { outline: 2px solid color-mix(in oklab, currentColor 45%, transparent); outline-offset: 2px; }
+.pf-dashboard-size-handle {
+    position: absolute; right: 2px; bottom: 2px; width: 20px; height: 20px; cursor: nwse-resize; touch-action: none;
+    background: linear-gradient(135deg, transparent 50%, color-mix(in oklab, currentColor 40%, transparent) 50%);
+}
+.pf-dashboard-size-handle[hidden] { display: none; }
+.pf-dashboard-size-badge {
+    position: absolute; right: 26px; bottom: 6px; padding: 2px 8px; border-radius: 999px; font-size: .75rem;
+    font-weight: 600; background: color-mix(in oklab, currentColor 15%, transparent);
+}
 
 /* The column picker — Html\Datatable's "Show" button under tailwind and plain-css: a list that
    scrolls, so a table of sixty columns is one button and not lines of links. */

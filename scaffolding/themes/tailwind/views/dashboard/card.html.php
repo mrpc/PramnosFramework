@@ -19,6 +19,7 @@ $settings = (array) ($widget['settings'] ?? []);
         <div class="pf-dashboard-head">
             <h3 class="card-title text-base"><?php if ($widget['link']): ?><a class="hover:underline" href="<?php echo $e($widget['link']); ?>"><?php echo $e($t($widget['title'])); ?></a><?php else: echo $e($t($widget['title'])); endif; ?></h3>
             <div class="pf-dashboard-tools join" data-pf-widget-tools hidden>
+                <span class="btn btn-xs join-item pf-dashboard-grip" data-pf-widget-grip aria-hidden="true" title="<?php echo $e($t('Drag to move')); ?>">&#10303;</span>
                 <button type="button" class="btn btn-xs join-item" data-pf-widget-move="-1" aria-label="<?php echo $e($t('Move up')); ?>">&uarr;</button>
                 <button type="button" class="btn btn-xs join-item" data-pf-widget-move="1" aria-label="<?php echo $e($t('Move down')); ?>">&darr;</button>
                 <button type="button" class="btn btn-xs join-item" data-pf-widget-resize aria-label="<?php echo $e($t('Width')); ?>">&harr;</button>
@@ -44,4 +45,5 @@ $settings = (array) ($widget['settings'] ?? []);
         <?php endif; ?>
         <?php echo $widget['html'] !== '' ? $widget['html'] : '<p class="text-sm opacity-60">' . $e($t('Nothing to show today.')) . '</p>'; ?>
     </div>
+    <span class="pf-dashboard-size-handle" data-pf-widget-size-handle aria-hidden="true" title="<?php echo $e($t('Drag to resize')); ?>" hidden></span>
 </section>

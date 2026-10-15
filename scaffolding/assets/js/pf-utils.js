@@ -989,15 +989,58 @@
         }
     })();
 
+    // The arithmetic of dragging a dashboard card, apart from the page so it can be tested:
+    // window.pfDashboard.
+    var dashboardMath = {
+        /**
+         * The width a card dragged to `span` columns of a `cols`-column grid takes: on four each
+         * span is a width; on two, one column is small and two keep a wide card's width (m, l
+         * and full all fill a row there); on one, nothing changes.
+         */
+        sizeForSpan: function (span, cols, current) {
+            var sizes = ['s', 'm', 'l', 'full'];
+            span = Math.max(1, Math.min(cols, Math.round(span)));
+            if (cols >= 4) { return sizes[span - 1]; }
+            if (cols === 2) { return span === 1 ? 's' : (current === 's' ? 'm' : current); }
+            return current;
+        },
+        /**
+         * Whether a card dropped at (x, y) over `rect` goes before it: one that fills its row
+         * (`wide`) by the top or bottom half, any other by the left or right.
+         */
+        dropBefore: function (rect, x, y, wide) {
+            return wide ? y < rect.top + rect.height / 2 : x < rect.left + rect.width / 2;
+        },
+        /**
+         * The order with `dragged` moved before or after `target`; null when it is already there,
+         * so the same pointer position never moves the placeholder twice.
+         */
+        placeAt: function (order, dragged, target, before) {
+            var list = order.filter(function (id) { return id !== dragged; });
+            var at = list.indexOf(target);
+            if (at < 0 || target === dragged) { return null; }
+            list.splice(before ? at : at + 1, 0, dragged);
+            return list.join('\n') === order.join('\n') ? null : list;
+        },
+        /** Pixels to scroll the window this frame while dragging: near an edge, faster the closer. */
+        autoScrollStep: function (y, height, edge, max) {
+            if (y < edge) { return -Math.ceil(max * (edge - Math.max(0, y)) / edge); }
+            if (y > height - edge) { return Math.ceil(max * (Math.min(height, y) - (height - edge)) / edge); }
+            return 0;
+        },
+    };
+    window.pfDashboard = dashboardMath;
+
     // ══════════════════════════════════════════════════════════════════════════
     // data-pf-dashboard — a dashboard each person arranges (DashboardController)
     //
     // "Customise" shows each card's tools: move up and down, its width (s, m, l, full in turn), its
-    // settings, hide — buttons, so a keyboard does all of it — and in the same mode a card can be
-    // dragged into place. Each change is saved at once (POST data-save, JSON, with the page's CSRF
-    // token). A card added, or whose settings changed, is drawn by the server (GET data-card?id=)
-    // and put in place without a reload; without data-card the page reloads instead. The server
-    // keeps only what this person may have, so nothing here is a gate.
+    // settings, hide — buttons, so a keyboard does all of it — and in the same mode a card is
+    // dragged by its grip and resized by its corner, with a finger as with a mouse. Each change is
+    // saved at once (POST data-save, JSON, with the page's CSRF token). A card added, or whose
+    // settings changed, is drawn by the server (GET data-card?id=) and put in place without a
+    // reload; without data-card the page reloads instead. The server keeps only what this person
+    // may have, so nothing here is a gate.
     // ══════════════════════════════════════════════════════════════════════════
     (function () {
         var board = document.querySelector('[data-pf-dashboard]');
@@ -1007,7 +1050,6 @@
         var status = document.querySelector('[data-pf-dashboard-status]');
         var empty  = board.querySelector('[data-pf-dashboard-empty]');
         var editing = false;
-        var dragged = null;
 
         var SIZES   = ['s', 'm', 'l', 'full'];
         var NAMES   = { s: 'small', m: 'medium', l: 'large', full: 'full width' };
@@ -1040,13 +1082,16 @@
                 });
         }
 
+        /** A card's tools, its grip and its corner, shown while customising. */
+        function showTools(card, on) {
+            Array.prototype.forEach.call(card.querySelectorAll('[data-pf-widget-tools], [data-pf-widget-size-handle]'), function (tool) { tool.hidden = !on; });
+        }
+
         /** Put a freshly drawn card where `old` was, or at the end; tools as the mode has them. */
         function place(fresh, old) {
             if (!fresh) { return; }
             if (old && old.parentNode) { old.parentNode.insertBefore(fresh, old); old.parentNode.removeChild(old); } else { board.insertBefore(fresh, empty || null); }
-            var tools = fresh.querySelector('[data-pf-widget-tools]');
-            if (tools) { tools.hidden = !editing; }
-            if (editing) { fresh.setAttribute('draggable', 'true'); }
+            showTools(fresh, editing);
             if (empty) { empty.hidden = true; }
             if (window.pfCharts && window.pfCharts.draw) { window.pfCharts.draw(fresh); }
         }
@@ -1073,11 +1118,7 @@
             editing = on;
             if (editButton) { editButton.setAttribute('aria-pressed', on ? 'true' : 'false'); }
             if (bar) { bar.hidden = !on; }
-            cards().forEach(function (card) {
-                var tools = card.querySelector('[data-pf-widget-tools]');
-                if (tools) { tools.hidden = !on; }
-                if (on) { card.setAttribute('draggable', 'true'); } else { card.removeAttribute('draggable'); }
-            });
+            cards().forEach(function (card) { showTools(card, on); });
         }
 
         if (editButton) { editButton.addEventListener('click', function () { setEditing(!editing); }); }
@@ -1145,26 +1186,121 @@
             });
         }
 
-        // Dragging: the same order the buttons give, for a mouse.
-        board.addEventListener('dragstart', function (e) {
-            dragged = e.target.closest ? e.target.closest('[data-pf-widget]') : null;
-            if (!editing || !dragged) { dragged = null; return; }
-            dragged.classList.add('pf-dashboard-dragging');
-            if (e.dataTransfer) { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', dragged.getAttribute('data-pf-widget')); }
-        });
-        board.addEventListener('dragover', function (e) {
-            if (!dragged) { return; }
-            e.preventDefault();
-            var over = e.target.closest ? e.target.closest('[data-pf-widget]') : null;
-            if (!over || over === dragged) { return; }
-            var list = cards();
-            if (list.indexOf(over) < list.indexOf(dragged)) { board.insertBefore(dragged, over); } else { board.insertBefore(dragged, over.nextSibling); }
-        });
-        board.addEventListener('dragend', function () {
-            if (!dragged) { return; }
-            dragged.classList.remove('pf-dashboard-dragging');
-            dragged = null;
-            save();
+        // Dragging, by the grip, and resizing, by the corner — pointer events, so a finger does it
+        // as a mouse does. The grip lifts the card: it follows the pointer, a dashed placeholder of
+        // its size shows where it lands, and the window scrolls near its top and bottom. The corner
+        // resizes by columns, the width written on the card as it is reached. Saved when let go.
+        var SIZE_BADGE = { s: 'S · 1', m: 'M · 2', l: 'L · 3', full: 'Full · 4' };
+        function columns() {
+            var tracks = String((window.getComputedStyle ? window.getComputedStyle(board).gridTemplateColumns : '') || '').split(' ').filter(Boolean);
+            return Math.max(1, tracks.length);
+        }
+
+        board.addEventListener('pointerdown', function (ev) {
+            var grip = ev.target.closest ? ev.target.closest('[data-pf-widget-grip], [data-pf-widget-size-handle]') : null;
+            if (!grip || !editing || ev.button > 0) { return; }
+            ev.preventDefault();
+            var card     = grip.closest('[data-pf-widget]');
+            var id       = card.getAttribute('data-pf-widget');
+            var resizing = grip.hasAttribute('data-pf-widget-size-handle');
+            var before   = JSON.stringify(layout());
+            var rect     = card.getBoundingClientRect();
+            var cols     = columns();
+            var gap      = parseFloat((window.getComputedStyle ? window.getComputedStyle(board).columnGap : '') || '') || 0;
+            var colWidth = (board.getBoundingClientRect().width - gap * (cols - 1)) / cols;
+            var last     = { x: ev.clientX, y: ev.clientY };
+            var moved    = { x: ev.clientX, y: ev.clientY };
+            var frame    = null;
+            var badge    = null;
+            var placeholder = null;
+            document.body.style.userSelect = 'none';
+            if (resizing) {
+                card.classList.add('pf-dashboard-resizing');
+                badge = document.createElement('span');
+                badge.className = 'pf-dashboard-size-badge';
+                badge.textContent = SIZE_BADGE[sizeOf(card)] || '';
+                card.appendChild(badge);
+            } else {
+                placeholder = document.createElement('div');
+                placeholder.className = 'pf-dashboard-placeholder';
+                placeholder.setAttribute('data-size', sizeOf(card));
+                // As tall as the card, up to a third of the window: a tall card's gap would push the rest away.
+                placeholder.style.height = Math.min(rect.height, Math.max(160, window.innerHeight / 3)) + 'px';
+                board.insertBefore(placeholder, card);
+                card.classList.add('pf-dashboard-dragging');
+                card.style.width = rect.width + 'px';
+                card.style.height = rect.height + 'px';
+                card.style.left = rect.left + 'px';
+                card.style.top = rect.top + 'px';
+            }
+            var offset = { x: ev.clientX - rect.left, y: ev.clientY - rect.top };
+            function order() {
+                return Array.prototype.filter.call(board.children, function (el) {
+                    return el !== card && (el === placeholder || (el.hasAttribute && el.hasAttribute('data-pf-widget')));
+                }).map(function (el) { return el === placeholder ? id : el.getAttribute('data-pf-widget'); });
+            }
+            function placeHere() {
+                var over = (document.elementsFromPoint ? document.elementsFromPoint(last.x, last.y) : []).map(function (el) {
+                    return el.closest ? el.closest('[data-pf-widget]') : null;
+                }).filter(function (c) { return c && c !== card && c.parentNode === board; })[0];
+                // Only after a few pixels: a card that moved under a still pointer stays where it went.
+                if (!over || Math.abs(last.x - moved.x) + Math.abs(last.y - moved.y) < 6) { return; }
+                var r     = over.getBoundingClientRect();
+                var wide  = cols === 1 || r.width > board.getBoundingClientRect().width * 0.75;
+                var ahead = dashboardMath.dropBefore(r, last.x, last.y, wide);
+                if (dashboardMath.placeAt(order(), id, over.getAttribute('data-pf-widget'), ahead)) {
+                    board.insertBefore(placeholder, ahead ? over : over.nextSibling);
+                    moved = { x: last.x, y: last.y };
+                }
+            }
+            function scroll() {
+                var step = dashboardMath.autoScrollStep(last.y, window.innerHeight, 70, 20);
+                if (step !== 0 && window.scrollBy) {
+                    window.scrollBy(0, step);
+                    moved = { x: -1000, y: -1000 };
+                    placeHere();
+                }
+                frame = window.requestAnimationFrame(scroll);
+            }
+            function move(e) {
+                last = { x: e.clientX, y: e.clientY };
+                if (resizing) {
+                    var span = (rect.width + (e.clientX - ev.clientX) + gap) / (colWidth + gap);
+                    var size = dashboardMath.sizeForSpan(span, cols, sizeOf(card));
+                    card.setAttribute('data-size', size);
+                    card.classList.toggle('pf-dashboard-full', size === 'full');
+                    badge.textContent = SIZE_BADGE[size] || '';
+                    return;
+                }
+                card.style.left = (e.clientX - offset.x) + 'px';
+                card.style.top = (e.clientY - offset.y) + 'px';
+                placeHere();
+            }
+            function up() {
+                document.removeEventListener('pointermove', move);
+                document.removeEventListener('pointerup', up);
+                document.removeEventListener('pointercancel', up);
+                if (frame !== null && window.cancelAnimationFrame) { window.cancelAnimationFrame(frame); }
+                document.body.style.userSelect = '';
+                if (placeholder) {
+                    board.insertBefore(card, placeholder);
+                    board.removeChild(placeholder);
+                    card.classList.remove('pf-dashboard-dragging');
+                    ['width', 'height', 'left', 'top'].forEach(function (k) { card.style[k] = ''; });
+                }
+                if (badge) {
+                    card.removeChild(badge);
+                    card.classList.remove('pf-dashboard-resizing');
+                }
+                if (JSON.stringify(layout()) !== before) {
+                    say((card.getAttribute('aria-label') || '') + ': ' + (resizing ? NAMES[sizeOf(card)] : (cards().indexOf(card) + 1) + ' / ' + cards().length));
+                    save();
+                }
+            }
+            document.addEventListener('pointermove', move);
+            document.addEventListener('pointerup', up);
+            document.addEventListener('pointercancel', up);
+            if (!resizing && window.requestAnimationFrame) { frame = window.requestAnimationFrame(scroll); }
         });
     })();
 

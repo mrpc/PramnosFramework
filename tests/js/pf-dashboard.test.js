@@ -1,11 +1,12 @@
 /**
  * The dashboard each person arranges, in `pf-utils.js`, over the markup the dashboard views draw.
  *
- * What has to hold: "Customise" shows each card's tools and makes the cards draggable, and "Done"
- * hides them again; moving a card up or down, making it wide or narrow and hiding it each change
- * the page and save the new layout at once, with the page's CSRF token; choosing a card to add
- * saves the layout with it at the end and reloads; a drag saves the order it leaves; and a save
- * the server refuses is said, not swallowed.
+ * What has to hold: "Customise" shows each card's tools, grip and corner, and "Done" hides them
+ * again; moving a card up or down, changing its width and hiding it each change the page and save
+ * the new layout at once, with the page's CSRF token; choosing a card to add saves it, and draws
+ * it in place or reloads; a card's settings are saved and the card redrawn; a drag by the grip
+ * saves the order it leaves, and a drag of the corner the width it reaches; and a save the server
+ * refuses is said, not swallowed.
  *
  * Run:
  *   node --test tests/js/pf-dashboard.test.js
@@ -73,8 +74,10 @@ function page(ok = true, cardUrl = '') {
         const tools = el('div', { 'data-pf-widget-tools': '' }, section);
         tools.hidden = true;
         ['-1', '1'].forEach((step) => el('button', { 'data-pf-widget-move': step }, tools));
+        el('span', { 'data-pf-widget-grip': '' }, tools);
         el('button', { 'data-pf-widget-resize': '' }, tools);
         el('button', { 'data-pf-widget-hide': '' }, tools);
+        el('span', { 'data-pf-widget-size-handle': '' }, section).hidden = true;
         return section;
     };
     const cards = { a: card('a', 'half'), b: card('b', 'full'), c: card('c', 'half') };
@@ -113,12 +116,12 @@ test('customising shows the tools, and done hides them', () => {
     assert.equal(p.edit.getAttribute('aria-pressed'), 'true');
     assert.equal(p.bar.hidden, false);
     assert.equal(p.cards.a.querySelector('[data-pf-widget-tools]').hidden, false);
-    assert.equal(p.cards.a.getAttribute('draggable'), 'true');
+    assert.equal(p.cards.a.querySelector('[data-pf-widget-size-handle]').hidden, false, 'the corner too');
 
     p.click(p.done);
     assert.equal(p.bar.hidden, true);
     assert.equal(p.cards.a.querySelector('[data-pf-widget-tools]').hidden, true);
-    assert.equal(p.cards.a.hasAttribute('draggable'), false);
+    assert.equal(p.cards.a.querySelector('[data-pf-widget-size-handle]').hidden, true);
 });
 
 /** Moving a card changes the order on the page and saves it, with the page's token. */
@@ -210,27 +213,138 @@ test('adding a card saves it at the end and reloads', async () => {
     assert.equal(p.window.reloaded, 1);
 });
 
-/** A drag moves the card over the one it passes and saves the order when it ends. */
-test('dragging a card saves the order it leaves', async () => {
-    // Arrange
+/**
+ * A page with geometry: a grid of four 200px columns, each card where the test puts it, and the
+ * card under the pointer the one the test names — what a browser would answer.
+ */
+function geometry(p, rects, under) {
+    const box = (r) => ({ left: r[0], top: r[1], width: r[2], height: r[3], right: r[0] + r[2], bottom: r[1] + r[3] });
+    p.board.getBoundingClientRect = () => box([0, 0, 800, 600]);
+    Object.entries(rects).forEach(([id, r]) => { p.cards[id].getBoundingClientRect = () => box(r); });
+    p.window.getComputedStyle = () => ({ gridTemplateColumns: '200px 200px 200px 200px', columnGap: '0px' });
+    p.window.innerHeight = 800;
+    p.window.requestAnimationFrame = () => 1;
+    p.window.cancelAnimationFrame = () => {};
+    p.document.elementsFromPoint = () => [p.cards[under()]];
+}
+
+/** A pointer event, as the browser sends it. */
+function pointer(type, target, x, y) {
+    const e = new Event(type, { bubbles: true });
+    Object.assign(e, { clientX: x, clientY: y, button: 0 });
+    target.dispatchEvent(e);
+}
+
+/**
+ * Dragging a card by its grip: it is lifted, a placeholder of its width keeps its place and goes
+ * to the side of the card the pointer is on, and letting go puts the card there and saves the
+ * order — nothing before the pointer has moved a few pixels.
+ */
+test('dragging a card by its grip saves the order it leaves', async () => {
+    // Arrange — a, b, c in a row; the pointer ends on c's right half
     const p = page();
     p.click(p.edit);
-    const dragEvent = (type, target) => {
-        const e = new Event(type, { bubbles: true });
-        e.dataTransfer = { setData() {}, effectAllowed: '' };
-        target.dispatchEvent(e);
-    };
+    let over = 'b';
+    geometry(p, { a: [0, 0, 400, 100], b: [400, 0, 400, 100], c: [0, 120, 400, 100] }, () => over);
+    const grip = p.cards.a.querySelector('[data-pf-widget-grip]');
 
-    // Act — a over c
-    dragEvent('dragstart', p.cards.a);
-    dragEvent('dragover', p.cards.c);
-    dragEvent('dragend', p.cards.a);
+    // Act
+    pointer('pointerdown', grip, 20, 20);
+    const lifted = [p.cards.a.classList.contains('pf-dashboard-dragging'), p.board.querySelector('.pf-dashboard-placeholder') !== null];
+    pointer('pointermove', p.document, 22, 21);
+    const still = p.order();
+    over = 'c';
+    pointer('pointermove', p.document, 350, 150);
+    pointer('pointerup', p.document, 350, 150);
     await settle();
 
     // Assert
+    assert.deepEqual(lifted, [true, true]);
+    assert.deepEqual(still, ['a', 'b', 'c'], 'two pixels move nothing');
     assert.deepEqual(p.order(), ['b', 'c', 'a']);
     assert.deepEqual(p.saves[0].body.layout.map((w) => w.id), ['b', 'c', 'a']);
     assert.equal(p.cards.a.classList.contains('pf-dashboard-dragging'), false);
+    assert.equal(p.board.querySelector('.pf-dashboard-placeholder'), null, 'the placeholder gone');
+    assert.equal(p.cards.a.style.left, '');
+});
+
+/** Resizing by the corner takes the width of the columns reached, shows it, and saves it. */
+test('resizing a card by its corner saves the width reached', async () => {
+    // Arrange — a is m (two columns of 200px)
+    const p = page();
+    p.click(p.edit);
+    geometry(p, { a: [0, 0, 400, 100], b: [400, 0, 400, 100], c: [0, 120, 400, 100] }, () => 'b');
+    const corner = p.cards.a.querySelector('[data-pf-widget-size-handle]');
+
+    // Act — one column wider
+    pointer('pointerdown', corner, 398, 98);
+    const badge = p.cards.a.querySelector('.pf-dashboard-size-badge').textContent;
+    pointer('pointermove', p.document, 598, 98);
+    const during = [p.cards.a.getAttribute('data-size'), p.cards.a.querySelector('.pf-dashboard-size-badge').textContent];
+    pointer('pointerup', p.document, 598, 98);
+    await settle();
+
+    // Assert
+    assert.equal(badge, 'M · 2');
+    assert.deepEqual(during, ['l', 'L · 3']);
+    assert.equal(p.cards.a.querySelector('.pf-dashboard-size-badge'), null);
+    assert.deepEqual(p.saves[0].body.layout[0], { id: 'a', size: 'l', settings: {} });
+    assert.equal(p.status.textContent, 'A: large');
+});
+
+/** Outside customising, or with another button, the grip does nothing; a drag that ends where it began saves nothing. */
+test('a grip outside customising does nothing, and an unmoved drag saves nothing', async () => {
+    // Arrange
+    const p = page();
+    geometry(p, { a: [0, 0, 400, 100], b: [400, 0, 400, 100], c: [0, 120, 400, 100] }, () => 'b');
+    const grip = p.cards.a.querySelector('[data-pf-widget-grip]');
+
+    // Act
+    pointer('pointerdown', grip, 20, 20);
+    const notEditing = p.cards.a.classList.contains('pf-dashboard-dragging');
+    p.click(p.edit);
+    pointer('pointerdown', grip, 20, 20);
+    pointer('pointerup', p.document, 20, 20);
+    await settle();
+
+    // Assert
+    assert.equal(notEditing, false);
+    assert.equal(p.saves.length, 0);
+});
+
+/** The arithmetic of a drag: widths by columns, the side of a card, a placeholder that does not flicker, scrolling near the edges. */
+test('the arithmetic of dragging', () => {
+    // Arrange
+    const { window } = page();
+    const { sizeForSpan, dropBefore, placeAt, autoScrollStep } = window.pfDashboard;
+    const rect = { left: 100, top: 100, width: 200, height: 100 };
+    const order = ['today', 'activeusers', 'jobposts', 'online'];
+
+    // Act & Assert — widths
+    assert.equal(sizeForSpan(1.2, 4, 'full'), 's');
+    assert.equal(sizeForSpan(2.6, 4, 's'), 'l');
+    assert.equal(sizeForSpan(9, 4, 's'), 'full', 'clamped to the grid');
+    assert.equal(sizeForSpan(0, 4, 'l'), 's', 'never under one column');
+    assert.equal(sizeForSpan(2, 2, 's'), 'm', 'two columns: a small card widened is medium');
+    assert.equal(sizeForSpan(2, 2, 'l'), 'l', 'and a wide one keeps its width');
+    assert.equal(sizeForSpan(1, 2, 'l'), 's');
+    assert.equal(sizeForSpan(1, 1, 'l'), 'l', 'one column: nothing to resize');
+    // The side of a card
+    assert.equal(dropBefore(rect, 150, 190, false), true, 'left half of a card beside others');
+    assert.equal(dropBefore(rect, 250, 110, false), false);
+    assert.equal(dropBefore(rect, 250, 110, true), true, 'top half of a card that fills its row');
+    assert.equal(dropBefore(rect, 150, 190, true), false);
+    // The placeholder
+    assert.deepEqual(placeAt(order, 'online', 'activeusers', true), ['today', 'online', 'activeusers', 'jobposts']);
+    assert.deepEqual(placeAt(order, 'today', 'online', false), ['activeusers', 'jobposts', 'online', 'today']);
+    assert.equal(placeAt(order, 'online', 'jobposts', false), null, 'already after it: nothing moves');
+    assert.equal(placeAt(order, 'online', 'online', true), null, 'not onto itself');
+    assert.equal(placeAt(order, 'online', 'nope', true), null);
+    // Scrolling
+    assert.equal(autoScrollStep(400, 800, 70, 20), 0, 'away from the edges');
+    assert.equal(autoScrollStep(0, 800, 70, 20), -20, 'at the top: up, fastest');
+    assert.ok(autoScrollStep(60, 800, 70, 20) < 0 && autoScrollStep(60, 800, 70, 20) > -20, 'near the top: slower');
+    assert.equal(autoScrollStep(900, 800, 70, 20), 20, 'past the bottom: no faster');
 });
 
 /** A save the server refuses is said in the live region. */
