@@ -83,8 +83,12 @@ class ClientErrorsMySQLTest extends TestCase
 {
     protected Database $db;
 
+    /** @var array<string, mixed> The request as the suite had it */
+    private array $server = [];
+
     protected function setUp(): void
     {
+        $this->server = $_SERVER;
         Settings::loadSettings(ROOT . DS . 'tests' . DS . 'fixtures' . DS . 'app' . DS . 'settings.php');
         $this->db = $this->connect();
         \Pramnos\Framework\Testing\Schema::ensure([CreateJavascripterrorsTable::class], $this->db);
@@ -93,8 +97,8 @@ class ClientErrorsMySQLTest extends TestCase
 
     protected function tearDown(): void
     {
-        $_SERVER['REQUEST_METHOD'] = 'GET';
-        unset($_SERVER['HTTP_ORIGIN'], $_SERVER['HTTP_REFERER'], $_SERVER['CONTENT_LENGTH']);
+        $_SERVER = $this->server;
+        \Pramnos\Http\RequestIdentity::reset();
     }
 
     /** The connection under test. */
@@ -335,5 +339,92 @@ class ClientErrorsMySQLTest extends TestCase
         $this->assertSame(1, $afterDelete);
         $this->assertSame(0, $errors->list()['total']);
         $this->assertStringEndsWith('Logs/jserrors', (string) $controller->redirectedTo);
+    }
+
+    /** A same-origin POST from this site's page, read by the controller as it stands. */
+    private function sameOriginPost(string $ip): void
+    {
+        $_SERVER['REQUEST_METHOD'] = 'POST';
+        $_SERVER['HTTP_HOST']      = 'app.test';
+        $_SERVER['HTTP_ORIGIN']    = 'https://app.test';
+        $_SERVER['CONTENT_LENGTH'] = '80';
+        $_SERVER['REMOTE_ADDR']    = $ip;
+    }
+
+    /**
+     * Without a JSON body the report is the posted form — the older `error`/`agent` shape among it,
+     * and nothing that is not a report's field — and the signed-in reporter is kept.
+     */
+    public function testTheFormIsReadWhenThereIsNoJson(): void
+    {
+        // Arrange
+        $this->sameOriginPost('10.9.' . random_int(0, 255) . '.' . random_int(0, 255));
+        $_POST = ['error' => 'legacy line', 'agent' => 'Old Browser', 'password' => 'never stored'];
+        $me = new \Pramnos\User\User();
+        $me->userid = 990301;
+        \Pramnos\Http\RequestIdentity::seal($me, 'test');
+
+        try {
+            // Act
+            $status = (new ClientErrorsController(null))->display()->getStatusCode();
+
+            // Assert
+            $this->assertSame(204, $status);
+            $row = $this->rows()[md5('legacy line' . 'Old Browser')];
+            $this->assertSame('legacy line', $row['error']);
+            $this->assertSame('Old Browser', $row['agent'], 'the agent the report carried');
+        } finally {
+            \Pramnos\Http\RequestIdentity::reset();
+            $_POST = [];
+        }
+    }
+
+    /** Thirty reports a minute from one address; the next is refused with 429 and not stored. */
+    public function testAFloodFromOneAddressIsRefused(): void
+    {
+        // Arrange
+        if (!function_exists('apcu_inc') || !apcu_enabled()) {
+            $this->markTestSkipped('APCu counts the reports; it is not enabled here.');
+        }
+        $this->sameOriginPost('10.8.' . random_int(0, 255) . '.' . random_int(0, 255));
+        $controller = new FormClientErrorsController(null);
+        $statuses   = [];
+
+        // Act
+        for ($i = 0; $i <= ClientErrorsController::PER_MINUTE; $i++) {
+            $controller->posted = ['message' => 'flood ' . $i];
+            $statuses[] = $controller->display()->getStatusCode();
+        }
+
+        // Assert
+        $this->assertSame(array_fill(0, ClientErrorsController::PER_MINUTE, 204), array_slice($statuses, 0, ClientErrorsController::PER_MINUTE));
+        $this->assertSame(429, end($statuses));
+        $this->assertSame(ClientErrorsController::PER_MINUTE, (new ClientErrors($this->db))->list()['total']);
+    }
+
+    /** A store that fails — no table, no database — is logged, and the page still gets its 204. */
+    public function testAFailingStoreIsNotTheReportersProblem(): void
+    {
+        // Arrange
+        $this->sameOriginPost('10.7.' . random_int(0, 255) . '.' . random_int(0, 255));
+        $controller = new class (null) extends FormClientErrorsController {
+            /** A store over a database nothing connected. */
+            protected function errors(): ClientErrors
+            {
+                $db = new Database();
+                $db->type = 'mysql';
+                $db->server = '127.0.0.1';
+                $db->port = 1;
+
+                return new ClientErrors($db);
+            }
+        };
+        $controller->posted = ['message' => 'nowhere to go'];
+
+        // Act
+        $status = $controller->display()->getStatusCode();
+
+        // Assert
+        $this->assertSame(204, $status);
     }
 }
