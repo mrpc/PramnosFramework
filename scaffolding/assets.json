@@ -40,6 +40,16 @@
             ],
             "local_path": "assets/vendor/leaflet/1.9.4"
         },
+        "fullcalendar": {
+            "version": "6.1.15",
+            "description": "Calendars — month, week and day views, events from a JSON feed, dragging and resizing (the MIT standard bundle). pf-calendar.js wires it from data-* attributes.",
+            "css": [],
+            "js": [
+                "https://cdn.jsdelivr.net/npm/fullcalendar@6.1.15/index.global.min.js",
+                "https://cdn.jsdelivr.net/npm/@fullcalendar/core@6.1.15/locales-all.global.min.js"
+            ],
+            "local_path": "assets/vendor/fullcalendar/6.1.15"
+        },
         "web-vitals": {
             "version": "4.2.4",
             "description": "Core Web Vitals in the browser (attribution build), for pf-vitals.js: TTFB, FCP, LCP, INP, CLS.",

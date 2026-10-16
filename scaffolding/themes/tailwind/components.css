@@ -556,3 +556,23 @@ a.pf-stat-tile:hover { border-color: var(--color-primary, #2563eb); }
 /* \Pramnos\Auth\Impersonation::banner(): an administrator seeing the site as somebody else */
 .pf-impersonation { position: sticky; top: 0; z-index: 1000; padding: .5rem 1rem; background: #fef3c7; color: #78350f; text-align: center; font-size: .875rem; }
 .pf-impersonation button { margin-left: .5rem; }
+
+/* pf-calendar.js (FullCalendar): the theme's colours, light and dark, and a toolbar that wraps on a phone */
+.pf-calendar {
+    --fc-page-bg-color: transparent;
+    --fc-neutral-bg-color: color-mix(in oklab, currentColor 6%, transparent);
+    --fc-border-color: color-mix(in oklab, currentColor 15%, transparent);
+    --fc-today-bg-color: color-mix(in oklab, var(--color-primary, #2563eb) 12%, transparent);
+    --fc-event-bg-color: var(--color-primary, #2563eb);
+    --fc-event-border-color: var(--color-primary, #2563eb);
+    --fc-button-bg-color: var(--color-primary, #2563eb);
+    --fc-button-border-color: var(--color-primary, #2563eb);
+    --fc-button-hover-bg-color: color-mix(in oklab, var(--color-primary, #2563eb) 85%, black);
+    --fc-button-active-bg-color: color-mix(in oklab, var(--color-primary, #2563eb) 75%, black);
+    --fc-list-event-hover-bg-color: color-mix(in oklab, currentColor 8%, transparent);
+    color: inherit;
+}
+@media (max-width: 640px) {
+    .pf-calendar .fc-toolbar { flex-wrap: wrap; gap: .5rem; }
+    .pf-calendar .fc-toolbar-title { font-size: 1.1rem; }
+}
