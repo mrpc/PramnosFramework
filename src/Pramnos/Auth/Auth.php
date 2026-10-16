@@ -179,6 +179,7 @@ class Auth extends \Pramnos\Framework\Base
 
         $_SESSION['logged'] = false;
         \Pramnos\User\User::forgetCurrentUser();
+        LoginMarker::clear();
 
         foreach ($this->afterLogoutCallbacks as $fn) {
             $fn();
@@ -582,6 +583,11 @@ class Auth extends \Pramnos\Framework\Base
             \Pramnos\Addon\Addon::triger('Login', 'user', $response);
         } else {
             $this->executeDefaultLogin($response);
+        }
+
+        // After either path, so an application's own user addon gets the marker too.
+        if (!empty($response['status']) && (int) ($response['uid'] ?? 0) > 1) {
+            LoginMarker::set((bool) ($response['remember'] ?? true));
         }
 
         // Whichever branch established the session, serve the rest of this request

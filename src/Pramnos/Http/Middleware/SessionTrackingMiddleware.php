@@ -214,6 +214,9 @@ class SessionTrackingMiddleware implements MiddlewareInterface
             }
         }
 
+        // The login marker follows the session: cleared where the session that set it has ended.
+        \Pramnos\Auth\LoginMarker::sync($guest === 0);
+
         if (strlen($uname) > 128) {
             $uname = substr($uname, 0, 128);
         }

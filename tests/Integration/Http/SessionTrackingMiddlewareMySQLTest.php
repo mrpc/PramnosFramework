@@ -394,6 +394,40 @@ class SessionTrackingMiddlewareMySQLTest extends TestCase
     }
 
     /**
+     * With a login marker named, the tracking brings it in line with the session: a guest who
+     * still carries one — the session that set it ended — has it cleared, and a signed-in visitor
+     * without one gets it.
+     */
+    public function testTrackKeepsTheLoginMarkerInLineWithTheSession(): void
+    {
+        // Arrange
+        $app  = \Pramnos\Application\Application::getInstance();
+        $info = $app->applicationInfo;
+        $app->applicationInfo['session'] = ['login_marker' => 'logged_in'];
+        $middleware = new SessionTrackingMiddleware();
+
+        try {
+            // Act — a guest with a marker left behind
+            $request = $this->makeRequest();
+            $_COOKIE['logged_in'] = '1';
+            $middleware->track($request);
+            $guestKept = isset($_COOKIE['logged_in']);
+            // …and a signed-in visitor without one
+            $_SESSION['logged']   = true;
+            $_SESSION['uid']      = 42;
+            $_SESSION['username'] = 'mrpc';
+            $middleware->track($this->makeRequestWithCookies(['visitorid' => 'cccc111122223333']));
+            $signedIn = $_COOKIE['logged_in'] ?? null;
+        } finally {
+            $app->applicationInfo = $info;
+        }
+
+        // Assert
+        $this->assertFalse($guestKept, 'outlived its session: cleared');
+        $this->assertSame('1', $signedIn);
+    }
+
+    /**
      * A logged-in session with uid=1 (anonymous placeholder) must store NULL
      * in userid — uid 1 is the Guest account and must not be linked.
      */

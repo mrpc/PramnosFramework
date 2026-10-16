@@ -134,6 +134,28 @@ to turn over (they last 14 days and are refreshed while used), refuse the old on
 'auth' => ['legacy_remember' => false],
 ```
 
+### A cookie that says somebody is signed in
+
+A CDN rule, a service worker and the page cache's early path cannot open a session, so they
+cannot tell a signed-in visitor from an anonymous one. A login marker tells them:
+
+```php
+'session' => ['login_marker' => 'logged_in'],
+```
+
+- **What it is.** Its value is `1` and it holds no secret, so it is not HttpOnly: it has to be
+  readable.
+- **When it is set.** Every sign-in sets it, after the addon or the built-in path, so an
+  application's own user addon gets it too. A remembered sign-in keeps it as long as the
+  remember-me cookies.
+- **When it is cleared.** Signing out clears it, and so does the session tracking when it finds the
+  marker with nobody signed in, because the session that set it has ended.
+- **Why `logged_in`.** The name begins with `logged`, which the page cache's default
+  `bypassCookies` already bypasses on. That pattern is anchored at the start, so a name like
+  `pramnos_logged` would not match.
+
+It is off until it is named.
+
 ### Signing in as somebody else, and back
 
 Support often needs to see what a customer sees. `Auth::impersonate($userId)` (or

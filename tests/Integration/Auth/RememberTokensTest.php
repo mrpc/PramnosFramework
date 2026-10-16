@@ -98,6 +98,34 @@ class RememberTokensTest extends TestCase
         $this->assertSame($this->userId, RememberTokens::userFor($second));
     }
 
+    /**
+     * With a login marker named, a sign-in sets it — whichever path established the session —
+     * and signing out clears it.
+     */
+    #[DataProvider('databases')]
+    public function testTheLoginMarkerFollowsTheSignIn(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connect($type, $host, $port);
+        $app  = \Pramnos\Application\Application::getInstance();
+        $info = $app->applicationInfo;
+        $app->applicationInfo['session'] = ['login_marker' => 'logged_in'];
+
+        try {
+            // Act
+            (new Auth())->loginById($this->userId, true);
+            $in = $_COOKIE['logged_in'] ?? null;
+            (new Auth())->logout();
+            $out = isset($_COOKIE['logged_in']);
+        } finally {
+            $app->applicationInfo = $info;
+        }
+
+        // Assert
+        $this->assertSame('1', $in);
+        $this->assertFalse($out);
+    }
+
     /** An expired token signs nobody in, and is deleted on the way. */
     #[DataProvider('databases')]
     public function testAnExpiredTokenIsRefused(string $type, string $host, int $port): void
