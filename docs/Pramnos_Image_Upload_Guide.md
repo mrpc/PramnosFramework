@@ -83,6 +83,17 @@ The result is drawn on a canvas, so it carries no EXIF data: no camera, no locat
 orientation either, because the browser has already turned the picture upright. An animated GIF
 becomes its first frame.
 
+## The page's security policy and styles
+
+The chosen file is shown to the cropper through `URL.createObjectURL()`, a `blob:` address. The
+framework's Content-Security-Policy allows `blob:` in `img-src`. A policy of the application's
+own, set in its web server or a header of its own, has to allow it too, or the crop area stays
+empty grey.
+
+The dialog's styles are in the theme's `components.css`. A project scaffolded before the dialog
+existed takes the newer copy with `project:resync --css`. A copy the project changed is kept and
+named, and `--overwrite` replaces it.
+
 ## The profile picture
 
 The picture input on **Account → Profile** asks for a square with a round guide. It is sent as

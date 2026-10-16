@@ -39,6 +39,7 @@ Commands are grouped by a `namespace:` prefix that reflects what they act on:
 | `push:` | Web push notifications | `push:setup`, `push:vapid-generate` |
 | `mail:` | Deliverability, the outbox, and the mail log's size | `mail:dns-check`, `mail:flush`, `mail:prune` |
 | `llm:` | The language-model call log ([guide](Pramnos_LLM_Guide.md)) | `llm:prune` |
+| `audit:` | The operators' audit trail ([guide](Pramnos_Authentication_Guide.md#the-audit-trail-what-operators-did)) | `audit:prune` |
 | `schedule:` | Task scheduler | `schedule:run`, `schedule:list` |
 | `spa:` | Front-end dev server and build (SPA projects) | `spa:dev`, `spa:build` |
 | `scaffold:` | Add a whole feature to an **existing** project | `scaffold:spa` |
@@ -530,6 +531,7 @@ php bin/pramnos project:resync --all          # also copy files not in the proje
 php bin/pramnos project:resync --js           # only the pf-*.js CSP-safe UI hooks
 php bin/pramnos project:resync --scripts      # only the API-docs tooling
 php bin/pramnos project:resync --debug-panel  # only the framework-owned SPA modules (lib/debug.js, lib/webauthn.js)
+php bin/pramnos project:resync --css          # only the theme's components.css
 php bin/pramnos project:resync --pwa          # only the PWA icons (never overwritten) and manifest.json (merged)
 php bin/pramnos project:resync --spa-components  # only the shared Svelte components and their tests
 ```
@@ -561,11 +563,12 @@ The groups:
 | `--js` | `www/assets/js/pf-*.js` — the CSP-safe UI hook scripts |
 | `--scripts` | `scripts/apidoc-to-openapi.cjs`, `scripts/doc.sh`, plus the API-docs npm scripts merged into `package.json` and the framework endpoints merged into `src/Api/openapi-overrides.json` |
 | `--debug-panel` | `lib/debug.js` (the SPA debug panel) and `lib/webauthn.js`, in `frontend/lib/` or `www/assets/js/lib/` depending on this project's stack (read from `app_style`/`spa_stack`, or `spa_source_dir` when set) |
+| `--css` | `www/assets/css/components.css`, the framework components' styles, from the theme `scaffold_theme` names. Kept when the project changed it (or when it predates the record `init` now keeps), unless `--overwrite` |
 | `--pwa` | The PWA icons (added when missing, never overwritten) and `manifest.json` (merged) |
 | `--spa-components` | The shared Svelte components and their tests — see [The shared components](#the-shared-components). Not part of a plain `project:resync` |
 
-`--overwrite` replaces shared components the project changed, or that the framework has no
-record of writing; without it they are reported `kept`.
+`--overwrite` replaces shared components and `components.css` where the project changed them,
+or where the framework has no record of writing them; without it they are reported `kept`.
 
 Merges preserve what the project declared: user-added npm scripts, extra OpenAPI paths and
 schemas survive. What is **not** rewritten is `lib/api.js` — it is the project's own file and
@@ -948,6 +951,7 @@ php bin/pramnos logs:convert /path/to/file.log --no-backup
 | `messages:dispatch` | Deliver pending recipients of due mass messages | `--limit/-l` |
 | `mail:flush` / `mail:prune` / `mail:dns-check [domain]` | Send the mail queued in the outbox / strip old bodies and remove old rows by policy / check SPF, DKIM, DMARC and BIMI on the sending domain | `--limit`, `--deadline`, `--dry-run` / `--strip-after`, `--delete-after`, `--recipients-after`, `--apply` |
 | `push:setup` / `push:vapid-generate` | Set up web push (migration, keys, service worker, browser script, library) / generate the VAPID key pair | `--apply`, `--no-install` / `--force` |
+| `audit:prune` | Delete audit-log rows past the retention (`audit.retention_days` in app.php); deletes nothing until one is set | `--days` |
 | `llm:prune` / `llm:routines` | Drop language-model call log rows older than the kept window / ask the scheduled questions that are due | `--days` / — |
 | `broadcast:serve` | WebSocket broadcasting server (Pusher-compatible) | `--host` (default `0.0.0.0`), `--port/-p` (default `6001`), `--log-file`, `--app-key`, `--channels` |
 

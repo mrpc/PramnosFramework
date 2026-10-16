@@ -32,13 +32,13 @@ final class OauthKeysTest extends TestCase
         exec('rm -rf ' . escapeshellarg($this->root));
     }
 
-    /** Runs the command against the temporary root. */
-    private function keys(array $options): CommandTester
+    /** Runs the command against the temporary root; with `$failing`, OpenSSL makes no key. */
+    private function keys(array $options, bool $failing = false): CommandTester
     {
         $root    = $this->root;
-        $command = new class ($root) extends OauthKeys {
+        $command = new class ($root, $failing) extends OauthKeys {
             /** The temporary root, in place of ROOT. */
-            public function __construct(private string $at)
+            public function __construct(private string $at, private bool $failing)
             {
                 parent::__construct();
             }
@@ -46,6 +46,11 @@ final class OauthKeysTest extends TestCase
             protected function root(): string
             {
                 return $this->at;
+            }
+
+            protected function generate(): ?array
+            {
+                return $this->failing ? null : parent::generate();
             }
         };
         $application = new Application();
@@ -126,5 +131,29 @@ final class OauthKeysTest extends TestCase
         // Assert
         $this->assertSame(1, $tester->getStatusCode());
         $this->assertStringContainsString('Could not create app/keys', $tester->getDisplay());
+    }
+
+    /**
+     * A key file that cannot be written (a directory stands where it goes) and an OpenSSL that
+     * makes no key each fail the command with the reason; and by default the root is ROOT.
+     */
+    public function testAWriteOrAKeyThatFailsIsSaid(): void
+    {
+        // Arrange
+        mkdir($this->root . '/app/keys/private.key', 0700, true);
+
+        // Act
+        $unwritable = $this->keys([]);
+        exec('rm -rf ' . escapeshellarg($this->root . '/app'));
+        $nokey = $this->keys([], true);
+        $root  = (new \ReflectionMethod(OauthKeys::class, 'root'))->invoke(new OauthKeys());
+
+        // Assert
+        $this->assertSame(1, $unwritable->getStatusCode());
+        $this->assertStringContainsString('Could not write the key pair', $unwritable->getDisplay());
+        $this->assertSame(1, $nokey->getStatusCode());
+        $this->assertStringContainsString('RSA key generation failed', $nokey->getDisplay());
+        $this->assertFileDoesNotExist($this->root . '/app/keys/private.key', 'nothing half-written');
+        $this->assertSame((string) ROOT, $root);
     }
 }

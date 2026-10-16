@@ -170,6 +170,23 @@ class ActivityLogTest extends BaseTestCase
     }
 
     /**
+     * The details pass through the audit log's redaction: a secret-named key keeps its place and
+     * loses its value, so the history says what happened without holding the secret.
+     */
+    public function testSecretsInTheDetailsAreRedacted(): void
+    {
+        // Arrange
+        $details = ['client' => 'mobile', 'access_token' => 'eyJ.secret.value'];
+
+        // Act
+        ActivityLog::record(42, 'token_refreshed', $details);
+        $row = $this->db->queryBuilder()->table('authserver.user_activity_log')->where('userid', 42)->first();
+
+        // Assert
+        $this->assertEquals(['client' => 'mobile', 'access_token' => \Pramnos\Auth\AuditLog::REDACTED], json_decode((string) $row->fields['details'], true));
+    }
+
+    /**
      * With the 'auth' feature off the event is still written when the table exists: the table
      * decides. An application with the feature off but the table in place lost every event —
      * an impersonation among them — without a word.

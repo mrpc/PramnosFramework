@@ -4239,7 +4239,8 @@ PHP;
         }
         // The framework components' styles, which a theme's style.css imports from beside it.
         if (file_exists($themeDir . '/components.css')) {
-            $this->writeFile($this->webRoot . '/assets/css/components.css', file_get_contents($themeDir . '/components.css'));
+            // Recorded, so project:resync --css can tell the framework's copy from the project's.
+            $this->writeShipped($this->webRoot . '/assets/css/components.css', (string) file_get_contents($themeDir . '/components.css'));
         }
 
         $this->scaffoldPalette($appName);

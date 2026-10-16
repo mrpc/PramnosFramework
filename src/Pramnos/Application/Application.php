@@ -3088,7 +3088,10 @@ class Application extends Base
             "script-src 'self'{$scriptNonce}" . $scriptDomains,
             "style-src 'self'{$styleNonce}" . $styleDomains,
             "style-src-attr 'unsafe-inline'",
-            "img-src 'self' data:" . self::cspDomains($csp, 'img-src'),
+            // blob: for a picture the page itself made — pf-image.js shows the chosen file through
+            // URL.createObjectURL(). Only script of this page can make one, and here it can only
+            // be an image.
+            "img-src 'self' data: blob:" . self::cspDomains($csp, 'img-src'),
             "font-src 'self' data:" . self::cspDomains($csp, 'font-src'),
             "connect-src 'self'" . self::cspDomains($csp, 'connect-src'),
             // **`media-src` was absent, so `default-src 'none'` decided it.**

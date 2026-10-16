@@ -255,6 +255,13 @@ class FrameworkSchedule
                 'description' => 'Drop language-model call log rows older than 90 days',
             ],
 
+            // The audit trail's retention — none until one is configured, because how long an
+            // audit is kept is a decision of law or policy, not of the framework.
+            'audit:prune' => [
+                'cadence'     => [['daily'], ['at', '04:30']],
+                'description' => 'Delete audit-log rows past the configured retention, if one is set',
+            ],
+
             // Scheduled questions to a language model, as their owners. Every minute: a routine
             // is set for a time on somebody's clock. A no-op without the `llm` feature's table.
             'llm:routines' => [

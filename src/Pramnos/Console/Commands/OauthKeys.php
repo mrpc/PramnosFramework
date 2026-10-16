@@ -37,6 +37,23 @@ class OauthKeys extends Command
         return defined('ROOT') ? (string) ROOT : (string) getcwd();
     }
 
+    /**
+     * A new RSA 2048 pair as PEM, `[private, public]`, or null when OpenSSL cannot make one — a
+     * method, so a test can be the OpenSSL that fails.
+     *
+     * @return array{string, string}|null
+     */
+    protected function generate(): ?array
+    {
+        $key     = openssl_pkey_new(['digest_alg' => 'sha256', 'private_key_bits' => 2048, 'private_key_type' => OPENSSL_KEYTYPE_RSA]);
+        $details = $key === false ? false : openssl_pkey_get_details($key);
+        if ($key === false || $details === false || !openssl_pkey_export($key, $pem)) {
+            return null;
+        }
+
+        return [(string) $pem, (string) $details['key']];
+    }
+
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $directory = $this->root() . '/' . self::DIRECTORY;
@@ -61,15 +78,14 @@ class OauthKeys extends Command
             return Command::FAILURE;
         }
 
-        $key = openssl_pkey_new(['digest_alg' => 'sha256', 'private_key_bits' => 2048, 'private_key_type' => OPENSSL_KEYTYPE_RSA]);
-        $details = $key === false ? false : openssl_pkey_get_details($key);
-        if ($key === false || $details === false || !openssl_pkey_export($key, $pem)) {
+        $pair = $this->generate();
+        if ($pair === null) {
             $output->writeln('<error>RSA key generation failed: ' . (string) openssl_error_string() . '</error>');
 
             return Command::FAILURE;
         }
 
-        if (@file_put_contents($private, $pem) === false || @file_put_contents($public, (string) $details['key']) === false) {
+        if (@file_put_contents($private, $pair[0]) === false || @file_put_contents($public, $pair[1]) === false) {
             $output->writeln('<error>Could not write the key pair to ' . self::DIRECTORY . '/.</error>');
 
             return Command::FAILURE;

@@ -76,6 +76,7 @@ class ProjectResync extends Command
             ->addOption('js', null, InputOption::VALUE_NONE, 'Only sync the pf-*.js UI hook scripts')
             ->addOption('scripts', null, InputOption::VALUE_NONE, 'Only sync the docs tooling scripts (apidoc-to-openapi.cjs, doc.sh)')
             ->addOption('debug-panel', null, InputOption::VALUE_NONE, 'Only sync the framework-owned SPA modules (lib/debug.js, lib/webauthn.js)')
+            ->addOption('css', null, InputOption::VALUE_NONE, 'Only sync the theme\'s components.css (the framework components\' styles); kept when the project changed it, unless --overwrite')
             ->addOption('pwa', null, InputOption::VALUE_NONE, 'Only sync the PWA files: icons (never overwritten) and manifest.json (merged)')
             ->addOption('spa-components', null, InputOption::VALUE_NONE, 'Only sync the shared Svelte components (DataTable, Pagination, ConfirmDialog, Field, i18n — and Chat, Scheduled, AiConsent with the llm feature) and their tests');
     }
@@ -123,7 +124,8 @@ class ProjectResync extends Command
         // for an unrelated reason. --spa-components is how you say you want the
         // newer version.
         $onlyPwa   = (bool) $input->getOption('pwa');
-        $allGroups = !$onlyJs && !$onlyScr && !$onlyPanel && !$onlyComponents && !$onlyPwa;
+        $onlyCss   = (bool) $input->getOption('css');
+        $allGroups = !$onlyJs && !$onlyScr && !$onlyPanel && !$onlyComponents && !$onlyPwa && !$onlyCss;
         $doJs      = $onlyJs || $allGroups;
         $doScripts = $onlyScr || $allGroups;
         $doPanel     = $onlyPanel || $allGroups;
@@ -138,6 +140,12 @@ class ProjectResync extends Command
         }
         if ($doPwa) {
             $files = array_merge($files, $this->collectPwaFiles($scaffoldingDir, $base));
+        }
+        // The components' styles: in the default set, because a component the framework adds
+        // (a dialog, a calendar) is otherwise unstyled in every project scaffolded before it, and
+        // protected, because a project may have changed its copy.
+        if ($onlyCss || $allGroups) {
+            $files = array_merge($files, $this->collectComponentStyles($scaffoldingDir, $base));
         }
         if ($onlyComponents) {
             $files = array_merge(
@@ -546,6 +554,29 @@ class ProjectResync extends Command
      * `www` is both the default and the fallback, which keeps a project with an unusual
      * layout from having icons written into a directory nothing serves.
      */
+    /**
+     * The scaffolded theme's components.css, for `<webroot>/assets/css/components.css` — from
+     * the theme app.php names in `scaffold_theme`, none when it names none or one the framework
+     * does not ship.
+     *
+     * @return list<array{content: string, dest: string, exec: bool, protect: bool}>
+     */
+    private function collectComponentStyles(string $scaffoldingDir, string $base): array
+    {
+        $theme  = (string) ($this->appConfig($base)['scaffold_theme'] ?? '');
+        $source = $scaffoldingDir . '/themes/' . basename($theme) . '/components.css';
+        if ($theme === '' || !is_file($source)) {
+            return [];
+        }
+
+        return [[
+            'content' => (string) file_get_contents($source),
+            'dest'    => $this->webRootOf($base) . '/assets/css/components.css',
+            'exec'    => false,
+            'protect' => true,
+        ]];
+    }
+
     private function webRootOf(string $base): string
     {
         foreach (['www', 'public', 'public_html', 'htdocs', 'web'] as $candidate) {

@@ -448,6 +448,41 @@ unchecked path: the user's own `disable()` requires their password, and an opera
 be asked for somebody else's. `revokepasskey` matches on the user *and* the credential, so
 a request naming another account's key deletes nothing.
 
+### The audit trail: what operators did
+
+The activity log is a person's own history. `authserver.audit_log` is the operators' record of
+actions, for an administrator or an auditor: who did what, to which account or record.
+
+```php
+use Pramnos\Auth\AuditLog;
+
+AuditLog::record('role.granted', $adminId, $userId, ['role' => 'editor']);       // about an account
+AuditLog::change('client.updated', $adminId, 'application', $appId, $old, $new);  // a record changed
+AuditLog::record('report.sent', null);                                           // by the system
+
+$rows = AuditLog::query(['event' => 'role.*', 'actor' => $adminId, 'since' => strtotime('-7 days')], 50);
+$next = AuditLog::query(['event' => 'role.*', 'before' => end($rows)['auditid']], 50);
+```
+
+- **Secrets are redacted** in the context, the old values and the new: a key whose words name
+  one (`password`, `client_secret`, `accessToken`, `api_key`, `otp`, `pin`, `cookie`,
+  `Authorization`…) keeps its place and loses its value, so the trail says a password changed
+  without holding it. Only whole words count, so `spin` and `keyword` are kept. A number, a
+  boolean or null under such a key is kept too, so a count of tokens is still a count.
+  `AuditLog::redact($array)` is the same rule for code of your own, and
+  `ActivityLog::record()` applies it to its details.
+- **The reader** takes `event` (exact, or a prefix: `role.*`), `actor`, `target` (a userid),
+  `object_type`, `object_id`, `since`/`until` (Unix times) and `before` (an `auditid`, for the
+  next page). It answers newest first, at most 500 at a time, with the JSON columns decoded.
+- **It never breaks the action it audits.** With no table, or a database that fails, nothing is
+  written, the reader answers `[]` and the reason goes to the `auth` log. It writes wherever the
+  table exists, on MySQL and PostgreSQL alike. On TimescaleDB the table is a hypertable,
+  compressed after 90 days.
+- **Nothing is deleted unless asked.** How long an audit trail is kept is a decision of law or
+  policy. `audit:prune` runs daily on the framework schedule and deletes nothing until a
+  retention is set: `'audit' => ['retention_days' => 730]` in `app/app.php`, or
+  `audit:prune --days=N` by hand.
+
 ### Editing a user: what the screen can change
 
 The edit form covers **every column the framework's own schema gives a user** — username,

@@ -127,6 +127,23 @@ class CspConfigurableDirectivesTest extends TestCase
     }
 
     /**
+     * Images may come from `blob:`, by default and beside configured hosts: the image-upload
+     * crop shows the chosen file through `URL.createObjectURL()`, and without it the crop area
+     * was empty grey on a page with nothing wrong in its own code.
+     */
+    public function testImagesThePageMadeAreAllowed(): void
+    {
+        // Act
+        $default = $this->directives(Application::buildCspPolicy([]));
+        $hosts   = $this->directives(Application::buildCspPolicy(['img-src' => ['https://tiles.example']]));
+
+        // Assert
+        $this->assertSame(["'self'", 'data:', 'blob:'], $default['img-src']);
+        $this->assertSame(["'self'", 'data:', 'blob:', 'https://tiles.example'], $hosts['img-src']);
+        $this->assertNotContains('blob:', $default['script-src'], 'an image, never a script');
+    }
+
+    /**
      * The directives that are meant to stay absolute do.
      *
      * These are excluded from `CSP_CONFIGURABLE` on purpose, so the exclusion is worth

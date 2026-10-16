@@ -432,7 +432,7 @@ the header:
 | --- | --- | --- |
 | `script-src` | `'self'` + nonce | A CDN or a map SDK |
 | `style-src` | `'self'` + nonce | Web fonts, an icon stylesheet |
-| `img-src` | `'self' data:` | Tiles, avatars, a media host |
+| `img-src` | `'self' data: blob:` (`blob:` for a picture the page made, such as the image-upload crop) | Tiles, avatars, a media host |
 | `font-src` | `'self' data:` | `fonts.gstatic.com` |
 | `connect-src` | `'self'` | An API or a WebSocket you call |
 | `media-src` | `'self'` | Audio or video served elsewhere |

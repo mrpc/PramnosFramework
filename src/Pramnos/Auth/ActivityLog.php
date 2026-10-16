@@ -78,7 +78,8 @@ class ActivityLog
                 ->insert([
                     'userid'     => $userId,
                     'action'     => substr($action, 0, 100),
-                    'details'    => $details === [] ? null : json_encode($details),
+                    // Secret-named keys lose their values, as in the audit log.
+                    'details'    => $details === [] ? null : json_encode(AuditLog::redact($details)),
                     'ip_address' => $ip !== null ? substr((string) $ip, 0, 45) : null,
                     'user_agent' => $ua !== null ? (string) $ua : null,
                     'created_at' => date('c'),
