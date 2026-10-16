@@ -29,7 +29,11 @@ final class WidgetRegistry
         Widgets\ActiveUsers::class,
         Widgets\ApiPerformance::class,
         Widgets\DatabaseOverview::class,
+        Widgets\QueueStatus::class,
+        Widgets\EmailActivity::class,
+        Widgets\AiSpend::class,
         Widgets\HealthChecks::class,
+        Widgets\RecentErrors::class,
     ];
 
     /** @var array<string, Widget> Registered in code */

@@ -99,6 +99,10 @@ final class BrokenRuleWidget extends Widget
 #[CoversClass(Widget::class)]
 #[CoversClass(HealthChecks::class)]
 #[CoversClass(Figures::class)]
+#[CoversClass(\Pramnos\Dashboard\Widgets\QueueStatus::class)]
+#[CoversClass(\Pramnos\Dashboard\Widgets\EmailActivity::class)]
+#[CoversClass(\Pramnos\Dashboard\Widgets\AiSpend::class)]
+#[CoversClass(\Pramnos\Dashboard\Widgets\RecentErrors::class)]
 class WidgetRegistryTest extends TestCase
 {
     /** @var array<string, mixed> */
@@ -123,7 +127,7 @@ class WidgetRegistryTest extends TestCase
         return (object) ['userid' => 7, 'usertype' => $type];
     }
 
-    /** The framework's four, then the application's, then the registered; framework false drops the first. */
+    /** The framework's own, then the application's, then the registered; framework false drops the first. */
     public function testTheOrderAndTheSources(): void
     {
         // Arrange
@@ -135,7 +139,7 @@ class WidgetRegistryTest extends TestCase
         $own = array_keys(WidgetRegistry::all());
 
         // Assert
-        $this->assertSame(['users.active', 'api.performance', 'database', 'health', 'orders'], $all, 'a class that is not a widget is left out');
+        $this->assertSame(['users.active', 'api.performance', 'database', 'queue', 'email', 'ai.spend', 'health', 'logs.errors', 'orders'], $all, 'a class that is not a widget is left out');
         $this->assertSame(['orders'], $own);
         $this->assertInstanceOf(OrdersWidget::class, WidgetRegistry::get('orders'));
         $this->assertNull(WidgetRegistry::get('nope'));
@@ -177,6 +181,35 @@ class WidgetRegistryTest extends TestCase
         $this->assertSame(['users.active', 'api.performance', 'database', 'health', 'orders'], array_keys(WidgetRegistry::available(self::user(90))));
         $this->assertSame(['orders'], array_keys(WidgetRegistry::available(self::user(10))));
         $this->assertSame([], array_keys(WidgetRegistry::available(null)));
+    }
+
+    /**
+     * The cards that summarise a screen of their own — queue, email, AI spend, errors — are offered
+     * only to whoever may open that screen, at the framework screens' floor (98), never at the
+     * dashboard's (80); the queue's only where the queue is installed, the AI's only where a key is
+     * set; and the errors card, which reads the log files, is not on a new dashboard.
+     */
+    public function testTheScreensCardsFollowTheirScreens(): void
+    {
+        // Arrange
+        $super   = self::user(98);
+        $manager = self::user(90);
+        $cards   = [new \Pramnos\Dashboard\Widgets\QueueStatus(), new \Pramnos\Dashboard\Widgets\EmailActivity(), new \Pramnos\Dashboard\Widgets\AiSpend(), new \Pramnos\Dashboard\Widgets\RecentErrors()];
+
+        // Act
+        $forSuper   = array_map(static fn (Widget $w): bool => $w->allowed($super), $cards);
+        $forManager = array_map(static fn (Widget $w): bool => $w->allowed($manager), $cards);
+
+        // Assert
+        $this->assertSame([\Pramnos\Application\FeatureRegistry::isEnabled('queue'), true, false, true], $forSuper, 'no key here: no AI spend card');
+        $this->assertSame([false, false, false, false], $forManager, 'below the screens\' floor: none of them');
+        $this->assertSame([true, true, true, false], array_map(static fn (Widget $w): bool => $w->byDefault(), $cards));
+        $this->assertSame(['Queue', 'Emails', 'Ai/settings', 'logs'], array_map(static fn (Widget $w): string => (string) preg_replace('#^.*/(Queue|Emails|Ai/settings|logs)$#', '$1', (string) $w->link()), $cards));
+        foreach ($cards as $card) {
+            // Each says what it is and what it shows, in the catalogue
+            $this->assertNotSame('', $card->title(), $card->id());
+            $this->assertNotSame('', $card->description(), $card->id());
+        }
     }
 
     /**

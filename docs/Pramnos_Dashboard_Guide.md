@@ -12,7 +12,7 @@ use_cases:
 
 The administration dashboard (`DashboardController`, at `/admin/Dashboard`) is a grid of cards,
 called widgets. Each person arranges it for themselves: which cards, in what order, how wide.
-The framework brings four widgets; an application adds its own.
+The framework brings eight widgets; an application adds its own.
 
 ## A widget
 
@@ -116,7 +116,7 @@ first. The dashboard hands a widget its settings with `configure()` before `rend
 // app/app.php
 'dashboard' => [
     'widgets'   => [\App\Widgets\OpenOrders::class],
-    'framework' => false,   // leave out the framework's four
+    'framework' => false,   // leave out the framework's own
 ],
 ```
 
@@ -126,15 +126,28 @@ widgets, then app.php's, then the registered ones. A widget under an id that is 
 replaces the earlier one. So an application can redraw a framework card under its id, and the
 layouts people saved keep it.
 
-The framework's widgets read their figures through `Dashboard\Widgets\Figures`, once per
-request:
+The framework's widgets, in the order a new dashboard shows them:
 
-| Id | Card |
-|---|---|
-| `users.active` | Signed in now, in the last day and week; opens the sessions list |
-| `api.performance` | Requests, the share that failed, average and p95 latency over 24 hours |
-| `database` | Size, connections, cache hit ratio; opens the database page |
-| `health` | Every health check, with its message when not ok — full width |
+| Id | Card | Who gets it |
+|---|---|---|
+| `users.active` | Signed in now, in the last day and week; opens the sessions list | the dashboard's role |
+| `api.performance` | Requests, the share that failed, average and p95 latency over 24 hours | the dashboard's role |
+| `database` | Size, connections, cache hit ratio; opens the database page | the dashboard's role |
+| `queue` | Tasks waiting now; failed and finished in 24 hours, failures critical; opens the queue | who may open `admin.queue`, where the `queue` feature is on |
+| `email` | Email in 7 days from the send history (`mails`): sent, failed (with the failure rate), queued; the share opened only where tracked mail was sent in the week; opens the email screen | who may open `admin.emails` |
+| `ai.spend` | Model calls in 30 days: cost, calls, failed; opens the AI settings | who may open `admin.ai`, where the `llm` feature is on and a key is set |
+| `health` | Every health check, with its message when not ok — full width | the dashboard's role |
+| `logs.errors` | Errors in the logs in 24 hours and the commonest five; **not on a new dashboard** — it reads the log files — but in the catalogue | who may open `admin.logs` |
+
+A card that summarises a screen is offered only to who may open that screen, at the framework
+screens' floor (`Figures::opens()`), so the dashboard never shows more than the screen behind it.
+A card whose feature has no table yet draws nothing.
+
+The first four and `health` read their figures through `Dashboard\Widgets\Figures`, once per
+request. `queue` and `ai.spend` read the analyst's own tools (`QueueTool`, `LlmSpendTool`), so the
+dashboard and the analyst give the same numbers. `email` counts the send history by status in one
+query over the `date` index — every message has a row there whatever became of it, tracked or not.
+`logs.errors` reads `Logs\LogAnalytics::summary()`, as the log dashboard does.
 
 ## Each person's layout
 

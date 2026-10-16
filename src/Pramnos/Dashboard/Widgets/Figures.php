@@ -40,6 +40,15 @@ final class Figures
         return self::once('health', static fn () => \Pramnos\Health\HealthRegistry::runAll()['checks'] ?? []);
     }
 
+    /**
+     * Whether this person may open the screen a card summarises — its ability, at the framework
+     * screens' floor. A card shows no more than its screen does.
+     */
+    public static function opens(?object $user, string $ability): bool
+    {
+        return \Pramnos\Auth\AdminAccess::allows($user, $ability, \Pramnos\Auth\AdminAccess::defaultUsertype());
+    }
+
     /** For a test, or a second dashboard in one process: work them out again. */
     public static function forget(): void
     {

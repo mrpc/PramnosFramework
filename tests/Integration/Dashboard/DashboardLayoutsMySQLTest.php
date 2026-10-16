@@ -69,6 +69,10 @@ class LayoutDashboardController extends DashboardController
 #[CoversClass(Layouts::class)]
 #[CoversClass(DashboardController::class)]
 #[CoversClass(CreateUserDashboardsTable::class)]
+#[CoversClass(\Pramnos\Dashboard\Widgets\QueueStatus::class)]
+#[CoversClass(\Pramnos\Dashboard\Widgets\EmailActivity::class)]
+#[CoversClass(\Pramnos\Dashboard\Widgets\AiSpend::class)]
+#[CoversClass(\Pramnos\Dashboard\Widgets\RecentErrors::class)]
 class DashboardLayoutsMySQLTest extends TestCase
 {
     protected const ME = 990101;
@@ -264,6 +268,119 @@ class DashboardLayoutsMySQLTest extends TestCase
         $this->assertStringContainsString('Last 24 hours', $users);
         $this->assertStringContainsString('Requests', $api);
         $this->assertStringContainsString('Errors', $api);
+    }
+
+    /**
+     * The queue, email, AI-spend and errors cards draw from the real tables: a failed task shows as
+     * a failure, critical; a tracked message opened shows a rate; a priced call shows its cost.
+     * Each reads the same figures the analyst answers with.
+     */
+    public function testTheScreensCardsDraw(): void
+    {
+        // Arrange — one of each, made now, marked so they can be removed
+        \Pramnos\Framework\Testing\Schema::ensure([
+            \Pramnos\Framework\Migrations\Queue\CreateQueueitemsTable::class,
+            \Pramnos\Framework\Migrations\Core\CreatePramnosSchema::class,
+            \Pramnos\Framework\Migrations\Messaging\CreateEmailTrackingTables::class,
+            \Pramnos\Framework\Migrations\Messaging\CreateMailsTable::class,
+            \Pramnos\Framework\Migrations\Llm\CreateLlmCallsTable::class,
+            \Pramnos\Framework\Migrations\Llm\AddTokensToLlmCalls::class,
+        ], $this->db);
+        $now    = gmdate('Y-m-d H:i:s', time() - 60);
+        $marker = 'dash-' . bin2hex(random_bytes(4));
+        $qb     = fn (string $table) => $this->db->queryBuilder()->table($table);
+        $qb('#PREFIX#queueitems')->insert(['type' => $marker, 'payload' => '{}', 'status' => 'failed', 'error' => 'boom', 'createdat' => $now, 'updatedat' => $now]);
+        $qb('pramnos.emailtracking')->insert(['tracking_id' => $marker, 'list' => 'news', 'subject' => 's', 'sent_at' => time() - 60, 'opens' => 1, 'proxy_opens' => 0, 'clicks' => 0]);
+        // The send history: one sent, one failed — what every installation has, tracked or not
+        foreach ([1, 0] as $status) {
+            $qb('#PREFIX#mails')->insert(['status' => $status, 'frommail' => 'a@b.c', 'fromname' => '', 'tomail' => 'x@y.z', 'toname' => '', 'subject' => $marker,
+                'content' => '', 'date' => time() - 60, 'module' => '', 'moduleinfo' => '', 'extrainfo' => '', 'path' => '', 'hash' => md5($marker . $status)]);
+        }
+        $qb('#PREFIX#llm_calls')->insert(['purpose' => $marker, 'provider' => 'openai', 'model' => 'm', 'tokens' => 100, 'cost' => 0.5, 'currency' => 'USD', 'created_at' => $now]);
+        // An error in a log of its own, written as the framework writes one, with markup in it —
+        // often enough to be the commonest, whatever else the installation's logs hold today
+        $log = \Pramnos\Logs\LogManager::getLogFilePath($marker, 'log');
+        @mkdir(dirname($log), 0777, true);
+        $line = json_encode(['timestamp' => date('d/m/Y H:i:s', time() - 60), 'message' => $marker . ' <b>broke</b>', 'level' => 'error']) . "\n";
+        file_put_contents($log, str_repeat($line, 5000));
+
+        try {
+            // Act
+            $queue  = (new \Pramnos\Dashboard\Widgets\QueueStatus())->render();
+            $email  = (new \Pramnos\Dashboard\Widgets\EmailActivity())->render();
+            $spend  = (new \Pramnos\Dashboard\Widgets\AiSpend())->render();
+            $errors = (new \Pramnos\Dashboard\Widgets\RecentErrors())->render();
+
+            // Assert
+            $this->assertMatchesRegularExpression('#data-state="critical"><span[^>]*>Failed</span>#', $queue, 'a failure in the last day is critical');
+            $this->assertStringContainsString('Waiting', $queue);
+            $this->assertMatchesRegularExpression('#>Sent</span><span[^>]*>[1-9][\d,]*</span>#', $email, 'from the send history');
+            $this->assertMatchesRegularExpression('#data-state="(warning|critical)"><span[^>]*>Failed</span>#', $email, 'a failure is flagged');
+            $this->assertStringContainsString('>Queued<', $email);
+            $this->assertMatchesRegularExpression('#>Opened</span><span[^>]*>[\d.]+%</span>#', $email, 'a rate, since tracked mail was sent this week');
+            $this->assertMatchesRegularExpression('#>Cost</span><span[^>]*>\$[\d,]+\.\d{2}</span>#', $spend);
+            $this->assertMatchesRegularExpression('#data-state="warning"><span[^>]*>Errors</span>#', $errors, 'an error in the last day');
+            $this->assertStringContainsString($marker . ' &lt;b&gt;broke&lt;/b&gt;</span><span class="pf-dashboard-status">5000×', $errors, 'listed with its count, its markup escaped');
+        } finally {
+            @unlink($log);
+            $qb('#PREFIX#queueitems')->where('type', $marker)->delete();
+            $qb('pramnos.emailtracking')->where('tracking_id', $marker)->delete();
+            $qb('#PREFIX#mails')->where('subject', $marker)->delete();
+            $qb('#PREFIX#llm_calls')->where('purpose', $marker)->delete();
+        }
+    }
+
+    /**
+     * Where the feature's table is not there — never installed — its card draws nothing rather than
+     * failing: the analyst's tool says the table is absent, and an empty card is "nothing today".
+     */
+    public function testACardWithoutItsTableIsEmpty(): void
+    {
+        // Arrange — a connection with no such tables: a prefix nothing was made under
+        $prefix = $this->db->prefix;
+        $this->db->prefix = 'nothere_' . bin2hex(random_bytes(3)) . '_';
+
+        try {
+            // Act
+            $queue = (new \Pramnos\Dashboard\Widgets\QueueStatus())->render();
+            $spend = (new \Pramnos\Dashboard\Widgets\AiSpend())->render();
+            $email = (new \Pramnos\Dashboard\Widgets\EmailActivity())->render();
+        } finally {
+            $this->db->prefix = $prefix;
+        }
+
+        // Assert
+        $this->assertSame(['', ''], [$queue, $spend]);
+        if ($this->db->type === 'mysql') {
+            // On MySQL `pramnos.emailtracking` is a prefixed table too; on PostgreSQL it is a schema the prefix does not reach.
+            $this->assertSame('', $email);
+        }
+    }
+
+    /**
+     * Mail sent with no tracking in the week gets no "Opened" tile at all — not "0%", which would
+     * say nobody read it when nobody was counting.
+     */
+    public function testUntrackedMailShowsNoOpenRate(): void
+    {
+        // Arrange — tracked mail only from before the week
+        \Pramnos\Framework\Testing\Schema::ensure([
+            \Pramnos\Framework\Migrations\Core\CreatePramnosSchema::class,
+            \Pramnos\Framework\Migrations\Messaging\CreateEmailTrackingTables::class,
+            \Pramnos\Framework\Migrations\Messaging\CreateMailsTable::class,
+        ], $this->db);
+        $tracking = fn () => $this->db->queryBuilder()->table('pramnos.emailtracking');
+        $recent   = $tracking()->where('sent_at', '>=', time() - 8 * 86400)->count();
+        if ($recent > 0) {
+            $this->markTestSkipped('This database has tracked mail from this week.');
+        }
+
+        // Act
+        $email = (new \Pramnos\Dashboard\Widgets\EmailActivity())->render();
+
+        // Assert
+        $this->assertStringContainsString('>Sent<', $email);
+        $this->assertStringNotContainsString('Opened', $email);
     }
 
     /** Without the table — before `migrate` — a person still gets the default dashboard. */
