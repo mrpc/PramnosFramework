@@ -580,3 +580,29 @@ test('the title row is a grip, after a few pixels, and not its links', async () 
     assert.equal(dragged, 'fixed');
     assert.deepEqual(p.order(), ['b', 'c', 'a']);
 });
+
+/**
+ * While the title row waits for the pointer to move, the browser's own drag and text selection
+ * are refused — they would take the pointer and cancel the drag — and allowed again once the
+ * press ends; while customising, the row's text is not selectable.
+ */
+test('the title row refuses the browser\'s own gestures while it waits', async () => {
+    // Arrange
+    const p = page();
+    const head = p.el('div', { 'data-pf-widget-head': '' }, p.cards.a);
+    p.click(p.edit);
+    geometry(p, { a: [0, 0, 400, 100], b: [400, 0, 400, 100], c: [0, 120, 400, 100] }, () => 'c');
+    const gesture = (type) => { const e = new Event(type, { bubbles: true }); p.document.dispatchEvent(e); return e.defaultPrevented; };
+
+    // Act
+    pointer('pointerdown', head, 20, 20);
+    const waiting = [gesture('dragstart'), gesture('selectstart')];
+    pointer('pointerup', p.document, 20, 20);
+    const after = [gesture('dragstart'), gesture('selectstart')];
+
+    // Assert
+    assert.deepEqual(waiting, [true, true], 'refused while waiting');
+    assert.deepEqual(after, [false, false], 'the press ended: allowed again');
+    assert.equal(head.style.userSelect, 'none');
+    assert.equal(head.style.webkitUserSelect, 'none');
+});

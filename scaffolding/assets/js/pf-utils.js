@@ -1097,6 +1097,9 @@
             // stylesheet rule of ours: a finger on a handle must drag, not scroll.
             Array.prototype.forEach.call(card.querySelectorAll('[data-pf-widget-grip], [data-pf-widget-size-handle], [data-pf-widget-head]'), function (handle) {
                 handle.style.touchAction = on ? 'none' : '';
+                // Nor does a press there start selecting its text.
+                handle.style.userSelect = on ? 'none' : '';
+                handle.style.webkitUserSelect = on ? 'none' : '';
             });
         }
 
@@ -1291,14 +1294,21 @@
                 stop();
                 begin(ev, head)(e);
             }
+            // While it waits, the browser's own gestures — dragging a link, selecting text — would
+            // take the pointer and cancel it: refused until the press ends or the card lifts.
+            function refuse(e) { e.preventDefault(); }
             function stop() {
                 document.removeEventListener('pointermove', wait);
                 document.removeEventListener('pointerup', stop);
                 document.removeEventListener('pointercancel', stop);
+                document.removeEventListener('dragstart', refuse);
+                document.removeEventListener('selectstart', refuse);
             }
             document.addEventListener('pointermove', wait);
             document.addEventListener('pointerup', stop);
             document.addEventListener('pointercancel', stop);
+            document.addEventListener('dragstart', refuse);
+            document.addEventListener('selectstart', refuse);
         });
 
         /** Lift a card by a grip, or take its corner; answers the handler of the pointer's moves. */

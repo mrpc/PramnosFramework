@@ -151,7 +151,9 @@ request:
 In the same mode a card is dragged by its grip, or by its title row (`data-pf-widget-head`), and
 resized by its corner, with pointer events, so a finger does it as a mouse does. The title row
 starts a drag only once the pointer has moved a few pixels, so a click stays a click, and never
-from a link, button or field in it.
+from a link, button or field in it. While it waits, the browser's own drag and text selection are
+refused, because either would take the pointer, and the row's text is not selectable while
+customising.
 
 What makes a lifted card follow the pointer (`position: fixed`, its layer, no pointer events),
 the handles' `touch-action: none` and the page's text selection are set inline by the script
