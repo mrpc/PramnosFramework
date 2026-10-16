@@ -624,6 +624,37 @@ class View extends \Pramnos\Framework\Base
             // Factory may be unavailable in tests — silently skip
         }
 
+        // 5. The bundled scaffold, last — what scaffoldedTemplate() already does for a whole
+        // template. An application that overrides one view and keeps the framework's others
+        // (`src/Views/OAuth2/delete_account.html.php`) inserts a partial it never copied
+        // (`delete_account_tasks`): found here, beside the scaffold's own copy of the view.
+        foreach ($extensions as $ext) {
+            $path = $this->scaffoldedFile($name . $ext);
+            if ($path !== null) {
+                return $path;
+            }
+        }
+
+        return null;
+    }
+
+    /** A file under the bundled scaffold's views of this view, `views/{name}/{file}`, or null. */
+    private function scaffoldedFile(string $file): ?string
+    {
+        $app   = \Pramnos\Application\Application::currentInstance();
+        $info  = is_array($app?->applicationInfo) ? $app->applicationInfo : [];
+        $theme = \Pramnos\Application\ScaffoldingHelper::getScaffoldTheme($info);
+        $dirs  = $theme !== null
+            ? [\Pramnos\Application\ScaffoldingHelper::getThemeDir($theme)]
+            : \Pramnos\Application\ScaffoldingHelper::getAvailableThemeDirs();
+
+        foreach ($dirs as $dir) {
+            $candidate = $dir . DS . 'views' . DS . $this->name . DS . $file;
+            if (is_file($candidate)) {
+                return $candidate;
+            }
+        }
+
         return null;
     }
 
@@ -671,23 +702,7 @@ class View extends \Pramnos\Framework\Base
      */
     private function scaffoldedTemplate(string $tpl, string $type): ?string
     {
-        $app  = \Pramnos\Application\Application::currentInstance();
-        $info = is_array($app?->applicationInfo) ? $app->applicationInfo : [];
-
-        $theme = \Pramnos\Application\ScaffoldingHelper::getScaffoldTheme($info);
-        $dirs  = $theme !== null
-            ? [\Pramnos\Application\ScaffoldingHelper::getThemeDir($theme)]
-            : \Pramnos\Application\ScaffoldingHelper::getAvailableThemeDirs();
-
-        foreach ($dirs as $dir) {
-            $candidate = $dir . DS . 'views' . DS . $this->name . DS
-                . $tpl . '.' . $type . '.php';
-            if (is_file($candidate)) {
-                return $candidate;
-            }
-        }
-
-        return null;
+        return $this->scaffoldedFile($tpl . '.' . $type . '.php');
     }
 
     /**

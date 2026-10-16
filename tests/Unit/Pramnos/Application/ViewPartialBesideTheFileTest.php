@@ -89,4 +89,30 @@ class ViewPartialBesideTheFileTest extends TestCase
             @rmdir($this->tmp . '/app/partials');
         }
     }
+
+    /**
+     * A view the application overrode inserts a partial it never copied — one the framework's
+     * scaffold has: found there, last, beside the scaffold's own copy of the view.
+     */
+    public function testAPartialOnlyTheScaffoldHasIsFoundThere(): void
+    {
+        // Arrange — the application's override of delete_account, inserting the tasks partial
+        file_put_contents($this->tmp . '/app/OAuth2/delete_account.html.php', "<?php \$this->insert('delete_account_tasks'); ?>[mine]");
+        $view = new View(new Controller(), $this->tmp . '/app/OAuth2', 'OAuth2');
+
+        try {
+            // Act
+            $out = $this->draw($view, $this->tmp . '/app/OAuth2/delete_account.html.php');
+            $none = $this->draw($view, 'no_such_partial_anywhere');
+
+            // Assert — drawn from the bundled scaffold's OAuth2 views; it has no tasks to show
+            $this->assertSame('[mine]', $out);
+            $this->assertSame('', $none);
+            $resolve = new \ReflectionMethod(View::class, 'resolveTemplatePath');
+            $this->assertStringEndsWith('/views/OAuth2/delete_account_tasks.html.php', (string) $resolve->invoke($view, 'delete_account_tasks'));
+            $this->assertNull($resolve->invoke($view, 'no_such_partial_anywhere'));
+        } finally {
+            @unlink($this->tmp . '/app/OAuth2/delete_account.html.php');
+        }
+    }
 }

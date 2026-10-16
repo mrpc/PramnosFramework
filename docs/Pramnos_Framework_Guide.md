@@ -713,7 +713,11 @@ variables.
 5. **beside the file being drawn** — so a scaffold view the application did not override
    (the application has `src/Views/OAuth2/` for one file, and the framework's
    `security.html.php` is drawn) finds its own `../partials/…` there;
-6. a theme override, if the active theme allows them.
+6. a theme override, if the active theme allows them;
+7. **the bundled scaffold**, `scaffolding/themes/<scaffold_theme>/views/<ViewName>/`. A view the
+   application overrode (`src/Views/OAuth2/delete_account.html.php`) inserts a partial it never
+   copied (`delete_account_tasks`) and gets the framework's. A whole template has always fallen
+   back there; a partial does too.
 
 Both `.html.php` and `.tpl.php` are tried at each step.
 
