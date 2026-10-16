@@ -118,7 +118,10 @@ access token.
 Code that signs in again by handing `auth` back where the stored hash was expected keeps working
 with the token: `auth($username, $auth, true, true)`, as an application's own auth addon's
 `onAuthCheck()` does, or a mobile client re-authenticating with the `auth` it was given. The
-driver accepts this account's unexpired token there, without spending it.
+driver accepts this account's unexpired token there. `auth()` then spends it, because the sign-in
+handed back its replacement: a remembered visit leaves no live token behind, and a client reads the
+new `auth`. Signing in again in a session that had a sign-in, as an administrator's "log in as"
+does, ends the token it replaces.
 
 Until `migrate` has created `remember_tokens` there is nowhere to keep a token. A sign-in then
 keeps the credential it had, and the log says to migrate.

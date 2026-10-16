@@ -398,6 +398,14 @@ class Auth extends \Pramnos\Framework\Base
         }
 
         $this->lastResponse = $this->triggerLogin($response);
+
+        // A sign-in token handed back where the hash was expected — an addon's own remember
+        // sign-in — is spent: the sign-in issued its replacement, and the old one would otherwise
+        // stay valid until it expired, one more for every remembered visit.
+        if ($encryptedPassword && RememberTokens::isToken((string) $password)) {
+            RememberTokens::revoke((string) $password);
+        }
+
         return true;
     }
 
@@ -521,6 +529,9 @@ class Auth extends \Pramnos\Framework\Base
         // Before `migrate` has made the table there is nowhere to keep a token, and the sign-in
         // keeps the credential it had, so the upgrade signs nobody out; the log says to migrate.
         if (!empty($response['status']) && (int) ($response['uid'] ?? 0) > 1) {
+            // The sign-in this session had ends with it — "log in as", or signing in again — so
+            // the token it replaces does not stay valid behind it.
+            RememberTokens::revoke((string) ($_SESSION['auth'] ?? ''));
             $response['auth'] = RememberTokens::issue((int) $response['uid']) ?? (string) ($response['auth'] ?? '');
         }
 

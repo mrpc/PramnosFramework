@@ -185,9 +185,10 @@ class RememberTokensTest extends TestCase
     /**
      * An application that signs in again by handing the `auth` value back as the stored hash —
      * its own auth addon's onAuthCheck() calling `auth($username, $cookie, true, true)`, a mobile
-     * client re-authenticating with the `auth` it was given — still signs in with a token, again
-     * and again: nobody is signed out because the value stopped being the hash. Another
-     * account's token, a spent one, or an expired one does not.
+     * client re-authenticating with the `auth` it was given — still signs in with a token, so
+     * nobody is signed out because the value stopped being the hash. The token is spent and the
+     * sign-in hands back its replacement, so a remembered visit leaves no live token behind.
+     * Another account's token, a spent one, or an expired one does not sign in.
      */
     #[DataProvider('databases')]
     public function testATokenWhereTheHashWasExpected(string $type, string $host, int $port): void
@@ -207,10 +208,13 @@ class RememberTokensTest extends TestCase
         $driver = new \Pramnos\Auth\Drivers\DatabaseAuthDriver();
 
         try {
-            // Act — as the application's own addon does, twice; then the wrong ones
+            // Act — as the application's own addon does; again with the same; then with the new one
             $first   = (new Auth())->auth($name, $token, true, true);
+            $renewed = (string) $_SESSION['auth'];
             $_SESSION = [];
             $second  = (new Auth())->auth($name, $token, true, true);
+            $third   = (new Auth())->auth($name, $renewed, true, true);
+            $token   = (string) $_SESSION['auth'];
             $_SESSION = [];
             $notMine = $driver->verify($name, $theirs, true)->success;
             $plain   = $driver->verify($name, $token, false)->success;
@@ -222,10 +226,41 @@ class RememberTokensTest extends TestCase
         }
 
         // Assert
-        $this->assertSame([true, true], [$first, $second], 'signed in with the token, and again with the same one');
+        $this->assertSame([true, false, true], [$first, $second, $third], 'signed in with the token, which is then spent; its replacement works');
         $this->assertFalse($notMine, 'another account\'s token');
         $this->assertFalse($plain, 'as a password it is nothing');
         $this->assertFalse($spent, 'ended');
+    }
+
+    /**
+     * Signing in again in a session that had a sign-in — an administrator's "log in as" — ends
+     * the token it replaces: it would otherwise stay valid behind the new one until it expired.
+     */
+    #[DataProvider('databases')]
+    public function testASignInEndsTheTokenItReplaces(string $type, string $host, int $port): void
+    {
+        // Arrange — the administrator signed in; another account to become
+        $this->connect($type, $host, $port);
+        (new Auth())->loginById($this->userId, true);
+        $admins = (string) $_SESSION['auth'];
+        $other  = new User();
+        $other->username = 'remember_as_' . bin2hex(random_bytes(4));
+        $other->email    = $other->username . '@example.com';
+        $other->setPassword('x');
+        $other->save();
+
+        try {
+            // Act — log in as the other account, in the same session
+            (new Auth())->loginById((int) $other->userid, false);
+            $theirs = (string) $_SESSION['auth'];
+        } finally {
+            $this->db->queryBuilder()->table('#PREFIX#remember_tokens')->where('userid', (int) $other->userid)->delete();
+            $this->db->queryBuilder()->table('#PREFIX#users')->where('userid', (int) $other->userid)->delete();
+        }
+
+        // Assert
+        $this->assertNull(RememberTokens::userFor($admins), 'the administrator\'s token ended with their sign-in');
+        $this->assertNotSame($admins, $theirs);
     }
 
     /**
