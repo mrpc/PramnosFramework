@@ -1,5 +1,5 @@
 /*
- * A calendar from markup, on FullCalendar (`libraries:sync fullcalendar`): month, week and day
+ * A calendar from markup, on FullCalendar (`project:install fullcalendar`): month, week and day
  * views, events from a JSON feed, and dragging and resizing — with no script of the page's own.
  *
  *   <form id="calendar-filters">… <select name="staff">…</select> …</form>

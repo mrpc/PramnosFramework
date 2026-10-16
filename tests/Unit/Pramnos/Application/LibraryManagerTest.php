@@ -413,6 +413,85 @@ class LibraryManagerTest extends TestCase
     }
 
     /**
+     * The scaffolded Application.php carries `$doc = …getDocument();` in the docblock of
+     * registerVendorLibraries() as an example. A registration written there is a comment and
+     * registers nothing — while the command says it did — so the lines go in the method's body,
+     * after its last registration, and a handle named only in a comment does not count as
+     * registered.
+     */
+    public function testRegistrationGoesInTheMethodBodyAfterTheLastOneNotInItsDocblock(): void
+    {
+        // Arrange — the shape `init` scaffolds, with one library registered and one in a comment.
+        $appFile = $this->wwwDir . '/Application.php';
+        file_put_contents($appFile, <<<'PHP'
+        <?php
+        class Application
+        {
+            /**
+             * Example in a controller:
+             *   $doc = \Pramnos\Framework\Factory::getDocument();
+             *   $doc->registerScript('jquery', 'x');
+             */
+            private function registerVendorLibraries(): void
+            {
+                $doc = \Pramnos\Framework\Factory::getDocument();
+                $doc->registerScript('leaflet', sURL . 'assets/vendor/leaflet/leaflet.js',
+                    [], '1.9.4', true);
+                // $doc->registerScript('chartjs', 'commented out');
+            }
+
+            public function other(): void
+            {
+            }
+        }
+        PHP);
+
+        // Act
+        $detected = $this->manager->detectRegisteredHandles($appFile);
+        $result   = $this->manager->registerInBootstrap($appFile, ['jquery']);
+        $src      = (string) file_get_contents($appFile);
+
+        // Assert
+        $this->assertSame(['leaflet'], $detected, 'handles in comments are not registrations');
+        $this->assertSame(['jquery'], $result['registered']);
+        $at = strpos($src, "\$doc->registerScript('jquery', sURL");
+        $this->assertNotFalse($at, 'written as code');
+        $this->assertGreaterThan(strpos($src, "[], '1.9.4', true);"), $at, 'after the last registration, past its continuation line');
+        $this->assertLessThan(strpos($src, 'public function other'), $at, 'inside the method');
+        $this->assertSame(2, substr_count($src, "registerScript('jquery'"), 'the docblock example, and the real one');
+        $this->assertContains('jquery', $this->manager->detectRegisteredHandles($appFile));
+    }
+
+    /**
+     * An Application.php of an application's own, without registerVendorLibraries(): the lines go
+     * after its first `$doc = …getDocument();` in code — never one in a comment above it.
+     */
+    public function testWithoutTheMethodTheFirstAnchorInCodeIsUsed(): void
+    {
+        // Arrange
+        $appFile = $this->wwwDir . '/Application.php';
+        file_put_contents($appFile, <<<'PHP'
+        <?php
+        class Application
+        {
+            // $doc = \Pramnos\Framework\Factory::getDocument();
+            public function init(): void
+            {
+                $doc = \Pramnos\Framework\Factory::getDocument();
+            }
+        }
+        PHP);
+
+        // Act
+        $result = $this->manager->registerInBootstrap($appFile, ['jquery']);
+        $src    = (string) file_get_contents($appFile);
+
+        // Assert
+        $this->assertSame(['jquery'], $result['registered']);
+        $this->assertGreaterThan(strpos($src, 'public function init'), strpos($src, "registerScript('jquery'"));
+    }
+
+    /**
      * When the anchor line is absent, registerInBootstrap() writes nothing and
      * hands the lines back in 'manual' for the caller to surface.
      */

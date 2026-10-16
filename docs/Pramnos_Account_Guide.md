@@ -33,7 +33,7 @@ whichever theme (plain-CSS, Bootstrap, Tailwind) the application uses.
 ## Profile picture
 
 **Account → Profile** has a **Profile Picture** card. Choose a JPEG, PNG, GIF or WebP picture.
-Where the project has Cropper.js (`libraries:sync cropperjs`), a dialog opens to crop it to a
+Where the project has Cropper.js (`project:install cropperjs`), a dialog opens to crop it to a
 square, turn or flip it. The picture is made at most `profile_photo_upload_size` pixels (512 by
 default) in the browser, and sent as soon as it is cropped (see the
 [Image Upload Guide](Pramnos_Image_Upload_Guide.md)). Without Cropper.js, press **Upload**. Whatever the format, it is stored as JPEG, so every client can show it;

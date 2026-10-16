@@ -19,7 +19,7 @@ namespace Pramnos\Html;
  */
 final class ImageUpload
 {
-    /** Where `libraries:sync cropperjs` puts Cropper.js, under the web root. */
+    /** Where `project:install cropperjs` puts Cropper.js, under the web root. */
     public const LIBRARY = 'assets/vendor/cropperjs/1.6.2/';
 
     /** The options {@see attributes()} takes, and the attribute each becomes. */

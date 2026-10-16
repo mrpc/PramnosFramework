@@ -443,6 +443,13 @@ php bin/pramnos project:install --force
 php bin/pramnos project:install --no-register
 ```
 
+**Where the registration goes.** `project:install` writes each `registerScript()` /
+`registerStyle()` line into `registerVendorLibraries()`, after the last registration already
+there, or after its `$doc = …getDocument();` when there is none. Only code counts: the
+example in that method's docblock is not a place to write, and a handle named only in a
+comment is not registered. An `Application.php` without the method gets the lines after its
+first `$doc = …getDocument();`; one without that either gets them printed for hand-insertion.
+
 **Mandatory libraries.** A library flagged `"mandatory": true` in
 `scaffolding/assets.json` (currently Chart.js, required by the log analytics dashboard) is
 always ensured by both `init` and the `project:` commands — so upgrading an old project to

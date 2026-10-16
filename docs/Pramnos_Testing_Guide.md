@@ -89,6 +89,12 @@ It also resets `Request`'s statics. Those matter for the same reason: routing st
 is only recomputed when there is a path to route, so without the reset a request to `/`
 would serve whatever controller the request before it had resolved.
 
+Each request also gets a fresh document, because what a page adds to one (content, enqueued
+scripts, the head) belongs to that page. What the application *registered* in `init()`
+(`registerScript()`/`registerStyle()` in `registerVendorLibraries()`) is carried onto it,
+none of it loaded yet, as a real request starts with it. So a test can assert that a page
+loads its chart library.
+
 If you handle several requests in one process yourself, call `beginRequest()` per
 request. A single-request process needs nothing: the constructor calls it.
 

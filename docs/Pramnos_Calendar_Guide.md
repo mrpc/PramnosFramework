@@ -12,7 +12,7 @@ A calendar is FullCalendar 6, the MIT standard bundle, installed from the asset 
 framework's `pf-calendar.js` wires it from markup, so a screen needs no script of its own.
 
 ```bash
-pramnos libraries:sync fullcalendar        # into www/assets/vendor/fullcalendar/6.1.15/
+pramnos project:install fullcalendar        # into www/assets/vendor/fullcalendar/6.1.15/
 pramnos project:resync --js --all          # pf-calendar.js
 ```
 

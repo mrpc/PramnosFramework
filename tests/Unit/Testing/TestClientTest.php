@@ -289,6 +289,38 @@ class TestClientTest extends TestCase
     }
 
     /**
+     * What the application registered in `init()` is still registered in every request, and
+     * loaded in none yet.
+     *
+     * The document is reset before each request, which is right for what a request leaves on it
+     * — and wrong for the libraries the application registered once, as a real request starts
+     * with them. Without this `Html\Chart` found `chartjs` unregistered and enqueued nothing, and
+     * a test could not see that a page loads its chart library.
+     */
+    public function testWhatTheApplicationRegisteredSurvivesEachRequest(): void
+    {
+        // Arrange — registered as an application's registerVendorLibraries() does, and loaded
+        // by a page rendered before the requests
+        $doc = \Pramnos\Framework\Factory::getDocument();
+        $doc->registerScript('chartjs', '/assets/vendor/chartjs/chart.umd.min.js', [], '4.4.3', true);
+        $doc->registerStyle('app-css', '/assets/app.css');
+        $loaded = static fn (object $document): bool => \Closure::bind(fn (): bool => (bool) $this->_js['chartjs']['loaded'], $document, \Pramnos\Document\Document::class)();
+        \Closure::bind(function (): void { $this->_js['chartjs']['loaded'] = true; }, $doc, \Pramnos\Document\Document::class)();
+        $seen = [];
+
+        // Act — two requests, each looking at the document it renders with
+        foreach (['/', '/Reports'] as $uri) {
+            $this->client->get($uri);
+            $now    = \Pramnos\Framework\Factory::getDocument();
+            $seen[] = [$now->isScriptRegistered('chartjs'), $now->isStyleRegistered('app-css'), $now !== $doc, $loaded($now)];
+        }
+
+        // Assert
+        $this->assertTrue($loaded($doc), 'the page before had loaded it');
+        $this->assertSame([[true, true, true, false], [true, true, true, false]], $seen, 'registered in each, on a fresh document, loaded in none yet');
+    }
+
+    /**
      * A request does not inherit the previous request's caller.
      *
      * A middleware seals who is calling — a bearer token, `via=session-exchange` — and on

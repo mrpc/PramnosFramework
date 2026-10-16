@@ -13,7 +13,7 @@ The framework's `pf-image.js` does it, on Cropper.js from the asset catalog, wit
 page's own. The profile picture card on **Account → Profile** uses it.
 
 ```bash
-pramnos libraries:sync cropperjs           # into www/assets/vendor/cropperjs/1.6.2/
+pramnos project:install cropperjs           # into www/assets/vendor/cropperjs/1.6.2/
 pramnos project:resync --js --all          # pf-image.js
 ```
 
@@ -74,7 +74,7 @@ script listens on the document.
 
 ## Without Cropper.js
 
-`ImageUpload::assets()` prints Cropper.js only where `libraries:sync cropperjs` has put it in the
+`ImageUpload::assets()` prints Cropper.js only where `project:install cropperjs` has put it in the
 web root. Without it a picture is still resized to the options' sizes, but no dialog opens, so a
 ratio is not enforced. The server has to check and size what arrives in any case. A browser
 without JavaScript sends the original, and so does one that cannot replace a file input's files.

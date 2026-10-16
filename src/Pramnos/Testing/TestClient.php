@@ -244,7 +244,9 @@ class TestClient
          * an exhausted memory limit. `assertSee()` passing on a page the test had
          * already left is the quieter half of the same bug.
          */
+        $registered = self::registeredAssets();
         \Pramnos\Document\Document::reset();
+        self::restoreAssets($registered);
 
         /**
          * And a fresh caller. The first request's middleware seals who is calling
@@ -573,4 +575,45 @@ class TestClient
         return null;
     }
 
+
+    /**
+     * The scripts and styles registered on each document.
+     *
+     * The application registers its libraries once, in `init()`, on the document a real request
+     * then renders with. The reset above is right for what a document accumulates, and wrong for
+     * these: without them `Html\Chart` finds `chartjs` unregistered and enqueues nothing, and a
+     * test cannot see that a page loads its library. Registration is not what one request leaves
+     * behind; enqueueing is, and it starts again (`loaded` false).
+     *
+     * @return array<string, array{js: array<string, array<string, mixed>>, css: array<string, array<string, mixed>>}>
+     */
+    private static function registeredAssets(): array
+    {
+        return (array) \Closure::bind(static function (): array {
+            $kept = [];
+            foreach (self::$instances as $type => $document) {
+                if (is_object($document)) {
+                    $kept[(string) $type] = ['js' => $document->_js, 'css' => $document->_css];
+                }
+            }
+
+            return $kept;
+        }, null, \Pramnos\Document\Document::class)();
+    }
+
+    /**
+     * Put the registrations back on fresh documents of the same types, over their defaults.
+     *
+     * @param array<string, array{js: array<string, array<string, mixed>>, css: array<string, array<string, mixed>>}> $registered
+     */
+    private static function restoreAssets(array $registered): void
+    {
+        foreach ($registered as $type => $assets) {
+            $document = \Pramnos\Document\Document::getInstance($type, false);
+            \Closure::bind(static function () use ($document, $assets): void {
+                $document->_js  = array_merge($document->_js, array_map(static fn (array $one): array => array_merge($one, ['loaded' => false]), $assets['js']));
+                $document->_css = array_merge($document->_css, array_map(static fn (array $one): array => array_merge($one, ['loaded' => false]), $assets['css']));
+            }, null, \Pramnos\Document\Document::class)();
+        }
+    }
 }

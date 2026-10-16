@@ -10,7 +10,7 @@ namespace Pramnos\Application;
  * `www/assets/vendor/` tree.
  *
  * This is the shared engine behind both `pramnos init` (initial scaffold) and
- * `pramnos libraries:sync` (top-up an existing project without re-scaffolding).
+ * `pramnos project:install` (top-up an existing project without re-scaffolding).
  * It performs no project mutation beyond writing asset files — registration of
  * libraries in the application bootstrap is the caller's responsibility.
  */
@@ -68,7 +68,7 @@ class LibraryManager
      * Return the keys of libraries flagged `"mandatory": true` in the catalog.
      *
      * This is the single source of truth for mandatory libraries: both
-     * `pramnos init` and `pramnos libraries:sync` derive their always-included
+     * `pramnos init` and `pramnos project:install` derive their always-included
      * set from here, so a library becomes mandatory by editing assets.json
      * alone — no code change in two places.
      *
@@ -301,7 +301,7 @@ class LibraryManager
         }
         preg_match_all(
             "/register(?:Script|Style)\(\s*'([^']+)'/",
-            (string) file_get_contents($appFile),
+            self::withoutComments((string) file_get_contents($appFile)),
             $m
         );
         return array_values(array_unique($m[1] ?? []));
@@ -342,21 +342,70 @@ class LibraryManager
             return ['registered' => [], 'manual' => []];
         }
 
-        $src    = file_exists($appFile) ? (string) file_get_contents($appFile) : '';
-        $anchor = "\$doc = \\Pramnos\\Framework\\Factory::getDocument();";
-        $pos    = $src !== '' ? strpos($src, $anchor) : false;
+        $src      = file_exists($appFile) ? (string) file_get_contents($appFile) : '';
+        $insertAt = $src !== '' ? self::insertionPoint($src) : null;
 
-        if ($pos === false) {
+        if ($insertAt === null) {
             return ['registered' => [], 'manual' => $lines];
         }
 
-        $insertAt = $pos + strlen($anchor);
-        $newSrc   = substr($src, 0, $insertAt) . "\n" . implode("\n", $lines) . substr($src, $insertAt);
+        $newSrc = substr($src, 0, $insertAt) . "\n" . implode("\n", $lines) . substr($src, $insertAt);
 
         if (file_put_contents($appFile, $newSrc) === false) {
             return ['registered' => [], 'manual' => $lines];
         }
 
         return ['registered' => $registered, 'manual' => []];
+    }
+
+    /**
+     * Where new registration lines go: after the last registerScript()/registerStyle() call in
+     * registerVendorLibraries(), or after its `$doc = …getDocument();` when it has none. Read
+     * from the code alone — the scaffolded method's docblock carries the same `$doc = …` as an
+     * example, and a line written there registers nothing. Null when there is no such place.
+     */
+    private static function insertionPoint(string $src): ?int
+    {
+        $code   = self::withoutComments($src);
+        $anchor = '/\$doc\s*=\s*\\\\?Pramnos\\\\Framework\\\\Factory::getDocument\(\);/';
+        if (preg_match('/function\s+registerVendorLibraries\s*\([^)]*\)[^{]*\{/', $code, $m, PREG_OFFSET_CAPTURE) !== 1) {
+            // An Application.php of its own, without the method: after the first `$doc = …` in code.
+            return preg_match($anchor, $code, $doc, PREG_OFFSET_CAPTURE) === 1 ? $doc[0][1] + strlen($doc[0][0]) : null;
+        }
+        $start = $m[0][1] + strlen($m[0][0]);
+        // The method's body: up to the brace that closes it. ponytail: a brace inside a string
+        // literal in this method would end it early; registerVendorLibraries() holds none.
+        $depth = 1;
+        $end   = $start;
+        for ($length = strlen($code); $end < $length && $depth > 0; $end++) {
+            $depth += $code[$end] === '{' ? 1 : ($code[$end] === '}' ? -1 : 0);
+        }
+        $body = substr($code, $start, $end - $start);
+
+        $at = null;
+        if (preg_match_all('/->register(?:Script|Style)\s*\([^;]*?\);/', $body, $calls, PREG_OFFSET_CAPTURE) > 0) {
+            $last = end($calls[0]);
+            $at   = $last[1] + strlen($last[0]);
+        } elseif (preg_match($anchor, $body, $doc, PREG_OFFSET_CAPTURE) === 1) {
+            $at = $doc[0][1] + strlen($doc[0][0]);
+        }
+
+        return $at === null ? null : $start + $at;
+    }
+
+    /** PHP source with its comments blanked out — the same length, so offsets still hold. */
+    private static function withoutComments(string $src): string
+    {
+        if (!str_contains($src, '<?php')) {
+            return $src;
+        }
+        $code = '';
+        foreach (token_get_all($src) as $token) {
+            $code .= is_array($token) && in_array($token[0], [T_COMMENT, T_DOC_COMMENT], true)
+                ? (string) preg_replace('/[^\n]/', ' ', $token[1])
+                : (is_array($token) ? $token[1] : $token);
+        }
+
+        return $code;
     }
 }

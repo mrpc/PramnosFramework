@@ -1,6 +1,6 @@
 /*
  * A picture chosen in a file input is cropped, turned and made the right size in the browser,
- * before it is sent — on Cropper.js (`libraries:sync cropperjs`), with no script of the page's own.
+ * before it is sent — on Cropper.js (`project:install cropperjs`), with no script of the page's own.
  *
  *   <input type="file" name="photo" accept="image/*" data-pf-image
  *          data-aspect="1"              optional: the crop is held to this ratio (1, 16/9, 4:3); free without it
