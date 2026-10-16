@@ -705,6 +705,11 @@ using it answers six hooks:
 - `afterScheduled(array $task, array $input): void`, optional: called with the task just made and
   the whole form, the controller's own fields among it, before the redirect. Not called when the
   form was refused.
+- `afterAudienceChanged(array $task, array $before): void`, optional: called when a report's
+  readers were changed from its card, with the task as it is and as it was, to subscribe the
+  people newly named, for example.
+- `static audienceRoles(): array`, optional: the roles readers are chosen by, `role => usertype`,
+  lowest first. An application whose roles differ from the framework's returns its own.
 
 A flash message carrying a value is `t('… %s …', $value)`, so a translation catches the whole
 message. `next_run_local` is in figures (`19/10/2026 09:00`), which read the same in any language.

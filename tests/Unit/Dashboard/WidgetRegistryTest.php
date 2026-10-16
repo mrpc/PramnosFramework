@@ -191,6 +191,72 @@ class WidgetRegistryTest extends TestCase
         $this->assertSame(adminUrl('Queue'), $default);
     }
 
+    /**
+     * app.php decides about a card it did not write: `default` keeps it off (or on) a new
+     * dashboard, `min_role` offers it only from a role up — on top of the card's own rule, which
+     * it can raise and never lower; a card it says nothing about keeps its own.
+     */
+    public function testCardsAreTunedFromTheConfig(): void
+    {
+        // Arrange
+        WidgetRegistry::register(OrdersWidget::class);
+        Application::getInstance()->applicationInfo['dashboard'] = ['cards' => [
+            'health' => ['default' => false, 'min_role' => 'root'],
+            'orders' => ['default' => true],
+            'database' => ['min_role' => 'manager'],
+        ]];
+
+        // Act
+        $super = array_keys(WidgetRegistry::available(self::user(98)));
+        $root  = array_keys(WidgetRegistry::available(self::user(99)));
+        $staff = array_keys(WidgetRegistry::available(self::user(10)));
+        $new   = array_column(Layouts::defaults(self::user(99)), 'id');
+
+        // Assert
+        $this->assertNotContains('health', $super, 'below the role app.php set');
+        $this->assertContains('health', $root);
+        $this->assertContains('database', $super);
+        $this->assertNotContains('database', $staff, 'a lower min_role does not open a card its own rule closes');
+        $this->assertContains('orders', $staff, 'its own rule: anybody signed in');
+        $this->assertNotContains('health', $new, 'default false: not on a new dashboard');
+        $this->assertContains('orders', $new, 'default true over the widget\'s own false');
+        $this->assertContains('users.active', $new, 'nothing said: its own default');
+    }
+
+    /**
+     * The framework's cards say their tile labels in the page's language: every label goes
+     * through Figures::words(), which asks the translator.
+     */
+    public function testTheCardsWordsAreTranslated(): void
+    {
+        // Arrange
+        \Pramnos\Translator\Language::setInstance(new class extends \Pramnos\Translator\Language {
+            public function __construct()
+            {
+            }
+
+            /** One word, in Greek. */
+            public function _($string = '', $args = '')
+            {
+                return $string === 'Cost' ? 'Κόστος' : $string;
+            }
+        });
+
+        try {
+            // Act
+            $word = Figures::words('Cost');
+            $same = Figures::words('Calls');
+        } finally {
+            \Pramnos\Translator\Language::setInstance(null);
+        }
+
+        // Assert
+        $this->assertSame(['Κόστος', 'Calls'], [$word, $same]);
+        foreach (glob(dirname(__DIR__, 3) . '/src/Pramnos/Dashboard/Widgets/*.php') ?: [] as $file) {
+            $this->assertDoesNotMatchRegularExpression("/StatTile::render\\('/", (string) file_get_contents($file), basename($file) . ': a label said in English only');
+        }
+    }
+
     /** A widget registered under a taken id replaces it, so an application can redraw a framework card. */
     public function testRegisteringATakenIdReplacesIt(): void
     {

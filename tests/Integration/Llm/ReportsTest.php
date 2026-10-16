@@ -309,6 +309,46 @@ class ReportsTest extends LlmTestCase
     }
 
     /**
+     * A refusal that names something — the role, the people — is in the page's language: the
+     * name is a placeholder, so a translation of the whole sentence applies.
+     */
+    #[DataProvider('databases')]
+    public function testTheReadersRefusalsAreTranslated(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        \Pramnos\Framework\Testing\Schema::ensure([\Pramnos\Framework\Migrations\Auth\CreateUsersTable::class], $this->db);
+        $this->policy();
+        \Pramnos\Translator\Language::setInstance(new class extends \Pramnos\Translator\Language {
+            public function __construct()
+            {
+            }
+
+            /** Two sentences in Greek, formatted with their values. */
+            public function _($string = '', $args = '')
+            {
+                $greek = ['There is no role called %s.' => 'Δεν υπάρχει ρόλος %s.', 'There is nobody called %s.' => 'Δεν υπάρχει κανείς με όνομα %s.'];
+                $values = array_slice(func_get_args(), 1);
+
+                return vsprintf($greek[$string] ?? $string, $values);
+            }
+        });
+        $shared = ['kind' => 'report', 'owner' => 'organization', 'title' => 'x', 'prompt' => 'x', 'cadence' => 'daily', 'at' => '08:00'];
+
+        try {
+            // Act
+            $role   = $this->tasks()->create(new Scope(7, 3), $shared + ['audience_role' => 'emperor']);
+            $nobody = $this->tasks()->create(new Scope(7, 3), $shared + ['audience' => [], 'audience_users' => 'nobody-at-all']);
+        } finally {
+            \Pramnos\Translator\Language::setInstance(null);
+        }
+
+        // Assert
+        $this->assertSame('Δεν υπάρχει ρόλος emperor.', $role);
+        $this->assertSame('Δεν υπάρχει κανείς με όνομα nobody-at-all.', $nobody);
+    }
+
+    /**
      * The migration adds `ai_routines.audience` and takes it away again; run twice, it does
      * nothing the second time; and a report made while the column is missing — an installation
      * that has not migrated — still schedules when it names no readers.

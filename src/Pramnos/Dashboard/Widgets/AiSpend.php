@@ -53,9 +53,9 @@ final class AiSpend extends Widget
         $failed = (int) ($spend['failed'] ?? 0);
 
         return StatTile::grid([
-            StatTile::render('Cost', '$' . number_format((float) ($spend['cost'] ?? 0), 2), number_format((int) ($spend['tokens'] ?? 0)) . ' tokens', $this->link()),
-            StatTile::render('Calls', number_format($calls)),
-            StatTile::render('Failed', number_format($failed), state: $calls > 0 && $failed / $calls >= 0.05 ? StatTile::WARNING : null),
+            StatTile::render(Figures::words('Cost'), '$' . number_format((float) ($spend['cost'] ?? 0), 2), number_format((int) ($spend['tokens'] ?? 0)) . ' ' . Figures::words('tokens'), $this->link()),
+            StatTile::render(Figures::words('Calls'), number_format($calls)),
+            StatTile::render(Figures::words('Failed'), number_format($failed), state: $calls > 0 && $failed / $calls >= 0.05 ? StatTile::WARNING : null),
         ]);
     }
 }

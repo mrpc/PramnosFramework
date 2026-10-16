@@ -1390,7 +1390,7 @@ class Routines
             try {
                 $min = \Pramnos\User\Roles::level($role);
             } catch (\InvalidArgumentException) {
-                return 'There is no role called ' . $role . '.';
+                return self::words('There is no role called %s.', $role);
             }
         }
         if ($min !== null && ($min < 1 || $min > 99)) {
@@ -1403,13 +1403,23 @@ class Routines
             $found = $this->policy()->audienceUsers($names);
             $missing = array_diff($names, array_keys($found));
             if ($missing !== []) {
-                return 'There is nobody called ' . implode(', ', $missing) . '.';
+                return self::words('There is nobody called %s.', implode(', ', $missing));
             }
             $users = array_values(array_unique(array_merge($users, array_values($found))));
         }
         $users = array_slice(array_values(array_filter($users, static fn (int $id): bool => $id > 1)), 0, 200);
 
         return $min === null && $users === [] ? null : ['min_usertype' => $min, 'users' => $users];
+    }
+
+    /**
+     * A message that carries a value, in the page's language: the value is a placeholder, so a
+     * translation catches the whole sentence — a flash message translates only words it knows
+     * whole.
+     */
+    private static function words(string $sentence, string $value): string
+    {
+        return function_exists('t') ? (string) t($sentence, $value) : sprintf($sentence, $value);
     }
 
     /** @return array{min_usertype: int|null, users: list<int>}|null The audience as stored */

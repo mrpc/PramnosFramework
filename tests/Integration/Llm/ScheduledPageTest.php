@@ -312,6 +312,14 @@ class ScheduledPageTest extends LlmTestCase
         $this->assertStringEndsWith('?task=' . $report['routine_id'], $saved->redirectedTo[0], 'back to the report');
         $this->assertSame(90, $now['audience']['min_usertype']);
         $this->assertSame(['There is no role called emperor.'], $wrong->errors);
+        // The application's role list, read through static:: — its override, not the framework's
+        foreach ($pages as $theme => $html) {
+            $this->assertStringNotContainsString('<option value="admin"', $html, $theme);
+            $this->assertStringContainsString('<option value="super"', $html, $theme);
+        }
+        // Told what changed, as it was and as it is; not told when the change was refused
+        $this->assertSame([[['min_usertype' => 80, 'users' => []], ['min_usertype' => 90, 'users' => []]]], $saved->readersChanged);
+        $this->assertSame([], $wrong->readersChanged);
     }
 
     /** Nobody signed in is sent to sign in, back to this page. */
@@ -362,6 +370,21 @@ final class ScheduledPage extends PageFixture
     protected function afterScheduled(array $task, array $input): void
     {
         $this->scheduledWith[] = [(string) $task['title'], $input];
+    }
+
+    /** @var list<array{0: mixed, 1: mixed}> Readers changed: before, after */
+    public array $readersChanged = [];
+
+    /** Record the readers as they were and as they are. */
+    protected function afterAudienceChanged(array $task, array $before): void
+    {
+        $this->readersChanged[] = [$before['audience'] ?? null, $task['audience'] ?? null];
+    }
+
+    /** The application's own roles: no "admin" between manager and super. */
+    protected static function audienceRoles(): array
+    {
+        return ['manager' => 80, 'super' => 98];
     }
 
     /** The view, drawing `$tpl` from the theme's chat views. */

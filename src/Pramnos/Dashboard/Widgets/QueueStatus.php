@@ -49,9 +49,9 @@ final class QueueStatus extends Widget
         $failed = array_sum(array_column((array) ($queue['failed'] ?? []), 'count'));
 
         return StatTile::grid([
-            StatTile::render('Waiting', number_format((int) ($queue['by_status']['pending'] ?? 0)), link: $this->link()),
-            StatTile::render('Failed', number_format($failed), '24 hours', state: $failed > 0 ? StatTile::CRITICAL : null),
-            StatTile::render('Done', number_format((int) ($queue['completed'] ?? 0)), '24 hours'),
+            StatTile::render(Figures::words('Waiting'), number_format((int) ($queue['by_status']['pending'] ?? 0)), link: $this->link()),
+            StatTile::render(Figures::words('Failed'), number_format($failed), Figures::words('24 hours'), state: $failed > 0 ? StatTile::CRITICAL : null),
+            StatTile::render(Figures::words('Done'), number_format((int) ($queue['completed'] ?? 0)), Figures::words('24 hours')),
         ]);
     }
 }

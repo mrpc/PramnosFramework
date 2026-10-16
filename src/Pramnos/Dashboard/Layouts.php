@@ -86,7 +86,7 @@ final class Layouts
     {
         $layout = [];
         foreach (WidgetRegistry::available($user) as $id => $widget) {
-            if ($widget->byDefault()) {
+            if (WidgetRegistry::byDefault($widget)) {
                 $layout[] = ['id' => (string) $id, 'size' => self::size($widget->size()), 'settings' => Widget::cleanSettings($widget, [])];
             }
         }

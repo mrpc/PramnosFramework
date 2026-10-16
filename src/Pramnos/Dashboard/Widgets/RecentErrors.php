@@ -58,7 +58,7 @@ final class RecentErrors extends Widget
         $levels  = array_change_key_case((array) ($summary['levels'] ?? []));
         $count   = array_sum(array_intersect_key($levels, array_flip(self::LEVELS)));
 
-        $html = StatTile::grid([StatTile::render('Errors', number_format((int) $count), link: $this->link(), state: $count > 0 ? StatTile::WARNING : StatTile::GOOD)]);
+        $html = StatTile::grid([StatTile::render(Figures::words('Errors'), number_format((int) $count), link: $this->link(), state: $count > 0 ? StatTile::WARNING : StatTile::GOOD)]);
         $items = '';
         foreach (array_slice((array) ($summary['topErrors'] ?? []), 0, self::SHOWN) as $error) {
             $items .= '<li><span class="pf-dashboard-health-message">' . self::e(mb_strimwidth((string) ($error['message'] ?? ''), 0, 160, '…')) . '</span>'

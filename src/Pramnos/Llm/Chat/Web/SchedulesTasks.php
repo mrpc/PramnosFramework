@@ -27,6 +27,8 @@ use Pramnos\Llm\Chat\Scope;
  * | `taskDenied()` | true when this person may not reach the page — it has answered already; false by default |
  * | `scheduledExtras($task)` | markup of its own: `form`, fields inside the form; `task`, on the open task's card |
  * | `afterScheduled($task, $input)` | what it does with a task just made, and the form's whole input |
+ * | `afterAudienceChanged($task, $before)` | what it does when a report's readers were changed from its card |
+ * | `audienceRoles()` | the roles readers are chosen by, `role => usertype` — static, so an override is read |
  *
  * Its actions are `scheduled`, `schedule`, `scheduledupdate`, `scheduleddelete`, `scheduledrun`
  * and `scheduledsubscribe`; the controller declares them as auth actions, and all but the first
@@ -76,7 +78,7 @@ trait SchedulesTasks
         $view->chatUrl   = $this->taskChatUrl();
         $view->extras    = $this->scheduledExtras($task) + ['form' => '', 'task' => ''];
         // Who may receive a shared report: the roles to choose from, and the open one's readers by name.
-        $view->audienceRoles = self::audienceRoles();
+        $view->audienceRoles = static::audienceRoles();
         $view->audienceUsers = is_array($task['audience'] ?? null) ? $policy->audienceNames($task['audience']['users']) : [];
         $view->mayEdit       = $task !== null && (int) $task['userid'] === $scope->userId;
         $view->urls      = [
@@ -131,11 +133,15 @@ trait SchedulesTasks
         $changes  = $audience
             ? ['audience_role' => (string) ($_POST['audience_role'] ?? ''), 'audience_users' => (string) ($_POST['audience_users'] ?? '')]
             : ['active' => !empty($_POST['active'])];
+        $before  = $audience && $scope !== null ? $this->taskService()->find($scope, $id) : null;
         $changed = $scope === null ? 'This needs somebody signed in.' : $this->taskService()->update($scope, $id, $changes);
         if (is_string($changed)) {
             $this->addError($changed);
         } else {
             $this->addMessage($audience ? 'Its readers are saved.' : ($changed['active'] ? 'Resumed.' : 'Paused.'));
+            if ($audience && $before !== null) {
+                $this->afterAudienceChanged($changed, $before);
+            }
         }
         $this->redirect($this->scheduledUrl() . ($audience ? '?task=' . $id : ''));
 
@@ -254,6 +260,18 @@ trait SchedulesTasks
      * @param array<string, mixed> $input
      */
     protected function afterScheduled(array $task, array $input): void
+    {
+    }
+
+    /**
+     * A shared report's readers were just changed from its card: `$task` as it is now, `$before`
+     * as it was — to subscribe the people newly named, say. Called before the redirect. Nothing
+     * by default.
+     *
+     * @param array<string, mixed> $task
+     * @param array<string, mixed> $before
+     */
+    protected function afterAudienceChanged(array $task, array $before): void
     {
     }
 

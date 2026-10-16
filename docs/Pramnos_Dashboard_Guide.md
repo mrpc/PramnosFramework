@@ -130,8 +130,14 @@ ids — only those, in that order, so taking one card does not bring the develop
     'abilities' => ['email' => 'admin.logs.emails'],
     // …and leads to that screen: a path in the area, an address, or '' for no link
     'links'     => ['ai.spend' => 'Settings/ai', 'logs.errors' => ''],
+    // Any card, the framework's or another's: whether a new dashboard has it, and a role from
+    // which it is offered, on top of its own rule, which this can raise and never lower
+    'cards'     => ['logs.errors' => ['default' => false, 'min_role' => 'root']],
 ],
 ```
+
+The framework's cards say their tile labels through `t()` (`Figures::words()`), and the dashboard
+translates each card's title, so a translation of the words puts the cards in the page's language.
 
 Or in code, for example from a service provider:
 `\Pramnos\Dashboard\WidgetRegistry::register(new OpenOrders())`. The order is the framework's

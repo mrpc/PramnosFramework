@@ -40,9 +40,9 @@ final class ApiPerformance extends Widget
         $error = (float) ($api['error_rate'] ?? 0) * 100;
 
         return StatTile::grid([
-            StatTile::render('Requests', number_format((int) ($api['total_requests'] ?? 0)), link: $this->link()),
-            StatTile::render('Errors', number_format($error, 1) . '%', state: $error >= 5 ? StatTile::CRITICAL : ($error >= 1 ? StatTile::WARNING : null)),
-            StatTile::render('Average', number_format((float) ($api['avg_execution_time'] ?? 0)) . ' ms', 'p95 ' . number_format((float) ($api['p95_execution_time'] ?? 0)) . ' ms'),
+            StatTile::render(Figures::words('Requests'), number_format((int) ($api['total_requests'] ?? 0)), link: $this->link()),
+            StatTile::render(Figures::words('Errors'), number_format($error, 1) . '%', state: $error >= 5 ? StatTile::CRITICAL : ($error >= 1 ? StatTile::WARNING : null)),
+            StatTile::render(Figures::words('Average'), number_format((float) ($api['avg_execution_time'] ?? 0)) . ' ms', 'p95 ' . number_format((float) ($api['p95_execution_time'] ?? 0)) . ' ms'),
         ]);
     }
 }

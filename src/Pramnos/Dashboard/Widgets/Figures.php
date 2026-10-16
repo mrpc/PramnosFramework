@@ -84,6 +84,12 @@ final class Figures
         return is_array($all) ? $all : [];
     }
 
+    /** A card's words in the page's language — a tile's label, a note that is only words. */
+    public static function words(string $words): string
+    {
+        return function_exists('t') ? (string) t($words) : $words;
+    }
+
     /** For a test, or a second dashboard in one process: work them out again. */
     public static function forget(): void
     {

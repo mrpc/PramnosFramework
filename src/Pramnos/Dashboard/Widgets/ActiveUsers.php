@@ -36,9 +36,9 @@ final class ActiveUsers extends Widget
         $counts = Figures::activeUsers();
 
         return StatTile::grid([
-            StatTile::render('Now', (int) ($counts['now'] ?? 0), link: $this->link()),
-            StatTile::render('Last 24 hours', (int) ($counts['last_24h'] ?? 0)),
-            StatTile::render('Last 7 days', (int) ($counts['last_7d'] ?? 0)),
+            StatTile::render(Figures::words('Now'), (int) ($counts['now'] ?? 0), link: $this->link()),
+            StatTile::render(Figures::words('Last 24 hours'), (int) ($counts['last_24h'] ?? 0)),
+            StatTile::render(Figures::words('Last 7 days'), (int) ($counts['last_7d'] ?? 0)),
         ]);
     }
 }

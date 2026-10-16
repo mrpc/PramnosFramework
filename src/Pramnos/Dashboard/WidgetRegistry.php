@@ -118,11 +118,40 @@ final class WidgetRegistry
     {
         return array_filter(self::all(), static function (Widget $widget) use ($user): bool {
             try {
-                return $widget->allowed($user);
+                $role = self::card($widget->id())['min_role'] ?? null;
+
+                // app.php can raise the bar on a card, never lower it: the card's own rule still holds.
+                return $widget->allowed($user) && (!is_string($role) || $role === '' || \Pramnos\User\Roles::atLeast($user, $role));
             } catch (\Throwable) {
                 return false;
             }
         });
+    }
+
+    /**
+     * Whether a new dashboard has the card: `'dashboard' => ['cards' => ['logs.errors' =>
+     * ['default' => false]]]` in app.php, or the widget's own {@see Widget::byDefault()}.
+     */
+    public static function byDefault(Widget $widget): bool
+    {
+        $default = self::card($widget->id())['default'] ?? null;
+
+        return is_bool($default) ? $default : $widget->byDefault();
+    }
+
+    /**
+     * What app.php says about one card, by id: `default` (on a new dashboard or not) and
+     * `min_role` (a role from which it is offered, on top of its own rule) — for a card the
+     * application did not write, which it cannot change otherwise.
+     *
+     * @return array<string, mixed>
+     */
+    private static function card(string $id): array
+    {
+        $app   = \Pramnos\Application\Application::currentInstance();
+        $cards = is_object($app) ? ($app->applicationInfo['dashboard']['cards'] ?? []) : [];
+
+        return is_array($cards) && is_array($cards[$id] ?? null) ? $cards[$id] : [];
     }
 
     /** For a test: forget what was registered in code. */

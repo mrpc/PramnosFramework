@@ -67,17 +67,17 @@ final class EmailActivity extends Widget
         $rate   = $sent + $failed > 0 ? $failed / ($sent + $failed) : 0.0;
 
         $tiles = [
-            StatTile::render('Sent', number_format($sent), link: $this->link()),
-            StatTile::render('Failed', number_format($failed), $sent + $failed > 0 ? number_format($rate * 100, 1) . '%' : '',
+            StatTile::render(Figures::words('Sent'), number_format($sent), link: $this->link()),
+            StatTile::render(Figures::words('Failed'), number_format($failed), $sent + $failed > 0 ? number_format($rate * 100, 1) . '%' : '',
                 state: $rate >= 0.05 ? StatTile::CRITICAL : ($failed > 0 ? StatTile::WARNING : null)),
-            StatTile::render('Queued', number_format($counts[Mail::STATUS_QUEUED] ?? 0)),
+            StatTile::render(Figures::words('Queued'), number_format($counts[Mail::STATUS_QUEUED] ?? 0)),
         ];
 
         $tracked = static fn () => $db->queryBuilder()->table('pramnos.emailtracking')->where('sent_at', '>=', $from);
         $total   = $db->schema()->hasTable('pramnos.emailtracking') ? $tracked()->count() : 0;
         if ($total > 0) {
             $opened  = $tracked()->where('opens', '>', 0)->count();
-            $tiles[] = StatTile::render('Opened', number_format($opened / $total * 100, 1) . '%', 'of ' . number_format($total) . ' tracked');
+            $tiles[] = StatTile::render(Figures::words('Opened'), number_format($opened / $total * 100, 1) . '%', sprintf(Figures::words('of %s tracked'), number_format($total)));
         }
 
         return StatTile::grid($tiles);
