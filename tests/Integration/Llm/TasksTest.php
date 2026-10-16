@@ -174,7 +174,9 @@ class TasksTest extends LlmTestCase
         // Assert
         $this->assertSame([], $this->sent, 'no model was asked');
         $this->assertInstanceOf(TaskReminder::class, $tasks->delivered[0][1]);
-        $this->assertSame(['message' => 'Send the invoice to Acme', 'url' => \Pramnos\Http\SiteUrl::to('chat?c=42')], $tasks->delivered[0][1]->toDatabase(null));
+        // The conversation's address — from the site's root, when there is no site address to build it on
+        $url = \Pramnos\Http\SiteUrl::to('chat?c=42');
+        $this->assertSame(['message' => 'Send the invoice to Acme', 'url' => preg_match('#^[a-z][a-z0-9+.-]*:#i', $url) === 1 ? $url : '/' . ltrim($url, '/')], $tasks->delivered[0][1]->toDatabase(null));
         $this->assertFalse($after['active'], 'a one-off is done');
         $this->assertNull($after['next_run_at']);
         $this->assertSame('Send the invoice to Acme', $tasks->runs($made['routine_id'])[0]['content']);

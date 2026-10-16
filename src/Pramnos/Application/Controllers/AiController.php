@@ -37,6 +37,10 @@ use Pramnos\Llm\Providers;
  */
 class AiController extends Controller
 {
+    // The analyst's scheduled tasks and reports, at `Ai/scheduled`, where the application lets
+    // the analyst schedule (its routineRefusal()).
+    use \Pramnos\Llm\Chat\Web\SchedulesTasks;
+
     /** The administration ability that opens this screen — its menu item's id. */
     protected string $adminAbility = 'admin.ai';
 
@@ -48,10 +52,12 @@ class AiController extends Controller
 
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
-        $this->addAuthAction(['display', 'settings', 'save', 'check', 'call', 'analyst', 'ask', 'asked', 'delete', 'forget', 'consent', 'api', 'export']);
+        $this->addAuthAction(['display', 'settings', 'save', 'check', 'call', 'analyst', 'ask', 'asked', 'delete', 'forget', 'consent', 'api', 'export',
+            'scheduled', 'schedule', 'scheduledupdate', 'scheduleddelete', 'scheduledrun', 'scheduledsubscribe', 'report']);
         // POST with the session's token: each of these changes what the installation spends, or spends.
         // `api` checks its own token, from the X-CSRF-Token header, since it also answers GET and DELETE.
-        $this->addWriteAction(['save', 'check', 'ask', 'delete', 'forget', 'consent']);
+        $this->addWriteAction(['save', 'check', 'ask', 'delete', 'forget', 'consent',
+            'schedule', 'scheduledupdate', 'scheduleddelete', 'scheduledrun', 'scheduledsubscribe']);
         parent::__construct($application);
     }
 
@@ -100,6 +106,8 @@ class AiController extends Controller
             'consent' => adminUrl('Ai/consent'),
             'delete'  => adminUrl('Ai/delete/'),
             'forget'  => adminUrl('Ai/forget/'),
+            // The analyst's scheduled tasks, where the application lets it schedule.
+            'scheduled' => $this->analystSchedules() ? adminUrl('Ai/scheduled') : '',
         ];
         foreach ($page as $name => $value) {
             $view->{$name} = $value;
@@ -351,6 +359,66 @@ class AiController extends Controller
         $decoded = json_decode(\Pramnos\Http\Request::rawBody(), true);
 
         return is_array($decoded) ? $decoded : [];
+    }
+
+    /**
+     * `Ai/report/{run}` — where an analyst report's notification leads: the run, opened as one of
+     * this administrator's analyst conversations, the same one each time.
+     */
+    public function report(mixed $id = null): mixed
+    {
+        if ($this->requireMinUserType($this->adminFloor())) {
+            return null;
+        }
+        $made = $this->taskService()->continueRun($this->taskScope(), (int) ($id ?: \Pramnos\Http\Request::staticGetOption()));
+        if ($made === null) {
+            $this->addError('There is no such report you may read.');
+        }
+        $this->redirect($this->analystUrl((int) $made));
+
+        return null;
+    }
+
+    /** Whether the application lets the analyst schedule — its assistant does not refuse. */
+    protected function analystSchedules(): bool
+    {
+        return \Pramnos\Llm\Analyst\Analyst::assistant()->routineRefusal($this->taskScope(), false) === null;
+    }
+
+    /** The administrator signed in, as the analyst's scope. */
+    protected function taskScope(): \Pramnos\Llm\Chat\Scope
+    {
+        return \Pramnos\Llm\Analyst\Analyst::scope($this->adminId());
+    }
+
+    /** The analyst's conversations, as this administrator. */
+    protected function taskConversations(): \Pramnos\Llm\Chat\Conversations
+    {
+        return \Pramnos\Llm\Analyst\Analyst::conversations($this->adminId());
+    }
+
+    /** `Ai/scheduled`, or `Ai/<action>`. */
+    protected function scheduledUrl(string $action = ''): string
+    {
+        return adminUrl('Ai/' . ($action === '' ? 'scheduled' : $action));
+    }
+
+    /** `Ai/report/<run>`. */
+    protected function taskReportUrl(int $runId): string
+    {
+        return adminUrl('Ai/report/' . ($runId > 0 ? $runId : ''));
+    }
+
+    /** The analyst's page. */
+    protected function taskChatUrl(): string
+    {
+        return $this->analystUrl();
+    }
+
+    /** The area's sign-in, by way of the analyst's page. */
+    protected function taskSignInUrl(): string
+    {
+        return $this->analystUrl();
     }
 
     /** The administrator's analyst. Override to charge, limit or describe it differently. */

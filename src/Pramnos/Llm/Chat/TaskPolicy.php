@@ -200,7 +200,10 @@ class TaskPolicy
     public function link(array $task, array $run): string
     {
         if (($task['kind'] ?? '') === Routines::REPORT && !empty($run['run_id'])) {
-            return \Pramnos\Http\SiteUrl::to('chat/report/' . (int) $run['run_id']);
+            // The analyst's reports open in the administration area, as the analyst's conversations do.
+            return ($task['space'] ?? Scope::CHAT) === Scope::ADMIN
+                ? \Pramnos\Http\AdminArea::url('Ai/report/' . (int) $run['run_id'])
+                : \Pramnos\Http\SiteUrl::to('chat/report/' . (int) $run['run_id']);
         }
 
         return $this->assistant->conversationUrl($run['conversation_id'] ?? $task['conversation_id'] ?? null);

@@ -23,6 +23,7 @@ use Pramnos\Llm\Llm;
 class ChatPageController extends Controller
 {
     use \Pramnos\Llm\Chat\Concerns\TakesQuestions;
+    use SchedulesTasks;
 
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
@@ -154,7 +155,7 @@ class ChatPageController extends Controller
     {
         $scope = $this->scope();
         $runId = (int) ($id ?: \Pramnos\Http\Request::staticGetOption());
-        $made  = $scope === null ? null : $this->routines()->continueRun($scope, $runId);
+        $made  = $scope === null ? null : $this->taskService()->continueRun($scope, $runId);
 
         if ($made === null) {
             $this->addError('There is no such report you may read.');
@@ -164,130 +165,40 @@ class ChatPageController extends Controller
         return null;
     }
 
-    /**
-     * `chat/scheduled` — this person's scheduled tasks (questions asked again, reminders,
-     * reports), the reports shared with them to receive, a form to schedule one, and with
-     * `?task=` one task's runs, each opened in Ask from here.
-     */
-    public function scheduled(): mixed
+    /** The person whose tasks the scheduled page shows. */
+    protected function taskScope(): ?Scope
     {
-        $scope = $this->scope();
-        if ($scope === null) {
-            $this->redirect(sURL . 'login?return=' . rawurlencode('chat/scheduled'));
-
-            return null;
-        }
-
-        $tasks  = $this->routines();
-        $policy = $tasks->policy();
-        $open   = (int) ($_GET['task'] ?? 0);
-        $task   = $open > 0 ? ($tasks->find($scope, $open) ?? $tasks->byId($open)) : null;
-        if ($task !== null && !$policy->canSee($scope->userId, $task)) {
-            $task = null;
-        }
-
-        $doc        = \Pramnos\Framework\Factory::getDocument();
-        $doc->title = 'Scheduled';
-
-        $view            = $this->getView('chat');
-        $view->tasks     = $tasks->mine($scope);
-        $view->reports   = $tasks->reports($scope);
-        $view->task      = $task;
-        $view->runs      = $task === null ? [] : $tasks->runs((int) $task['routine_id'], 20);
-        $view->templates = \Pramnos\Llm\Chat\Routines::templates();
-        $view->cadences  = \Pramnos\Llm\Chat\Routines::CADENCES;
-        $view->kinds     = \Pramnos\Llm\Chat\Routines::KINDS;
-        $view->owners    = array_values(array_filter(\Pramnos\Llm\Chat\Routines::OWNERS, static fn (string $owner): bool => $policy->canManage($scope, $owner)));
-        $view->timezone  = $this->conversations()->assistant()->timezone($scope);
-        $view->pageUrl   = sURL . 'chat/scheduled';
-        $view->chatUrl   = $this->pageUrl();
-
-        return $view->display('scheduled');
+        return $this->scope();
     }
 
-    /** Schedule a task from the form: kind, title, prompt, cadence and its fields, owner, notify. */
-    public function schedule(): mixed
+    /** Ask AI's conversations, as that person. */
+    protected function taskConversations(): \Pramnos\Llm\Chat\Conversations
     {
-        $scope = $this->scope();
-        $input = array_intersect_key($_POST, array_flip(['kind', 'template', 'title', 'prompt', 'cadence', 'at', 'day', 'nth', 'run_at', 'owner', 'notify']));
-        // The form asks the day twice — a weekday, a day of the month — and sends the one the cadence reads.
-        if (!isset($input['day']) && ($_POST['weekday'] ?? $_POST['monthday'] ?? null) !== null) {
-            $input['day'] = ($input['cadence'] ?? '') === 'monthly' ? ($_POST['monthday'] ?? null) : ($_POST['weekday'] ?? null);
-        }
-        // A field left empty is not an answer: a template fills it.
-        $input = array_filter($input, static fn ($value): bool => $value !== '' && $value !== null);
-        $made  = $scope === null ? 'This needs somebody signed in.'
-            : $this->routines()->create($scope, $input + ['timezone' => $this->conversations()->assistant()->timezone($scope)]);
-        is_string($made) ? $this->addError($made) : $this->addMessage('Scheduled. Next: ' . $made['next_run_local'] . '.');
-        $this->redirect(sURL . 'chat/scheduled');
-
-        return null;
+        return $this->conversations();
     }
 
-    /** Pause or resume one of this person's tasks — `active` in the form. */
-    public function scheduledupdate(mixed $id = null): mixed
+    /** `chat/scheduled`, or `chat/<action>`. */
+    protected function scheduledUrl(string $action = ''): string
     {
-        $scope   = $this->scope();
-        $changed = $scope === null ? 'This needs somebody signed in.'
-            : $this->routines()->update($scope, (int) ($id ?: ($_POST['routine_id'] ?? 0)), ['active' => !empty($_POST['active'])]);
-        is_string($changed) ? $this->addError($changed) : $this->addMessage($changed['active'] ? 'Resumed.' : 'Paused.');
-        $this->redirect(sURL . 'chat/scheduled');
-
-        return null;
+        return sURL . 'chat/' . ($action === '' ? 'scheduled' : $action);
     }
 
-    /** Delete one of this person's tasks. Its conversation and its runs' record stay as they are. */
-    public function scheduleddelete(mixed $id = null): mixed
+    /** `chat/report/<run>`. */
+    protected function taskReportUrl(int $runId): string
     {
-        $scope = $this->scope();
-        $scope !== null && $this->routines()->delete($scope, (int) ($id ?: ($_POST['routine_id'] ?? 0)))
-            ? $this->addMessage('Deleted.')
-            : $this->addError('There is no such task.');
-        $this->redirect(sURL . 'chat/scheduled');
-
-        return null;
+        return sURL . 'chat/report/' . ($runId > 0 ? $runId : '');
     }
 
-    /** Run one of this person's tasks now, whatever its schedule, and show its runs. */
-    public function scheduledrun(mixed $id = null): mixed
+    /** The conversations page. */
+    protected function taskChatUrl(): string
     {
-        $scope = $this->scope();
-        $id    = (int) ($id ?: ($_POST['routine_id'] ?? 0));
-        $found = $scope === null ? null : $this->routines()->find($scope, $id);
-        if ($found === null) {
-            $this->addError('There is no such task.');
-            $this->redirect(sURL . 'chat/scheduled');
-
-            return null;
-        }
-        $ran = $this->routines()->run($found, time());
-        $ran['ok'] ? $this->addMessage('It ran.') : $this->addError((string) $ran['says']);
-        $this->redirect(sURL . 'chat/scheduled?task=' . $id);
-
-        return null;
+        return $this->pageUrl();
     }
 
-    /** Receive a shared report, or stop — `on` in the form. */
-    public function scheduledsubscribe(mixed $id = null): mixed
+    /** Sign in, and come back to the scheduled page. */
+    protected function taskSignInUrl(): string
     {
-        $scope = $this->scope();
-        $id    = (int) ($id ?: ($_POST['routine_id'] ?? 0));
-        if ($scope === null) {
-            $this->addError('This needs somebody signed in.');
-        } elseif (!empty($_POST['on'])) {
-            ($why = $this->routines()->subscribe($scope->userId, $id)) === null ? $this->addMessage('You will receive it.') : $this->addError($why);
-        } else {
-            $this->routines()->unsubscribe($scope->userId, $id) ? $this->addMessage('You will no longer receive it.') : $this->addError('You do not receive it.');
-        }
-        $this->redirect(sURL . 'chat/scheduled');
-
-        return null;
-    }
-
-    /** The scheduled tasks, over this person's conversations. */
-    protected function routines(): \Pramnos\Llm\Chat\Routines
-    {
-        return new \Pramnos\Llm\Chat\Routines($this->conversations());
+        return sURL . 'login?return=' . rawurlencode('chat/scheduled');
     }
 
     /** The page's address, open at a conversation and following a question. */

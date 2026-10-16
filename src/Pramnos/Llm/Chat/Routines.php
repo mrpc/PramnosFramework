@@ -213,13 +213,21 @@ class Routines
         return true;
     }
 
-    /** Delete one of this person's. Its conversation stays, like any other. */
+    /** Delete one of this person's, with its readers and the record of its runs. Its conversation stays, like any other. */
     public function delete(Scope $scope, int $routineId): bool
     {
         if ($this->find($scope, $routineId) === null) {
             return false;
         }
 
+        foreach ([$this->subscriptionsTable(), $this->runsTable()] as $table) {
+            try {
+                $table->where('routine_id', $routineId)->delete();
+            } catch (\Throwable $e) {
+                // No such table yet — `migrate` has not run since it was added: nothing to remove.
+                \Pramnos\Logs\Logger::log('llm task delete: ' . $e->getMessage());
+            }
+        }
         $this->scoped($scope, $routineId)->delete();
 
         return true;
@@ -264,6 +272,12 @@ class Routines
             }
             $claimed++;
 
+            if (!$this->queued() && $task['space'] !== Scope::CHAT) {
+                // The analyst's task with the analyst: its tools, its prompt, its refusals —
+                // not the chat assistant this tick was built with.
+                $this->forSpace($task['space'])->run($task, $now);
+                continue;
+            }
             if ($this->queued()) {
                 $this->queue()->addTask(self::TASK, [
                     'routine_id' => $task['routine_id'],
@@ -296,6 +310,15 @@ class Routines
             ]);
 
         return is_object($result) && (int) $result->getAffectedRows() === 1;
+    }
+
+    /** @var array<string, self> The tasks of other spaces, with their own assistant */
+    private array $spaces = [];
+
+    /** These tasks for another space — `admin`, the analyst's — with that space's assistant. */
+    protected function forSpace(string $space): self
+    {
+        return $this->spaces[$space] ??= new static(new Conversations(Chat::assistant($space)), $this->queue);
     }
 
     /** Whether runs go to the queue: `'llm' => ['chat' => ['task_queue' => true]]`. */
@@ -894,7 +917,7 @@ class Routines
 
         if ($cadence === 'once') {
             $at = $task['run_at'] ?? null;
-            $at = is_int($at) ? $at : ($at === null ? null : strtotime((string) $at));
+            $at = is_int($at) ? $at : ($at === null ? null : self::utc((string) $at));
 
             return $at !== null && $at !== false && $at > $after ? $at : null;
         }
@@ -1242,7 +1265,7 @@ class Routines
             ? $chat['routine_notification'] : RoutineReady::class;
 
         try {
-            $this->deliver($userId, new $class($title, $ok, $ok ? '' : $says, $link ?? $this->chat->assistant()->conversationUrl($conversationId)));
+            $this->deliver($userId, new $class($title, $ok, $ok ? '' : $says, self::linkable($link ?? $this->chat->assistant()->conversationUrl($conversationId))));
         } catch (\Throwable $why) {
             // A dead push endpoint must not undo a report that was written.
             \Pramnos\Logs\Logger::log('llm routine notification: ' . $why->getMessage());
@@ -1258,11 +1281,23 @@ class Routines
 
         foreach ($audience as $userId) {
             try {
-                $this->deliver((int) $userId, new $class($words, $link));
+                $this->deliver((int) $userId, new $class($words, self::linkable($link)));
             } catch (\Throwable $why) {
                 \Pramnos\Logs\Logger::log('llm reminder notification: ' . $why->getMessage());
             }
         }
+    }
+
+    /**
+     * A notification's link that does not depend on the page it is opened from. Built in a cron
+     * run with no request and no `APP_URL`, an address is relative (`admin/Ai/report/1`), and a
+     * notification bell resolves it under the page it is on (`/admin/admin/Ai/…`): from the site's
+     * root instead. Set `APP_URL` for an application in a folder — the `site_url` health check
+     * says so.
+     */
+    private static function linkable(string $link): string
+    {
+        return $link === '' || preg_match('#^([a-z][a-z0-9+.-]*:|/)#i', $link) === 1 ? $link : '/' . $link;
     }
 
     /** Send a notification to a person, if they still exist. A seam for tests. */
@@ -1287,7 +1322,7 @@ class Routines
     private static function shape(array $f): array
     {
         $timezone = (string) $f['timezone'];
-        $next     = $f['next_run_at'] === null ? null : strtotime((string) $f['next_run_at']);
+        $next     = $f['next_run_at'] === null ? null : self::utc((string) $f['next_run_at']);
 
         return [
             'routine_id'      => (int) $f['routine_id'],
@@ -1316,6 +1351,22 @@ class Routines
             'last_error'      => $f['last_error'] === null ? null : (string) $f['last_error'],
             'conversation_id' => $f['conversation_id'] === null ? null : (int) $f['conversation_id'],
         ];
+    }
+
+    /**
+     * A moment as the database answers it, read as UTC — which is how it was written
+     * ({@see CallLog::instant()}). PostgreSQL answers with its offset, which wins; MySQL answers
+     * the bare wall-clock, which PHP would otherwise read in its own zone, so that "09:00 in
+     * Athens" was shown as 06:00.
+     */
+    public static function utc(string $moment): ?int
+    {
+        try {
+            return (new \DateTimeImmutable($moment, new \DateTimeZone('UTC')))->getTimestamp();
+        } catch (\Throwable) {
+            // Not a moment at all: no time, as strtotime() answered.
+            return null;
+        }
     }
 
     private function table(): \Pramnos\Database\QueryBuilder

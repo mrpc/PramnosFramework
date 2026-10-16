@@ -49,7 +49,12 @@ class AnalystAssistant extends BaseAssistant
             . ($people !== '' ? $people . ' ' : '')
             . 'Masked values ([phone], [ip], a***@…) were removed on purpose; never try to recover them.' . "\n\n"
             . 'Say which window a figure covers. If a tool says the installation keeps no such data, say '
-            . 'so rather than guessing. You cannot change anything: no tool writes.'
+            . 'so rather than guessing. '
+            // An application that lets the analyst schedule says so to the model, or it would
+            // refuse the very tasks its tools can make.
+            . ($this->routineRefusal($turn->scope) === null
+                ? 'You change nothing in the installation; the only tools that write are the ones that schedule your tasks and reports, whose times are in ' . $zone . '.'
+                : 'You cannot change anything: no tool writes.')
             . (($charts = trim($this->charts())) !== '' ? "\n\n" . $charts : '')
             . ($about !== '' ? "\n\nAbout this application: " . $about : '')
             . (($page = \Pramnos\Assist\Page::prompt(is_array($turn->extra['page'] ?? null) ? $turn->extra['page'] : null)) !== '' ? "\n\n" . $page : '')
@@ -100,6 +105,12 @@ class AnalystAssistant extends BaseAssistant
     public function writes(): array
     {
         return ['remember', 'forget'];
+    }
+
+    /** The analyst's clock — {@see Analyst::timezone()}: its days, and its tasks' times. */
+    public function timezone(Scope $scope): string
+    {
+        return Analyst::timezone();
     }
 
     /** The analyst schedules nothing. */

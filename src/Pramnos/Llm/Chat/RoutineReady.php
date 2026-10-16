@@ -39,7 +39,7 @@ class RoutineReady implements NotificationInterface
     public function toDatabase(mixed $notifiable): array
     {
         return [
-            'message' => $this->ok ? $this->title . ' is ready.' : $this->title . ' could not be made: ' . $this->why,
+            'message' => $this->ok ? self::t('%s is ready.', $this->title) : self::t('%s could not be made: %s', $this->title, $this->why),
             'url'     => $this->link,
         ];
     }
@@ -49,10 +49,16 @@ class RoutineReady implements NotificationInterface
     {
         return [
             'title' => mb_substr($this->title, 0, 90),
-            'body'  => $this->ok ? 'Your scheduled report is ready.' : mb_substr('It could not be made: ' . $this->why, 0, 180),
+            'body'  => $this->ok ? self::t('Your scheduled report is ready.') : mb_substr(self::t('It could not be made: %s', $this->why), 0, 180),
             'url'   => $this->link,
             // One per routine: this morning's replaces yesterday's.
             'tag'   => 'routine-' . substr(md5($this->title), 0, 8),
         ];
+    }
+
+    /** Words in the person's language, where the application translates them. */
+    private static function t(string $words, string ...$args): string
+    {
+        return function_exists('t') ? t($words, ...$args) : vsprintf($words, $args);
     }
 }

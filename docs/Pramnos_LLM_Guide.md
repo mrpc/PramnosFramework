@@ -413,7 +413,9 @@ kind, same words or title, same time) comes back as an error that names its id a
 `Routines::update($scope, $id, $changes)` is the same change in code, and `PUT …/routines/{id}`
 in the chat API takes the same fields.
 
-**How runs happen.** `llm:routines` runs every minute.
+**How runs happen.** `llm:routines` runs every minute. A task runs with its own space's
+assistant: the analyst's (space `admin`) with the analyst, not with the chat assistant the tick
+was built with.
 
 1. It **claims** what is due. One statement moves the next run on and holds the task, only if
    the task is still due as it was read, so a second tick or a second host claims nothing and no
@@ -430,6 +432,12 @@ After each run:
 - A reminder tells the owner with `Chat\TaskReminder`, or `chat.reminder_notification`, given the
   words and the link.
 - A one-off is done once it ran.
+- A notification's link that was built with no site address, as in a cron run with no `APP_URL`,
+  starts from the site's root rather than from the page the notification is opened on.
+- Deleting a task removes its readers and the record of its runs.
+- Times read back from the database are read as UTC, which is how they are written. MySQL answers
+  them without an offset, so `next_run_local` showed a time shifted by PHP's zone.
+  `Routines::utc()` does the reading.
 - Three failed runs in a row pause a task, and the owner is told why. Resuming it starts the
   count again.
 
@@ -656,6 +664,21 @@ A one-off further than ten years ahead is refused.
 Its POST actions are `schedule`, `scheduledupdate` (`active`), `scheduleddelete`, `scheduledrun`
 and `scheduledsubscribe` (`on`). Each carries the session's token and says what it did, or why
 not, as a flash message.
+
+The page is the trait `Chat\Web\SchedulesTasks`, so it can be served elsewhere. A controller
+using it answers six hooks:
+
+- `taskScope()`: whose tasks;
+- `taskConversations()`: the conversations they are made over;
+- `scheduledUrl($action)`: the page, or one of its actions;
+- `taskReportUrl($runId)`, `taskChatUrl()` and `taskSignInUrl()`: where a report's run opens, the
+  conversations, and where somebody not signed in is sent.
+
+The view reads the addresses from `$this->urls`. `AiController` serves the analyst's at
+`/admin/Ai/scheduled`, with `/admin/Ai/report/{run}` for its reports. The analyst's page links
+there only where the application lets the analyst schedule, through its `routineRefusal()`. An
+analyst that may schedule tells its model so, and counts times on the analyst's clock
+(`Analyst::timezone()`).
 
 #### Charts
 

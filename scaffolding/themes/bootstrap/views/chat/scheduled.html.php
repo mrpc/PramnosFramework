@@ -14,7 +14,8 @@
  *   $this->cadences, $this->kinds — what the form offers
  *   $this->owners    — whose a report may be, of user, organization, global, as the policy allows
  *   $this->timezone  — the clock times are read on
- *   $this->pageUrl, $this->chatUrl — this page, and the conversations
+ *   $this->urls      — page, action (with %s for the action's name), report (a run's number
+ *                      follows), chat — Ask AI's addresses when not given
  *
  * A run's content is the model's words, drawn by Markdown::toHtml(), which escapes everything first.
  */
@@ -23,6 +24,11 @@ $e     = static fn ($v): string => htmlspecialchars((string) $v, ENT_QUOTES, 'UT
 $t     = static fn (string $words, mixed ...$args): string => vsprintf(function_exists('t') ? (string) t($words) : $words, $args);
 $token = static fn (): string => \Pramnos\Http\Session::getInstance()->getTokenField();
 $url   = static fn (string $path): string => sURL . $path;
+// Where the page and its actions are: Ask AI's by default, the analyst's under the area.
+$u     = (is_array($this->urls ?? null) ? $this->urls : []) + [
+    'page' => $url('chat/scheduled'), 'action' => $url('chat/%s'), 'report' => $url('chat/report/'), 'chat' => $url('chat'),
+];
+$act   = static fn (string $action): string => str_replace('%s', $action, (string) $u['action']);
 $days  = [1 => 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 $nths  = [1 => 'first', 'second', 'third', 'fourth', 5 => 'last'];
 $kinds = ['ask' => 'Question', 'reminder' => 'Reminder', 'report' => 'Report'];
@@ -38,8 +44,8 @@ $when  = static function (array $task) use ($t, $days, $nths): string {
     };
 };
 /** A small form posting to `$action` with hidden fields, as one button. */
-$button = static function (string $action, array $fields, string $label, string $class, string $confirm = '') use ($e, $token, $url): string {
-    $html = '<form method="post" action="' . $e($url('chat/' . $action)) . '" style="display:inline;margin:0">' . $token();
+$button = static function (string $action, array $fields, string $label, string $class, string $confirm = '') use ($e, $token, $act): string {
+    $html = '<form method="post" action="' . $e($act($action)) . '" style="display:inline;margin:0">' . $token();
     foreach ($fields as $name => $value) {
         $html .= '<input type="hidden" name="' . $e($name) . '" value="' . $e($value) . '">';
     }
@@ -54,7 +60,7 @@ $owners  = is_array($this->owners ?? null) ? $this->owners : ['user'];
 <div class="<?php echo $c['page']; ?>">
     <div class="<?php echo $c['row']; ?>">
         <h1 class="<?php echo $c['h1']; ?>"><?php echo $e($t('Scheduled')); ?></h1>
-        <a class="<?php echo $c['btnGhost']; ?>" href="<?php echo $e($this->chatUrl ?? $url('chat')); ?>"><?php echo $e($t('Conversations')); ?></a>
+        <a class="<?php echo $c['btnGhost']; ?>" href="<?php echo $e($u['chat']); ?>"><?php echo $e($t('Conversations')); ?></a>
     </div>
 
     <?php if ($task !== null): ?>
@@ -62,12 +68,12 @@ $owners  = is_array($this->owners ?? null) ? $this->owners : ['user'];
         <div class="<?php echo $c['row']; ?>">
             <h2 class="<?php echo $c['h2']; ?>"><?php echo $e($task['title']); ?></h2>
             <span class="<?php echo $c['muted']; ?>"><?php echo $e($when($task)); ?></span>
-            <a class="<?php echo $c['btnGhost']; ?>" href="<?php echo $e($this->pageUrl ?? $url('chat/scheduled')); ?>"><?php echo $e($t('Close')); ?></a>
+            <a class="<?php echo $c['btnGhost']; ?>" href="<?php echo $e($u['page']); ?>"><?php echo $e($t('Close')); ?></a>
         </div>
         <?php foreach ($runs as $run): ?>
         <article>
             <p class="<?php echo $c['muted']; ?>"><?php echo $e($run['finished_at'] ?? $run['started_at'] ?? ''); ?> · <?php echo $e($t($run['status'] === 'ok' ? 'Done' : 'Failed')); ?>
-                <?php if ($run['status'] === 'ok' && ($task['kind'] ?? '') === 'report'): ?> · <a href="<?php echo $e($url('chat/report/' . (int) $run['run_id'])); ?>"><?php echo $e($t('Ask about it')); ?></a><?php endif; ?></p>
+                <?php if ($run['status'] === 'ok' && ($task['kind'] ?? '') === 'report'): ?> · <a href="<?php echo $e($u['report'] . (int) $run['run_id']); ?>"><?php echo $e($t('Ask about it')); ?></a><?php endif; ?></p>
             <?php if ($run['error']): ?><p class="<?php echo $c['bad']; ?>"><?php echo $e($run['error']); ?></p><?php endif; ?>
             <?php if (($run['content'] ?? '') !== ''): ?><div class="<?php echo $c['answer']; ?>"><?php echo \Pramnos\Llm\Chat\Markdown::toHtml((string) $run['content']); ?></div><?php endif; ?>
         </article>
@@ -88,7 +94,7 @@ $owners  = is_array($this->owners ?? null) ? $this->owners : ['user'];
                 <div class="<?php echo $c['muted']; ?>"><?php echo $e($when($one)); ?><?php echo $one['active'] && $one['next_run_local'] ? ' · ' . $e($t('next: %s', (string) $one['next_run_local'])) : ''; ?></div>
                 <?php if ($one['last_error']): ?><div class="<?php echo $c['bad']; ?>"><?php echo $e($one['last_error']); ?></div><?php endif; ?>
             </div>
-            <a class="<?php echo $c['btnGhost']; ?>" href="<?php echo $e($url('chat/scheduled?task=' . (int) $one['routine_id'])); ?>"><?php echo $e($t('Runs')); ?></a>
+            <a class="<?php echo $c['btnGhost']; ?>" href="<?php echo $e($u['page'] . '?task=' . (int) $one['routine_id']); ?>"><?php echo $e($t('Runs')); ?></a>
             <?php echo $button('scheduledrun', ['routine_id' => $one['routine_id']], $t('Run now'), $c['btnGhost']); ?>
             <?php echo $button('scheduledupdate', ['routine_id' => $one['routine_id'], 'active' => $one['active'] ? '' : '1'], $t($one['active'] ? 'Pause' : 'Resume'), $c['btnGhost']); ?>
             <?php echo $button('scheduleddelete', ['routine_id' => $one['routine_id']], $t('Delete'), $c['danger'], $t('Delete this scheduled task?')); ?>
@@ -106,14 +112,14 @@ $owners  = is_array($this->owners ?? null) ? $this->owners : ['user'];
                 <strong><?php echo $e($one['title']); ?></strong>
                 <div class="<?php echo $c['muted']; ?>"><?php echo $e($when($one)); ?></div>
             </div>
-            <a class="<?php echo $c['btnGhost']; ?>" href="<?php echo $e($url('chat/scheduled?task=' . (int) $one['routine_id'])); ?>"><?php echo $e($t('Runs')); ?></a>
+            <a class="<?php echo $c['btnGhost']; ?>" href="<?php echo $e($u['page'] . '?task=' . (int) $one['routine_id']); ?>"><?php echo $e($t('Runs')); ?></a>
             <?php echo $button('scheduledsubscribe', ['routine_id' => $one['routine_id'], 'on' => $one['subscribed'] ? '' : '1'], $t($one['subscribed'] ? 'Stop receiving' : 'Receive it'), $one['subscribed'] ? $c['btnGhost'] : $c['btn']); ?>
         </div>
         <?php endforeach; ?>
     </section>
     <?php endif; ?>
 
-    <form class="<?php echo $c['card']; ?>" method="post" action="<?php echo $e($url('chat/schedule')); ?>" data-pf-scheduled-form>
+    <form class="<?php echo $c['card']; ?>" method="post" action="<?php echo $e($act('schedule')); ?>" data-pf-scheduled-form>
         <?php echo $token(); ?>
         <h2 class="<?php echo $c['h2']; ?>"><?php echo $e($t('Schedule')); ?></h2>
         <div class="<?php echo $c['row']; ?>">
