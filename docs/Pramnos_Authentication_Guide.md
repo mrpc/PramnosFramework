@@ -91,6 +91,38 @@ $auth = \Pramnos\Auth\Auth::getInstance();
 $result = $auth->auth('user@example.com', 'password', false);
 ```
 
+**What the browser carries.** Every sign-in gets its own token, `Pramnos\Auth\RememberTokens`,
+in the form `selector.validator`. It goes in `$_SESSION['auth']`, in the `auth` cookie, and in the
+login response's `auth` key, whichever path established the session, an application's own user
+addon included. It is random and unrelated to the password. The `remember_tokens` table keeps
+only the selector and a hash of the validator, so the table alone signs nobody in.
+
+A token ends in each of these cases:
+- it expires (`'auth' => ['remember_days' => 30]`);
+- this browser signs out (`logout()`);
+- the person signs out everywhere (`$auth->signOutEverywhere($userId)`), which also flags each
+  live session to sign out on its next request;
+- the password changes, from any path, because each token remembers the password hash it was
+  issued under.
+
+Signing in again from the cookies, `$auth->rememberLogin()`, uses the token once and issues a new
+one. A copied cookie therefore stops working as soon as the browser it came from returns.
+`authCheck()` calls `rememberLogin()` when no auth addon is registered, and the framework's
+`UserDatabase` addon does the same.
+
+**Never print `$_SESSION['auth']` into a page**, not as a JavaScript variable and not in a
+header the page reads. It signs its holder in. An API call from the page authenticates with the
+session cookie and the page's CSRF token (`X-CSRF-Token`, from `<meta name="csrf">`), or with an
+access token.
+
+An `auth` cookie from before the tokens, which held the password hash, signs in once the old way
+and is replaced with a token, so the upgrade signs nobody out. After the cookies have had time
+to turn over (they last 14 days and are refreshed while used), refuse the old ones:
+
+```php
+'auth' => ['legacy_remember' => false],
+```
+
 ### Encrypted Password Authentication
 
 ```php

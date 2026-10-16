@@ -42,6 +42,17 @@ class UserDatabase extends \Pramnos\Addon\Addon
         $auth = \Pramnos\Framework\Factory::getAuth();
         if ($session->cookieget('auth') !== null
             && $session->cookieget('username') !== null) {
+            // A remember token signs in through Auth::rememberLogin(); a cookie from before the
+            // tokens, which held the password hash, the old way — once: the sign-in replaces it.
+            if (\Pramnos\Auth\RememberTokens::isToken((string) $session->cookieget('auth'))) {
+                $auth->rememberLogin();
+
+                return;
+            }
+            $app = \Pramnos\Application\Application::currentInstance();
+            if (is_object($app) && ($app->applicationInfo['auth']['legacy_remember'] ?? true) === false) {
+                return;
+            }
 
             $auth->auth(
                 $session->cookieget('username'),

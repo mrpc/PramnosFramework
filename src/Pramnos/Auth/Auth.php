@@ -164,6 +164,9 @@ class Auth extends \Pramnos\Framework\Base
      */
     public function logout()
     {
+        // This browser's credential ends here, before either path resets the session it is in.
+        RememberTokens::revoke((string) ($_SESSION['auth'] ?? \Pramnos\Http\Request::getInstance()->cookieget('auth') ?? ''));
+
         $userAddons = \Pramnos\Addon\Addon::getaddons('user');
         if (!empty($userAddons)) {
             \Pramnos\Addon\Addon::triger('Logout', 'user');
@@ -235,7 +238,76 @@ class Auth extends \Pramnos\Framework\Base
      */
     public function authCheck()
     {
-        \Pramnos\Addon\Addon::triger('AuthCheck', 'auth');
+        // An application with an auth addon signs in from its cookies there — the framework's
+        // UserDatabase does it through rememberLogin(); without one, the framework does.
+        if (\Pramnos\Addon\Addon::getaddons('auth') !== []) {
+            \Pramnos\Addon\Addon::triger('AuthCheck', 'auth');
+
+            return;
+        }
+        $this->rememberLogin();
+    }
+
+    /**
+     * Sign in again from the "remember me" cookies — `username` and `auth` — once the session
+     * is gone. True when it did.
+     *
+     * The `auth` cookie is a {@see RememberTokens} token: it must be the account's, unexpired,
+     * issued under the password it has now, and for the username beside it. It is used once —
+     * the sign-in issues a new one — so a copied cookie stops working as soon as the browser it
+     * was copied from comes back.
+     *
+     * An `auth` cookie from before the tokens, which held the password hash, is accepted once
+     * the old way and replaced with a token, so nobody is signed out by the upgrade;
+     * `'auth' => ['legacy_remember' => false]` refuses it, once the cookies of the transition
+     * have had time to be replaced.
+     */
+    public function rememberLogin(): bool
+    {
+        $request  = \Pramnos\Http\Request::getInstance();
+        $username = (string) ($request->cookieget('username') ?? '');
+        $cookie   = (string) ($request->cookieget('auth') ?? '');
+        if ($username === '' || $cookie === '') {
+            return false;
+        }
+
+        if (!RememberTokens::isToken($cookie)) {
+            $app    = \Pramnos\Application\Application::currentInstance();
+            $legacy = is_object($app) ? ($app->applicationInfo['auth']['legacy_remember'] ?? true) : true;
+
+            return $legacy !== false && $this->auth($username, $cookie, true, true);
+        }
+
+        $userId = RememberTokens::userFor($cookie);
+        if ($userId === null) {
+            return false;
+        }
+        $row = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('#PREFIX#users')
+            ->select(['username'])->where('userid', $userId)->first();
+        if (!$row || (int) $row->numRows === 0 || (string) $row->fields['username'] !== $username) {
+            return false;
+        }
+        RememberTokens::revoke($cookie);
+
+        return $this->loginById($userId, true);
+    }
+
+    /**
+     * Sign a person out of every browser: each one's remembered sign-in ends now, and each live
+     * session is told to sign out on its next request (the sessions table's `logout` flag, which
+     * the session tracking reads). How many remembered sign-ins there were.
+     */
+    public function signOutEverywhere(int $userId): int
+    {
+        $count = RememberTokens::revokeAll($userId);
+        try {
+            \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('#PREFIX#sessions')
+                ->where('userid', $userId)->update(['logout' => 1]);
+        } catch (\Throwable $e) {
+            \Pramnos\Logs\Logger::log('Sign out everywhere could not flag the live sessions: ' . $e->getMessage(), 'auth');
+        }
+
+        return $count;
     }
 
     /**
@@ -325,8 +397,7 @@ class Auth extends \Pramnos\Framework\Base
             return false;
         }
 
-        $this->lastResponse = $response;
-        $this->triggerLogin($response);
+        $this->lastResponse = $this->triggerLogin($response);
         return true;
     }
 
@@ -376,8 +447,7 @@ class Auth extends \Pramnos\Framework\Base
             return false;
         }
 
-        $this->lastResponse = $response;
-        $this->triggerLogin($response);
+        $this->lastResponse = $this->triggerLogin($response);
         return true;
     }
 
@@ -396,13 +466,9 @@ class Auth extends \Pramnos\Framework\Base
             return false;
         }
 
-        $database = \Pramnos\Framework\Factory::getDatabase();
-        $sql = $database->prepareQuery(
-            "SELECT `userid`, `username`, `email`, `password`, `active`, `language` "
-            . "FROM `#PREFIX#users` WHERE `userid` = %d LIMIT 1",
-            $userId
-        );
-        $result = $database->query($sql);
+        $result = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('#PREFIX#users')
+            ->select(['userid', 'username', 'email', 'active', 'language'])
+            ->where('userid', $userId)->first();
 
         if (!$result || !isset($result->numRows) || $result->numRows == 0) {
             return false;
@@ -420,7 +486,8 @@ class Auth extends \Pramnos\Framework\Base
             'uid'      => (int) $row['userid'],
             'username' => (string) $row['username'],
             'email'    => (string) ($row['email'] ?? ''),
-            'auth'     => (string) ($row['password'] ?? ''),
+            // This sign-in's token, issued by triggerLogin(); never the password hash.
+            'auth'     => '',
             // The account's own interface language, so the session that is about to
             // be established can be served in it. Selected here because this row is
             // read anyway — the alternative was a second query per login.
@@ -440,9 +507,20 @@ class Auth extends \Pramnos\Framework\Base
      *   3. afterLogin callbacks
      *
      * @param array $response Legacy login-response array (status, uid, username, auth, …)
+     * @return array The response as the session was established with: `auth` the new token
      */
-    private function triggerLogin(array $response): void
+    private function triggerLogin(array $response): array
     {
+        /*
+         * `auth` becomes this sign-in's own token, before either path writes it to the session
+         * and the cookie — an application's user addon included. It was the stored password
+         * hash: a credential for as long as the password, the same on every device, impossible
+         * to end for one of them, and the hash itself for whoever read it.
+         */
+        if (!empty($response['status']) && (int) ($response['uid'] ?? 0) > 1) {
+            $response['auth'] = RememberTokens::issue((int) $response['uid']);
+        }
+
         /**
          * A new session id for the authenticated session, when the application asks.
          *
@@ -490,6 +568,8 @@ class Auth extends \Pramnos\Framework\Base
         // Consume the one-shot login-method tag: reset so it can never leak
         // into a subsequent login established on the same Auth instance.
         $this->loginMethod = null;
+
+        return $response;
     }
 
     /**
