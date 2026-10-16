@@ -396,7 +396,9 @@ class SignInRisk
                 ->select(['action'])
                 ->where('userid', $userId)
                 ->where('action', 'login_failed')
-                ->where('created_at', '>', gmdate('Y-m-d H:i:s', time() - self::FAILURE_WINDOW))
+                // In the activity log's own convention, PHP's local time: a UTC string here moved
+                // the window by the zone's offset.
+                ->where('created_at', '>', \Pramnos\Database\Instant::local(time() - self::FAILURE_WINDOW, $database))
                 ->limit(self::FAILURE_THRESHOLD + 1)
                 ->get();
         } catch (\Throwable $exception) {

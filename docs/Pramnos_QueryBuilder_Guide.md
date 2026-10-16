@@ -984,10 +984,18 @@ $query->select(['*', Instant::unix($db, 'event_timestamp', 'at')]);   // each ro
 ```
 
 `Instant::at()` is `FROM_UNIXTIME()` / `to_timestamp()`, converted by the database in its
-session's zone. `Instant::unix()` is `UNIX_TIMESTAMP()` / `EXTRACT(EPOCH …)` back. A string
-carries a zone question: `date('c')` writes an offset MariaDB drops (warning 1292; strict mode
-refuses the row), and a string without one is read in the session's zone, which PHP does not
-know.
+session's zone. `Instant::unix()` is `UNIX_TIMESTAMP()` / `EXTRACT(EPOCH …)` back. Use the two
+together: a value written with `at()` and read as a string comes back in the session's zone.
+
+A column whose readers already take the string the database answers has a string to match:
+
+| | PostgreSQL | MySQL, MariaDB | Read back as |
+|---|---|---|---|
+| `Instant::utc($unix)` | `2026-10-16 09:00:00+00:00` | `2026-10-16 09:00:00` (UTC) | UTC: `new DateTimeImmutable($value, new DateTimeZone('UTC'))` |
+| `Instant::local($unix)` | `2026-10-16 12:00:00+03:00` | `2026-10-16 12:00:00` (PHP's zone) | `strtotime($value)` |
+
+The language-model tables and the push log use `utc()`; the activity log uses `local()`. Never
+`date('c')`: MariaDB drops the offset (warning 1292, and strict mode refuses the row).
 
 ## Column names with upper-case letters
 

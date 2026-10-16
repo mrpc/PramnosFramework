@@ -348,7 +348,8 @@ class Log
      */
     private static function instant(int $at): string
     {
-        return gmdate('Y-m-d H:i:sP', $at);
+        // Without the offset on MySQL and MariaDB, which drops it: see Instant::utc().
+        return \Pramnos\Database\Instant::utc($at);
     }
 
     /** @param array<string, mixed> $row */

@@ -228,8 +228,10 @@ returns false when nothing may take it.
 frozen at write time from the unit prices, so correcting a price does not restate history, and
 it is `null` for a model nobody priced: a total adding noughts for it would be confidently low.
 `CallLog::summary()` and `byModel()` say how many calls were not priced. `llm_log = 0` stops
-logging; `llm:prune` keeps 90 days. `created_at` is written and compared in UTC with its offset
-(`CallLog::instant()`), so the windows hold whatever zone PHP or the database session is in.
+logging; `llm:prune` keeps 90 days. `created_at` is written and compared in UTC
+(`CallLog::instant()`, which is `Database\Instant::utc()`): with its offset on PostgreSQL, and as
+the bare UTC wall clock on MySQL and MariaDB, which drops an offset. Either way the windows hold
+whatever zone PHP or the database session is in, and a value read back is UTC.
 
 Prices are USD per million tokens in three buckets — `cache_hit`, `cache_miss`, `output` —
 because a cached token can cost a fiftieth of an uncached one; an entry may add `off_peak` with

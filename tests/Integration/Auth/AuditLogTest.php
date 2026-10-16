@@ -297,4 +297,39 @@ final class AuditLogTest extends TestCase
         $this->assertStringContainsString($this->mark . 'role.granted 365 days, * 30 days', $tester->getDisplay());
         $this->assertCount(3, AuditLog::query(['event' => $this->mark . '*', 'since' => time() - 60]), 'nothing new was touched');
     }
+
+    /**
+     * The two string conventions survive any session zone, read the way their readers read.
+     *
+     * `Instant::utc()` (the LLM tables, the push log) is answered back as the UTC wall clock or
+     * with an offset, and parsed as UTC (`Routines::utc()`); `Instant::local()` (the activity
+     * log) is parsed with `strtotime()` in PHP's zone. With a session five hours off both, each
+     * comes back as the moment written — and neither carries an offset MariaDB would drop.
+     */
+    #[DataProvider('databases')]
+    public function testTheStringConventionsSurviveAnySessionZone(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connect($type, $host, $port);
+        $moment = time() - 3600;
+        $this->db->query($type === 'postgresql' ? "SET TIME ZONE 'Asia/Karachi'" : "SET time_zone = '+05:00'");
+        $read = fn (string $event): string => (string) $this->db->queryBuilder()->table(AuditLog::TABLE)
+            ->select(['event_timestamp'])->where('event_type', $event)->first()->fields['event_timestamp'];
+
+        try {
+            // Act
+            foreach (['utc' => \Pramnos\Database\Instant::utc($moment), 'local' => \Pramnos\Database\Instant::local($moment)] as $kind => $value) {
+                $this->db->queryBuilder()->table(AuditLog::TABLE)->insert(['event_type' => $this->mark . $kind, 'actor_type' => 'system', 'event_timestamp' => $value]);
+            }
+            $utc   = \Pramnos\Llm\Chat\Routines::utc($read($this->mark . 'utc'));
+            $local = strtotime($read($this->mark . 'local'));
+        } finally {
+            $this->db->query($type === 'postgresql' ? 'SET TIME ZONE DEFAULT' : "SET time_zone = '+00:00'");
+        }
+
+        // Assert
+        $this->assertSame($moment, $utc, 'read as UTC, as Routines::utc() reads');
+        $this->assertSame($moment, $local, 'read with strtotime(), as the activity log\'s readers read');
+        $this->assertSame($type === 'postgresql', str_contains(\Pramnos\Database\Instant::utc($moment, $this->db), '+00:00'), 'an offset only where it is kept');
+    }
 }

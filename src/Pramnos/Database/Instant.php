@@ -6,7 +6,9 @@ namespace Pramnos\Database;
 
 /**
  * A moment written to, compared with and read from a `timestampTz` column the same way on MySQL,
- * MariaDB and PostgreSQL: as a Unix time the database converts itself.
+ * MariaDB and PostgreSQL: as a Unix time the database converts itself ({@see at()} and
+ * {@see unix()}, used together) — or, for a column whose readers already take the database's
+ * answer as UTC or as PHP's local time, as the string they expect ({@see utc()}, {@see local()}).
  *
  * ```php
  * $db->queryBuilder()->table('authserver.audit_log')->insert(['event_timestamp' => Instant::at($db, time())]);
@@ -36,6 +38,28 @@ final class Instant
         return new Expression(self::postgres($db)
             ? 'CAST(EXTRACT(EPOCH FROM ' . $column . ') AS BIGINT) AS ' . $alias
             : 'UNIX_TIMESTAMP(' . $column . ') AS ' . $alias);
+    }
+
+    /**
+     * A moment as a string for a column whose readers take what the database answers as UTC
+     * (`Llm\CallLog`, `Push\Log`): on PostgreSQL with its offset, which `timestamptz` keeps;
+     * on MySQL and MariaDB the bare UTC wall clock. MariaDB drops an offset (warning 1292, and
+     * strict mode refuses the row), and a `TIMESTAMP` answers a bare value as it was written,
+     * whatever the session's zone — so the reader's UTC is right on both.
+     */
+    public static function utc(int $unix, ?Database $db = null): string
+    {
+        return self::postgres($db ?? \Pramnos\Framework\Factory::getDatabase()) ? gmdate('Y-m-d H:i:sP', $unix) : gmdate('Y-m-d H:i:s', $unix);
+    }
+
+    /**
+     * The same, in PHP's zone, for a column whose readers parse what they get with
+     * `strtotime()` (the activity log): with its offset on PostgreSQL, the bare local wall
+     * clock on MySQL and MariaDB.
+     */
+    public static function local(int $unix, ?Database $db = null): string
+    {
+        return self::postgres($db ?? \Pramnos\Framework\Factory::getDatabase()) ? date('Y-m-d H:i:sP', $unix) : date('Y-m-d H:i:s', $unix);
     }
 
     private static function postgres(Database $db): bool

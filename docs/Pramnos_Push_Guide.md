@@ -403,8 +403,9 @@ large table rewrites index pages and leaves bloat only a `VACUUM FULL` reclaims.
 | Compressed after | 7 days, segmented by `status` |
 | Dropped after | **90 days** |
 
-`sent` is written in UTC with its offset (`2026-10-13 09:00:00+00:00`), so a row means the same
-moment whatever zone PHP and the database each run in; `stats()` and `prune()` count their windows
+`sent` is written in UTC (`Database\Instant::utc()`: `2026-10-13 09:00:00+00:00` on PostgreSQL,
+the bare `2026-10-13 09:00:00` on MySQL and MariaDB, which drops an offset), so a row means the
+same moment whatever zone PHP and the database each run in; `stats()` and `prune()` count their windows
 the same way, and `Log::sentAt()` reads a row back as a Unix time.
 
 `segmentby` is `status`, not `userid`: a handful of distinct values — 201, 410, 429, 0 — and the
