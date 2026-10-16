@@ -1183,6 +1183,24 @@ class Document extends \Pramnos\Framework\Base
     }
 
     /**
+     * A file of this site with `?v=` its modification time, as `assetUrl()` stamps it — for the
+     * version `mtime`. An address of another site is left as it is: there is no file to read.
+     */
+    protected static function stamped(string $src): string
+    {
+        $site = defined('sURL') ? (string) \sURL : '';
+        if ($site !== '' && str_starts_with($src, $site)) {
+            $path = substr($src, strlen($site));
+        } elseif (preg_match('#^([a-z][a-z0-9+.-]*:)?//#i', $src) !== 1) {
+            $path = ltrim($src, '/');
+        } else {
+            return $src;
+        }
+
+        return function_exists('assetUrl') ? assetUrl($path) : $src;
+    }
+
+    /**
      * Take tags out of the document's head, once each, where they are.
      *
      * @param list<string> $tags
@@ -1216,7 +1234,9 @@ class Document extends \Pramnos\Framework\Base
                 }
 
                 $script = $this->_js[$handle]['src'];
-                if ($version != '') {
+                if ($version === 'mtime' || ($version === '' && ($this->_js[$handle]['ver'] ?? '') === 'mtime')) {
+                    $script = self::stamped($script);
+                } elseif ($version != '') {
                     $script .= '?v=' . $version;
                 }
 
@@ -1268,6 +1288,11 @@ class Document extends \Pramnos\Framework\Base
                     if (isset($this->_css[$dep])) {
                         $this->_enqueueStyle($dep);
                     }
+                }
+                // `mtime` as the version: the file's own modification time, so a deploy is a new address.
+                if (($this->_css[$handle]['version'] ?? '') === 'mtime' || $version === 'mtime') {
+                    $this->_css[$handle]['src'] = self::stamped((string) $this->_css[$handle]['src']);
+                    $this->_css[$handle]['version'] = '';
                 }
                 if ($media != '') {
                     $tag = "\n        "

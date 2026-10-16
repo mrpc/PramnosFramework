@@ -146,6 +146,24 @@ class ServiceWorker
         return $paths;
     }
 
+    /**
+     * The worker's address to register, `?v=` its modification time and then `$params` — the
+     * worker reads `skip` and `offline` from its own address:
+     * `navigator.serviceWorker.register('<?php echo ServiceWorker::url('sw.js', ['skip' => 'admin/']); ?>')`.
+     *
+     * A new version is a new address the browser has not cached, so a deploy needs no `?v=` bumped
+     * by hand. The worker itself must still be served with `Cache-Control: no-cache` — `push:setup`
+     * checks it — or a CDN keeps answering with the old one.
+     *
+     * @param array<string, string> $params
+     */
+    public static function url(string $file = 'sw.js', array $params = []): string
+    {
+        $url = assetUrl(ltrim($file, '/'));
+
+        return $params === [] ? $url : $url . (str_contains($url, '?') ? '&' : '?') . http_build_query($params);
+    }
+
     /** The worker app.php names — `push.service_worker` — or null. */
     public static function configured(): ?string
     {

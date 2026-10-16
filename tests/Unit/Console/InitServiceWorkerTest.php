@@ -116,7 +116,7 @@ class InitServiceWorkerTest extends TestCase
         // Assert
         $this->assertFileExists($this->tmpDir . '/www/sw.js');
         $this->assertStringContainsString(
-            "navigator.serviceWorker.register('<?php echo sURL; ?>sw.js')",
+            "navigator.serviceWorker.register('<?php echo \\Pramnos\\Push\\ServiceWorker::url('sw.js'); ?>')",
             (string) file_get_contents($this->tmpDir . '/app/themes/default/footer.php')
         );
     }
@@ -140,7 +140,8 @@ class InitServiceWorkerTest extends TestCase
     }
 
     /**
-     * The registration URL comes from `sURL`, not from a literal `/sw.js`.
+     * The registration URL comes from `sURL` — through `ServiceWorker::url()`, which also stamps
+     * the worker's modification time — not from a literal `/sw.js`.
      *
      * An application served from a subdirectory registers at `/sub/sw.js`, and its
      * scope follows that path. A hard-coded `/sw.js` would either 404 or — worse, if
@@ -153,7 +154,8 @@ class InitServiceWorkerTest extends TestCase
 
         // Assert
         $footer = (string) file_get_contents($this->tmpDir . '/app/themes/default/footer.php');
-        $this->assertStringContainsString('<?php echo sURL; ?>sw.js', $footer);
+        // ServiceWorker::url() builds it from sURL through assetUrl(), with the worker's mtime as ?v=
+        $this->assertStringContainsString("<?php echo \\Pramnos\\Push\\ServiceWorker::url('sw.js'); ?>", $footer);
         $this->assertStringNotContainsString("register('/sw.js')", $footer);
     }
 

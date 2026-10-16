@@ -29,11 +29,11 @@ class PushSetupTest extends TestCase
     {
         // Act
         $display = $this->report(['migration' => true, 'keys' => true, 'library' => true,
-            'worker' => true, 'script' => true, 'icon' => true, 'routing' => true])->getDisplay();
+            'worker' => true, 'script' => true, 'icon' => true, 'routing' => true, 'caching' => true])->getDisplay();
 
         // Assert
         foreach (['Migration', 'VAPID key pair', 'Encryption library', 'Service worker',
-                  'Browser script', 'Icon', 'Routing'] as $part) {
+                  'Browser script', 'Icon', 'Routing', 'Worker caching'] as $part) {
             $this->assertStringContainsString($part, $display);
         }
     }
@@ -274,8 +274,68 @@ class PushSetupTest extends TestCase
         $answer = $command->probeFetch('http://127.0.0.1:9/push/key');
 
         // Assert
-        $this->assertSame(['status' => 0, 'json' => false], $answer);
+        $this->assertSame(['status' => 0, 'json' => false, 'cache' => ''], $answer);
         $this->assertSame(\Pramnos\Http\SiteUrl::isConfigured() ? \Pramnos\Http\SiteUrl::to('push/key') : null, $command->probeKeyUrl());
+    }
+
+    /**
+     * The worker is asked for as a browser would, and its `Cache-Control` decides: `no-cache`,
+     * `no-store` or a `max-age` of five minutes at most is done; none, or a day, is said — and
+     * the step never stops the run, since the fix is the server's. Without a worker, or a site
+     * address, it is not checked.
+     */
+    public function testTheWorkerCachingStep(): void
+    {
+        // Arrange
+        $root = $this->tempRoot();
+        mkdir($root . '/www', 0755, true);
+        file_put_contents($root . '/www/sw.js', '//');
+        $step = static function (string $root, ?string $cache, bool $site = true): array {
+            $command = new class ($root, $cache, $site) extends PushSetup {
+                public function __construct(private string $where, private ?string $cache, private bool $site)
+                {
+                    parent::__construct();
+                }
+
+                protected function root(): string { return $this->where; }
+
+                protected function workerPath(): ?string { return $this->cache === null ? null : $this->where . '/www/sw.js'; }
+
+                protected function siteAddress(string $path): ?string { return $this->site ? 'https://site.test/' . $path : null; }
+
+                protected function fetch(string $url): array { return ['status' => 200, 'json' => false, 'cache' => (string) $this->cache]; }
+
+                /** @return array<string, mixed> */
+                public function probe(): array { return $this->workerCachingStep(); }
+            };
+
+            return $command->probe();
+        };
+
+        try {
+            // Act
+            $answers = [];
+            foreach (['no-cache', 'public, max-age=60', 'no-store', '', 'public, max-age=86400'] as $cache) {
+                $answers[$cache] = $step($root, $cache);
+            }
+            $noWorker = $step($root, null);
+            $noSite   = $step($root, 'no-cache', false);
+            $output   = new \Symfony\Component\Console\Output\BufferedOutput();
+            $did      = ($answers['']['do'])(null, $output);
+        } finally {
+            exec('rm -rf ' . escapeshellarg($root));
+        }
+
+        // Assert
+        $this->assertSame([true, true, true, false, false], array_column(array_values($answers), 'done'));
+        $this->assertSame('https://site.test/sw.js', $answers['no-cache']['checked']);
+        $this->assertStringContainsString('no Cache-Control', $answers['']['what']);
+        $this->assertStringContainsString('max-age=86400', $answers['public, max-age=86400']['what']);
+        $this->assertSame([true, true], [$noWorker['done'], $noSite['done']]);
+        $this->assertStringContainsString('not checked', $noWorker['checked']);
+        $this->assertTrue(($noWorker['do'])());
+        $this->assertTrue($did, 'said, and the run goes on');
+        $this->assertStringContainsString('Cache-Control: no-cache', $output->fetch());
     }
 
     /**
@@ -414,11 +474,11 @@ class PushSetupTest extends TestCase
             public function probeInspect(): array { return $this->inspect(); }
 
             /** Not the network: the push controller's answer. */
-            protected function fetch(string $url): array { return ['status' => 200, 'json' => true]; }
+            protected function fetch(string $url): array { return ['status' => 200, 'json' => true, 'cache' => 'no-cache']; }
         })->probeInspect();
 
         // Assert
-        $this->assertCount(7, $steps);
+        $this->assertCount(8, $steps);
 
         foreach ($steps as $step) {
             $this->assertNotSame('', $step['name']);
@@ -432,7 +492,7 @@ class PushSetupTest extends TestCase
         }
 
         $this->assertSame(
-            ['Migration', 'VAPID key pair', 'Encryption library', 'Service worker', 'Browser script', 'Icon', 'Routing'],
+            ['Migration', 'VAPID key pair', 'Encryption library', 'Service worker', 'Browser script', 'Icon', 'Routing', 'Worker caching'],
             array_column($steps, 'name')
         );
     }
@@ -888,7 +948,7 @@ class PushSetupTest extends TestCase
             public function probeInspect(): array { return $this->inspect(); }
 
             /** Not the network. */
-            protected function fetch(string $url): array { return ['status' => 200, 'json' => true]; }
+            protected function fetch(string $url): array { return ['status' => 200, 'json' => true, 'cache' => 'no-cache']; }
         };
     }
 
@@ -947,7 +1007,7 @@ class PushSetupTest extends TestCase
             protected function browserScriptIsCurrent(): bool { return $this->is('script'); }
 
             /** Not the network. */
-            protected function fetch(string $url): array { return ['status' => 200, 'json' => true]; }
+            protected function fetch(string $url): array { return ['status' => 200, 'json' => true, 'cache' => 'no-cache']; }
 
             protected function inspect(): array
             {
@@ -959,8 +1019,9 @@ class PushSetupTest extends TestCase
                 $steps[3]['done'] = $this->is('worker');
                 $steps[5]['done'] = $this->is('icon');
                 $steps[6]['done'] = $this->is('routing');
+                $steps[7]['done'] = $this->is('caching');
 
-                $names = ['migration', 'keys', 'library', 'worker', 'script', 'icon', 'routing'];
+                $names = ['migration', 'keys', 'library', 'worker', 'script', 'icon', 'routing', 'caching'];
 
                 foreach ($steps as $index => $step) {
                     $steps[$index]['do'] = fn (): mixed => $this->record($names[$index]);

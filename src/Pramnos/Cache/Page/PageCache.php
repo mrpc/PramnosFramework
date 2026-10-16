@@ -169,7 +169,9 @@ final class PageCache
             // after the visitor signs in.
             //
             // Set it when the pages really are public and a second cache layer is
-            // worth having: `'cacheControl' => 'public, max-age=300'`. The leftover
+            // worth having: `'cacheControl' => 'public, max-age=300'` — or, for the
+            // browser's back/forward cache without a shared copy, `'private, no-cache'`.
+            // It goes on a hit and on the miss that was just stored. The leftover
             // `Pragma` and `Expires` are removed then, because they would contradict
             // it for anything speaking HTTP/1.0.
             'cacheControl'   => null,
@@ -989,6 +991,28 @@ final class PageCache
                 'X-Pramnos-Cache-Expires',
                 gmdate('D, d M Y H:i:s \G\M\T', (int) ($entry['created'] ?? time()) + $ttl)
             );
+    }
+
+    /**
+     * The response that was just stored, as a hit of it will be sent: with `cacheControl` too.
+     *
+     * A hit carried it and the miss that filled the cache did not, so the first visitor's
+     * page went out `no-store` — no bfcache, no revalidation — while every later one's did
+     * not. `'cacheControl' => 'private, no-cache'` is the value for back and forward from the
+     * bfcache, with the ETag making each revalidation a 304.
+     *
+     * Not when a cookie is already queued with `header()` — `session_start()` queues one, and
+     * the Response never sees it: a page that sets a cookie answers one visitor.
+     */
+    public function storedResponse(Response $response): Response
+    {
+        foreach (headers_list() as $header) {
+            if (stripos($header, 'set-cookie:') === 0) {
+                return $response;
+            }
+        }
+
+        return $this->withCacheControl($response);
     }
 
     /**

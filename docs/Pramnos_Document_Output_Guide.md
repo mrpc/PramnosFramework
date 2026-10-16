@@ -261,6 +261,10 @@ $doc->registerScript(
 $doc->enqueueScript('my-script');
 $doc->enqueueScript('jquery'); // Dependencies loaded automatically
 
+// 'mtime' as the version: ?v= the file's modification time, so a deploy is a new address
+$doc->registerScript('app', sURL . 'assets/js/app.js', [], 'mtime', true);
+$doc->registerStyle('app', sURL . 'assets/css/app.css', [], 'mtime');
+
 // Add an inline script (a bare <script> appended to the page foot)
 $doc->addInlineScript('
     window.addEventListener("load", function() {

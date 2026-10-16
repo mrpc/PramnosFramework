@@ -626,7 +626,7 @@ Before setting it, be sure of two things, because a CDN is not purgeable from he
 | `lockTtl` | `30` | `0` disables locking |
 | `gzip` | `true` | |
 | `etag` | `true` | |
-| `cacheControl` | `null` | what a hit tells the **browser**; null leaves PHP's session limiter alone |
+| `cacheControl` | `null` | what a hit — and the miss that was just stored — tells the **browser**; null leaves PHP's session limiter alone. `'private, no-cache'` gives the back/forward cache and a 304 on each revalidation, with no shared copy |
 | `debugHeader` | `true` | `X-Pramnos-Cache` and `Age` |
 | `debugDetail` | `false` | adds the key, TTL and expiry |
 | `writer` | `'cache'` | or `'static'` |

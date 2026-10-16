@@ -2675,8 +2675,13 @@ CSS;
         // `console.warn`, not an unhandled rejection: the message is for whoever is
         // building the site, and an uncaught error in the console reads as a broken
         // page to everybody else.
+        // Inside a booted application the address carries the worker's modification time
+        // (`ServiceWorker::url()`), so a deploy needs no version bumped by hand. The SPA shell
+        // boots nothing and keeps the plain address.
+        $address = $base === 'sURL' ? "<?php echo \\Pramnos\\Push\\ServiceWorker::url('sw.js'); ?>" : "<?php echo " . $base . "; ?>sw.js";
+
         return "    <script>if('serviceWorker' in navigator){addEventListener('load',"
-            . "function(){navigator.serviceWorker.register('<?php echo " . $base . "; ?>sw.js')"
+            . "function(){navigator.serviceWorker.register('" . $address . "')"
             . ".catch(function(e){console.warn('Service worker not registered:',e);});"
             . "});}</script>\n";
     }

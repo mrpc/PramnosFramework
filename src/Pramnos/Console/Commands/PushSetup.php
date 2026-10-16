@@ -173,7 +173,50 @@ class PushSetup extends Command
                 'do'      => fn ($in, $out): mixed => $this->adviseIcon($out),
             ],
             $this->routingStep(),
+            $this->workerCachingStep(),
         ];
+    }
+
+    /**
+     * Whether the worker is served so a browser and a CDN ask for it again: `Cache-Control` with
+     * `no-cache`, `no-store`, or a `max-age` of five minutes at most. Cached longer, a deploy's new
+     * worker is not seen until the copy expires — a CDN answering with the old one for a day.
+     * Not checked without a site address or a worker; never stops the run.
+     *
+     * @return array{name: string, what: string, done: bool, do: callable, checked: string}
+     */
+    protected function workerCachingStep(): array
+    {
+        $worker = $this->workerPath();
+        $web    = rtrim($this->root(), '/') . '/www/';
+        $url    = $worker !== null && str_starts_with($worker, $web) ? $this->siteAddress(substr($worker, strlen($web))) : null;
+        if ($url === null) {
+            return ['name' => 'Worker caching', 'checked' => 'not checked: no site address or no worker', 'what' => '', 'done' => true,
+                'do' => static fn (): bool => true];
+        }
+
+        $cache = strtolower($this->fetch($url)['cache'] ?? '');
+        $age   = preg_match('/max-age\s*=\s*(\d+)/', $cache, $m) === 1 ? (int) $m[1] : null;
+        $ok    = str_contains($cache, 'no-cache') || str_contains($cache, 'no-store') || ($age !== null && $age <= 300);
+        $why   = $cache === '' ? 'it is served with no Cache-Control' : 'it is served with Cache-Control "' . $cache . '"';
+
+        return [
+            'name'    => 'Worker caching',
+            'checked' => $url,
+            'what'    => $why . ', so a browser or a CDN may keep last release\'s worker',
+            'done'    => $ok,
+            'do'      => function ($in, $out): bool {
+                $out->writeln('  not changed — serve the worker with <info>Cache-Control: no-cache</info> (an Apache <Files>, an nginx location, or a CDN rule)');
+
+                return true;
+            },
+        ];
+    }
+
+    /** A path under the configured site address, or null where none is configured. */
+    protected function siteAddress(string $path): ?string
+    {
+        return \Pramnos\Http\SiteUrl::isConfigured() ? \Pramnos\Http\SiteUrl::to($path) : null;
     }
 
     /**
@@ -208,13 +251,14 @@ class PushSetup extends Command
     /** `push/key` under the configured site address, or null where none is configured. */
     protected function keyUrl(): ?string
     {
-        return \Pramnos\Http\SiteUrl::isConfigured() ? \Pramnos\Http\SiteUrl::to('push/key') : null;
+        return $this->siteAddress('push/key');
     }
 
     /**
-     * One GET, without following a redirect: the status, and whether the answer is JSON.
+     * One GET, without following a redirect: the status, whether the answer is JSON, and its
+     * `Cache-Control`.
      *
-     * @return array{status: int, json: bool}
+     * @return array{status: int, json: bool, cache?: string}
      */
     protected function fetch(string $url): array
     {
@@ -225,8 +269,12 @@ class PushSetup extends Command
         $stream === false || fclose($stream);
         $status  = preg_match('#^HTTP/\S+\s+(\d{3})#', (string) ($headers[0] ?? ''), $m) === 1 ? (int) $m[1] : 0;
         $json    = (bool) preg_grep('#^content-type:\s*application/json#i', $headers);
+        $cache   = '';
+        foreach (preg_grep('#^cache-control:#i', $headers) ?: [] as $header) {
+            $cache = trim(substr((string) $header, strlen('cache-control:')));
+        }
 
-        return ['status' => $status, 'json' => $json];
+        return ['status' => $status, 'json' => $json, 'cache' => $cache];
     }
 
     /** The icon a notification shows: `push.icon` in app.php, under the web root, or the default. */

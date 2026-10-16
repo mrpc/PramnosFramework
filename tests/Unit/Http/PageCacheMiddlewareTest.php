@@ -101,6 +101,33 @@ class PageCacheMiddlewareTest extends TestCase
     }
 
     /**
+     * The miss that fills the cache goes out with the configured `cacheControl`, as every hit
+     * of it will — the first visitor's page was `no-store`, so no bfcache and no revalidation;
+     * a page that was not stored keeps its own headers, and with nothing configured nothing is
+     * added.
+     */
+    public function testAStoredMissCarriesTheCacheControlToo(): void
+    {
+        // Arrange
+        $bfcache = $this->middleware(['cacheControl' => 'private, no-cache']);
+        $plain   = $this->middleware();
+        $page    = static fn (): Response => Response::make('<html>public page</html>');
+        $private = static fn (): Response => Response::make('<html>yours</html>')->withHeader('Set-Cookie', 'a=b');
+
+        // Act
+        $miss       = $bfcache->handle($this->request('/a'), $page);
+        $hit        = $bfcache->handle($this->request('/a'), $page);
+        $notStored  = $bfcache->handle($this->request('/b'), $private);
+        $unset      = $plain->handle($this->request('/c'), $page);
+
+        // Assert
+        $this->assertSame('private, no-cache', $miss->getHeaderLine('Cache-Control'), 'the miss, as it was stored');
+        $this->assertSame('private, no-cache', $hit->getHeaderLine('Cache-Control'));
+        $this->assertSame('', (string) $notStored->getHeaderLine('Cache-Control'), 'not stored: its own headers');
+        $this->assertSame('', (string) $unset->getHeaderLine('Cache-Control'), 'nothing configured: nothing added');
+    }
+
+    /**
      * A pipeline that does not return a Response is left alone.
      *
      * Plenty of framework actions echo their output and return a string, an

@@ -22,6 +22,33 @@ use Pramnos\Push\ServiceWorker;
 class ServiceWorkerTest extends TestCase
 {
     /**
+     * The worker's address to register carries its modification time, so a deploy needs no
+     * version bumped by hand, and the parameters the worker reads from its own address after it.
+     */
+    public function testTheWorkerAddressIsVersioned(): void
+    {
+        // Arrange
+        $web = \Pramnos\Application\FrameworkScripts::webRoot((string) ROOT);
+        $name = 'pf-sw-' . bin2hex(random_bytes(3)) . '.js';
+        file_put_contents($web . '/' . $name, '//');
+        touch($web . '/' . $name, 1700000002);
+
+        try {
+            // Act
+            $plain  = ServiceWorker::url($name);
+            $params = ServiceWorker::url('/' . $name, ['skip' => 'admin/,api/', 'offline' => 'errors/offline.html']);
+            $none   = ServiceWorker::url('no-such-worker.js', ['skip' => '']);
+        } finally {
+            @unlink($web . '/' . $name);
+        }
+
+        // Assert
+        $this->assertStringEndsWith($name . '?v=1700000002', $plain);
+        $this->assertStringEndsWith($name . '?v=1700000002&skip=admin%2F%2Capi%2F&offline=errors%2Foffline.html', $params);
+        $this->assertStringEndsWith('no-such-worker.js?skip=', $none, 'no file: no stamp, the parameters still');
+    }
+
+    /**
      * The worker app.php names — `push.service_worker`, under the web root or absolute — is the
      * one checked, before the usual names; and `serviceWorker.js` is among the usual names, so an
      * installation whose worker is called that is not told it has none.

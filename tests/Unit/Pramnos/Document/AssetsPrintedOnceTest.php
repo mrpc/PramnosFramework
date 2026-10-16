@@ -75,6 +75,48 @@ class AssetsPrintedOnceTest extends TestCase
     }
 
     /**
+     * `mtime` as a version stamps a file of this site with its modification time, as
+     * `assetUrl()` does — on the script whether given when registering or enqueueing, and on
+     * the stylesheet — so a deploy is a new address; another site's address is left alone.
+     */
+    public function testMtimeVersionsAFileOfThisSite(): void
+    {
+        // Arrange — a file under the web root, as assetUrl() finds them
+        $dir  = \Pramnos\Application\FrameworkScripts::webRoot((string) ROOT) . '/assets/pf-test';
+        @mkdir($dir, 0777, true);
+        file_put_contents($dir . '/stamp.js', '//');
+        file_put_contents($dir . '/stamp.css', '/**/');
+        touch($dir . '/stamp.js', 1700000000);
+        touch($dir . '/stamp.css', 1700000001);
+        $doc = new Html();
+
+        try {
+            // Act
+            $doc->registerScript('pf-stamp', sURL . 'assets/pf-test/stamp.js', [], 'mtime', false);
+            $doc->enqueueScript('pf-stamp');
+            $doc->enqueueScript('pf-stamp-2', 'assets/pf-test/stamp.js?x=1', [], 'mtime', false);
+            $doc->registerScript('pf-cdn', 'https://cdn.test/lib.js', [], 'mtime', false);
+            $doc->enqueueScript('pf-cdn');
+            $doc->registerStyle('pf-stamp-css', sURL . 'assets/pf-test/stamp.css', [], 'mtime');
+            $doc->enqueueStyle('pf-stamp-css');
+            ob_start();
+            $doc->renderCss();
+            $doc->renderJs();
+            $out = (string) ob_get_clean();
+        } finally {
+            @unlink($dir . '/stamp.js');
+            @unlink($dir . '/stamp.css');
+            @rmdir($dir);
+        }
+
+        // Assert
+        $this->assertStringContainsString('assets/pf-test/stamp.js?v=1700000000"', $out);
+        $this->assertStringContainsString('assets/pf-test/stamp.css?v=1700000001"', $out);
+        $this->assertStringContainsString('src="https://cdn.test/lib.js"', $out, 'another site\'s file: no stamp');
+        $this->assertStringNotContainsString('?v=mtime', $out);
+    }
+
+    /**
      * A layout drawn without the document's head — renderJs() called on its own — still gets the
      * head scripts from it, as it always did.
      */

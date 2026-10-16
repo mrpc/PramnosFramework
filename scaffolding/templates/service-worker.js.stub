@@ -145,6 +145,14 @@ self.addEventListener('activate', (event) => {
         await Promise.all(keys
             .filter((key) => key === CACHE || LEGACY_CACHES.some((pattern) => pattern.test(key)))
             .map((key) => caches.delete(key)));
+        /*
+         * Navigation preload: the browser starts a page's request while this worker is still
+         * starting, instead of after — the worker's boot was otherwise added to every navigation,
+         * about 50 ms on a desktop and 250 ms or more on a phone. Where it is unsupported, nothing.
+         */
+        if (self.registration.navigationPreload) {
+            await self.registration.navigationPreload.enable().catch(() => {});
+        }
         await self.clients.claim();
     })());
 });
@@ -215,16 +223,26 @@ self.addEventListener('fetch', (event) => {
 
     // The administration area and the API, by default: not handled at all, offline page included.
     if (url.origin === self.location.origin && skipped(url.pathname)) {
+        // Except a navigation's preloaded answer, which the browser has already asked for: left
+        // unused, the browser asks a second time, and every admin page is requested twice.
+        if (request.mode === 'navigate' && event.preloadResponse) {
+            event.respondWith(Promise.resolve(event.preloadResponse).then((preloaded) => preloaded || fetch(request)));
+        }
         return;
     }
 
     // A page: always the network, never stored. Only when there is no network at all does the
     // offline page stand in — the browser's own error page otherwise.
     if (request.mode === 'navigate') {
-        event.respondWith(fetch(request).catch(async () => {
-            const offline = await (await caches.open(OFFLINE_CACHE)).match(new URL(OFFLINE_PAGE, self.registration.scope).href);
-            return offline || Response.error();
-        }));
+        event.respondWith((async () => {
+            try {
+                // The preloaded answer when the browser started one, the network otherwise.
+                return (await event.preloadResponse) || await fetch(request);
+            } catch (error) {
+                const offline = await (await caches.open(OFFLINE_CACHE)).match(new URL(OFFLINE_PAGE, self.registration.scope).href);
+                return offline || Response.error();
+            }
+        })());
         return;
     }
 

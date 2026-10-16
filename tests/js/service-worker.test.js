@@ -66,7 +66,7 @@ function worker(routes = {}, location = 'https://app.test/sw.js', scope = 'https
     const pages = { admin: { url: 'https://app.test/admin/Users' }, site: { url: 'https://app.test/orders' } };
     const self = {
         location: new URL(location),
-        registration: { scope, pushManager: {}, showNotification: async () => {} },
+        registration: { scope, pushManager: {}, showNotification: async () => {}, navigationPreload: { enabled: false, async enable() { this.enabled = true; } } },
         clients: { claim: async () => {}, matchAll: async () => clients, openWindow: async () => {}, get: async (id) => pages[id] },
         skipWaiting: () => {},
         addEventListener: (type, fn) => { listeners[type] = fn; },
@@ -88,7 +88,7 @@ function worker(routes = {}, location = 'https://app.test/sw.js', scope = 'https
         return response;
     }
 
-    return { fire, names, posted, fetched, caches, listeners };
+    return { fire, names, posted, fetched, caches, listeners, self };
 }
 
 /** A previous worker's hand-versioned caches are deleted on activation; this one's and others stay. */
@@ -102,6 +102,53 @@ test('activation deletes the caches a previous worker left', async () => {
 
     // Assert — and this worker's own asset cache, which an earlier version filled from admin pages
     assert.deepEqual([...sw.names.keys()].sort(), ['something-else']);
+});
+
+/**
+ * Navigation preload is switched on when the worker activates, and a navigation answers with the
+ * preloaded response when the browser started one — without a second request; with none, the
+ * network; with a preload that failed, the offline page, as a failed fetch does.
+ */
+test('a navigation uses the preloaded response', async () => {
+    // Arrange
+    const offlineUrl = 'https://app.test/offline.html';
+    const sw = worker({ [offlineUrl]: 'you are offline', 'https://app.test/orders': 'from the network' });
+    await sw.fire('install');
+    const page = { url: 'https://app.test/orders', method: 'GET', mode: 'navigate' };
+
+    // Act
+    await sw.fire('activate');
+    const preloaded = await sw.fire('fetch', { request: page, preloadResponse: Promise.resolve(new Response('preloaded')) });
+    const none      = await sw.fire('fetch', { request: page, preloadResponse: Promise.resolve(undefined) });
+    const failed    = await sw.fire('fetch', { request: { ...page, url: 'https://app.test/away' }, preloadResponse: Promise.reject(new TypeError('offline')) });
+
+    // Assert
+    assert.equal(sw.self.registration.navigationPreload.enabled, true);
+    assert.equal(await preloaded.text(), 'preloaded');
+    assert.equal(sw.fetched.filter((f) => f.url === page.url).length, 1, 'only the request without a preload reached the network');
+    assert.equal(await none.text(), 'from the network');
+    assert.equal(await failed.text(), 'you are offline');
+});
+
+/**
+ * A navigation into a skipped area takes its preloaded answer too: the browser asked for it
+ * already, and leaving it unused makes the browser ask a second time. With no preload it is still
+ * left to the browser.
+ */
+test('a skipped navigation uses the preload rather than a second request', async () => {
+    // Arrange
+    const sw = worker({ 'https://app.test/admin/Users': 'from the network' });
+    const admin = { url: 'https://app.test/admin/Users', method: 'GET', mode: 'navigate' };
+
+    // Act
+    const preloaded = await sw.fire('fetch', { request: admin, preloadResponse: Promise.resolve(new Response('preloaded admin')) });
+    const empty     = await sw.fire('fetch', { request: admin, preloadResponse: Promise.resolve(undefined) });
+    const none      = await sw.fire('fetch', { request: admin });
+
+    // Assert
+    assert.equal(await preloaded.text(), 'preloaded admin');
+    assert.equal(await empty.text(), 'from the network');
+    assert.equal(none, null, 'no preload: the browser\'s own');
 });
 
 /**

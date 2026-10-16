@@ -41,7 +41,7 @@ What makes it safe to say yes to is the boundary below.
 | Method | `GET` only |
 | Origin | same-origin only |
 | Paths | anything ending `.css .js .mjs .woff .woff2 .ttf .otf .eot .png .jpg .jpeg .gif .svg .webp .avif .ico` |
-| A page (a navigation) | always from the network, **never stored**; with no network at all, the offline page |
+| A page (a navigation) | always from the network — the navigation-preload answer when the browser started one — **never stored**; with no network at all, the offline page |
 | `admin/` and `api/` under the scope | **not intercepted at all**, assets and pages alike — see [Paths left to the browser](#paths-left-to-the-browser) |
 | Everything else | **not intercepted at all** — no `respondWith`, so the browser behaves as if there were no worker |
 
@@ -264,6 +264,33 @@ navigator.serviceWorker.register('/sw.js?offline=errors/offline.html&skip=admin/
 ```
 
 A `skip` list replaces the default rather than adding to it, so name every prefix you want.
+
+The page decides, not only the address asked for. A root asset an admin page loads, such as
+`assets/js/pf-utils.js` or a font from its stylesheet, is left alone too: by the request's
+referrer, or by the page it is for (`clients.get(clientId)`). A navigation into a skipped area
+still takes its navigation-preload answer, because leaving it unused makes the browser request
+the page a second time.
+
+### Navigation preload
+
+The worker switches on navigation preload when it activates. The browser then starts a page's
+request while the worker is still starting, and the worker answers with that response
+(`event.preloadResponse`). Without it, the worker's boot was added to every navigation: about
+50 ms on a desktop and 250 ms or more on a phone. Where it is unsupported, the worker fetches as
+before.
+
+### The worker's address
+
+Register it through `\Pramnos\Push\ServiceWorker::url()`, which `init` writes into the themes. It
+adds `?v=` with the worker's modification time and then the parameters the worker reads:
+
+```php
+navigator.serviceWorker.register('<?php echo \Pramnos\Push\ServiceWorker::url('sw.js', ['skip' => 'admin/,api/']); ?>');
+```
+
+A deploy is then a new address, with no version bumped by hand. Serve the worker itself with
+`Cache-Control: no-cache`, or a CDN goes on answering with the old one. `push:setup` checks the
+header (its *Worker caching* step).
 
 ---
 
