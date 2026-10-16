@@ -37,6 +37,7 @@ final class WidgetRegistry
         Widgets\RecentErrors::class,
         Widgets\WebVitals::class,
         Widgets\HelpNews::class,
+        Widgets\SessionsOnline::class,
     ];
 
     /** @var array<string, Widget> Registered in code */

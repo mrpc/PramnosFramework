@@ -50,14 +50,14 @@ class UsersController extends Controller
             // Per-user settings and per-user permissions, edited where the user is.
             'types',
             'savesetting', 'deletesetting', 'grantpermission', 'revokepermission',
-            'notify', 'sendnotification', 'signinalerts', 'adminscreens', 'emailpreference',
+            'notify', 'sendnotification', 'signinalerts', 'adminscreens', 'emailpreference', 'endsession',
         ]);
         // POST with the session's token, or refused before the action runs: see exec().
         $this->addWriteAction([
             'save', 'delete', 'lock', 'unlock', 'deactivateToken', 'deleteToken', 'resetpassword',
             'unlocklogin', 'disabletwofactor', 'revokepasskey', 'savesetting', 'deletesetting',
             'grantpermission', 'revokepermission', 'sendnotification', 'signinalerts', 'adminscreens',
-            'emailpreference',
+            'emailpreference', 'endsession',
         ]);
         parent::__construct($application);
     }
@@ -1749,6 +1749,31 @@ class UsersController extends Controller
             . '<p>If you did not request this, please ignore this email. '
             . 'The link expires in 24 hours.</p>'
             . '<p>— ' . $site . ' Team</p>';
+    }
+
+    /**
+     * End one session — `visitorid` in the form — from the dashboard's online card: it is signed
+     * out on its next request, and the sign-in it carried ends with it. Not this administrator's
+     * own session, which the header's sign-out is for. Back where it came from.
+     */
+    public function endsession(): mixed
+    {
+        if ($this->requireMinUserType($this->adminFloor())) {
+            return null;
+        }
+        $visitor = (string) ($_POST['visitorid'] ?? '');
+        $own     = md5((string) session_id());
+        $ended   = 0;
+        if ($visitor !== '') {
+            $result = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('#PREFIX#sessions')
+                ->where('visitorid', $visitor)->where('sid', '!=', $own)->where('logout', 0)->update(['logout' => 1]);
+            $ended = $result instanceof \Pramnos\Database\Result ? (int) $result->getAffectedRows() : (int) (bool) $result;
+        }
+        $ended > 0 ? $this->addMessage('The session will be signed out on its next request.') : $this->addError('There is no such session to end.');
+        $back = (string) ($_POST['return'] ?? '');
+        $this->redirect(preg_match('#^/(?!/)#', $back) === 1 || str_starts_with($back, (string) adminUrl()) ? $back : adminUrl('Dashboard'));
+
+        return null;
     }
 
     /**
