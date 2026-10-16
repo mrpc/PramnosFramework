@@ -47,6 +47,26 @@ class AccessTokenRepository implements AccessTokenRepositoryInterface
         // Every grant issues through here, a refresh included — so narrowing a client's
         // Allowed Scopes takes effect at its next token, not when its refresh token runs out.
         ScopeRepository::assertWithinClient($clientEntity, $scopes);
+        // And what the person may grant, by role: here so a refresh is judged by the role the
+        // account has now, not the one it had when it consented. A client acting for itself
+        // (no person) has nobody to judge.
+        if ($userIdentifier !== null && $userIdentifier !== '' && is_numeric($userIdentifier)) {
+            $refused = \Pramnos\Auth\OAuth2\ScopePolicy::current()->refused(
+                (int) $userIdentifier,
+                array_map(static fn ($scope): string => $scope->getIdentifier(), $scopes),
+                $clientEntity->getIdentifier()
+            );
+            if ($refused !== []) {
+                // invalidScope()'s second argument is a redirect URI, not a hint: built directly.
+                throw new \League\OAuth2\Server\Exception\OAuthServerException(
+                    'The requested scope is invalid, unknown, or malformed',
+                    5,
+                    'invalid_scope',
+                    400,
+                    'This account may not grant ' . implode(', ', $refused) . '.'
+                );
+            }
+        }
 
         $token = new AccessTokenEntity();
         $token->setClient($clientEntity);

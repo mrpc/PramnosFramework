@@ -779,6 +779,81 @@ class FullAuthorizationCodeFlowTest extends TestCase
         $this->assertSame(['invalid_scope', 'invalid_scope'], $refused);
     }
 
+    /**
+     * What a person may grant is judged at every token, by the role the account has now.
+     *
+     * `oauth.scopes` gives `user` a floor above this account's usertype: the code is refused at
+     * the exchange. Without the rule the same code would be redeemed; with the rule added after
+     * the exchange, the next refresh is refused — a role taken away is felt at the next token,
+     * not when the refresh token runs out. A scope with no rule is never touched.
+     */
+    public function testTheScopePolicyIsHeldAtTheExchangeAndAtEveryRefresh(): void
+    {
+        // Arrange — the code flow from the controller, with the server's rules in app.php
+        $factory = $this->factory();
+        $server  = $factory->createAuthorizationServer();
+        $oauth   = (new \ReflectionClass(\Pramnos\Auth\Controllers\Oauth::class))->newInstanceWithoutConstructor();
+        $oauth->application = $this->app;
+        (new \ReflectionProperty($oauth, 'oauth2Factory'))->setValue($oauth, $factory);
+        $application = Application::currentInstance() ?? Application::getInstance();
+        $saved       = $application->applicationInfo['oauth'] ?? null;
+        $exchange    = function (string $scope) use ($oauth, $server): array {
+            $verifier  = rtrim(strtr(base64_encode(random_bytes(32)), '+/', '-_'), '=');
+            $challenge = rtrim(strtr(base64_encode(hash('sha256', $verifier, true)), '+/', '-_'), '=');
+            $code = (new \ReflectionMethod($oauth, 'generateAuthCode'))->invoke($oauth, self::CLIENT_ID, self::USER_ID, $scope, self::REDIRECT_URI, $challenge, 'S256');
+
+            return $this->tokenRequest($server, ['grant_type' => 'authorization_code', 'code' => $code, 'redirect_uri' => self::REDIRECT_URI, 'code_verifier' => $verifier]);
+        };
+        $floor = static function (?int $usertype) use ($application): void {
+            $application->applicationInfo['oauth'] = $usertype === null ? [] : ['scopes' => ['us*' => ['min_usertype' => $usertype]]];
+        };
+
+        try {
+            // Act
+            $floor(50);
+            $refusedCode = $exchange('read user');
+            $floor(null);
+            $granted = $exchange('read user');
+            $floor(50);
+            $refusedRefresh = $this->tokenRequest($server, ['grant_type' => 'refresh_token', 'refresh_token' => (string) ($granted['refresh_token'] ?? '')]);
+            $floor(0);
+            $open = $exchange('read user');
+        } finally {
+            $application->applicationInfo['oauth'] = $saved;
+            if ($saved === null) {
+                unset($application->applicationInfo['oauth']);
+            }
+        }
+
+        // Assert
+        $this->assertSame('invalid_scope', $refusedCode['error'] ?? null, 'a usertype 0 account may not grant user (floor 50)');
+        $this->assertStringContainsString('may not grant user', (string) ($refusedCode['hint'] ?? $refusedCode['error_description'] ?? ''));
+        $this->assertArrayHasKey('access_token', $granted, 'no rule: granted as before');
+        $this->assertSame('invalid_scope', $refusedRefresh['error'] ?? null, 'the role taken away is felt at the refresh');
+        $this->assertArrayHasKey('access_token', $open, 'a floor the account meets');
+    }
+
+    /**
+     * One token request to the server, answered as the client would see it: the token, or the
+     * error payload.
+     *
+     * @param array<string, string> $body
+     * @return array<string, mixed>
+     */
+    private function tokenRequest(\League\OAuth2\Server\AuthorizationServer $server, array $body): array
+    {
+        try {
+            $response = $server->respondToAccessTokenRequest(
+                (new ServerRequest('POST', 'https://self.test/oauth/token'))->withParsedBody($body + ['client_id' => self::CLIENT_ID, 'client_secret' => self::CLIENT_SECRET]),
+                new Psr7Response()
+            );
+        } catch (\League\OAuth2\Server\Exception\OAuthServerException $e) {
+            $response = $e->generateHttpResponse(new Psr7Response());
+        }
+
+        return (array) json_decode((string) $response->getBody(), true);
+    }
+
     // -------------------------------------------------------------------------
     // The bridge, and the fixtures
     // -------------------------------------------------------------------------

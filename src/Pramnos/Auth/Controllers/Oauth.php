@@ -181,6 +181,23 @@ class Oauth extends Controller
                 return;
             }
 
+            // What this person may grant, by role, before they are asked to consent to it or a
+            // consent they gave earlier is reused. The token endpoint checks again, a refresh
+            // included, so a role taken away is felt at the next token.
+            $refused = \Pramnos\Auth\OAuth2\ScopePolicy::current()->refused(
+                (int) $user->userid,
+                array_values(array_filter(explode(' ', (string) $params['scope']))),
+                (string) $params['client_id']
+            );
+            if ($refused !== []) {
+                throw new OAuthServerException(
+                    t('Your account cannot grant %s to this application.', implode(', ', $refused)),
+                    9,
+                    'access_denied',
+                    403
+                );
+            }
+
             // POST — user has submitted the consent form
             if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
                 $this->handleConsentPost($user, $client, $params);

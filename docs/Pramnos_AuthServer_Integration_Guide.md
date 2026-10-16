@@ -527,6 +527,41 @@ client registered through RFC 7591 gets. The rule is `Application::scopesBeyond(
 $requested)`; League reaches it through `ScopeRepository::finalizeScopes()` and
 `AccessTokenRepository::getNewToken()`.
 
+### Which scopes a person may grant
+
+Allowed Scopes say what a *client* may ask for. What a *person* may hand it is a role per scope,
+in `app/app.php`:
+
+```php
+'roles' => ['staff' => 50],
+'oauth' => ['scopes' => [
+    'mcp:*'        => ['min_role' => 'staff'],   // a glob
+    'mcp:db_write' => ['min_role' => 'admin'],   // an exact name wins over a glob
+    'reports:read' => ['min_usertype' => 20],
+]],
+```
+
+Without it, any signed-in account could approve any scope a client asked for, so a site's
+customer could hand an assistant `mcp:db_read`. A scope with no rule is open to anybody signed
+in, as before. The rule is checked:
+
+- at `/oauth/authorize`, as soon as the person is signed in and before any consent, new or
+  remembered. The answer is the error page *Your account cannot grant mcp:db_read to this
+  application*;
+- at `/oauth/token`, for every token issued on a person's behalf, a **refresh** included. A role
+  taken away is felt at the next token: `invalid_scope`, with the scopes named in the hint. A
+  client acting for itself (`client_credentials`) has no person to judge.
+
+A rule that cannot be read refuses: a role nobody defined, or an account that cannot be loaded.
+A typo must never open a scope. For a rule a role cannot express (one client only, an
+organisation, a flag on the account), extend `Pramnos\Auth\OAuth2\ScopePolicy`, override
+`allows(object $user, string $scope, ?string $clientId, ?array $rule): bool` (call the parent
+for the configured rule), and name the class:
+
+```php
+'oauth' => ['scope_policy' => \App\Auth\ScopePolicy::class, 'scopes' => [...]],
+```
+
 Applications marked **trusted** (internal/first-party) skip the user consent
 screen; untrusted (third-party) applications always show consent and receive
 only the scopes the user approves. **Trusted** is a switch on the application's edit screen
