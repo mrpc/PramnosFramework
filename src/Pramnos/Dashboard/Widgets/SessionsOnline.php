@@ -96,7 +96,7 @@ class SessionsOnline extends Widget
                 . '<td>' . ((string) $row['sid'] === $own
                     ? self::e(Figures::words('This session'))
                     : '<form method="post" action="' . self::e(adminUrl('Users/endsession')) . '" style="display:inline;margin:0">' . $token
-                        . '<input type="hidden" name="visitorid" value="' . self::e((string) $row['visitorid']) . '">'
+                        . '<input type="hidden" name="sid" value="' . self::e((string) $row['sid']) . '">'
                         . '<input type="hidden" name="return" value="' . self::e($back) . '">'
                         . '<button type="submit" class="btn btn-sm" data-confirm="' . self::e(Figures::words('Sign this session out?')) . '">' . self::e(Figures::words('Sign out')) . '</button></form>')
                 . '</td>' . $this->rowExtras($row) . '</tr>';

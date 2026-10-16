@@ -452,6 +452,33 @@ class PageCacheTest extends TestCase
         $this->assertNull($hit);
     }
 
+    /**
+     * A controller that rewrites `$_GET` while it renders still gets its page served next time.
+     *
+     * lookup() keys from the query as the request arrived, so store() has to key from that too and
+     * not from what the controller left behind. Otherwise the page is stored under a key no later
+     * lookup computes: stored on every request, served on none, and the stale-window lock taken
+     * under one key and released under another.
+     */
+    public function testAQueryRewrittenWhileRenderingStillHits(): void
+    {
+        // Arrange
+        $cache   = $this->cache();
+        $request = $this->request('/el/services?page=2');
+
+        // Act
+        $this->assertNull($cache->lookup($request));
+        $_GET = ['page' => '2', 'category' => 'all', 'lang' => 'el'];   // what the controller did
+        $stored = $cache->store($request, $this->page('services'));
+        $_GET   = [];
+        $hit    = $cache->lookup($this->request('/el/services?page=2'));
+
+        // Assert
+        $this->assertTrue($stored);
+        $this->assertInstanceOf(Response::class, $hit, 'stored under the key the next lookup computes');
+        $this->assertSame('services', $hit->getBody());
+    }
+
     // ── Key normalisation (§6.1) ────────────────────────────────────────────
 
     /**

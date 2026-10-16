@@ -178,6 +178,9 @@ echo \Pramnos\Auth\Impersonation::banner(sURL . 'Impersonation');
 - **Ending it otherwise.** The way back is open for eight hours. Signing out while impersonating
   closes it, so neither account stays signed in.
 - **The activity log records both events**: `impersonate`/`impersonated` and `impersonation_end`.
+- **A shortcut of the application's own undoes it.** Code that signs the administrator back in
+  on an admin request (from a cookie of its own, say) does so a moment after the impersonation
+  starts. Remove it, or skip it while `Impersonation::current()` is not null.
 - **Who may.** From the `super` role up, and only as an account of a lower usertype: never one's
   own, an equal or a higher one. Configure it with:
 

@@ -162,7 +162,7 @@ class SessionsOnlineTest extends TestCase
         foreach (['guest', 'left', 'quiet'] as $absent) {
             $this->assertStringNotContainsString($this->mark . $absent, $html, $absent);
         }
-        $this->assertSame(1, substr_count($html, 'name="visitorid"'), 'no button on this session');
+        $this->assertSame(1, substr_count($html, 'name="sid"'), 'no button on this session');
         $this->assertStringContainsString('This session', $html);
         $this->assertStringContainsString('users/view/8', $html, 'linked to the account');
         $this->assertStringContainsString('data-history', $extra);
@@ -180,13 +180,13 @@ class SessionsOnlineTest extends TestCase
         $flag = fn (int $i): int => (int) $this->db->queryBuilder()->table('#PREFIX#sessions')->where('visitorid', $this->mark . $i)->first()->fields['logout'];
 
         // Act
-        $_POST = ['visitorid' => $this->mark . '1', 'return' => '/admin/Dashboard'];
+        $_POST = ['sid' => 'other-sid', 'return' => '/admin/Dashboard'];
         $ended = new EndingUsers();
         $ended->endsession();
-        $_POST = ['visitorid' => $this->mark . '0'];
+        $_POST = ['sid' => md5((string) session_id())];
         $own = new EndingUsers();
         $own->endsession();
-        $_POST = ['visitorid' => '', 'return' => 'https://evil.test/'];
+        $_POST = ['sid' => '', 'return' => 'https://evil.test/'];
         $none = new EndingUsers();
         $none->endsession();
 

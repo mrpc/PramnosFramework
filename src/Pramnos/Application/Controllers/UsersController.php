@@ -1784,12 +1784,13 @@ class UsersController extends Controller
         if ($this->requireMinUserType($this->adminFloor())) {
             return null;
         }
-        $visitor = (string) ($_POST['visitorid'] ?? '');
-        $own     = md5((string) session_id());
-        $ended   = 0;
-        if ($visitor !== '') {
+        // By sid, not visitorid: an application may keep visitorid as raw bytes, which no form carries.
+        $sid   = (string) ($_POST['sid'] ?? '');
+        $own   = md5((string) session_id());
+        $ended = 0;
+        if ($sid !== '' && $sid !== $own) {
             $result = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('#PREFIX#sessions')
-                ->where('visitorid', $visitor)->where('sid', '!=', $own)->where('logout', 0)->update(['logout' => 1]);
+                ->where('sid', $sid)->where('logout', 0)->update(['logout' => 1]);
             $ended = $result instanceof \Pramnos\Database\Result ? (int) $result->getAffectedRows() : (int) (bool) $result;
         }
         $ended > 0 ? $this->addMessage('The session will be signed out on its next request.') : $this->addError('There is no such session to end.');

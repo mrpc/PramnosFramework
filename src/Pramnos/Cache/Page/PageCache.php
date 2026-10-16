@@ -82,6 +82,12 @@ final class PageCache
 
     private ?AdapterInterface $adapter = null;
 
+    /** @var array<mixed>|null $_GET as lookup() saw it. */
+    private ?array $query = null;
+
+    /** The request lookup() last saw — the one $query belongs to. */
+    private ?Request $lookedUp = null;
+
     /** @var array<string,int> Counters for this request. */
     private array $stats = [
         'hit' => 0, 'miss' => 0, 'stale' => 0, 'bypass' => 0, 'store' => 0,
@@ -293,6 +299,10 @@ final class PageCache
      */
     public function lookup(Request $request): ?Response
     {
+        // The query as the request arrived: a controller may rewrite $_GET while it renders, and
+        // store() has to key — and release the lock — exactly as this did.
+        $this->query    = is_array($_GET) ? $_GET : [];
+        $this->lookedUp = $request;
         $reason = $this->bypassCheck($request);
         if ($reason !== null) {
             $this->stats['bypass']++;
@@ -679,13 +689,13 @@ final class PageCache
         }
 
         foreach ((array) $this->config['bypassQuery'] as $name => $values) {
-            if (!isset($_GET[$name])) {
+            if (!isset($this->query($request)[$name])) {
                 continue;
             }
             if ($values === true || $values === []) {
                 return 'bypassQuery:' . $name;
             }
-            if (in_array((string) $_GET[$name], array_map('strval', (array) $values), true)) {
+            if (in_array((string) $this->query($request)[$name], array_map('strval', (array) $values), true)) {
                 return 'bypassQuery:' . $name;
             }
         }
@@ -751,15 +761,15 @@ final class PageCache
             $class,
             $scheme . '://' . $host,
             $path,
-            $this->normalisedQuery(),
+            $this->normalisedQuery($request),
             $this->varyString($request),
         ]));
     }
 
     /** The query string, filtered and sorted, as it goes into the key. */
-    private function normalisedQuery(): string
+    private function normalisedQuery(Request $request): string
     {
-        $query = is_array($_GET) ? $_GET : [];
+        $query = $this->query($request);
         unset($query['r']);   // the front controller's own routing parameter
 
         $vary = $this->config['varyQuery'];
@@ -781,6 +791,12 @@ final class PageCache
         }
 
         return implode('&', $parts);
+    }
+
+    /** The query lookup() saw for this request, or $_GET for one it did not look up. @return array<mixed> */
+    private function query(Request $request): array
+    {
+        return $this->lookedUp === $request && $this->query !== null ? $this->query : (is_array($_GET) ? $_GET : []);
     }
 
     /** The concatenated `varyBy` values. */
@@ -1374,7 +1390,7 @@ final class PageCache
     private function writeStatic(Request $request, array $entry): void
     {
         $root = $this->staticRoot();
-        if ($root === '' || $this->normalisedQuery() !== '') {
+        if ($root === '' || $this->normalisedQuery($request) !== '') {
             // A rewrite rule cannot normalise a query string, so only the bare
             // path is safe to serve as a file. Anything with parameters stays on
             // the PHP path, where ignoreQuery still applies.

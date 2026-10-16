@@ -276,6 +276,10 @@ a whitelist and everything else is discarded:
 'varyQuery' => ['page', 'sort'],
 ```
 
+**The query is the one the request arrived with.** `lookup()` keeps it, and `store()` keys
+from it, so a controller that rewrites `$_GET` while it renders still stores its page where the
+next lookup finds it.
+
 **Logged-in and anonymous do not vary the key.** A logged-in request is never
 served from cache and never stored, so one key means one public view; splitting
 it would only create an entry nothing can reach. Crawlers share the anonymous key
