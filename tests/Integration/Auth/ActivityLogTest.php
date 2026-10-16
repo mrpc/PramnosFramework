@@ -170,20 +170,21 @@ class ActivityLogTest extends BaseTestCase
     }
 
     /**
-     * When the 'auth' feature is disabled the writer short-circuits before
-     * touching the database.
+     * With the 'auth' feature off the event is still written when the table exists: the table
+     * decides. An application with the feature off but the table in place lost every event —
+     * an impersonation among them — without a word.
      */
-    public function testDisabledFeatureIsNoOp(): void
+    public function testAFeatureOffStillWritesWhenTheTableExists(): void
     {
         // Arrange — clear enabled features so isEnabled('auth') is false.
         $prop = new \ReflectionProperty(FeatureRegistry::class, 'enabled');
         $prop->setValue(null, []);
 
         // Act
-        ActivityLog::record(42, 'login');
+        ActivityLog::record(42, 'impersonated', ['by' => 1]);
 
         // Assert
-        $this->assertSame(0, $this->rowCount(), 'A disabled auth feature must skip the write');
+        $this->assertSame(1, $this->rowCount(), 'the table is there, so the event is kept');
     }
 
     /**

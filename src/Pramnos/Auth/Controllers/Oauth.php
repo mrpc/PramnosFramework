@@ -457,19 +457,38 @@ class Oauth extends Controller
         $clientId = bin2hex(random_bytes(16));
         $issuedAt = time();
 
-        \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
-            ->table('#PREFIX#applications')
-            ->insert([
+        $callback = implode(' ', $uris);
+        $table    = static fn () => \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('#PREFIX#applications');
+        try {
+            $stored = $table()->insert([
                 'name'            => $name,
                 'description'     => 'Registered itself through dynamic client registration (RFC 7591).',
                 'apikey'          => $clientId,
-                // No secret: the client is public and proves itself with PKCE.
-                'apisecret'       => null,
-                'callback'        => implode(' ', $uris),
+                // No secret: the client is public and proves itself with PKCE. Empty rather than
+                // NULL, which an older schema's NOT NULL column refuses; empty reads as none.
+                'apisecret'       => '',
+                'callback'        => $callback,
                 'status'          => 1,
                 'is_confidential' => 0,
                 'added'           => $issuedAt,
             ]);
+        } catch (\Throwable $e) {
+            $stored = false;
+            \Pramnos\Logs\Logger::log('Dynamic client registration not stored: ' . $e->getMessage(), 'oauth');
+        }
+        if ($stored === false) {
+            return $this->respondJson(['error' => 'server_error', 'error_description' => 'The client could not be registered.'], 500, ['endpoint' => 'register']);
+        }
+        // Read back: a narrow `callback` column (an older schema, before the migration that widens
+        // it) cuts the list without an error, and a client registered with half its callbacks
+        // fails later, at the consent screen.
+        $row = $table()->select(['callback'])->where('apikey', $clientId)->first();
+        if (!$row || (int) $row->numRows === 0 || (string) $row->fields['callback'] !== $callback) {
+            $table()->where('apikey', $clientId)->delete();
+            \Pramnos\Logs\Logger::log('Dynamic client registration refused: the redirect URIs do not fit applications.callback — run migrate (widen_applications_callback).', 'oauth');
+
+            return $this->registrationRefused('invalid_redirect_uri', 'The redirect URIs are too long for this server.');
+        }
 
         $this->logDecision('client registered', [
             'endpoint'  => 'register',

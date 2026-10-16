@@ -222,6 +222,9 @@ class Application extends \Symfony\Component\Console\Application
         // The VAPID key pair web push needs. Run once — rotating it stops every existing
         // subscription working, and nobody is told.
         $this->add(new \Pramnos\Console\Commands\PushVapidGenerate());
+        // The RSA pair OAuth2 / OpenID Connect tokens are signed with — on purpose, at deploy time,
+        // rather than by whichever request happens to come first.
+        $this->add(new \Pramnos\Console\Commands\OauthKeys());
         // Push has five parts and four of them are invisible when missing. Five numbered steps
         // in a guide are five chances to stop after four.
         $this->add(new \Pramnos\Console\Commands\PushSetup());

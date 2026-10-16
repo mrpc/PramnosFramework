@@ -991,7 +991,13 @@ Each address may register twenty clients an hour; past that the answer is `429` 
 `Retry-After`. Every registration is a line in `oauth.log`.
 
 A registered client is an ordinary row in `applications` — untrusted, so consent is always shown,
-public, and with no secret. An administrator sees it in the applications screen and deletes it the
+public, and with no secret (`apisecret` is empty, which an older schema's `NOT NULL` column
+accepts). The redirect URIs are kept space-separated in `callback`. The row is read back after the
+insert: where the column is too narrow for the list (an older schema that has not run
+`widen_applications_callback`) and the database cut it quietly, the row is removed and the answer
+is `400 invalid_redirect_uri`. Where the database refuses the insert, the answer is
+`500 server_error`, with the reason in `oauth.log`. Either way no client is left with half its
+callbacks. An administrator sees it in the applications screen and deletes it the
 same way as any other, which revokes its tokens.
 
 ### Lightweight tokens

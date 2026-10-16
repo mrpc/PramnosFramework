@@ -405,7 +405,7 @@ administration screen:
 
 | Store | What it holds | Where it appears |
 | --- | --- | --- |
-| `authserver.user_activity_log` | sign-ins, logouts, whatever the application records | *Activity* panel, and `users/activity/{id}` for the whole of it |
+| `authserver.user_activity_log` | sign-ins, logouts, whatever the application records with `ActivityLog::record($userId, $action, $details)`, which writes wherever the table exists, whichever features are on | *Activity* panel, and `users/activity/{id}` for the whole of it |
 | `authserver.gdpr_requests` | export and erasure requests | *Data requests* panel |
 | `authserver.loginlockouts` | failed attempts and any active lockout | *Login security* panel, with **Clear lockout** |
 | `authserver.user_twofactor` | whether a second factor is on | *Second factor* panel, with **Disable** |

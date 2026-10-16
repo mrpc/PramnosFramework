@@ -44,7 +44,7 @@ Commands are grouped by a `namespace:` prefix that reflects what they act on:
 | `scaffold:` | Add a whole feature to an **existing** project | `scaffold:spa` |
 | `create:api-client` | Typed endpoint functions from the OpenAPI document | *(regenerated, never edited)* |
 | `health:` / `debug:` | Diagnostics | `health:check`, `debug:status`, `debug:token` |
-| `auth:` / `oauth:` | Login lockouts, second factors, tokens, webhooks, third-party OAuth2 tokens | `auth:unlock`, `auth:twofactor-status`, `auth:webhook-deliver`, `oauth:refresh` |
+| `auth:` / `oauth:` | Login lockouts, second factors, tokens, webhooks, third-party OAuth2 tokens | `auth:unlock`, `auth:twofactor-status`, `auth:webhook-deliver`, `oauth:keys`, `oauth:refresh` |
 | `messages:` | Mass-message delivery | `messages:dispatch` |
 | `mcp:` | The framework's MCP server | `mcp:serve`, `mcp:call`, `mcp:token` |
 | `api:` | API documentation | `api:docs` |
@@ -936,6 +936,7 @@ php bin/pramnos logs:convert /path/to/file.log --no-backup
 | `auth:twofactor-reset <user>` | Clear an account's second-factor enrolment so it can enrol again | `--passkeys/-p`, `--dry-run` |
 | `auth:twofactor-cleanup` | Delete spent and expired second-factor codes and enrolments | — |
 | `auth:token-cleanup` | Retire session tokens that have been idle | `--days/-d` |
+| `oauth:keys` | Generate the RSA pair OAuth2 / OpenID Connect tokens are signed with, in `app/keys/`; refuses to replace one, since a new key invalidates every token signed with the old | `--force` |
 | `oauth:refresh` | Refresh third-party OAuth2 tokens that are close to expiring | `--within`, `--provider`, `--dry-run` |
 
 **Site, cache and messaging**

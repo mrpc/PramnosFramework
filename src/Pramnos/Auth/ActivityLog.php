@@ -15,6 +15,7 @@ namespace Pramnos\Auth;
  * {@see \Pramnos\Auth\Controllers\Passkey}) funnel through {@see self::record()}.
  *
  * Design constraints:
+ *   - Written wherever the table exists, whichever features are on.
  *   - Additive and self-guarding. If the `user_activity_log` table is absent
  *     (an application that never ran the authserver migrations — e.g. a legacy
  *     install with a migration cutoff), every call is a silent no-op. It never
@@ -60,13 +61,9 @@ class ActivityLog
             return;
         }
 
-        // Cheap gate first: the user_activity_log table ships with the 'auth'
-        // feature's migrations, so when that feature is off the table cannot
-        // exist — skip without touching the database at all.
-        if (!\Pramnos\Application\FeatureRegistry::isEnabled('auth')) {
-            return;
-        }
-
+        // The table decides, not the `auth` feature: an application with the feature off can
+        // still have run the migration (or keep the table itself), and its events — an
+        // impersonation, a data export — were dropped without a word.
         try {
             $database = \Pramnos\Framework\Factory::getDatabase();
             if (!self::tableAvailable($database)) {
@@ -76,7 +73,7 @@ class ActivityLog
             $ip = \Pramnos\Http\Request::clientIp() ?: null;
             $ua = $_SERVER['HTTP_USER_AGENT'] ?? null;
 
-            $database->queryBuilder()
+            $stored = $database->queryBuilder()
                 ->table('authserver.user_activity_log')
                 ->insert([
                     'userid'     => $userId,
@@ -86,6 +83,10 @@ class ActivityLog
                     'user_agent' => $ua !== null ? (string) $ua : null,
                     'created_at' => date('c'),
                 ]);
+            // Its answer, not only an exception: PostgreSQL reports a refused insert as false.
+            if ($stored === false) {
+                throw new \RuntimeException('the insert was refused');
+            }
         } catch (\Throwable $ex) {
             // Logging must never break the caller — record the failure and move on.
             \Pramnos\Logs\Logger::log(

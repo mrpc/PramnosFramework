@@ -599,6 +599,26 @@ token, and in the OAuth2 middleware it refuses every Bearer request.
 `TokenAtRestTest::testNoLookupMatchesOnTheTokenColumn()` reads `src/` and fails on any surviving
 comparison, alias or not. Add a sixteenth lookup and it will tell you.
 
+**An application with lookups of its own on `token`.** The framework's OAuth code needs
+`token_lookup`, which `add_token_lookup_to_usertokens` adds. What decides whether an application's
+own `WHERE token = …` keeps matching is `APP_KEY`, not that migration:
+
+- **Without `APP_KEY`**, the migration adds the column and fills it in one statement, and leaves
+  every value as it is. New tokens are written the same way. Lookups on `token` keep working.
+- **With `APP_KEY`**, every token the framework writes is stored encrypted, migration or not, and
+  the migration encrypts the live rows it fills. A lookup on `token` then misses them.
+
+So the order is:
+
+1. Run the migration, without a key if you have none yet.
+2. Change the application's own lookups to `->where('token_lookup', Token::lookup($presented))`.
+3. Only then set `APP_KEY`.
+
+**Adding the column yourself** works too, and the migration then adds only the index. It fills
+only rows whose `token_lookup` is empty, so rows you filled stay as they are: plaintext, until each
+is next written with a key. Fill the column the way the migration does, `sha256` of the value in
+lowercase hex, or the framework finds nothing.
+
 **Both columns come from one place, and saving a token goes through it.**
 `Token::storageFor($value)` produces the pair — the value encrypted and the digest —
 and `Token::save()` and `User::addToken()` both go through it, so a token written either way

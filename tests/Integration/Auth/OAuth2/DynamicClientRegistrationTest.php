@@ -177,6 +177,50 @@ class DynamicClientRegistrationTest extends BaseTestCase
         $this->assertSame(['authorization_code'], $answer['grant_types']);
     }
 
+    /**
+     * A `callback` column too narrow for the list (an older schema, before the migration that
+     * widens it) never yields a client with half its callbacks. Where MySQL cuts the value
+     * quietly (outside strict mode) the row is read back, removed and the registration refused
+     * with 400; where it refuses the insert (strict mode) the answer is 500 and nothing is stored.
+     *
+     * MySQL only: PostgreSQL never cuts a value quietly, and its views on `applications` forbid
+     * narrowing the column in the first place.
+     */
+    public function testACallbackColumnTooNarrowRegistersNothing(): void
+    {
+        if ($this->db->type === 'postgresql') {
+            $this->markTestSkipped('PostgreSQL refuses a value too long; it never cuts one quietly.');
+        }
+
+        // Arrange — the column as an older schema had it. Raw DDL: the schema builder has no
+        // "narrow a column", and this is the shape under test.
+        $this->db->query('ALTER TABLE `#PREFIX#applications` MODIFY `callback` VARCHAR(40) NULL');
+        $register = function (string $mode): array {
+            $this->db->query("SET SESSION sql_mode = '" . $mode . "'");
+            Request::setRawInput((string) json_encode([
+                'client_name'                => 'Too long',
+                'redirect_uris'              => ['https://claude.ai/api/mcp/auth_callback', 'https://claude.com/api/mcp/auth_callback'],
+                'token_endpoint_auth_method' => 'none',
+            ]));
+            $status = $this->controller()->register()->getStatusCode();
+
+            return [$status, $this->db->queryBuilder()->table('#PREFIX#applications')->where('name', 'Too long')->count()];
+        };
+
+        try {
+            // Act
+            $quiet  = $register('');
+            $strict = $register('STRICT_TRANS_TABLES');
+        } finally {
+            $this->db->query('ALTER TABLE `#PREFIX#applications` MODIFY `callback` TEXT NULL');
+            $this->db->query('SET SESSION sql_mode = DEFAULT');
+        }
+
+        // Assert
+        $this->assertSame([400, 0], $quiet, 'cut quietly: read back, removed and refused');
+        $this->assertSame([500, 0], $strict, 'refused by the database: nothing stored');
+    }
+
     /** The controller with registration open and a limiter over an in-memory cache. */
     private function controller(): Oauth
     {

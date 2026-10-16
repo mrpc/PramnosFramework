@@ -327,6 +327,11 @@ test passes — and no token this server issues can be verified by anybody, so t
 failure appears in *somebody else's* application. One small signature rules it
 out.
 
+The pair is made by `php bin/pramnos oauth:keys`: RSA 2048 in `app/keys/`, the private key `0600`.
+It refuses to replace an existing pair without `--force`, because a new key invalidates every token
+signed with the old one. Without the command the server makes a pair on its first request, as
+whatever user the web server runs as.
+
 The paths come from `OAuth2ServerFactory::defaultPrivateKeyPath()` and
 `defaultPublicKeyPath()`, so the check always reports on the keys the server
 actually signs with. Pass explicit paths to the constructor if yours live
