@@ -52,7 +52,8 @@ class PushSetup extends Command
      *
      * @var list<string>
      */
-    public const MARKERS = ['data-push-subscribe', 'data-push-invite', 'data-push-later', 'data-push-base', 'pf:notification-click'];
+    public const MARKERS = ['data-push-subscribe', 'data-push-invite', 'data-push-later', 'data-push-base', 'pf:notification-click',
+        'data-push-words', 'X-CSRF-Token'];
 
     protected function configure(): void
     {

@@ -62,10 +62,12 @@ function worker(routes = {}, location = 'https://app.test/sw.js', scope = 'https
         async match() { throw new Error('the worker must read its own cache only'); },
     };
     const clients = [{ postMessage: (m) => posted.push(m) }, { postMessage: (m) => posted.push(m) }];
+    // The pages this worker controls, by client id, as `clients.get()` answers.
+    const pages = { admin: { url: 'https://app.test/admin/Users' }, site: { url: 'https://app.test/orders' } };
     const self = {
         location: new URL(location),
         registration: { scope, pushManager: {}, showNotification: async () => {} },
-        clients: { claim: async () => {}, matchAll: async () => clients, openWindow: async () => {} },
+        clients: { claim: async () => {}, matchAll: async () => clients, openWindow: async () => {}, get: async (id) => pages[id] },
         skipWaiting: () => {},
         addEventListener: (type, fn) => { listeners[type] = fn; },
     };
@@ -98,8 +100,36 @@ test('activation deletes the caches a previous worker left', async () => {
     // Act
     await sw.fire('activate');
 
+    // Assert — and this worker's own asset cache, which an earlier version filled from admin pages
+    assert.deepEqual([...sw.names.keys()].sort(), ['something-else']);
+});
+
+/**
+ * An asset an administration page asks for is neither read from nor written to the cache: by its
+ * referrer, the worker does not respond at all; a font a stylesheet asks for has the stylesheet as
+ * its referrer, so the page it is for decides, and it comes from the network. A site page's assets
+ * are still cached.
+ */
+test('what an administration page loads is not cached', async () => {
+    // Arrange
+    const script = 'https://app.test/assets/js/pf-utils.js';
+    const font   = 'https://app.test/assets/vendor/fonts/a.woff2';
+    const sw = worker({ [script]: 'v2', [font]: 'font' });
+    const cache = await sw.caches.open('app-assets');
+    cache.store.set(script, new Response('v1'));
+
+    // Act
+    const byReferrer = await sw.fire('fetch', { request: { url: script, method: 'GET', mode: 'no-cors', referrer: 'https://app.test/admin/Users' } });
+    const byClient   = await sw.fire('fetch', { clientId: 'admin', request: { url: font, method: 'GET', mode: 'cors', referrer: 'https://app.test/assets/css/style.css' } });
+    const sitePage   = await sw.fire('fetch', { clientId: 'site', request: { url: font, method: 'GET', mode: 'cors', referrer: 'https://app.test/assets/css/style.css' } });
+
     // Assert
-    assert.deepEqual([...sw.names.keys()].sort(), ['app-assets', 'something-else']);
+    assert.equal(byReferrer, null, 'left to the browser: no respondWith at all');
+    assert.equal(await byClient.text(), 'font', 'from the network');
+    assert.equal(await sitePage.text(), 'font');
+    assert.equal(await (await cache.match(script)).text(), 'v1', 'the admin page\'s request wrote nothing over it');
+    assert.ok(cache.store.has(font), 'the site page\'s font was stored');
+    assert.equal(sw.fetched.filter((f) => f.url === font).length, 2, 'the admin one went to the network, then the site one');
 });
 
 /** An asset is read from this worker's cache: a stale copy in another cache is never served. */

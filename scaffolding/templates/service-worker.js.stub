@@ -140,8 +140,10 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
     event.waitUntil((async () => {
         const keys = await caches.keys();
+        // This worker's own asset cache too: a version before this one also stored what the
+        // administration's pages asked for, and those copies would outlive the next deploy.
         await Promise.all(keys
-            .filter((key) => LEGACY_CACHES.some((pattern) => pattern.test(key)))
+            .filter((key) => key === CACHE || LEGACY_CACHES.some((pattern) => pattern.test(key)))
             .map((key) => caches.delete(key)));
         await self.clients.claim();
     })());
@@ -230,10 +232,33 @@ self.addEventListener('fetch', (event) => {
         return;
     }
 
+    /*
+     * An asset the administration's pages ask for is theirs to leave alone too.
+     *
+     * `/assets/js/pf-utils.js` is at the root, but an admin page loads it, and a copy cached
+     * stale-while-revalidate gave an administrator last release's script beside this release's
+     * HTML. So the page decides, not only the asset's own address: by its referrer when that is a
+     * page of this site — then no `respondWith` at all — and otherwise (no referrer, or a font
+     * asked for by a stylesheet) by the page it is for, which is asked for asynchronously, so the
+     * network answers without the cache when that page is left out.
+     */
+    const referrer = request.referrer ? new URL(request.referrer) : null;
+    const fromPage = referrer !== null && referrer.origin === self.location.origin && !ASSET.test(referrer.pathname);
+    if (fromPage && skipped(referrer.pathname)) {
+        return;
+    }
+
     const immutable = IMMUTABLE.some((pattern) => pattern.test(url.pathname));
     const image = /\.(?:png|jpe?g|gif|svg|webp|avif)$/i.test(url.pathname);
 
     event.respondWith((async () => {
+        if (!fromPage && event.clientId) {
+            const client = await self.clients.get(event.clientId);
+            if (client && skipped(new URL(client.url).pathname)) {
+                return fetch(request);
+            }
+        }
+
         // This worker's cache only: `caches.match()` reads every cache on the origin, and a copy
         // another worker stored would be served before this one's, however stale.
         const cached = await (await caches.open(CACHE)).match(request);

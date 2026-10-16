@@ -582,6 +582,35 @@ window.addEventListener('pf:notification-click', (event) => {
 
 Only an address of the site's own origin is followed, whatever the payload said.
 
+### The browser script's words, and its token
+
+`push.js` says its sentences in English and takes their translations from its tag:
+`\Pramnos\Push\BrowserScript::attributes()` writes `data-push-words`, a JSON object from each
+English sentence to the page's language, only for those the language has. The scaffolded themes
+print it:
+
+```php
+<script src="<?php echo assetUrl('assets/js/push.js'); ?>"<?php echo \Pramnos\Push\BrowserScript::attributes(); ?> defer></script>
+```
+
+`push/subscribe` and `push/unsubscribe` accept a request from this site only: the session's token
+as `X-CSRF-Token`, or the browser's own `Sec-Fetch-Site: same-origin`. The session cookie also
+reaches them from another subdomain of the same site, and a page there could otherwise attach its
+own endpoint to whoever is signed in. `push.js` sends the token from `<meta name="csrf">`, or from
+`data-push-token` on its tag. The worker re-subscribes with no page open and no token, so it
+relies on the browser's same-origin header.
+
+The script also works on a page that has declared a global `var URL = "…"` of its own, which
+replaces the browser's constructor. It resolves addresses with an anchor instead.
+
+### What an administration page loads
+
+The worker leaves the administration area and the API to the browser (`?skip=`, `admin/,api/` by
+default). That includes the assets those pages load from the root, such as `assets/js/pf-utils.js`
+or a font: the page that asked decides, by the request's referrer or the client it is for, not
+only the asset's own address. A worker that activates also deletes its own asset cache, so what an
+earlier version kept from admin pages is gone after the next deploy.
+
 ### A site in a folder
 
 The browser script fetches `push/key` and `push/subscribe` relative to where the site is: two

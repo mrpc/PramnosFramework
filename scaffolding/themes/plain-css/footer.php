@@ -24,7 +24,7 @@
         <button type="button" class="btn btn-outline" data-push-later>Not now</button>
         <span style="display:block;color:#666;font-size:0.8em;margin-top:6px" data-push-state></span>
     </div>
-    <script src="<?php echo assetUrl('assets/js/push.js'); ?>" defer></script>
+    <script src="<?php echo assetUrl('assets/js/push.js'); ?>"<?php echo \Pramnos\Push\BrowserScript::attributes(); ?> defer></script>
     <?php endif; ?>
     <?php echo \Pramnos\Security\CookieConsent::tag(sURL); ?>
     <script src="<?php echo assetUrl('assets/js/pf-utils.js'); ?>"></script>

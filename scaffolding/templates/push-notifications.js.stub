@@ -34,13 +34,65 @@
      * root would then be another site's address.
      */
     var script = document.currentScript;
-    var base = new URL(
-        (script && script.getAttribute('data-push-base')) || (script && script.src ? new URL('../../', script.src).href : '/'),
+
+    /*
+     * An address resolved against another, as `{href, origin}`.
+     *
+     * Not `new URL()` alone: a page that declares a global `var URL = "…"` — legacy pages do, for
+     * their own address — has replaced the constructor before this script runs, and every call
+     * threw "URL is not a constructor". Then an anchor resolves it, as the browser always could.
+     */
+    var Url = typeof window.URL === 'function' ? window.URL : null;
+
+    function resolve(path, against) {
+        if (Url) {
+            var url = new Url(path, against);
+
+            return { href: url.href, origin: url.origin };
+        }
+        var a = document.createElement('a');
+        a.href = against;
+        var root = a.protocol + '//' + a.host;
+        var dir = a.href.replace(/[?#].*$/, '').replace(/[^/]*$/, '');
+        a.href = /^[a-z][a-z0-9+.-]*:|^\/\//i.test(path) ? path : (path.charAt(0) === '/' ? root + path : dir + path);
+
+        return { href: a.href, origin: a.protocol + '//' + a.host };
+    }
+
+    var base = resolve(
+        (script && script.getAttribute('data-push-base')) || (script && script.src ? resolve('../../', script.src).href : '/'),
         window.location.href
-    );
+    ).href;
 
     function sitePath(path) {
-        return new URL(path, base).href;
+        return resolve(path, base).href;
+    }
+
+    /*
+     * The page's words: `data-push-words` on the script tag, a JSON object from each English
+     * sentence below to the page's language — the themes fill it with
+     * `\Pramnos\Push\BrowserScript::words()`. A sentence it does not have is said in English.
+     */
+    var words = {};
+    try {
+        words = JSON.parse((script && script.getAttribute('data-push-words')) || '{}') || {};
+    } catch (e) {
+        words = {};
+    }
+
+    function w(sentence) {
+        return typeof words[sentence] === 'string' && words[sentence] !== '' ? words[sentence] : sentence;
+    }
+
+    /*
+     * The session's token, for the two calls that change the account: the page's
+     * `<meta name="csrf">`, or `data-push-token` on the script tag. The server refuses a subscribe
+     * or unsubscribe from another page that the session cookie reaches without it.
+     */
+    function token() {
+        var meta = document.querySelector('meta[name="csrf"]');
+
+        return (script && script.getAttribute('data-push-token')) || (meta && (meta.content || meta.getAttribute('content'))) || '';
     }
 
     /*
@@ -57,7 +109,7 @@
                 return;
             }
 
-            var target = new URL(data.url, window.location.href);
+            var target = resolve(data.url, window.location.href);
             var go = new CustomEvent('pf:notification-click', { detail: { url: target.href }, cancelable: true });
 
             if (target.origin === window.location.origin && window.dispatchEvent(go)) {
@@ -160,7 +212,7 @@
 
     function say(message, disabled) {
         states.forEach(function (state) {
-            state.textContent = message;
+            state.textContent = message === '' ? '' : w(message);
         });
 
         buttons.forEach(function (button) {
@@ -259,7 +311,7 @@
                 return fetch(sitePath('push/subscribe'), {
                     method: 'POST',
                     credentials: 'include',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': token() },
                     body: JSON.stringify(subscription.toJSON())
                 });
             })

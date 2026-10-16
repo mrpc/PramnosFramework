@@ -58,6 +58,64 @@ class PushControllerTest extends TestCase
     }
 
     /**
+     * A subscribe or unsubscribe that is not from this site is refused, and nothing is stored or
+     * forgotten: the session cookie reaches these from another subdomain of the same site, and a
+     * page there would otherwise attach its own endpoint to the signed-in account.
+     */
+    public function testARequestFromAnotherSiteIsRefused(): void
+    {
+        // Arrange
+        $subscribe   = $this->controller(user: 5, body: $this->subscription());
+        $unsubscribe = $this->controller(user: 5, body: ['endpoint' => 'https://a.example/1']);
+        $subscribe->fromSite = $unsubscribe->fromSite = false;
+
+        // Act
+        $subscribe->subscribe();
+        $unsubscribe->unsubscribe();
+
+        // Assert
+        $this->assertSame([403, 403], [$subscribe->status, $unsubscribe->status]);
+        $this->assertStringContainsString('X-CSRF-Token', $subscribe->payload['error']);
+        $this->assertSame([[], []], [$subscribe->stored, $unsubscribe->forgotten]);
+    }
+
+    /**
+     * What counts as this site: the browser's own `Sec-Fetch-Site: same-origin` — the service
+     * worker's re-subscription has no page and no token — or a POST carrying the session's token
+     * as `X-CSRF-Token`; not `same-site` (another subdomain), and not nothing.
+     */
+    public function testWhatCountsAsThisSite(): void
+    {
+        // Arrange
+        $probe = new class extends PushController {
+            public function __construct()
+            {
+            }
+
+            public function probe(): bool { return $this->fromThisSite(); }
+        };
+        $server = $_SERVER;
+
+        try {
+            // Act
+            $_SERVER['HTTP_SEC_FETCH_SITE'] = 'same-origin';
+            $sameOrigin = $probe->probe();
+            $_SERVER['HTTP_SEC_FETCH_SITE'] = 'same-site';
+            $_SERVER['REQUEST_METHOD'] = 'POST';
+            $sameSite = $probe->probe();
+            $_SERVER['HTTP_X_CSRF_TOKEN'] = \Pramnos\Http\Session::getInstance()->getCsrfToken();
+            $withToken = $probe->probe();
+            unset($_SERVER['HTTP_SEC_FETCH_SITE'], $_SERVER['HTTP_X_CSRF_TOKEN']);
+            $nothing = $probe->probe();
+        } finally {
+            $_SERVER = $server;
+        }
+
+        // Assert
+        $this->assertSame([true, false, true, false], [$sameOrigin, $sameSite, $withToken, $nothing]);
+    }
+
+    /**
      * Subscribing without a session is refused.
      *
      * Not pedantry: a subscription stored against nobody is delivered to nobody and revoked by
@@ -341,6 +399,9 @@ class PushControllerTest extends TestCase
         return new class ($user, $body, $vapid, $accepted) extends PushController {
             public int $status = 0;
 
+            /** Whether the request is from this site — the page's token, or the browser's same-origin. */
+            public bool $fromSite = true;
+
             /** @var array<string, mixed> */
             public array $payload = [];
 
@@ -368,6 +429,8 @@ class PushControllerTest extends TestCase
             }
 
             protected function body(): array { return $this->requestBody; }
+
+            protected function fromThisSite(): bool { return $this->fromSite; }
 
             protected function keyPair(): ?array { return $this->keys; }
 

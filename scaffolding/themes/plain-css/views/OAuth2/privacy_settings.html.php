@@ -130,7 +130,7 @@ $this->activeNav = 'privacy';
                             </button>
                             <span style="color:#666;font-size:0.85em" data-push-state></span>
                         </div>
-                        <script src="<?php echo assetUrl('assets/js/push.js'); ?>" defer></script>
+                        <script src="<?php echo assetUrl('assets/js/push.js'); ?>"<?php echo \Pramnos\Push\BrowserScript::attributes(); ?> defer></script>
                     </form>
                 </div>
             </div>

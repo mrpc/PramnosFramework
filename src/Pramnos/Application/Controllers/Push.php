@@ -18,7 +18,8 @@ use Pramnos\Push\Vapid;
  * - `POST /push/unsubscribe` — forget it.
  *
  * The last two require a session, because a subscription belongs to an account: without one there
- * is nobody to notify. That is the opposite of the mail endpoints beside it, where requiring a
+ * is nobody to notify — and a request from this site ({@see fromThisSite()}), because the
+ * session cookie also reaches them from elsewhere. That is the opposite of the mail endpoints beside it, where requiring a
  * session would break every one-click request — and the difference is worth noticing rather than
  * copying the wrong pattern.
  *
@@ -54,6 +55,10 @@ class Push extends \Pramnos\Application\Controller
 
         if ($userId === null) {
             return $this->json(['error' => 'Sign in first.'], 401);
+        }
+
+        if (!$this->fromThisSite()) {
+            return $this->json(['error' => 'This must come from this site: send the page\'s token (X-CSRF-Token).'], 403);
         }
 
         $subscription = $this->body();
@@ -100,6 +105,10 @@ class Push extends \Pramnos\Application\Controller
             return $this->json(['error' => 'Sign in first.'], 401);
         }
 
+        if (!$this->fromThisSite()) {
+            return $this->json(['error' => 'This must come from this site: send the page\'s token (X-CSRF-Token).'], 403);
+        }
+
         $endpoint = (string) ($this->body()['endpoint'] ?? '');
 
         if ($endpoint === '') {
@@ -109,6 +118,22 @@ class Push extends \Pramnos\Application\Controller
         $this->forget($endpoint, $userId);
 
         return $this->json(['ok' => true]);
+    }
+
+    /**
+     * Whether a subscribe or unsubscribe comes from this site rather than from another page the
+     * session cookie reaches.
+     *
+     * `SameSite=Lax` sends the cookie on a `POST` from another subdomain of the same site, so a
+     * page there could attach its own endpoint to whoever is signed in, and receive their
+     * notifications. Two answers are accepted: the page's token — `push.js` sends it from
+     * `<meta name="csrf">` as `X-CSRF-Token` — or `Sec-Fetch-Site: same-origin`, which the browser
+     * itself sets and a page cannot. The second is the service worker's: it re-subscribes when the
+     * browser rotates a subscription, with no page open and no token to read.
+     */
+    protected function fromThisSite(): bool
+    {
+        return ($_SERVER['HTTP_SEC_FETCH_SITE'] ?? '') === 'same-origin' || $this->isVerifiedWrite();
     }
 
     /**

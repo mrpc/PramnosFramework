@@ -137,7 +137,7 @@ $this->activeNav = 'privacy';
                     </div>
                 </div>
             </div>
-            <script src="<?php echo assetUrl('assets/js/push.js'); ?>" defer></script>
+            <script src="<?php echo assetUrl('assets/js/push.js'); ?>"<?php echo \Pramnos\Push\BrowserScript::attributes(); ?> defer></script>
 
             <div class="text-sm text-base-content/70">
                 <p>

@@ -24,7 +24,7 @@
             <span class="small text-muted d-block" data-push-state></span>
         </div>
     </div>
-    <script src="<?php echo assetUrl('assets/js/push.js'); ?>" defer></script>
+    <script src="<?php echo assetUrl('assets/js/push.js'); ?>"<?php echo \Pramnos\Push\BrowserScript::attributes(); ?> defer></script>
     <?php endif; ?>
     <?php echo \Pramnos\Security\CookieConsent::tag(sURL); ?>
     <script src="<?php echo assetUrl('assets/js/pf-utils.js'); ?>"></script>
