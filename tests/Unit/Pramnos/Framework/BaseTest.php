@@ -301,4 +301,30 @@ class BaseTest extends \PHPUnit\Framework\TestCase
         // Act / Assert
         $this->assertSame('', $obj->publicPrintMessages());
     }
+
+    /**
+     * A flash message is in the page's language: the framework's controllers flash English, and
+     * the language's translation of it is what is kept; words it has no translation for — the
+     * application's own, or already translated — are kept as they are, and so is what is not a
+     * string.
+     */
+    public function testAFlashIsTranslated(): void
+    {
+        // Arrange
+        \Pramnos\Framework\Factory::getLanguage()->addlang(['The dashboard is back to the default.' => 'Ο πίνακας επανήλθε στην προεπιλογή.']);
+        $obj = new class extends Base {
+            public function publicAddMessage(mixed $m): static { return $this->addMessage($m); }
+            public function publicAddError(mixed $m): static { return $this->addError($m); }
+        };
+
+        // Act
+        $obj->publicAddMessage('The dashboard is back to the default.');
+        $obj->publicAddMessage('Ήδη στα ελληνικά, 100%');
+        $obj->publicAddError('The dashboard is back to the default.');
+        $obj->publicAddError(['not', 'words']);
+
+        // Assert
+        $this->assertSame(['Ο πίνακας επανήλθε στην προεπιλογή.', 'Ήδη στα ελληνικά, 100%'], $_SESSION['_messages']);
+        $this->assertSame(['Ο πίνακας επανήλθε στην προεπιλογή.', ['not', 'words']], $_SESSION['_errors']);
+    }
 }

@@ -100,7 +100,7 @@ class Base
      */
     protected function addError($error)
     {
-        $this->_errors[] = $error;
+        $this->_errors[] = self::flashWords($error);
         // A flash message exists to survive a redirect, so it needs a session to survive
         // in. The `isset()` guard below used to make this a silent no-op whenever there
         // was none — almost never, because init() always started one. Under lazy sessions
@@ -125,7 +125,7 @@ class Base
      */
     protected function addMessage($message)
     {
-        $this->_messages[] = $message;
+        $this->_messages[] = self::flashWords($message);
         // Same reasoning as addError(): a message nobody sees is the worse failure.
         \Pramnos\Http\Session::getInstance()->ensureStarted();
         if (isset($_SESSION)) {
@@ -133,6 +133,16 @@ class Base
         }
         return $this;
     }
+    /**
+     * A flash message in the page's language: the framework's controllers flash English, and
+     * a translation that has it answers it. Words with no translation — the application's own,
+     * already translated, or with a name in them — come back as they are.
+     */
+    private static function flashWords(mixed $words): mixed
+    {
+        return is_string($words) && $words !== '' && function_exists('t') ? t($words) : $words;
+    }
+
     /**
      * Returns an array of errors or false if no messages exist
      * @param bool $session Check in session data

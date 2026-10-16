@@ -148,8 +148,16 @@ request:
   `description()`, searched by a field, *Add* for a card not on the board and *On the board* for
   one that is. A card hidden is offered again at once, without a reload.
 
-In the same mode a card is dragged by its grip and resized by its corner, with pointer events,
-so a finger does it as a mouse does. While a card is being dragged:
+In the same mode a card is dragged by its grip, or by its title row (`data-pf-widget-head`), and
+resized by its corner, with pointer events, so a finger does it as a mouse does. The title row
+starts a drag only once the pointer has moved a few pixels, so a click stays a click, and never
+from a link, button or field in it.
+
+What makes a lifted card follow the pointer (`position: fixed`, its layer, no pointer events),
+the handles' `touch-action: none` and the page's text selection are set inline by the script
+and put back when let go. A theme's utilities layer, such as daisyUI's `.card { position:
+relative }` or a `.btn`'s `touch-action: manipulation`, beats any stylesheet rule regardless of
+specificity, so the stylesheet carries only the looks. While a card is being dragged:
 
 - it follows the pointer, and a dashed placeholder of its size, at most a third of the window
   tall, shows where it will land;

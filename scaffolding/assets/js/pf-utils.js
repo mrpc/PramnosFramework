@@ -1093,6 +1093,11 @@
         /** A card's tools, its grip and its corner, shown while customising. */
         function showTools(card, on) {
             Array.prototype.forEach.call(card.querySelectorAll('[data-pf-widget-tools], [data-pf-widget-size-handle]'), function (tool) { tool.hidden = !on; });
+            // Inline, because a theme's utilities (a .btn's touch-action: manipulation) beat any
+            // stylesheet rule of ours: a finger on a handle must drag, not scroll.
+            Array.prototype.forEach.call(card.querySelectorAll('[data-pf-widget-grip], [data-pf-widget-size-handle], [data-pf-widget-head]'), function (handle) {
+                handle.style.touchAction = on ? 'none' : '';
+            });
         }
 
         /** Put a freshly drawn card where `old` was, or at the end; tools as the mode has them. */
@@ -1270,9 +1275,34 @@
         }
 
         board.addEventListener('pointerdown', function (ev) {
-            var grip = ev.target.closest ? ev.target.closest('[data-pf-widget-grip], [data-pf-widget-size-handle]') : null;
-            if (!grip || !editing || ev.button > 0) { return; }
-            ev.preventDefault();
+            if (!editing || ev.button > 0 || !ev.target.closest) { return; }
+            var grip = ev.target.closest('[data-pf-widget-grip], [data-pf-widget-size-handle]');
+            if (grip) {
+                ev.preventDefault();
+                begin(ev, grip);
+                return;
+            }
+            // The card's title row is a grip too, but not what is in it — a link, a button, a
+            // field — and only once the pointer has moved a few pixels, so a click stays a click.
+            var head = ev.target.closest('[data-pf-widget-head]');
+            if (!head || ev.target.closest('a, button, input, select, textarea, label, [data-pf-widget-tools]')) { return; }
+            function wait(e) {
+                if (Math.abs(e.clientX - ev.clientX) + Math.abs(e.clientY - ev.clientY) < 6) { return; }
+                stop();
+                begin(ev, head)(e);
+            }
+            function stop() {
+                document.removeEventListener('pointermove', wait);
+                document.removeEventListener('pointerup', stop);
+                document.removeEventListener('pointercancel', stop);
+            }
+            document.addEventListener('pointermove', wait);
+            document.addEventListener('pointerup', stop);
+            document.addEventListener('pointercancel', stop);
+        });
+
+        /** Lift a card by a grip, or take its corner; answers the handler of the pointer's moves. */
+        function begin(ev, grip) {
             var card     = grip.closest('[data-pf-widget]');
             var id       = card.getAttribute('data-pf-widget');
             var resizing = grip.hasAttribute('data-pf-widget-size-handle');
@@ -1286,9 +1316,12 @@
             var frame    = null;
             var badge    = null;
             var placeholder = null;
+            // No text selected along the way — iOS Safari reads only the prefixed property.
             document.body.style.userSelect = 'none';
+            document.body.style.webkitUserSelect = 'none';
             if (resizing) {
                 card.classList.add('pf-dashboard-resizing');
+                card.style.outline = '2px solid currentColor';
                 badge = document.createElement('span');
                 badge.className = 'pf-dashboard-size-badge';
                 badge.textContent = SIZE_BADGE[sizeOf(card)] || '';
@@ -1301,6 +1334,12 @@
                 placeholder.style.height = Math.min(rect.height, Math.max(160, window.innerHeight / 3)) + 'px';
                 board.insertBefore(placeholder, card);
                 card.classList.add('pf-dashboard-dragging');
+                // What makes it follow the pointer, inline: a theme's `.card { position: relative }`
+                // sits in a layer that beats any rule of ours, whatever its specificity.
+                card.style.position = 'fixed';
+                card.style.zIndex = '60';
+                card.style.margin = '0';
+                card.style.pointerEvents = 'none';
                 card.style.width = rect.width + 'px';
                 card.style.height = rect.height + 'px';
                 card.style.left = rect.left + 'px';
@@ -1322,7 +1361,7 @@
                 var wide  = cols === 1 || r.width > board.getBoundingClientRect().width * 0.75;
                 var ahead = dashboardMath.dropBefore(r, last.x, last.y, wide);
                 if (dashboardMath.placeAt(order(), id, over.getAttribute('data-pf-widget'), ahead)) {
-                    board.insertBefore(placeholder, ahead ? over : over.nextSibling);
+                    board.insertBefore(placeholder, ahead ? over : (over.nextElementSibling !== undefined ? over.nextElementSibling : over.nextSibling));
                     moved = { x: last.x, y: last.y };
                 }
             }
@@ -1355,15 +1394,17 @@
                 document.removeEventListener('pointercancel', up);
                 if (frame !== null && window.cancelAnimationFrame) { window.cancelAnimationFrame(frame); }
                 document.body.style.userSelect = '';
+                document.body.style.webkitUserSelect = '';
                 if (placeholder) {
                     board.insertBefore(card, placeholder);
                     board.removeChild(placeholder);
                     card.classList.remove('pf-dashboard-dragging');
-                    ['width', 'height', 'left', 'top'].forEach(function (k) { card.style[k] = ''; });
+                    ['position', 'zIndex', 'margin', 'pointerEvents', 'width', 'height', 'left', 'top'].forEach(function (k) { card.style[k] = ''; });
                 }
                 if (badge) {
                     card.removeChild(badge);
                     card.classList.remove('pf-dashboard-resizing');
+                    card.style.outline = '';
                 }
                 if (JSON.stringify(layout()) !== before) {
                     say((card.getAttribute('aria-label') || '') + ': ' + (resizing ? NAMES[sizeOf(card)] : (cards().indexOf(card) + 1) + ' / ' + cards().length));
@@ -1374,7 +1415,9 @@
             document.addEventListener('pointerup', up);
             document.addEventListener('pointercancel', up);
             if (!resizing && window.requestAnimationFrame) { frame = window.requestAnimationFrame(scroll); }
-        });
+
+            return move;
+        }
     })();
 
 })();

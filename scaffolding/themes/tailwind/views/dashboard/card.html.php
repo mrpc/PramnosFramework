@@ -21,7 +21,7 @@ $shown = static fn (array $field): bool => array_reduce(array_keys((array) ($fie
          data-pf-widget="<?php echo $e($widget['id']); ?>" data-size="<?php echo $e($widget['size']); ?>"
          data-settings="<?php echo $e(json_encode((object) $settings)); ?>" aria-label="<?php echo $e($t($widget['title'])); ?>">
     <div class="card-body p-4 gap-3">
-        <div class="pf-dashboard-head">
+        <div class="pf-dashboard-head" data-pf-widget-head>
             <h3 class="card-title text-base"><?php if ($widget['link']): ?><a class="hover:underline" href="<?php echo $e($widget['link']); ?>"><?php echo $e($t($widget['title'])); ?></a><?php else: echo $e($t($widget['title'])); endif; ?></h3>
             <div class="pf-dashboard-tools join" data-pf-widget-tools hidden>
                 <span class="btn btn-xs join-item pf-dashboard-grip" data-pf-widget-grip aria-hidden="true" title="<?php echo $e($t('Drag to move')); ?>">&#10303;</span>

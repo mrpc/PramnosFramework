@@ -520,3 +520,63 @@ test('the words are the page\'s', async () => {
     assert.equal(p.status.textContent, 'Δεν αποθηκεύτηκε.');
     assert.equal(q.status.textContent, 'The dashboard could not be saved.', 'unreadable: the defaults');
 });
+
+/**
+ * While lifted, the card's position, layer and pointer events are set on the card itself — a
+ * theme's `.card { position: relative }` sits in a layer no stylesheet rule of ours can beat —
+ * and so is the page's text selection, for iOS too; all of it is put back when let go. While
+ * customising, the handles take no touch gesture of the browser's.
+ */
+test('the lift is set on the card itself, and put back', async () => {
+    // Arrange
+    const p = page();
+    p.click(p.edit);
+    geometry(p, { a: [0, 0, 400, 100], b: [400, 0, 400, 100], c: [0, 120, 400, 100] }, () => 'b');
+    const grip = p.cards.a.querySelector('[data-pf-widget-grip]');
+    const touch = grip.style.touchAction;
+
+    // Act
+    pointer('pointerdown', grip, 20, 20);
+    const lifted = [p.cards.a.style.position, p.cards.a.style.zIndex, p.cards.a.style.pointerEvents, p.document.body.style.webkitUserSelect];
+    pointer('pointerup', p.document, 20, 20);
+    const after = [p.cards.a.style.position, p.cards.a.style.pointerEvents, p.document.body.style.webkitUserSelect];
+    p.click(p.done);
+
+    // Assert
+    assert.equal(touch, 'none', 'customising: a finger drags');
+    assert.deepEqual(lifted, ['fixed', '60', 'none', 'none']);
+    assert.deepEqual(after, ['', '', '']);
+    assert.equal(grip.style.touchAction, '', 'done: the page scrolls again');
+});
+
+/**
+ * The title row drags too, but only once the pointer has moved a few pixels — a click stays a
+ * click — and never from a link in it.
+ */
+test('the title row is a grip, after a few pixels, and not its links', async () => {
+    // Arrange
+    const p = page();
+    const head = p.el('div', { 'data-pf-widget-head': '' }, p.cards.a);
+    const link = p.el('a', { href: '/orders' }, head);
+    p.click(p.edit);
+    geometry(p, { a: [0, 0, 400, 100], b: [400, 0, 400, 100], c: [0, 120, 400, 100] }, () => 'c');
+
+    // Act — a click on the link, a press that barely moves, then a real drag
+    pointer('pointerdown', link, 20, 20);
+    pointer('pointermove', p.document, 300, 150);
+    const fromLink = p.cards.a.style.position || '';
+    pointer('pointerup', p.document, 300, 150);
+    pointer('pointerdown', head, 20, 20);
+    pointer('pointermove', p.document, 22, 21);
+    const barely = p.cards.a.style.position || '';
+    pointer('pointermove', p.document, 350, 150);
+    const dragged = p.cards.a.style.position;
+    pointer('pointerup', p.document, 350, 150);
+    await settle();
+
+    // Assert
+    assert.equal(fromLink, '', 'a link in the title is a link');
+    assert.equal(barely, '', 'a few pixels: still a click');
+    assert.equal(dragged, 'fixed');
+    assert.deepEqual(p.order(), ['b', 'c', 'a']);
+});
