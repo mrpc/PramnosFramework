@@ -109,6 +109,37 @@ class DashboardCardViewTest extends TestCase
         $this->assertStringNotContainsString('pf-dashboard-full', $html);
     }
 
+    /**
+     * Fields: a date with its own label, hidden until the setting it waits for has its value; a
+     * select of labelled values; and with the period chosen, the date shown.
+     */
+    #[DataProvider('themes')]
+    public function testFields(string $theme): void
+    {
+        // Arrange
+        $widget = [
+            'id' => 'sales', 'size' => 'm', 'title' => 'Sales', 'link' => null, 'settings' => ['period' => '30'],
+            'options' => ['period' => ['30' => '30 days', 'custom' => 'Custom'], 'from' => null],
+            'fields'  => [
+                'period' => ['input' => 'select', 'label' => 'Περίοδος', 'values' => ['30' => '30 days', 'custom' => 'Custom'], 'when' => []],
+                'from'   => ['input' => 'date', 'label' => 'Από', 'values' => [], 'when' => ['period' => 'custom']],
+            ],
+            'html' => '',
+        ];
+
+        // Act
+        $hidden = self::draw(self::dir($theme) . '/card.html.php', ['widget' => $widget]);
+        $widget['settings'] = ['period' => 'custom', 'from' => '2026-10-01'];
+        $shown  = self::draw(self::dir($theme) . '/card.html.php', ['widget' => $widget]);
+
+        // Assert
+        $this->assertStringContainsString('Περίοδος', $hidden, 'its own label');
+        $this->assertMatchesRegularExpression('#data-pf-when="\{&quot;period&quot;:&quot;custom&quot;\}" hidden>Από#', $hidden, 'waits for custom');
+        $this->assertStringContainsString('type="date" name="from"', $hidden);
+        $this->assertMatchesRegularExpression('#data-pf-when="[^"]+">Από#', $shown, 'custom chosen: shown');
+        $this->assertStringContainsString('value="2026-10-01"', $shown);
+    }
+
     /** A full card without options: no gear, no form; nothing drawn says so; settings are `{}`. */
     #[DataProvider('themes')]
     public function testACardWithout(string $theme): void
@@ -138,7 +169,7 @@ class DashboardCardViewTest extends TestCase
         $vars = [
             'widgets'   => [['id' => 'sales', 'size' => 's', 'title' => 'Sales', 'link' => null, 'settings' => [], 'options' => [], 'html' => '<p>one</p>']],
             'addable'   => ['health' => 'Health'],
-            'catalogue' => ['health' => ['title' => 'Health', 'description' => 'Every check <now>']],
+            'catalogue' => ['health' => ['title' => 'Health', 'description' => 'Every check <now>', 'placed' => false], 'sales' => ['title' => 'Sales', 'description' => '', 'placed' => true]],
             'saveUrl'   => '/admin/Dashboard/savelayout',
             'cardUrl'   => '/admin/Dashboard/card',
             'resetUrl'  => '/admin/Dashboard/resetlayout',
@@ -151,6 +182,10 @@ class DashboardCardViewTest extends TestCase
         $this->assertStringContainsString('data-pf-widget="sales" data-size="s"', $html);
         $this->assertStringContainsString('<p>one</p>', $html);
         $this->assertStringContainsString('data-card="/admin/Dashboard/card"', $html);
-        $this->assertStringContainsString('title="Every check &lt;now&gt;"', $html);
+        $this->assertStringContainsString('data-pf-dashboard-catalogue-dialog', $html);
+        $this->assertStringContainsString('Every check &lt;now&gt;', $html, 'each card with what it shows');
+        $this->assertMatchesRegularExpression('#data-pf-dashboard-add="health">#', $html, 'offered');
+        $this->assertMatchesRegularExpression('#data-pf-dashboard-add="sales" hidden>#', $html, 'on the board: not offered');
+        $this->assertStringContainsString('data-pf-dashboard-say="', $html, 'the script\'s words, from the page');
     }
 }

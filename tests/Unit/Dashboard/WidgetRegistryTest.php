@@ -60,6 +60,11 @@ final class SalesWidget extends Widget
             'period' => ['7' => 'Last 7 days', '30' => 'Last 30 days', '90' => 'Last 90 days'],
             'market' => ['all', 'gr', 'cy'],
             'title'  => static fn (mixed $v): ?string => is_string($v) && trim($v) !== '' ? trim($v) : null,
+            // A field: a date, labelled, shown only for the longest period
+            'from'   => ['label' => 'From', 'input' => 'date', 'when' => ['period' => '90'],
+                'clean' => static fn (mixed $v): ?string => is_string($v) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $v) ? $v : null],
+            // A field of values, labelled
+            'chart'  => ['label' => 'Chart', 'values' => ['bar' => 'Bars', 'line' => 'Lines']],
         ];
     }
 }
@@ -274,12 +279,41 @@ class WidgetRegistryTest extends TestCase
 
         // Assert
         $this->assertSame(['s', 'm', 'l', 'full', 'm', null, null], $sizes);
-        $this->assertSame([['id' => 'sales', 'size' => 'l', 'settings' => ['period' => '30', 'market' => 'gr', 'title' => 'Ours']]], $chosen, 'undeclared dropped');
-        $this->assertSame(['period' => '7', 'market' => 'all'], $wrong[0]['settings'], 'an unknown value is the first; a refused one is absent');
+        $this->assertSame([['id' => 'sales', 'size' => 'l', 'settings' => ['period' => '30', 'market' => 'gr', 'title' => 'Ours', 'chart' => 'bar']]], $chosen, 'undeclared dropped');
+        $this->assertSame(['period' => '7', 'market' => 'all', 'chart' => 'bar'], $wrong[0]['settings'], 'an unknown value is the first; a refused one is absent');
         $this->assertSame('s', $wrong[0]['size'], 'the widget\'s own width');
-        $this->assertSame(['period' => '7', 'market' => 'all'], $none[0]['settings']);
+        $this->assertSame(['period' => '7', 'market' => 'all', 'chart' => 'bar'], $none[0]['settings']);
         $this->assertSame('90', $widget->setting('period'));
         $this->assertSame('Sales: the money in, by period.', $widget->description());
+    }
+
+    /**
+     * An option as a field: a list is a select of its values, a function a text field, a field
+     * its own input, label and the settings it is shown for — and a date it refuses is absent.
+     */
+    public function testOptionsAsFields(): void
+    {
+        // Arrange
+        $options = (new SalesWidget())->options();
+
+        // Act
+        $period = Widget::field($options['period']);
+        $market = Widget::field($options['market']);
+        $title  = Widget::field($options['title']);
+        $from   = Widget::field($options['from']);
+        $chart  = Widget::field($options['chart']);
+        $kept   = Widget::cleanSettings(new SalesWidget(), ['from' => '2026-10-01', 'chart' => 'line']);
+        $bad    = Widget::cleanSettings(new SalesWidget(), ['from' => 'yesterday', 'title' => '']);
+
+        // Assert
+        $this->assertSame(['select', null, ['7' => 'Last 7 days', '30' => 'Last 30 days', '90' => 'Last 90 days'], []], [$period['input'], $period['label'], $period['values'], $period['when']]);
+        $this->assertSame(['all' => 'all', 'gr' => 'gr', 'cy' => 'cy'], $market['values'], 'a plain list, valued by itself');
+        $this->assertSame(['text', []], [$title['input'], $title['values']]);
+        $this->assertSame(['date', 'From', ['period' => '90']], [$from['input'], $from['label'], $from['when']]);
+        $this->assertSame(['select', 'Chart', ['bar' => 'Bars', 'line' => 'Lines']], [$chart['input'], $chart['label'], $chart['values']]);
+        $this->assertSame(['2026-10-01', 'line'], [$kept['from'], $kept['chart']]);
+        $this->assertArrayNotHasKey('from', $bad, 'a date it refuses');
+        $this->assertArrayNotHasKey('title', $bad, 'an empty free value is no value');
     }
 
     /**

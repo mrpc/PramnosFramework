@@ -1052,7 +1052,15 @@
         var editing = false;
 
         var SIZES   = ['s', 'm', 'l', 'full'];
-        var NAMES   = { s: 'small', m: 'medium', l: 'large', full: 'full width' };
+        // What the script says, in the page's language: data-pf-dashboard-say on the board, a JSON
+        // object over these.
+        var SAY = { saved: 'saved', hidden: 'hidden', failed: 'The dashboard could not be saved.', added: 'added',
+            sizes: { s: 'small', m: 'medium', l: 'large', full: 'full width' }, badges: { s: 'S · 1', m: 'M · 2', l: 'L · 3', full: 'Full · 4' } };
+        try {
+            var given = JSON.parse(board.getAttribute('data-pf-dashboard-say') || '{}');
+            Object.keys(given || {}).forEach(function (key) { SAY[key] = given[key]; });
+        } catch (err) { /* the page's words could not be read: the defaults stand */ }
+        var NAMES   = SAY.sizes;
         var cardUrl = board.getAttribute('data-card') || '';
 
         function cards() { return Array.prototype.slice.call(board.querySelectorAll('[data-pf-widget]')); }
@@ -1110,7 +1118,7 @@
                 }
                 if (then && then.reload) { window.location.reload(); }
             }).catch(function () {
-                say('The dashboard could not be saved.');
+                say(SAY.failed);
             });
         }
 
@@ -1154,11 +1162,28 @@
             } else {
                 var next = cards()[cards().indexOf(card) + 1] || cards()[cards().indexOf(card) - 1];
                 card.parentNode.removeChild(card);
-                say(title + ': hidden');
+                say(title + ': ' + SAY.hidden);
                 var focus = next ? next.querySelector('[data-pf-widget-hide]') : editButton;
                 if (focus && focus.focus) { focus.focus(); }
             }
             save();
+            refreshCatalogue();
+        });
+
+        // A setting shown only for others' values — `data-pf-when` on its label, `{"period": "custom"}`.
+        function showWhen(form) {
+            Array.prototype.forEach.call(form.querySelectorAll('[data-pf-when]'), function (label) {
+                var when = {};
+                try { when = JSON.parse(label.getAttribute('data-pf-when') || '{}') || {}; } catch (err) { when = {}; }
+                label.hidden = Object.keys(when).some(function (name) {
+                    var field = form.querySelector('[name="' + name + '"]');
+                    return !field || field.value !== String(when[name]);
+                });
+            });
+        }
+        board.addEventListener('change', function (e) {
+            var form = e.target && e.target.closest ? e.target.closest('[data-pf-widget-settings]') : null;
+            if (form) { showWhen(form); }
         });
 
         // A card's settings: kept on the card, saved with the layout, and the card drawn again.
@@ -1168,29 +1193,77 @@
             e.preventDefault();
             var card = form.closest('[data-pf-widget]');
             var settings = {};
-            Array.prototype.forEach.call(form.querySelectorAll('[name]'), function (field) { settings[field.getAttribute('name')] = field.value; });
+            Array.prototype.forEach.call(form.querySelectorAll('[name]'), function (field) {
+                var label = field.closest ? field.closest('[data-pf-when]') : null;
+                if (!label || !label.hidden) { settings[field.getAttribute('name')] = field.value; }
+            });
             card.setAttribute('data-settings', JSON.stringify(settings));
-            say((card.getAttribute('aria-label') || '') + ': saved');
+            say((card.getAttribute('aria-label') || '') + ': ' + SAY.saved);
             save(cardUrl ? { redraw: { id: card.getAttribute('data-pf-widget'), card: card } } : { reload: true });
         });
 
-        var add = document.querySelector('[data-pf-dashboard-add]');
-        if (add) {
-            add.addEventListener('change', function () {
-                if (!add.value) { return; }
-                var id = add.value;
-                var chosen = add.querySelector('option[value="' + id + '"]');
-                if (chosen && chosen.parentNode) { chosen.parentNode.removeChild(chosen); }
-                add.value = '';
-                save(cardUrl ? { add: { id: id }, redraw: { id: id, card: null } } : { add: { id: id }, reload: true });
+        // Adding a card: a select of them, or a catalogue — buttons [data-pf-dashboard-add="id"],
+        // in a dialog opened by [data-pf-dashboard-catalogue], searched by
+        // [data-pf-dashboard-catalogue-search]. A card on the board is not offered; hidden, it is
+        // offered again — shown and hidden, never removed.
+        function catalogue() { return document.querySelector('[data-pf-dashboard-catalogue-dialog]'); }
+        function addCard(id) {
+            var dialog = catalogue();
+            if (!id || board.querySelector('[data-pf-widget="' + id + '"]')) { return; }
+            if (dialog && dialog.close && dialog.open) { dialog.close(); }
+            say(id + ': ' + SAY.added);
+            save(cardUrl ? { add: { id: id }, redraw: { id: id, card: null } } : { add: { id: id }, reload: true })
+                .then(refreshCatalogue);
+        }
+        function refreshCatalogue() {
+            var placed = cards().map(function (card) { return card.getAttribute('data-pf-widget'); });
+            Array.prototype.forEach.call(document.querySelectorAll('select[data-pf-dashboard-add] option[value]'), function (option) {
+                if (option.value) { option.hidden = placed.indexOf(option.value) >= 0; }
+            });
+            Array.prototype.forEach.call(document.querySelectorAll('[data-pf-dashboard-option]'), function (item) {
+                var on = placed.indexOf(item.getAttribute('data-pf-dashboard-option')) >= 0;
+                var button = item.querySelector('[data-pf-dashboard-add]');
+                var present = item.querySelector('[data-pf-dashboard-present]');
+                if (button) { button.hidden = on; }
+                if (present) { present.hidden = !on; }
             });
         }
+        var select = document.querySelector('select[data-pf-dashboard-add]');
+        if (select) {
+            select.addEventListener('change', function () {
+                var id = select.value;
+                select.value = '';
+                addCard(id);
+            });
+        }
+        document.addEventListener('click', function (e) {
+            var target = e.target && e.target.closest ? e.target.closest('button[data-pf-dashboard-add], [data-pf-dashboard-catalogue], [data-pf-dashboard-catalogue-close]') : null;
+            if (!target) { return; }
+            var dialog = catalogue();
+            if (target.hasAttribute('data-pf-dashboard-add')) {
+                addCard(target.getAttribute('data-pf-dashboard-add'));
+            } else if (target.hasAttribute('data-pf-dashboard-catalogue')) {
+                if (dialog && dialog.showModal) { dialog.showModal(); } else if (dialog) { dialog.setAttribute('open', ''); }
+                var search = dialog ? dialog.querySelector('[data-pf-dashboard-catalogue-search]') : null;
+                if (search && search.focus) { search.focus(); }
+            } else if (dialog) {
+                if (dialog.close) { dialog.close(); } else { dialog.removeAttribute('open'); }
+            }
+        });
+        document.addEventListener('input', function (e) {
+            var search = e.target && e.target.hasAttribute && e.target.hasAttribute('data-pf-dashboard-catalogue-search') ? e.target : null;
+            if (!search) { return; }
+            var words = String(search.value || '').toLowerCase().trim();
+            Array.prototype.forEach.call(document.querySelectorAll('[data-pf-dashboard-option]'), function (item) {
+                item.hidden = words !== '' && String(item.textContent || '').toLowerCase().indexOf(words) < 0;
+            });
+        });
 
         // Dragging, by the grip, and resizing, by the corner — pointer events, so a finger does it
         // as a mouse does. The grip lifts the card: it follows the pointer, a dashed placeholder of
         // its size shows where it lands, and the window scrolls near its top and bottom. The corner
         // resizes by columns, the width written on the card as it is reached. Saved when let go.
-        var SIZE_BADGE = { s: 'S · 1', m: 'M · 2', l: 'L · 3', full: 'Full · 4' };
+        var SIZE_BADGE = SAY.badges;
         function columns() {
             var tracks = String((window.getComputedStyle ? window.getComputedStyle(board).gridTemplateColumns : '') || '').split(' ').filter(Boolean);
             return Math.max(1, tracks.length);

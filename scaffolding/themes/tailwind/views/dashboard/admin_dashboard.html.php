@@ -7,8 +7,9 @@
  * Variables:
  *   $this->widgets  — array[] {id, size (s|m|l|full), title, link|null, settings, options, html},
  *                     each drawn by card.html.php
- *   $this->addable  — array   id => title: the widgets this person may add
- *   $this->catalogue — array  id => {title, description}: the same, with what each shows
+ *   $this->addable  — array   id => title: the widgets this person may add (a view of the older shape)
+ *   $this->catalogue — array  id => {title, description, placed}: every card this person may have,
+ *                     for the catalogue to add from (a dialog, searched)
  *   $this->cardUrl  — string  where one card is drawn alone (GET ?id=)
  *   $this->saveUrl  — string  where a layout is saved (POST, JSON)
  *   $this->resetUrl — string  where it goes back to the default (POST)
@@ -26,13 +27,8 @@ $t = static fn (string $words): string => function_exists('t') ? (string) t($wor
     <div class="card bg-base-100 border border-dashed border-primary mb-4 pf-dashboard-bar" data-pf-dashboard-bar hidden>
         <div class="card-body p-3 flex-row flex-wrap items-center gap-3">
             <span class="text-sm"><?php echo $e($t('Move, resize, set or hide each card; add the ones you want.')); ?></span>
-            <?php if (!empty($this->addable)): ?>
-            <label class="flex items-center gap-2 text-sm"><?php echo $e($t('Add')); ?>
-                <select class="select select-sm select-bordered" data-pf-dashboard-add>
-                    <option value=""><?php echo $e($t('Choose a card')); ?></option>
-                    <?php foreach ($this->addable as $id => $title): ?><option value="<?php echo $e($id); ?>" title="<?php echo $e($t((string) ($this->catalogue[$id]['description'] ?? ''))); ?>"><?php echo $e($t($title)); ?></option><?php endforeach; ?>
-                </select>
-            </label>
+            <?php if (!empty($this->catalogue)): ?>
+            <button type="button" class="btn btn-sm btn-primary" data-pf-dashboard-catalogue><?php echo $e($t('Add a card')); ?></button>
             <?php endif; ?>
             <span class="ms-auto"><?php echo \Pramnos\Html\Icon::postControl($this->resetUrl, $e($t('Back to the default')), ['class' => 'btn btn-sm btn-ghost', 'data-confirm' => $t('Go back to the default dashboard?')]); ?></span>
             <button type="button" class="btn btn-sm btn-primary" data-pf-dashboard-done><?php echo $e($t('Done')); ?></button>
@@ -40,10 +36,31 @@ $t = static fn (string $words): string => function_exists('t') ? (string) t($wor
     </div>
 
     <p class="sr-only" data-pf-dashboard-status aria-live="polite"></p>
-    <div class="pf-dashboard" data-pf-dashboard data-save="<?php echo $e($this->saveUrl); ?>" data-card="<?php echo $e($this->cardUrl ?? ''); ?>">
+    <div class="pf-dashboard" data-pf-dashboard data-save="<?php echo $e($this->saveUrl); ?>" data-card="<?php echo $e($this->cardUrl ?? ''); ?>" data-pf-dashboard-say="<?php echo $e(json_encode(['saved' => $t('saved'), 'hidden' => $t('hidden'), 'added' => $t('added'), 'failed' => $t('The dashboard could not be saved.'), 'sizes' => ['s' => $t('small'), 'm' => $t('medium'), 'l' => $t('large'), 'full' => $t('full width')]], JSON_UNESCAPED_UNICODE)); ?>">
         <?php foreach ($this->widgets as $widget): ?>
         <?php $this->insert('card', ['widget' => $widget]); ?>
         <?php endforeach; ?>
         <p class="opacity-70 pf-dashboard-full" data-pf-dashboard-empty<?php echo $this->widgets ? ' hidden' : ''; ?>><?php echo $e($t('Your dashboard is empty: choose Customise, then add a card.')); ?></p>
     </div>
+    <?php if (!empty($this->catalogue)): ?>
+    <dialog class="modal" data-pf-dashboard-catalogue-dialog aria-labelledby="pf-dashboard-catalogue-title">
+        <div class="modal-box max-w-2xl">
+            <h3 id="pf-dashboard-catalogue-title"><?php echo $e($t('Add a card')); ?></h3>
+            <input type="search" class="input input-sm input-bordered w-full" data-pf-dashboard-catalogue-search placeholder="<?php echo $e($t('Search the cards')); ?>" aria-label="<?php echo $e($t('Search the cards')); ?>">
+            <ul style="list-style:none;padding:0;margin:.75rem 0;max-height:60vh;overflow:auto">
+                <?php foreach ($this->catalogue as $id => $one): ?>
+                <li class="flex flex-wrap items-center gap-2 py-2 border-b border-base-200" data-pf-dashboard-option="<?php echo $e($id); ?>">
+                    <div style="flex:1;min-width:12rem">
+                        <strong><?php echo $e($t((string) $one['title'])); ?></strong>
+                        <?php if (($one['description'] ?? '') !== ''): ?><div class="text-sm opacity-70"><?php echo $e($t((string) $one['description'])); ?></div><?php endif; ?>
+                    </div>
+                    <button type="button" class="btn btn-xs btn-primary" data-pf-dashboard-add="<?php echo $e($id); ?>"<?php echo !empty($one['placed']) ? ' hidden' : ''; ?>><?php echo $e($t('Add')); ?></button>
+                    <span class="badge badge-ghost badge-sm" data-pf-dashboard-present<?php echo !empty($one['placed']) ? '' : ' hidden'; ?>><?php echo $e($t('On the board')); ?></span>
+                </li>
+                <?php endforeach; ?>
+            </ul>
+            <button type="button" class="btn btn-sm btn-ghost" data-pf-dashboard-catalogue-close><?php echo $e($t('Close')); ?></button>
+        </div>
+    </dialog>
+    <?php endif; ?>
 </div>

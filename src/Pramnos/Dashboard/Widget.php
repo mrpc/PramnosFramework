@@ -113,11 +113,18 @@ abstract class Widget
     }
 
     /**
-     * What a person may set on this card, by name: a list of the values allowed — `[value => label]`
-     * or a plain list, its first the default — or a function that answers the value as kept, or
-     * null to refuse it. Nothing by default.
+     * What a person may set on this card, by name. Each is one of:
      *
-     * @return array<string, array<int|string, string>|callable(mixed): mixed>
+     * - a list of the values allowed — `[value => label]` or a plain list, its first the default;
+     * - a function that answers the value as kept, or null to refuse it (a text field);
+     * - a field: `['label' => 'From', 'input' => 'date', 'clean' => fn, 'when' => ['period' => 'custom']]`
+     *   — `input` text, date or number, with `clean` as above; or `values` in place of `clean`, a
+     *   list as above; `label` the field's words, translated; `when` the other settings it is
+     *   shown for.
+     *
+     * Nothing by default.
+     *
+     * @return array<string, array<int|string, mixed>|callable(mixed): mixed>
      */
     public function options(): array
     {
@@ -154,14 +161,15 @@ abstract class Widget
         $clean = [];
         foreach ($widget->options() as $name => $allowed) {
             $value = $given[$name] ?? null;
-            if (is_callable($allowed)) {
-                $kept = $value === null ? null : $allowed($value);
+            $field = self::field($allowed);
+            if ($field['clean'] !== null) {
+                $kept = $value === null || $value === '' ? null : ($field['clean'])($value);
                 if ($kept !== null) {
                     $clean[$name] = $kept;
                 }
                 continue;
             }
-            $values = array_map('strval', array_is_list($allowed) ? $allowed : array_keys($allowed));
+            $values = array_map('strval', array_keys($field['values']));
             if ($values === []) {
                 continue;
             }
@@ -169,6 +177,34 @@ abstract class Widget
         }
 
         return $clean;
+    }
+
+    /**
+     * One option as a field: its `input` (select, text, date, number), `label` or null, `values`
+     * (`[value => label]`) for a select, `clean` for the others, and `when`.
+     *
+     * @param array<int|string, mixed>|callable $option As {@see options()} declares it
+     * @return array{input: string, label: string|null, values: array<string, string>, clean: callable|null, when: array<string, string>}
+     */
+    public static function field(mixed $option): array
+    {
+        $spec = is_array($option) && (isset($option['clean']) || isset($option['values'])) && !array_is_list($option) ? $option : null;
+        $clean = $spec !== null ? ($spec['clean'] ?? null) : (is_callable($option) ? $option : null);
+        $list  = $spec !== null ? ($spec['values'] ?? []) : (is_array($option) && !is_callable($option) ? $option : []);
+        $values = [];
+        if (is_array($list) && $clean === null) {
+            foreach ($list as $key => $label) {
+                $values[array_is_list($list) ? (string) $label : (string) $key] = (string) $label;
+            }
+        }
+
+        return [
+            'input'  => $clean === null ? 'select' : (in_array($spec['input'] ?? '', ['date', 'number'], true) ? (string) $spec['input'] : 'text'),
+            'label'  => isset($spec['label']) ? (string) $spec['label'] : null,
+            'values' => $values,
+            'clean'  => is_callable($clean) ? $clean : null,
+            'when'   => array_map('strval', is_array($spec['when'] ?? null) ? $spec['when'] : []),
+        ];
     }
 
     /** A line on what it shows, for the list cards are chosen from. '' for none. */

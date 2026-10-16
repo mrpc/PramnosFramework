@@ -90,6 +90,20 @@ public function render(): string
   value is the default. The card's form shows it as a select.
 - **A function** answers the value as it is kept, or null to refuse it. The form shows a text
   field, and a refused or empty value is simply absent.
+- **A field** says how it is asked:
+
+  ```php
+  'from' => ['label' => 'From', 'input' => 'date', 'when' => ['period' => 'custom'],
+      'clean' => static fn (mixed $v): ?string => is_string($v) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $v) ? $v : null],
+  'chart' => ['label' => 'Chart', 'values' => ['bar' => 'Bars', 'line' => 'Lines']],
+  ```
+
+    - `input` is `text`, `date` or `number`, cleaned by `clean`; or `values` makes it a list, as
+      above.
+    - `label` is the field's words, translated by the view. Without one, the option's name is
+      used.
+    - `when` names the settings it is shown for. A custom period's dates appear only once
+      `custom` is chosen, and a field hidden that way is not sent.
 
 Each person's choices are kept in their layout, cleaned against `options()` whenever it is read.
 A setting the widget does not declare is dropped, and a value outside a list becomes the list's
@@ -130,7 +144,9 @@ request:
 - its width, s, m, l and full in turn;
 - its settings (a gear, for a card that declares options);
 - hide;
-- a list of the cards this person may add, each with its `description()` as a hint.
+- a catalogue of the cards this person may have, in a dialog: each card with its
+  `description()`, searched by a field, *Add* for a card not on the board and *On the board* for
+  one that is. A card hidden is offered again at once, without a reload.
 
 In the same mode a card is dragged by its grip and resized by its corner, with pointer events,
 so a finger does it as a mouse does. While a card is being dragged:
@@ -158,6 +174,13 @@ cannot draw a card differently. A view published before this has no `data-card` 
 and adding a card reloads the page as before.
 
 `pf-utils.js` does the editing over the `data-pf-dashboard*` attributes the bundled views draw.
+A catalogue is any `[data-pf-dashboard-add="id"]` button, in a `<dialog
+data-pf-dashboard-catalogue-dialog>` opened by `[data-pf-dashboard-catalogue]`, with
+`[data-pf-dashboard-catalogue-search]` to search and `[data-pf-dashboard-option]` and
+`[data-pf-dashboard-present]` to show what is placed. A `<select data-pf-dashboard-add>` still
+works, its placed options hidden rather than removed. Everything the script says, such as
+*hidden* or the width names, comes from the board's `data-pf-dashboard-say`, JSON in the page's
+language.
 It posts the layout, as JSON with the page's CSRF token, to `savelayout`. `resetlayout` forgets
 it. Both are POST-only actions of the controller.
 
@@ -181,7 +204,9 @@ $layouts->save($user, null);         // back to the default
 ```
 
 An area with a dashboard of its own sets `protected string $dashboardArea = 'partners';` on its
-subclass of `DashboardController`, and its layouts are kept apart. The controller's links and
+subclass of `DashboardController`, and its layouts are kept apart. A dashboard that is the area's
+home page answers its address in `dashboardHome()`, which "Back to the default" returns to with
+a message. The controller's links and
 redirects follow its own class name. Until `migrate` creates the table, everybody sees the
 default.
 
@@ -192,6 +217,8 @@ refused with 403. Each card can cache its own figures inside `render()` instead.
 ## A view of the older shape
 
 A copy of `admin_dashboard` published before widgets existed still receives `$this->activeUsers`,
-`$this->dbStats`, `$this->apiStats` and `$this->healthResults`, worked out once alongside the
-widgets. Take the new copy with `project:publish-views --group=dashboard --force` to get the
+`$this->dbStats`, `$this->apiStats` and `$this->healthResults`. Each is a
+`Dashboard\Widgets\LazyFigures`, read as an array, by index, loop or count, and worked out only
+when read. So a dashboard that does not read them never runs the health checks behind them.
+`->toArray()` gives the plain array. Take the new copy with `project:publish-views --group=dashboard --force` to get the
 arrangeable dashboard.

@@ -179,7 +179,11 @@ class DashboardLayoutsMySQLTest extends TestCase
         $this->assertStringEndsWith('LayoutDashboardController/card', $view->cardUrl);
         // The controller's own address — this subclass's name — as a wrapper's would be
         $this->assertStringEndsWith('LayoutDashboardController/savelayout', $view->saveUrl);
-        $this->assertIsArray($view->dbStats, 'the figures a view of the older shape reads');
+        $this->assertInstanceOf(\Pramnos\Dashboard\Widgets\LazyFigures::class, $view->healthResults, 'not worked out until read');
+        $this->assertIsArray($view->dbStats->toArray(), 'the figures a view of the older shape reads');
+        $this->assertSame(['title' => 'Database', 'placed' => true], array_intersect_key($view->catalogue['database'], ['title' => 1, 'placed' => 1]), 'a card on the board, in the catalogue');
+        $this->assertFalse($view->catalogue['health']['placed']);
+        $this->assertContains('The dashboard is back to the default.', $_SESSION['_messages'] ?? [], 'reset says so');
         $this->assertStringEndsWith('LayoutDashboardController', (string) $controller->redirectedTo);
         $this->assertSame(Layouts::defaults(self::me()), (new Layouts($this->db))->for(self::me()));
     }
@@ -211,7 +215,9 @@ class DashboardLayoutsMySQLTest extends TestCase
         $this->assertSame(404, $anonymous->getStatusCode());
         $this->assertSame([200, 'no-store'], [$placed->getStatusCode(), $placed->getHeaderLine('Cache-Control')]);
         $this->assertSame('card', $controller->view->shown);
-        $this->assertSame(['full', ['period' => '90', 'market' => 'all']], [$saved['size'], $saved['settings']]);
+        $this->assertSame(['full', ['period' => '90', 'market' => 'all', 'chart' => 'bar']], [$saved['size'], $saved['settings']]);
+        $this->assertSame(['input' => 'date', 'label' => 'From', 'values' => [], 'when' => ['period' => '90']], $saved['fields']['from'], 'a field, as the view draws it');
+        $this->assertSame('Period', $saved['fields']['period']['label'], 'no label: the name');
         $this->assertSame('<p>sales over 90</p>', $saved['html'], 'drawn with the settings');
         $this->assertSame(['7' => 'Last 7 days', '30' => 'Last 30 days', '90' => 'Last 90 days'], $saved['options']['period']);
         $this->assertSame(['all' => 'all', 'gr' => 'gr', 'cy' => 'cy'], $saved['options']['market'], 'a plain list, valued by itself');

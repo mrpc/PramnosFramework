@@ -384,7 +384,7 @@ test('adding a card draws it in place', async () => {
     assert.equal(fresh.querySelector('[data-pf-widget-tools]').hidden, false, 'customising: its tools shown');
     assert.deepEqual(p.charted, [fresh]);
     assert.equal(p.window.reloaded, undefined);
-    assert.equal(option.parentNode, null, 'no longer offered');
+    assert.equal(option.hidden, true, 'no longer offered — hidden, not removed');
 });
 
 /**
@@ -426,4 +426,97 @@ test('unreadable settings are saved as none', async () => {
 
     // Assert
     assert.deepEqual(p.saves[0].body.layout[0], { id: 'a', size: 'm', settings: {} });
+});
+
+/**
+ * The catalogue: opened by its button, searched by its field; a card added from it is drawn and
+ * marked as on the board; a card hidden is offered again.
+ */
+test('the catalogue adds, searches, and offers a hidden card again', async () => {
+    // Arrange
+    const p = page(true, '/admin/Dashboard/card');
+    const opener = p.el('button', { 'data-pf-dashboard-catalogue': '' });
+    const dialog = p.el('dialog', { 'data-pf-dashboard-catalogue-dialog': '' });
+    let opened = 0;
+    dialog.showModal = () => { opened++; dialog.open = true; };
+    dialog.close = () => { dialog.open = false; };
+    const search = p.el('input', { 'data-pf-dashboard-catalogue-search': '' }, dialog);
+    const item = (id, words) => {
+        const li = p.el('li', { 'data-pf-dashboard-option': id }, dialog);
+        li.textContent = words;
+        const button = p.el('button', { 'data-pf-dashboard-add': id }, li);
+        const present = p.el('span', { 'data-pf-dashboard-present': '' }, li);
+        present.hidden = true;
+        return { li, button, present };
+    };
+    const health = item('health', 'Health — every check');
+    const b = item('b', 'B card');
+    b.button.hidden = true;
+    b.present.hidden = false;
+    p.click(p.edit);
+
+    // Act — open, search, add, hide another
+    p.click(opener);
+    search.value = 'CHECK';
+    search.dispatchEvent(new Event('input', { bubbles: true }));
+    const filtered = [health.li.hidden, b.li.hidden];
+    p.click(health.button);
+    await settle();
+    p.click(p.tool('b', 'data-pf-widget-hide'));
+    await settle();
+
+    // Assert
+    assert.equal(opened, 1);
+    assert.deepEqual(filtered, [false, true], 'only what matches');
+    assert.equal(dialog.open, false, 'closed once a card is chosen');
+    assert.deepEqual(p.drawn, ['/admin/Dashboard/card?id=health']);
+    assert.deepEqual([health.button.hidden, health.present.hidden], [true, false], 'added: on the board');
+    assert.deepEqual([b.button.hidden, b.present.hidden], [false, true], 'hidden: offered again');
+});
+
+/** A setting waiting on another is shown only for its value, and not sent while hidden. */
+test('a setting shown only for another\'s value', async () => {
+    // Arrange — without the one-card address, so the card stays where it is between submits
+    const p = page();
+    const form = p.el('form', { 'data-pf-widget-settings': '' }, p.cards.a);
+    const period = p.el('select', { name: 'period' }, form);
+    period.value = '30';
+    const label = p.el('label', { 'data-pf-when': '{"period":"custom"}' }, form);
+    label.hidden = true;
+    const from = p.el('input', { name: 'from' }, label);
+    from.value = '2026-10-01';
+
+    // Act — submitted hidden, then shown and submitted
+    form.dispatchEvent(new Event('submit', { bubbles: true }));
+    await settle();
+    period.value = 'custom';
+    period.dispatchEvent(new Event('change', { bubbles: true }));
+    const shown = !label.hidden;
+    form.dispatchEvent(new Event('submit', { bubbles: true }));
+    await settle();
+
+    // Assert
+    assert.deepEqual(p.saves[0].body.layout[0].settings, { period: '30' }, 'hidden: not sent');
+    assert.equal(shown, true);
+    assert.deepEqual(p.saves[1].body.layout[0].settings, { period: 'custom', from: '2026-10-01' }, 'shown: sent');
+});
+
+/** What the script says comes from the page: the board's data-pf-dashboard-say. */
+test('the words are the page\'s', async () => {
+    // Arrange
+    const p = page(false);
+    p.board.setAttribute('data-pf-dashboard-say', '{"failed":"Δεν αποθηκεύτηκε.","sizes":{"s":"μικρό","m":"μεσαίο","l":"μεγάλο","full":"όλο"}}');
+    const q = page(false);
+    q.board.setAttribute('data-pf-dashboard-say', '{broken');
+
+    // Act — the script read the attribute when it loaded: load it again over these boards
+    loadScript(SOURCE, p.window);
+    loadScript(SOURCE, q.window);
+    p.click(p.tool('a', 'data-pf-widget-resize'));
+    q.click(q.tool('a', 'data-pf-widget-resize'));
+    await settle();
+
+    // Assert
+    assert.equal(p.status.textContent, 'Δεν αποθηκεύτηκε.');
+    assert.equal(q.status.textContent, 'The dashboard could not be saved.', 'unreadable: the defaults');
 });

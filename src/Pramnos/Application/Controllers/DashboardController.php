@@ -85,17 +85,23 @@ class DashboardController extends Controller
         $view->widgets    = $drawn;
         $placed           = array_column($layout, 'id');
         $view->addable    = array_map(static fn ($w) => $w->title(), array_diff_key($widgets, array_flip($placed)));
-        // The same cards with what each shows, for a catalogue that can be searched.
-        $view->catalogue  = array_map(static fn ($w) => ['title' => $w->title(), 'description' => $w->description()], array_diff_key($widgets, array_flip($placed)));
+        // Every card this person may have, with what it shows and whether it is on the board: a
+        // catalogue to search, which shows a card again once it is hidden.
+        $catalogue = [];
+        foreach ($widgets as $id => $widget) {
+            $catalogue[$id] = ['title' => $widget->title(), 'description' => $widget->description(), 'placed' => in_array($id, $placed, true)];
+        }
+        $view->catalogue  = $catalogue;
         $view->saveUrl    = adminUrl($this->dashboardRoute() . '/savelayout');
         $view->cardUrl    = adminUrl($this->dashboardRoute() . '/card');
         $view->resetUrl   = adminUrl($this->dashboardRoute() . '/resetlayout');
 
-        // The figures as views of the older shape read them, worked out once with the widgets'.
-        $view->activeUsers   = \Pramnos\Dashboard\Widgets\Figures::activeUsers();
-        $view->dbStats       = \Pramnos\Dashboard\Widgets\Figures::database();
-        $view->apiStats      = \Pramnos\Dashboard\Widgets\Figures::api();
-        $view->healthResults = \Pramnos\Dashboard\Widgets\Figures::health();
+        // The figures as views of the older shape read them — worked out only if one does: the
+        // cards of today read their own, and the health checks are not run for nobody.
+        $view->activeUsers   = new \Pramnos\Dashboard\Widgets\LazyFigures(static fn (): array => \Pramnos\Dashboard\Widgets\Figures::activeUsers());
+        $view->dbStats       = new \Pramnos\Dashboard\Widgets\LazyFigures(static fn (): array => \Pramnos\Dashboard\Widgets\Figures::database());
+        $view->apiStats      = new \Pramnos\Dashboard\Widgets\LazyFigures(static fn (): array => \Pramnos\Dashboard\Widgets\Figures::api());
+        $view->healthResults = new \Pramnos\Dashboard\Widgets\LazyFigures(static fn (): array => \Pramnos\Dashboard\Widgets\Figures::health());
 
         return $view->display('admin_dashboard');
     }
@@ -117,14 +123,24 @@ class DashboardController extends Controller
         return \Pramnos\Http\Response::json(['layout' => $this->layouts()->save($user, is_array($layout) ? $layout : [], $this->dashboardArea)]);
     }
 
-    /** Forget the signed-in person's layout, so the default applies again, and go back to it. */
+    /** Forget the signed-in person's layout, so the default applies again, say so, and go back to it. */
     public function resetlayout(): void
     {
         $user = \Pramnos\User\User::current();
         if (is_object($user)) {
             $this->layouts()->save($user, null, $this->dashboardArea);
+            $this->addMessage('The dashboard is back to the default.');
         }
-        $this->redirect(adminUrl($this->dashboardRoute()));
+        $this->redirect($this->dashboardHome());
+    }
+
+    /**
+     * Where the dashboard is reached — its own address by default; an application whose dashboard
+     * is the area's home page answers that.
+     */
+    protected function dashboardHome(): string
+    {
+        return adminUrl($this->dashboardRoute());
     }
 
     /**
@@ -166,10 +182,12 @@ class DashboardController extends Controller
     {
         $settings = (array) ($item['settings'] ?? []);
         $options  = [];
+        $fields   = [];
         foreach ($widget->options() as $name => $allowed) {
-            $options[$name] = is_callable($allowed)
-                ? null
-                : (array_is_list($allowed) ? array_combine(array_map('strval', $allowed), array_map('strval', $allowed)) : $allowed);
+            $field          = \Pramnos\Dashboard\Widget::field($allowed);
+            $options[$name] = $field['clean'] !== null ? null : $field['values'];
+            $fields[$name]  = ['input' => $field['input'], 'label' => $field['label'] ?? ucfirst(str_replace('_', ' ', (string) $name)),
+                'values' => $field['values'], 'when' => $field['when']];
         }
 
         return [
@@ -178,8 +196,10 @@ class DashboardController extends Controller
             'title'    => $widget->title(),
             'link'     => $widget->link(),
             'settings' => $settings,
-            // name => [value => label], or null for a free value
+            // name => [value => label], or null for a free value — what views of the first shape read
             'options'  => $options,
+            // name => {input: select|text|date|number, label, values, when}
+            'fields'   => $fields,
             'html'     => $this->drawWidget($widget->configure($settings)),
         ];
     }
