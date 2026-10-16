@@ -158,6 +158,81 @@ class ReportsTest extends LlmTestCase
     }
 
     /**
+     * A reader whose subscription asks for email gets the report itself by email — its title, its
+     * words drawn from Markdown, the link to ask about it — beside the bell; the others get the
+     * notice only; a failed run sends no email; and an application's own notification class,
+     * written for four arguments, still works.
+     */
+    #[DataProvider('databases')]
+    public function testAReportByEmail(string $type, string $host, int $port): void
+    {
+        // Arrange — the framework's own notification; 8 receives it by email, 7 made it
+        $this->connectDatabase($type, $host, $port);
+        $this->configure(['chat' => ['task_policy' => ReportPolicy::class]]);
+        $this->answer([[200, self::says("**12** bookings <script>x</script>")], [500, ['error' => 'down']], [500, ['error' => 'down']], [500, ['error' => 'down']]]);
+        $tasks = $this->tasks();
+        $made  = $this->report($tasks);
+        $tasks->subscribe(8, $made['routine_id'], true);
+
+        // Act
+        $tasks->run($tasks->byId($made['routine_id']), time());
+        $sent = $tasks->delivered;
+        $tasks->delivered = [];
+        $tasks->run($tasks->byId($made['routine_id']), time());
+        $failed = $tasks->delivered;
+
+        // Assert
+        $this->assertSame([7, 8], array_column($sent, 0));
+        [$maker, $reader] = [$sent[0][1], $sent[1][1]];
+        $this->assertNotContains('mail', $maker->via((object) ['userid' => 7]), 'the maker did not ask for email');
+        $this->assertContains('mail', $reader->via((object) ['userid' => 8]));
+        $mail = $reader->toMail(null);
+        $this->assertSame('Weekly — Villa 42', $mail['subject']);
+        $this->assertStringContainsString('<strong>12</strong>', $mail['body']);
+        $this->assertStringNotContainsString('<script>', $mail['body'], 'escaped before it is drawn');
+        $this->assertStringContainsString('chat/report/', $mail['body']);
+        $this->assertSame([7], array_column($failed, 0), 'a failure is the maker\'s alone');
+        $this->assertNotContains('mail', $failed[0][1]->via((object) ['userid' => 7]));
+        $this->assertSame([8], $tasks->emailSubscribers($made['routine_id']));
+    }
+
+    /**
+     * A scheduled run's calls say which task they were made for — `llm_calls.routine_id` — and a
+     * conversation's do not; the purpose stays the space's, since it is what routes the call. The
+     * analyst's spend shows the tasks' runs apart, by task.
+     */
+    #[DataProvider('databases')]
+    public function testARunsCallsSayWhichTask(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        $this->policy();
+        $this->answer([[200, self::says('12 bookings.')], [200, self::says('Hello.')]]);
+        $tasks = $this->tasks();
+        $made  = $this->report($tasks);
+
+        // Act — the report runs, then the maker asks in a conversation
+        $tasks->run($tasks->byId($made['routine_id']), time());
+        (new Conversations(new ReadingAssistant()))->as(new Scope(7, 3))->ask(null, 'Hi');
+        $calls = $this->rows('llm_calls');
+        \Pramnos\Http\RequestIdentity::seal((object) ['userid' => 7, 'usertype' => 99], 'test');
+        $spend = (new \Pramnos\Llm\Analyst\Tools\LlmSpendTool())->execute(['days' => 1]);
+        // Before the migration the log cannot say which task: the spend says nothing about tasks
+        $this->migration(\Pramnos\Framework\Migrations\Llm\AddRoutineIdToLlmCalls::class)->down();
+        $before = (new \Pramnos\Llm\Analyst\Tools\LlmSpendTool())->execute(['days' => 1]);
+        $this->migration(\Pramnos\Framework\Migrations\Llm\AddRoutineIdToLlmCalls::class)->up();
+        \Pramnos\Http\RequestIdentity::reset();
+
+        // Assert
+        $this->assertCount(2, $calls);
+        $this->assertSame([$made['routine_id'], null], array_map(static fn (array $c): ?int => $c['routine_id'] === null ? null : (int) $c['routine_id'], $calls));
+        $this->assertSame(['chat', 'chat'], array_column($calls, 'purpose'), 'the purpose still routes');
+        $this->assertSame(1, $spend['scheduled']['calls']);
+        $this->assertSame([(string) $made['routine_id']], array_map('strval', array_keys($spend['scheduled']['by_task'])));
+        $this->assertNull($before['scheduled']);
+    }
+
+    /**
      * Asked to tell only what matters, a report that decides there is nothing new tells nobody
      * and is still kept; one that never decides tells, rather than staying silent by omission.
      */

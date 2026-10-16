@@ -431,6 +431,15 @@ After each run:
 - The run is recorded in `ai_task_runs` and the owner is told.
 - A question tells the owner with `Chat\RoutineReady`, or the class `chat.routine_notification`
   names, constructed with the title, whether it worked, why not, and the link.
+- A report's reader whose subscription asks for email (`subscribe($userId, $id, email: true)`, or
+  "Receive it by email too" on the scheduled page) gets the report itself by email:
+  `RoutineReady::toMail()`, with its title, its words drawn from Markdown, and the link to ask
+  about it. The notification class is given the report's words and that choice as its fifth and
+  sixth arguments, and an application's own class written for four may ignore them. A failed run
+  sends no email.
+- Every model call a scheduled run makes is marked with its task, in `llm_calls.routine_id`. The
+  analyst's spend shows the tasks' runs apart from conversations. The purpose stays the space's,
+  because it is what routes the call.
 - A reminder tells the owner with `Chat\TaskReminder`, or `chat.reminder_notification`, given the
   words and the link.
 - Both go to the bell, and as a push where the owner has a browser subscribed. `'llm' => ['chat'
@@ -923,7 +932,7 @@ prompt names it, and each answer's window says which it used.
 | `email` | sent, opened (proxy-only apart), clicked and their rates, by list and period; subjects sent to at least three; the most clicked links without their query strings |
 | `push` | sent, delivered and failed, by kind and status; the commonest failures |
 | `queue` | tasks by state, waiting by kind, failures by kind with their first error line, run times |
-| `llm_spend` | calls, tokens and cost by provider, model and purpose; failures; spend per organisation (id and name) |
+| `llm_spend` | calls, tokens and cost by provider, model and purpose; scheduled tasks' runs apart, by task (`llm_calls.routine_id`); failures; spend per organisation (id and name) |
 | `log-analytics`, `log-errors`, `status` | the MCP tools of the same names |
 | `user` | one account the administrator names: type, state, dates — its email only with `include_email` |
 

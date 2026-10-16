@@ -61,7 +61,9 @@ class CallLog
             $usage = is_array($entry['usage'] ?? null) ? $entry['usage'] : [];
             $model = (string) ($entry['model'] ?? '');
 
-            $this->table()->insert([
+            // The scheduled task, only when there is one: an installation that has not run the
+            // migration adding the column goes on logging every other call.
+            $this->table()->insert((isset($entry['routine_id']) ? ['routine_id' => (int) $entry['routine_id']] : []) + [
                 'organization_id' => $entry['organization_id'] ?? null,
                 'userid'          => $entry['userid'] ?? null,
                 'purpose'         => mb_substr((string) ($entry['purpose'] ?? 'assistant'), 0, 32),

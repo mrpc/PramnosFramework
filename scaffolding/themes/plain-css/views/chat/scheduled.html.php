@@ -142,6 +142,7 @@ $readers = static function (?array $audience, array $names) use ($c, $e, $t, $ro
             </div>
             <a class="<?php echo $c['btnGhost']; ?>" href="<?php echo $e($u['page'] . '?task=' . (int) $one['routine_id']); ?>"><?php echo $e($t('Runs')); ?></a>
             <?php echo $button('scheduledsubscribe', ['routine_id' => $one['routine_id'], 'on' => $one['subscribed'] ? '' : '1'], $t($one['subscribed'] ? 'Stop receiving' : 'Receive it'), $one['subscribed'] ? $c['btnGhost'] : $c['btn']); ?>
+            <?php if (empty($one['subscribed'])): ?><?php echo $button('scheduledsubscribe', ['routine_id' => $one['routine_id'], 'on' => '1', 'email' => '1'], $t('Receive it by email too'), $c['btnGhost']); ?><?php endif; ?>
         </div>
         <?php endforeach; ?>
     </section>

@@ -50,6 +50,9 @@ class Conversations
 
     private bool $scheduled = false;
 
+    /** @var array<string, int> What every call is marked with besides the scope: the scheduled task */
+    private array $about = [];
+
     public function __construct(private readonly Assistant $assistant, private readonly ?Client $client = null)
     {
     }
@@ -65,6 +68,18 @@ class Conversations
         $chat            = clone $this;
         $chat->scope     = $scope;
         $chat->scheduled = $scheduled && $scope !== null;
+
+        return $chat;
+    }
+
+    /**
+     * These conversations, with every call they make marked as made for a scheduled task — its
+     * `routine_id` goes to the call log beside the purpose, which still routes the call.
+     */
+    public function forTask(int $routineId): static
+    {
+        $chat        = clone $this;
+        $chat->about = ['routine_id' => $routineId];
 
         return $chat;
     }
@@ -243,7 +258,7 @@ class Conversations
         // What question() kept for the answer — a draft it named — is the answer's too.
         $turn->bag = $asking->bag;
         $client = ($this->client ?? new Client($this->assistant->connection($this->scope)))
-            ->about(['purpose' => $this->scope->purpose()] + $this->scope->context());
+            ->about(['purpose' => $this->scope->purpose()] + $this->scope->context() + $this->about);
 
         // A conversation already holding data of a kind is asked only where that kind may go.
         foreach ($held as $tag) {
@@ -350,7 +365,7 @@ class Conversations
         $messages = [['role' => 'user', 'content' => mb_substr(trim($question), 0, self::CHARS)]];
         $turn     = new Turn($this->scope, null, true, $messages, [], $extra, $this);
         $client   = ($this->client ?? new Client($this->assistant->connection($this->scope)))
-            ->about(['purpose' => $this->scope->purpose()] + $this->scope->context());
+            ->about(['purpose' => $this->scope->purpose()] + $this->scope->context() + $this->about);
         $tools    = array_diff_key($this->assistant->tools($turn), array_flip($this->assistant->writes()));
         $decided  = null;
         $due      = [];

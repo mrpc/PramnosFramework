@@ -9,7 +9,8 @@ use Pramnos\Notification\NotificationInterface;
 /**
  * A scheduled question was answered — or could not be.
  *
- * In the person's notifications, and as a push where they have a browser subscribed
+ * In the person's notifications, as a push where they have a browser subscribed, and — the report
+ * itself — by email to a reader whose subscription asks for it
  * ({@see channels()}, `'llm' => ['chat' => ['notify_via' => …]]`). An application replaces it with `'llm' => ['chat' => ['routine_notification' => …]]`, a class
  * constructed the same way: title, whether it worked, why not, and the link to the answer.
  */
@@ -19,14 +20,34 @@ class RoutineReady implements NotificationInterface
         private readonly string $title,
         private readonly bool $ok,
         private readonly string $why,
-        private readonly string $link
+        private readonly string $link,
+        private readonly string $content = '',
+        private readonly bool $email = false
     ) {
     }
 
     /** @return list<string> */
     public function via(mixed $notifiable): array
     {
-        return self::channels($notifiable);
+        // By email too when the reader's subscription asks for it and there is a report to send.
+        return [...self::channels($notifiable), ...($this->email && $this->ok && $this->content !== '' ? ['mail'] : [])];
+    }
+
+    /**
+     * The report itself, by email: its title as the subject, its words drawn from Markdown —
+     * escaped first — and the link to ask about it.
+     *
+     * @return array{subject: string, body: string}
+     */
+    public function toMail(mixed $notifiable): array
+    {
+        $link = htmlspecialchars($this->link, ENT_QUOTES, 'UTF-8');
+
+        return [
+            'subject' => $this->title,
+            'body'    => Markdown::toHtml($this->content)
+                . ($this->link !== '' ? '<p><a href="' . $link . '">' . htmlspecialchars(self::t('Open it, and ask about it'), ENT_QUOTES, 'UTF-8') . '</a></p>' : ''),
+        ];
     }
 
     /**

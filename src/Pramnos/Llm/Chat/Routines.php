@@ -380,7 +380,7 @@ class Routines
         if ($routine['kind'] === self::REMINDER) {
             $answer = ['ok' => true, 'says' => '', 'conversation_id' => $routine['conversation_id'], 'content' => (string) $routine['prompt']];
         } elseif ($routine['kind'] === self::REPORT) {
-            $chat     = $this->chat->as($scope, true);
+            $chat     = $this->chat->as($scope, true)->forTask((int) $routine['routine_id']);
             $day      = (new \DateTimeImmutable('@' . $now))->setTimezone(new \DateTimeZone($timezone))->format('l j F Y');
             $about    = $policy->resourceLabel($routine);
             $question = 'Scheduled report "' . $routine['title'] . '"' . ($about !== '' ? ' about ' . $about : '') . ', run on ' . $day
@@ -391,7 +391,7 @@ class Routines
             $answer['conversation_id'] = $routine['conversation_id'];
         } else {
             $assistant = $this->chat->assistant();
-            $chat      = $this->chat->as($scope, true);
+            $chat      = $this->chat->as($scope, true)->forTask((int) $routine['routine_id']);
             // The day as the owner reads it, not as UTC has it.
             $day       = (new \DateTimeImmutable('@' . $now))->setTimezone(new \DateTimeZone($timezone))->format('l j F Y');
             $question  = 'Scheduled task "' . $routine['title'] . '", run on ' . $day . ": \n\n" . $routine['prompt'];
@@ -437,8 +437,11 @@ class Routines
         if ($routine['kind'] === self::REPORT) {
             $title = (string) $routine['title'] . (($label = $policy->resourceLabel($routine)) !== '' ? ' — ' . $label : '');
             $why   = $ok ? '' : (string) $answer['says'] . ($pause ? ' It was paused after ' . $failures . ' failures in a row; resume it when this is fixed.' : '');
+            // Who asked for it by email too: the report itself goes to them, not only its notice.
+            $byEmail = $ok ? $this->emailSubscribers((int) $routine['routine_id']) : [];
             foreach ($audience as $userId) {
-                $this->tell($userId, $title, $ok, $why, $conversationId, $ok ? $policy->link($routine, $run) : null);
+                $this->tell($userId, $title, $ok, $why, $conversationId, $ok ? $policy->link($routine, $run) : null,
+                    (string) ($run['content'] ?? ''), in_array($userId, $byEmail, true));
             }
         } elseif ($routine['kind'] === self::REMINDER) {
             $this->remind($audience, (string) $routine['prompt'], $policy->link($routine, $run));
@@ -784,6 +787,24 @@ class Routines
         $this->subscriptionsTable()->where('routine_id', $routineId)->where('userid', $userId)->delete();
 
         return true;
+    }
+
+    /** @return list<int> Who subscribed to a report by email too */
+    public function emailSubscribers(int $routineId): array
+    {
+        try {
+            $result = $this->subscriptionsTable()->select(['userid', 'email'])->where('routine_id', $routineId)->get();
+        } catch (\Throwable) {
+            return [];
+        }
+        $ids = [];
+        while (($row = $result->fetch()) !== null) {
+            if (in_array($row['email'], [true, 1, '1', 't'], true)) {
+                $ids[] = (int) $row['userid'];
+            }
+        }
+
+        return $ids;
     }
 
     /** @return list<int> Who subscribed to a report — before {@see TaskPolicy::audience()} checks each */
@@ -1275,15 +1296,19 @@ class Routines
         return ['at' => sprintf('%02d:%02d', (int) $time[1], (int) $time[2]), 'day' => $cadence === 'daily' ? null : $day, 'nth' => null, 'run_at' => null, 'timezone' => $timezone];
     }
 
-    /** Tell the owner, by the configured notification. */
-    private function tell(int $userId, string $title, bool $ok, string $says, ?int $conversationId, ?string $link = null): void
+    /**
+     * Tell a person, by the configured notification — with a report's words, and by email when
+     * their subscription asks for it. An application's own notification class, written for the
+     * first four arguments, is given the other two and may ignore them.
+     */
+    private function tell(int $userId, string $title, bool $ok, string $says, ?int $conversationId, ?string $link = null, string $content = '', bool $email = false): void
     {
         $chat  = \Pramnos\Llm\Llm::config('chat', []);
         $class = is_array($chat) && is_string($chat['routine_notification'] ?? null) && class_exists($chat['routine_notification'])
             ? $chat['routine_notification'] : RoutineReady::class;
 
         try {
-            $this->deliver($userId, new $class($title, $ok, $ok ? '' : $says, self::linkable($link ?? $this->chat->assistant()->conversationUrl($conversationId))));
+            $this->deliver($userId, new $class($title, $ok, $ok ? '' : $says, self::linkable($link ?? $this->chat->assistant()->conversationUrl($conversationId)), $content, $email));
         } catch (\Throwable $why) {
             // A dead push endpoint must not undo a report that was written.
             \Pramnos\Logs\Logger::log('llm routine notification: ' . $why->getMessage());

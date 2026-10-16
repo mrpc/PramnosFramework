@@ -185,7 +185,7 @@ trait SchedulesTasks
         return null;
     }
 
-    /** Receive a shared report, or stop — `on` in the form. */
+    /** Receive a shared report, or stop — `on` in the form; `email` to receive the report itself by email too. */
     public function scheduledsubscribe(mixed $id = null): mixed
     {
         if ($this->taskDenied()) {
@@ -196,7 +196,8 @@ trait SchedulesTasks
         if ($scope === null) {
             $this->addError('This needs somebody signed in.');
         } elseif (!empty($_POST['on'])) {
-            ($why = $this->taskService()->subscribe($scope->userId, $id)) === null ? $this->addMessage('You will receive it.') : $this->addError($why);
+            ($why = $this->taskService()->subscribe($scope->userId, $id, !empty($_POST['email']))) === null
+                ? $this->addMessage(!empty($_POST['email']) ? 'You will receive it, by email too.' : 'You will receive it.') : $this->addError($why);
         } else {
             $this->taskService()->unsubscribe($scope->userId, $id) ? $this->addMessage('You will no longer receive it.') : $this->addError('You do not receive it.');
         }

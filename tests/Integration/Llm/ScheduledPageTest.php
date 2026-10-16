@@ -322,6 +322,35 @@ class ScheduledPageTest extends LlmTestCase
         $this->assertSame([], $wrong->readersChanged);
     }
 
+    /**
+     * A shared report is offered to receive by email too, in every theme, and that is what the
+     * subscription keeps; once received, only "stop" is offered.
+     */
+    #[DataProvider('databases')]
+    public function testReceivingByEmail(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        $report = $this->tasks()->create(new Scope(8, 3), ['kind' => 'report', 'owner' => 'organization', 'title' => 'Team', 'prompt' => 'p', 'cadence' => 'daily', 'at' => '08:00']);
+        $offered = array_map(fn (string $theme): string => (string) $this->page(new Scope(7, 3), $theme)->scheduled(), self::THEMES);
+
+        // Act
+        $_POST = ['routine_id' => $report['routine_id'], 'on' => '1', 'email' => '1'];
+        $page  = $this->page(new Scope(7, 3));
+        $page->scheduledsubscribe();
+        $_POST = [];
+        $after = (string) $this->page(new Scope(7, 3))->scheduled();
+
+        // Assert
+        foreach ($offered as $html) {
+            $this->assertStringContainsString('Receive it by email too', $html);
+            $this->assertStringContainsString('name="email" value="1"', $html);
+        }
+        $this->assertSame(['You will receive it, by email too.'], $page->messages);
+        $this->assertSame([7], $this->tasks()->emailSubscribers($report['routine_id']));
+        $this->assertStringNotContainsString('Receive it by email too', $after, 'received: only stop is offered');
+    }
+
     /** Nobody signed in is sent to sign in, back to this page. */
     #[DataProvider('databases')]
     public function testSignedOut(string $type, string $host, int $port): void
