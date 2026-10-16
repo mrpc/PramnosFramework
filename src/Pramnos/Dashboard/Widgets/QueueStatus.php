@@ -13,6 +13,20 @@ use Pramnos\Html\StatTile;
  */
 final class QueueStatus extends Widget
 {
+    use \Pramnos\Dashboard\HasPeriod;
+
+    /** The failures and the finished over the last day, unless set otherwise. */
+    public function defaultPeriod(): string
+    {
+        return 'today';
+    }
+
+    /** The period, as each person sets it. */
+    public function options(): array
+    {
+        return $this->periodOptions();
+    }
+
     public function id(): string
     {
         return 'queue';
@@ -26,7 +40,7 @@ final class QueueStatus extends Widget
     /** What it shows, for the list cards are chosen from. */
     public function description(): string
     {
-        return 'Background tasks waiting now, and those that failed or finished in the last 24 hours.';
+        return 'Background tasks waiting now, and those that failed or finished in the period chosen.';
     }
 
     /** Where the queue is installed, for whoever may open its screen. */
@@ -42,7 +56,7 @@ final class QueueStatus extends Widget
 
     public function render(): string
     {
-        $queue = (new \Pramnos\Llm\Analyst\Tools\QueueTool())->execute(['days' => 1]);
+        $queue = (new \Pramnos\Llm\Analyst\Tools\QueueTool())->execute($this->window());
         if (!is_array($queue) || ($queue['available'] ?? true) === false) {
             return '';
         }
@@ -50,8 +64,8 @@ final class QueueStatus extends Widget
 
         return StatTile::grid([
             StatTile::render(Figures::words('Waiting'), number_format((int) ($queue['by_status']['pending'] ?? 0)), link: $this->link()),
-            StatTile::render(Figures::words('Failed'), number_format($failed), Figures::words('24 hours'), state: $failed > 0 ? StatTile::CRITICAL : null),
-            StatTile::render(Figures::words('Done'), number_format((int) ($queue['completed'] ?? 0)), Figures::words('24 hours')),
+            StatTile::render(Figures::words('Failed'), number_format($failed), $this->periodLabel(), state: $failed > 0 ? StatTile::CRITICAL : null),
+            StatTile::render(Figures::words('Done'), number_format((int) ($queue['completed'] ?? 0)), $this->periodLabel()),
         ]);
     }
 }

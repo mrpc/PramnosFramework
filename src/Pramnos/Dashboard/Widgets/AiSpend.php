@@ -14,6 +14,20 @@ use Pramnos\Html\StatTile;
  */
 final class AiSpend extends Widget
 {
+    use \Pramnos\Dashboard\HasPeriod;
+
+    /** The last 30 days, unless set otherwise. */
+    public function defaultPeriod(): string
+    {
+        return '30';
+    }
+
+    /** The period, as each person sets it. */
+    public function options(): array
+    {
+        return $this->periodOptions();
+    }
+
     public function id(): string
     {
         return 'ai.spend';
@@ -21,13 +35,13 @@ final class AiSpend extends Widget
 
     public function title(): string
     {
-        return 'AI spend (30 days)';
+        return 'AI spend';
     }
 
     /** What it shows, for the list cards are chosen from. */
     public function description(): string
     {
-        return 'Language-model calls in the last 30 days: what they cost, how many, how many failed.';
+        return 'Language-model calls in the period chosen: what they cost, how many, how many failed.';
     }
 
     /** Where the AI feature is on and has a key, for whoever may open its screen. */
@@ -45,7 +59,7 @@ final class AiSpend extends Widget
 
     public function render(): string
     {
-        $spend = (new \Pramnos\Llm\Analyst\Tools\LlmSpendTool())->execute(['days' => 30]);
+        $spend = (new \Pramnos\Llm\Analyst\Tools\LlmSpendTool())->execute($this->window());
         if (!is_array($spend) || ($spend['available'] ?? true) === false) {
             return '';
         }
@@ -54,7 +68,7 @@ final class AiSpend extends Widget
 
         return StatTile::grid([
             StatTile::render(Figures::words('Cost'), '$' . number_format((float) ($spend['cost'] ?? 0), 2), number_format((int) ($spend['tokens'] ?? 0)) . ' ' . Figures::words('tokens'), $this->link()),
-            StatTile::render(Figures::words('Calls'), number_format($calls)),
+            StatTile::render(Figures::words('Calls'), number_format($calls), $this->periodLabel()),
             StatTile::render(Figures::words('Failed'), number_format($failed), state: $calls > 0 && $failed / $calls >= 0.05 ? StatTile::WARNING : null),
         ]);
     }

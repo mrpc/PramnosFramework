@@ -110,6 +110,35 @@ A setting the widget does not declare is dropped, and a value outside a list bec
 first. The dashboard hands a widget its settings with `configure()` before `render()`.
 `Widget::cleanSettings($widget, $given)` is that cleaning, for code of its own.
 
+### A period each person sets
+
+The `Pramnos\Dashboard\HasPeriod` trait offers today, the last 7, 30 or 90 days, or two days of
+one's own, and reads the choice back. The framework's `queue`, `email` and `ai.spend` cards use
+it.
+
+```php
+final class Orders extends Widget
+{
+    use \Pramnos\Dashboard\HasPeriod;
+
+    public function options(): array      { return $this->periodOptions(); }   // period, from, to
+    public function defaultPeriod(): string { return '30'; }                     // '7' unless said
+    public function maxDays(): int        { return 90; }                         // 0: no limit
+
+    public function render(): string
+    {
+        $figures = (new OrdersTool())->execute($this->window());   // ['days' => 30] or ['from', 'to']
+        [$from, $to] = $this->periodRange();                        // two moments, for a query of its own
+        return StatTile::render('Orders', $figures['count'], $this->periodLabel());
+    }
+}
+```
+
+It is a trait rather than methods on `Widget`, so a card of an application's own that already has
+`period()` or `window()` keeps them: a class's own method wins over a trait's. A custom period
+without two days in order, or a value not offered, falls back to the card's default. A period
+longer than `maxDays()` is cut to it.
+
 ## Registering widgets
 
 ```php
@@ -152,9 +181,9 @@ The framework's widgets, in the order a new dashboard shows them:
 | `users.active` | Signed in now, in the last day and week; opens the sessions list | the dashboard's role |
 | `api.performance` | Requests, the share that failed, average and p95 latency over 24 hours | the dashboard's role |
 | `database` | Size, connections, cache hit ratio; opens the database page | the dashboard's role |
-| `queue` | Tasks waiting now; failed and finished in 24 hours, failures critical; opens the queue | who may open `admin.queue`, where the `queue` feature is on |
-| `email` | Email in 7 days from the send history (`mails`): sent, failed (with the failure rate), queued; the share opened only where tracked mail was sent in the week; opens the email screen | who may open `admin.emails` |
-| `ai.spend` | Model calls in 30 days: cost, calls, failed; opens the AI settings | who may open `admin.ai`, where the `llm` feature is on and a key is set |
+| `queue` | Tasks waiting now; failed and finished in the period (today by default), failures critical; opens the queue | who may open `admin.queue`, where the `queue` feature is on |
+| `email` | Email in the period (7 days by default) from the send history (`mails`): sent, failed (with the failure rate), queued; the share opened only where tracked mail was sent in it; opens the email screen | who may open `admin.emails` |
+| `ai.spend` | Model calls in the period (30 days by default): cost, calls, failed; opens the AI settings | who may open `admin.ai`, where the `llm` feature is on and a key is set |
 | `health` | Every health check, with its message when not ok — full width | the dashboard's role |
 | `logs.errors` | Errors in the logs in 24 hours and the commonest five; **not on a new dashboard** — it reads the log files — but in the catalogue | who may open `admin.logs` |
 | `vitals` | Core Web Vitals from real visitors over 7 days: the 75th percentile of LCP, INP, CLS and TTFB per page group and device, coloured by web.dev's thresholds; **not on a new dashboard** — see the Logging Guide | who may open `admin.logs`, where `vitals.sample` is set |

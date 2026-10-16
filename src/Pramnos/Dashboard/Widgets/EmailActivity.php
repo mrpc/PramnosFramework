@@ -16,8 +16,13 @@ use Pramnos\Messaging\Mail;
  */
 final class EmailActivity extends Widget
 {
-    /** The days it counts. */
-    private const DAYS = 7;
+    use \Pramnos\Dashboard\HasPeriod;
+
+    /** The period, as each person sets it — the last week unless set otherwise. */
+    public function options(): array
+    {
+        return $this->periodOptions();
+    }
 
     public function id(): string
     {
@@ -26,13 +31,13 @@ final class EmailActivity extends Widget
 
     public function title(): string
     {
-        return 'Email (7 days)';
+        return 'Email';
     }
 
     /** What it shows, for the list cards are chosen from. */
     public function description(): string
     {
-        return 'Email in the last 7 days: sent, failed, waiting to be sent, and opened where mail is tracked.';
+        return 'Email in the period chosen: sent, failed, waiting to be sent, and opened where mail is tracked.';
     }
 
     /** Whoever may open the email screen. */
@@ -52,13 +57,13 @@ final class EmailActivity extends Widget
         if (!$db->schema()->hasTable('mails')) {
             return '';
         }
-        $from = time() - self::DAYS * 86400;
+        [$from, $to] = $this->periodRange();
 
-        // One pass over the week, by status — a range on the `date` index, however long the history.
+        // One pass over the period, by status — a range on the `date` index, however long the history.
         $counts = [];
         $result = $db->queryBuilder()->table('#PREFIX#mails')
             ->select(['status', $db->queryBuilder()->raw('COUNT(*) AS n')])
-            ->where('date', '>=', $from)->groupBy('status')->get();
+            ->where('date', '>=', $from)->where('date', '<=', $to)->groupBy('status')->get();
         while (($row = $result->fetch()) !== null) {
             $counts[(int) $row['status']] = (int) $row['n'];
         }
@@ -67,13 +72,13 @@ final class EmailActivity extends Widget
         $rate   = $sent + $failed > 0 ? $failed / ($sent + $failed) : 0.0;
 
         $tiles = [
-            StatTile::render(Figures::words('Sent'), number_format($sent), link: $this->link()),
+            StatTile::render(Figures::words('Sent'), number_format($sent), $this->periodLabel(), $this->link()),
             StatTile::render(Figures::words('Failed'), number_format($failed), $sent + $failed > 0 ? number_format($rate * 100, 1) . '%' : '',
                 state: $rate >= 0.05 ? StatTile::CRITICAL : ($failed > 0 ? StatTile::WARNING : null)),
             StatTile::render(Figures::words('Queued'), number_format($counts[Mail::STATUS_QUEUED] ?? 0)),
         ];
 
-        $tracked = static fn () => $db->queryBuilder()->table('pramnos.emailtracking')->where('sent_at', '>=', $from);
+        $tracked = static fn () => $db->queryBuilder()->table('pramnos.emailtracking')->where('sent_at', '>=', $from)->where('sent_at', '<=', $to);
         $total   = $db->schema()->hasTable('pramnos.emailtracking') ? $tracked()->count() : 0;
         if ($total > 0) {
             $opened  = $tracked()->where('opens', '>', 0)->count();
