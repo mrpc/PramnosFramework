@@ -183,10 +183,56 @@ class RememberTokensTest extends TestCase
     }
 
     /**
-     * Before `migrate` has made the table, a sign-in still gets a random token — the session
-     * works, nothing is the password hash — and the rest answer nothing rather than failing:
-     * no token is found, none is ended, signing out everywhere ends none; a well-formed token
-     * nobody issued is nobody's.
+     * An application that signs in again by handing the `auth` value back as the stored hash —
+     * its own auth addon's onAuthCheck() calling `auth($username, $cookie, true, true)`, a mobile
+     * client re-authenticating with the `auth` it was given — still signs in with a token, again
+     * and again: nobody is signed out because the value stopped being the hash. Another
+     * account's token, a spent one, or an expired one does not.
+     */
+    #[DataProvider('databases')]
+    public function testATokenWhereTheHashWasExpected(string $type, string $host, int $port): void
+    {
+        // Arrange — two people, each signed in once
+        $this->connect($type, $host, $port);
+        $token = $this->signIn();
+        $name  = $this->username();
+        $other = new User();
+        $other->username = 'remember_other_' . bin2hex(random_bytes(4));
+        $other->email    = $other->username . '@example.com';
+        $other->setPassword('x');
+        $other->save();
+        (new Auth())->loginById((int) $other->userid, true);
+        $theirs = (string) $_SESSION['auth'];
+        $_SESSION = [];
+        $driver = new \Pramnos\Auth\Drivers\DatabaseAuthDriver();
+
+        try {
+            // Act — as the application's own addon does, twice; then the wrong ones
+            $first   = (new Auth())->auth($name, $token, true, true);
+            $_SESSION = [];
+            $second  = (new Auth())->auth($name, $token, true, true);
+            $_SESSION = [];
+            $notMine = $driver->verify($name, $theirs, true)->success;
+            $plain   = $driver->verify($name, $token, false)->success;
+            RememberTokens::revoke($token);
+            $spent   = $driver->verify($name, $token, true)->success;
+        } finally {
+            $this->db->queryBuilder()->table('#PREFIX#remember_tokens')->where('userid', (int) $other->userid)->delete();
+            $this->db->queryBuilder()->table('#PREFIX#users')->where('userid', (int) $other->userid)->delete();
+        }
+
+        // Assert
+        $this->assertSame([true, true], [$first, $second], 'signed in with the token, and again with the same one');
+        $this->assertFalse($notMine, 'another account\'s token');
+        $this->assertFalse($plain, 'as a password it is nothing');
+        $this->assertFalse($spent, 'ended');
+    }
+
+    /**
+     * Before `migrate` has made the table there is nowhere to keep a token: a sign-in keeps the
+     * credential it had and its remember cookie still signs in, so an upgrade deployed before its
+     * migration signs nobody out; the rest answer nothing rather than failing. A well-formed
+     * token nobody issued is nobody's.
      */
     #[DataProvider('databases')]
     public function testWithoutTheTable(string $type, string $host, int $port): void
@@ -195,24 +241,33 @@ class RememberTokensTest extends TestCase
         $this->connect($type, $host, $port);
         $unknown = str_repeat('a', 24) . '.' . str_repeat('b', 64);
         $nobodys = RememberTokens::userFor($unknown);
+        $hash    = $this->passwordHash();
         $this->db->schema()->dropTableIfExists('remember_tokens');
 
         try {
             // Act
-            $token = RememberTokens::issue($this->userId);
-            $who   = RememberTokens::userFor($token);
-            RememberTokens::revoke($token);
+            $token  = RememberTokens::issue($this->userId);
+            $who    = RememberTokens::userFor(str_repeat('c', 24) . '.' . str_repeat('d', 64));
             RememberTokens::revoke('not a token');
-            $ended = RememberTokens::revokeAll($this->userId);
+            $ended  = RememberTokens::revokeAll($this->userId);
+            $signed = (new Auth())->loginById($this->userId, true);
+            $kept   = (string) $_SESSION['auth'];
+            $_SESSION = [];
+            $this->cookies($this->username(), $kept);
+            (new UserDatabase())->onAuthCheck();
+            $again = $_SESSION['logged'] ?? false;
         } finally {
             $this->connect($type, $host, $port);
         }
 
         // Assert
         $this->assertNull($nobodys, 'a token nobody issued');
-        $this->assertTrue(RememberTokens::isToken($token), 'still a random token, still not the hash');
+        $this->assertNull($token, 'nowhere to keep it');
         $this->assertNull($who);
         $this->assertSame(0, $ended);
+        $this->assertTrue($signed);
+        $this->assertSame($hash, $kept, 'the credential it had, until migrate');
+        $this->assertTrue($again, 'and the remember cookie still signs in: nobody is signed out by the upgrade');
     }
 
     /**

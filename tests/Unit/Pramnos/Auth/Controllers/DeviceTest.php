@@ -898,6 +898,15 @@ class DeviceTest extends TestCase
         $dbMock = $this->createMock(Database::class);
         $dbMock->method('prepareQuery')->willReturn('SELECT 1');
         $dbMock->method('query')->willReturn($emptyResult);
+        // The driver reads the account through the query builder: no row, from first().
+        $none = $this->createMock(\Pramnos\Database\Result::class);
+        $none->numRows = 0;
+        $qb = $this->createMock(\Pramnos\Database\QueryBuilder::class);
+        foreach (['table', 'select', 'where', 'orWhere'] as $chain) {
+            $qb->method($chain)->willReturnSelf();
+        }
+        $qb->method('first')->willReturn($none);
+        $dbMock->method('queryBuilder')->willReturn($qb);
 
         $dbRef = &Database::getInstance();
         $dbRef = $dbMock;

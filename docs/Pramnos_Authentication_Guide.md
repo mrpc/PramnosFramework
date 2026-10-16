@@ -115,6 +115,14 @@ header the page reads. It signs its holder in. An API call from the page authent
 session cookie and the page's CSRF token (`X-CSRF-Token`, from `<meta name="csrf">`), or with an
 access token.
 
+Code that signs in again by handing `auth` back where the stored hash was expected keeps working
+with the token: `auth($username, $auth, true, true)`, as an application's own auth addon's
+`onAuthCheck()` does, or a mobile client re-authenticating with the `auth` it was given. The
+driver accepts this account's unexpired token there, without spending it.
+
+Until `migrate` has created `remember_tokens` there is nowhere to keep a token. A sign-in then
+keeps the credential it had, and the log says to migrate.
+
 An `auth` cookie from before the tokens, which held the password hash, signs in once the old way
 and is replaced with a token, so the upgrade signs nobody out. After the cookies have had time
 to turn over (they last 14 days and are refreshed while used), refuse the old ones:

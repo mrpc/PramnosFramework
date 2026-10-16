@@ -51,6 +51,13 @@ class UserRepositoryTest extends TestCase
         $resMock->numRows = 0;
 
         $db->method('query')->willReturn($resMock);
+        // The driver reads the account through the query builder: the same answer, from first().
+        $qb = $this->createMock(\Pramnos\Database\QueryBuilder::class);
+        foreach (['table', 'select', 'where', 'orWhere'] as $chain) {
+            $qb->method($chain)->willReturnSelf();
+        }
+        $qb->method('first')->willReturn($resMock);
+        $db->method('queryBuilder')->willReturn($qb);
         
         $dbRef = &Database::getInstance();
         $dbRef = $db;
@@ -93,6 +100,13 @@ class UserRepositoryTest extends TestCase
         ];
 
         $db->method('query')->willReturn($resMock);
+        // The driver reads the account through the query builder: the same answer, from first().
+        $qb = $this->createMock(\Pramnos\Database\QueryBuilder::class);
+        foreach (['table', 'select', 'where', 'orWhere'] as $chain) {
+            $qb->method($chain)->willReturnSelf();
+        }
+        $qb->method('first')->willReturn($resMock);
+        $db->method('queryBuilder')->willReturn($qb);
         
         $dbRef = &Database::getInstance();
         $dbRef = $db;

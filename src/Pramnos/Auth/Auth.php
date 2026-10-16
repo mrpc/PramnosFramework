@@ -467,7 +467,7 @@ class Auth extends \Pramnos\Framework\Base
         }
 
         $result = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('#PREFIX#users')
-            ->select(['userid', 'username', 'email', 'active', 'language'])
+            ->select(['userid', 'username', 'email', 'password', 'active', 'language'])
             ->where('userid', $userId)->first();
 
         if (!$result || !isset($result->numRows) || $result->numRows == 0) {
@@ -486,8 +486,9 @@ class Auth extends \Pramnos\Framework\Base
             'uid'      => (int) $row['userid'],
             'username' => (string) $row['username'],
             'email'    => (string) ($row['email'] ?? ''),
-            // This sign-in's token, issued by triggerLogin(); never the password hash.
-            'auth'     => '',
+            // Replaced by this sign-in's token in triggerLogin(); kept only until `migrate` has
+            // made the table that holds the tokens.
+            'auth'     => (string) ($row['password'] ?? ''),
             // The account's own interface language, so the session that is about to
             // be established can be served in it. Selected here because this row is
             // read anyway — the alternative was a second query per login.
@@ -517,8 +518,10 @@ class Auth extends \Pramnos\Framework\Base
          * hash: a credential for as long as the password, the same on every device, impossible
          * to end for one of them, and the hash itself for whoever read it.
          */
+        // Before `migrate` has made the table there is nowhere to keep a token, and the sign-in
+        // keeps the credential it had, so the upgrade signs nobody out; the log says to migrate.
         if (!empty($response['status']) && (int) ($response['uid'] ?? 0) > 1) {
-            $response['auth'] = RememberTokens::issue((int) $response['uid']);
+            $response['auth'] = RememberTokens::issue((int) $response['uid']) ?? (string) ($response['auth'] ?? '');
         }
 
         /**

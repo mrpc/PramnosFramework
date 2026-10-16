@@ -31,18 +31,19 @@ final class RememberTokens
     }
 
     /**
-     * A new token for a person, stored hashed. Where the table is not there yet — `migrate` has
-     * not run — the token is still random and still unrelated to the password, and keeps the
-     * session; it only cannot sign the browser in again later.
+     * A new token for a person, stored hashed; null where it could not be stored — the table is
+     * not there yet because `migrate` has not run. The caller then keeps what it had, so an
+     * upgrade deployed before its migration signs nobody out.
      */
-    public static function issue(int $userId): string
+    public static function issue(int $userId): ?string
     {
         $selector  = bin2hex(random_bytes(12));
         $validator = bin2hex(random_bytes(32));
         $now       = time();
 
         try {
-            self::table()->insert([
+            // Its answer, not only an exception: a driver may report a missing table as false.
+            $stored = self::table()->insert([
                 'userid'         => $userId,
                 'selector'       => $selector,
                 'validator_hash' => hash('sha256', $validator),
@@ -51,8 +52,13 @@ final class RememberTokens
                 'expires_at'     => $now + self::days() * 86400,
                 'user_agent'     => mb_substr((string) ($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 255),
             ]);
+            if ($stored === false) {
+                throw new \RuntimeException('the insert was refused');
+            }
         } catch (\Throwable $e) {
-            \Pramnos\Logs\Logger::log('Remember token not stored (has migrate run?): ' . $e->getMessage(), 'auth');
+            \Pramnos\Logs\Logger::log('Remember token not stored — run migrate; the sign-in keeps the old credential until then: ' . $e->getMessage(), 'auth');
+
+            return null;
         }
 
         return $selector . '.' . $validator;

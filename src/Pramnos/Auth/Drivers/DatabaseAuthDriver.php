@@ -19,6 +19,7 @@ use Pramnos\Framework\Factory;
  *   1. bcrypt_verify(password + md5(salt+uid), stored_hash)  → success
  *   2. [legacy_md5=true] md5(password) == stored_hash        → success + optional rehash
  *   3. [encryptedPassword=true] direct string comparison      → success
+ *   4. [encryptedPassword=true] this account's RememberTokens token → success
  *   4. failure
  *
  * Configuration (from app.php 'auth' key):
@@ -55,16 +56,10 @@ class DatabaseAuthDriver implements AuthDriverInterface
 
         [$legacyMd5, $autoUpgrade] = $this->resolveConfig();
 
-        $sql = $database->prepareQuery(
-            "SELECT `userid`, `username`, `password`, `email`, `active`, `validated` "
-            . "FROM `#PREFIX#users` "
-            . "WHERE (`username` = %s OR `email` = %s) "
-            . "LIMIT 1",
-            $username,
-            $username
-        );
-
-        $result = $database->query($sql);
+        $result = $database->queryBuilder()->table('#PREFIX#users')
+            ->select(['userid', 'username', 'password', 'email', 'active', 'validated'])
+            ->where(static fn ($q) => $q->where('username', $username)->orWhere('email', $username))
+            ->first();
 
         if (!$result || !isset($result->numRows) || $result->numRows == 0) {
             return AuthResult::failure("User doesn't exist", 404);
@@ -117,11 +112,8 @@ class DatabaseAuthDriver implements AuthDriverInterface
                 && \Pramnos\Auth\PasswordHash::needsUpgrade($scheme, (string) $row['password'])) {
                 try {
                     $newHash = \Pramnos\Auth\PasswordHash::make($password, $uid);
-                    $database->query($database->prepareQuery(
-                        "UPDATE `#PREFIX#users` SET `password` = %s WHERE `userid` = %d",
-                        $newHash,
-                        $uid
-                    ));
+                    $database->queryBuilder()->table('#PREFIX#users')
+                        ->where('userid', $uid)->update(['password' => $newHash]);
                     $row['password'] = $newHash;
                 } catch (\Throwable $ex) {
                     // A login must not fail because the upgrade could not be written.
@@ -139,6 +131,24 @@ class DatabaseAuthDriver implements AuthDriverInterface
 
         // Path 3: pre-hashed password direct comparison (used by cookie re-auth)
         if ($encryptedPassword && $password === $row['password']) {
+            return AuthResult::success(
+                $row['username'], $uid, $row['email'], $row['password'],
+                (int) $row['active']
+            );
+        }
+
+        /*
+         * Path 4: this account's sign-in token where the stored hash was expected.
+         *
+         * The credential a session and the `auth` cookie carry is a RememberTokens token now,
+         * not the hash, and an application that signs in again by handing it back here —
+         * its own auth addon's onAuthCheck(), a mobile client re-authenticating with the
+         * `auth` it was given — would otherwise have every remembered visitor signed out the
+         * next time their session ends. The token must be this account's, unexpired and
+         * issued under its current password. Not spent here: a client may present it again.
+         */
+        if ($encryptedPassword && \Pramnos\Auth\RememberTokens::isToken($password)
+            && \Pramnos\Auth\RememberTokens::userFor($password) === $uid) {
             return AuthResult::success(
                 $row['username'], $uid, $row['email'], $row['password'],
                 (int) $row['active']
