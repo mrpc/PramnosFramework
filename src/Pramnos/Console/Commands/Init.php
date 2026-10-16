@@ -4693,6 +4693,8 @@ HTML,
 
         return $themeJs
             . "    <?php echo \\Pramnos\\Security\\CookieConsent::tag(sURL); ?>\n"
+            // Core Web Vitals from real visitors: prints nothing until app.php sets vitals.sample.
+            . "    <?php echo \\Pramnos\\Logs\\ClientVitals::tag(); ?>\n"
             . "    <script src=\"<?php echo assetUrl('assets/js/pf-utils.js'); ?>\"></script>\n"
             . $this->serviceWorkerRegistration()
             . "    <?php \$this->document->renderJs(); ?>\n";

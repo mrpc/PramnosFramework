@@ -40,6 +40,15 @@
             ],
             "local_path": "assets/vendor/leaflet/1.9.4"
         },
+        "web-vitals": {
+            "version": "4.2.4",
+            "description": "Core Web Vitals in the browser (attribution build), for pf-vitals.js: TTFB, FCP, LCP, INP, CLS.",
+            "css": [],
+            "js": [
+                "https://cdn.jsdelivr.net/npm/web-vitals@4.2.4/dist/web-vitals.attribution.iife.js"
+            ],
+            "local_path": "assets/vendor/web-vitals/4.2.4"
+        },
         "chartjs": {
             "version": "4.4.3",
             "mandatory": true,

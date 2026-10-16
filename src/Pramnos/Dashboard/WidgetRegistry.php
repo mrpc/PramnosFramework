@@ -34,6 +34,7 @@ final class WidgetRegistry
         Widgets\AiSpend::class,
         Widgets\HealthChecks::class,
         Widgets\RecentErrors::class,
+        Widgets\WebVitals::class,
     ];
 
     /** @var array<string, Widget> Registered in code */

@@ -8,6 +8,7 @@ use_cases:
   - Finding which command or request ran out of memory or died of a fatal error
   - Logging an exception without writing the arguments its calls carried
   - Finding out which JavaScript errors visitors hit in the browser
+  - Measuring how fast pages are for real visitors (Core Web Vitals)
 ---
 
 # Pramnos Framework - Logging System Guide
@@ -28,9 +29,10 @@ The Pramnos Framework includes a comprehensive logging system with structured lo
 10. [Console Commands](#console-commands)
 11. [Web Interface](#web-interface)
 12. [Errors in the browser](#errors-in-the-browser)
-13. [Performance and Best Practices](#performance-and-best-practices)
-14. [Configuration](#configuration)
-15. [Advanced Features](#advanced-features)
+13. [How fast pages are for real visitors](#how-fast-pages-are-for-real-visitors)
+14. [Performance and Best Practices](#performance-and-best-practices)
+15. [Configuration](#configuration)
+16. [Advanced Features](#advanced-features)
 
 ## Architecture Overview
 
@@ -765,6 +767,52 @@ $errors->clear();
 4. Run `project:resync --js --all` for the new `pf-utils.js`.
 5. Copy the error listeners from the scaffolded `sw.js` into your own service worker, if you
    have one.
+
+## How fast pages are for real visitors
+
+Core Web Vitals as visitors' browsers measure them: TTFB, FCP, LCP, INP and CLS. They come from
+real users, not from a lab run. `pf-vitals.js` measures a sampled share of page views with the
+`web-vitals` library (its attribution build) and sends them with `sendBeacon` once the page is
+hidden. The framework controller `ClientVitals` receives them at `/ClientVitals`, with no
+controller of the application's own needed. It applies the same checks as `ClientErrors`:
+same-origin POST, small body, a few per minute.
+
+```php
+// app/app.php — off until a sample is set
+'vitals' => [
+    'sample'    => 0.1,                                   // a tenth of page views
+    'groups'    => ['jobs' => '#^/(el|en)/jobs#', 'home' => '#^/(el|en)?/?$#'],
+    'keep_days' => 30,                                    // older rows are pruned
+],
+```
+
+The scaffolded footers print `\Pramnos\Logs\ClientVitals::tag()`. It writes the
+`<meta name="pf-vitals">`, the library and the script, and prints nothing while the sample is 0.
+In an existing project:
+1. Run `migrate` (`client_vitals`).
+2. Run `libraries:sync web-vitals` and `project:resync --js --all`.
+3. Print the tag before `</body>`.
+
+Each metric is kept with what it depends on, so the numbers can be read apart:
+
+| Column | What it is |
+|---|---|
+| `page_group` | The first `vitals.groups` pattern the path matched, or `other` |
+| `device` | `mobile` or `desktop`, by the viewport |
+| `navigation` | How the page was reached: `navigate`, `reload`, `back-forward-cache` (a bfcache restore), `prerender`, `restore` |
+| `delivery` | The navigation's `deliveryType`: `cache`, `navigational-prefetch`, or empty for the network |
+| `worker`, `worker_ms` | Whether a service worker controls the page, could, or cannot; and `fetchStart − workerStart`, its start time |
+| `source` | The worker's own `Server-Timing: sw;desc=…`, where it sends one |
+| `logged_in` | Decided on the server, from the session |
+
+The dashboard's `vitals` card shows the 75th percentile per page group and device. That is the
+figure Google's thresholds are about, and each value is coloured good, needs improvement or poor.
+The card is not on a new dashboard. It is offered only where vitals are measured, to whoever may
+open the logs. In code:
+
+```php
+(new \Pramnos\Logs\ClientVitals())->summary(days: 7);   // [group][device][metric] => p75, count, rating
+```
 
 ## Performance and Best Practices
 

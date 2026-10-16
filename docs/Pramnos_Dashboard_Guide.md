@@ -12,7 +12,7 @@ use_cases:
 
 The administration dashboard (`DashboardController`, at `/admin/Dashboard`) is a grid of cards,
 called widgets. Each person arranges it for themselves: which cards, in what order, how wide.
-The framework brings eight widgets; an application adds its own.
+The framework brings nine widgets; an application adds its own.
 
 ## A widget
 
@@ -157,6 +157,7 @@ The framework's widgets, in the order a new dashboard shows them:
 | `ai.spend` | Model calls in 30 days: cost, calls, failed; opens the AI settings | who may open `admin.ai`, where the `llm` feature is on and a key is set |
 | `health` | Every health check, with its message when not ok — full width | the dashboard's role |
 | `logs.errors` | Errors in the logs in 24 hours and the commonest five; **not on a new dashboard** — it reads the log files — but in the catalogue | who may open `admin.logs` |
+| `vitals` | Core Web Vitals from real visitors over 7 days: the 75th percentile of LCP, INP, CLS and TTFB per page group and device, coloured by web.dev's thresholds; **not on a new dashboard** — see the Logging Guide | who may open `admin.logs`, where `vitals.sample` is set |
 
 A card that summarises a screen is offered only to who may open that screen, at the framework
 screens' floor (`Figures::opens()`), so the dashboard never shows more than the screen behind it.
