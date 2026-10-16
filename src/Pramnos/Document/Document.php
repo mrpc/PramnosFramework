@@ -137,6 +137,15 @@ class Document extends \Pramnos\Framework\Base
      */
     protected $_jsContent = '';
 
+    /** @var list<string> Each stylesheet tag, as it went into the head */
+    protected $_cssTags = [];
+
+    /**
+     * Whether the document is drawing a head of its own around the theme — set by render() — so
+     * the head scripts are already in it and renderJs() does not print them a second time.
+     */
+    protected $_drawsHead = false;
+
     /**
      * Flag to prevent double processing of header queue.
      * 
@@ -1141,6 +1150,8 @@ class Document extends \Pramnos\Framework\Base
     {
         $this->processHeader();
         echo $this->_cssContent;
+        // Printed by the theme, in its own head: the document's head does not carry them as well.
+        $this->takeFromHeader($this->_cssTags);
     }
 
     /**
@@ -1155,8 +1166,35 @@ class Document extends \Pramnos\Framework\Base
     public function renderJs()
     {
         $this->processHeader();
-        echo $this->_jsContent;
+        /*
+         * Each script once.
+         *
+         * Inside render() the head scripts are already in the head the document draws, and stay
+         * there — before the page's content, where an inline script in it can use them — so they
+         * are not printed here again. A layout drawn without the document's head gets them here.
+         * The foot is printed here and handed over: render() appends the theme's foot, which now
+         * holds it, rather than its own copy beside it.
+         */
+        if (!$this->_drawsHead) {
+            echo $this->_jsContent;
+        }
         echo $this->foot;
+        $this->foot = '';
+    }
+
+    /**
+     * Take tags out of the document's head, once each, where they are.
+     *
+     * @param list<string> $tags
+     */
+    private function takeFromHeader(array $tags): void
+    {
+        foreach ($tags as $tag) {
+            $at = strpos((string) $this->header, $tag);
+            if ($at !== false) {
+                $this->header = substr_replace((string) $this->header, '', $at, strlen($tag));
+            }
+        }
     }
 
     /**
@@ -1247,6 +1285,7 @@ class Document extends \Pramnos\Framework\Base
                 }
                 $this->_queueContent .= $tag;
                 $this->_cssContent .= $tag;
+                $this->_cssTags[] = $tag;
                 $this->_css[$handle]['loaded'] = true;
             } else {
                 return $this;
@@ -1399,6 +1438,7 @@ class Document extends \Pramnos\Framework\Base
     public function render()
     {
         if ($this->themeObject !== NULL) {
+            $this->_drawsHead = true;
             $this->header .= $this->themeObject->getheader();
             $this->head = $this->themeObject->gethead();
             $this->foot = $this->themeObject->getfoot();

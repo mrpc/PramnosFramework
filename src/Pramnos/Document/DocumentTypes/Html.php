@@ -84,6 +84,7 @@ class Html extends \Pramnos\Document\Document
     {
         $lang = \Pramnos\Framework\Factory::getLanguage();
         if ($this->themeObject !== null) {
+            $this->_drawsHead = true;
             $this->themeObject->loadTheme();
             $this->header .= $this->themeObject->getheader();
             $this->head .= $this->themeObject->gethead();
