@@ -728,9 +728,12 @@ three ways instead:
 
 - only the site's own origin (`Origin`, or else `Referer`);
 - a 16 KB body;
-- 30 reports a minute per address, where APCu is available.
+- 30 reports a minute per address: counted in APCu where it is there, otherwise in the
+  application's cache (`Http\TokenBucket`, atomic on Redis). A cache that fails lets the report
+  through and logs why.
 
-It answers `204`. Bodies are JSON:
+It lets go of the session before anything else, so the reports of one session do not queue on its
+lock, each holding a PHP worker. It answers `204`. Bodies are JSON:
 
 ```json
 {"kind": "error", "message": "x is undefined", "source": "/assets/js/app.js", "line": 12,

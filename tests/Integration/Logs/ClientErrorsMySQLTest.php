@@ -402,6 +402,57 @@ class ClientErrorsMySQLTest extends TestCase
         $this->assertSame(ClientErrorsController::PER_MINUTE, (new ClientErrors($this->db))->list()['total']);
     }
 
+    /**
+     * Without APCu the limit holds too, in the application's cache: thirty reports a minute from
+     * one address, then 429 — production had no APCu, so one broken browser's reports were never
+     * refused; a cache that fails lets the report through rather than failing it; and the session
+     * is let go of first, so the reports of one session do not queue on its lock.
+     */
+    public function testWithoutApcuTheCacheHoldsTheLimit(): void
+    {
+        // Arrange — a bucket in memory, standing for Redis
+        $this->sameOriginPost('10.9.' . random_int(0, 255) . '.' . random_int(0, 255));
+        $bucket     = new \Pramnos\Http\TokenBucket(new \Pramnos\Tests\Support\InMemoryBucketCache());
+        $controller = new class (null) extends FormClientErrorsController {
+            public ?\Pramnos\Http\TokenBucket $given = null;
+
+            public bool $broken = false;
+
+            /** No APCu here: the application's cache decides. */
+            protected function apcuCounts(): bool
+            {
+                return false;
+            }
+
+            /** The bucket given, or one that fails. */
+            protected function bucket(): \Pramnos\Http\TokenBucket
+            {
+                if ($this->broken) {
+                    throw new \RuntimeException('cache down');
+                }
+
+                return $this->given;
+            }
+        };
+        $controller->given = $bucket;
+        $statuses = [];
+
+        // Act
+        for ($i = 0; $i <= ClientErrorsController::PER_MINUTE; $i++) {
+            $controller->posted = ['message' => 'no apcu ' . $i];
+            $statuses[] = $controller->display()->getStatusCode();
+        }
+        $controller->broken = true;
+        $controller->posted = ['message' => 'cache down'];
+        $throughBroken      = $controller->display()->getStatusCode();
+
+        // Assert
+        $this->assertSame(204, $statuses[0]);
+        $this->assertSame(429, end($statuses), 'the 31st of the minute');
+        $this->assertSame(204, $throughBroken, 'a failing cache refuses nothing');
+        $this->assertNotSame(PHP_SESSION_ACTIVE, session_status(), 'the session was let go of');
+    }
+
     /** A store that fails — no table, no database — is logged, and the page still gets its 204. */
     public function testAFailingStoreIsNotTheReportersProblem(): void
     {

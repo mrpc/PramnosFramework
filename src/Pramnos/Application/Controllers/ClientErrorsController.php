@@ -41,6 +41,7 @@ class ClientErrorsController extends Controller
     public function display(): mixed
     {
         \Pramnos\Framework\Factory::getDocument('json');
+        $this->releaseSession();
 
         if (strtoupper((string) ($_SERVER['REQUEST_METHOD'] ?? 'GET')) !== 'POST') {
             return $this->answer(405);
@@ -110,13 +111,48 @@ class ClientErrorsController extends Controller
     /** Whether this address has sent more than its share this minute. */
     protected function overLimit(): bool
     {
-        if (!function_exists('apcu_inc')) {
+        $address = md5(\Pramnos\Http\Request::clientIp('0.0.0.0'));
+        if ($this->apcuCounts()) {
+            $success = false;
+            $count   = apcu_inc('clienterrors:' . $address, 1, $success, 60);
+            if ($success) {
+                return $count > self::PER_MINUTE;
+            }
+        }
+
+        // Without APCu — production often has none — the application's cache, Redis where it is
+        // one: the limit held nowhere before, and one broken browser filled a PHP pool.
+        try {
+            return !$this->bucket()->take('clienterrors:' . $address, self::PER_MINUTE, self::PER_MINUTE, 60)['allowed'];
+        } catch (\Throwable $e) {
+            \Pramnos\Logs\Logger::log('Browser reports are not rate-limited: no APCu, and the cache refused: ' . $e->getMessage(), 'clienterrors');
+
             return false;
         }
-        $success = false;
-        $count   = apcu_inc('clienterrors:' . md5(\Pramnos\Http\Request::clientIp('0.0.0.0')), 1, $success, 60);
+    }
 
-        return $success && $count > self::PER_MINUTE;
+    /** Whether APCu is there to count in. */
+    protected function apcuCounts(): bool
+    {
+        return function_exists('apcu_inc') && function_exists('apcu_enabled') && apcu_enabled();
+    }
+
+    /** The bucket the limit is kept in, when there is no APCu. */
+    protected function bucket(): \Pramnos\Http\TokenBucket
+    {
+        return new \Pramnos\Http\TokenBucket();
+    }
+
+    /**
+     * Let go of the session before anything else. A report is nobody's business but the log's, and
+     * a held session lock makes every other request of the same session wait behind it — each one
+     * keeping a PHP worker — while the page that sent a burst of reports goes on loading.
+     */
+    protected function releaseSession(): void
+    {
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            session_write_close();
+        }
     }
 
     /** An empty answer with a status. */

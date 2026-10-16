@@ -300,3 +300,48 @@ test('the worker reports its own errors', async () => {
     assert.ok(report, 'reported');
     assert.deepEqual(JSON.parse(report.init.body), { kind: 'worker', message: 'push failed', source: '/sw.js', stack: 'at push' });
 });
+
+/**
+ * A browser whose CacheStorage is broken — every `caches.open()` rejects — gets its assets from
+ * the network and the worker reports the fault once: then it is network-only and leaves requests
+ * to the browser. One such browser used to send a report per request and fill a server's PHP
+ * pool. Reports go without cookies, each message once, a few a minute in all.
+ */
+test('a broken CacheStorage is one report, then network-only', async () => {
+    // Arrange
+    const asset = (i) => 'https://app.test/assets/js/a' + i + '.js';
+    const routes = { 'https://app.test/ClientErrors': '' };
+    for (let i = 0; i < 100; i++) { routes[asset(i)] = 'js ' + i; }
+    const sw = worker(routes);
+    sw.caches.open = async () => { throw new Error("Failed to execute 'open' on 'CacheStorage': Unexpected internal error"); };
+
+    // Act — a page with a hundred assets
+    const answers = [];
+    for (let i = 0; i < 100; i++) {
+        answers.push(await sw.fire('fetch', { request: { url: asset(i), method: 'GET', mode: 'no-cors' } }));
+    }
+    await new Promise((r) => setImmediate(r));
+    const reports = sw.fetched.filter((f) => f.url.endsWith('/ClientErrors'));
+
+    // Assert
+    assert.equal(await answers[0].text(), 'js 0', 'the first from the network, not a failure');
+    assert.equal(answers.slice(1).every((a) => a === null), true, 'then left to the browser');
+    assert.equal(reports.length, 1, 'one report for a fault on every request');
+    assert.equal(reports[0].init.credentials, 'omit');
+});
+
+/** Many different errors are a few reports a minute, and the same one again is not sent again. */
+test('the worker\'s reports are capped', async () => {
+    // Arrange
+    const sw = worker({ 'https://app.test/ClientErrors': '' });
+
+    // Act
+    for (let i = 0; i < 20; i++) {
+        sw.listeners.error({ error: new Error('boom ' + i), message: 'boom ' + i });
+        sw.listeners.error({ error: new Error('boom 0'), message: 'boom 0' });
+    }
+    await new Promise((r) => setImmediate(r));
+
+    // Assert
+    assert.equal(sw.fetched.filter((f) => f.url.endsWith('/ClientErrors')).length, 5);
+});

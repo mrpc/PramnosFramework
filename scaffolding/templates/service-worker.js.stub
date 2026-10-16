@@ -196,19 +196,50 @@ function storable(response) {
     return !!response && response.ok && response.type !== 'opaque';
 }
 
+/**
+ * Whether this browser's CacheStorage has failed. A profile can have it broken — "Unexpected
+ * internal error" on every `caches.open()` — and a worker that tried it again on every request
+ * failed every asset and reported every failure: one browser sent hundreds of reports a minute
+ * and filled a server's PHP pool. Once it fails, this worker is network-only for the rest of its
+ * life and leaves requests to the browser.
+ */
+let cacheBroken = false;
+
+/** This worker's asset cache, or null — and network-only from then on — when it cannot be opened. */
+async function assetCache() {
+    if (cacheBroken) {
+        return null;
+    }
+    try {
+        return await caches.open(CACHE);
+    } catch (error) {
+        cacheBroken = true;
+        reportWorkerError(error, error && error.message);
+        return null;
+    }
+}
+
 async function store(request, response) {
     if (!storable(response)) {
         return;
     }
 
-    const cache = await caches.open(CACHE);
-    await cache.put(request, response);
+    // Storing is best effort: a write that fails costs the copy, never the response.
+    try {
+        const cache = await assetCache();
+        if (!cache) {
+            return;
+        }
+        await cache.put(request, response);
 
-    const keys = await cache.keys();
-    if (keys.length > MAX_ENTRIES) {
-        await Promise.all(
-            keys.slice(0, keys.length - MAX_ENTRIES).map((key) => cache.delete(key))
-        );
+        const keys = await cache.keys();
+        if (keys.length > MAX_ENTRIES) {
+            await Promise.all(
+                keys.slice(0, keys.length - MAX_ENTRIES).map((key) => cache.delete(key))
+            );
+        }
+    } catch (error) {
+        reportWorkerError(error, error && error.message);
     }
 }
 
@@ -239,14 +270,16 @@ self.addEventListener('fetch', (event) => {
                 // The preloaded answer when the browser started one, the network otherwise.
                 return (await event.preloadResponse) || await fetch(request);
             } catch (error) {
-                const offline = await (await caches.open(OFFLINE_CACHE)).match(new URL(OFFLINE_PAGE, self.registration.scope).href);
+                const offline = await caches.open(OFFLINE_CACHE)
+                    .then((cache) => cache.match(new URL(OFFLINE_PAGE, self.registration.scope).href))
+                    .catch(() => undefined);
                 return offline || Response.error();
             }
         })());
         return;
     }
 
-    if (url.origin !== self.location.origin || !ASSET.test(url.pathname)) {
+    if (url.origin !== self.location.origin || !ASSET.test(url.pathname) || cacheBroken) {
         return;
     }
 
@@ -279,7 +312,8 @@ self.addEventListener('fetch', (event) => {
 
         // This worker's cache only: `caches.match()` reads every cache on the origin, and a copy
         // another worker stored would be served before this one's, however stale.
-        const cached = await (await caches.open(CACHE)).match(request);
+        const cache = await assetCache();
+        const cached = cache ? await cache.match(request).catch(() => undefined) : undefined;
 
         if (cached && immutable) {
             return cached;
@@ -490,18 +524,43 @@ self.addEventListener('pushsubscriptionchange', (event) => {
  *
  * A page cannot see what fails in here — the worker is another context — so it reports its own,
  * to the same `ClientErrors` address the pages report to, as kind `worker`. Best effort: a report
- * that cannot be sent is dropped rather than queued, so an error while offline costs nothing.
+ * that cannot be sent is dropped rather than queued, so an error while offline costs nothing. Each
+ * message once in the worker's life, at most REPORTS_PER_MINUTE a minute, without cookies.
  */
+/** How many reports a minute this worker sends, all errors together. */
+const REPORTS_PER_MINUTE = 5;
+
+/** Messages already reported by this worker: each is sent once in its life. */
+const reported = new Set();
+let reportWindow = 0;
+let reportsInWindow = 0;
+
 function reportWorkerError(error, message) {
+    const text = String(message || (error && error.message) || error || 'Unknown error');
+    const minute = Math.floor(Date.now() / 60000);
+    if (minute !== reportWindow) {
+        reportWindow = minute;
+        reportsInWindow = 0;
+    }
+    // The same error once, and a few a minute in all: a fault that repeats on every request is one
+    // report, not one per request.
+    if (reported.has(text) || reportsInWindow >= REPORTS_PER_MINUTE) {
+        return;
+    }
+    reported.add(text);
+    reportsInWindow++;
+
     try {
         fetch(sitePath('ClientErrors'), {
             method: 'POST',
-            credentials: 'include',
+            // No cookies: a report is not anybody's, and with the session carried each one waits for
+            // the session lock behind the others — holding a PHP worker the whole time.
+            credentials: 'omit',
             keepalive: true,
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 kind: 'worker',
-                message: String(message || (error && error.message) || error || 'Unknown error'),
+                message: text,
                 source: self.location.pathname,
                 stack: error && error.stack ? String(error.stack) : '',
             }),

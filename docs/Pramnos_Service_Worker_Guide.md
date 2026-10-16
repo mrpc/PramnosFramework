@@ -317,7 +317,14 @@ That matters for two reasons:
 
 **Its own errors** are reported to `ClientErrors` as kind `worker`, beside the pages' errors. A
 page cannot see what fails inside the worker. See
-[Errors in the browser](Pramnos_Logging_Guide.md#errors-in-the-browser).
+[Errors in the browser](Pramnos_Logging_Guide.md#errors-in-the-browser). Each message is sent
+once in the worker's life, at most five reports a minute in all, and without cookies, so a report
+never waits on the session lock.
+
+**A broken CacheStorage.** Some browser profiles fail every `caches.open()`. The worker reports
+that once and is then network-only for the rest of its life: it leaves requests to the browser and
+never retries the cache. Storing a copy is best effort everywhere, so a write that fails costs the
+copy, never the response.
 
 ---
 

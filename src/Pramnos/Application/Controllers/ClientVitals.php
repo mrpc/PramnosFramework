@@ -19,6 +19,7 @@ class ClientVitals extends ClientErrorsController
     public function display(): mixed
     {
         \Pramnos\Framework\Factory::getDocument('json');
+        $this->releaseSession();
 
         if (strtoupper((string) ($_SERVER['REQUEST_METHOD'] ?? 'GET')) !== 'POST') {
             return $this->answer(405);
