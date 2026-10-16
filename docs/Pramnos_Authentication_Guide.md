@@ -134,6 +134,35 @@ to turn over (they last 14 days and are refreshed while used), refuse the old on
 'auth' => ['legacy_remember' => false],
 ```
 
+### Signing in as somebody else, and back
+
+Support often needs to see what a customer sees. `Auth::impersonate($userId)` (or
+`Impersonation::start()`) signs the administrator in as another account, and
+`Auth::endImpersonation()` brings them back without a password:
+
+```php
+$why = \Pramnos\Auth\Auth::getInstance()->impersonate($customerId);   // null, or why not
+// the framework's own: POST Users/loginas/{id} from the administration
+
+// on every page, in the theme: who this is, and the way back (a POST with the token)
+echo \Pramnos\Auth\Impersonation::banner(sURL . 'Impersonation');
+```
+
+- **Nothing that signs the administrator in stays in the browser.** Their token ends when the
+  other sign-in begins. The way back is a one-time key held only in the impersonated session. Its
+  hash is kept in `impersonations`, with who, as whom, and how it ended.
+- **Coming back** (`POST /Impersonation`) ends the impersonated sign-in's token and signs the
+  administrator in with a fresh one. The way back is then spent.
+- **Ending it otherwise.** The way back is open for eight hours. Signing out while impersonating
+  closes it, so neither account stays signed in.
+- **The activity log records both events**: `impersonate`/`impersonated` and `impersonation_end`.
+- **Who may.** From the `super` role up, and only as an account of a lower usertype: never one's
+  own, an equal or a higher one. Configure it with:
+
+```php
+'auth' => ['impersonation' => ['min_role' => 'admin', 'hours' => 4]],
+```
+
 ### Encrypted Password Authentication
 
 ```php

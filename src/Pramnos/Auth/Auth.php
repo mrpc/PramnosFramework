@@ -164,6 +164,9 @@ class Auth extends \Pramnos\Framework\Base
      */
     public function logout()
     {
+        // Signed in as somebody else: the way back closes too, so neither account stays signed in.
+        Impersonation::closeOnLogout();
+
         // This browser's credential ends here, before either path resets the session it is in.
         RememberTokens::revoke((string) ($_SESSION['auth'] ?? \Pramnos\Http\Request::getInstance()->cookieget('auth') ?? ''));
 
@@ -290,6 +293,21 @@ class Auth extends \Pramnos\Framework\Base
         RememberTokens::revoke($cookie);
 
         return $this->loginById($userId, true);
+    }
+
+    /**
+     * Sign in as another account, with a way back that needs no password: see
+     * {@see Impersonation}. Null when it was done, or why not.
+     */
+    public function impersonate(int $userId): ?string
+    {
+        return Impersonation::start($userId, $this);
+    }
+
+    /** Back to the account that signed in as somebody else. False when there is no way back. */
+    public function endImpersonation(): bool
+    {
+        return Impersonation::end($this);
     }
 
     /**

@@ -50,14 +50,14 @@ class UsersController extends Controller
             // Per-user settings and per-user permissions, edited where the user is.
             'types',
             'savesetting', 'deletesetting', 'grantpermission', 'revokepermission',
-            'notify', 'sendnotification', 'signinalerts', 'adminscreens', 'emailpreference', 'endsession',
+            'notify', 'sendnotification', 'signinalerts', 'adminscreens', 'emailpreference', 'endsession', 'loginas',
         ]);
         // POST with the session's token, or refused before the action runs: see exec().
         $this->addWriteAction([
             'save', 'delete', 'lock', 'unlock', 'deactivateToken', 'deleteToken', 'resetpassword',
             'unlocklogin', 'disabletwofactor', 'revokepasskey', 'savesetting', 'deletesetting',
             'grantpermission', 'revokepermission', 'sendnotification', 'signinalerts', 'adminscreens',
-            'emailpreference', 'endsession',
+            'emailpreference', 'endsession', 'loginas',
         ]);
         parent::__construct($application);
     }
@@ -1749,6 +1749,29 @@ class UsersController extends Controller
             . '<p>If you did not request this, please ignore this email. '
             . 'The link expires in 24 hours.</p>'
             . '<p>— ' . $site . ' Team</p>';
+    }
+
+    /**
+     * "Log in as" — the account in the address, with a way back that needs no password
+     * ({@see \Pramnos\Auth\Impersonation}): to the site's front page as them, or back to the
+     * account with why not.
+     */
+    public function loginas(mixed $id = null): mixed
+    {
+        if ($this->requireMinUserType($this->adminFloor())) {
+            return null;
+        }
+        $id  = (int) ($id ?: \Pramnos\Http\Request::staticGetOption());
+        $why = \Pramnos\Auth\Impersonation::start($id);
+        if ($why !== null) {
+            $this->addError($why);
+            $this->redirect(adminUrl('users/view/') . $id);
+
+            return null;
+        }
+        $this->redirect(defined('sURL') ? \sURL : '/');
+
+        return null;
     }
 
     /**

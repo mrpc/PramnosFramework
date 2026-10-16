@@ -547,3 +547,7 @@ a.pf-stat-tile:hover { border-color: var(--bs-primary, #0d6efd); }
         min-width: 0;
     }
 }
+
+/* \Pramnos\Auth\Impersonation::banner(): an administrator seeing the site as somebody else */
+.pf-impersonation { position: sticky; top: 0; z-index: 1000; padding: .5rem 1rem; background: #fef3c7; color: #78350f; text-align: center; font-size: .875rem; }
+.pf-impersonation button { margin-left: .5rem; }
