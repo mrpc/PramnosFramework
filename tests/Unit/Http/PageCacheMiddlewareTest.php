@@ -44,6 +44,7 @@ class PageCacheMiddlewareTest extends TestCase
         $_SERVER['REQUEST_URI']    = '/stations';
 
         PageCache::resetRuntime();
+        PageCache::useQueuedHeaders(null);
         Request::resetInstance();
     }
 
@@ -54,6 +55,7 @@ class PageCacheMiddlewareTest extends TestCase
         $_COOKIE = $this->cookie;
 
         PageCache::resetRuntime();
+        PageCache::useQueuedHeaders(null);
         Request::resetInstance();
     }
 
@@ -125,6 +127,99 @@ class PageCacheMiddlewareTest extends TestCase
         $this->assertSame('private, no-cache', $hit->getHeaderLine('Cache-Control'));
         $this->assertSame('', (string) $notStored->getHeaderLine('Cache-Control'), 'not stored: its own headers');
         $this->assertSame('', (string) $unset->getHeaderLine('Cache-Control'), 'nothing configured: nothing added');
+    }
+
+    /**
+     * A cookie queued with setcookie() — which the Response never sees — means the page answered
+     * one visitor: it is not stored, nor given the shared Cache-Control. The framework's own
+     * visitor tracking, set on every request, does not count, by its name before or after the
+     * framework's encoding, nor do the cookies an application names harmless; the session cookie
+     * does.
+     */
+    public function testACookieQueuedByPhpIsNotStored(): void
+    {
+        // Arrange
+        $prefix = substr(md5('pcms'), 0, 10);
+        $cache  = $this->middleware(['cacheControl' => 'private, no-cache', 'harmlessCookies' => ['lastseen', 'visitorid', 'theme']]);
+        $ran    = 0;
+        $page   = function () use (&$ran): Response {
+            $ran++;
+
+            return Response::make('<html>p</html>');
+        };
+
+        // Act — tracking cookies only, then an app's harmless one, then the session, then a tracker of its own
+        PageCache::useQueuedHeaders(['Set-Cookie: ' . urlencode($prefix . '[' . str_rot13('lastseen') . ']') . '=1700000000; path=/', 'Set-Cookie: visitorid=abc', 'Set-Cookie: theme=dark']);
+        $tracked = $cache->handle($this->request('/t'), $page);
+        PageCache::useQueuedHeaders([]);
+        $cache->handle($this->request('/t'), $page);
+        $afterTracked = $ran;
+        PageCache::useQueuedHeaders(['Set-Cookie: PHPSESSID=new; path=/']);
+        $session = $cache->handle($this->request('/s'), $page);
+        PageCache::useQueuedHeaders([]);
+        $cache->handle($this->request('/s'), $page);
+        $afterSession = $ran;
+
+        // Assert
+        $this->assertSame('private, no-cache', $tracked->getHeaderLine('Cache-Control'), 'tracking cookies: stored, and said so');
+        $this->assertSame(1, $afterTracked, 'the second came from the cache');
+        $this->assertSame('', (string) $session->getHeaderLine('Cache-Control'), 'a session cookie: not stored');
+        $this->assertSame(3, $afterSession, 'so the next request ran the page again');
+    }
+
+    /**
+     * The framework's own cookies arrive as an array under its prefix, by an encoded name; the
+     * remember-me `logged` among them is still found, so a remembered visitor without a session is
+     * not served the anonymous page. An array cookie of an application's own is matched as
+     * `name[key]`; the framework's visitor tracking does not bypass anything.
+     */
+    public function testArrayStyleCookiesAreMatched(): void
+    {
+        // Arrange
+        $prefix = substr(md5('pcms'), 0, 10);
+        $cache  = new PageCache(['enabled' => true, 'bypassCookies' => ['#^(auth|remember|logged)#i', '#^prefs\\[remember\\]$#']], new ArrayAdapter());
+        $request = $this->request('/x');
+
+        // Act
+        $_COOKIE = [$prefix => [str_rot13('logged') => '1']];
+        $remembered = $cache->whyBypassed($request);
+        $_COOKIE = ['prefs' => ['remember' => '1']];
+        $own = $cache->whyBypassed($request);
+        $_COOKIE = [$prefix => [str_rot13('visitorid') => 'abc', str_rot13('lastseen') => '1']];
+        $tracking = $cache->whyBypassed($request);
+
+        // Assert
+        $this->assertSame('cookie:logged', $remembered);
+        $this->assertSame('cookie:prefs[remember]', $own);
+        $this->assertNull($tracking);
+    }
+
+    /**
+     * With cdnCacheControl, a hit tells a CDN to keep it for what is left of the entry's life —
+     * as CDN-Cache-Control, or a header of the application's choosing; a miss never says it, and
+     * by default nothing is said.
+     */
+    public function testAHitTellsTheCdn(): void
+    {
+        // Arrange
+        $page = static fn (): Response => Response::make('<html>cdn</html>');
+        $on   = $this->middleware(['cdnCacheControl' => true, 'ttl' => 600]);
+        $cf   = $this->middleware(['cdnCacheControl' => 'Cloudflare-CDN-Cache-Control', 'ttl' => 300]);
+        $off  = $this->middleware();
+
+        // Act
+        $miss = $on->handle($this->request('/c'), $page);
+        $hit  = $on->handle($this->request('/c'), $page);
+        $cf->handle($this->request('/f'), $page);
+        $cfHit = $cf->handle($this->request('/f'), $page);
+        $off->handle($this->request('/o'), $page);
+        $offHit = $off->handle($this->request('/o'), $page);
+
+        // Assert
+        $this->assertSame('', (string) $miss->getHeaderLine('CDN-Cache-Control'), 'not on a miss');
+        $this->assertMatchesRegularExpression('/^max-age=(600|599)$/', $hit->getHeaderLine('CDN-Cache-Control'));
+        $this->assertMatchesRegularExpression('/^max-age=(300|299)$/', $cfHit->getHeaderLine('Cloudflare-CDN-Cache-Control'));
+        $this->assertSame('', (string) $offHit->getHeaderLine('CDN-Cache-Control'), 'off by default');
     }
 
     /**

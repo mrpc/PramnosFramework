@@ -189,6 +189,15 @@ final class PageCache
             // comment either: a body is what snapshot tools diff and what a search engine
             // indexes, and debug information does not belong in a stored page.
             'debugDetail'    => false,
+            // What a hit tells a CDN, apart from the browser: `true` sends
+            // `CDN-Cache-Control: max-age=<what is left of the entry's TTL>` on a HIT only,
+            // a string names another header (`Cloudflare-CDN-Cache-Control`). Off by default:
+            // an edge that caches HTML has to be told about the login cookie first.
+            'cdnCacheControl' => false,
+            // Cookies a response may set and still be stored — the framework's own visitor
+            // tracking, which the session tracking writes on every request. Any other cookie
+            // queued with setcookie() answers one visitor: the page is not stored.
+            'harmlessCookies' => ['lastseen', 'visitorid'],
             'writer'         => 'cache',
             'staticRoot'     => '',
             'headerWhitelist' => [
@@ -343,7 +352,7 @@ final class PageCache
         // would hand the next visitor that visitor's session, which is the worst
         // failure a page cache has and the one nobody notices until it is
         // somebody else's account page.
-        if ($response->hasHeader('Set-Cookie')) {
+        if ($response->hasHeader('Set-Cookie') || $this->queuedCookies() !== []) {
             return false;
         }
 
@@ -668,8 +677,9 @@ final class PageCache
             }
         }
 
+        $cookies = self::cookieNames();
         foreach ((array) $this->config['bypassCookies'] as $pattern) {
-            foreach (array_keys($_COOKIE ?? []) as $cookie) {
+            foreach ($cookies as $cookie) {
                 if ($this->matches((string) $cookie, (string) $pattern)) {
                     return 'cookie:' . $cookie;
                 }
@@ -963,6 +973,14 @@ final class PageCache
 
         $response = $this->withCacheControl($response);
 
+        // A CDN keeps a hit for what is left of the entry's life, and only a hit: a miss may yet
+        // be refused by store(), and an edge must never keep what this cache would not.
+        $cdn = $this->config['cdnCacheControl'] ?? false;
+        if ($state === 'HIT' && $cdn !== false && $cdn !== null && $cdn !== '') {
+            $left     = max(0, (int) ($entry['ttl'] ?? $this->config['ttl']) - $age);
+            $response = $response->withHeader(is_string($cdn) ? $cdn : 'CDN-Cache-Control', 'max-age=' . $left);
+        }
+
         if (!$this->config['debugHeader']) {
             return $response;
         }
@@ -1006,13 +1024,82 @@ final class PageCache
      */
     public function storedResponse(Response $response): Response
     {
-        foreach (headers_list() as $header) {
-            if (stripos($header, 'set-cookie:') === 0) {
-                return $response;
+        return $this->queuedCookies() === [] ? $this->withCacheControl($response) : $response;
+    }
+
+    /**
+     * The cookies queued with `header()`/`setcookie()` for this response — which the Response never
+     * sees — other than the harmless ones (`harmlessCookies`), by name. A framework cookie is
+     * named as `Request::cookieset()` was given it, not as it goes out.
+     *
+     * @return list<string>
+     */
+    private function queuedCookies(): array
+    {
+        $harmless = array_map('strtolower', (array) ($this->config['harmlessCookies'] ?? []));
+        $names    = [];
+        foreach ($this->headersSent() as $header) {
+            if (preg_match('/^set-cookie:\s*([^=;]+)=/i', $header, $m) !== 1) {
+                continue;
+            }
+            $name = urldecode(trim($m[1]));
+            if (preg_match('/^[a-f0-9]{10}\[(.+)\]$/', $name, $framework) === 1) {
+                $name = str_rot13($framework[1]);
+            }
+            if (!in_array(strtolower($name), $harmless, true)) {
+                $names[] = $name;
             }
         }
 
-        return $this->withCacheControl($response);
+        return $names;
+    }
+
+    /**
+     * The names the request's cookies go by, for `bypassCookies`: each plain one; each of an
+     * array-style one, as `name[key]`; and the framework's own (`Request::cookieset()` keeps them
+     * as `<prefix>[<rot13 of the name>]`) by the name they were given too — so `logged`, the
+     * remember-me sign-in's, is found and its visitor never served the anonymous page.
+     *
+     * @return list<string>
+     */
+    private static function cookieNames(): array
+    {
+        $framework = substr(md5('pcms'), 0, 10);
+        $names     = [];
+        foreach ($_COOKIE ?? [] as $name => $value) {
+            $names[] = (string) $name;
+            if (!is_array($value)) {
+                continue;
+            }
+            foreach (array_keys($value) as $key) {
+                $names[] = $name . '[' . $key . ']';
+                if ((string) $name === $framework) {
+                    $names[] = str_rot13((string) $key);
+                }
+            }
+        }
+
+        return $names;
+    }
+
+    /** @var list<string>|null The queued headers a test gives, in place of headers_list() */
+    private static ?array $queuedHeaders = null;
+
+    /**
+     * For a test: the headers PHP has queued, which its CLI never has. Null goes back to
+     * headers_list().
+     *
+     * @param list<string>|null $headers
+     */
+    public static function useQueuedHeaders(?array $headers): void
+    {
+        self::$queuedHeaders = $headers;
+    }
+
+    /** @return list<string> The headers queued for this response */
+    private function headersSent(): array
+    {
+        return self::$queuedHeaders ?? headers_list();
     }
 
     /**

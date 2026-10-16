@@ -614,7 +614,7 @@ Before setting it, be sure of two things, because a CDN is not purgeable from he
 | `onlyPaths` | `[]` | empty means all |
 | `bypassPaths` | `[]` | globs or delimited regexes |
 | `bypassQuery` | `[]` | `name => true` or `name => [values]` |
-| `bypassCookies` | `['#^(auth\|remember\|logged)#i', '#^' . session_name() . '$#i']` | the session cookie is on the list by default |
+| `bypassCookies` | `['#^(auth\|remember\|logged)#i', '#^' . session_name() . '$#i']` | the session cookie is on the list by default. An array-style cookie is matched as `name[key]`, and the framework's own (`Request::cookieset()`, kept under a prefix by an encoded name) by the name it was given — so the remember-me `logged` bypasses |
 | `bypassHeaders` | `['Authorization']` | |
 | `ignoreQuery` | `utm_*`, `fbclid`, `gclid`, … | dropped before keying |
 | `varyQuery` | `null` | whitelist; overrides `ignoreQuery` |
@@ -629,6 +629,8 @@ Before setting it, be sure of two things, because a CDN is not purgeable from he
 | `cacheControl` | `null` | what a hit — and the miss that was just stored — tells the **browser**; null leaves PHP's session limiter alone. `'private, no-cache'` gives the back/forward cache and a 304 on each revalidation, with no shared copy |
 | `debugHeader` | `true` | `X-Pramnos-Cache` and `Age` |
 | `debugDetail` | `false` | adds the key, TTL and expiry |
+| `cdnCacheControl` | `false` | `true` sends `CDN-Cache-Control: max-age=<what is left of the entry's TTL>` on a **HIT only**; a string names another header (`Cloudflare-CDN-Cache-Control`). For an edge that caches HTML — and that must bypass on the login cookie first |
+| `harmlessCookies` | `['lastseen', 'visitorid']` | cookies a response may queue with `setcookie()` and still be stored — the framework's visitor tracking. Any other queued cookie, the session's included, means the page answered one visitor: it is not stored |
 | `writer` | `'cache'` | or `'static'` |
 | `staticRoot` | `''` | empty means `ROOT . '/www/cache'` |
 | `headerWhitelist` | `content-type`, `content-language`, `link`, `vary` | the only response headers replayed |
