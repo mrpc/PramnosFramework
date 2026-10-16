@@ -51,6 +51,12 @@ final class ProfilePhoto
     /** The setting that lets an SSO sign-in copy the provider's picture. Off unless set. */
     public const ADOPT_SETTING = 'profile_photo_from_provider';
 
+    /** The setting for the side, in pixels, a picture is made in the browser before it is sent. */
+    public const UPLOAD_SIZE_SETTING = 'profile_photo_upload_size';
+
+    /** That side when the setting says nothing. */
+    public const UPLOAD_SIZE = 512;
+
     /** @var array<int, string> URLs already resolved in this request, by usage id */
     private static array $urls = [];
 
@@ -222,6 +228,32 @@ final class ProfilePhoto
         }
 
         return self::$urls[$usageId];
+    }
+
+    /**
+     * The side of the square a picture is cropped to and made in the browser, from the
+     * `profile_photo_upload_size` setting: between {@see SIZE} and the stored original's 1024
+     * pixels, {@see UPLOAD_SIZE} when the setting is empty or not a number.
+     */
+    public static function uploadSize(): int
+    {
+        $value = trim((string) Settings::getSetting(self::UPLOAD_SIZE_SETTING, ''));
+        $size  = ctype_digit($value) ? (int) $value : self::UPLOAD_SIZE;
+
+        return max(self::SIZE, min(self::MAX_SIDE, $size));
+    }
+
+    /**
+     * The picture input's attributes for {@see \Pramnos\Html\ImageUpload}: a square crop with a
+     * round guide, at most {@see uploadSize()} pixels, shown in `$preview` and sent at once.
+     */
+    public static function uploadAttributes(string $preview = '#profile-photo-preview'): string
+    {
+        $size = self::uploadSize();
+
+        return \Pramnos\Html\ImageUpload::attributes([
+            'aspect' => 1, 'maxWidth' => $size, 'maxHeight' => $size, 'round' => true, 'preview' => $preview, 'submit' => true,
+        ]);
     }
 
     /** Forget the URLs resolved so far: for a long-running process or a test. */

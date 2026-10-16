@@ -9,7 +9,8 @@
  * Variables (set by Pramnos\Auth\Controllers\Account::profile):
  *   $this->routeBase — Account controller route base
  *   $this->user      — User object; `avatarurl` and `photo` drive the picture card,
- *                      whose form posts to Account::profilephoto()
+ *                      whose form posts to Account::profilephoto(); the picture is
+ *                      cropped and sized in the browser first (Html\ImageUpload)
  */
 $routeBase = $this->routeBase ?? 'Account';
 $u         = $this->user;
@@ -35,13 +36,11 @@ $this->activeNav = 'profile';
             <div class="card" style="margin-bottom:20px">
                 <div class="card-header"><strong>Profile Picture</strong></div>
                 <div class="card-body" style="padding:20px;display:flex;gap:20px;align-items:center;flex-wrap:wrap">
-                    <?php if (!empty($u->avatarurl)): ?>
-                        <img src="<?php echo htmlspecialchars((string) $u->avatarurl); ?>" alt="Your profile picture" width="96" height="96" style="border-radius:50%">
-                    <?php endif; ?>
+                    <img id="profile-photo-preview"<?php echo empty($u->avatarurl) ? ' hidden' : ' src="' . htmlspecialchars((string) $u->avatarurl) . '"'; ?> alt="Your profile picture" width="96" height="96" style="border-radius:50%">
                     <form method="post" action="<?php echo sURL . $routeBase; ?>/profilephoto" enctype="multipart/form-data">
                         <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
                         <label for="photo">Choose a picture</label>
-                        <input type="file" id="photo" name="photo" accept="image/jpeg,image/png,image/gif,image/webp">
+                        <input type="file" id="photo" name="photo" accept="image/jpeg,image/png,image/gif,image/webp"<?php echo \Pramnos\User\ProfilePhoto::uploadAttributes(); ?>>
                         <button type="submit" class="btn">Upload</button>
                         <?php if (\Pramnos\User\ProfilePhoto::gravatarAllowed()): ?>
                             <button type="submit" name="gravatar" value="1" class="btn">Use my Gravatar</button>
@@ -53,6 +52,7 @@ $this->activeNav = 'profile';
                             <p style="margin:6px 0 0;font-size:0.9em;opacity:.8">Use my Gravatar asks Gravatar for the picture of your email address, once, and keeps a copy here.</p>
                         <?php endif; ?>
                     </form>
+                    <?php echo \Pramnos\Html\ImageUpload::assets(); ?>
                 </div>
             </div>
 

@@ -571,3 +571,18 @@ a.pf-stat-tile:hover { border-color: var(--primary-color, #2563eb); }
     .pf-calendar .fc-toolbar { flex-wrap: wrap; gap: .5rem; }
     .pf-calendar .fc-toolbar-title { font-size: 1.1rem; }
 }
+
+/* pf-image.js (Cropper.js): the crop dialog, a round guide for an avatar, and the theme's colour */
+.pf-image-dialog { width: min(42rem, calc(100vw - 2rem)); max-height: calc(100vh - 2rem); padding: 1rem; border: 0; border-radius: .75rem; background: var(--color-base-100, #fff); color: var(--color-base-content, #111); box-shadow: 0 1rem 3rem rgba(0, 0, 0, .3); }
+.pf-image-dialog::backdrop { background: rgba(0, 0, 0, .6); }
+.pf-image-dialog h2 { margin: 0 0 .75rem; font-size: 1.125rem; }
+.pf-image-stage { height: min(60vh, 28rem); background: color-mix(in oklab, currentColor 8%, transparent); }
+.pf-image-stage img { display: block; max-width: 100%; }
+.pf-image-tools, .pf-image-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .75rem; }
+.pf-image-actions { justify-content: flex-end; }
+.pf-image-dialog button { padding: .375rem .75rem; border: 1px solid color-mix(in oklab, currentColor 25%, transparent); border-radius: .375rem; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.pf-image-dialog button:hover { background: color-mix(in oklab, currentColor 8%, transparent); }
+.pf-image-dialog .pf-image-use { border-color: var(--primary-color, #2563eb); background: var(--primary-color, #2563eb); color: #fff; }
+.pf-image-dialog .pf-image-use:disabled { opacity: .6; cursor: progress; }
+.pf-image-dialog .cropper-view-box { outline-color: var(--primary-color, #2563eb); }
+.pf-image-round .cropper-view-box, .pf-image-round .cropper-face { border-radius: 50%; }

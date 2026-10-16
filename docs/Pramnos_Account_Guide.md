@@ -32,8 +32,11 @@ whichever theme (plain-CSS, Bootstrap, Tailwind) the application uses.
 
 ## Profile picture
 
-**Account → Profile** has a **Profile Picture** card. Choose a JPEG, PNG, GIF or WebP picture
-and press **Upload**. Whatever the format, it is stored as JPEG, so every client can show it;
+**Account → Profile** has a **Profile Picture** card. Choose a JPEG, PNG, GIF or WebP picture.
+Where the project has Cropper.js (`libraries:sync cropperjs`), a dialog opens to crop it to a
+square, turn or flip it. The picture is made at most `profile_photo_upload_size` pixels (512 by
+default) in the browser, and sent as soon as it is cropped (see the
+[Image Upload Guide](Pramnos_Image_Upload_Guide.md)). Without Cropper.js, press **Upload**. Whatever the format, it is stored as JPEG, so every client can show it;
 a transparent picture gets a white background. The picture shown is a square of 256 pixels
 cropped from the centre, and it replaces the previous one. The original is kept beside it,
 at most 1024 pixels on its longer side. A file over 10 MB, or one that declares more than 40

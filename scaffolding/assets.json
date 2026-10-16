@@ -50,6 +50,17 @@
             ],
             "local_path": "assets/vendor/fullcalendar/6.1.15"
         },
+        "cropperjs": {
+            "version": "1.6.2",
+            "description": "Cropping, rotating and flipping a picture in the browser (MIT). pf-image.js and Html\\ImageUpload use it to crop and size a picture before it is uploaded; the profile picture card among them.",
+            "css": [
+                "https://cdn.jsdelivr.net/npm/cropperjs@1.6.2/dist/cropper.min.css"
+            ],
+            "js": [
+                "https://cdn.jsdelivr.net/npm/cropperjs@1.6.2/dist/cropper.min.js"
+            ],
+            "local_path": "assets/vendor/cropperjs/1.6.2"
+        },
         "web-vitals": {
             "version": "4.2.4",
             "description": "Core Web Vitals in the browser (attribution build), for pf-vitals.js: TTFB, FCP, LCP, INP, CLS.",

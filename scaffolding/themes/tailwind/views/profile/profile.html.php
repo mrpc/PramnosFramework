@@ -9,7 +9,8 @@
  * Variables (set by Pramnos\Auth\Controllers\Account::profile):
  *   $this->routeBase — Account controller route base
  *   $this->user      — User object; `avatarurl` and `photo` drive the picture card,
- *                      whose form posts to Account::profilephoto()
+ *                      whose form posts to Account::profilephoto(); the picture is
+ *                      cropped and sized in the browser first (Html\ImageUpload)
  */
 $routeBase = $this->routeBase ?? 'Account';
 $u         = $this->user;
@@ -38,13 +39,11 @@ $inputCls = 'input w-full';
             <div class="card bg-base-100 shadow-sm">
                 <div class="px-6 py-3 border-b border-base-300 font-semibold text-base-content">Profile Picture</div>
                 <div class="p-6 flex items-center gap-6 flex-wrap">
-                    <?php if (!empty($u->avatarurl)): ?>
-                        <img src="<?php echo htmlspecialchars((string) $u->avatarurl); ?>" alt="Your profile picture" width="96" height="96" class="rounded-full">
-                    <?php endif; ?>
+                    <img id="profile-photo-preview"<?php echo empty($u->avatarurl) ? ' hidden' : ' src="' . htmlspecialchars((string) $u->avatarurl) . '"'; ?> alt="Your profile picture" width="96" height="96" class="rounded-full">
                     <form method="post" action="<?php echo sURL . $routeBase; ?>/profilephoto" enctype="multipart/form-data" class="flex gap-2 flex-wrap items-center">
                         <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
                         <label for="photo" class="sr-only">Choose a picture</label>
-                        <input type="file" id="photo" name="photo" accept="image/jpeg,image/png,image/gif,image/webp" class="file-input file-input-bordered">
+                        <input type="file" id="photo" name="photo" accept="image/jpeg,image/png,image/gif,image/webp"<?php echo \Pramnos\User\ProfilePhoto::uploadAttributes(); ?> class="file-input file-input-bordered">
                         <button type="submit" class="btn btn-primary">Upload</button>
                         <?php if (\Pramnos\User\ProfilePhoto::gravatarAllowed()): ?>
                             <button type="submit" name="gravatar" value="1" class="btn btn-outline">Use my Gravatar</button>
@@ -56,6 +55,7 @@ $inputCls = 'input w-full';
                             <p class="text-sm text-base-content/70 w-full">Use my Gravatar asks Gravatar for the picture of your email address, once, and keeps a copy here.</p>
                         <?php endif; ?>
                     </form>
+                    <?php echo \Pramnos\Html\ImageUpload::assets(); ?>
                 </div>
             </div>
             <div class="card bg-base-100 shadow-sm">
