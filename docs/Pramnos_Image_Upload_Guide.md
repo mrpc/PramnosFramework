@@ -34,8 +34,9 @@ pramnos project:resync --js --all          # pf-image.js
 ```
 
 Choosing a picture opens a dialog with the picture and a crop box. The box is held to the ratio
-when one is given, and free otherwise. Its buttons rotate left and right, flip, zoom in and out,
-and reset. **Use this picture** puts the result in the input in place of the file that was
+when one is given, and free otherwise. Its buttons rotate left and right, flip and reset, and a
+slider zooms from the picture fitted (1×) to four times that. Zooming with the wheel or a pinch
+moves the slider too, and stops where it stops. **Use this picture** puts the result in the input in place of the file that was
 chosen, so the form sends it as it would have sent the original, under the same field name.
 **Cancel**, or Escape, empties the input. With a ratio, nothing leaves the page uncropped.
 
@@ -58,7 +59,7 @@ fails at once rather than leaving the crop free. Give `width` and `height` toget
 `aspect` of the same ratio, or the picture is stretched.
 
 The dialog's words are translated through `t()`: `Crop the picture`, `Rotate left`,
-`Rotate right`, `Flip`, `Zoom in`, `Zoom out`, `Reset`, `Cancel`, `Use this picture`.
+`Rotate right`, `Flip`, `Zoom` (the slider's label), `Reset`, `Cancel`, `Use this picture`.
 `attributes()` puts the translated ones in `data-words`.
 
 ## What is told to the page

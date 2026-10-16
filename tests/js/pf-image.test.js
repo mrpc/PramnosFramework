@@ -75,6 +75,9 @@ function page({ attributes = {}, cropper = true } = {}) {
     if (cropper) {
         window.Cropper = class {
             constructor(image, options) { this.image = image; this.options = options; this.calls = []; this.flipped = 1; croppers.push(this); }
+            getImageData() { return { naturalWidth: 3000 }; }
+            getCanvasData() { return { width: 600 }; }
+            zoomTo(ratio) { this.calls.push(['zoomTo', ratio]); }
             rotate(degrees) { this.calls.push(['rotate', degrees]); }
             scaleX(value) { this.calls.push(['scaleX', value]); this.flipped = value; }
             getData() { return { scaleX: this.flipped }; }
@@ -139,16 +142,46 @@ test('the ratio is read as a number, a fraction or a ratio, and free otherwise',
     assert.equal(read.slice(4).every(Number.isNaN), true, 'free: NaN is what Cropper.js takes for no ratio');
 });
 
-test('the buttons turn, flip back and forth, zoom and reset the picture', () => {
+test('the buttons turn, flip back and forth and reset the picture', () => {
     // Arrange
     const { choose, croppers, press } = page();
     choose();
 
     // Act
-    ['rotate-left', 'rotate-right', 'flip', 'flip', 'zoom-in', 'zoom-out', 'reset'].forEach(press);
+    ['rotate-left', 'rotate-right', 'flip', 'flip', 'reset'].forEach(press);
 
     // Assert
-    assert.deepEqual(croppers[0].calls, [['rotate', -90], ['rotate', 90], ['scaleX', -1], ['scaleX', 1], ['zoom', 0.1], ['zoom', -0.1], ['reset']]);
+    assert.deepEqual(croppers[0].calls, [['rotate', -90], ['rotate', 90], ['scaleX', -1], ['scaleX', 1], ['reset']]);
+});
+
+test('the zoom slider is a multiple of the picture fitted, follows the wheel, stops at 4x and resets to 1x', () => {
+    // Arrange — the picture opens fitted at 600 of its 3000 pixels: a ratio of 0.2
+    const { choose, croppers, press, dialog } = page({ attributes: { 'data-words': '{"Zoom":"Μεγέθυνση"}' } });
+    choose();
+    const cropper = croppers[0];
+    const slider = dialog().querySelector('input[type="range"]');
+    let stopped = false;
+    const wheel = (ratio, oldRatio) => cropper.options.zoom({ detail: { ratio, oldRatio }, preventDefault() { stopped = true; } });
+
+    // Act
+    wheel(0.5, 0.2);                              // before ready: nothing known yet, nothing moves
+    const before = slider.value;
+    cropper.options.ready();
+    slider.value = '2.5';
+    slider._fire(new Event('input'));
+    wheel(0.4, 0.3);
+    const followed = slider.value;
+    wheel(0.9, 0.8);                              // past 4x, zooming in
+    const past = stopped;
+    press('reset');
+
+    // Assert
+    assert.equal(before, '1');
+    assert.equal(slider.getAttribute('aria-label'), 'Μεγέθυνση', 'labelled, in the page\'s language');
+    assert.deepEqual(cropper.calls[0], ['zoomTo', 0.5], '2.5 x 0.2');
+    assert.equal(followed, '2', 'the wheel at 0.4 is 2x');
+    assert.equal(past, true, 'no further than the slider goes');
+    assert.equal(slider.value, '1', 'reset is 1x');
 });
 
 test('using the picture puts the result in the input, at most the size asked, shown and sent', () => {

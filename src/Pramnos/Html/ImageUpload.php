@@ -38,7 +38,7 @@ final class ImageUpload
     ];
 
     /** The dialog's words, translated through `t()` into `data-words`. */
-    private const WORDS = ['Crop the picture', 'Rotate left', 'Rotate right', 'Flip', 'Zoom in', 'Zoom out', 'Reset', 'Cancel', 'Use this picture'];
+    private const WORDS = ['Crop the picture', 'Rotate left', 'Rotate right', 'Flip', 'Zoom', 'Reset', 'Cancel', 'Use this picture'];
 
     /**
      * The input's attributes, escaped, with a leading space.

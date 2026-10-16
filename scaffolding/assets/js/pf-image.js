@@ -16,7 +16,7 @@
  *          data-words='{"Cancel": "…"}'> optional: the dialog's words, translated
  *
  * Choosing a file opens a dialog with the picture, a crop box (held to `data-aspect`), and buttons
- * to rotate, flip, zoom and reset. "Use this picture" puts the result in the input in place of the
+ * to rotate and flip, a zoom slider (1× to 4× the picture fitted, following the wheel and a pinch), and reset. "Use this picture" puts the result in the input in place of the
  * file chosen, so the form sends it as it would have sent the original. "Cancel", or Escape,
  * empties the input: with `data-aspect`, nothing leaves the page uncropped.
  *
@@ -29,6 +29,9 @@
  */
 (function () {
     'use strict';
+
+    /** The most the zoom slider enlarges the picture, as a multiple of it fitted. */
+    var MAX_ZOOM = 4;
 
     /** A ratio from `1`, `1.5`, `16/9` or `4:3`; NaN (free) for anything else. */
     function ratio(value) {
@@ -176,10 +179,19 @@
         stage.appendChild(image);
         var tools = document.createElement('div');
         tools.className = 'pf-image-tools';
-        [['Rotate left', 'rotate-left'], ['Rotate right', 'rotate-right'], ['Flip', 'flip'], ['Zoom in', 'zoom-in'],
-            ['Zoom out', 'zoom-out'], ['Reset', 'reset']].forEach(function (one) {
+        [['Rotate left', 'rotate-left'], ['Rotate right', 'rotate-right'], ['Flip', 'flip']].forEach(function (one) {
             tools.appendChild(button(t(one[0]), one[1]));
         });
+        // Zoom as a multiple of the picture as it opened, fitted: 1× to 4×.
+        var zoom = document.createElement('input');
+        zoom.setAttribute('type', 'range');
+        zoom.setAttribute('min', '1');
+        zoom.setAttribute('max', String(MAX_ZOOM));
+        zoom.setAttribute('step', '0.01');
+        zoom.setAttribute('aria-label', t('Zoom'));
+        zoom.className = 'pf-image-zoom';
+        zoom.value = '1';
+        tools.append(zoom, button(t('Reset'), 'reset'));
         var actions = document.createElement('div');
         actions.className = 'pf-image-actions';
         var cancel = button(t('Cancel'), 'cancel');
@@ -189,13 +201,36 @@
         dialog.append(title, stage, tools, actions);
         document.body.appendChild(dialog);
 
+        // The ratio the picture opened at, fitted; the slider is a multiple of it.
+        var fitted = 0;
         var cropper = new window.Cropper(image, {
             aspectRatio: wanted.aspect,
             viewMode: 1,
             dragMode: 'move',
             autoCropArea: 1,
             background: false,
-            responsive: true
+            responsive: true,
+            ready: function () {
+                var natural = cropper.getImageData().naturalWidth;
+                fitted = natural > 0 ? cropper.getCanvasData().width / natural : 0;
+            },
+            // A wheel or a pinch moves the slider too, and stops where the slider stops.
+            zoom: function (event) {
+                if (!fitted) {
+                    return;
+                }
+                var times = event.detail.ratio / fitted;
+                if (times > MAX_ZOOM + 0.001 && event.detail.ratio > event.detail.oldRatio) {
+                    event.preventDefault();
+                    return;
+                }
+                zoom.value = String(Math.max(1, Math.min(MAX_ZOOM, times)));
+            }
+        });
+        zoom.addEventListener('input', function () {
+            if (fitted) {
+                cropper.zoomTo(fitted * parseFloat(zoom.value));
+            }
         });
         var closed = false;
 
@@ -227,10 +262,9 @@
                 cropper.rotate(action === 'rotate-left' ? -90 : 90);
             } else if (action === 'flip') {
                 cropper.scaleX(-(cropper.getData().scaleX || 1));
-            } else if (action === 'zoom-in' || action === 'zoom-out') {
-                cropper.zoom(action === 'zoom-in' ? 0.1 : -0.1);
             } else if (action === 'reset') {
                 cropper.reset();
+                zoom.value = '1';
             } else if (action === 'cancel') {
                 abandon();
             } else if (action === 'use') {
