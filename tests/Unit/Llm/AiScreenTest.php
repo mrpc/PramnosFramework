@@ -271,6 +271,51 @@ class AiScreenTest extends LlmTestCase
     }
 
     /**
+     * A card that only shows is drawn in every theme with no form and no Save button, beside a
+     * section that saves, which keeps both; and a post naming the card is refused, since there is
+     * nothing of it to save.
+     */
+    public function testACardThatOnlyShowsHasNoForm(): void
+    {
+        // Arrange
+        $this->configure(['admin_sections' => [SpendCard::class, PlanSection::class]]);
+        $controller = $this->controller();
+        $controller->settings();
+        $assigned = get_object_vars($controller->view);
+        $_POST    = ['section' => 'spend'];
+        $posted   = $this->controller();
+
+        // Act
+        $posted->save();
+        $pages = [];
+        foreach (['tailwind', 'bootstrap', 'plain-css'] as $theme) {
+            $dir  = dirname(__DIR__, 3) . '/scaffolding/themes/' . $theme . '/views/ai';
+            $view = new \Pramnos\Application\View(new \Pramnos\Application\Controller(), $dir, 'ai');
+            foreach ($assigned as $name => $value) {
+                if (!in_array($name, ['name', 'shown'], true)) {
+                    $view->$name = $value;
+                }
+            }
+            ob_start();
+            \Closure::bind(function () use ($dir): void {
+                include $dir . '/ai.html.php';
+            }, $view, \Pramnos\Application\View::class)();
+            $pages[$theme] = (string) ob_get_clean();
+        }
+
+        // Assert
+        foreach ($pages as $theme => $html) {
+            $card = substr($html, (int) strpos($html, 'id="section-spend"'));
+            $card = substr($card, 0, (int) strpos($card, '</section>'));
+            $this->assertStringContainsString('data-spend', $card, $theme);
+            $this->assertStringNotContainsString('<form', $card, $theme . ': no form');
+            $this->assertStringNotContainsString('Save', $card, $theme . ': no Save button');
+            $this->assertStringContainsString('name="section" value="plans"', $html, $theme . ': the section beside it keeps its form');
+        }
+        $this->assertSame(['Nothing on this screen is called spend.'], $posted->errors);
+    }
+
+    /**
      * Testing a key says what the provider said; an unknown provider is refused.
      */
     public function testTestingAKeySaysWhatHappened(): void
@@ -625,6 +670,25 @@ final class PlanSection implements \Pramnos\Llm\Admin\Section
         self::$saved = (string) $input['tokens'];
 
         return null;
+    }
+}
+
+/** An application's card that only shows: spend per plan, nothing to save. */
+final class SpendCard implements \Pramnos\Llm\Admin\Card
+{
+    public function key(): string
+    {
+        return 'spend';
+    }
+
+    public function title(): string
+    {
+        return 'Spend per plan';
+    }
+
+    public function render(): string
+    {
+        return '<p data-spend>$12.40</p>';
     }
 }
 

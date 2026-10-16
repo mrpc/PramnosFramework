@@ -47,6 +47,8 @@ class Log
 
     public const NO_PAYLOAD = 'The notification produced no title, so nothing could be shown';
 
+    public const SWITCHED_OFF = 'Push is switched off for this installation (`push.send`)';
+
     /**
      * One delivery attempt against one subscription.
      *

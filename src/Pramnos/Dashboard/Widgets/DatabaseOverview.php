@@ -28,7 +28,7 @@ final class DatabaseOverview extends Widget
 
     public function link(): ?string
     {
-        return adminUrl('Dashboard/database');
+        return Figures::link($this->id(), 'Dashboard/database');
     }
 
     public function render(): string

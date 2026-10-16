@@ -57,13 +57,8 @@ final class WidgetRegistry
         $app    = \Pramnos\Application\Application::currentInstance();
         $config = is_object($app) ? (array) ($app->applicationInfo['dashboard'] ?? []) : [];
 
-        $classes = ($config['framework'] ?? true) === false ? [] : self::FRAMEWORK;
+        $widgets = self::framework($config['framework'] ?? true);
         foreach ((array) ($config['widgets'] ?? []) as $class) {
-            $classes[] = $class;
-        }
-
-        $widgets = [];
-        foreach ($classes as $class) {
             if (is_string($class) && is_subclass_of($class, Widget::class)) {
                 $widget = new $class();
                 $widgets[$widget->id()] = $widget;
@@ -73,6 +68,39 @@ final class WidgetRegistry
         }
 
         return array_replace($widgets, self::$registered);
+    }
+
+    /**
+     * The framework's widgets, as app.php chooses them: all of them (`true`, the default), none
+     * (`false`), or a list of ids — only those, in that order:
+     * `'dashboard' => ['framework' => ['ai.spend', 'logs.errors']]`.
+     *
+     * @return array<string, Widget>
+     */
+    private static function framework(mixed $chosen): array
+    {
+        if ($chosen === false) {
+            return [];
+        }
+        $all = [];
+        foreach (self::FRAMEWORK as $class) {
+            $widget = new $class();
+            $all[$widget->id()] = $widget;
+        }
+        if (!is_array($chosen)) {
+            return $all;
+        }
+
+        $widgets = [];
+        foreach ($chosen as $id) {
+            if (isset($all[$id])) {
+                $widgets[$id] = $all[$id];
+            } else {
+                \Pramnos\Logs\Logger::log('Dashboard: the framework has no widget ' . (is_scalar($id) ? (string) $id : gettype($id)) . '; it was left out.', 'dashboard');
+            }
+        }
+
+        return $widgets;
     }
 
     /** One widget by id, or null. */

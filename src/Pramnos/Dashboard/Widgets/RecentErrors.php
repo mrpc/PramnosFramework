@@ -39,7 +39,7 @@ final class RecentErrors extends Widget
     /** Whoever may open the logs. */
     public function allowed(?object $user): bool
     {
-        return Figures::opens($user, 'admin.logs');
+        return Figures::opens($user, Figures::ability($this->id(), 'admin.logs'));
     }
 
     public function byDefault(): bool
@@ -49,7 +49,7 @@ final class RecentErrors extends Widget
 
     public function link(): ?string
     {
-        return adminUrl('logs');
+        return Figures::link($this->id(), 'logs');
     }
 
     public function render(): string

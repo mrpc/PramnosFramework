@@ -253,7 +253,9 @@ on the same screen rather than a second one beside it:
 A `Pramnos\Llm\Admin\Section` has a `key()` and a `title()`, `render()`s its fields (escaped HTML,
 no `<form>` and no button — the screen adds both, with the session's token), and `save(array
 $input): ?string` stores what was posted, answering what is wrong or `null`. A section whose
-`render()` throws shows the error in its card instead of taking the screen down.
+`render()` throws shows the error in its card instead of taking the screen down. A card that only
+shows something — a month's spend per plan — implements `Pramnos\Llm\Admin\Card` instead: `key()`,
+`title()` and `render()`, declared in the same list, drawn with no form and no Save button.
 
 ## Conversations
 
@@ -678,6 +680,12 @@ using it answers six hooks:
   conversations, and where somebody not signed in is sent.
 - `taskDenied()`, optional: true when the request stops here, already answered. Every action asks
   it first; `AiController` answers with the admin floor, as its other actions do.
+- `scheduledExtras(?array $task): array`, optional: markup of the controller's own — `form`,
+  printed inside the form before its button; `task`, on the open task's card. Printed as given, so
+  escape what goes in.
+- `afterScheduled(array $task, array $input): void`, optional: called with the task just made and
+  the whole form, the controller's own fields among it, before the redirect. Not called when the
+  form was refused.
 
 A flash message carrying a value is `t('… %s …', $value)`, so a translation catches the whole
 message. `next_run_local` is in figures (`19/10/2026 09:00`), which read the same in any language.

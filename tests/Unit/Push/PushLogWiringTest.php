@@ -60,6 +60,42 @@ class PushLogWiringTest extends TestCase
     }
 
     /**
+     * Push switched off — `push.send` false, or a callable that says no — sends nothing, and the
+     * log says why rather than leaving the push missing; on by default, and a callable that says
+     * yes lets it through. The routine notifications ask the same switch before naming `push`.
+     */
+    public function testPushSwitchedOffIsRecordedAndOmitted(): void
+    {
+        // Arrange
+        $app  = \Pramnos\Application\Application::getInstance();
+        $info = $app->applicationInfo;
+
+        try {
+            // Act
+            $app->applicationInfo['push'] = ['send' => false];
+            $off = $this->channel(vapid: null);
+            $off->send($this->notifiable(), $this->notification());
+            $offChannels = \Pramnos\Llm\Chat\RoutineReady::channels((object) ['userid' => 7]);
+            $app->applicationInfo['push'] = ['send' => static fn (): bool => false];
+            $byCallable = \Pramnos\Notification\Channels\PushChannel::sends();
+            $app->applicationInfo['push'] = ['send' => static fn (): bool => true];
+            $onByCallable = \Pramnos\Notification\Channels\PushChannel::sends();
+            unset($app->applicationInfo['push']);
+            $default = \Pramnos\Notification\Channels\PushChannel::sends();
+            $on = $this->channel(vapid: null);
+            $on->send($this->notifiable(), $this->notification());
+        } finally {
+            $app->applicationInfo = $info;
+        }
+
+        // Assert
+        $this->assertSame([[7, Log::SWITCHED_OFF]], $off->refusals, 'not sent, and said why');
+        $this->assertSame(['database'], $offChannels, 'the routine notifications leave push out');
+        $this->assertSame([false, true, true], [$byCallable, $onByCallable, $default]);
+        $this->assertSame([[7, Log::NO_KEYS]], $on->refusals, 'switched on, it goes on to the next check');
+    }
+
+    /**
      * So is an installation with no encryption library.
      *
      * The library is a composer *suggestion*, so this is the state of any project that turned

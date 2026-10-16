@@ -120,6 +120,19 @@ first. The dashboard hands a widget its settings with `configure()` before `rend
 ],
 ```
 
+`framework` is `true` (all of the framework's cards, the default), `false` (none), or a list of
+ids — only those, in that order, so taking one card does not bring the developer tools with it:
+
+```php
+'dashboard' => [
+    'framework' => ['ai.spend', 'logs.errors', 'users.active'],
+    // A framework card asks for the ability of the screen it summarises; rename it where yours differs
+    'abilities' => ['email' => 'admin.logs.emails'],
+    // …and leads to that screen: a path in the area, an address, or '' for no link
+    'links'     => ['ai.spend' => 'Settings/ai', 'logs.errors' => ''],
+],
+```
+
 Or in code, for example from a service provider:
 `\Pramnos\Dashboard\WidgetRegistry::register(new OpenOrders())`. The order is the framework's
 widgets, then app.php's, then the registered ones. A widget under an id that is already taken

@@ -28,7 +28,7 @@ final class ActiveUsers extends Widget
 
     public function link(): ?string
     {
-        return adminUrl('Users/sessions');
+        return Figures::link($this->id(), 'Users/sessions');
     }
 
     public function render(): string

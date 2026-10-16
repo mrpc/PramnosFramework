@@ -16,6 +16,8 @@
  *   $this->timezone  — the clock times are read on
  *   $this->urls      — page, action (with %s for the action's name), report (a run's number
  *                      follows), chat — Ask AI's addresses when not given
+ *   $this->extras    — the controller's own markup: `form`, inside the form before its button;
+ *                      `task`, on the open task's card — {@see SchedulesTasks::scheduledExtras()}
  *
  * A run's content is the model's words, drawn by Markdown::toHtml(), which escapes everything first.
  */
@@ -79,6 +81,7 @@ $owners  = is_array($this->owners ?? null) ? $this->owners : ['user'];
         </article>
         <?php endforeach; ?>
         <?php if ($runs === []): ?><p class="<?php echo $c['muted']; ?>"><?php echo $e($t('It has not run yet.')); ?></p><?php endif; ?>
+        <?php echo (string) ($this->extras['task'] ?? ''); /* the controller's own markup, escaped by it */ ?>
     </section>
     <?php endif; ?>
 
@@ -183,6 +186,7 @@ $owners  = is_array($this->owners ?? null) ? $this->owners : ['user'];
             </label>
         </div>
         <p class="<?php echo $c['muted']; ?>"><?php echo $e($t('Times are on %s.', (string) ($this->timezone ?? 'UTC'))); ?></p>
+        <?php echo (string) ($this->extras['form'] ?? ''); /* the controller's own fields, escaped by it */ ?>
         <div><button type="submit" class="<?php echo $c['btn']; ?>"><?php echo $e($t('Schedule')); ?></button></div>
     </form>
 </div>

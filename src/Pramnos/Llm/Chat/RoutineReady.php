@@ -30,7 +30,8 @@ class RoutineReady implements NotificationInterface
     }
 
     /**
-     * The bell, and a push where the person has a browser subscribed — of those, the ones
+     * The bell, and a push where the person has a browser subscribed and push is switched on
+     * (`PushChannel::sends()`) — of those, the ones
      * `'llm' => ['chat' => ['notify_via' => ['database']]]` names: that one is the bell only.
      *
      * @return list<string>
@@ -39,7 +40,8 @@ class RoutineReady implements NotificationInterface
     {
         $chat    = \Pramnos\Llm\Llm::config('chat', []);
         $allowed = is_array($chat['notify_via'] ?? null) ? $chat['notify_via'] : ['database', 'push'];
-        $push    = in_array('push', $allowed, true) && \Pramnos\Push\Subscriptions::exist((int) ($notifiable->userid ?? 0));
+        $push    = in_array('push', $allowed, true) && \Pramnos\Notification\Channels\PushChannel::sends()
+            && \Pramnos\Push\Subscriptions::exist((int) ($notifiable->userid ?? 0));
 
         return array_values(array_filter(['database', $push ? 'push' : ''], static fn (string $via): bool => $via !== '' && in_array($via, $allowed, true)));
     }

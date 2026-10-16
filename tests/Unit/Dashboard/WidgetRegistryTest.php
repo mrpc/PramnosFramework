@@ -145,6 +145,52 @@ class WidgetRegistryTest extends TestCase
         $this->assertNull(WidgetRegistry::get('nope'));
     }
 
+    /**
+     * `framework` as a list of ids takes only those of the framework's cards, in that order — an
+     * application that wants the AI spend card need not take the developer tools with it — and an
+     * id the framework does not have is left out, not fatal.
+     */
+    public function testTheFrameworksCardsChosenById(): void
+    {
+        // Arrange
+        Application::getInstance()->applicationInfo['dashboard'] = ['framework' => ['logs.errors', 'nope', 'users.active'], 'widgets' => [OrdersWidget::class]];
+
+        // Act
+        $ids = array_keys(WidgetRegistry::all());
+
+        // Assert
+        $this->assertSame(['logs.errors', 'users.active', 'orders'], $ids);
+    }
+
+    /**
+     * An application renames the ability a framework card asks for, and moves or removes where it
+     * leads: a path in the area, an address as given, `''` for no link; a card it says nothing
+     * about keeps the framework's.
+     */
+    public function testAbilitiesAndLinksAreTheApplications(): void
+    {
+        // Arrange
+        Application::getInstance()->applicationInfo['dashboard'] = [
+            'abilities' => ['email' => 'admin.logs.emails'],
+            'links'     => ['ai.spend' => 'Settings/ai', 'email' => 'https://mail.test/log', 'logs.errors' => ''],
+        ];
+
+        // Act
+        $ability = Figures::ability('email', 'admin.emails');
+        $kept    = Figures::ability('queue', 'admin.queue');
+        $moved   = (new \Pramnos\Dashboard\Widgets\AiSpend())->link();
+        $away    = (new \Pramnos\Dashboard\Widgets\EmailActivity())->link();
+        $none    = (new \Pramnos\Dashboard\Widgets\RecentErrors())->link();
+        $default = (new \Pramnos\Dashboard\Widgets\QueueStatus())->link();
+
+        // Assert
+        $this->assertSame(['admin.logs.emails', 'admin.queue'], [$ability, $kept]);
+        $this->assertSame(adminUrl('Settings/ai'), $moved);
+        $this->assertSame('https://mail.test/log', $away);
+        $this->assertNull($none);
+        $this->assertSame(adminUrl('Queue'), $default);
+    }
+
     /** A widget registered under a taken id replaces it, so an application can redraw a framework card. */
     public function testRegisteringATakenIdReplacesIt(): void
     {

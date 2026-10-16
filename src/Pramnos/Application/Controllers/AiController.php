@@ -615,10 +615,11 @@ class AiController extends Controller
 
         foreach (Llm::adminSections() as $section) {
             try {
-                $out[] = ['key' => $section->key(), 'title' => $section->title(), 'html' => $section->render()];
+                // A card that only shows has no form and no Save button.
+                $out[] = ['key' => $section->key(), 'title' => $section->title(), 'html' => $section->render(), 'saves' => $section instanceof \Pramnos\Llm\Admin\Section];
             } catch (\Throwable $why) {
                 // One broken section must not take the screen with it.
-                $out[] = ['key' => $section->key(), 'title' => $section->title(),
+                $out[] = ['key' => $section->key(), 'title' => $section->title(), 'saves' => false,
                     'html' => '<p>' . htmlspecialchars('This section failed: ' . $why->getMessage(), ENT_QUOTES, 'UTF-8') . '</p>'];
             }
         }
@@ -762,7 +763,7 @@ class AiController extends Controller
     private function saveSection(string $key, array $input): ?string
     {
         foreach (Llm::adminSections() as $section) {
-            if ($section->key() === $key) {
+            if ($section->key() === $key && $section instanceof \Pramnos\Llm\Admin\Section) {
                 return $section->save($input);
             }
         }

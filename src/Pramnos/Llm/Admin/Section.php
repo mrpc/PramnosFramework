@@ -17,22 +17,11 @@ namespace Pramnos\Llm\Admin;
  *
  * Each section is a card with its own form. The screen renders {@see render()} inside a form
  * that posts back with the session's token and `section={key()}`, and calls {@see save()} with
- * the posted fields; the controller checks the administrator's ability before either.
+ * the posted fields; the controller checks the administrator's ability before either. A card
+ * that only shows something, with no form and no button, is a {@see Card}.
  */
-interface Section
+interface Section extends Card
 {
-    /** A short, unique name: it travels in the form. */
-    public function key(): string;
-
-    /** The card's heading. */
-    public function title(): string;
-
-    /**
-     * The fields and anything else the card shows — HTML, already escaped. No `<form>` tag and
-     * no submit button: the screen adds both.
-     */
-    public function render(): string;
-
     /**
      * Store what was posted.
      *

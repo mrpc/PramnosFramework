@@ -188,6 +188,18 @@ Failing that it falls back to the `admin_mail` setting as a `mailto:`, and then 
 subject and a warning, because a guessed address nobody reads is worse than none
 — the provider believes it warned you.
 
+Push can be switched off for an installation — development, tests — where a subscribed browser
+would otherwise be woken by every run:
+
+```php
+'push' => ['send' => false],
+// or an application's own setting, asked each time:
+'push' => ['send' => static fn (): bool => Settings::getSetting('send_push') === 'yes'],
+```
+
+Nothing is sent, the push log records each one as switched off, and the scheduled tasks'
+notifications leave push out of their channels. On by default.
+
 ### 2. Run the migration
 
 ```bash

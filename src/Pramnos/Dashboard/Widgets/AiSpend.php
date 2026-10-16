@@ -34,13 +34,13 @@ final class AiSpend extends Widget
     public function allowed(?object $user): bool
     {
         return \Pramnos\Application\FeatureRegistry::isEnabled('llm')
-            && Figures::opens($user, 'admin.ai')
+            && Figures::opens($user, Figures::ability($this->id(), 'admin.ai'))
             && \Pramnos\Llm\Analyst\Analyst::available();
     }
 
     public function link(): ?string
     {
-        return adminUrl('Ai/settings');
+        return Figures::link($this->id(), 'Ai/settings');
     }
 
     public function render(): string

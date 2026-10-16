@@ -81,6 +81,12 @@ class PushChannel implements ChannelInterface
         $name = $notification::class;
         $data = $notification->toPush($notifiable);
 
+        if (!self::sends()) {
+            $this->refuse($userId, Log::SWITCHED_OFF, $data, $name);
+
+            return;
+        }
+
         $subscriptions = $this->subscriptionsFor($userId);
 
         if ($subscriptions === []) {
@@ -343,6 +349,21 @@ class PushChannel implements ChannelInterface
         $json = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
         return $json === false ? '' : $json;
+    }
+
+    /**
+     * Whether this installation sends push at all: `'push' => ['send' => false]` in app.php
+     * switches it off — for development and tests, where a subscribed browser would otherwise be
+     * woken by every run. A callable is asked each time, so an application's own setting decides:
+     * `'send' => static fn (): bool => Settings::getSetting('send_push') === 'yes'`. On by default.
+     * What is not sent is recorded in the push log as switched off.
+     */
+    public static function sends(): bool
+    {
+        $app  = \Pramnos\Application\Application::currentInstance();
+        $send = is_object($app) ? ($app->applicationInfo['push']['send'] ?? true) : true;
+
+        return (bool) (is_callable($send) ? $send() : $send);
     }
 
     /** The defaults when app.php names none: under the web root, beside the worker's own. */

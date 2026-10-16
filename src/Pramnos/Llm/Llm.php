@@ -96,13 +96,15 @@ final class Llm
     /**
      * The application's own sections of the administration screen.
      *
-     * @return list<Admin\Section>
+     * A {@see Admin\Card} only shows; a {@see Admin\Section} also saves.
+     *
+     * @return list<Admin\Card>
      */
     public static function adminSections(): array
     {
         return array_values(array_filter(
             self::many('admin_sections'),
-            static fn (object $section): bool => $section instanceof Admin\Section
+            static fn (object $section): bool => $section instanceof Admin\Card
         ));
     }
 

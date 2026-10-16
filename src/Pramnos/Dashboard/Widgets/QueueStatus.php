@@ -32,12 +32,12 @@ final class QueueStatus extends Widget
     /** Where the queue is installed, for whoever may open its screen. */
     public function allowed(?object $user): bool
     {
-        return \Pramnos\Application\FeatureRegistry::isEnabled('queue') && Figures::opens($user, 'admin.queue');
+        return \Pramnos\Application\FeatureRegistry::isEnabled('queue') && Figures::opens($user, Figures::ability($this->id(), 'admin.queue'));
     }
 
     public function link(): ?string
     {
-        return adminUrl('Queue');
+        return Figures::link($this->id(), 'Queue');
     }
 
     public function render(): string

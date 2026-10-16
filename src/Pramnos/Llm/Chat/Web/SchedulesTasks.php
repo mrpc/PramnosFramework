@@ -25,6 +25,8 @@ use Pramnos\Llm\Chat\Scope;
  * | `taskChatUrl()` | the conversations |
  * | `taskSignInUrl()` | where somebody not signed in is sent |
  * | `taskDenied()` | true when this person may not reach the page — it has answered already; false by default |
+ * | `scheduledExtras($task)` | markup of its own: `form`, fields inside the form; `task`, on the open task's card |
+ * | `afterScheduled($task, $input)` | what it does with a task just made, and the form's whole input |
  *
  * Its actions are `scheduled`, `schedule`, `scheduledupdate`, `scheduleddelete`, `scheduledrun`
  * and `scheduledsubscribe`; the controller declares them as auth actions, and all but the first
@@ -72,6 +74,7 @@ trait SchedulesTasks
         $view->timezone  = $this->taskConversations()->assistant()->timezone($scope);
         $view->pageUrl   = $this->scheduledUrl();
         $view->chatUrl   = $this->taskChatUrl();
+        $view->extras    = $this->scheduledExtras($task) + ['form' => '', 'task' => ''];
         $view->urls      = [
             'page'   => $this->scheduledUrl(),
             'action' => $this->scheduledUrl('%s'),
@@ -98,7 +101,12 @@ trait SchedulesTasks
         $input = array_filter($input, static fn ($value): bool => $value !== '' && $value !== null);
         $made  = $scope === null ? 'This needs somebody signed in.'
             : $this->taskService()->create($scope, $input + ['timezone' => $this->taskConversations()->assistant()->timezone($scope)]);
-        is_string($made) ? $this->addError($made) : $this->addMessage(t('Scheduled. Next: %s.', (string) $made['next_run_local']));
+        if (is_string($made)) {
+            $this->addError($made);
+        } else {
+            $this->addMessage(t('Scheduled. Next: %s.', (string) $made['next_run_local']));
+            $this->afterScheduled($made, $_POST);
+        }
         $this->redirect($this->scheduledUrl());
 
         return null;
@@ -190,6 +198,31 @@ trait SchedulesTasks
     protected function taskDenied(): bool
     {
         return false;
+    }
+
+    /**
+     * Markup of the controller's own for the page: `form`, printed inside the form before its
+     * button — fields its {@see afterScheduled()} reads; `task`, printed on the open task's card.
+     * Printed as given: escape what goes in. Nothing by default.
+     *
+     * @param array<string, mixed>|null $task The task whose card is open, or null
+     * @return array{form?: string, task?: string}
+     */
+    protected function scheduledExtras(?array $task): array
+    {
+        return [];
+    }
+
+    /**
+     * A task was just made from the form: `$task` as {@see Routines::create()} answered, `$input`
+     * the whole form, the controller's own fields among it. Called before the redirect. Nothing
+     * by default.
+     *
+     * @param array<string, mixed> $task
+     * @param array<string, mixed> $input
+     */
+    protected function afterScheduled(array $task, array $input): void
+    {
     }
 
     /** Whose tasks: the person signed in, or null. */

@@ -38,12 +38,12 @@ final class EmailActivity extends Widget
     /** Whoever may open the email screen. */
     public function allowed(?object $user): bool
     {
-        return Figures::opens($user, 'admin.emails');
+        return Figures::opens($user, Figures::ability($this->id(), 'admin.emails'));
     }
 
     public function link(): ?string
     {
-        return adminUrl('Emails');
+        return Figures::link($this->id(), 'Emails');
     }
 
     public function render(): string

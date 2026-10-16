@@ -31,7 +31,7 @@ final class ApiPerformance extends Widget
 
     public function link(): ?string
     {
-        return adminUrl('TokenActions');
+        return Figures::link($this->id(), 'TokenActions');
     }
 
     public function render(): string

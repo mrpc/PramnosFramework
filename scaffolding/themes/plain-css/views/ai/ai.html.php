@@ -219,12 +219,16 @@ $labels    = array_column($providers, 'label', 'id');
     <?php foreach ($sections as $s): ?>
         <section class="<?php echo $c['card']; ?>" style="padding:14px;margin-bottom:16px" id="section-<?php echo $e($s['key']); ?>">
             <h2><?php echo $e($s['title']); ?></h2>
+            <?php if (($s['saves'] ?? true) === false): ?>
+                <?php echo $s['html']; ?>
+            <?php else: ?>
             <form method="post" action="<?php echo $action; ?>">
                 <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
                 <input type="hidden" name="section" value="<?php echo $e($s['key']); ?>">
                 <?php echo $s['html']; ?>
                 <button type="submit" class="<?php echo $c['btn']; ?>">Save</button>
             </form>
+            <?php endif; ?>
         </section>
     <?php endforeach; ?>
 

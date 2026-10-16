@@ -225,6 +225,49 @@ class ScheduledPageTest extends LlmTestCase
         $this->assertSame(['This needs somebody signed in.'], $noScheduling->errors);
     }
 
+    /**
+     * A controller's own part of the page: its fields printed inside the form, before the button,
+     * and its markup on the open task's card, in every theme; and once a task is made, it is
+     * handed the task and the whole form, its own fields among it — and is not called when the
+     * form was refused.
+     */
+    #[DataProvider('databases')]
+    public function testTheControllersOwnFieldsAndWhatItMade(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        $made  = $this->tasks()->create(new Scope(7, 3), ['kind' => 'reminder', 'title' => 'Open', 'prompt' => 'p', 'cadence' => 'daily', 'at' => '08:00']);
+        $pages = [];
+
+        // Act — drawn with a task open, in each theme
+        foreach (self::THEMES as $theme) {
+            $page         = $this->page(new Scope(7, 3), $theme);
+            $page->extras = ['form' => '<input name="audience" data-own-field>', 'task' => '<p data-own-card>cost</p>'];
+            $_GET         = ['task' => (string) $made['routine_id']];
+            $pages[$theme] = (string) $page->scheduled();
+        }
+        $_GET  = [];
+        $_POST = ['title' => 'Mine', 'prompt' => 'Call Maria', 'kind' => 'reminder', 'cadence' => 'daily', 'at' => '09:00', 'audience' => 'admins'];
+        $good  = $this->page();
+        $good->schedule();
+        $_POST = ['title' => 'Far', 'prompt' => 'x', 'kind' => 'reminder', 'cadence' => 'once', 'run_at' => '2099-01-02T10:30'];
+        $bad   = $this->page();
+        $bad->schedule();
+
+        // Assert
+        foreach ($pages as $theme => $html) {
+            $form = substr($html, (int) strpos($html, 'data-pf-scheduled-form'));
+            $this->assertLessThan(strpos($form, '</form>'), strpos($form, 'data-own-field'), $theme . ': inside the form');
+            $this->assertLessThan(strpos($form, 'type="submit"'), strpos($form, 'data-own-field'), $theme . ': before its button');
+            $card = substr($html, (int) strpos($html, 'data-pf-scheduled-runs'));
+            $this->assertLessThan(strpos($card, '</section>'), strpos($card, 'data-own-card'), $theme . ': on the open task\'s card');
+        }
+        $this->assertCount(1, $good->scheduledWith);
+        $this->assertSame('admins', $good->scheduledWith[0][1]['audience'], 'its own field reaches it');
+        $this->assertSame('Mine', $good->scheduledWith[0][0]);
+        $this->assertSame([], $bad->scheduledWith, 'refused: nothing was made');
+    }
+
     /** Nobody signed in is sent to sign in, back to this page. */
     #[DataProvider('databases')]
     public function testSignedOut(string $type, string $host, int $port): void
@@ -257,6 +300,24 @@ class ScheduledPageTest extends LlmTestCase
 /** The page fixture, drawing the template asked for rather than always the conversations. */
 final class ScheduledPage extends PageFixture
 {
+    /** @var array{form?: string, task?: string} The controller's own markup */
+    public array $extras = [];
+
+    /** @var list<array{0: string, 1: array<string, mixed>}> Tasks made, by title, with the form */
+    public array $scheduledWith = [];
+
+    /** The markup given. */
+    protected function scheduledExtras(?array $task): array
+    {
+        return $this->extras;
+    }
+
+    /** Record what was made, and the whole form. */
+    protected function afterScheduled(array $task, array $input): void
+    {
+        $this->scheduledWith[] = [(string) $task['title'], $input];
+    }
+
     /** The view, drawing `$tpl` from the theme's chat views. */
     public function &getView($name = '', $type = '', $args = array())
     {
