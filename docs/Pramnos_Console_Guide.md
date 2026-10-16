@@ -951,7 +951,7 @@ php bin/pramnos logs:convert /path/to/file.log --no-backup
 | `messages:dispatch` | Deliver pending recipients of due mass messages | `--limit/-l` |
 | `mail:flush` / `mail:prune` / `mail:dns-check [domain]` | Send the mail queued in the outbox / strip old bodies and remove old rows by policy / check SPF, DKIM, DMARC and BIMI on the sending domain | `--limit`, `--deadline`, `--dry-run` / `--strip-after`, `--delete-after`, `--recipients-after`, `--apply` |
 | `push:setup` / `push:vapid-generate` | Set up web push (migration, keys, service worker, browser script, library) / generate the VAPID key pair | `--apply`, `--no-install` / `--force` |
-| `audit:prune` | Delete audit-log rows past the retention (`audit.retention_days` in app.php); deletes nothing until one is set | `--days` |
+| `audit:prune` | Delete audit-log rows past the retention (`audit.retention_days` in app.php: days, or days per event such as `['admin.page' => 180, '*' => 730]`); deletes nothing until one is set | `--days` |
 | `llm:prune` / `llm:routines` | Drop language-model call log rows older than the kept window / ask the scheduled questions that are due | `--days` / — |
 | `broadcast:serve` | WebSocket broadcasting server (Pusher-compatible) | `--host` (default `0.0.0.0`), `--port/-p` (default `6001`), `--log-file`, `--app-key`, `--channels` |
 

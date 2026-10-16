@@ -49,28 +49,36 @@ final class AuditLog
      *
      * @param string               $event   What happened: `role.granted`, `user.deleted`, `mcp.query`…
      * @param int|null             $actor   Who did it; null for the system (a scheduled job, the CLI)
-     * @param int|null             $target  The account it was done to, if one
-     * @param array<string, mixed> $context What else an auditor needs, redacted
+     * @param int|null             $target     The account it was done to, if one
+     * @param array<string, mixed> $context    What else an auditor needs, redacted
+     * @param string|null          $objectType What it was done through or to, beside the account:
+     *                                         a screen, a record (`'page'`, `'application'`)
+     * @param string|int|null      $objectId   Which one
      */
-    public static function record(string $event, ?int $actor, ?int $target = null, array $context = []): void
+    public static function record(string $event, ?int $actor, ?int $target = null, array $context = [], ?string $objectType = null, string|int|null $objectId = null): void
     {
         self::write($event, $actor, [
             'target_type' => $target !== null ? 'user' : null,
             'target_id'   => $target !== null ? (string) $target : null,
+            'object_type' => $objectType !== null ? substr($objectType, 0, 50) : null,
+            'object_id'   => $objectId !== null ? substr((string) $objectId, 0, 100) : null,
             'metadata'    => $context,
         ]);
     }
 
     /**
-     * A record changed: what it was and what it became, each redacted.
+     * A record changed: what it was and what it became, each redacted — and, when the record
+     * belongs to an account, which one.
      *
      * @param array<string, mixed> $old
      * @param array<string, mixed> $new
      * @param array<string, mixed> $context
      */
-    public static function change(string $event, ?int $actor, string $objectType, string|int $objectId, array $old, array $new, array $context = []): void
+    public static function change(string $event, ?int $actor, string $objectType, string|int $objectId, array $old, array $new, array $context = [], ?int $target = null): void
     {
         self::write($event, $actor, [
+            'target_type' => $target !== null ? 'user' : null,
+            'target_id'   => $target !== null ? (string) $target : null,
             'object_type' => substr($objectType, 0, 50),
             'object_id'   => substr((string) $objectId, 0, 100),
             'old_values'  => $old,
@@ -82,9 +90,11 @@ final class AuditLog
     /**
      * The trail, newest first, for an admin screen.
      *
-     * Filters: `event` (exact, or a prefix ending in `*`: `role.*`), `actor`, `target` (a userid),
-     * `object_type`, `object_id`, `since` and `until` (Unix times), `before` (an `auditid`, for the
-     * next page). The JSON columns come back decoded.
+     * Filters: `event` (exact, or a prefix ending in `*`: `role.*`), `not_event` (a list of the
+     * same, left out: `['admin.page']`), `actor`, `target` (a userid), `object_type`, `object_id`,
+     * `since` and `until` (Unix times), `before` (an `auditid`, for the next page). The JSON
+     * columns come back decoded, and `at` is the moment as a Unix time — `event_timestamp` is as
+     * the database returns it, in its session's zone (MySQL) or with an offset (PostgreSQL).
      *
      * @param array<string, mixed> $filters
      * @return list<array<string, mixed>>
@@ -96,12 +106,16 @@ final class AuditLog
             if (!self::tableAvailable($database)) {
                 return [];
             }
-            $query = $database->queryBuilder()->table(self::TABLE);
+            $query = $database->queryBuilder()->table(self::TABLE)
+                ->select(['*', \Pramnos\Database\Instant::unix($database, 'event_timestamp', 'at')]);
             $event = (string) ($filters['event'] ?? '');
-            if (str_ends_with($event, '*')) {
-                $query->where('event_type', 'like', str_replace(['%', '_'], ['\\%', '\\_'], substr($event, 0, -1)) . '%');
-            } elseif ($event !== '') {
-                $query->where('event_type', $event);
+            if ($event !== '') {
+                self::matching($query, $event, false);
+            }
+            foreach ((array) ($filters['not_event'] ?? []) as $excluded) {
+                if (is_string($excluded) && $excluded !== '') {
+                    self::matching($query, $excluded, true);
+                }
             }
             if (isset($filters['actor'])) {
                 $query->where('actor_userid', (int) $filters['actor']);
@@ -115,10 +129,10 @@ final class AuditLog
                 }
             }
             if (isset($filters['since'])) {
-                $query->where('event_timestamp', '>=', date('c', (int) $filters['since']));
+                $query->where('event_timestamp', '>=', \Pramnos\Database\Instant::at($database, (int) $filters['since']));
             }
             if (isset($filters['until'])) {
-                $query->where('event_timestamp', '<', date('c', (int) $filters['until']));
+                $query->where('event_timestamp', '<', \Pramnos\Database\Instant::at($database, (int) $filters['until']));
             }
             if (isset($filters['before'])) {
                 $query->where('auditid', '<', (int) $filters['before']);
@@ -135,6 +149,7 @@ final class AuditLog
             foreach (['old_values', 'new_values', 'metadata'] as $json) {
                 $row[$json] = is_string($row[$json] ?? null) ? json_decode($row[$json], true) : ($row[$json] ?? null);
             }
+            $row['at'] = (int) ($row['at'] ?? 0);
             $rows[] = $row;
         }
 
@@ -142,19 +157,56 @@ final class AuditLog
     }
 
     /**
-     * Delete what is older than `$days` days. Returns how many rows went, or null when there is no
-     * table.
+     * Delete what is older than its retention. Returns how many rows went, or null when there is
+     * no table.
+     *
+     * `$days` is one retention for everything, or one per event: `['admin.page' => 180,
+     * 'role.*' => 3650, '*' => 730]` — an exact event or a prefix, and `*` for every event no
+     * other entry names. An event that matches no entry, with no `*`, is kept.
+     *
+     * @param int|array<string, int> $days
      */
-    public static function prune(int $days): ?int
+    public static function prune(int|array $days): ?int
     {
         $database = \Pramnos\Framework\Factory::getDatabase();
         if (!self::tableAvailable($database)) {
             return null;
         }
-        $result = $database->queryBuilder()->table(self::TABLE)
-            ->where('event_timestamp', '<', date('c', time() - max(1, $days) * 86400))->delete();
+        $days    = is_int($days) ? ['*' => $days] : $days;
+        $named   = array_values(array_filter(array_map('strval', array_keys($days)), static fn (string $p): bool => $p !== '*' && $p !== ''));
+        $deleted = 0;
+        foreach ($days as $pattern => $keep) {
+            $pattern = (string) $pattern;
+            if ($pattern === '' || (int) $keep <= 0) {
+                continue;
+            }
+            $query = $database->queryBuilder()->table(self::TABLE)
+                ->where('event_timestamp', '<', \Pramnos\Database\Instant::at($database, time() - (int) $keep * 86400));
+            if ($pattern === '*') {
+                foreach ($named as $other) {
+                    self::matching($query, $other, true);
+                }
+            } else {
+                self::matching($query, $pattern, false);
+            }
+            $result   = $query->delete();
+            $deleted += $result instanceof \Pramnos\Database\Result ? (int) $result->getAffectedRows() : 0;
+        }
 
-        return $result instanceof \Pramnos\Database\Result ? (int) $result->getAffectedRows() : 0;
+        return $deleted;
+    }
+
+    /**
+     * Narrow a query to the events a pattern names, or to the rest: an exact event, or a prefix
+     * ending in `*`.
+     */
+    private static function matching(\Pramnos\Database\QueryBuilder $query, string $pattern, bool $not): void
+    {
+        if (str_ends_with($pattern, '*')) {
+            $query->where('event_type', $not ? 'not like' : 'like', str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], substr($pattern, 0, -1)) . '%');
+        } else {
+            $query->where('event_type', $not ? '!=' : '=', $pattern);
+        }
     }
 
     /**
@@ -220,7 +272,7 @@ final class AuditLog
                 'event_type'      => substr($event, 0, 50),
                 'actor_userid'    => $actor,
                 'actor_type'      => $actor !== null ? 'user' : 'system',
-                'event_timestamp' => date('c'),
+                'event_timestamp' => \Pramnos\Database\Instant::at($database, time()),
             ]);
             // Its answer, not only an exception: PostgreSQL reports a refused insert as false.
             if ($stored === false) {

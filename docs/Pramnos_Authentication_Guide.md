@@ -456,11 +456,14 @@ actions, for an administrator or an auditor: who did what, to which account or r
 ```php
 use Pramnos\Auth\AuditLog;
 
-AuditLog::record('role.granted', $adminId, $userId, ['role' => 'editor']);       // about an account
-AuditLog::change('client.updated', $adminId, 'application', $appId, $old, $new);  // a record changed
-AuditLog::record('report.sent', null);                                           // by the system
+AuditLog::record('role.granted', $adminId, $userId, ['role' => 'editor']);        // about an account
+AuditLog::record('admin.page', $adminId, $userId, [], 'page', 'users/edit');       // …through a screen
+AuditLog::change('client.updated', $adminId, 'application', $appId, $old, $new);   // a record changed
+AuditLog::change('user.updated', $adminId, 'user', $userId, $old, $new, [], $userId); // …of an account
+AuditLog::record('report.sent', null);                                            // by the system
 
 $rows = AuditLog::query(['event' => 'role.*', 'actor' => $adminId, 'since' => strtotime('-7 days')], 50);
+$rest = AuditLog::query(['not_event' => ['admin.page*']], 50);                    // all but page views
 $next = AuditLog::query(['event' => 'role.*', 'before' => end($rows)['auditid']], 50);
 ```
 
@@ -471,9 +474,15 @@ $next = AuditLog::query(['event' => 'role.*', 'before' => end($rows)['auditid']]
   boolean or null under such a key is kept too, so a count of tokens is still a count.
   `AuditLog::redact($array)` is the same rule for code of your own, and
   `ActivityLog::record()` applies it to its details.
-- **The reader** takes `event` (exact, or a prefix: `role.*`), `actor`, `target` (a userid),
-  `object_type`, `object_id`, `since`/`until` (Unix times) and `before` (an `auditid`, for the
-  next page). It answers newest first, at most 500 at a time, with the JSON columns decoded.
+- **The reader** takes `event` (exact, or a prefix: `role.*`), `not_event` (a list of the same,
+  left out), `actor`, `target` (a userid), `object_type`, `object_id`, `since`/`until` (Unix
+  times) and `before` (an `auditid`, for the next page). It answers newest first, at most 500 at
+  a time, with the JSON columns decoded.
+- **The moment** is written and compared as a Unix time the database converts
+  ([`Instant`](Pramnos_QueryBuilder_Guide.md#writing-and-reading-a-moment-instant)), so it is
+  right whatever zone the session is in. Each row read carries `at`, the moment as a Unix time;
+  `event_timestamp` is as the database returns it, in the session's zone on MySQL and with an
+  offset on PostgreSQL. Format `at` for display.
 - **It never breaks the action it audits.** With no table, or a database that fails, nothing is
   written, the reader answers `[]` and the reason goes to the `auth` log. It writes wherever the
   table exists, on MySQL and PostgreSQL alike. On TimescaleDB the table is a hypertable,
@@ -481,7 +490,9 @@ $next = AuditLog::query(['event' => 'role.*', 'before' => end($rows)['auditid']]
 - **Nothing is deleted unless asked.** How long an audit trail is kept is a decision of law or
   policy. `audit:prune` runs daily on the framework schedule and deletes nothing until a
   retention is set: `'audit' => ['retention_days' => 730]` in `app/app.php`, or
-  `audit:prune --days=N` by hand.
+  `audit:prune --days=N` by hand. A retention per event is a map of events or prefixes, with
+  `*` for every event no other entry names: `['admin.page' => 180, 'role.*' => 3650, '*' => 730]`.
+  Without `*`, an event no entry names is kept.
 
 ### Editing a user: what the screen can change
 

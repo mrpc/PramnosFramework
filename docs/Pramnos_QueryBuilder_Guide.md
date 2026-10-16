@@ -970,6 +970,25 @@ $rows = $qb->from('users')->get()->fetchAll();
 | `$result->fetch()` | Advance cursor |
 | `$result->free()` | Free resource |
 
+## Writing and reading a moment: `Instant`
+
+A `timestampTz` column (`TIMESTAMP` on MySQL and MariaDB, `timestamptz` on PostgreSQL) takes a
+moment the same way on every backend when the moment travels as a Unix time:
+
+```php
+use Pramnos\Database\Instant;
+
+$db->queryBuilder()->table('authserver.audit_log')->insert(['event_timestamp' => Instant::at($db, time())]);
+$query->where('event_timestamp', '>=', Instant::at($db, strtotime('-7 days')));
+$query->select(['*', Instant::unix($db, 'event_timestamp', 'at')]);   // each row gets `at`, a Unix time
+```
+
+`Instant::at()` is `FROM_UNIXTIME()` / `to_timestamp()`, converted by the database in its
+session's zone. `Instant::unix()` is `UNIX_TIMESTAMP()` / `EXTRACT(EPOCH …)` back. A string
+carries a zone question: `date('c')` writes an offset MariaDB drops (warning 1292; strict mode
+refuses the row), and a string without one is read in the session's zone, which PHP does not
+know.
+
 ## Column names with upper-case letters
 
 A bare column name containing an upper-case letter is quoted automatically:

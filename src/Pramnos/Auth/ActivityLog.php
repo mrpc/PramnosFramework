@@ -82,7 +82,9 @@ class ActivityLog
                     'details'    => $details === [] ? null : json_encode(AuditLog::redact($details)),
                     'ip_address' => $ip !== null ? substr((string) $ip, 0, 45) : null,
                     'user_agent' => $ua !== null ? (string) $ua : null,
-                    'created_at' => date('c'),
+                    // The moment, converted by the database: an offset string is dropped by
+                    // MariaDB, and a bare one is read in a zone PHP does not know.
+                    'created_at' => \Pramnos\Database\Instant::at($database, time()),
                 ]);
             // Its answer, not only an exception: PostgreSQL reports a refused insert as false.
             if ($stored === false) {

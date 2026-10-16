@@ -21,6 +21,7 @@ use Symfony\Component\Console\Tester\CommandTester;
  */
 #[CoversClass(AuditLog::class)]
 #[CoversClass(AuditPrune::class)]
+#[CoversClass(\Pramnos\Database\Instant::class)]
 final class AuditLogTest extends TestCase
 {
     private ?Database $db = null;
@@ -152,7 +153,7 @@ final class AuditLogTest extends TestCase
         // Arrange
         $this->connect($type, $host, $port);
         AuditLog::record($this->mark . 'new', 1);
-        $this->db->queryBuilder()->table(AuditLog::TABLE)->insert(['event_type' => $this->mark . 'old', 'actor_type' => 'system', 'event_timestamp' => date('c', time() - 40 * 86400)]);
+        $this->db->queryBuilder()->table(AuditLog::TABLE)->insert(['event_type' => $this->mark . 'old', 'actor_type' => 'system', 'event_timestamp' => \Pramnos\Database\Instant::at($this->db, time() - 40 * 86400)]);
         $console = new Application();
         $console->add(new AuditPrune());
         $run = static function (array $options) use ($console): string {
@@ -201,5 +202,99 @@ final class AuditLogTest extends TestCase
         $this->assertSame([], $read);
         $this->assertStringContainsString('No audit log here', $tester->getDisplay());
         $this->assertSame(['otp' => AuditLog::REDACTED, 'spin' => 'x', 'keyword' => 'y', 'privateKey' => AuditLog::REDACTED, 'pin' => 1234, 'cookie' => null], $redacted, 'a word, never part of one; numbers and null kept');
+    }
+
+    /**
+     * The moment is right whatever zone the database session is in: written and compared as a
+     * Unix time the database converts, and read back as `at`. With a session five hours off
+     * PHP's, a `date('c')` string was the session's local time on MariaDB (the offset dropped)
+     * and a window of the last minute found nothing.
+     */
+    #[DataProvider('databases')]
+    public function testTheMomentIsRightInAnySessionZone(string $type, string $host, int $port): void
+    {
+        // Arrange — a session zone that is nobody's here
+        $this->connect($type, $host, $port);
+        $this->db->query($type === 'postgresql' ? "SET TIME ZONE 'Asia/Karachi'" : "SET time_zone = '+05:00'");
+
+        try {
+            // Act
+            AuditLog::record($this->mark . 'now', 1);
+            $rows   = AuditLog::query(['event' => $this->mark . '*', 'since' => time() - 60]);
+            $before = AuditLog::query(['event' => $this->mark . '*', 'until' => time() - 60]);
+        } finally {
+            $this->db->query($type === 'postgresql' ? 'SET TIME ZONE DEFAULT' : "SET time_zone = '+00:00'");
+        }
+
+        // Assert
+        $this->assertCount(1, $rows, 'inside the last minute');
+        $this->assertEqualsWithDelta(time(), $rows[0]['at'], 5, 'the moment, as a Unix time');
+        $this->assertSame([], $before);
+    }
+
+    /**
+     * An event can name an account and a screen or record at once, a change can name the
+     * account its record belongs to, and a list of events — exact or by prefix — can be left out.
+     */
+    #[DataProvider('databases')]
+    public function testObjectsBesideTargetsAndEventsLeftOut(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connect($type, $host, $port);
+        AuditLog::record($this->mark . 'admin.page', 1, 42, ['why' => 'look'], 'page', 'users/edit');
+        AuditLog::record($this->mark . 'admin.page.view', 1);
+        AuditLog::change($this->mark . 'user.updated', 1, 'user', 42, ['email' => 'a@x'], ['email' => 'b@x'], [], 42);
+        AuditLog::record($this->mark . 'role.granted', 1, 42);
+
+        // Act
+        $page   = AuditLog::query(['event' => $this->mark . 'admin.page'])[0];
+        $change = AuditLog::query(['event' => $this->mark . 'user.updated'])[0];
+        $rest   = array_column(AuditLog::query(['event' => $this->mark . '*', 'not_event' => [$this->mark . 'admin.page*', '', 5]]), 'event_type');
+        $exact  = array_column(AuditLog::query(['event' => $this->mark . '*', 'not_event' => [$this->mark . 'admin.page']]), 'event_type');
+
+        // Assert
+        $this->assertSame(['user', '42', 'page', 'users/edit'], [$page['target_type'], (string) $page['target_id'], $page['object_type'], (string) $page['object_id']]);
+        $this->assertSame(['user', '42', 'user', '42'], [$change['target_type'], (string) $change['target_id'], $change['object_type'], (string) $change['object_id']]);
+        $this->assertSame([$this->mark . 'role.granted', $this->mark . 'user.updated'], $rest, 'page views by prefix left out');
+        $this->assertNotContains($this->mark . 'admin.page', $exact);
+        $this->assertContains($this->mark . 'admin.page.view', $exact, 'an exact name leaves out only itself');
+    }
+
+    /**
+     * A retention per event: page views go after their own days, everything else after the
+     * default, and an event no entry names is kept when there is no default.
+     */
+    #[DataProvider('databases')]
+    public function testRetentionPerEvent(string $type, string $host, int $port): void
+    {
+        // Arrange — each event once forty days old and once new
+        $this->connect($type, $host, $port);
+        foreach (['admin.page', 'role.granted', 'user.deleted'] as $event) {
+            $this->db->queryBuilder()->table(AuditLog::TABLE)->insert(['event_type' => $this->mark . $event, 'actor_type' => 'system', 'event_timestamp' => \Pramnos\Database\Instant::at($this->db, time() - 40 * 86400)]);
+            AuditLog::record($this->mark . $event, 1);
+        }
+        $app   = \Pramnos\Application\Application::currentInstance() ?? \Pramnos\Application\Application::getInstance();
+        $saved = $app->applicationInfo['audit'] ?? null;
+        $old   = fn (): array => array_count_values(array_column(array_filter(AuditLog::query(['event' => $this->mark . '*']), fn (array $r): bool => $r['at'] < time() - 86400), 'event_type'));
+        $console = new Application();
+        $console->add(new AuditPrune());
+
+        try {
+            // Act
+            AuditLog::prune([$this->mark . 'admin.*' => 30, $this->mark . 'role.granted' => 365, '' => 1, $this->mark . 'user.deleted' => 0]);
+            $afterNamed = $old();
+            $app->applicationInfo['audit'] = ['retention_days' => [$this->mark . 'role.granted' => 365, '*' => 30]];
+            $tester = new CommandTester($console->find('audit:prune'));
+            $tester->execute([]);
+            $afterDefault = $old();
+        } finally {
+            $app->applicationInfo['audit'] = $saved;
+        }
+
+        // Assert
+        $this->assertEquals([$this->mark . 'role.granted' => 1, $this->mark . 'user.deleted' => 1], $afterNamed, 'page views past 30 days gone; the rest kept: no default');
+        $this->assertSame([$this->mark . 'role.granted' => 1], $afterDefault, 'the default takes what no entry names');
+        $this->assertStringContainsString($this->mark . 'role.granted 365 days, * 30 days', $tester->getDisplay());
+        $this->assertCount(3, AuditLog::query(['event' => $this->mark . '*', 'since' => time() - 60]), 'nothing new was touched');
     }
 }
