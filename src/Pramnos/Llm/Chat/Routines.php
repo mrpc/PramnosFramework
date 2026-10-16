@@ -124,6 +124,11 @@ class Routines
         if (!$this->policy()->canManage($scope, $owner)) {
             return $owner === self::OWNER_GLOBAL ? 'You may not make a report for the whole installation.' : 'You may not make a report for the whole organisation.';
         }
+        // Who may receive it: only a shared report has readers to choose.
+        $audience = $owner === self::OWNER_USER ? null : $this->audienceFrom($wanted);
+        if (is_string($audience)) {
+            return $audience;
+        }
 
         if (($why = $this->policy()->refusal($scope, $kind, true)) !== null) {
             return $why;
@@ -157,7 +162,9 @@ class Routines
         }
 
         $stamp = CallLog::instant(time());
-        $this->table()->insert($scope->columns() + [
+        // Written only when chosen, so an installation that has not run the migration adding the
+        // column still schedules everything else.
+        $this->table()->insert($scope->columns() + ($audience === null ? [] : ['audience' => json_encode($audience)]) + [
             'title'       => $title,
             'prompt'      => $prompt,
             'template'    => $base === null ? null : $template,
@@ -1162,6 +1169,17 @@ class Routines
             ];
         }
 
+        if (array_key_exists('audience', $changes) || array_key_exists('audience_role', $changes) || array_key_exists('audience_users', $changes)) {
+            if ($found['owner'] === self::OWNER_USER) {
+                return 'Only a shared report has readers to choose.';
+            }
+            $audience = $this->audienceFrom($changes);
+            if (is_string($audience)) {
+                return $audience;
+            }
+            $set['audience'] = $audience === null ? null : json_encode($audience);
+        }
+
         $active = array_key_exists('active', $changes) ? (bool) $changes['active'] : $found['active'];
         if ($active && !$found['active'] && $this->policy()->refusal($scope, $found['kind'], true) !== null) {
             return (string) $this->policy()->refusal($scope, $found['kind'], true);
@@ -1350,6 +1368,61 @@ class Routines
             'last_run_at'     => $f['last_run_at'] === null ? null : (string) $f['last_run_at'],
             'last_error'      => $f['last_error'] === null ? null : (string) $f['last_error'],
             'conversation_id' => $f['conversation_id'] === null ? null : (int) $f['conversation_id'],
+            'audience'        => self::audienceOf($f['audience'] ?? null),
+        ];
+    }
+
+    /**
+     * Who may receive a shared report, as given: `audience` as `{min_usertype, users}`, or the
+     * form's `audience_role` (a role, `''` for none) and `audience_users` (usernames or emails,
+     * separated by commas). Null when nothing is chosen — the policy's own rule applies — or what
+     * is wrong with it.
+     *
+     * @param array<string, mixed> $wanted
+     * @return array{min_usertype: int|null, users: list<int>}|string|null
+     */
+    private function audienceFrom(array $wanted): array|string|null
+    {
+        $given = is_array($wanted['audience'] ?? null) ? $wanted['audience'] : [];
+        $min   = isset($given['min_usertype']) && is_numeric($given['min_usertype']) ? (int) $given['min_usertype'] : null;
+        $role  = trim((string) ($wanted['audience_role'] ?? ''));
+        if ($role !== '') {
+            try {
+                $min = \Pramnos\User\Roles::level($role);
+            } catch (\InvalidArgumentException) {
+                return 'There is no role called ' . $role . '.';
+            }
+        }
+        if ($min !== null && ($min < 1 || $min > 99)) {
+            return 'A usertype is between 1 and 99.';
+        }
+
+        $users = array_values(array_unique(array_map('intval', array_filter((array) ($given['users'] ?? []), 'is_numeric'))));
+        $names = array_values(array_filter(array_map('trim', explode(',', (string) ($wanted['audience_users'] ?? ''))), static fn (string $n): bool => $n !== ''));
+        if ($names !== []) {
+            $found = $this->policy()->audienceUsers($names);
+            $missing = array_diff($names, array_keys($found));
+            if ($missing !== []) {
+                return 'There is nobody called ' . implode(', ', $missing) . '.';
+            }
+            $users = array_values(array_unique(array_merge($users, array_values($found))));
+        }
+        $users = array_slice(array_values(array_filter($users, static fn (int $id): bool => $id > 1)), 0, 200);
+
+        return $min === null && $users === [] ? null : ['min_usertype' => $min, 'users' => $users];
+    }
+
+    /** @return array{min_usertype: int|null, users: list<int>}|null The audience as stored */
+    private static function audienceOf(mixed $stored): ?array
+    {
+        $decoded = is_string($stored) && $stored !== '' ? json_decode($stored, true) : null;
+        if (!is_array($decoded)) {
+            return null;
+        }
+
+        return [
+            'min_usertype' => isset($decoded['min_usertype']) && is_numeric($decoded['min_usertype']) ? (int) $decoded['min_usertype'] : null,
+            'users'        => array_values(array_map('intval', array_filter((array) ($decoded['users'] ?? []), 'is_numeric'))),
         ];
     }
 

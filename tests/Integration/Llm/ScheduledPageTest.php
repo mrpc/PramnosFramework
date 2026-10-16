@@ -268,6 +268,52 @@ class ScheduledPageTest extends LlmTestCase
         $this->assertSame([], $bad->scheduledWith, 'refused: nothing was made');
     }
 
+    /**
+     * Choosing a shared report's readers from the page: the form offers them beside "For", in
+     * every theme; the open report's card, for its maker, has them filled in and saves them through
+     * `scheduledupdate` — not for somebody else's report, and a refusal is said.
+     */
+    #[DataProvider('databases')]
+    public function testChoosingTheReaders(string $type, string $host, int $port): void
+    {
+        // Arrange — 8 makes an organisation report; 7 may see it but did not make it
+        $this->connectDatabase($type, $host, $port);
+        $report = $this->tasks()->create(new Scope(8, 3), ['kind' => 'report', 'owner' => 'organization', 'title' => 'Team', 'prompt' => 'p', 'cadence' => 'daily', 'at' => '08:00', 'audience_role' => 'manager']);
+        $draw   = function (Scope $scope, string $theme) use ($report): string {
+            $_GET = ['task' => (string) $report['routine_id']];
+            $html = (string) $this->page($scope, $theme)->scheduled();
+            $_GET = [];
+
+            return $html;
+        };
+
+        // Act
+        $pages  = array_map(fn (string $theme): string => $draw(new Scope(8, 3), $theme), array_combine(self::THEMES, self::THEMES));
+        $other  = $draw(new Scope(7, 3), 'tailwind');
+        $_POST  = ['routine_id' => $report['routine_id'], 'audience' => '1', 'audience_role' => 'admin', 'audience_users' => ''];
+        $saved  = $this->page(new Scope(8, 3));
+        $saved->scheduledupdate();
+        $_POST  = ['routine_id' => $report['routine_id'], 'audience' => '1', 'audience_role' => 'emperor'];
+        $wrong  = $this->page(new Scope(8, 3));
+        $wrong->scheduledupdate();
+        $_POST  = [];
+        $now    = $this->tasks()->byId($report['routine_id']);
+
+        // Assert
+        foreach ($pages as $theme => $html) {
+            $form = substr($html, (int) strpos($html, 'data-pf-scheduled-form'));
+            $this->assertStringContainsString('name="audience_role"', $form, $theme . ': offered when scheduling');
+            $card = substr($html, (int) strpos($html, 'data-pf-scheduled-audience'));
+            $this->assertMatchesRegularExpression('#<option value="manager" selected>#', $card, $theme . ': the maker\'s choice filled in');
+        }
+        $this->assertStringContainsString('data-pf-scheduled-runs', $other, '7, a manager, may read it');
+        $this->assertStringNotContainsString('data-pf-scheduled-audience', $other, 'but not choose its readers: 8 made it');
+        $this->assertSame(['Its readers are saved.'], $saved->messages);
+        $this->assertStringEndsWith('?task=' . $report['routine_id'], $saved->redirectedTo[0], 'back to the report');
+        $this->assertSame(90, $now['audience']['min_usertype']);
+        $this->assertSame(['There is no role called emperor.'], $wrong->errors);
+    }
+
     /** Nobody signed in is sent to sign in, back to this page. */
     #[DataProvider('databases')]
     public function testSignedOut(string $type, string $host, int $port): void

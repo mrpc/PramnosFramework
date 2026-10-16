@@ -16,6 +16,9 @@
  *   $this->timezone  — the clock times are read on
  *   $this->urls      — page, action (with %s for the action's name), report (a run's number
  *                      follows), chat — Ask AI's addresses when not given
+ *   $this->audienceRoles — role => usertype, to choose a shared report's readers by
+ *   $this->audienceUsers — the open task's named readers: userid => username
+ *   $this->mayEdit   — whether the open task is this person's own, to choose its readers
  *   $this->extras    — the controller's own markup: `form`, inside the form before its button;
  *                      `task`, on the open task's card — {@see SchedulesTasks::scheduledExtras()}
  *
@@ -58,6 +61,19 @@ $reports = is_array($this->reports ?? null) ? $this->reports : [];
 $task    = is_array($this->task ?? null) ? $this->task : null;
 $runs    = is_array($this->runs ?? null) ? $this->runs : [];
 $owners  = is_array($this->owners ?? null) ? $this->owners : ['user'];
+$roles   = is_array($this->audienceRoles ?? null) ? $this->audienceRoles : [];
+// Who may receive a shared report: everyone from a role up, and people by name — blank for the maker's standing and up.
+$readers = static function (?array $audience, array $names) use ($c, $e, $t, $roles): string {
+    $min  = $audience['min_usertype'] ?? null;
+    $html = '<label class="' . $c['field'] . '">' . $e($t('Readers from')) . ' <select class="' . $c['select'] . '" name="audience_role">'
+        . '<option value="">' . $e($t('My level and up')) . '</option>';
+    foreach ($roles as $role => $level) {
+        $html .= '<option value="' . $e($role) . '"' . ($min === $level ? ' selected' : '') . '>' . $e($t(ucfirst($role))) . ' (' . (int) $level . ')</option>';
+    }
+
+    return $html . '</select></label><label class="' . $c['field'] . '">' . $e($t('And these people')) . ' <input class="' . $c['input'] . '" name="audience_users" value="'
+        . $e(implode(', ', $names)) . '" placeholder="' . $e($t('usernames or emails, comma-separated')) . '" data-pf-audience-users></label>';
+};
 ?>
 <div class="<?php echo $c['page']; ?>">
     <div class="<?php echo $c['row']; ?>">
@@ -72,6 +88,15 @@ $owners  = is_array($this->owners ?? null) ? $this->owners : ['user'];
             <span class="<?php echo $c['muted']; ?>"><?php echo $e($when($task)); ?></span>
             <a class="<?php echo $c['btnGhost']; ?>" href="<?php echo $e($u['page']); ?>"><?php echo $e($t('Close')); ?></a>
         </div>
+        <?php if (!empty($this->mayEdit) && ($task['owner'] ?? 'user') !== 'user'): ?>
+        <form method="post" action="<?php echo $e($act('scheduledupdate')); ?>" class="<?php echo $c['row']; ?>" data-pf-scheduled-audience>
+            <?php echo $token(); ?>
+            <input type="hidden" name="routine_id" value="<?php echo (int) $task['routine_id']; ?>">
+            <input type="hidden" name="audience" value="1">
+            <?php echo $readers(is_array($task['audience'] ?? null) ? $task['audience'] : null, is_array($this->audienceUsers ?? null) ? array_values($this->audienceUsers) : []); ?>
+            <button type="submit" class="<?php echo $c['btnGhost']; ?>"><?php echo $e($t('Save readers')); ?></button>
+        </form>
+        <?php endif; ?>
         <?php foreach ($runs as $run): ?>
         <article>
             <p class="<?php echo $c['muted']; ?>"><?php echo $e($run['finished_at'] ?? $run['started_at'] ?? ''); ?> · <?php echo $e($t($run['status'] === 'ok' ? 'Done' : 'Failed')); ?>
@@ -137,6 +162,7 @@ $owners  = is_array($this->owners ?? null) ? $this->owners : ['user'];
                     <?php foreach ($owners as $owner): ?><option value="<?php echo $e($owner); ?>"><?php echo $e($t(['user' => 'Me', 'organization' => 'My organisation (a report)', 'global' => 'Everyone (a report)'][$owner] ?? $owner)); ?></option><?php endforeach; ?>
                 </select>
             </label>
+            <?php echo $readers(null, []); /* read only for a shared report */ ?>
             <?php endif; ?>
             <label class="<?php echo $c['field']; ?>"><?php echo $e($t('Tell readers')); ?>
                 <select class="<?php echo $c['select']; ?>" name="notify">

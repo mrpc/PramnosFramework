@@ -269,6 +269,114 @@ class ReportsTest extends LlmTestCase
     }
 
     /**
+     * A shared report's maker chooses its readers: everyone from a role up, people by name, or
+     * both — kept on the report, read by the default rule in place of "the maker's standing and
+     * up", still only inside the organisation; changed later by the maker, and cleared back to
+     * the default; refused for a role or a person that does not exist, and for one person's task.
+     */
+    #[DataProvider('databases')]
+    public function testTheMakerChoosesTheReaders(string $type, string $host, int $port): void
+    {
+        // Arrange — 9 is of lower standing than 7, the maker; 10 is not a member
+        $this->connectDatabase($type, $host, $port);
+        $this->policy();
+        $tasks = $this->tasks();
+
+        // Act
+        $byRole   = $this->report($tasks, ['audience_role' => 'manager']);
+        $byName   = $this->report($tasks, ['audience' => ['users' => [9, 10]]]);
+        $plain    = $this->report($tasks);
+        $roleSees = [$tasks->subscribe(8, $byRole['routine_id']), $tasks->subscribe(9, $byRole['routine_id'])];
+        $nameSees = [$tasks->subscribe(9, $byName['routine_id']), $tasks->subscribe(10, $byName['routine_id']), $tasks->subscribe(8, $byName['routine_id'])];
+        $noRole   = $tasks->create(new Scope(7, 3), ['kind' => 'report', 'owner' => 'organization', 'title' => 'x', 'prompt' => 'x', 'cadence' => 'daily', 'at' => '08:00', 'audience_role' => 'emperor']);
+        $tooLow   = $tasks->create(new Scope(7, 3), ['kind' => 'report', 'owner' => 'organization', 'title' => 'x', 'prompt' => 'x', 'cadence' => 'daily', 'at' => '08:00', 'audience' => ['min_usertype' => 0]]);
+        $changed  = $tasks->update(new Scope(7, 3), $plain['routine_id'], ['audience_role' => '', 'audience' => ['users' => [9]]]);
+        $cleared  = $tasks->update(new Scope(7, 3), $byName['routine_id'], ['audience_role' => '', 'audience_users' => '']);
+        $mine     = $tasks->create(new Scope(7, 3), ['title' => 'Mine', 'prompt' => 'x', 'cadence' => 'daily', 'at' => '08:00']);
+        $notShared = $tasks->update(new Scope(7, 3), $mine['routine_id'], ['audience_role' => 'manager']);
+
+        // Assert
+        $this->assertSame(['min_usertype' => 80, 'users' => []], $byRole['audience'], 'the role, as its usertype');
+        $this->assertSame([null, 'There is no such report you may read.'], $roleSees, 'a manager may; 9 is below');
+        $this->assertSame([null, 'There is no such report you may read.', 'There is no such report you may read.'], $nameSees,
+            '9 by name although below the maker; 10 named but outside the organisation; 8 not named');
+        $this->assertNull($plain['audience'], 'nothing chosen: the default rule');
+        $this->assertSame('There is no role called emperor.', $noRole);
+        $this->assertSame('A usertype is between 1 and 99.', $tooLow);
+        $this->assertSame(['min_usertype' => null, 'users' => [9]], $changed['audience']);
+        $this->assertNull($cleared['audience'], 'cleared back to the default');
+        $this->assertSame('Only a shared report has readers to choose.', $notShared);
+    }
+
+    /**
+     * The migration adds `ai_routines.audience` and takes it away again; run twice, it does
+     * nothing the second time; and a report made while the column is missing — an installation
+     * that has not migrated — still schedules when it names no readers.
+     */
+    #[DataProvider('databases')]
+    public function testTheAudienceColumnComesAndGoes(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        $this->policy();
+        $schema    = $this->db->schema();
+        $migration = $this->migration(\Pramnos\Framework\Migrations\Llm\AddAudienceToAiRoutines::class);
+
+        // Act
+        $migration->down();
+        $gone    = $schema->hasColumn('ai_routines', 'audience');
+        $without = $this->report($this->tasks());
+        $migration->up();
+        $migration->up();
+        $back = $schema->hasColumn('ai_routines', 'audience');
+
+        // Assert
+        $this->assertFalse($gone);
+        $this->assertNull($without['audience'], 'scheduled without the column');
+        $this->assertTrue($back);
+    }
+
+    /**
+     * The default policy finds a report's named readers by username or email, says who it did not
+     * find, and shows them back by username; the form names them so.
+     */
+    #[DataProvider('databases')]
+    public function testReadersAreNamedByUsernameOrEmail(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        \Pramnos\Framework\Testing\Schema::ensure([\Pramnos\Framework\Migrations\Auth\CreateUsersTable::class], $this->db);
+        $mark  = 'rd' . bin2hex(random_bytes(3));
+        $users = $this->db->queryBuilder()->table('#PREFIX#users');
+        foreach (['a', 'b'] as $who) {
+            $this->db->queryBuilder()->table('#PREFIX#users')->insert(['username' => $mark . $who, 'email' => $mark . $who . '@example.com', 'password' => 'x', 'regdate' => time()]);
+        }
+        $policy = new TaskPolicy(new ReadingAssistant());
+        // The test's standing for 11 — an administrator — and the default lookup of names
+        $this->policy();
+        $tasks  = $this->tasks();
+
+        try {
+            // Act
+            $found   = $policy->audienceUsers([$mark . 'a', $mark . 'b@example.com', 'nobody-' . $mark]);
+            $names   = $policy->audienceNames(array_values($found));
+            $none    = $policy->audienceNames([]);
+            $shared  = ['kind' => 'report', 'owner' => 'global', 'title' => 'x', 'prompt' => 'x', 'cadence' => 'daily', 'at' => '08:00'];
+            $refused = $tasks->create(new Scope(11, null), $shared + ['audience_users' => $mark . 'a, nobody-' . $mark]);
+            $made    = $tasks->create(new Scope(11, null), $shared + ['audience_users' => $mark . 'a, ' . $mark . 'b@example.com']);
+
+            // Assert
+            $this->assertSame([$mark . 'a', $mark . 'b@example.com'], array_keys($found));
+            $this->assertSame([$mark . 'a', $mark . 'b'], array_values($names));
+            $this->assertSame([], $none);
+            $this->assertSame('There is nobody called nobody-' . $mark . '.', $refused);
+            $this->assertSame(array_values($found), $made['audience']['users'], 'kept by id');
+        } finally {
+            $users->where('username', 'like', $mark . '%')->delete();
+        }
+    }
+
+    /**
      * A run opens as a conversation of the reader's own, holding the report: the same one when
      * opened again, a new one when that was deleted; nothing for a reader who may not see it, a
      * failed run, or no run at all.

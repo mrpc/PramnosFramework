@@ -458,7 +458,8 @@ method has a default, so an application overrides only what it has:
 | `timezone($task)` | The zone it was made in; a task about a site returns that site's |
 | `stillAllowed($task)` | `true`. An application with organisations checks the maker is still a member: false pauses the task and tells its maker |
 | `canManage($scope, $owner)` | `user` always; `organization` inside an organisation at usertype 80 or more; `global` at 90 or more |
-| `canSee($userId, $task)` | Whether a person may read a shared report and subscribe: its maker; for an organisation's, a `member()` of it; and in both cases a usertype no lower than the maker's, because a report runs with the maker's rights |
+| `canSee($userId, $task)` | Whether a person may read a shared report and subscribe: its maker; for an organisation's, a `member()` of it; then the readers its maker chose (`audience`), or — when none were chosen — a usertype no lower than the maker's, because a report runs with the maker's rights |
+| `audienceUsers($names)`, `audienceNames($ids)` | The named readers: found by username or email (`name => userid`), and shown back by username |
 | `member($userId, $orgId)` | `true`. An application with organisations answers here |
 | `audience($task)` | The maker, and each subscriber `canSee()` still allows, checked at every run |
 | `resourceLabel($task)` | `''`. What a task is about as people read it ("GeekDom", not "property 42"), for the notification's title and the report's question |
@@ -504,6 +505,24 @@ still kept. A run with no decision tells everyone, so a report is never silent b
 the right stops receiving it. The default `canSee()` is strict: a reader of lower standing than
 the maker would see what the maker's rights read. An application with roles says here who may
 read, such as the readers of the property the report is about.
+
+**The maker chooses.** A shared report can name its readers, kept in `ai_routines.audience`:
+everyone from a role up, people by name, or both. They are still only inside the organisation for
+an organisation's report. The choice opens the report to people below the maker's standing, on
+purpose: they read what the maker's rights read.
+
+```php
+$tasks->create($scope, ['kind' => 'report', 'owner' => 'global', … ,
+    'audience_role'  => 'admin',                 // a role, as app.php's `roles` sets it
+    'audience_users' => 'maria, nikos@example.com', // usernames or emails
+]);
+$tasks->create($scope, [… , 'audience' => ['min_usertype' => 90, 'users' => [7, 12]]]);
+$tasks->update($scope, $id, ['audience_role' => '', 'audience_users' => '']);   // back to the default
+```
+
+The scheduled page offers both fields beside "For" when a report is shared, and the open report's
+card lets its maker change them (`scheduledupdate` with `audience`). One person's task has no
+readers to choose.
 
 **Asking about a report.** A report's notification links to `chat/report/{run}`
 (`ChatPageController::report()`, or `POST …/runs/{id}/continue`). That opens the run as a

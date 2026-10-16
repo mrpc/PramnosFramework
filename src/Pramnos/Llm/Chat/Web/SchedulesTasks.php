@@ -75,6 +75,10 @@ trait SchedulesTasks
         $view->pageUrl   = $this->scheduledUrl();
         $view->chatUrl   = $this->taskChatUrl();
         $view->extras    = $this->scheduledExtras($task) + ['form' => '', 'task' => ''];
+        // Who may receive a shared report: the roles to choose from, and the open one's readers by name.
+        $view->audienceRoles = self::audienceRoles();
+        $view->audienceUsers = is_array($task['audience'] ?? null) ? $policy->audienceNames($task['audience']['users']) : [];
+        $view->mayEdit       = $task !== null && (int) $task['userid'] === $scope->userId;
         $view->urls      = [
             'page'   => $this->scheduledUrl(),
             'action' => $this->scheduledUrl('%s'),
@@ -92,7 +96,7 @@ trait SchedulesTasks
             return null;
         }
         $scope = $this->taskScope();
-        $input = array_intersect_key($_POST, array_flip(['kind', 'template', 'title', 'prompt', 'cadence', 'at', 'day', 'nth', 'run_at', 'owner', 'notify']));
+        $input = array_intersect_key($_POST, array_flip(['kind', 'template', 'title', 'prompt', 'cadence', 'at', 'day', 'nth', 'run_at', 'owner', 'notify', 'audience_role', 'audience_users']));
         // The form asks the day twice — a weekday, a day of the month — and sends the one the cadence reads.
         if (!isset($input['day']) && ($_POST['weekday'] ?? $_POST['monthday'] ?? null) !== null) {
             $input['day'] = ($input['cadence'] ?? '') === 'monthly' ? ($_POST['monthday'] ?? null) : ($_POST['weekday'] ?? null);
@@ -112,17 +116,28 @@ trait SchedulesTasks
         return null;
     }
 
-    /** Pause or resume one of this person's tasks — `active` in the form. */
+    /**
+     * Pause or resume one of this person's tasks — `active` in the form; or, with `audience` in
+     * the form, choose who may receive a shared report: `audience_role` and `audience_users`.
+     */
     public function scheduledupdate(mixed $id = null): mixed
     {
         if ($this->taskDenied()) {
             return null;
         }
-        $scope   = $this->taskScope();
-        $changed = $scope === null ? 'This needs somebody signed in.'
-            : $this->taskService()->update($scope, (int) ($id ?: ($_POST['routine_id'] ?? 0)), ['active' => !empty($_POST['active'])]);
-        is_string($changed) ? $this->addError($changed) : $this->addMessage($changed['active'] ? 'Resumed.' : 'Paused.');
-        $this->redirect($this->scheduledUrl());
+        $scope    = $this->taskScope();
+        $id       = (int) ($id ?: ($_POST['routine_id'] ?? 0));
+        $audience = isset($_POST['audience']);
+        $changes  = $audience
+            ? ['audience_role' => (string) ($_POST['audience_role'] ?? ''), 'audience_users' => (string) ($_POST['audience_users'] ?? '')]
+            : ['active' => !empty($_POST['active'])];
+        $changed = $scope === null ? 'This needs somebody signed in.' : $this->taskService()->update($scope, $id, $changes);
+        if (is_string($changed)) {
+            $this->addError($changed);
+        } else {
+            $this->addMessage($audience ? 'Its readers are saved.' : ($changed['active'] ? 'Resumed.' : 'Paused.'));
+        }
+        $this->redirect($this->scheduledUrl() . ($audience ? '?task=' . $id : ''));
 
         return null;
     }
@@ -182,6 +197,23 @@ trait SchedulesTasks
         $this->redirect($this->scheduledUrl());
 
         return null;
+    }
+
+    /**
+     * The roles a report's readers may be chosen by, lowest first: `role => usertype`, as app.php
+     * sets them.
+     *
+     * @return array<string, int>
+     */
+    protected static function audienceRoles(): array
+    {
+        $roles = [];
+        foreach (array_keys(\Pramnos\User\Roles::DEFAULTS) as $role) {
+            $roles[$role] = \Pramnos\User\Roles::level($role);
+        }
+        asort($roles);
+
+        return $roles;
     }
 
     /** The scheduled tasks, over this person's conversations. */

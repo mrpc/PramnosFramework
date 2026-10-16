@@ -120,7 +120,9 @@ class TaskPolicy
      *
      * A report runs with its maker's rights ({@see scope()}), so whoever reads it sees what they
      * see. By default, then, strictly: a member of its organisation ({@see member()}) of the
-     * maker's standing or more. One person's task is theirs alone. An application with roles says
+     * maker's standing or more — unless the maker chose its readers (`audience`): everyone from a
+     * usertype up, and people by name, still inside the organisation. One person's task is theirs
+     * alone. An application with roles says
      * here who may — the readers of the site the report is about, say.
      *
      * @param array<string, mixed> $task
@@ -137,7 +139,60 @@ class TaskPolicy
             return false;
         }
 
+        // Its maker chose who: everyone from a usertype up, and named people.
+        $audience = $task['audience'] ?? null;
+        if (is_array($audience)) {
+            return in_array($userId, $audience['users'] ?? [], true)
+                || (($audience['min_usertype'] ?? null) !== null && $this->usertype($userId) >= (int) $audience['min_usertype']);
+        }
+
         return $this->usertype($userId) >= $this->usertype((int) $task['userid']);
+    }
+
+    /**
+     * The people a report's maker names as its readers, by username or email: `name => userid`
+     * for each one found. An application whose people are found otherwise answers here.
+     *
+     * @param list<string> $names
+     * @return array<string, int>
+     */
+    public function audienceUsers(array $names): array
+    {
+        $found  = [];
+        $result = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('#PREFIX#users')
+            ->select(['userid', 'username', 'email'])
+            ->where(static fn ($q) => $q->whereIn('username', $names)->whereIn('email', $names, 'or'))
+            ->get();
+        while (($row = $result->fetch()) !== null) {
+            foreach ([(string) $row['username'], (string) $row['email']] as $name) {
+                if (in_array($name, $names, true)) {
+                    $found[$name] = (int) $row['userid'];
+                }
+            }
+        }
+
+        return $found;
+    }
+
+    /**
+     * How a report's named readers are shown back to its maker: `userid => username`.
+     *
+     * @param list<int> $userIds
+     * @return array<int, string>
+     */
+    public function audienceNames(array $userIds): array
+    {
+        if ($userIds === []) {
+            return [];
+        }
+        $names  = [];
+        $result = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('#PREFIX#users')
+            ->select(['userid', 'username'])->whereIn('userid', $userIds)->get();
+        while (($row = $result->fetch()) !== null) {
+            $names[(int) $row['userid']] = (string) $row['username'];
+        }
+
+        return $names;
     }
 
     /**
