@@ -165,7 +165,9 @@ class ScheduledPageTest extends LlmTestCase
         $this->assertSame(['monthly', 27], [$made['Rent']['cadence'], $made['Rent']['day']], 'the day of the month');
         $this->assertStringStartsWith(date('Y', time() + 400 * 86400) . '-01-02', (string) $made['Call']['run_at']);
         $this->assertSame(['That is too far ahead: give a time within ten years.'], $said[3][1], 'refused, not a database error');
-        $this->assertStringStartsWith('Scheduled. Next: ', $said[0][0][0]);
+        // The time goes into the words as a placeholder, so a translation catches the whole message;
+        // and it is written in figures, which read the same in every language.
+        $this->assertMatchesRegularExpression('#^Scheduled\. Next: \d{2}/\d{2}/\d{4} \d{2}:\d{2}\.$#', $said[0][0][0]);
         $this->assertStringStartsWith('Only a report is shared', $said[4][1][0]);
         $this->assertStringEndsWith('chat/scheduled', $said[0][2]);
     }

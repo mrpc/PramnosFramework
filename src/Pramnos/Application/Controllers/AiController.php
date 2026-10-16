@@ -94,7 +94,7 @@ class AiController extends Controller
 
         $view              = $this->getView('ai');
         $view->heading     = 'Ask';
-        $view->settingsUrl = adminUrl('Ai/settings');
+        $view->settingsUrl = $this->settingsLink();
         $analyst           = Llm::config('analyst', []);
         $view->waitingLines = is_array($analyst['waiting_lines'] ?? null) ? $analyst['waiting_lines'] : [];
         $view->suggestions  = is_array($analyst['suggestions'] ?? null) ? $analyst['suggestions'] : [];
@@ -377,6 +377,21 @@ class AiController extends Controller
         $this->redirect($this->analystUrl((int) $made));
 
         return null;
+    }
+
+    /**
+     * The "Settings" link under Ask's heading; `''` hides it — an application whose settings are
+     * reached from its own menu returns that. Without a key, Ask still sends to the settings.
+     */
+    protected function settingsLink(): string
+    {
+        return adminUrl('Ai/settings');
+    }
+
+    /** The scheduled page's actions are behind the same floor as Ask. */
+    protected function taskDenied(): bool
+    {
+        return $this->requireMinUserType($this->adminFloor());
     }
 
     /** Whether the application lets the analyst schedule — its assistant does not refuse. */

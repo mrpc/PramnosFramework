@@ -10,7 +10,8 @@ use Pramnos\Notification\NotificationInterface;
  * A reminder somebody asked the assistant for — "remind me in an hour about the invoice" — in
  * their own words, leading back to the conversation they asked in.
  *
- * In the person's notifications, and as a push where they have a browser subscribed. An
+ * In the person's notifications, and as a push where they have a browser subscribed — the
+ * channels {@see RoutineReady::channels()} names. An
  * application replaces it with `'llm' => ['chat' => ['reminder_notification' => …]]`, a class
  * constructed the same way: the words and the link.
  */
@@ -23,13 +24,7 @@ class TaskReminder implements NotificationInterface
     /** @return list<string> */
     public function via(mixed $notifiable): array
     {
-        $channels = ['database'];
-
-        if (\Pramnos\Push\Subscriptions::exist((int) ($notifiable->userid ?? 0))) {
-            $channels[] = 'push';
-        }
-
-        return $channels;
+        return RoutineReady::channels($notifiable);
     }
 
     /** @return array{message: string, url: string} */

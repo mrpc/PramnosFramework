@@ -9,8 +9,8 @@ use Pramnos\Notification\NotificationInterface;
 /**
  * A scheduled question was answered — or could not be.
  *
- * In the person's notifications, and as a push where they have a browser subscribed. An
- * application replaces it with `'llm' => ['chat' => ['routine_notification' => …]]`, a class
+ * In the person's notifications, and as a push where they have a browser subscribed
+ * ({@see channels()}, `'llm' => ['chat' => ['notify_via' => …]]`). An application replaces it with `'llm' => ['chat' => ['routine_notification' => …]]`, a class
  * constructed the same way: title, whether it worked, why not, and the link to the answer.
  */
 class RoutineReady implements NotificationInterface
@@ -26,13 +26,22 @@ class RoutineReady implements NotificationInterface
     /** @return list<string> */
     public function via(mixed $notifiable): array
     {
-        $channels = ['database'];
+        return self::channels($notifiable);
+    }
 
-        if (\Pramnos\Push\Subscriptions::exist((int) ($notifiable->userid ?? 0))) {
-            $channels[] = 'push';
-        }
+    /**
+     * The bell, and a push where the person has a browser subscribed — of those, the ones
+     * `'llm' => ['chat' => ['notify_via' => ['database']]]` names: that one is the bell only.
+     *
+     * @return list<string>
+     */
+    public static function channels(mixed $notifiable): array
+    {
+        $chat    = \Pramnos\Llm\Llm::config('chat', []);
+        $allowed = is_array($chat['notify_via'] ?? null) ? $chat['notify_via'] : ['database', 'push'];
+        $push    = in_array('push', $allowed, true) && \Pramnos\Push\Subscriptions::exist((int) ($notifiable->userid ?? 0));
 
-        return $channels;
+        return array_values(array_filter(['database', $push ? 'push' : ''], static fn (string $via): bool => $via !== '' && in_array($via, $allowed, true)));
     }
 
     /** @return array{message: string, url: string} */

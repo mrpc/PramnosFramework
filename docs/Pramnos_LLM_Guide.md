@@ -431,6 +431,9 @@ After each run:
   names, constructed with the title, whether it worked, why not, and the link.
 - A reminder tells the owner with `Chat\TaskReminder`, or `chat.reminder_notification`, given the
   words and the link.
+- Both go to the bell, and as a push where the owner has a browser subscribed. `'llm' => ['chat'
+  => ['notify_via' => ['database']]]` keeps them to the bell; the list names the channels allowed
+  (`database`, `push`).
 - A one-off is done once it ran.
 - A notification's link that was built with no site address, as in a cron run with no `APP_URL`,
   starts from the site's root rather than from the page the notification is opened on.
@@ -673,9 +676,17 @@ using it answers six hooks:
 - `scheduledUrl($action)`: the page, or one of its actions;
 - `taskReportUrl($runId)`, `taskChatUrl()` and `taskSignInUrl()`: where a report's run opens, the
   conversations, and where somebody not signed in is sent.
+- `taskDenied()`, optional: true when the request stops here, already answered. Every action asks
+  it first; `AiController` answers with the admin floor, as its other actions do.
+
+A flash message carrying a value is `t('… %s …', $value)`, so a translation catches the whole
+message. `next_run_local` is in figures (`19/10/2026 09:00`), which read the same in any language.
 
 The view reads the addresses from `$this->urls`. `AiController` serves the analyst's at
-`/admin/Ai/scheduled`, with `/admin/Ai/report/{run}` for its reports. The analyst's page links
+`/admin/Ai/scheduled`, with `/admin/Ai/report/{run}` for its reports. A report's link and an analyst
+conversation's are built the same way, by `AnalystAssistant::areaUrl()`: the admin area's address
+where the process has one, otherwise `admin/` under the site's — so a link made by the site's cron
+still leads into the administration. The analyst's page links
 there only where the application lets the analyst schedule, through its `routineRefusal()`. An
 analyst that may schedule tells its model so, and counts times on the analyst's clock
 (`Analyst::timezone()`).
@@ -807,7 +818,9 @@ provider in use asks for it; its `consent` is bindable. `kind` names the feature
 `/admin/Ai` — *Ask*, the AI item in the admin menu — answers questions about the installation
 itself — how many signed up last month, which emails were opened, what failed in the queue, what
 the models cost and for whom — from the installation's own tables. The settings are a link away,
-at `/admin/Ai/settings`. Both sit behind one gate: the ability `admin.ai` and the usertype in the
+at `/admin/Ai/settings`; an application whose settings are reached from its own menu hides the link
+under Ask's heading by overriding `settingsLink()` to return `''`. Ask still opens the settings
+while no key is set. Both sit behind one gate: the ability `admin.ai` and the usertype in the
 application's `Admin\Controllers\Ai::$requiredUserType`. The page is the conversation page at
 the analyst's own addresses, with everything `pf-chat.js` does there; its waiting lines are
 `'llm' => ['analyst' => ['waiting_lines' => […]]]`.

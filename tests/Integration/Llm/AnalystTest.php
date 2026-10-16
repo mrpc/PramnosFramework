@@ -426,6 +426,8 @@ class AnalystTest extends LlmTestCase
                 $page = (string) (new AnalystScreen($theme))->display();
                 $this->assertStringContainsString('Ask', $page, $theme);
                 $this->assertStringContainsString('Ai/settings', $page, $theme . ': the settings are a link away');
+                $hidden = (string) (new AnalystScreen($theme, hideSettings: true))->display();
+                $this->assertStringNotContainsString('Ai/settings', $hidden, $theme . ': settingsLink() \'\' hides the link');
                 $this->assertStringContainsString('Ai/ask', $page, $theme);
                 $this->assertStringContainsString('data-page="', $page, $theme);
                 $this->assertStringContainsString('You agreed to the AI features using DeepSeek.', $page, $theme);
@@ -618,12 +620,17 @@ class AnalystTest extends LlmTestCase
 
         // Act
         $answers = [$screen->display(), $screen->ask(), $screen->asked(1), $screen->delete(1), $screen->forget(1), $screen->consent(), $screen->api()];
+        // The scheduled page's actions, from the trait, behind the same floor
+        $scheduled = [$screen->scheduled(), $screen->schedule(), $screen->scheduledupdate(1), $screen->scheduleddelete(1), $screen->scheduledrun(1), $screen->scheduledsubscribe(1), $screen->report(1)];
         $_POST   = [];
 
         // Assert
         $this->assertSame([null, null, null, null, null, null, null], $answers);
+        $this->assertSame([null, null, null, null, null, null, null], $scheduled);
         $this->assertSame([], $screen->queue->tasks);
+        // Nothing was flashed or redirected: each action stopped before it touched a task.
         $this->assertSame([], $screen->redirectedTo);
+        $this->assertSame([[], []], [$screen->messages, $screen->errors]);
     }
 }
 
@@ -693,7 +700,7 @@ final class AnalystScreen extends \Pramnos\Application\Controllers\AiController
 
     public RecordingQueue $queue;
 
-    public function __construct(private string $theme = 'plain-css', private bool $refused = false)
+    public function __construct(private string $theme = 'plain-css', private bool $refused = false, private bool $hideSettings = false)
     {
         // Not parent::__construct(): it registers actions against an application this test does not have.
         $this->queue = new RecordingQueue();
@@ -702,6 +709,12 @@ final class AnalystScreen extends \Pramnos\Application\Controllers\AiController
     protected function requireMinUserType($type): bool
     {
         return $this->refused;
+    }
+
+    /** The settings link, or none — as an application with its own settings menu answers. */
+    protected function settingsLink(): string
+    {
+        return $this->hideSettings ? '' : parent::settingsLink();
     }
 
     protected function analystDesk(): \Pramnos\Llm\Analyst\Desk

@@ -122,7 +122,7 @@ class Routines
             return 'Only a report is shared: owner is user, or organization or global for a report.';
         }
         if (!$this->policy()->canManage($scope, $owner)) {
-            return 'You may not make a report for the whole ' . ($owner === self::OWNER_GLOBAL ? 'installation' : 'organisation') . '.';
+            return $owner === self::OWNER_GLOBAL ? 'You may not make a report for the whole installation.' : 'You may not make a report for the whole organisation.';
         }
 
         if (($why = $this->policy()->refusal($scope, $kind, true)) !== null) {
@@ -1346,7 +1346,7 @@ class Routines
             'timezone'        => $timezone,
             'active'          => in_array($f['is_active'], [true, 't', 1, '1'], true),
             'next_run_at'     => $f['next_run_at'] === null ? null : (string) $f['next_run_at'],
-            'next_run_local'  => $next ? (new \DateTimeImmutable('@' . $next))->setTimezone(new \DateTimeZone($timezone))->format('D j M Y, H:i') : null,
+            'next_run_local'  => $next ? (new \DateTimeImmutable('@' . $next))->setTimezone(new \DateTimeZone($timezone))->format('d/m/Y H:i') : null,
             'last_run_at'     => $f['last_run_at'] === null ? null : (string) $f['last_run_at'],
             'last_error'      => $f['last_error'] === null ? null : (string) $f['last_error'],
             'conversation_id' => $f['conversation_id'] === null ? null : (int) $f['conversation_id'],

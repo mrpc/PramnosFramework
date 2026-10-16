@@ -30,6 +30,8 @@ use Pramnos\Tests\Unit\Llm\LlmTestCase;
 #[CoversClass(AnalystAssistant::class)]
 #[CoversClass(\Pramnos\Application\Controllers\AiController::class)]
 #[CoversClass(\Pramnos\Llm\Chat\Web\SchedulesTasks::class)]
+#[CoversClass(\Pramnos\Llm\Chat\RoutineReady::class)]
+#[CoversClass(\Pramnos\Llm\Chat\TaskReminder::class)]
 class AnalystTasksTest extends LlmTestCase
 {
     use ChatDatabase;
@@ -208,7 +210,73 @@ class AnalystTasksTest extends LlmTestCase
         $this->assertStringEndsWith('Ai/report/5', $urls[1]);
         $this->assertFalse((new \ReflectionMethod($screen, 'analystSchedules'))->invoke($screen), 'the framework\'s analyst schedules nothing');
         $this->assertStringEndsWith('Ai', (new \ReflectionMethod($screen, 'taskSignInUrl'))->invoke($screen));
-        $this->assertStringEndsWith('Ai/report/' . $runId, (new TaskPolicy(new SchedulingAnalyst()))->link(['kind' => 'report', 'space' => Scope::ADMIN] + $made, ['run_id' => $runId]));
+        // No area in this process — a site's cron — and the report still leads into the administration.
+        $this->assertStringEndsWith('admin/Ai/report/' . $runId, (new TaskPolicy(new SchedulingAnalyst()))->link(['kind' => 'report', 'space' => Scope::ADMIN] + $made, ['run_id' => $runId]));
+        $this->assertStringEndsWith('admin/Ai/analyst?c=4', (new SchedulingAnalyst())->conversationUrl(4), 'the conversations by the same rule');
+        // An application with an area of its own, under another prefix: the area's address wins.
+        \Pramnos\Http\AdminArea::detect('manage');
+        $inArea = AnalystAssistant::areaUrl('Ai/report/' . $runId);
+        \Pramnos\Http\AdminArea::reset();
+        $this->assertStringEndsWith('manage/Ai/report/' . $runId, $inArea);
+    }
+
+    /**
+     * The analyst's screen pauses and resumes a task through the trait's own action — it reads
+     * the person through taskScope(), which every controller using the trait has, so the button
+     * answers rather than failing on a method only the chat page declares.
+     */
+    #[DataProvider('databases')]
+    public function testTheAnalystsPauseButton(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connectDatabase($type, $host, $port);
+        \Pramnos\Http\RequestIdentity::seal((object) ['userid' => 7, 'usertype' => 99], 'test');
+        $tasks  = new Routines(new Conversations(new SchedulingAnalyst()));
+        $made   = $tasks->create(new Scope(7, null, Scope::ADMIN), ['kind' => 'reminder', 'title' => 'Mine', 'prompt' => 'p', 'cadence' => 'daily', 'at' => '08:00']);
+        $paused = new AnalystScreen();
+
+        // Act
+        $_POST = ['routine_id' => (string) $made['routine_id'], 'active' => ''];
+        $paused->scheduledupdate();
+        $_POST = [];
+
+        // Assert
+        $this->assertSame(['Paused.'], $paused->messages);
+        $this->assertFalse($tasks->byId($made['routine_id'])['active'], 'it took effect in the database');
+        $this->assertStringEndsWith('Ai/scheduled', $paused->redirectedTo[0]);
+    }
+
+    /**
+     * Where a scheduled task's notifications go: the bell, and a push for somebody with a browser
+     * subscribed — unless `llm.chat.notify_via` names the bell only, for both the report's
+     * notification and the reminder's.
+     */
+    #[DataProvider('databases')]
+    public function testNotifyVia(string $type, string $host, int $port): void
+    {
+        // Arrange — person 7 has a browser subscribed
+        $this->connectDatabase($type, $host, $port);
+        $this->migration(\Pramnos\Framework\Migrations\Notifications\CreatePushSubscriptionsTable::class)->up();
+        $person = (object) ['userid' => 7];
+        \Pramnos\Push\Subscriptions::store(7, ['endpoint' => 'https://push.example/' . bin2hex(random_bytes(8)), 'keys' => ['p256dh' => 'key', 'auth' => 'secret']], 'Firefox/143.0');
+
+        try {
+            // Act
+            $both = [(new \Pramnos\Llm\Chat\RoutineReady('t', true, '', '/x'))->via($person), (new \Pramnos\Llm\Chat\TaskReminder('w', '/x'))->via($person)];
+            $this->configure(['chat' => ['notify_via' => ['database']]]);
+            $bell = [(new \Pramnos\Llm\Chat\RoutineReady('t', true, '', '/x'))->via($person), (new \Pramnos\Llm\Chat\TaskReminder('w', '/x'))->via($person)];
+            $this->configure(['chat' => ['notify_via' => ['push']]]);
+            $push = \Pramnos\Llm\Chat\RoutineReady::channels($person);
+            $none = \Pramnos\Llm\Chat\RoutineReady::channels((object) ['userid' => 8]);
+
+            // Assert
+            $this->assertSame([['database', 'push'], ['database', 'push']], $both);
+            $this->assertSame([['database'], ['database']], $bell);
+            $this->assertSame(['push'], $push, 'a list without the bell leaves it out');
+            $this->assertSame([], $none, 'push only, and nobody subscribed: nothing');
+        } finally {
+            $this->db->queryBuilder()->table('pramnos.pushsubscriptions')->where('userid', 7)->delete();
+        }
     }
 }
 

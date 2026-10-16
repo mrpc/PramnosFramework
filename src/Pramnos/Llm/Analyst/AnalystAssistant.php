@@ -119,8 +119,21 @@ class AnalystAssistant extends BaseAssistant
         return 'The analyst does not run scheduled reports.';
     }
 
+    /** An analyst conversation — {@see areaUrl()}. */
     public function conversationUrl(?int $conversationId): string
     {
-        return \Pramnos\Http\SiteUrl::to('admin/Ai/analyst' . ($conversationId ? '?c=' . $conversationId : ''));
+        return self::areaUrl('Ai/analyst' . ($conversationId ? '?c=' . $conversationId : ''));
+    }
+
+    /**
+     * An address on the analyst's screen, the same from a page and from a cron run: the area's,
+     * where this application has one; otherwise `admin/` under the site's address — a site's cron
+     * has no area of its own, and its links still lead to the administration's.
+     */
+    public static function areaUrl(string $path): string
+    {
+        return \Pramnos\Http\AdminArea::prefix() !== ''
+            ? \Pramnos\Http\AdminArea::url($path)
+            : \Pramnos\Http\SiteUrl::to('admin/' . ltrim($path, '/'));
     }
 }

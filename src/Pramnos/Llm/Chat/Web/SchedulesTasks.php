@@ -24,6 +24,7 @@ use Pramnos\Llm\Chat\Scope;
  * | `taskReportUrl($runId)` | where a report's run opens as a conversation |
  * | `taskChatUrl()` | the conversations |
  * | `taskSignInUrl()` | where somebody not signed in is sent |
+ * | `taskDenied()` | true when this person may not reach the page — it has answered already; false by default |
  *
  * Its actions are `scheduled`, `schedule`, `scheduledupdate`, `scheduleddelete`, `scheduledrun`
  * and `scheduledsubscribe`; the controller declares them as auth actions, and all but the first
@@ -38,6 +39,9 @@ trait SchedulesTasks
      */
     public function scheduled(): mixed
     {
+        if ($this->taskDenied()) {
+            return null;
+        }
         $scope = $this->taskScope();
         if ($scope === null) {
             $this->redirect($this->taskSignInUrl());
@@ -81,6 +85,9 @@ trait SchedulesTasks
     /** Schedule a task from the form: kind, title, prompt, cadence and its fields, owner, notify. */
     public function schedule(): mixed
     {
+        if ($this->taskDenied()) {
+            return null;
+        }
         $scope = $this->taskScope();
         $input = array_intersect_key($_POST, array_flip(['kind', 'template', 'title', 'prompt', 'cadence', 'at', 'day', 'nth', 'run_at', 'owner', 'notify']));
         // The form asks the day twice — a weekday, a day of the month — and sends the one the cadence reads.
@@ -91,7 +98,7 @@ trait SchedulesTasks
         $input = array_filter($input, static fn ($value): bool => $value !== '' && $value !== null);
         $made  = $scope === null ? 'This needs somebody signed in.'
             : $this->taskService()->create($scope, $input + ['timezone' => $this->taskConversations()->assistant()->timezone($scope)]);
-        is_string($made) ? $this->addError($made) : $this->addMessage('Scheduled. Next: ' . $made['next_run_local'] . '.');
+        is_string($made) ? $this->addError($made) : $this->addMessage(t('Scheduled. Next: %s.', (string) $made['next_run_local']));
         $this->redirect($this->scheduledUrl());
 
         return null;
@@ -100,7 +107,10 @@ trait SchedulesTasks
     /** Pause or resume one of this person's tasks — `active` in the form. */
     public function scheduledupdate(mixed $id = null): mixed
     {
-        $scope   = $this->scope();
+        if ($this->taskDenied()) {
+            return null;
+        }
+        $scope   = $this->taskScope();
         $changed = $scope === null ? 'This needs somebody signed in.'
             : $this->taskService()->update($scope, (int) ($id ?: ($_POST['routine_id'] ?? 0)), ['active' => !empty($_POST['active'])]);
         is_string($changed) ? $this->addError($changed) : $this->addMessage($changed['active'] ? 'Resumed.' : 'Paused.');
@@ -112,6 +122,9 @@ trait SchedulesTasks
     /** Delete one of this person's tasks. Its conversation and its runs' record stay as they are. */
     public function scheduleddelete(mixed $id = null): mixed
     {
+        if ($this->taskDenied()) {
+            return null;
+        }
         $scope = $this->taskScope();
         $scope !== null && $this->taskService()->delete($scope, (int) ($id ?: ($_POST['routine_id'] ?? 0)))
             ? $this->addMessage('Deleted.')
@@ -124,6 +137,9 @@ trait SchedulesTasks
     /** Run one of this person's tasks now, whatever its schedule, and show its runs. */
     public function scheduledrun(mixed $id = null): mixed
     {
+        if ($this->taskDenied()) {
+            return null;
+        }
         $scope = $this->taskScope();
         $id    = (int) ($id ?: ($_POST['routine_id'] ?? 0));
         $found = $scope === null ? null : $this->taskService()->find($scope, $id);
@@ -143,6 +159,9 @@ trait SchedulesTasks
     /** Receive a shared report, or stop — `on` in the form. */
     public function scheduledsubscribe(mixed $id = null): mixed
     {
+        if ($this->taskDenied()) {
+            return null;
+        }
         $scope = $this->taskScope();
         $id    = (int) ($id ?: ($_POST['routine_id'] ?? 0));
         if ($scope === null) {
@@ -161,6 +180,16 @@ trait SchedulesTasks
     protected function taskService(): Routines
     {
         return new Routines($this->taskConversations());
+    }
+
+    /**
+     * Whether the request stops here — the controller has already answered it, with its sign-in
+     * or a refusal. Every action asks first. Nobody is stopped by default; a controller behind a
+     * floor answers with its usertype check, as `AiController` does.
+     */
+    protected function taskDenied(): bool
+    {
+        return false;
     }
 
     /** Whose tasks: the person signed in, or null. */
