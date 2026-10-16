@@ -223,6 +223,42 @@ class PageCacheMiddlewareTest extends TestCase
     }
 
     /**
+     * With pageSignal, a page a service worker may keep says so — `public; max-age` on the miss
+     * just stored and on a hit, with what is left of its life — and a private one says it is
+     * private: bypassed at runtime, or carrying a private marker; a page refused for any other
+     * reason says nothing, and without pageSignal nothing is said.
+     */
+    public function testThePageSignal(): void
+    {
+        // Arrange
+        $signal  = $this->middleware(['pageSignal' => true, 'ttl' => 600, 'privateMarkers' => ['data-mine']]);
+        $page    = static fn (): Response => Response::make('<html>public</html>');
+        $mine    = static fn (): Response => Response::make('<html data-mine>yours</html>');
+        $bypass  = static function (): Response {
+            PageCache::bypass('a basket');
+
+            return Response::make('<html>basket</html>');
+        };
+        $missing = static fn (): Response => Response::make('<html>gone</html>', 404);
+
+        // Act
+        $miss    = $signal->handle($this->request('/p'), $page);
+        $hit     = $signal->handle($this->request('/p'), $page);
+        $marked  = $signal->handle($this->request('/m'), $mine);
+        $runtime = $signal->handle($this->request('/b'), $bypass);
+        $notFound = $signal->handle($this->request('/n'), $missing);
+        $quiet   = $this->middleware()->handle($this->request('/q'), $page);
+
+        // Assert
+        $this->assertSame('public; max-age=600', $miss->getHeaderLine('Pramnos-Page'));
+        $this->assertMatchesRegularExpression('/^public; max-age=(600|599)$/', $hit->getHeaderLine('Pramnos-Page'));
+        $this->assertSame('private', $marked->getHeaderLine('Pramnos-Page'));
+        $this->assertSame('private', $runtime->getHeaderLine('Pramnos-Page'));
+        $this->assertSame('', (string) $notFound->getHeaderLine('Pramnos-Page'), 'not stored, and not private: nothing said');
+        $this->assertSame('', (string) $quiet->getHeaderLine('Pramnos-Page'), 'off by default');
+    }
+
+    /**
      * A pipeline that does not return a Response is left alone.
      *
      * Plenty of framework actions echo their output and return a string, an

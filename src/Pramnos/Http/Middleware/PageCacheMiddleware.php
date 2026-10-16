@@ -61,9 +61,12 @@ class PageCacheMiddleware implements MiddlewareInterface
 
         $response = $next($request);
 
-        // A page just stored goes out as its hits will, with the configured Cache-Control.
-        if ($response instanceof Response && $this->cache->store($request, $response)) {
-            $response = $this->cache->storedResponse($response);
+        // A page just stored goes out as its hits will, with the configured Cache-Control; one
+        // refused as private says so, for a service worker that keeps pages.
+        if ($response instanceof Response) {
+            $response = $this->cache->store($request, $response)
+                ? $this->cache->storedResponse($response)
+                : $this->cache->refusedResponse($response);
         }
 
         return $response;

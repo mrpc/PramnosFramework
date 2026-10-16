@@ -631,6 +631,7 @@ Before setting it, be sure of two things, because a CDN is not purgeable from he
 | `debugDetail` | `false` | adds the key, TTL and expiry |
 | `cdnCacheControl` | `false` | `true` sends `CDN-Cache-Control: max-age=<what is left of the entry's TTL>` on a **HIT only**; a string names another header (`Cloudflare-CDN-Cache-Control`). For an edge that caches HTML — and that must bypass on the login cookie first |
 | `harmlessCookies` | `['lastseen', 'visitorid']` | cookies a response may queue with `setcookie()` and still be stored — the framework's visitor tracking. Any other queued cookie, the session's included, means the page answered one visitor: it is not stored |
+| `pageSignal` | `false` | `Pramnos-Page: public; max-age=<ttl>` on a HIT and on the miss just stored, `Pramnos-Page: private` on a page bypassed at runtime (`PageCache::bypass()`) or carrying a private marker, nothing otherwise — an allow-list for a service worker that keeps pages: only what this cache shares may be kept anywhere else |
 | `writer` | `'cache'` | or `'static'` |
 | `staticRoot` | `''` | empty means `ROOT . '/www/cache'` |
 | `headerWhitelist` | `content-type`, `content-language`, `link`, `vary` | the only response headers replayed |

@@ -345,3 +345,28 @@ test('the worker\'s reports are capped', async () => {
     // Assert
     assert.equal(sw.fetched.filter((f) => f.url.endsWith('/ClientErrors')).length, 5);
 });
+
+/**
+ * The registration adds to what cannot change: a path under the scope, or `?v` for an address
+ * that carries the parameter — served from the cache without asking the network again; anything
+ * else is still revalidated.
+ */
+test('the registration adds immutable addresses', async () => {
+    // Arrange
+    const font = 'https://app.test/assets/fonts/a.woff2';
+    const stamped = 'https://app.test/assets/js/app.js?v=17';
+    const plain = 'https://app.test/assets/js/other.js';
+    const sw = worker({ [font]: 'font', [stamped]: 'app', [plain]: 'other' }, 'https://app.test/sw.js?immutable=assets/fonts/,?v=');
+
+    // Act — each asked for twice
+    for (const url of [font, stamped, plain]) {
+        await sw.fire('fetch', { request: { url, method: 'GET', mode: 'no-cors' } });
+        await sw.fire('fetch', { request: { url, method: 'GET', mode: 'no-cors' } });
+    }
+
+    // Assert
+    const asked = (url) => sw.fetched.filter((f) => f.url === url).length;
+    assert.equal(asked(font), 1, 'a path the registration names');
+    assert.equal(asked(stamped), 1, 'an address with ?v=');
+    assert.equal(asked(plain), 2, 'the rest are revalidated');
+});

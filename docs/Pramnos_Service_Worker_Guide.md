@@ -265,6 +265,15 @@ navigator.serviceWorker.register('/sw.js?offline=errors/offline.html&skip=admin/
 
 A `skip` list replaces the default rather than adding to it, so name every prefix you want.
 
+**What cannot change** is served from the cache without asking the network: `assets/vendor/` and
+the SPA build by default. The registration adds more with `immutable`. Each entry is a path under
+the scope, or `?name` for an address carrying that query parameter. A `?v=` stamped on every
+deploy makes each version a new address that never changes in place:
+
+```js
+navigator.serviceWorker.register('/sw.js?immutable=assets/fonts/,?v=');
+```
+
 The page decides, not only the address asked for. A root asset an admin page loads, such as
 `assets/js/pf-utils.js` or a font from its stylesheet, is left alone too: by the request's
 referrer, or by the page it is for (`clients.get(clientId)`). A navigation into a skipped area

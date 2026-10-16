@@ -198,6 +198,11 @@ final class PageCache
             // tracking, which the session tracking writes on every request. Any other cookie
             // queued with setcookie() answers one visitor: the page is not stored.
             'harmlessCookies' => ['lastseen', 'visitorid'],
+            // `Pramnos-Page`, for a service worker that keeps pages: `public; max-age=<ttl>` on a
+            // HIT and on the miss just stored, `private` on a page bypassed at runtime or carrying
+            // a private marker, and nothing otherwise. An allow-list: only what this cache would
+            // share may be kept anywhere else. Off by default.
+            'pageSignal'     => false,
             'writer'         => 'cache',
             'staticRoot'     => '',
             'headerWhitelist' => [
@@ -333,9 +338,14 @@ final class PageCache
      */
     public function store(Request $request, Response $response): bool
     {
+        $this->private = false;
+
         // The runtime bypass is inside bypassCheck() now, so this is one test rather
         // than two that had to be kept in step.
         if ($this->bypassCheck($request) !== null) {
+            // A page that said it is not to be shared says so to the worker too.
+            $this->private = self::isBypassed();
+
             return false;
         }
 
@@ -381,6 +391,8 @@ final class PageCache
 
         foreach ((array) $this->config['privateMarkers'] as $marker) {
             if ($marker !== '' && str_contains($body, (string) $marker)) {
+                $this->private = true;
+
                 return false;
             }
         }
@@ -410,6 +422,7 @@ final class PageCache
 
         $key = $this->keyFor($request);
         $ttl = $this->ttlFor($request);
+        $this->storedTtl = $ttl;
 
         $entry = [
             'body'     => $body,
@@ -973,6 +986,10 @@ final class PageCache
 
         $response = $this->withCacheControl($response);
 
+        if ($state === 'HIT' || $state === 'STALE') {
+            $response = $this->signal($response, 'public; max-age=' . max(0, (int) ($entry['ttl'] ?? $this->config['ttl']) - $age));
+        }
+
         // A CDN keeps a hit for what is left of the entry's life, and only a hit: a miss may yet
         // be refused by store(), and an edge must never keep what this cache would not.
         $cdn = $this->config['cdnCacheControl'] ?? false;
@@ -1024,7 +1041,32 @@ final class PageCache
      */
     public function storedResponse(Response $response): Response
     {
-        return $this->queuedCookies() === [] ? $this->withCacheControl($response) : $response;
+        if ($this->queuedCookies() !== []) {
+            return $response;
+        }
+
+        return $this->signal($this->withCacheControl($response), 'public; max-age=' . (int) ($this->storedTtl ?? $this->config['ttl']));
+    }
+
+    /** Whether the last page store() refused was private: bypassed at runtime, or a private marker. */
+    private bool $private = false;
+
+    /** The TTL the last stored page was kept for — its path's, by ttlFor(). */
+    private ?int $storedTtl = null;
+
+    /**
+     * The response store() refused, with `Pramnos-Page: private` when it was a private page —
+     * so a service worker that keeps pages drops what it has. Unchanged otherwise.
+     */
+    public function refusedResponse(Response $response): Response
+    {
+        return $this->private ? $this->signal($response, 'private') : $response;
+    }
+
+    /** `Pramnos-Page`, where `pageSignal` is on. */
+    private function signal(Response $response, string $value): Response
+    {
+        return !empty($this->config['pageSignal']) ? $response->withHeader('Pramnos-Page', $value) : $response;
     }
 
     /**

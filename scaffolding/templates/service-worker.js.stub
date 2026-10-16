@@ -117,6 +117,24 @@ const IMMUTABLE = [
     /\/{{ SPA_BUILD_DIR_REGEX }}\//
 ];
 
+/**
+ * More of them, from the registration: `register('sw.js?immutable=assets/fonts/,?v=')`. A path
+ * under the scope, or `?name` for an address that carries that query parameter — a `?v=` an
+ * application stamps on every deploy makes each version a new address, never changed in place.
+ */
+const IMMUTABLE_MORE = (new URL(self.location).searchParams.get('immutable') || '')
+    .split(',').map((entry) => entry.trim().replace(/=$/, '')).filter(Boolean);
+
+/** Whether an address of this site is one whose contents cannot change. */
+function immutableAddress(url) {
+    const scope = new URL(self.registration.scope).pathname;
+
+    return IMMUTABLE.some((pattern) => pattern.test(url.pathname))
+        || IMMUTABLE_MORE.some((entry) => (entry.charAt(0) === '?'
+            ? url.searchParams.has(entry.slice(1))
+            : url.pathname.startsWith(scope + entry.replace(/^\/+/, ''))));
+}
+
 /** What an image that cannot be fetched or found shows instead. */
 const OFFLINE_IMAGE = '<svg role="img" aria-label="Offline" viewBox="0 0 400 300" xmlns="http://www.w3.org/2000/svg">'
     + '<path fill="#d8d8d8" d="M0 0h400v300H0z"/><text x="200" y="165" text-anchor="middle" fill="#9b9b9b"'
@@ -299,7 +317,7 @@ self.addEventListener('fetch', (event) => {
         return;
     }
 
-    const immutable = IMMUTABLE.some((pattern) => pattern.test(url.pathname));
+    const immutable = immutableAddress(url);
     const image = /\.(?:png|jpe?g|gif|svg|webp|avif)$/i.test(url.pathname);
 
     event.respondWith((async () => {
