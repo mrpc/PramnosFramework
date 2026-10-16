@@ -435,6 +435,28 @@ $document->addHeadContent(
 The same applies to a reset stylesheet: enqueue it, and it is visible in the
 calling code.
 
+### Fetching the next page before it is clicked: speculation rules
+
+The browser can fetch, or prerender, the page a link leads to before it is clicked, by default on
+hover. The HTML document writes `<script type="speculationrules">` in the head when app.php asks:
+
+```php
+'speculation' => [
+    'prefetch'  => ['eagerness' => 'moderate', 'include' => ['/*'], 'exclude' => ['/account/*']],
+    // 'prerender' => [...],     the same shape
+],
+```
+
+- **What is always left out:** a sign-out, a `?format=` export, a `rel=nofollow` link, one marked
+  `.no-prefetch`, and the page cache's `bypassPaths` that are globs. A regular expression is not a
+  URL pattern, so those are not carried over.
+- **A link that changes something must be excluded, or made a POST.** "Add to favourites" as a GET
+  link is the usual case: a prefetch is a request.
+- **The CSP holds a hash of the configured rules,** because they are the same on every page. They
+  need no nonce, and the page stays cacheable.
+- **A page's own rule,** `$doc->addSpeculationRule('prefetch', ['source' => 'list', 'urls' =>
+  ['/next']])`, is added beside them and carries the nonce, like any inline script.
+
 ### Asset Dependencies
 
 ```php

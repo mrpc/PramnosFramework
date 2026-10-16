@@ -890,6 +890,115 @@ class Document extends \Pramnos\Framework\Base
      *
      * @return string
      */
+    /** @var list<array<string, mixed>> Speculation rules a page added of its own */
+    protected $speculationRules = [];
+
+    /**
+     * Add a speculation rule of the page's own — a `prefetch` or `prerender` entry as the
+     * Speculation Rules API writes it: `['source' => 'list', 'urls' => ['/next']]`.
+     *
+     * @param array<string, mixed> $rule
+     */
+    public function addSpeculationRule(string $action, array $rule): static
+    {
+        if (in_array($action, ['prefetch', 'prerender'], true)) {
+            $this->speculationRules[] = ['action' => $action, 'rule' => $rule];
+        }
+
+        return $this;
+    }
+
+    /**
+     * `<script type="speculationrules">` for the head: the browser fetches a page a link leads to
+     * before it is clicked — on hover, by default — so the next page is there when it is.
+     *
+     * ```php
+     * 'speculation' => ['prefetch' => ['eagerness' => 'moderate', 'include' => ['/*'], 'exclude' => ['/account/*']]],
+     * ```
+     *
+     * Every rule leaves out what a fetch must not trigger: a sign-out, a `?format=` export, a
+     * `rel=nofollow` link, one marked `.no-prefetch`, and the page cache's `bypassPaths` that
+     * are globs. A GET link that changes something — "add to favourites" — must be excluded, or
+     * made a POST: a prefetch is a request. Nothing without the config or a rule; the CSP nonce is
+     * stamped on it like every inline script.
+     */
+    protected function speculationMarkup(): string
+    {
+        $json = self::speculationJson($this->speculationRules);
+        if ($json === '') {
+            return '';
+        }
+
+        // From the configuration alone the rules are the same on every page, and their hash is in
+        // the policy ({@see speculationJson()}): no nonce, so the page stays cacheable. A page's
+        // own rules differ, and carry the nonce like any inline script.
+        $hashed = $this->speculationRules === [] ? ' data-pramnos-hashed' : '';
+
+        return "\n        <script type=\"speculationrules\"" . $hashed . ">" . $json . '</script>';
+    }
+
+    /**
+     * The speculation rules as the page prints them — from `'speculation' => [...]` in app.php and
+     * the page's own — or '' for none. Without page rules this is what the CSP's hash covers.
+     *
+     * @param list<array{action: string, rule: array<string, mixed>}> $added
+     */
+    public static function speculationJson(array $added = []): string
+    {
+        $app    = \Pramnos\Application\Application::currentInstance();
+        $config = is_object($app) && is_array($app->applicationInfo['speculation'] ?? null) ? $app->applicationInfo['speculation'] : [];
+        $rules  = [];
+
+        foreach (['prefetch', 'prerender'] as $action) {
+            if (!is_array($config[$action] ?? null)) {
+                continue;
+            }
+            $one     = $config[$action];
+            $include = array_values(array_filter(array_map('strval', (array) ($one['include'] ?? ['/*']))));
+            $not     = array_merge(self::speculationExcludes(), array_map(
+                static fn (string $path): array => ['not' => ['href_matches' => $path]],
+                array_values(array_filter(array_map('strval', (array) ($one['exclude'] ?? []))))
+            ));
+            $rules[$action][] = [
+                'where'     => ['and' => array_merge([['or' => array_map(static fn (string $p): array => ['href_matches' => $p], $include)]], $not)],
+                'eagerness' => in_array($one['eagerness'] ?? '', ['immediate', 'eager', 'moderate', 'conservative'], true) ? $one['eagerness'] : 'moderate',
+            ];
+        }
+        foreach ($added as $one) {
+            $rules[$one['action']][] = $one['rule'];
+        }
+
+        // JSON in a script: `</script>` cannot close it early, whatever a path holds.
+        return $rules === [] ? '' : (string) json_encode($rules, JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP);
+    }
+
+    /**
+     * What a speculative fetch must never trigger, as rule conditions.
+     *
+     * @return list<array<string, mixed>>
+     */
+    protected static function speculationExcludes(): array
+    {
+        $not = [
+            ['not' => ['href_matches' => '*logout*']],
+            ['not' => ['href_matches' => '*signout*']],
+            ['not' => ['href_matches' => '*\\?*format=*']],
+            ['not' => ['selector_matches' => '[rel~=nofollow]']],
+            ['not' => ['selector_matches' => '.no-prefetch']],
+        ];
+        $app    = \Pramnos\Application\Application::currentInstance();
+        $config = is_object($app) && is_array($app->applicationInfo['pagecache'] ?? null) ? $app->applicationInfo['pagecache'] : [];
+        foreach ((array) ($config['bypassPaths'] ?? []) as $path) {
+            $path = (string) $path;
+            // A glob is a URL pattern too; a regular expression is not one.
+            if ($path !== '' && !in_array($path[0], ['#', '~', '%', '@'], true) && !(strlen($path) > 2 && $path[0] === '/' && str_ends_with($path, '/'))) {
+                $not[] = ['not' => ['href_matches' => $path]];
+            }
+        }
+
+        return $not;
+    }
+
     protected function seoHeadMarkup()
     {
         $parts = array();

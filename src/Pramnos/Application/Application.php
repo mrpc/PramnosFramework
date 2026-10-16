@@ -3069,6 +3069,11 @@ class Application extends Base
         $flipHash = " 'sha256-" . base64_encode(
             hash('sha256', \Pramnos\Document\DocumentTypes\Html::NO_JS_FLIP, true)
         ) . "'";
+        // The configured speculation rules, the same on every page: hashed for the same reason.
+        $speculation = \Pramnos\Document\Document::speculationJson();
+        if ($speculation !== '') {
+            $flipHash .= " 'sha256-" . base64_encode(hash('sha256', $speculation, true)) . "'";
+        }
 
         // `unsafe-inline` is ignored by a browser as soon as a nonce or hash is present,
         // so an application that asked for it gets neither — otherwise the framework

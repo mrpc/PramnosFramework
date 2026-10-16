@@ -204,6 +204,9 @@ class Html extends \Pramnos\Document\Document
         // What lets this page's own JavaScript call this application's own API.
         $content .= $this->csrfHeadMarkup();
 
+        // The next page, fetched before its link is clicked, where the application asks.
+        $content .= $this->speculationMarkup();
+
 
         $content .= $this->header;
         // Space-separated, and **escaped**. A class name reaches this from
