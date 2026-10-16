@@ -304,8 +304,8 @@ self.addEventListener('push', (event) => {
 
     event.waitUntil(Promise.all([receipt, self.registration.showNotification(title, {
         body: payload.body || '',
-        icon: payload.icon || '/assets/img/icon-192.png',
-        badge: payload.badge || '/assets/img/badge-72.png',
+        icon: payload.icon || sitePath('assets/img/icon-192.png'),
+        badge: payload.badge || sitePath('assets/img/badge-72.png'),
         // Two notifications with the same tag replace one another instead of stacking. It is the
         // difference between one "new sign-in to your account" and fourteen.
         tag: payload.tag || undefined,

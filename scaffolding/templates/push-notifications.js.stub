@@ -20,10 +20,51 @@
  *         … <button data-push-subscribe>Turn on</button> <button data-push-later>Not now</button>
  *     </div>
  *
+ * Its addresses are worked out from where it is loaded, `assets/js/push.js`; a page that loads it
+ * from elsewhere says where the site is with `<script src="…" data-push-base="/myapp/">`.
+ *
  * @app {{APP_NAME}}
  */
 (function () {
     'use strict';
+
+    /*
+     * Where this site is: `data-push-base` on the script tag, or two folders above the script
+     * itself (`assets/js/push.js`). The site may live in a folder, and `/push/key` from the host's
+     * root would then be another site's address.
+     */
+    var script = document.currentScript;
+    var base = new URL(
+        (script && script.getAttribute('data-push-base')) || (script && script.src ? new URL('../../', script.src).href : '/'),
+        window.location.href
+    );
+
+    function sitePath(path) {
+        return new URL(path, base).href;
+    }
+
+    /*
+     * A notification tapped while a tab of this site was open: the worker focused that tab and
+     * says where the notification leads. Without this the tab came forward and stayed where it
+     * was. A single-page application that routes for itself cancels `pf:notification-click`;
+     * otherwise the page goes there — only within this site, whatever the payload said.
+     */
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.addEventListener('message', function (event) {
+            var data = event.data || {};
+
+            if (data.type !== 'notification-click' || typeof data.url !== 'string') {
+                return;
+            }
+
+            var target = new URL(data.url, window.location.href);
+            var go = new CustomEvent('pf:notification-click', { detail: { url: target.href }, cancelable: true });
+
+            if (target.origin === window.location.origin && window.dispatchEvent(go)) {
+                window.location.assign(target.href);
+            }
+        });
+    }
 
     /*
      * Every control on the page, not the first one.
@@ -152,7 +193,7 @@
     }
 
     function key() {
-        return fetch('/push/key', { credentials: 'include' })
+        return fetch(sitePath('push/key'), { credentials: 'include' })
             .then(function (response) {
                 if (!response.ok) {
                     // 503: the installation has no VAPID pair. Nothing the visitor can do.
@@ -215,7 +256,7 @@
                     return null;
                 }
 
-                return fetch('/push/subscribe', {
+                return fetch(sitePath('push/subscribe'), {
                     method: 'POST',
                     credentials: 'include',
                     headers: { 'Content-Type': 'application/json' },

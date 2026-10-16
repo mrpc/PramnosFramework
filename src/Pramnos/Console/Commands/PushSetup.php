@@ -52,7 +52,7 @@ class PushSetup extends Command
      *
      * @var list<string>
      */
-    public const MARKERS = ['data-push-subscribe', 'data-push-invite', 'data-push-later'];
+    public const MARKERS = ['data-push-subscribe', 'data-push-invite', 'data-push-later', 'data-push-base', 'pf:notification-click'];
 
     protected function configure(): void
     {
@@ -73,7 +73,8 @@ class PushSetup extends Command
         foreach ($steps as $step) {
             $output->writeln(
                 ($step['done'] ? '<info>  ok  </info>' : '<comment> todo </comment>')
-                . ' ' . $step['name'] . ($step['done'] ? '' : ' — ' . $step['what'])
+                . ' ' . $step['name'] . (($step['checked'] ?? '') !== '' ? ' (' . $step['checked'] . ')' : '')
+                . ($step['done'] ? '' : ' — ' . $step['what'])
             );
         }
 
@@ -115,9 +116,11 @@ class PushSetup extends Command
     }
 
     /**
-     * The five parts, and whether each is there.
+     * The parts, and whether each is there: the five push needs, then the icon a notification
+     * shows and whether the site answers at `push/key` at all. `checked` names the file or
+     * address a step looked at.
      *
-     * @return list<array{name: string, what: string, done: bool, do: callable}>
+     * @return list<array{name: string, what: string, done: bool, do: callable, checked?: string}>
      */
     protected function inspect(): array
     {
@@ -143,7 +146,8 @@ class PushSetup extends Command
                 'do'   => fn ($in, $out): mixed => $this->installLibrary($in, $out),
             ],
             [
-                'name' => 'Service worker',
+                'name'    => 'Service worker',
+                'checked' => $this->shown($this->workerPath()) ?: 'none found',
                 'what' => $missing === []
                     ? ''
                     : 'no ' . implode(', ', array_keys($missing)) . ' handler, so a notification '
@@ -160,7 +164,99 @@ class PushSetup extends Command
                 'done' => $this->hasBrowserScript() && $this->browserScriptIsCurrent(),
                 'do'   => fn ($in, $out): mixed => $this->writeBrowserScript($out),
             ],
+            [
+                'name'    => 'Icon',
+                'checked' => $this->shown($this->iconPath()),
+                'what'    => 'there is no icon there, so a notification shows a broken image or none',
+                'done'    => $this->hasIcon(),
+                'do'      => fn ($in, $out): mixed => $this->adviseIcon($out),
+            ],
+            $this->routingStep(),
         ];
+    }
+
+    /**
+     * Whether `push/key` answers as the push controller does — 200 with the key, or 503 with
+     * none yet, as JSON. Every other step can be green while an application's own routing sends
+     * the address elsewhere (a controller allow-list answering 301), and then nothing subscribes.
+     * Not checked without a site address to ask.
+     *
+     * @return array{name: string, what: string, done: bool, do: callable, checked: string}
+     */
+    protected function routingStep(): array
+    {
+        $url = $this->keyUrl();
+        if ($url === null) {
+            return ['name' => 'Routing', 'checked' => 'not checked: no site address (APP_URL)', 'what' => '', 'done' => true,
+                'do' => static fn (): bool => true];
+        }
+
+        $answer = $this->fetch($url);
+        $ok     = in_array($answer['status'], [200, 503], true) && $answer['json'];
+
+        return [
+            'name'    => 'Routing',
+            'checked' => $url,
+            'what'    => 'it answered ' . ($answer['status'] > 0 ? $answer['status'] : 'nothing') . ($answer['json'] ? '' : ', not JSON')
+                . ', so the browser can never fetch the key — route `push` to the framework\'s Push controller',
+            'done'    => $ok,
+            'do'      => static fn ($in, $out): string => 'push/key is not routed to the push controller; nothing here can change the application\'s routing',
+        ];
+    }
+
+    /** `push/key` under the configured site address, or null where none is configured. */
+    protected function keyUrl(): ?string
+    {
+        return \Pramnos\Http\SiteUrl::isConfigured() ? \Pramnos\Http\SiteUrl::to('push/key') : null;
+    }
+
+    /**
+     * One GET, without following a redirect: the status, and whether the answer is JSON.
+     *
+     * @return array{status: int, json: bool}
+     */
+    protected function fetch(string $url): array
+    {
+        $context = stream_context_create(['http' => ['method' => 'GET', 'timeout' => 5, 'follow_location' => 0, 'ignore_errors' => true]]);
+        // The headers from the stream itself, the same on every PHP this supports.
+        $stream  = @fopen($url, 'r', false, $context);
+        $headers = $stream === false ? [] : (array) (stream_get_meta_data($stream)['wrapper_data'] ?? []);
+        $stream === false || fclose($stream);
+        $status  = preg_match('#^HTTP/\S+\s+(\d{3})#', (string) ($headers[0] ?? ''), $m) === 1 ? (int) $m[1] : 0;
+        $json    = (bool) preg_grep('#^content-type:\s*application/json#i', $headers);
+
+        return ['status' => $status, 'json' => $json];
+    }
+
+    /** The icon a notification shows: `push.icon` in app.php, under the web root, or the default. */
+    protected function iconPath(): string
+    {
+        return $this->root() . '/www/' . ltrim(\Pramnos\Notification\Channels\PushChannel::iconSetting('icon'), '/');
+    }
+
+    protected function hasIcon(): bool
+    {
+        return preg_match('#^https?://#i', \Pramnos\Notification\Channels\PushChannel::iconSetting('icon')) === 1 || is_file($this->iconPath());
+    }
+
+    /** An icon is the application's own picture: said where to put it, not drawn. */
+    protected function adviseIcon(OutputInterface $output): bool
+    {
+        $output->writeln('  not created — put a 192×192 PNG at ' . $this->iconPath()
+            . ", or name yours with 'push' => ['icon' => 'path/under/www.png', 'badge' => '…'] in app.php");
+
+        return true;
+    }
+
+    /** A path as the report shows it: from the project root. */
+    protected function shown(?string $path): string
+    {
+        if ($path === null) {
+            return '';
+        }
+        $root = rtrim($this->root(), '/') . '/';
+
+        return str_starts_with($path, $root) ? substr($path, strlen($root)) : $path;
     }
 
     // ── The steps ────────────────────────────────────────────────────────────
@@ -259,18 +355,30 @@ class PushSetup extends Command
         }
 
         if ($path === null) {
-            $path = $this->root() . '/www/sw.js';
+            $configured = ServiceWorker::configured();
+            $path       = $configured !== null && str_starts_with($configured, '/') ? $configured : $this->root() . '/www/' . ($configured ?? 'sw.js');
             $output->writeln('  no service worker — writing ' . $path);
 
             if (!is_dir(dirname($path)) && !@mkdir(dirname($path), 0755, true)) {
                 return 'could not create ' . dirname($path);
             }
 
-            $template = @file_get_contents($this->templatePath());
+            // Filled as `pramnos init` fills it: a worker with `{{ APP_SLUG }}` in its cache name
+            // shares that cache with every other installation written this way.
+            $template = (string) @file_get_contents($this->templatePath());
+            foreach (Init::serviceWorkerValues($this->appName()) as $token => $value) {
+                $template = str_replace('{{ ' . $token . ' }}', $value, $template);
+            }
 
-            return @file_put_contents($path, (string) $template) !== false
-                ? true
-                : 'could not write ' . $path;
+            if (@file_put_contents($path, $template) === false) {
+                return 'could not write ' . $path;
+            }
+
+            // Written is not running: a worker nothing registers receives nothing.
+            $output->writeln('  <comment>nothing registers it yet</comment> — register it from the layout, '
+                . "navigator.serviceWorker.register('" . basename($path) . "'), at the web root so its scope is the whole site");
+
+            return true;
         }
 
         /*
@@ -334,8 +442,7 @@ class PushSetup extends Command
             return 'the browser script template is missing from the framework';
         }
 
-        $name = (string) (\Pramnos\Application\Application::currentInstance()
-            ?->applicationInfo['name'] ?? 'this application');
+        $name = $this->appName();
         $path = $this->browserScriptPath();
 
         if (!is_dir(dirname($path)) && !@mkdir(dirname($path), 0755, true) && !is_dir(dirname($path))) {
@@ -377,6 +484,12 @@ class PushSetup extends Command
         // Four, not three: this file is in `src/Pramnos/Console/Commands`, so three levels up
         // is `src/` and the template was being looked for at `src/scaffolding/…`.
         return dirname(__DIR__, 4) . '/scaffolding/templates/service-worker.js.stub';
+    }
+
+    /** The application's name, as app.php gives it. */
+    protected function appName(): string
+    {
+        return (string) (\Pramnos\Application\Application::currentInstance()?->applicationInfo['name'] ?? 'this application');
     }
 
     protected function root(): string

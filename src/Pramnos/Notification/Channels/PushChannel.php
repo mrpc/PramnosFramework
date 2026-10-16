@@ -328,8 +328,8 @@ class PushChannel implements ChannelInterface
             'title'   => substr((string) ($data['title'] ?? ''), 0, 120),
             'body'    => substr((string) ($data['body'] ?? ''), 0, 400),
             'url'     => (string) ($data['url'] ?? ''),
-            'icon'    => (string) ($data['icon'] ?? ''),
-            'badge'   => (string) ($data['badge'] ?? ''),
+            'icon'    => (string) ($data['icon'] ?? self::iconUrl('icon')),
+            'badge'   => (string) ($data['badge'] ?? self::iconUrl('badge')),
             'tag'     => (string) ($data['tag'] ?? ''),
             'actions' => array_slice((array) ($data['actions'] ?? []), 0, 2),
             'data'    => (array) ($data['data'] ?? []),
@@ -343,6 +343,37 @@ class PushChannel implements ChannelInterface
         $json = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
         return $json === false ? '' : $json;
+    }
+
+    /** The defaults when app.php names none: under the web root, beside the worker's own. */
+    public const ICONS = ['icon' => 'assets/img/icon-192.png', 'badge' => 'assets/img/badge-72.png'];
+
+    /**
+     * `push.icon` or `push.badge` in app.php — a path under the web root, or an address — or the
+     * default of {@see ICONS}.
+     */
+    public static function iconSetting(string $which): string
+    {
+        $app   = \Pramnos\Application\Application::currentInstance();
+        $value = is_object($app) ? ($app->applicationInfo['push'][$which] ?? null) : null;
+
+        return is_string($value) && trim($value) !== '' ? trim($value) : (self::ICONS[$which] ?? '');
+    }
+
+    /**
+     * The icon a notification carries: the configured one, as an address of this site — the site
+     * may live in a folder, where `/assets/…` would be somebody else's. '' when nothing is
+     * configured, so the worker's own default, worked out from its scope, applies.
+     */
+    protected static function iconUrl(string $which): string
+    {
+        $app = \Pramnos\Application\Application::currentInstance();
+        if (!is_object($app) || !is_string($app->applicationInfo['push'][$which] ?? null)) {
+            return '';
+        }
+        $value = self::iconSetting($which);
+
+        return preg_match('#^https?://#i', $value) === 1 || !\Pramnos\Http\SiteUrl::isConfigured() ? $value : \Pramnos\Http\SiteUrl::to(ltrim($value, '/'));
     }
 
     /**

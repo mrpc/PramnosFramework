@@ -22,6 +22,40 @@ use Pramnos\Push\ServiceWorker;
 class ServiceWorkerTest extends TestCase
 {
     /**
+     * The worker app.php names — `push.service_worker`, under the web root or absolute — is the
+     * one checked, before the usual names; and `serviceWorker.js` is among the usual names, so an
+     * installation whose worker is called that is not told it has none.
+     */
+    public function testTheConfiguredWorkerIsLookedAtFirst(): void
+    {
+        // Arrange
+        $app  = \Pramnos\Application\Application::getInstance();
+        $info = $app->applicationInfo;
+        $file = sys_get_temp_dir() . '/sw-' . bin2hex(random_bytes(4)) . '.js';
+        file_put_contents($file, "self.addEventListener('push', () => {});");
+        $candidates = new \ReflectionMethod(ServiceWorker::class, 'candidates');
+
+        try {
+            // Act
+            $app->applicationInfo['push'] = ['service_worker' => $file];
+            $found = ServiceWorker::path();
+            $app->applicationInfo['push'] = ['service_worker' => './js/worker.js'];
+            $relative = $candidates->invoke(null);
+            $app->applicationInfo['push'] = ['service_worker' => '  '];
+            $blank = ServiceWorker::configured();
+        } finally {
+            $app->applicationInfo = $info;
+            @unlink($file);
+        }
+
+        // Assert
+        $this->assertSame($file, $found);
+        $this->assertSame(ROOT . DIRECTORY_SEPARATOR . 'www' . DIRECTORY_SEPARATOR . 'js/worker.js', $relative[0], 'under the web root, without its ./');
+        $this->assertContains(ROOT . DIRECTORY_SEPARATOR . 'www' . DIRECTORY_SEPARATOR . 'serviceWorker.js', $relative);
+        $this->assertNull($blank, 'an empty setting is no setting');
+    }
+
+    /**
      * A worker with none of the handlers is reported as missing all three.
      *
      * The state of every project scaffolded before web push existed.
@@ -183,7 +217,8 @@ class ServiceWorkerTest extends TestCase
         // Assert
         $this->assertStringContainsString('Notification.requestPermission', $script);
         $this->assertStringContainsString("addEventListener('click'", $script);
-        $this->assertStringContainsString('/push/subscribe', $script);
+        $this->assertStringContainsString("sitePath('push/subscribe')", $script, 'from where the site is, not the host\'s root');
+        $this->assertStringNotContainsString("'/push/", $script);
         $this->assertStringNotContainsString(
             "addEventListener('load', subscribe",
             $script,

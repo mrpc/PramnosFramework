@@ -28,6 +28,37 @@ class PushChannelTest extends TestCase
     }
 
     /**
+     * The icon a notification carries: app.php's `push.icon`/`push.badge` as an address of this
+     * site (the site may live in a folder), an absolute one as given, a notification's own over
+     * both — and nothing at all when none is configured, so the worker's default from its scope
+     * applies.
+     */
+    public function testTheIconComesFromTheSettings(): void
+    {
+        // Arrange
+        $app  = \Pramnos\Application\Application::getInstance();
+        $info = $app->applicationInfo;
+
+        try {
+            // Act
+            unset($app->applicationInfo['push']);
+            $none = json_decode($this->channel->probePayload(['title' => 't']), true);
+            $app->applicationInfo['push'] = ['icon' => 'img/bell.png', 'badge' => 'https://cdn.test/b.png'];
+            $set  = json_decode($this->channel->probePayload(['title' => 't']), true);
+            $own  = json_decode($this->channel->probePayload(['title' => 't', 'icon' => '/mine.png']), true);
+        } finally {
+            $app->applicationInfo = $info;
+        }
+
+        // Assert
+        $this->assertArrayNotHasKey('icon', $none, 'nothing configured: the worker decides');
+        $this->assertSame(\Pramnos\Http\SiteUrl::to('img/bell.png'), $set['icon']);
+        $this->assertSame('https://cdn.test/b.png', $set['badge'], 'an address is left as it is');
+        $this->assertSame('/mine.png', $own['icon'], 'the notification\'s own wins');
+        $this->assertSame('assets/img/icon-192.png', PushChannel::iconSetting('icon'), 'the default the setup checks for');
+    }
+
+    /**
      * A notification with no title produces nothing at all.
      *
      * A push with an empty title renders as the site name and a blank line — a notification the

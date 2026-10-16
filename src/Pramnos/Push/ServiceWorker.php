@@ -46,12 +46,17 @@ class ServiceWorker
             . 'a device silently stops receiving, permanently',
     ];
 
+    /** The file names looked for in each web root, after the configured one. */
+    public const NAMES = ['sw.js', 'service-worker.js', 'serviceWorker.js'];
+
     /**
-     * Where the scaffolded worker lives, or null when this installation has none.
+     * Where the installation's worker lives, or null when it has none.
      *
-     * `<web root>/sw.js` is where `pramnos init --service-worker=y` writes it and where the
-     * theme registers it from. An application that put one somewhere else is not something this
-     * can find, and says so by reporting no worker rather than by guessing.
+     * `'push' => ['service_worker' => 'serviceWorker.js']` in app.php names it — a path under the
+     * web root, or an absolute one — and is looked at first. Then each of {@see NAMES} in
+     * `www/`, `public/` and the project root: `<web root>/sw.js` is where
+     * `pramnos init --service-worker=y` writes it. A worker anywhere else is reported as no
+     * worker rather than guessed at.
      */
     public static function path(): ?string
     {
@@ -125,13 +130,28 @@ class ServiceWorker
             $roots[] = (string) ROOT;
         }
 
-        $paths = [];
+        $paths      = [];
+        $configured = static::configured();
+
+        if ($configured !== null) {
+            $paths[] = str_starts_with($configured, '/') ? $configured : ($roots[0] ?? '.') . DIRECTORY_SEPARATOR . $configured;
+        }
 
         foreach ($roots as $root) {
-            $paths[] = $root . DIRECTORY_SEPARATOR . 'sw.js';
-            $paths[] = $root . DIRECTORY_SEPARATOR . 'service-worker.js';
+            foreach (static::NAMES as $name) {
+                $paths[] = $root . DIRECTORY_SEPARATOR . $name;
+            }
         }
 
         return $paths;
+    }
+
+    /** The worker app.php names — `push.service_worker` — or null. */
+    public static function configured(): ?string
+    {
+        $app  = \Pramnos\Application\Application::currentInstance();
+        $path = is_object($app) ? ($app->applicationInfo['push']['service_worker'] ?? null) : null;
+
+        return is_string($path) && trim($path) !== '' ? (string) preg_replace('#^\./#', '', trim($path)) : null;
     }
 }

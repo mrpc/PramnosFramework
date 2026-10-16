@@ -29,11 +29,11 @@ class PushSetupTest extends TestCase
     {
         // Act
         $display = $this->report(['migration' => true, 'keys' => true, 'library' => true,
-            'worker' => true, 'script' => true])->getDisplay();
+            'worker' => true, 'script' => true, 'icon' => true, 'routing' => true])->getDisplay();
 
         // Assert
         foreach (['Migration', 'VAPID key pair', 'Encryption library', 'Service worker',
-                  'Browser script'] as $part) {
+                  'Browser script', 'Icon', 'Routing'] as $part) {
             $this->assertStringContainsString($part, $display);
         }
     }
@@ -172,6 +172,167 @@ class PushSetupTest extends TestCase
             $this->assertStringContainsString("addEventListener('install'", $worker,
                 'the caching half as well, not only the push handlers');
             $this->assertStringContainsString("addEventListener('push'", $worker);
+            // Filled as init fills it: a literal {{ APP_SLUG }} would be every such site's cache name
+            $this->assertStringNotContainsString('{{', $worker);
+            $this->assertStringContainsString('assets\/spa', $worker);
+        } finally {
+            exec('rm -rf ' . escapeshellarg($root));
+        }
+    }
+
+    /**
+     * A worker written where there was none is written where app.php names it, and the run says
+     * that nothing registers it yet — a written worker nobody registers receives nothing, and the
+     * step reported done.
+     */
+    public function testANewWorkerGoesWhereConfiguredAndIsSaidToNeedRegistering(): void
+    {
+        // Arrange
+        $root = $this->tempRoot();
+        mkdir($root, 0755, true);
+        $app  = \Pramnos\Application\Application::getInstance();
+        $info = $app->applicationInfo;
+        $app->applicationInfo['push'] = ['service_worker' => 'serviceWorker.js'];
+        $output = new \Symfony\Component\Console\Output\BufferedOutput();
+
+        try {
+            // Act
+            $result = $this->rooted($root)->probeFixWorkerTo($output);
+
+            // Assert
+            $this->assertTrue($result);
+            $this->assertFileExists($root . '/www/serviceWorker.js');
+            $this->assertStringContainsString("nothing registers it yet", $output->fetch());
+        } finally {
+            $app->applicationInfo = $info;
+            exec('rm -rf ' . escapeshellarg($root));
+        }
+    }
+
+    /**
+     * The routing step asks `push/key` and accepts what the push controller answers — 200 with a
+     * key, 503 without one, as JSON — and nothing else: a 301 from an application's own routing,
+     * or a page that is not JSON, is the reason nothing subscribes, and says so. Without a site
+     * address there is nothing to ask, and that is said rather than failed.
+     */
+    public function testTheRoutingStepAsksPushKey(): void
+    {
+        // Arrange
+        $step = static function (?string $url, int $status, bool $json): array {
+            $command = new class ($url, $status, $json) extends PushSetup {
+                public function __construct(private ?string $url, private int $status, private bool $json)
+                {
+                    parent::__construct();
+                }
+
+                /** The address given. */
+                protected function keyUrl(): ?string { return $this->url; }
+
+                /** The answer given. */
+                protected function fetch(string $url): array { return ['status' => $this->status, 'json' => $this->json]; }
+
+                /** @return array<string, mixed> */
+                public function probe(): array { return $this->routingStep(); }
+            };
+
+            return $command->probe();
+        };
+
+        // Act
+        $key      = $step('https://site.test/push/key', 200, true);
+        $noKey    = $step('https://site.test/push/key', 503, true);
+        $moved    = $step('https://site.test/push/key', 301, false);
+        $page     = $step('https://site.test/push/key', 200, false);
+        $silent   = $step('https://site.test/push/key', 0, false);
+        $nowhere  = $step(null, 0, false);
+
+        // Assert
+        $this->assertSame([true, true, false, false, false, true], array_column([$key, $noKey, $moved, $page, $silent, $nowhere], 'done'));
+        $this->assertSame('https://site.test/push/key', $key['checked']);
+        $this->assertStringContainsString('answered 301, not JSON', $moved['what']);
+        $this->assertStringContainsString('answered nothing', $silent['what']);
+        $this->assertStringContainsString('not checked', $nowhere['checked']);
+        $this->assertIsString(($moved['do'])(null, null), 'it cannot fix routing, and stops saying why');
+        $this->assertTrue(($nowhere['do'])());
+    }
+
+    /**
+     * The real request: an address that answers nothing is status 0 and not JSON, rather than an
+     * error; and `keyUrl()` is the configured site's `push/key`.
+     */
+    public function testTheRealFetchAndAddress(): void
+    {
+        // Arrange
+        $command = new class extends PushSetup {
+            /** @return array{status: int, json: bool} */
+            public function probeFetch(string $url): array { return $this->fetch($url); }
+
+            public function probeKeyUrl(): ?string { return $this->keyUrl(); }
+        };
+
+        // Act
+        $answer = $command->probeFetch('http://127.0.0.1:9/push/key');
+
+        // Assert
+        $this->assertSame(['status' => 0, 'json' => false], $answer);
+        $this->assertSame(\Pramnos\Http\SiteUrl::isConfigured() ? \Pramnos\Http\SiteUrl::to('push/key') : null, $command->probeKeyUrl());
+    }
+
+    /**
+     * The icon step: missing under the web root is work to do, and its "doing" is saying where to
+     * put one — a picture is the application's own; there once, or configured as an address, it
+     * is done.
+     */
+    public function testTheIconStep(): void
+    {
+        // Arrange
+        $root = $this->tempRoot();
+        mkdir($root . '/www/assets/img', 0755, true);
+        $command = $this->rooted($root);
+        $app     = \Pramnos\Application\Application::getInstance();
+        $info    = $app->applicationInfo;
+        $output  = new \Symfony\Component\Console\Output\BufferedOutput();
+
+        try {
+            // Act
+            unset($app->applicationInfo['push']);
+            $before = $command->probeHasIcon();
+            $advice = $command->probeAdviseIcon($output);
+            touch($root . '/www/assets/img/icon-192.png');
+            $after = $command->probeHasIcon();
+            unlink($root . '/www/assets/img/icon-192.png');
+            $app->applicationInfo['push'] = ['icon' => 'https://cdn.test/i.png'];
+            $remote = $command->probeHasIcon();
+        } finally {
+            $app->applicationInfo = $info;
+            exec('rm -rf ' . escapeshellarg($root));
+        }
+
+        // Assert
+        $this->assertSame([false, true, true, true], [$before, $advice, $after, $remote]);
+        $this->assertStringContainsString('www/assets/img/icon-192.png', $output->fetch());
+    }
+
+    /**
+     * The report names the file each step looked at, from the project root — so "no handler" can
+     * be checked against the file somebody thinks it is.
+     */
+    public function testTheReportSaysWhichWorkerWasChecked(): void
+    {
+        // Arrange
+        $root = $this->tempRoot();
+        mkdir($root . '/www', 0755, true);
+        file_put_contents($root . '/www/sw.js', '// no handlers');
+
+        try {
+            // Act
+            $steps = array_column($this->rooted($root)->probeInspect(), null, 'name');
+
+            // Assert
+            $this->assertSame('www/sw.js', $steps['Service worker']['checked']);
+            $this->assertSame('www/assets/img/icon-192.png', $steps['Icon']['checked']);
+            $this->assertSame('/elsewhere/x.js', $this->rooted($root)->probeShown('/elsewhere/x.js'), 'outside the root, as it is');
+            $this->assertSame('', $this->rooted($root)->probeShown(null));
         } finally {
             exec('rm -rf ' . escapeshellarg($root));
         }
@@ -245,16 +406,19 @@ class PushSetupTest extends TestCase
      * parts that have nothing to do with push and the suite would stay green — and the list is
      * the whole product.
      */
-    public function testTheRealInspectionDescribesFiveParts(): void
+    public function testTheRealInspectionDescribesEveryPart(): void
     {
         // Act
         $steps = (new class extends PushSetup {
             /** @return list<array<string, mixed>> */
             public function probeInspect(): array { return $this->inspect(); }
+
+            /** Not the network: the push controller's answer. */
+            protected function fetch(string $url): array { return ['status' => 200, 'json' => true]; }
         })->probeInspect();
 
         // Assert
-        $this->assertCount(5, $steps);
+        $this->assertCount(7, $steps);
 
         foreach ($steps as $step) {
             $this->assertNotSame('', $step['name']);
@@ -268,7 +432,7 @@ class PushSetupTest extends TestCase
         }
 
         $this->assertSame(
-            ['Migration', 'VAPID key pair', 'Encryption library', 'Service worker', 'Browser script'],
+            ['Migration', 'VAPID key pair', 'Encryption library', 'Service worker', 'Browser script', 'Icon', 'Routing'],
             array_column($steps, 'name')
         );
     }
@@ -705,6 +869,26 @@ class PushSetupTest extends TestCase
             }
 
             public function probeHandlers(): ?string { return $this->pushHandlers(); }
+
+            public function probeFixWorkerTo(\Symfony\Component\Console\Output\OutputInterface $out): mixed
+            {
+                return $this->fixServiceWorker($out);
+            }
+
+            public function probeHasIcon(): bool { return $this->hasIcon(); }
+
+            public function probeAdviseIcon(\Symfony\Component\Console\Output\OutputInterface $out): bool
+            {
+                return $this->adviseIcon($out);
+            }
+
+            public function probeShown(?string $path): string { return $this->shown($path); }
+
+            /** @return list<array<string, mixed>> */
+            public function probeInspect(): array { return $this->inspect(); }
+
+            /** Not the network. */
+            protected function fetch(string $url): array { return ['status' => 200, 'json' => true]; }
         };
     }
 
@@ -762,6 +946,9 @@ class PushSetupTest extends TestCase
 
             protected function browserScriptIsCurrent(): bool { return $this->is('script'); }
 
+            /** Not the network. */
+            protected function fetch(string $url): array { return ['status' => 200, 'json' => true]; }
+
             protected function inspect(): array
             {
                 $steps = parent::inspect();
@@ -770,8 +957,10 @@ class PushSetupTest extends TestCase
                 $steps[1]['done'] = $this->is('keys');
                 $steps[2]['done'] = $this->is('library');
                 $steps[3]['done'] = $this->is('worker');
+                $steps[5]['done'] = $this->is('icon');
+                $steps[6]['done'] = $this->is('routing');
 
-                $names = ['migration', 'keys', 'library', 'worker', 'script'];
+                $names = ['migration', 'keys', 'library', 'worker', 'script', 'icon', 'routing'];
 
                 foreach ($steps as $index => $step) {
                     $steps[$index]['do'] = fn (): mixed => $this->record($names[$index]);

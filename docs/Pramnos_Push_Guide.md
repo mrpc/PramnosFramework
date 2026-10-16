@@ -114,15 +114,36 @@ cost you a million rows and nothing else.
 
 Push has five parts and four of them are invisible when they are missing: a table, a key pair,
 an encryption library, a service worker that listens, and a page that asks. Miss any one and the
-other four keep working perfectly — no error, no log line, and no notification.
+other four keep working perfectly — no error, no log line, and no notification. Two more are
+checked beside them: the icon a notification shows, and whether the site answers at `push/key`.
 
 ```
   ok   Migration
   ok   VAPID key pair
  todo  Encryption library — minishlink/web-push is not installed, so nothing can be encrypted
-  ok   Service worker
+  ok   Service worker (www/serviceWorker.js)
   ok   Browser script
+  ok   Icon (www/assets/img/icon-192.png)
+ todo  Routing (https://example.com/push/key) — it answered 301, not JSON, so the browser can never fetch the key — route `push` to the framework's Push controller
 ```
+
+Each step names the file or address it looked at, so "no handler" can be checked against the
+file somebody thinks it is.
+
+- **Service worker.** `'push' => ['service_worker' => 'serviceWorker.js']` in app.php names the
+  worker — under the web root, or absolute — and is looked at first; otherwise `sw.js`,
+  `service-worker.js` and `serviceWorker.js` in `www/`, `public/` and the project root. With
+  none, `--apply` writes the shipped worker there with its placeholders filled as `init` fills
+  them, and says that nothing registers it yet: a worker nobody registers receives nothing.
+- **Icon.** `'push' => ['icon' => …, 'badge' => …]`, paths under the web root or addresses, are
+  what every notification carries unless it gives its own; without them the worker uses
+  `assets/img/icon-192.png` and `assets/img/badge-72.png` under its own scope. The step checks the
+  icon is there. It cannot draw one, so `--apply` says where to put it and carries on.
+- **Routing.** A GET of `push/key` under the configured site address must answer as the push
+  controller does — 200 with the key, or 503 before there is one — as JSON. An application whose
+  own routing sends the address elsewhere (a controller allow-list answering 301) has every other
+  step green and no subscriptions. Nothing here can change that routing, so the step stops the run
+  and says why. Without a site address (`APP_URL`) it is not checked, and says so.
 
 It says what each absence costs rather than naming a file, does only what is missing, and is
 safe to run again — it is the thing somebody runs when they are not sure. A step that fails
@@ -228,19 +249,22 @@ this feature cannot recover from.
 ### 5. The subscribing page, by hand
 
 ```js
+// Addresses of this site: put the folder in front where the site lives in one ('/myapp/' + path).
+const sitePath = (path) => '/' + path;
+
 async function subscribe() {
     const permission = await Notification.requestPermission();
     if (permission !== 'granted') return;
 
     const registration = await navigator.serviceWorker.ready;
-    const { publicKey } = await (await fetch('/push/key')).json();
+    const { publicKey } = await (await fetch(sitePath('push/key'))).json();
 
     const subscription = await registration.pushManager.subscribe({
         userVisibleOnly: true,
         applicationServerKey: publicKey,
     });
 
-    await fetch('/push/subscribe', {
+    await fetch(sitePath('push/subscribe'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(subscription),
@@ -528,7 +552,30 @@ Found /var/www/html/www/sw.js, without:
 
 The framework does not rewrite an application's files, so it reads them and reports. The
 handlers are in `scaffolding/templates/service-worker.js.stub`; copy the `Web push` block to
-the end of yours.
+the end of yours, or let `push:setup --apply` append it.
+
+### A tapped notification and an open tab
+
+When a tab of the site is already open, the worker focuses it rather than opening a second one,
+and posts `{type: 'notification-click', url}` to it. The browser script (`assets/js/push.js`)
+takes the tab there. A single-page application that routes for itself listens for the
+cancelable `pf:notification-click` event on `window` and calls `preventDefault()`:
+
+```js
+window.addEventListener('pf:notification-click', (event) => {
+    event.preventDefault();
+    router.push(new URL(event.detail.url).pathname);
+});
+```
+
+Only an address of the site's own origin is followed, whatever the payload said.
+
+### A site in a folder
+
+The browser script fetches `push/key` and `push/subscribe` relative to where the site is: two
+folders above itself (`assets/js/push.js`), or what its tag says with
+`<script src="…" data-push-base="/myapp/">`. The worker resolves its addresses against its own
+scope. Neither uses the host's root, which in a folder install is another site.
 
 ### `showNotification()` rejects
 

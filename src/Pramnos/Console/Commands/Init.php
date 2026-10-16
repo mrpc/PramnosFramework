@@ -2609,16 +2609,24 @@ CSS;
      */
     private function scaffoldServiceWorker(string $appName): void
     {
-        $slug = strtolower(preg_replace('/[^a-z0-9]+/i', '-', $appName) ?: 'app');
+        $this->writeFile($this->webRoot . '/sw.js', $this->renderStub('service-worker.js', self::serviceWorkerValues($appName)));
+    }
 
-        $this->writeFile($this->webRoot . '/sw.js', $this->renderStub('service-worker.js', [
+    /**
+     * What the service worker's placeholders are filled with — here, and by `push:setup` when it
+     * writes a worker for an installation that has none.
+     *
+     * @return array{APP_NAME: string, APP_SLUG: string, SPA_BUILD_DIR_REGEX: string}
+     */
+    public static function serviceWorkerValues(string $appName): array
+    {
+        return [
             'APP_NAME'             => $appName,
-            'APP_SLUG'             => $slug,
+            'APP_SLUG'             => strtolower(preg_replace('/[^a-z0-9]+/i', '-', $appName) ?: 'app'),
             // The build directory only exists for a stack that builds; the pattern is
             // harmless either way, and hard-coding it keeps the worker readable.
             'SPA_BUILD_DIR_REGEX'  => str_replace('/', '\\/', self::SPA_BUILD_DIR),
-        ]));
-
+        ];
     }
 
     /**
