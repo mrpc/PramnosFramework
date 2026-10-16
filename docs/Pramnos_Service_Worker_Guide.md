@@ -41,13 +41,13 @@ What makes it safe to say yes to is the boundary below.
 | Method | `GET` only |
 | Origin | same-origin only |
 | Paths | anything ending `.css .js .mjs .woff .woff2 .ttf .otf .eot .png .jpg .jpeg .gif .svg .webp .avif .ico` |
-| A page (a navigation) | always from the network — the navigation-preload answer when the browser started one — **never stored**; with no network at all, the offline page |
+| A page (a navigation) | from the network — the navigation-preload answer when the browser started one — and **not stored**, unless the registration names public pages to keep ([Caching HTML as well](#caching-html-as-well)); with no network at all, the offline page |
 | `admin/` and `api/` under the scope | **not intercepted at all**, assets and pages alike — see [Paths left to the browser](#paths-left-to-the-browser) |
 | Everything else | **not intercepted at all** — no `respondWith`, so the browser behaves as if there were no worker |
 
-**HTML is never stored.** That is the whole design. Once a worker caches HTML it needs a
-list of URLs never to cache — the signed-in pages, the checkout, the profile editor — and
-that list is maintained by hand, one line at a time:
+**HTML is not stored by default.** A worker that caches HTML the usual way needs a list of
+URLs never to cache — the signed-in pages, the checkout, the profile editor — and that list
+is maintained by hand, one line at a time:
 
 ```js
 if (request.url.includes('/admin')) { return; }
@@ -61,7 +61,10 @@ server can reach it. It is the same failure the [page
 cache](Pramnos_Page_Cache_Guide.md) protects against with its bypass rules, except that
 those rules cover a store the application owns and can purge.
 
-A worker that never sees HTML cannot make that mistake, and needs no list.
+A worker that never sees HTML cannot make that mistake, and needs no list. When pages are worth
+keeping, the scaffolded worker keeps only what the server marks public and only while nobody is
+signed in — an allow-list the server decides, never a deny-list kept in the worker. See
+[Caching HTML as well](#caching-html-as-well).
 
 ---
 
@@ -339,12 +342,45 @@ copy, never the response.
 
 ## Caching HTML as well
 
-Not scaffolded. If you add it, do not start from a **deny-list** of private paths that
-caches everything else. Start from an **allow-list** of paths that are genuinely public — the same shape as the page cache's
-`onlyPaths` — so that a page nobody thought about is uncached rather than shared. And
-remember what the server-side rules cannot do for you: `bypassCookies` protects the
-store the application owns, not a copy sitting in somebody's browser, and
-`PageCache::purgeUrl()` cannot reach one either.
+Off by default. The registration turns it on with rules that are an **allow-list** of public paths,
+never a deny-list of private ones:
+
+```php
+navigator.serviceWorker.register('<?php echo \Pramnos\Push\ServiceWorker::url('sw.js', [
+    'pages'    => json_encode([
+        ['match' => '^/(el|en)/jobs', 'strategy' => 'network-first', 'timeout' => 1500, 'maxAge' => 3600],
+        ['match' => '^/(el|en)/',     'strategy' => 'swr',                              'maxAge' => 28800],
+    ]),
+    'maxPages' => 30,
+    'marker'   => 'logged_in',
+]); ?>');
+```
+
+- **`swr`** answers from the kept copy at once and asks the network behind it. When the ETag
+  changed, it posts `{type: 'page-updated', url}` on `BroadcastChannel('pramnos-sw')` for a page
+  that wants to say so.
+- **`network-first`** asks the network, and answers with the kept copy only when the network is
+  slower than `timeout` or fails.
+- **`maxAge`** is how old a kept copy may be. An older one is not used.
+- **Where they are kept.** The pages go to their own cache, `<slug>-assets-pages`, at most
+  `maxPages` of them.
+
+Every answer says where it came from: `Server-Timing: sw;desc=cache`, `network` or `preload`.
+
+**What is kept.** Only a GET answered 200 by the site and marked `Pramnos-Page: public`, which the
+page cache sends with `pageSignal` on, and only while nobody is signed in. The worker reads the
+[login marker](Pramnos_Authentication_Guide.md#a-cookie-that-says-somebody-is-signed-in) with
+`cookieStore`; a browser without `cookieStore` keeps no page at all. So the page cache's allow-list
+is the worker's too: what the server would not share, the browser does not keep.
+
+**When the kept pages go:**
+- any same-origin request that is not a GET;
+- a navigation answered `Pramnos-Page: private`;
+- any response carrying `Pramnos-SW: purge-pages`;
+- the message `{command: 'purge-pages'}`.
+
+Do not use `Clear-Site-Data: "storage"` for this. It unregisters the worker and drops the push
+subscription with it.
 
 ---
 

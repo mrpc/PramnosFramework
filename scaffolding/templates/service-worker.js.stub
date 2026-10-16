@@ -125,6 +125,106 @@ const IMMUTABLE = [
 const IMMUTABLE_MORE = (new URL(self.location).searchParams.get('immutable') || '')
     .split(',').map((entry) => entry.trim().replace(/=$/, '')).filter(Boolean);
 
+/*
+ * ─── Pages, where the application asks ─────────────────────────────────────
+ *
+ * Off unless the registration names rules: `register('sw.js?pages=' + encodeURIComponent(JSON.stringify([
+ *   {match: '^/(el|en)/jobs', strategy: 'network-first', timeout: 1500, maxAge: 3600},
+ *   {match: '^/(el|en)/', strategy: 'swr', maxAge: 28800},
+ * ])) + '&maxPages=30&marker=logged_in')` — ServiceWorker::url() builds it.
+ *
+ * A page is kept only when all of this holds: a GET answered 200 by this site, marked
+ * `Pramnos-Page: public` by the page cache (an allow-list: only what the server would share),
+ * and nobody signed in — no login marker cookie, read with cookieStore; where cookieStore does
+ * not exist, no page is kept at all. The pages are dropped on any same-origin request that is not
+ * a GET, a navigation answered `Pramnos-Page: private`, a response carrying
+ * `Pramnos-SW: purge-pages`, and `{command: 'purge-pages'}`. Never `Clear-Site-Data: "storage"`
+ * for this: it unregisters the worker and drops the push subscription with it.
+ */
+const PARAMS = new URL(self.location).searchParams;
+const PAGES = (() => {
+    try {
+        return (JSON.parse(PARAMS.get('pages') || '[]') || []).map((rule) => ({
+            match: new RegExp(String(rule.match || '^$')),
+            strategy: rule.strategy === 'swr' ? 'swr' : 'network-first',
+            timeout: Math.max(0, Number(rule.timeout) || 0),
+            maxAge: Math.max(0, Number(rule.maxAge) || 0),
+        }));
+    } catch (error) {
+        return [];
+    }
+})();
+const MAX_PAGES = Math.max(1, Number(PARAMS.get('maxPages')) || 30);
+const MARKER = PARAMS.get('marker') || 'logged_in';
+const PAGES_CACHE = CACHE + '-pages';
+
+/** The rule a page of this site is kept by, or null. */
+function pageRule(url) {
+    return PAGES.length === 0 || url.origin !== self.location.origin ? null : (PAGES.find((rule) => rule.match.test(url.pathname)) || null);
+}
+
+/** Whether somebody may be signed in: the marker is there, or nothing can say it is not. */
+async function maybeSignedIn() {
+    if (!self.cookieStore) {
+        return true;
+    }
+    try {
+        return Boolean(await self.cookieStore.get(MARKER));
+    } catch (error) {
+        return true;
+    }
+}
+
+async function purgePages() {
+    await caches.delete(PAGES_CACHE).catch(() => false);
+}
+
+/** A response with where it came from, for Server-Timing — a copy, since headers are immutable. */
+function timed(response, source) {
+    if (!response || response.type === 'opaqueredirect' || response.type === 'error') {
+        return response;
+    }
+    const headers = new Headers(response.headers);
+    headers.append('Server-Timing', 'sw;desc=' + source);
+
+    return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+}
+
+/** Keep a page if it may be kept: public, 200, this site's, nobody signed in. */
+async function keepPage(request, response) {
+    const kind = response.type;
+    if (response.status !== 200 || (kind !== 'basic' && kind !== 'default')
+        || !/^public\b/i.test(response.headers.get('Pramnos-Page') || '') || await maybeSignedIn()) {
+        return;
+    }
+    const headers = new Headers(response.headers);
+    headers.set('X-SW-Stored-At', String(Date.now()));
+    const cache = await caches.open(PAGES_CACHE);
+    await cache.put(request, new Response(await response.blob(), { status: 200, headers }));
+    const keys = await cache.keys();
+    if (keys.length > MAX_PAGES) {
+        await Promise.all(keys.slice(0, keys.length - MAX_PAGES).map((key) => cache.delete(key)));
+    }
+}
+
+/** What a network answer says about the pages kept: drop them, or keep this one. */
+async function afterNavigation(request, response, rule) {
+    const purge = (response.headers.get('Pramnos-SW') || '').toLowerCase().includes('purge-pages')
+        || /^private\b/i.test(response.headers.get('Pramnos-Page') || '');
+    if (purge) {
+        await purgePages();
+    } else if (rule) {
+        await keepPage(request, response.clone()).catch(() => undefined);
+    }
+}
+
+/** Whether a kept page is still young enough for its rule. */
+function young(response, rule) {
+    const at = Number(response.headers.get('X-SW-Stored-At') || 0);
+
+    return at > 0 && (rule.maxAge === 0 || Date.now() - at <= rule.maxAge * 1000);
+}
+
 /** Whether an address of this site is one whose contents cannot change. */
 function immutableAddress(url) {
     const scope = new URL(self.registration.scope).pathname;
@@ -180,6 +280,10 @@ self.addEventListener('message', (event) => {
 
     if (command === 'purge') {
         event.waitUntil(caches.delete(CACHE));
+    }
+
+    if (command === 'purge-pages') {
+        event.waitUntil(purgePages());
     }
 
     // Relay a page's message to every page this worker controls — a tab telling the others it
@@ -263,12 +367,15 @@ async function store(request, response) {
 
 self.addEventListener('fetch', (event) => {
     const request = event.request;
+    const url = new URL(request.url);
 
     if (request.method !== 'GET') {
+        // Something changed on this site: the pages kept from before may show it as it was.
+        if (PAGES.length > 0 && url.origin === self.location.origin) {
+            event.waitUntil(purgePages());
+        }
         return;
     }
-
-    const url = new URL(request.url);
 
     // The administration area and the API, by default: not handled at all, offline page included.
     if (url.origin === self.location.origin && skipped(url.pathname)) {
@@ -284,10 +391,54 @@ self.addEventListener('fetch', (event) => {
     // offline page stand in — the browser's own error page otherwise.
     if (request.mode === 'navigate') {
         event.respondWith((async () => {
+            const rule = pageRule(url);
+            const kept = rule && !(await maybeSignedIn())
+                ? await caches.open(PAGES_CACHE).then((cache) => cache.match(request)).catch(() => undefined)
+                : undefined;
+            const usable = kept && young(kept, rule) ? kept : undefined;
+
+            // The preloaded answer when the browser started one, the network otherwise.
+            const network = (async () => {
+                const preloaded = await event.preloadResponse;
+                const response = preloaded || await fetch(request);
+                await afterNavigation(request, response, rule);
+
+                return { response, source: preloaded ? 'preload' : 'network' };
+            })();
+
+            if (usable && rule.strategy === 'swr') {
+                // The kept copy now; the network behind it, and pages that show it told when it changed.
+                event.waitUntil(network.then(({ response }) => {
+                    const before = usable.headers.get('ETag');
+                    const after = response.headers.get('ETag');
+                    if (before && after && before !== after && typeof BroadcastChannel === 'function') {
+                        new BroadcastChannel('pramnos-sw').postMessage({ type: 'page-updated', url: request.url });
+                    }
+                }).catch(() => undefined));
+
+                return timed(usable, 'cache');
+            }
+
+            if (usable && rule.timeout > 0) {
+                // Network first, but not for longer than the rule allows: then the kept copy.
+                const late = new Promise((resolve) => setTimeout(() => resolve(null), rule.timeout));
+                const first = await Promise.race([network.catch(() => null), late]);
+                if (first) {
+                    return timed(first.response, first.source);
+                }
+                event.waitUntil(network.catch(() => undefined));
+
+                return timed(usable, 'cache');
+            }
+
             try {
-                // The preloaded answer when the browser started one, the network otherwise.
-                return (await event.preloadResponse) || await fetch(request);
+                const { response, source } = await network;
+
+                return timed(response, source);
             } catch (error) {
+                if (kept) {
+                    return timed(kept, 'cache');
+                }
                 const offline = await caches.open(OFFLINE_CACHE)
                     .then((cache) => cache.match(new URL(OFFLINE_PAGE, self.registration.scope).href))
                     .catch(() => undefined);

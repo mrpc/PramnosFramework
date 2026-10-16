@@ -51,8 +51,12 @@ function worker(routes = {}, location = 'https://app.test/sw.js', scope = 'https
     const fetch = async (request, init) => {
         const url = typeof request === 'string' ? request : request.url;
         fetched.push({ url, init });
-        const answer = routes[url];
+        const answer = typeof routes[url] === 'function' ? routes[url]() : routes[url];
         if (answer === undefined || answer instanceof Error) { throw answer || new TypeError('offline'); }
+        if (answer instanceof Promise) { return answer; }
+        if (typeof answer === 'object' && answer !== null && 'body' in answer) {
+            return new Response(answer.body, { status: answer.status || 200, headers: answer.headers || {} });
+        }
         return new Response(answer, { status: 200 });
     };
     const caches = {
@@ -72,7 +76,9 @@ function worker(routes = {}, location = 'https://app.test/sw.js', scope = 'https
         addEventListener: (type, fn) => { listeners[type] = fn; },
     };
     const source = fs.readFileSync(STUB, 'utf8').replace(/\{\{\s*APP_SLUG\s*\}\}/g, 'app').replace(/\{\{\s*SPA_BUILD_DIR_REGEX\s*\}\}/g, 'assets\\/spa').replace(/\{\{\s*\w+\s*\}\}/g, '');
-    vm.runInNewContext(source, { self, caches, fetch, URL, Response, console, setTimeout, Promise });
+    const broadcasts = [];
+    class BroadcastChannel { constructor(name) { this.name = name; } postMessage(message) { broadcasts.push({ name: this.name, message }); } }
+    vm.runInNewContext(source, { self, caches, fetch, URL, Response, Headers, console, setTimeout, Promise, BroadcastChannel });
 
     /** Fire an event and settle what it asked to wait for and to respond with. */
     async function fire(type, init = {}) {
@@ -88,7 +94,7 @@ function worker(routes = {}, location = 'https://app.test/sw.js', scope = 'https
         return response;
     }
 
-    return { fire, names, posted, fetched, caches, listeners, self };
+    return { fire, names, posted, fetched, caches, listeners, self, broadcasts };
 }
 
 /** A previous worker's hand-versioned caches are deleted on activation; this one's and others stay. */
@@ -369,4 +375,143 @@ test('the registration adds immutable addresses', async () => {
     assert.equal(asked(font), 1, 'a path the registration names');
     assert.equal(asked(stamped), 1, 'an address with ?v=');
     assert.equal(asked(plain), 2, 'the rest are revalidated');
+});
+
+/** A worker that keeps pages by the rules given, nobody signed in unless `marker` is set. */
+function pagesWorker(routes, rules, { marker = null, cookieStore = true, maxPages = 30 } = {}) {
+    const query = 'pages=' + encodeURIComponent(JSON.stringify(rules)) + '&maxPages=' + maxPages + '&marker=logged_in';
+    const sw = worker(routes, 'https://app.test/sw.js?' + query);
+    if (cookieStore) {
+        sw.self.cookieStore = { get: async (name) => (name === 'logged_in' && marker ? { name, value: marker } : null) };
+    }
+    return sw;
+}
+
+const PUBLIC = { 'Pramnos-Page': 'public; max-age=600', ETag: '"v1"' };
+const nav = (url) => ({ request: { url, method: 'GET', mode: 'navigate' } });
+const kept = async (sw) => [...(await sw.caches.open('app-assets-pages')).store.keys()];
+
+/**
+ * A public page, with nobody signed in, is kept; the next visit is answered from it at once —
+ * stale-while-revalidate — while the network is asked behind it, and pages showing it are told
+ * when it changed; each answer says where it came from.
+ */
+test('a public page is kept and answered from the cache, revalidated behind', async () => {
+    // Arrange
+    let version = 1;
+    const url = 'https://app.test/el/jobs';
+    const sw = pagesWorker({ [url]: () => ({ body: 'v' + version, headers: { ...PUBLIC, ETag: '"v' + version + '"' } }) }, [{ match: '^/el/', strategy: 'swr', maxAge: 3600 }]);
+
+    // Act
+    const first = await sw.fire('fetch', nav(url));
+    version = 2;
+    const second = await sw.fire('fetch', nav(url));
+
+    // Assert
+    assert.equal(await first.text(), 'v1');
+    assert.equal(first.headers.get('Server-Timing'), 'sw;desc=network');
+    assert.equal(await second.text(), 'v1', 'the kept copy at once');
+    assert.equal(second.headers.get('Server-Timing'), 'sw;desc=cache');
+    // Across the worker's realm: compared as data
+    assert.deepEqual(JSON.parse(JSON.stringify(sw.broadcasts)), [{ name: 'pramnos-sw', message: { type: 'page-updated', url } }]);
+    assert.deepEqual(await kept(sw), [url]);
+});
+
+/**
+ * Nothing is kept for somebody who may be signed in — the marker is there, or the browser has no
+ * cookieStore to say it is not — nor a page not marked public.
+ */
+test('no page is kept for a signed-in visitor, without cookieStore, or when not public', async () => {
+    // Arrange
+    const url = 'https://app.test/el/jobs';
+    const rules = [{ match: '^/el/', strategy: 'swr', maxAge: 3600 }];
+    const signedIn = pagesWorker({ [url]: { body: 'mine', headers: PUBLIC } }, rules, { marker: '1' });
+    const noStore = pagesWorker({ [url]: { body: 'p', headers: PUBLIC } }, rules, { cookieStore: false });
+    const notPublic = pagesWorker({ [url]: { body: 'p', headers: {} } }, rules);
+
+    // Act
+    for (const sw of [signedIn, noStore, notPublic]) {
+        await sw.fire('fetch', nav(url));
+        await sw.fire('fetch', nav(url));
+    }
+
+    // Assert
+    for (const sw of [signedIn, noStore, notPublic]) {
+        assert.deepEqual(await kept(sw), []);
+        assert.equal(sw.fetched.filter((f) => f.url === url).length, 2, 'both from the network');
+    }
+});
+
+/**
+ * The pages are dropped by a same-origin POST, a navigation answered private, a response saying
+ * `Pramnos-SW: purge-pages`, and the `purge-pages` message.
+ */
+test('the kept pages are dropped when something changed', async () => {
+    // Arrange
+    const page = 'https://app.test/el/jobs';
+    const rules = [{ match: '^/el/', strategy: 'swr', maxAge: 3600 }];
+    const routes = {
+        [page]: { body: 'p', headers: PUBLIC },
+        'https://app.test/el/basket': { body: 'b', headers: { 'Pramnos-Page': 'private' } },
+        'https://app.test/el/sign-in': { body: 's', headers: { 'Pramnos-SW': 'purge-pages' } },
+    };
+    const fill = async (sw) => { await sw.fire('fetch', nav(page)); return (await kept(sw)).length; };
+    const results = [];
+
+    // Act
+    let sw = pagesWorker(routes, rules);
+    results.push(await fill(sw));
+    await sw.fire('fetch', { request: { url: 'https://app.test/el/apply', method: 'POST', mode: 'cors' } });
+    results.push((await kept(sw)).length);
+    results.push(await fill(sw));
+    await sw.fire('fetch', nav('https://app.test/el/basket'));
+    results.push((await kept(sw)).length);
+    results.push(await fill(sw));
+    await sw.fire('fetch', nav('https://app.test/el/sign-in'));
+    results.push((await kept(sw)).length);
+    results.push(await fill(sw));
+    await sw.fire('message', { data: { command: 'purge-pages' } });
+    results.push((await kept(sw)).length);
+
+    // Assert
+    assert.deepEqual(results, [1, 0, 1, 0, 1, 0, 1, 0]);
+});
+
+/**
+ * A copy older than its rule's maxAge is not used: the network answers; with network-first and a
+ * timeout, a network slower than the timeout is answered by the kept copy; and the cache keeps at
+ * most maxPages.
+ */
+test('maxAge, the timeout and maxPages', async () => {
+    // Arrange
+    const url = 'https://app.test/el/jobs';
+    let slow = false;
+    const sw = pagesWorker({
+        [url]: () => (slow ? new Promise((resolve) => setTimeout(() => resolve(new Response('late', { headers: PUBLIC })), 200)) : { body: 'fresh', headers: PUBLIC }),
+        'https://app.test/el/a': { body: 'a', headers: PUBLIC },
+        'https://app.test/el/b': { body: 'b', headers: PUBLIC },
+    }, [{ match: '^/el/', strategy: 'network-first', timeout: 50, maxAge: 3600 }], { maxPages: 2 });
+    const old = pagesWorker({ [url]: { body: 'new', headers: PUBLIC } }, [{ match: '^/el/', strategy: 'swr', maxAge: 1 }]);
+
+    // Act — kept, then the network is slow
+    await sw.fire('fetch', nav(url));
+    slow = true;
+    const fallback = await sw.fire('fetch', nav(url));
+    slow = false;
+    await sw.fire('fetch', nav('https://app.test/el/a'));
+    await sw.fire('fetch', nav('https://app.test/el/b'));
+    // …and a copy past its maxAge
+    await old.fire('fetch', nav(url));
+    const cache = await old.caches.open('app-assets-pages');
+    const stored = cache.store.get(url);
+    const headers = new Headers(stored.headers);
+    headers.set('X-SW-Stored-At', String(Date.now() - 5000));
+    cache.store.set(url, new Response('stale', { headers }));
+    const fresh = await old.fire('fetch', nav(url));
+
+    // Assert
+    assert.equal(await fallback.text(), 'fresh', 'the kept copy, the network being too slow');
+    assert.equal(fallback.headers.get('Server-Timing'), 'sw;desc=cache');
+    assert.equal((await kept(sw)).length, 2, 'at most maxPages');
+    assert.equal(await fresh.text(), 'new', 'too old: the network');
 });
