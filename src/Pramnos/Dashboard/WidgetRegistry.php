@@ -31,6 +31,7 @@ final class WidgetRegistry
         Widgets\DatabaseOverview::class,
         Widgets\QueueStatus::class,
         Widgets\EmailActivity::class,
+        Widgets\Messages::class,
         Widgets\AiSpend::class,
         Widgets\HealthChecks::class,
         Widgets\RecentErrors::class,
@@ -155,9 +156,46 @@ final class WidgetRegistry
         return is_array($cards) && is_array($cards[$id] ?? null) ? $cards[$id] : [];
     }
 
+    /** @var array<string, MessageChannel> Message channels registered in code */
+    private static array $channels = [];
+
+    /** Add a message channel for the `messages` card, or replace the one under its id. */
+    public static function channel(MessageChannel|string $channel): void
+    {
+        $channel = is_string($channel) ? new $channel() : $channel;
+        self::$channels[$channel->id()] = $channel;
+    }
+
+    /**
+     * The message channels, by id: email first where there is a send history, then app.php's
+     * `'dashboard' => ['channels' => [...]]`, then those registered in code — a later one under
+     * the same id winning.
+     *
+     * @return array<string, MessageChannel>
+     */
+    public static function channels(): array
+    {
+        $channels = [];
+        if ((new \Pramnos\Email\SendHistory())->available()) {
+            $channels['email'] = new Channels\EmailMessages();
+        }
+        $app = \Pramnos\Application\Application::currentInstance();
+        foreach ((array) (is_object($app) ? ($app->applicationInfo['dashboard']['channels'] ?? []) : []) as $class) {
+            if (is_string($class) && is_subclass_of($class, MessageChannel::class)) {
+                $channel = new $class();
+                $channels[$channel->id()] = $channel;
+            } else {
+                \Pramnos\Logs\Logger::log('Message channel ' . (is_string($class) ? $class : gettype($class)) . ' is not a ' . MessageChannel::class . '; it was left out.', 'dashboard');
+            }
+        }
+
+        return array_replace($channels, self::$channels);
+    }
+
     /** For a test: forget what was registered in code. */
     public static function reset(): void
     {
         self::$registered = [];
+        self::$channels   = [];
     }
 }

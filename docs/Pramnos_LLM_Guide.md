@@ -929,7 +929,7 @@ prompt names it, and each answer's window says which it used.
 | `sessions` | online now (last 15 minutes), people and guests, each hour of the last day |
 | `organizations` | by type, active, created per period; the largest by active members (name and count) |
 | `mailing_lists` | subscribers per list by status; subscriptions, confirmations and unsubscriptions per period |
-| `email` | sent, opened (proxy-only apart), clicked and their rates, by list and period; subjects sent to at least three; the most clicked links without their query strings |
+| `email` | sent, opened (proxy-only apart), clicked and their rates, by list and period; subjects sent to at least three; the most clicked links without their query strings; and `history`, every message sent by status and module with the failures by module (`Email\SendHistory`, as the dashboard counts it) |
 | `push` | sent, delivered and failed, by kind and status; the commonest failures |
 | `queue` | tasks by state, waiting by kind, failures by kind with their first error line, run times |
 | `llm_spend` | calls, tokens and cost by provider, model and purpose; scheduled tasks' runs apart, by task (`llm_calls.routine_id`); failures; spend per organisation (id and name) |

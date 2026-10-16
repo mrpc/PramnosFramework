@@ -6,7 +6,6 @@ namespace Pramnos\Dashboard\Widgets;
 
 use Pramnos\Dashboard\Widget;
 use Pramnos\Html\StatTile;
-use Pramnos\Messaging\Mail;
 
 /**
  * Email over the last week, from the send history (`#PREFIX#mails`, one row per message whatever
@@ -53,29 +52,26 @@ final class EmailActivity extends Widget
 
     public function render(): string
     {
-        $db = \Pramnos\Framework\Factory::getDatabase();
-        if (!$db->schema()->hasTable('mails')) {
+        $history = new \Pramnos\Email\SendHistory();
+        if (!$history->available()) {
             return '';
         }
         [$from, $to] = $this->periodRange();
-
-        // One pass over the period, by status — a range on the `date` index, however long the history.
-        $counts = [];
-        $result = $db->queryBuilder()->table('#PREFIX#mails')
-            ->select(['status', $db->queryBuilder()->raw('COUNT(*) AS n')])
-            ->where('date', '>=', $from)->where('date', '<=', $to)->groupBy('status')->get();
-        while (($row = $result->fetch()) !== null) {
-            $counts[(int) $row['status']] = (int) $row['n'];
-        }
-        $sent   = $counts[Mail::STATUS_SENT] ?? 0;
-        $failed = $counts[Mail::STATUS_FAILED] ?? 0;
-        $rate   = $sent + $failed > 0 ? $failed / ($sent + $failed) : 0.0;
+        $figures = $history->figures($from, $to);
+        $sent    = $figures['sent'];
+        $failed  = $figures['failed'];
+        $rate    = (float) ($figures['failure_rate'] ?? 0);
+        $db      = \Pramnos\Framework\Factory::getDatabase();
 
         $tiles = [
             StatTile::render(Figures::words('Sent'), number_format($sent), $this->periodLabel(), $this->link()),
-            StatTile::render(Figures::words('Failed'), number_format($failed), $sent + $failed > 0 ? number_format($rate * 100, 1) . '%' : '',
+            // The rate, and where most failures were: the module to look at first.
+            StatTile::render(Figures::words('Failed'), number_format($failed), implode(' · ', array_filter([
+                $figures['failure_rate'] !== null ? number_format($rate * 100, 1) . '%' : '',
+                (string) array_key_first($figures['failed_by_module']),
+            ])),
                 state: $rate >= 0.05 ? StatTile::CRITICAL : ($failed > 0 ? StatTile::WARNING : null)),
-            StatTile::render(Figures::words('Queued'), number_format($counts[Mail::STATUS_QUEUED] ?? 0)),
+            StatTile::render(Figures::words('Queued'), number_format($figures['queued'])),
         ];
 
         $tracked = static fn () => $db->queryBuilder()->table('pramnos.emailtracking')->where('sent_at', '>=', $from)->where('sent_at', '<=', $to);

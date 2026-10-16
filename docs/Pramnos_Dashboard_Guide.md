@@ -12,7 +12,7 @@ use_cases:
 
 The administration dashboard (`DashboardController`, at `/admin/Dashboard`) is a grid of cards,
 called widgets. Each person arranges it for themselves: which cards, in what order, how wide.
-The framework brings nine widgets; an application adds its own.
+The framework brings ten widgets; an application adds its own.
 
 ## A widget
 
@@ -110,6 +110,39 @@ A setting the widget does not declare is dropped, and a value outside a list bec
 first. The dashboard hands a widget its settings with `configure()` before `render()`.
 `Widget::cleanSettings($widget, $given)` is that cleaning, for code of its own.
 
+### The channels of the `messages` card
+
+A channel is a way the application reaches people: SMS, push, a chat app. It implements
+`Pramnos\Dashboard\MessageChannel` and is named in app.php or registered in code:
+
+```php
+final class Sms implements \Pramnos\Dashboard\MessageChannel, \Pramnos\Dashboard\MessageReach
+{
+    public function id(): string     { return 'sms'; }
+    public function label(): string  { return 'SMS'; }              // translated by the card
+    public function link(): ?string  { return adminUrl('Sms'); }
+    public function figures(int $from, int $to): array               // total and failed always
+    {
+        return ['total' => 200, 'failed' => 20, 'delivered' => 180, 'cost' => 12.4, 'currency' => '€'];
+    }
+    public function reach(int $from, int $to): ?array                // optional: MessageReach
+    {
+        return ['recipients' => 150, 'average' => 21.4, 'missing_days' => 2];
+    }
+}
+
+// app/app.php
+'dashboard' => ['channels' => [\App\Dashboard\Sms::class]],
+// or: \Pramnos\Dashboard\WidgetRegistry::channel(new Sms());
+```
+
+Email comes first wherever the send history (`mails`) exists. Its figures come from
+`Pramnos\Email\SendHistory`, the class the `email` card and the analyst's `email` tool also read:
+by status, by module, and the failures by module. `reach()` should answer from figures the channel
+keeps per day, because a distinct count over a long history cannot run inside a page request. It
+says how many days it has no figure for. A channel that throws is a line on the card, not a
+missing card.
+
 ### A period each person sets
 
 The `Pramnos\Dashboard\HasPeriod` trait offers today, the last 7, 30 or 90 days, or two days of
@@ -183,6 +216,7 @@ The framework's widgets, in the order a new dashboard shows them:
 | `database` | Size, connections, cache hit ratio; opens the database page | the dashboard's role |
 | `queue` | Tasks waiting now; failed and finished in the period (today by default), failures critical; opens the queue | who may open `admin.queue`, where the `queue` feature is on |
 | `email` | Email in the period (7 days by default) from the send history (`mails`): sent, failed (with the failure rate), queued; the share opened only where tracked mail was sent in it; opens the email screen | who may open `admin.emails` |
+| `messages` | Every channel messages go out by, a row each, for the period: email from the send history, then the application's own (`MessageChannel`); sent, failed, queued, delivered, cost, people reached — full width, **not on a new dashboard** | who may open `admin.emails`, where there is a channel |
 | `ai.spend` | Model calls in the period (30 days by default): cost, calls, failed; opens the AI settings | who may open `admin.ai`, where the `llm` feature is on and a key is set |
 | `health` | Every health check, with its message when not ok — full width | the dashboard's role |
 | `logs.errors` | Errors in the logs in 24 hours and the commonest five; **not on a new dashboard** — it reads the log files — but in the catalogue | who may open `admin.logs` |

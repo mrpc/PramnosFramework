@@ -27,15 +27,19 @@ final class EmailTool extends AdminTool
 
     public function description(): string
     {
-        return 'Tracked email in a window: sent, opened (by a person; proxy-only opens counted '
+        return 'Email in a window. history: every message sent, by status, by module and the failures by module. '
+            . 'And tracked email: sent, opened (by a person; proxy-only opens counted '
             . 'apart), clicked, open and click rates, per period and by list; the most sent '
             . 'subjects (those sent to at least three) and the most clicked links. Never a recipient.';
     }
 
     protected function answer(array $input, Window $window): array
     {
+        // The send history — every message, tracked or not — as the dashboard counts it.
+        $history = new \Pramnos\Email\SendHistory();
+        $sends   = $history->available() ? ['history' => $history->figures($window->from, $window->to)] : [];
         if (!$this->has(self::SENT)) {
-            return self::absent('email tracking');
+            return $sends === [] ? self::absent('email tracking') : ['window' => $window->describe()] + $sends;
         }
 
         $sent    = fn () => $window->apply($this->table(self::SENT), 'sent_at', true);
@@ -55,7 +59,7 @@ final class EmailTool extends AdminTool
             'subjects'    => array_filter($this->countBy($sent(), 'subject', 10), static fn (int $n): bool => $n >= self::SUBJECT_MIN),
             'per_period'  => $this->series($this->table(self::SENT), 'sent_at', $window, true),
             'links'       => $this->links($window),
-        ];
+        ] + $sends;
     }
 
     /** @return array<string, int> The links most clicked, without their query strings */
