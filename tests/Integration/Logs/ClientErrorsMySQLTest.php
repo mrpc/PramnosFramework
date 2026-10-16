@@ -453,6 +453,64 @@ class ClientErrorsMySQLTest extends TestCase
         $this->assertNotSame(PHP_SESSION_ACTIVE, session_status(), 'the session was let go of');
     }
 
+    /**
+     * Somebody else's code is answered and not kept — an extension's error, by its source, its
+     * stack or the older one-line shape; the bare "Script error."; a script of another host —
+     * while this site's own, an inline one, and a host app.php names as its own (a CDN) are kept.
+     */
+    public function testSomebodyElsesErrorsAreNotKept(): void
+    {
+        // Arrange
+        $this->sameOriginPost('10.6.' . random_int(0, 255) . '.' . random_int(0, 255));
+        $app  = \Pramnos\Application\Application::getInstance();
+        $info = $app->applicationInfo;
+        $app->applicationInfo['client_errors'] = ['hosts' => ['cdn.example.com']];
+        $controller = new class (null) extends FormClientErrorsController {
+            /** No limit in this test. */
+            protected function overLimit(): bool
+            {
+                return false;
+            }
+        };
+        $mark = 'fw148-' . bin2hex(random_bytes(3));
+        $send = function (array $report) use ($controller): int {
+            $controller->posted = $report;
+
+            return $controller->display()->getStatusCode();
+        };
+
+        try {
+            // Act
+            $statuses = [
+                $send(['message' => $mark . ' ext', 'source' => 'chrome-extension://abc/c.js']),
+                $send(['message' => $mark . ' stack', 'stack' => 'at f (safari-web-extension://x/a.js:1:1)']),
+                $send(['error' => $mark . ' moz-extension://y/b.js broke', 'agent' => 'Old']),
+                $send(['message' => 'Script error.']),
+                $send(['message' => $mark . ' widget', 'source' => 'https://client.crisp.chat/l.js']),
+                $send(['message' => $mark . ' cdn', 'source' => 'https://cdn.example.com/app.js']),
+                $send(['message' => $mark . ' ours', 'source' => 'https://' . $_SERVER['HTTP_HOST'] . '/assets/app.js']),
+                $send(['message' => $mark . ' inline']),
+            ];
+            $hosts = ClientErrors::hosts();
+        } finally {
+            $app->applicationInfo = $info;
+        }
+        $kept  = [];
+        $items = (new ClientErrors($this->db))->list(1, 500)['items'];
+        $this->assertNotEmpty($items, 'the sweep found nothing to check');
+        foreach ($items as $item) {
+            if (str_starts_with((string) ($item['message'] ?? $item['error'] ?? ''), $mark)) {
+                $kept[] = substr((string) $item['message'], strlen($mark) + 1);
+            }
+        }
+        sort($kept);
+
+        // Assert
+        $this->assertSame(array_fill(0, 8, 204), $statuses, 'answered alike');
+        $this->assertSame(['cdn', 'inline', 'ours'], $kept);
+        $this->assertSame(['cdn.example.com'], $hosts, 'as app.php names them');
+    }
+
     /** A store that fails — no table, no database — is logged, and the page still gets its 204. */
     public function testAFailingStoreIsNotTheReportersProblem(): void
     {

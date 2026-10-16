@@ -732,6 +732,18 @@ three ways instead:
   application's cache (`Http\TokenBucket`, atomic on Redis). A cache that fails lets the report
   through and logs why.
 
+**Only this site's own errors.** Neither the page nor the address keeps an error of somebody
+else's code:
+- a browser extension's (`*-extension://` in its file or its stack);
+- the bare `Script error.` a script of another origin reports;
+- a script of another host: a cookie banner, a chat widget, a map.
+
+Pages that report everything, and the older `{error, agent}` shape, are filtered at the address
+too, which answers `204` and keeps nothing. Hosts that serve the site's own scripts, such as a
+CDN, are named on both sides: `data-hosts="cdn.example.com"` on the meta tag for `pf-utils.js`,
+and `'client_errors' => ['hosts' => ['cdn.example.com']]` in app.php for the address. An inline
+script, or a rejection with no file, is the site's own.
+
 It lets go of the session before anything else, so the reports of one session do not queue on its
 lock, each holding a PHP worker. It answers `204`. Bodies are JSON:
 

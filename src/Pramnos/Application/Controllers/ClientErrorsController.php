@@ -57,6 +57,11 @@ class ClientErrorsController extends Controller
         }
 
         $report = $this->report();
+        // Somebody else's code — an extension, a script of another host — is answered and not kept,
+        // for the pages that report everything as for those that filter.
+        if ($report !== [] && ClientErrors::foreign($report, (string) ($_SERVER['HTTP_HOST'] ?? ''), ClientErrors::hosts())) {
+            return $this->answer(204);
+        }
         if ($report !== []) {
             try {
                 $user = \Pramnos\User\User::current();

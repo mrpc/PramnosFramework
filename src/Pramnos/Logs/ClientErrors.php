@@ -117,6 +117,40 @@ final class ClientErrors
      * @param array<string, mixed> $report
      * @return array<string, mixed>|null
      */
+    /**
+     * Whether a report is of somebody else's code: a browser extension's (`*-extension://` in its
+     * source, stack or one-line error), the bare "Script error." a script of another origin
+     * reports, or a script from a host that is neither this site's nor one of `$hosts` —
+     * `'client_errors' => ['hosts' => [...]]` in app.php, a CDN serving this site's own. A report
+     * with no source — an inline script, a rejection — is this site's.
+     *
+     * @param array<string, mixed> $report
+     * @param list<string>         $hosts
+     */
+    public static function foreign(array $report, string $siteHost, array $hosts = []): bool
+    {
+        $text = implode(' ', array_map(static fn ($v): string => is_scalar($v) ? (string) $v : '', [$report['source'] ?? '', $report['stack'] ?? '', $report['error'] ?? '']));
+        if (preg_match('#-extension://#i', $text) === 1) {
+            return true;
+        }
+        if (trim((string) ($report['message'] ?? $report['error'] ?? '')) === 'Script error.') {
+            return true;
+        }
+        $host = strtolower((string) parse_url((string) ($report['source'] ?? ''), PHP_URL_HOST));
+        $site = strtolower((string) parse_url('//' . $siteHost, PHP_URL_HOST));
+
+        return $host !== '' && $host !== $site && !in_array($host, array_map('strtolower', $hosts), true);
+    }
+
+    /** The other hosts whose scripts are this site's: `'client_errors' => ['hosts' => [...]]`. @return list<string> */
+    public static function hosts(): array
+    {
+        $app   = \Pramnos\Application\Application::currentInstance();
+        $hosts = is_object($app) ? ($app->applicationInfo['client_errors']['hosts'] ?? []) : [];
+
+        return array_values(array_filter(array_map('strval', is_array($hosts) ? $hosts : []), static fn (string $h): bool => $h !== ''));
+    }
+
     public static function normalise(array $report, string $agent = ''): ?array
     {
         $agent = self::cut($agent, 255);

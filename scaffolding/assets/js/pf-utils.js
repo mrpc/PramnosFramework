@@ -167,19 +167,40 @@
     // tag (\Pramnos\Application\Controllers\ClientErrorsController), which keeps one row per
     // distinct error with a count. Without the tag nothing is sent. Each distinct error is sent
     // once per page, and at most ten per page, so a loop that throws costs ten requests, not a
-    // flood. `window.pfReportError(error)` reports one the page caught itself.
+    // flood. `window.pfReportError(error)` reports one the page caught itself. Errors of browser
+    // extensions and of other hosts' scripts are not sent: `data-hosts` names the hosts that serve
+    // this site's own (a CDN).
     // ══════════════════════════════════════════════════════════════════════════
     (function () {
         var meta = document.querySelector('meta[name="pf-client-errors"]');
         var url  = meta ? meta.getAttribute('content') : '';
         if (!url) { return; }
         var release = meta.getAttribute('data-release') || '';
+        // Other hosts that serve this site's own scripts — a CDN: data-hosts="cdn.example.com".
+        var hosts = (meta.getAttribute('data-hosts') || '').split(',').map(function (h) { return h.trim().toLowerCase(); }).filter(Boolean);
         var sent = {};
         var count = 0;
 
+        // The host of an address, or '' for none. A regular expression, not URL: a page may have
+        // replaced the constructor with a string of its own.
+        function hostOf(address) {
+            var m = /^[a-z][a-z0-9+.-]*:\/\/([^/?#]+)/i.exec(address || '');
+            return m ? m[1].toLowerCase() : '';
+        }
+
+        // An error of this site's own code: not a browser extension's, and from this host, one of
+        // data-hosts, or an inline script (no file). The others were most of what was reported, and
+        // nothing anybody here could fix: a cookie banner, a chat widget, a map, an extension.
+        function ours(report) {
+            if (/-extension:\/\//i.test((report.source || '') + ' ' + (report.stack || ''))) { return false; }
+            var host = hostOf(report.source);
+
+            return host === '' || host === hostOf(location.origin) || hosts.indexOf(host) !== -1;
+        }
+
         function send(report) {
             // A script from another origin reports only this, with nothing to act on.
-            if (!report.message || report.message === 'Script error.') { return; }
+            if (!report.message || report.message === 'Script error.' || !ours(report)) { return; }
             var key = report.kind + '|' + report.message + '|' + (report.source || '') + '|' + (report.line || '');
             if (sent[key] || count >= 10) { return; }
             sent[key] = true;

@@ -24,13 +24,14 @@ const SOURCE = path.join(__dirname, '..', '..', 'scaffolding', 'assets', 'js', '
  *
  * @param {boolean} withMeta Whether the head names the address
  */
-function page(withMeta = true) {
+function page(withMeta = true, hosts = '') {
     const { window, document } = createDom({ url: 'https://app.test/orders?id=4' });
     if (withMeta) {
         const meta = document.createElement('meta');
         meta.setAttribute('name', 'pf-client-errors');
         meta.setAttribute('content', '/ClientErrors');
         meta.setAttribute('data-release', 'v1.2.3');
+        if (hosts) { meta.setAttribute('data-hosts', hosts); }
         document.head.appendChild(meta);
     }
     const beacons = [];
@@ -152,4 +153,25 @@ test('without the meta tag nothing is sent', () => {
     // Assert
     assert.equal(beacons.length, 0);
     assert.equal(window.pfReportError, undefined);
+});
+
+/**
+ * Somebody else's code is not reported: a browser extension's error (by its file or its stack),
+ * and a script of another host; this site's own, an inline script with no file, and a host the
+ * meta names as this site's (a CDN) are.
+ */
+test('only this site\'s own errors are sent', () => {
+    // Arrange
+    const { beacons, error } = page(true, 'cdn.app.test, static.app.test');
+
+    // Act
+    error('from an extension', { filename: 'chrome-extension://abc/content.js' });
+    error('extension in the stack', { error: { message: 'x', stack: 'at y (moz-extension://def/a.js:1:1)' } });
+    error('a chat widget', { filename: 'https://client.crisp.chat/l.js' });
+    error('ours, from the CDN', { filename: 'https://cdn.app.test/app.js' });
+    error('ours, inline', { filename: '' });
+    error('ours', { filename: 'https://app.test/assets/js/app.js' });
+
+    // Assert
+    assert.deepEqual(beacons.map((b) => b.body.message), ['ours, from the CDN', 'ours, inline', 'ours']);
 });
