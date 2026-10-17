@@ -1137,6 +1137,12 @@ $sorted = $runner->sort($migrations);
 // Throws RuntimeException if a cycle is detected
 ```
 
+**A migration that adds to tables other migrations create runs late.** Give it a high
+`$priority` (the framework's own use `200`) or a dependency on what it touches. At the default it
+can run before a feature creates its tables, find none, do nothing, and still be recorded as
+run: the installation then lacks what it adds, while one migrated table by table has it.
+`FrameworkMigrationOrderTest` holds the framework's own to this.
+
 ### Filtering
 
 ```php

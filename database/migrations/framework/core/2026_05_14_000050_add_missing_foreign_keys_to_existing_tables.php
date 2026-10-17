@@ -276,6 +276,12 @@ class AddMissingForeignKeysToExistingTables extends Migration
             return false;
         }
 
+        // The same key under another name — `usertokens_ibfk_1`, a table older than the
+        // framework's — is the key: a second one is only a second check on every write.
+        if ($this->schema()->hasForeignKeyOn($table, $column, $references)) {
+            return false;
+        }
+
         // "public.applications" → "applications": the schema is applied by the
         // builder itself, and information_schema wants the bare name.
         $referencedTable = str_contains($references, '.')

@@ -713,6 +713,25 @@ class Token extends \Pramnos\Framework\Base
     }
 
     /**
+     * Whether token values are stored encrypted: where there is an `APP_KEY`, unless app.php
+     * says `'auth' => ['encrypt_tokens' => false]`.
+     *
+     * A setting rather than a side effect of the key, for an application with lookups of its own
+     * on `usertokens.token`: it keeps the values readable while it moves them to `token_lookup`,
+     * and turns encryption on when it is ready, by deciding to and not by setting a key for
+     * something else. Authentication matches on `token_lookup` either way.
+     */
+    public static function encryptsAtRest(): bool
+    {
+        if (!\Pramnos\Security\Encrypter::isAvailable()) {
+            return false;
+        }
+        $app = \Pramnos\Application\Application::currentInstance();
+
+        return !is_object($app) || ($app->applicationInfo['auth']['encrypt_tokens'] ?? true) !== false;
+    }
+
+    /**
      * The two columns a token is stored as.
      *
      * Spread into an insert so that every writer encodes a token the same way:
@@ -735,7 +754,7 @@ class Token extends \Pramnos\Framework\Base
     public static function storageFor(string $token): array
     {
         return [
-            'token'        => \Pramnos\Security\Encrypter::isAvailable()
+            'token'        => self::encryptsAtRest()
                 ? \Pramnos\Security\Encrypter::encrypt($token)
                 : $token,
             'token_lookup' => self::lookup($token),

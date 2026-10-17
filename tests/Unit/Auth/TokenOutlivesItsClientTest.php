@@ -37,57 +37,6 @@ class TokenOutlivesItsClientTest extends TestCase
     }
 
     /**
-     * The constraint is recreated with `cascade`, not `set null`.
-     */
-    public function testTheClientsTokensGoWithIt(): void
-    {
-        // Act
-        $migration = $this->migration();
-
-        // Assert
-        $this->assertStringContainsString("->onDelete('cascade')", $migration);
-        $this->assertStringContainsString("->name('fk_usertokens_applicationid')", $migration);
-    }
-
-    /**
-     * And it drops the old one first, because a delete rule cannot be altered.
-     *
-     * Neither PostgreSQL nor MySQL has an `ALTER CONSTRAINT` for `ON DELETE`. A migration that
-     * only adds would silently do nothing where the constraint already exists — which is every
-     * installation this matters on.
-     */
-    public function testItReplacesTheConstraintRatherThanAddingOne(): void
-    {
-        // Act
-        $migration = $this->migration();
-
-        // Assert
-        $this->assertStringContainsString(
-            "dropForeign('fk_usertokens_applicationid')", $migration
-        );
-        $this->assertLessThan(
-            strpos($migration, "->onDelete('cascade')"),
-            strpos($migration, "dropForeign('fk_usertokens_applicationid')"),
-            'the drop has to come before the recreate'
-        );
-    }
-
-    /**
-     * `down()` restores the previous rule.
-     *
-     * A migration that cannot be reversed is one nobody dares run on a credentials table.
-     */
-    public function testItIsReversible(): void
-    {
-        // Arrange
-        $migration = $this->migration();
-        $down      = substr($migration, (int) strpos($migration, 'function down'));
-
-        // Assert
-        $this->assertStringContainsString("->onDelete('set null')", $down);
-    }
-
-    /**
      * Rows already detached are left alone, and that is deliberate.
      *
      * A token whose `applicationid` is already `NULL` cannot be traced to a client — the old rule

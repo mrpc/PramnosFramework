@@ -571,6 +571,120 @@ class SchemaBuilder
         return $result && $result->numRows > 0;
     }
 
+    /**
+     * Each index on a table, by name, with its columns in order.
+     *
+     * For a question a name cannot answer: an installation whose tables predate the framework
+     * holds the same index under its own name (`tokenid`, `usertokens_ibfk_1`), and a check by
+     * name alone creates a second one beside it. An expression index's expressions are left out.
+     *
+     * Catalogue introspection, so raw SQL: the query builder does not reach the catalogues.
+     *
+     * @return array<string, list<string>>
+     */
+    public function indexColumns(string $table): array
+    {
+        [$schema, $name] = $this->catalogueName($table);
+        try {
+            $result = $this->db->query($this->capabilities->isMySQL()
+                ? $this->db->prepareQuery(
+                    'SELECT INDEX_NAME AS idx, COLUMN_NAME AS col FROM information_schema.STATISTICS'
+                    . ' WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s ORDER BY INDEX_NAME, SEQ_IN_INDEX',
+                    $name
+                )
+                : $this->db->prepareQuery(
+                    'SELECT i.relname AS idx, a.attname AS col FROM pg_index x'
+                    . ' JOIN pg_class t ON t.oid = x.indrelid JOIN pg_class i ON i.oid = x.indexrelid'
+                    . ' JOIN pg_namespace ns ON ns.oid = t.relnamespace'
+                    . ' CROSS JOIN LATERAL unnest(x.indkey) WITH ORDINALITY AS k(attnum, n)'
+                    . ' JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = k.attnum'
+                    . ' WHERE t.relname = %s AND ns.nspname = %s ORDER BY i.relname, k.n',
+                    $name,
+                    $schema
+                ));
+        } catch (\Throwable) {
+            return [];
+        }
+        $indexes = [];
+        while ($result && $result->fetch()) {
+            $indexes[(string) $result->fields['idx']][] = (string) $result->fields['col'];
+        }
+
+        return $indexes;
+    }
+
+    /**
+     * Whether some index, under whatever name, already covers exactly these columns in this
+     * order. Case-insensitive, and blind to quoting: `"parentToken"` is `parentToken`.
+     *
+     * @param list<string> $columns
+     */
+    public function hasIndexOn(string $table, array $columns): bool
+    {
+        $normal  = static fn (array $list): array => array_map(static fn (string $c): string => strtolower(trim($c, '"`[] ')), $list);
+        $wanted  = $normal($columns);
+        foreach ($this->indexColumns($table) as $existing) {
+            if ($normal($existing) === $wanted) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Whether a foreign key, under whatever name, already leads from this column to that table.
+     */
+    public function hasForeignKeyOn(string $table, string $column, string $references): bool
+    {
+        [$schema, $name]       = $this->catalogueName($table);
+        [$refSchema, $refName] = $this->catalogueName($references);
+        try {
+            $result = $this->db->query($this->capabilities->isMySQL()
+                ? $this->db->prepareQuery(
+                    'SELECT 1 AS hit FROM information_schema.KEY_COLUMN_USAGE WHERE TABLE_SCHEMA = DATABASE()'
+                    . ' AND TABLE_NAME = %s AND COLUMN_NAME = %s AND REFERENCED_TABLE_NAME = %s LIMIT 1',
+                    $name,
+                    $column,
+                    $refName
+                )
+                : $this->db->prepareQuery(
+                    'SELECT 1 AS hit FROM pg_constraint c'
+                    . ' JOIN pg_class t ON t.oid = c.conrelid JOIN pg_namespace ns ON ns.oid = t.relnamespace'
+                    . ' JOIN pg_class r ON r.oid = c.confrelid JOIN pg_namespace rns ON rns.oid = r.relnamespace'
+                    . ' JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY (c.conkey)'
+                    . " WHERE c.contype = 'f' AND t.relname = %s AND ns.nspname = %s AND a.attname = %s"
+                    . ' AND r.relname = %s AND rns.nspname = %s LIMIT 1',
+                    $name,
+                    $schema,
+                    $column,
+                    $refName,
+                    $refSchema
+                ));
+        } catch (\Throwable) {
+            return false;
+        }
+
+        return (bool) ($result && $result->numRows > 0);
+    }
+
+    /**
+     * A table as the catalogues name it: `[schema, table]`, the prefix applied, the schema
+     * split off on PostgreSQL (its own, or `public`).
+     *
+     * @return array{string, string}
+     */
+    private function catalogueName(string $table): array
+    {
+        $resolved = $this->resolveTable($table);
+        if (str_contains($resolved, '.')) {
+            return explode('.', $resolved, 2);
+        }
+        $schema = $this->resolveSchema();
+
+        return [$schema !== '' ? $schema : 'public', $resolved];
+    }
+
     // =========================================================================
     // Index DDL
     // =========================================================================

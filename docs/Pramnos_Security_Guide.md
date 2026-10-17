@@ -600,19 +600,33 @@ token, and in the OAuth2 middleware it refuses every Bearer request.
 comparison, alias or not. Add a sixteenth lookup and it will tell you.
 
 **An application with lookups of its own on `token`.** The framework's OAuth code needs
-`token_lookup`, which `add_token_lookup_to_usertokens` adds. What decides whether an application's
-own `WHERE token = …` keeps matching is `APP_KEY`, not that migration:
+`token_lookup`, which `add_token_lookup_to_usertokens` adds. Whether an application's own
+`WHERE token = …` keeps matching depends on whether tokens are stored encrypted, which is a
+setting:
 
-- **Without `APP_KEY`**, the migration adds the column and fills it in one statement, and leaves
-  every value as it is. New tokens are written the same way. Lookups on `token` keep working.
-- **With `APP_KEY`**, every token the framework writes is stored encrypted, migration or not, and
-  the migration encrypts the live rows it fills. A lookup on `token` then misses them.
+```php
+// app/app.php
+'auth' => ['encrypt_tokens' => false],   // default true, where there is an APP_KEY
+```
 
-So the order is:
+- **Encrypted** (an `APP_KEY`, and the setting not `false`): every token the framework writes is
+  stored encrypted, and the migration encrypts the live rows it fills. A lookup on `token` misses
+  them.
+- **Not encrypted** (no key, or `encrypt_tokens` `false`): the migration adds and fills the
+  digest in one statement and leaves every value as it is. New tokens are written the same way,
+  and lookups on `token` keep working.
 
-1. Run the migration, without a key if you have none yet.
+`Token::encryptsAtRest()` answers which. So the order is:
+
+1. Set `'encrypt_tokens' => false` and run the migration.
 2. Change the application's own lookups to `->where('token_lookup', Token::lookup($presented))`.
-3. Only then set `APP_KEY`.
+3. Remove the setting. Tokens written from then on are encrypted. Rows written before stay
+   plaintext until they are written again.
+
+**The lookup index is unique where it can be.** The same token stored twice gives the same digest
+twice. The migration then makes `idx_usertokens_token_lookup` a plain index rather than fail the
+batch, and logs how many values are duplicated, with the query that finds them. Keep one row of
+each, then drop the index and add it as UNIQUE.
 
 **Adding the column yourself** works too, and the migration then adds only the index. It fills
 only rows whose `token_lookup` is empty, so rows you filled stay as they are: plaintext, until each
@@ -620,7 +634,8 @@ is next written with a key. Fill the column the way the migration does, `sha256`
 lowercase hex, or the framework finds nothing.
 
 **Both columns come from one place, and saving a token goes through it.**
-`Token::storageFor($value)` produces the pair — the value encrypted and the digest —
+`Token::storageFor($value)` produces the pair — the value (encrypted where tokens are) and the
+digest —
 and `Token::save()` and `User::addToken()` both go through it, so a token written either way
 is stored encrypted and can be found by every lookup.
 

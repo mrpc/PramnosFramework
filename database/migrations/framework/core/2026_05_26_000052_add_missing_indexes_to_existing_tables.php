@@ -25,6 +25,14 @@ class AddMissingIndexesToExistingTables extends Migration
     public string $scope   = 'framework';
 
     /**
+     * Late in the batch, after the tables it indexes. At the default it ran before the `auth`
+     * feature made `tokenactions` and `usertokens`, found neither, did nothing and was recorded
+     * as run — so a fresh installation never had these indexes, and one migrated table by table
+     * did: the final shape depended on the order.
+     */
+    public int $priority = 200;
+
+    /**
      * Run the migration.
      *
      * @return void
@@ -62,6 +70,7 @@ class AddMissingIndexesToExistingTables extends Migration
             //  MySQL: use prefix length 255 so VARCHAR/TEXT truncation does not prevent indexing.
             if ($schema->hasColumn('usertokens', 'token')
                 && !$this->indexExists('usertokens', 'idx_usertokens_token')
+                && !$schema->hasIndexOn('usertokens', ['token'])
             ) {
                 if ($isPgsql) {
                     $db->query(
@@ -95,6 +104,7 @@ class AddMissingIndexesToExistingTables extends Migration
             // ordering is not expressible via SchemaBuilder $table->index().
             if ($schema->hasColumn('tokenactions', 'action_time')
                 && !$this->indexExists('tokenactions', 'idx_tokenactions_time_method')
+                && !$schema->hasIndexOn('tokenactions', ['action_time', 'method'])
             ) {
                 if ($isPgsql) {
                     $db->query(
@@ -161,7 +171,9 @@ class AddMissingIndexesToExistingTables extends Migration
      */
     protected function addIndex(string $table, string $index, array $columns): void
     {
-        if ($this->indexExists($table, $index)) {
+        // By name, and by the columns: a table older than the framework holds the same index
+        // under its own name (`tokenid`, `…_ibfk_1`), and a second one beside it is only cost.
+        if ($this->indexExists($table, $index) || $this->schema()->hasIndexOn($table, $columns)) {
             return;
         }
 

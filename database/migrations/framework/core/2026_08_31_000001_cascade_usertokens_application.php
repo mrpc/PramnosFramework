@@ -71,20 +71,50 @@ class CascadeUsertokensApplication extends Migration
          * one migration on a table that is not being written to by a deploy, and the constraint
          * only governs deletes of a parent row.
          */
-        if ($this->hasForeignKey('fk_usertokens_applicationid')) {
-            $schema->table('usertokens', function ($table) {
-                $table->dropForeign('fk_usertokens_applicationid');
-            });
+        // Only a key that is there and does not cascade yet. With none, the migration that adds
+        // it skipped it and said why (orphans, a type mismatch), and adding it here would fail
+        // for the same reason; one that already cascades needs nothing — and re-creating it
+        // rebuilt the whole of usertokens on MySQL every time this ran.
+        $rule = $this->deleteRule('fk_usertokens_applicationid');
+        if ($rule === null || $rule === 'CASCADE') {
+            return;
         }
 
+        $this->replaceKey('cascade');
+    }
+
+    /**
+     * Drop the key and add it again with this delete rule.
+     *
+     * On MySQL and MariaDB with the checks on, adding a foreign key copies the table; the rows
+     * already satisfied the key being replaced, so the add skips the check and is done in place.
+     */
+    private function replaceKey(string $onDelete): void
+    {
+        $db     = $this->application->database;
+        $schema = $db->schema();
+        $mysql  = $db->getDriverName() !== 'pgsql';
+
         $schema->table('usertokens', function ($table) {
-            $table->foreign('applicationid')
-                ->references('appid')
-                ->on('applications')
-                ->onDelete('cascade')
-                ->onUpdate('cascade')
-                ->name('fk_usertokens_applicationid');
+            $table->dropForeign('fk_usertokens_applicationid');
         });
+        if ($mysql) {
+            $db->query('SET foreign_key_checks = 0');
+        }
+        try {
+            $schema->table('usertokens', function ($table) use ($onDelete) {
+                $table->foreign('applicationid')
+                    ->references('appid')
+                    ->on('applications')
+                    ->onDelete($onDelete)
+                    ->onUpdate('cascade')
+                    ->name('fk_usertokens_applicationid');
+            });
+        } finally {
+            if ($mysql) {
+                $db->query('SET foreign_key_checks = 1');
+            }
+        }
     }
 
     public function down(): void
@@ -95,36 +125,35 @@ class CascadeUsertokensApplication extends Migration
             return;
         }
 
-        if ($this->hasForeignKey('fk_usertokens_applicationid')) {
-            $schema->table('usertokens', function ($table) {
-                $table->dropForeign('fk_usertokens_applicationid');
-            });
+        if ($this->deleteRule('fk_usertokens_applicationid') === 'CASCADE') {
+            $this->replaceKey('set null');
         }
-
-        $schema->table('usertokens', function ($table) {
-            $table->foreign('applicationid')
-                ->references('appid')
-                ->on('applications')
-                ->onDelete('set null')
-                ->onUpdate('cascade')
-                ->name('fk_usertokens_applicationid');
-        });
     }
 
     /**
-     * Whether `usertokens` has the named foreign key — `add_missing_foreign_keys_to_existing_tables`
-     * skips it where the columns' types differ, and there is then nothing to drop.
+     * The named foreign key's delete rule on `usertokens` (`CASCADE`, `SET NULL`…), or null when
+     * there is no such key — `add_missing_foreign_keys_to_existing_tables` skips it where the
+     * columns' types differ or rows are orphaned.
      */
-    private function hasForeignKey(string $name): bool
+    private function deleteRule(string $name): ?string
     {
         $db       = $this->application->database;
         $resolved = $db->schema()->resolveTableName('usertokens');
 
         // Introspection: the constraint catalogue is not something the query builder reaches.
         $row = $db->getDriverName() === 'pgsql'
-            ? $db->selectOne('SELECT 1 FROM information_schema.table_constraints WHERE table_name = ? AND constraint_name = ?', [$resolved, $name])
-            : $db->selectOne('SELECT 1 FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND CONSTRAINT_NAME = ?', [$resolved, $name]);
+            ? $db->selectOne(
+                'SELECT r.delete_rule AS rule FROM information_schema.referential_constraints r'
+                . ' JOIN information_schema.table_constraints t ON t.constraint_name = r.constraint_name AND t.constraint_schema = r.constraint_schema'
+                . ' WHERE t.table_name = ? AND r.constraint_name = ?',
+                [$resolved, $name]
+            )
+            : $db->selectOne(
+                'SELECT DELETE_RULE AS rule FROM INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS'
+                . ' WHERE CONSTRAINT_SCHEMA = DATABASE() AND TABLE_NAME = ? AND CONSTRAINT_NAME = ?',
+                [$resolved, $name]
+            );
 
-        return $row !== null;
+        return $row === null ? null : strtoupper((string) (is_array($row) ? ($row['rule'] ?? '') : ($row->rule ?? '')));
     }
 }

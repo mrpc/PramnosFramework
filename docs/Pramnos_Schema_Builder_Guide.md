@@ -424,6 +424,12 @@ if ($schema->hasIndex('users', 'idx_users_email')) {
 
 $schema->columnLength('usertokens', 'token');   // 255 for a varchar(255); 0 for text, a number, or no answer
 
+// By what they cover, not by name: a table older than the framework holds the same index as
+// `tokenid` and the same key as `usertokens_ibfk_1`, and a check by name adds a second one.
+$schema->indexColumns('tokenactions');                         // ['tokenid' => ['tokenid'], …]
+$schema->hasIndexOn('tokenactions', ['action_time', 'method']); // any name, these columns in this order
+$schema->hasForeignKeyOn('usertokens', 'applicationid', 'applications');
+
 if ($schema->hasView('reports.daily')) {
     // a plain view, a materialized view or a continuous aggregate — any of the three
 }

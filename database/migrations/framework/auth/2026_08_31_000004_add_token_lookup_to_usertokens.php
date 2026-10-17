@@ -82,10 +82,47 @@ class AddTokenLookupToUsertokens extends Migration
         // NULL for every existing row would be satisfied by NULLs and then violated
         // the moment two of them were filled in within the same statement.
         if (!$schema->hasIndex('usertokens', 'idx_usertokens_token_lookup')) {
-            $schema->alterTable('usertokens', function ($table) {
-                $table->unique(['token_lookup'], 'idx_usertokens_token_lookup');
+            // Unique only where it can be. The same token stored twice (an application's own
+            // writer, a retried insert) makes the same digest twice, the UNIQUE fails, and the
+            // failure takes the whole batch with it. Then the index is a plain one — every lookup
+            // still uses it — and the rows are named for somebody to resolve.
+            $duplicates = $this->duplicatedLookups($db);
+            $schema->alterTable('usertokens', function ($table) use ($duplicates) {
+                if ($duplicates === 0) {
+                    $table->unique(['token_lookup'], 'idx_usertokens_token_lookup');
+                } else {
+                    $table->index(['token_lookup'], 'idx_usertokens_token_lookup');
+                }
             });
+            if ($duplicates > 0) {
+                \Pramnos\Logs\Logger::log(
+                    'add_token_lookup_to_usertokens: ' . $duplicates . ' token value(s) are stored more than once, so '
+                    . 'idx_usertokens_token_lookup is not unique. Find them with SELECT token_lookup, COUNT(*) FROM '
+                    . 'usertokens GROUP BY token_lookup HAVING COUNT(*) > 1, keep one row of each, then drop the '
+                    . 'index and add it as UNIQUE.',
+                    'migrations'
+                );
+            }
         }
+    }
+
+    /**
+     * How many digests appear on more than one row.
+     */
+    private function duplicatedLookups($db): int
+    {
+        $result = $db->queryBuilder()->table('#PREFIX#usertokens')
+            ->select(['token_lookup'])
+            ->whereNotNull('token_lookup')
+            ->groupBy('token_lookup')
+            ->havingRaw('COUNT(*) > 1')
+            ->get();
+        $count = 0;
+        while ($result && $result->fetch()) {
+            $count++;
+        }
+
+        return $count;
     }
 
     /**
@@ -148,7 +185,9 @@ class AddTokenLookupToUsertokens extends Migration
     {
         $caps = $db->schema()->getCapabilities();
 
-        if (!\Pramnos\Security\Encrypter::isAvailable()) {
+        // No key, or `'auth' => ['encrypt_tokens' => false]`: the digests only, the values left
+        // as they are — for an application whose own lookups still read them.
+        if (!\Pramnos\User\Token::encryptsAtRest()) {
             $this->backfillLookupsInSql($db, $caps);
 
             return;
@@ -200,7 +239,7 @@ class AddTokenLookupToUsertokens extends Migration
 
         while (true) {
             $rows = $db->queryBuilder()
-                ->table('usertokens')
+                ->table('#PREFIX#usertokens')
                 ->select(['tokenid', 'token'])
                 ->whereNull('token_lookup')
                 ->where('tokenid', '>', $after)
@@ -221,7 +260,7 @@ class AddTokenLookupToUsertokens extends Migration
                 }
 
                 $db->queryBuilder()
-                    ->table('usertokens')
+                    ->table('#PREFIX#usertokens')
                     ->where('tokenid', $after)
                     ->update(array(
                         'token_lookup' => \Pramnos\User\Token::lookup($token),
