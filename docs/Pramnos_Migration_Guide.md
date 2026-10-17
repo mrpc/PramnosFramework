@@ -1007,14 +1007,27 @@ php bin/pramnos schema:diff -v                    # …and what the installation
 php bin/pramnos schema:diff --apply               # add the missing columns and indexes
 php bin/pramnos schema:diff --json                # every difference, for a test or a script
 php bin/pramnos schema:diff --reference=empty_db  # build the reference in a database you made
+php bin/pramnos schema:diff --reference=ref --fresh  # …emptying it first
 ```
 
 **The reference is built, not stored.** The framework's migrations, for the features this
-application has on and without its excluded ones, run into an empty database on the same server
-with the same prefix. Both sides are then described by the same engine (MariaDB against MariaDB),
-and the temporary database is dropped (`--keep` keeps it). A database user that may not create
-databases names an empty one with `--reference`. While the reference is built, the framework's
-database singleton points at it, so nothing a migration reaches lands in the installation.
+application has on, run into an empty database on the same server with the same prefix. Both sides
+are then described by the same engine (MariaDB against MariaDB), and the temporary database is
+dropped (`--keep` keeps it). While the reference is built, the framework's database singleton
+points at it, so nothing a migration reaches lands in the installation.
+
+- **`migrations.exclude` is built too.** On an installation that adopted tables the framework
+  would have made, the excluded migrations are the CREATEs of exactly those tables. Left out,
+  those tables would be missing from the reference and never compared, and every migration that
+  alters them would fail there. `--honour-exclude` leaves them out, as `migrate` does.
+- **The database user needs CREATE, ALTER, INDEX, DROP and REFERENCES** on the reference. A user
+  granted CREATE DATABASE is not always granted ALTER in the database it made. The command tries
+  each on a probe table first and names the first it may not run, before any migration. A user
+  that may not create databases names an empty one it has those privileges on with
+  `--reference`.
+- **A named reference has to be empty.** One that is not is refused, because an interrupted run
+  leaves tables every migration then finds and skips. `--fresh` empties it first: every table and
+  view on MySQL, and every schema on PostgreSQL, with `public` made again.
 
 **What is compared**, per table of the reference:
 
@@ -1039,7 +1052,9 @@ framework's is `utf8mb4` is a `charset` difference.
 ]],
 ```
 
-`--allow=<glob>` adds one for a single run.
+`--allow=<glob>` adds one for a single run. An allowance that matches no difference any more is
+named after the report: the difference was fixed, or the key never matched, and either way it
+should go before it hides the next one.
 
 **`--apply` only adds.** A missing column and a missing index are added exactly as the reference
 database declares them: its `SHOW CREATE TABLE` line on MySQL, its definition on PostgreSQL. On

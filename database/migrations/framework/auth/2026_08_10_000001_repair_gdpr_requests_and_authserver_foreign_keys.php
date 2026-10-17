@@ -308,9 +308,11 @@ class RepairGdprRequestsAndAuthserverForeignKeys extends Migration
 
         // MySQL has no schemas in this sense: the builder flattens
         // `authserver.x` to `authserver_x` inside the current database.
+        // In this database: INFORMATION_SCHEMA spans the server, and a key of the same name in
+        // another database on it — a schema:diff reference, a copy — read as this one's.
         return $db->selectOne(
             'SELECT 1 FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
-             WHERE TABLE_NAME = ? AND CONSTRAINT_NAME = ?',
+             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND CONSTRAINT_NAME = ?',
             [$this->schema()->resolveTableName($table), $constraint]
         ) !== null;
     }

@@ -40,6 +40,8 @@ class SchemaDiffCommand extends Command
             ->addOption('apply', null, InputOption::VALUE_NONE, 'Add what is missing: columns and indexes, as the framework declares them. Nothing is changed or removed.')
             ->addOption('reference', null, InputOption::VALUE_REQUIRED, 'An empty database to build the reference in, for a user that may not create one')
             ->addOption('keep', null, InputOption::VALUE_NONE, 'Keep the reference database instead of dropping it')
+            ->addOption('fresh', null, InputOption::VALUE_NONE, 'Empty the --reference database first (every table, view and schema in it)')
+            ->addOption('honour-exclude', null, InputOption::VALUE_NONE, 'Leave migrations.exclude out of the reference, as migrate does')
             ->addOption('allow', null, InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY, 'A difference to allow (a glob over keys), besides schema.allow in app.php')
             ->addOption('json', null, InputOption::VALUE_NONE, 'Print the differences as JSON');
     }
@@ -77,13 +79,41 @@ class SchemaDiffCommand extends Command
             return Command::FAILURE;
         }
 
+        // A named reference has to be empty: an interrupted run, or a reference built last week,
+        // left tables that every migration then finds and returns on.
+        if (!$temporary && $this->tableCount($reference) > 0) {
+            if (!$input->getOption('fresh')) {
+                $reference->close();
+                $output->writeln('<error>The reference database ' . $name . ' is not empty.</error> <info>--fresh</info> empties it first — every table, view and schema in it.');
+
+                return Command::FAILURE;
+            }
+            $this->emptyDatabase($reference);
+        }
+        $this->ensureExtensions($live, $reference);
+
+        // What the migrations will need, asked before running them: a user granted CREATE on a
+        // database it made is not always granted ALTER or INDEX in it, and a reference half built
+        // is a list of differences that are not there.
+        $missing = $this->missingPrivilege($reference);
+        if ($missing !== null) {
+            $reference->close();
+            if ($temporary) {
+                $this->dropDatabase($live, $name);
+            }
+            $output->writeln('<error>The reference database cannot be built: ' . $missing . '.</error>');
+            $output->writeln(' Grant the user CREATE, ALTER, INDEX, DROP and REFERENCES on it, or name one it has them on with <info>--reference=</info>.');
+
+            return Command::FAILURE;
+        }
+
+        $allow = array_merge((array) ($app->applicationInfo['schema']['allow'] ?? []), (array) $input->getOption('allow'));
         try {
-            $failed = $this->buildReference($app, $live, $reference);
+            $failed = $this->buildReference($app, $live, $reference, (bool) $input->getOption('honour-exclude'));
             foreach ($failed as $slug => $error) {
                 $output->writeln('<comment>Reference: ' . $slug . ' failed — ' . strtok(trim($error), "\n") . '</comment>');
             }
             $shape = SchemaDiff::describe($reference, true);
-            $allow = array_merge((array) ($app->applicationInfo['schema']['allow'] ?? []), (array) $input->getOption('allow'));
             $found = SchemaDiff::compare($shape, SchemaDiff::describe($live), $allow);
 
             if ($input->getOption('apply')) {
@@ -110,6 +140,17 @@ class SchemaDiffCommand extends Command
         }
 
         $this->report($output, $found);
+        // An allowance that matches nothing any more — the difference was fixed, or the key was
+        // mistyped and never matched — is one to remove before it hides the next one.
+        foreach ($allow as $glob) {
+            $used = false;
+            foreach ($found as $d) {
+                $used = $used || fnmatch((string) $glob, $d['key']);
+            }
+            if (!$used) {
+                $output->writeln('<comment>Allowed, but matches nothing: ' . $glob . '</comment>');
+            }
+        }
 
         return $differences === [] ? Command::SUCCESS : Command::FAILURE;
     }
@@ -123,7 +164,7 @@ class SchemaDiffCommand extends Command
      *
      * @return array<string, string> The migrations that failed, with why
      */
-    protected function buildReference(\Pramnos\Application\Application $app, Database $live, Database $reference): array
+    protected function buildReference(\Pramnos\Application\Application $app, Database $live, Database $reference, bool $honourExclude = false): array
     {
         $copy           = clone $app;
         $copy->database = $reference;
@@ -137,7 +178,10 @@ class SchemaDiffCommand extends Command
         $saved     = $singleton;
         $singleton = $reference;
         try {
-            $options = $scope['exclude'] !== [] ? [MigrationRunner::OPTION_EXCLUDE => $scope['exclude']] : [];
+            // The excluded ones too, by default. On an installation that adopted its tables they
+            // are the CREATEs of exactly those tables: left out, the tables are missing from the
+            // reference, never compared, and every migration that alters them fails there.
+            $options = $honourExclude && $scope['exclude'] !== [] ? [MigrationRunner::OPTION_EXCLUDE => $scope['exclude']] : [];
             $runner  = new MigrationRunner($reference);
             // A migration may depend on another feature's, as `migrate` allows — loaded through
             // the copy, so they too write into the reference.
@@ -175,15 +219,105 @@ class SchemaDiffCommand extends Command
         if (!$db->connect(false)) {
             throw new \RuntimeException('no connection');
         }
-        if (in_array(strtolower((string) $live->type), ['postgresql', 'pgsql', 'postgres', 'timescaledb'], true)) {
-            // The live database's extensions, so a migration that needs TimescaleDB finds it.
-            $extensions = $live->query("SELECT extname FROM pg_extension WHERE extname IN ('timescaledb', 'pgcrypto', 'uuid-ossp')");
-            while ($extensions && $extensions->fetch()) {
-                $db->query('CREATE EXTENSION IF NOT EXISTS "' . $extensions->fields['extname'] . '"');
+
+        return $db;
+    }
+
+    /** The live database's extensions in the reference, so a migration that needs TimescaleDB finds it. */
+    protected function ensureExtensions(Database $live, Database $reference): void
+    {
+        if (!self::postgres($live)) {
+            return;
+        }
+        $extensions = $live->query("SELECT extname FROM pg_extension WHERE extname IN ('timescaledb', 'pgcrypto', 'uuid-ossp')");
+        while ($extensions && $extensions->fetch()) {
+            $reference->query('CREATE EXTENSION IF NOT EXISTS "' . $extensions->fields['extname'] . '"');
+        }
+    }
+
+    /** How many tables a database holds, outside the system's own. */
+    protected function tableCount(Database $db): int
+    {
+        $result = $db->query(self::postgres($db)
+            ? "SELECT COUNT(*) AS n FROM information_schema.tables WHERE table_schema NOT IN ('pg_catalog', 'information_schema') AND table_schema NOT LIKE '\\_timescaledb%' AND table_schema NOT LIKE 'timescaledb%'"
+            : 'SELECT COUNT(*) AS n FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE()');
+
+        return $result && $result->numRows ? (int) $result->fields['n'] : 0;
+    }
+
+    /**
+     * Everything in a database: its tables and views on MySQL, its schemas on PostgreSQL —
+     * `public` emptied and made again. Only for a reference named with `--reference --fresh`.
+     */
+    protected function emptyDatabase(Database $db): void
+    {
+        if (self::postgres($db)) {
+            $schemas = $db->query("SELECT nspname FROM pg_namespace WHERE nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast', 'public')"
+                . " AND nspname NOT LIKE 'pg\\_%' AND nspname NOT LIKE '\\_timescaledb%' AND nspname NOT LIKE 'timescaledb%' AND nspname NOT LIKE 'toolkit%'");
+            $names = [];
+            while ($schemas && $schemas->fetch()) {
+                $names[] = (string) $schemas->fields['nspname'];
+            }
+            foreach ($names as $schema) {
+                $db->query('DROP SCHEMA "' . str_replace('"', '""', $schema) . '" CASCADE');
+            }
+            $db->query('DROP SCHEMA public CASCADE');
+            $db->query('CREATE SCHEMA public');
+
+            return;
+        }
+        $objects = $db->query('SELECT TABLE_NAME AS t, TABLE_TYPE AS k FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE()');
+        $drops   = [];
+        while ($objects && $objects->fetch()) {
+            $drops[] = ($objects->fields['k'] === 'VIEW' ? 'DROP VIEW IF EXISTS `' : 'DROP TABLE IF EXISTS `') . str_replace('`', '``', (string) $objects->fields['t']) . '`';
+        }
+        $db->query('SET foreign_key_checks = 0');
+        try {
+            foreach ($drops as $drop) {
+                $db->query($drop);
+            }
+        } finally {
+            $db->query('SET foreign_key_checks = 1');
+        }
+    }
+
+    /**
+     * What the user cannot do in the reference that the migrations will — or null when it can
+     * do all of it. Tried on a table of its own, removed after.
+     */
+    protected function missingPrivilege(Database $db): ?string
+    {
+        $q     = self::postgres($db) ? '"' : '`';
+        $table = $q . 'pf_schema_diff_probe' . $q;
+        $steps = [
+            'CREATE TABLE'  => 'CREATE TABLE ' . $table . ' (id INT PRIMARY KEY)',
+            'ALTER TABLE'   => 'ALTER TABLE ' . $table . ' ADD COLUMN extra INT',
+            'CREATE INDEX'  => 'CREATE INDEX pf_schema_diff_probe_extra ON ' . $table . ' (extra)',
+            'DROP TABLE'    => 'DROP TABLE ' . $table,
+        ];
+        foreach ($steps as $what => $sql) {
+            try {
+                $ok = $db->query($sql) !== false;
+            } catch (\Throwable) {
+                $ok = false;
+            }
+            if (!$ok) {
+                try {
+                    $db->query('DROP TABLE IF EXISTS ' . $table);
+                } catch (\Throwable) {
+                    // Nothing to tidy: the step that failed is the answer.
+                }
+
+                return 'the user may not ' . $what;
             }
         }
 
-        return $db;
+        return null;
+    }
+
+    private static function postgres(Database $db): bool
+    {
+        return in_array(strtolower((string) $db->type), ['postgresql', 'pgsql', 'postgres', 'timescaledb'], true);
     }
 
     protected function dropDatabase(Database $live, string $name): void

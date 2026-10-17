@@ -71,4 +71,32 @@ final class SchemaDiffCommandTest extends TestCase
         $this->assertSame(\Pramnos\Application\Application::currentInstance(), $plain);
         $this->assertSame($framework->internalApplication, $own);
     }
+
+    /**
+     * The privileges the migrations will need are asked for before they run: the first
+     * statement the user may not run is named, and what it created is tidied.
+     */
+    public function testAMissingPrivilegeIsNamedBeforeTheBuild(): void
+    {
+        // Arrange — a database that refuses ALTER
+        $statements = [];
+        $db = $this->createMock(\Pramnos\Database\Database::class);
+        $db->type = 'mysql';
+        $db->method('query')->willReturnCallback(static function (string $sql) use (&$statements) {
+            $statements[] = $sql;
+            if (str_starts_with($sql, 'ALTER')) {
+                throw new \RuntimeException('ALTER command denied');
+            }
+
+            return true;
+        });
+        $probe = new \ReflectionMethod(SchemaDiffCommand::class, 'missingPrivilege');
+
+        // Act
+        $missing = $probe->invoke(new SchemaDiffCommand(), $db);
+
+        // Assert
+        $this->assertSame('the user may not ALTER TABLE', $missing);
+        $this->assertSame('DROP TABLE IF EXISTS `pf_schema_diff_probe`', end($statements), 'the probe table is removed');
+    }
 }

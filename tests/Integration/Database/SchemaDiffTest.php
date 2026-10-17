@@ -200,4 +200,71 @@ final class SchemaDiffTest extends TestCase
         $this->assertSame(0, $allowedCode);
         $this->assertSame(['sessions.column.url.type'], self::keys($allowed, SchemaDiff::ALLOWED));
     }
+
+    /**
+     * On an installation that adopted a table, its CREATE migration is excluded, and the
+     * reference still builds it by default — so the adopted table is compared; with
+     * `--honour-exclude` it is left out, as `migrate` leaves it out. An allowance that matches
+     * nothing is named.
+     */
+    #[DataProvider('databases')]
+    public function testExcludedTablesAreComparedUnlessAsked(string $type, string $host, int $port): void
+    {
+        // Arrange — the adopted table drifted
+        $app = $this->installation($type, $host, $port);
+        $app->applicationInfo['migrations'] = ['exclude' => ['create_sessions_table']];
+        $this->installation->query('ALTER TABLE sessions ADD COLUMN adopted_only INT NULL');
+        $this->installation->query('ALTER TABLE sessions DROP COLUMN agent');
+
+        // Act
+        [$fullCode, , $full] = $this->diff();
+        [, , $honoured] = $this->diff(['--honour-exclude' => true]);
+        $console = new ConsoleApplication();
+        $console->add($this->command);
+        $stale = new CommandTester($console->find('schema:diff'));
+        $stale->execute(['--allow' => ['nothing.column.matches.*']]);
+
+        // Assert
+        $this->assertSame(1, $fullCode);
+        $this->assertContains('sessions.column.agent.missing', self::keys($full, SchemaDiff::DIFFERENCE), 'the adopted table is compared');
+        $this->assertSame([], array_values(array_filter(self::keys($honoured, SchemaDiff::DIFFERENCE), static fn (string $k): bool => str_starts_with($k, 'sessions.'))), 'left out, as migrate leaves it out');
+        $this->assertStringContainsString('Allowed, but matches nothing: nothing.column.matches.*', $stale->getDisplay());
+    }
+
+    /**
+     * A named reference that is not empty is refused, and emptied with `--fresh`; then it builds
+     * and compares as the temporary one does.
+     */
+    #[DataProvider('databases')]
+    public function testANamedReferenceMustBeEmptyOrFresh(string $type, string $host, int $port): void
+    {
+        // Arrange — a reference database with something left in it
+        $this->installation($type, $host, $port);
+        $name      = 'pfref_named_' . bin2hex(random_bytes(3));
+        $reference = $this->command->make($this->server, $name);
+        $reference->query('CREATE TABLE leftover (id INT)');
+        $reference->close();
+        $console = new ConsoleApplication();
+        $console->add($this->command);
+        $run = static function (array $options) use ($console): CommandTester {
+            $tester = new CommandTester($console->find('schema:diff'));
+            $tester->execute($options);
+
+            return $tester;
+        };
+
+        try {
+            // Act
+            $refused = $run(['--reference' => $name]);
+            $fresh   = $run(['--reference' => $name, '--fresh' => true]);
+        } finally {
+            $this->command->remove($this->server, $name);
+        }
+
+        // Assert
+        $this->assertSame(1, $refused->getStatusCode());
+        $this->assertStringContainsString('is not empty', $refused->getDisplay());
+        $this->assertSame(0, $fresh->getStatusCode(), $fresh->getDisplay());
+        $this->assertStringContainsString('The tables match the framework', $fresh->getDisplay());
+    }
 }

@@ -550,9 +550,11 @@ class AddMissingForeignKeysToExistingTables extends Migration
             // `authserver.x` to `authserver_x` inside the current database.
             $resolved = $this->schema()->resolveTableName($table);
 
+            // In this database: INFORMATION_SCHEMA spans the server, and a key of the same name
+            // in another database on it — a schema:diff reference, a copy — read as this one's.
             $exists = $db->selectOne(
                 "SELECT 1 FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
-                 WHERE TABLE_NAME = ? AND CONSTRAINT_NAME = ?",
+                 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND CONSTRAINT_NAME = ?",
                 [$resolved, $constraintName]
             );
             return is_null($exists);
