@@ -996,6 +996,58 @@ operator to act on:
 );
 ```
 
+## Comparing an installation with the framework's shape: `schema:diff`
+
+A table that existed before the framework's migration for it keeps its own shape: the migration
+finds it and returns, and nothing says the two differ. `schema:diff` says how.
+
+```bash
+php bin/pramnos schema:diff                       # report; exits 1 while differences remain
+php bin/pramnos schema:diff -v                    # …and what the installation has beyond the framework
+php bin/pramnos schema:diff --apply               # add the missing columns and indexes
+php bin/pramnos schema:diff --json                # every difference, for a test or a script
+php bin/pramnos schema:diff --reference=empty_db  # build the reference in a database you made
+```
+
+**The reference is built, not stored.** The framework's migrations, for the features this
+application has on and without its excluded ones, run into an empty database on the same server
+with the same prefix. Both sides are then described by the same engine (MariaDB against MariaDB),
+and the temporary database is dropped (`--keep` keeps it). A database user that may not create
+databases names an empty one with `--reference`. While the reference is built, the framework's
+database singleton points at it, so nothing a migration reaches lands in the installation.
+
+**What is compared**, per table of the reference:
+
+| Kind | Compared | Key |
+|---|---|---|
+| table | present | `sessions.table.sessions.missing` |
+| column | present; type (integer display widths left out); NULL or not; default; charset on MySQL | `users.column.mobile.type` |
+| index | by the columns it covers, in order, and whether it is unique — the name is not the index | `tokenactions.index.tokenid,urlid.missing` |
+| foreign key | by column, the table and column it leads to, and the delete rule | `usertokens.foreign.applicationid>applications.appid.rule` |
+
+A column, index or key only the installation has is information (`extra`, shown with `-v`), and
+so is the framework's index under another name (`name`). A `latin1` or `utf8mb3` column where the
+framework's is `utf8mb4` is a `charset` difference.
+
+**Intentional differences** go in an allow-list of globs over the keys:
+
+```php
+// app/app.php
+'schema' => ['allow' => [
+    'users.column.mobile.type',      // ours is longer, on purpose
+    'legacy_log.*',                  // a table we keep as it is
+]],
+```
+
+`--allow=<glob>` adds one for a single run.
+
+**`--apply` only adds.** A missing column and a missing index are added exactly as the reference
+database declares them: its `SHOW CREATE TABLE` line on MySQL, its definition on PostgreSQL. On
+PostgreSQL a `NOT NULL` column without a default is added nullable, then set `NOT NULL` where the
+rows allow it. Nothing is changed or removed: a type, a default, a unique flag and a foreign key
+stay in the report, for a migration of the application's own. A foreign key can meet rows that
+break it, and a type change can lose data.
+
 ## Migration Files Naming
 
 ### Timestamp Convention

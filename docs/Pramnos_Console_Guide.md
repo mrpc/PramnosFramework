@@ -27,6 +27,7 @@ Commands are grouped by a `namespace:` prefix that reflects what they act on:
 |---|---|---|
 | `create:` | Code generation (models, controllers, views, screens, components, APIs, migrations, tasks, commands, …) | `create:model`, `create:crud`, `create:screen`, `create:component`, `create:command`, `create:task` |
 | `migrate`, `migrate:` | Database schema migrations | `migrate`, `migrate:status`, `migrate:rollback` |
+| `schema:` | The tables against the framework's shape | `schema:diff` |
 | `maintenance:` | Put the site up or down by hand | `maintenance:on`, `maintenance:off` |
 | `project:` | **Set up / reconfigure an existing project** without re-running `init` | `project:reconfigure`, `project:install`, `project:publish-views`, `project:git-webhook` |
 | `logs:` | Log-file tooling | `logs:convert` |
@@ -911,6 +912,7 @@ php bin/pramnos logs:convert /path/to/file.log --no-backup
 |---|---|---|
 | `migrate [migration]` | Run pending migrations (or one by slug/class) | `--scope=app\|framework`, `--feature`, `--force/-f` (include `autorun=false`), `--cutoff`, `--path`, `--adopt-baseline` |
 | `migrate:status` | List migrations and whether they ran | `--path` |
+| `schema:diff` | Compare the tables with the shape the framework's migrations would make, against a reference they build; exits 1 while differences remain ([guide](Pramnos_Migration_Guide.md#comparing-an-installation-with-the-frameworks-shape-schemadiff)) | `--apply`, `--reference`, `--keep`, `--allow`, `--json`, `-v` |
 | `migrate:rollback` | Roll back the last batch | `--batch`, `--path` |
 | `migrate:reset` | Roll back **all** batches | `--force/-f`, `--path` |
 | `migrate:refresh` | Roll back everything and re-run it | `--force/-f`, `--path` |
