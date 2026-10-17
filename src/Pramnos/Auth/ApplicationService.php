@@ -127,6 +127,43 @@ class ApplicationService
     }
 
     /**
+     * The fields as this installation's `applications` can take them.
+     *
+     * An older table lacks columns the framework's migrations add (`broadcast_secret`, the
+     * lifetimes) and declares others `NOT NULL` with no default (`description`, `organization`,
+     * `url`…), so an insert of the framework's full row failed on it. A column it lacks is left
+     * out; an empty value for a column that refuses NULL is written as '' (or 0 for a number).
+     * When the columns cannot be read, the fields go as they are.
+     *
+     * @param array<string, mixed> $fields
+     * @return array<string, mixed>
+     */
+    private function fitted(array $fields): array
+    {
+        try {
+            $columns = $this->db()->schema()->columnDetails('#PREFIX#applications');
+        } catch (\Throwable) {
+            $columns = [];
+        }
+        if ($columns === []) {
+            return $fields;
+        }
+        $fitted = [];
+        foreach ($fields as $name => $value) {
+            $column = $columns[$name] ?? null;
+            if ($column === null) {
+                continue;
+            }
+            if ($value === null && !$column['nullable'] && !$column['hasDefault']) {
+                $value = preg_match('/int|numeric|decimal|float|double|real|bool/', $column['type']) === 1 ? 0 : '';
+            }
+            $fitted[$name] = $value;
+        }
+
+        return $fitted;
+    }
+
+    /**
      * Register an application and issue its credentials.
      *
      * The client secret is returned here and nowhere else: the column holds its hash. The
@@ -150,7 +187,7 @@ class ApplicationService
             ? \Pramnos\Security\Encrypter::encrypt($broadcastSecret)
             : $broadcastSecret;
 
-        $this->db()->queryBuilder()->table('#PREFIX#applications')->insert($fields);
+        $this->db()->queryBuilder()->table('#PREFIX#applications')->insert($this->fitted($fields));
 
         // Found by its key, which is random and unique, rather than by an insert id the two
         // drivers report differently.
@@ -179,7 +216,7 @@ class ApplicationService
         }
 
         $this->db()->queryBuilder()->table('#PREFIX#applications')
-            ->where('appid', $appId)->update($fields);
+            ->where('appid', $appId)->update($this->fitted($fields));
 
         return true;
     }
@@ -370,38 +407,14 @@ class ApplicationService
      * still has `varchar(255)`. Best effort: a catalogue that cannot answer gives no ceiling and
      * the driver's own refusal.
      *
-     * Catalogue introspection, so raw SQL: the query builder does not reach
-     * `information_schema.columns`.
+     * Through {@see \Pramnos\Database\SchemaBuilder::columnLength()}.
      */
     public function callbackCeiling(): int
     {
         try {
-            $db = $this->db();
-
-            $result = $db->query(
-                $db->prepareQuery(
-                    "SELECT COALESCE(character_maximum_length, 0) AS len
-                       FROM information_schema.columns
-                      WHERE table_name = %s AND column_name = 'callback'
-                      ORDER BY table_schema
-                      LIMIT 1",
-                    $db->prefix . 'applications'
-                )
-            );
-
-            if (!$result || !$result->numRows) {
-                // PostgreSQL puts the table in a schema rather than behind a prefix.
-                $result = $db->query(
-                    "SELECT COALESCE(character_maximum_length, 0) AS len
-                       FROM information_schema.columns
-                      WHERE table_name = 'applications' AND column_name = 'callback'
-                      ORDER BY table_schema
-                      LIMIT 1"
-                );
-            }
-
-            return $result && $result->numRows ? (int) ($result->fields['len'] ?? 0) : 0;
+            return $this->db()->schema()->columnLength('#PREFIX#applications', 'callback');
         } catch (\Throwable) {
+            // No catalogue to ask: no ceiling, and the driver's own refusal.
             return 0;
         }
     }

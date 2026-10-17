@@ -85,7 +85,7 @@ class SigningKeysCheck implements HealthCheck
             if (!is_file($path) || !is_readable($path)) {
                 return HealthCheckResult::down(
                     $name,
-                    'The ' . $which . ' signing key is missing or unreadable'
+                    'The ' . $which . ' signing key is missing or unreadable: run `php bin/pramnos oauth:keys` as the web server\'s user (or with --owner)'
                 );
             }
         }

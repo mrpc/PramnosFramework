@@ -28,7 +28,14 @@ class OauthKeys extends Command
     {
         $this->setName('oauth:keys')
             ->setDescription('Generate the RSA key pair OAuth2 / OpenID Connect tokens are signed with')
-            ->addOption('force', null, InputOption::VALUE_NONE, 'Replace an existing pair. Every token signed with it stops verifying.');
+            ->addOption('force', null, InputOption::VALUE_NONE, 'Replace an existing pair. Every token signed with it stops verifying.')
+            ->addOption('owner', null, InputOption::VALUE_REQUIRED, 'Give the keys to this user (the web server\'s, e.g. www-data); needs root');
+    }
+
+    /** Whether this runs as root: a method, so a test can be either. */
+    protected function runningAsRoot(): bool
+    {
+        return function_exists('posix_geteuid') && posix_geteuid() === 0;
     }
 
     /** The project root: a method, so a test points it at a temporary directory. */
@@ -94,9 +101,39 @@ class OauthKeys extends Command
         @chmod($private, 0600);
         @chmod($public, 0644);
 
+        // The key that encrypts authorization codes and refresh tokens: made once, never replaced
+        // — a new one would end every refresh token — so the server never makes it mid-request.
+        $encryption = $directory . '/encryption.key';
+        if (!is_file($encryption) && @file_put_contents($encryption, base64_encode(random_bytes(32))) !== false) {
+            @chmod($encryption, 0600);
+        }
+
+        $owner = (string) ($input->getOption('owner') ?? '');
+        if ($owner !== '') {
+            foreach ([$directory, $private, $public, $encryption] as $path) {
+                if (is_file($path) || is_dir($path)) {
+                    if (!@chown($path, $owner)) {
+                        $output->writeln('<error>Could not give ' . self::DIRECTORY . ' to ' . $owner . ' (is that a user here, and is this root?).</error>');
+
+                        return Command::FAILURE;
+                    }
+                }
+            }
+        }
+
         $output->writeln('<info>Signing key pair written to ' . self::DIRECTORY . '/</info> (RSA 2048).');
         $output->writeln('The public key is published at <info>/.well-known/jwks.json</info>; nothing needs copying.');
-        $output->writeln('Make sure the web server\'s user can read both files.');
+        if ($owner !== '') {
+            $output->writeln('Owned by <info>' . $owner . '</info>.');
+        } elseif ($this->runningAsRoot()) {
+            // The private key is 0600: written by root, the web server cannot open it, and every
+            // /oauth/token answers 500.
+            $output->writeln('<comment>Written as root: the web server cannot read private.key.</comment> Give the keys');
+            $output->writeln('to its user — <info>chown -R www-data ' . self::DIRECTORY . '</info> — or run again with');
+            $output->writeln('<info>--force --owner=www-data</info>.');
+        } else {
+            $output->writeln('Make sure the web server\'s user is the one that ran this, or can read the files.');
+        }
         $output->writeln('');
         $output->writeln('<comment>Back this pair up</comment>, outside the repository: losing it signs everybody out of');
         $output->writeln('every client, and it must never be committed.');

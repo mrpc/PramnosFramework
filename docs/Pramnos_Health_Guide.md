@@ -327,10 +327,16 @@ test passes — and no token this server issues can be verified by anybody, so t
 failure appears in *somebody else's* application. One small signature rules it
 out.
 
-The pair is made by `php bin/pramnos oauth:keys`: RSA 2048 in `app/keys/`, the private key `0600`.
-It refuses to replace an existing pair without `--force`, because a new key invalidates every token
-signed with the old one. Without the command the server makes a pair on its first request, as
-whatever user the web server runs as.
+The pair is made by `php bin/pramnos oauth:keys`: RSA 2048 in `app/keys/`, the private key `0600`,
+with `encryption.key` beside it (made once, never replaced). It refuses to replace an existing
+pair without `--force`, because a new key invalidates every token signed with the old one. Run as
+root, it gives the files to the web server's user with `--owner=www-data`, and warns without it:
+a `0600` key owned by root is one the web server cannot open.
+
+The server never makes a key itself. A pair made mid-request belongs to whatever user the web
+server runs as, is never backed up, and a fresh container makes a fresh one, which signs everybody
+out of every client. Until `oauth:keys` runs, this check is down with the command to run, and the
+token endpoint refuses with the same message in the `oauth` log.
 
 The paths come from `OAuth2ServerFactory::defaultPrivateKeyPath()` and
 `defaultPublicKeyPath()`, so the check always reports on the keys the server
@@ -350,7 +356,8 @@ HealthRegistry::register(new \Pramnos\Auth\Health\SigningKeysCheck(
 
 - [Console](Pramnos_Console_Guide.md) — the `health:check` command among the rest
 - `/.well-known/health` — an authserver-only endpoint that reads the same
-  registry and answers in `ok` / `error` per component; see
+  registry and answers `healthy`/`unhealthy` with 200/503, naming the components only with
+  `'health' => ['public_details' => true]`; see
   [Third-Party Integration](Pramnos_AuthServer_Integration_Guide.md)
 - [Third-Party Integration](Pramnos_AuthServer_Integration_Guide.md) — what the
   signing keys are used for

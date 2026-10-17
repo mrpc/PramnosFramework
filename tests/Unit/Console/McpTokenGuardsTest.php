@@ -35,7 +35,9 @@ class McpTokenGuardsTest extends TestCase
         array $options,
         ?\Throwable $dbError = null,
         ?string $key = null,
-        ?string $baseUrl = null
+        ?string $baseUrl = null,
+        int $ceiling = 0,
+        bool $realKey = false
     ): CommandTester {
         $this->written = [];
         $recorder      = &$this->written;
@@ -60,14 +62,22 @@ class McpTokenGuardsTest extends TestCase
             }
         };
 
-        $command = new class ($dbError, $key, $user, $baseUrl) extends McpToken {
+        $command = new class ($dbError, $key, $user, $baseUrl, $ceiling, $realKey) extends McpToken {
             public function __construct(
                 private ?\Throwable $dbError,
                 private ?string $key,
                 private \Pramnos\User\User $user,
-                private ?string $baseUrl
+                private ?string $baseUrl,
+                private int $ceiling,
+                private bool $realKey
             ) {
                 parent::__construct();
+            }
+
+            /** The column's limit, as the test says. */
+            protected function tokenCeiling(): int
+            {
+                return $this->ceiling;
             }
 
             /**
@@ -91,7 +101,7 @@ class McpTokenGuardsTest extends TestCase
 
             protected function signingKey(): string
             {
-                return $this->key ?? 'a-key-long-enough-for-hs256-signing-and-then-some';
+                return $this->realKey ? parent::signingKey() : ($this->key ?? 'a-key-long-enough-for-hs256-signing-and-then-some');
             }
         };
 
@@ -263,6 +273,58 @@ class McpTokenGuardsTest extends TestCase
         $display = $this->mint(array('--user' => '1'), baseUrl: '')->getDisplay();
 
         // Assert
-        $this->assertStringContainsString('https://your-site/mcp', $display);
+        $this->assertStringContainsString('https://your-site/api/' . \Pramnos\Application\Api::version() . '/mcp', $display);
+    }
+
+    /**
+     * The token is signed with the API's key, whatever application the console runs as — the
+     * MCP endpoint is an API route and its middleware verifies with that key. A key the
+     * console's application declares of its own produced a token that answered 401 there.
+     */
+    public function testItSignsWithTheApisKey(): void
+    {
+        // Arrange — the console's application with a key of its own
+        $app   = \Pramnos\Application\Application::currentInstance() ?? \Pramnos\Application\Application::getInstance();
+        $had   = property_exists($app, 'authenticationKey') || isset($app->authenticationKey);
+        $saved = $had ? $app->authenticationKey : null;
+        $app->authenticationKey = 'the-console-applications-own-key-not-the-apis';
+
+        try {
+            // Act
+            $this->mint(array('--user' => '1'), realKey: true);
+        } finally {
+            $had ? $app->authenticationKey = $saved : null;
+        }
+        $claims = (array) \Pramnos\Auth\JWT::decode((string) $this->written['token'], \Pramnos\Application\Api::deriveAuthenticationKey(), ['HS256']);
+
+        // Assert — decoding with the API's key would have thrown otherwise
+        $this->assertMatchesRegularExpression('/^[0-9a-f]{32}$/', (string) $claims['jti'], 'and each token is its own');
+    }
+
+    /** Two tokens minted in the same second are different strings: each has its own `jti`. */
+    public function testTwoTokensInOneSecondDiffer(): void
+    {
+        // Act
+        $this->mint(array('--user' => '1'));
+        $first = $this->written['token'];
+        $this->mint(array('--user' => '1'));
+
+        // Assert
+        $this->assertNotSame($first, $this->written['token']);
+    }
+
+    /**
+     * A `usertokens.token` too short for the encrypted token mints nothing and says to widen it,
+     * rather than a row MySQL outside strict mode or MariaDB cut without a word.
+     */
+    public function testAColumnTooShortMintsNothing(): void
+    {
+        // Act
+        $tester = $this->mint(array('--user' => '1'), ceiling: 255);
+
+        // Assert
+        $this->assertSame(1, $tester->getStatusCode());
+        $this->assertMatchesRegularExpression('/usertokens\.token holds 255 characters; this token is stored as \d+\./', $tester->getDisplay());
+        $this->assertSame(array(), $this->written, 'nothing written');
     }
 }

@@ -62,7 +62,7 @@ class ProtectedResourceMetadataTest extends TestCase
         // because `sURL` is what it is per installation — and a test that hardcoded a host
         // would pass on a value the running server never emits.
         $this->assertSame(rtrim(sURL, '/'), (string) $metadata['resource']);
-        $this->assertSame([rtrim(sURL, '/')], $metadata['authorization_servers']);
+        $this->assertSame([\Pramnos\Auth\Controllers\Discovery::issuer()], $metadata['authorization_servers']);
         $this->assertIsList($metadata['authorization_servers'],
             'RFC 9728 defines this as an array, and a client that gets a string cannot iterate it');
     }
@@ -104,22 +104,25 @@ class ProtectedResourceMetadataTest extends TestCase
     }
 
     /**
-     * The resource identifier has no trailing slash.
+     * The resource identifier has no trailing slash, and the authorization server is named
+     * exactly as its own metadata names itself.
      *
-     * It is compared as a string when a token's audience is checked. `https://example.com` and
-     * `https://example.com/` are the same address and different strings, and the mismatch shows
-     * up as a token that is valid and rejected — the least debuggable failure in OAuth.
+     * Both are compared as strings. `https://example.com` and `https://example.com/` are the
+     * same address and different strings: for the resource the mismatch is a token that is valid
+     * and rejected; for the server, a client that fetches its metadata and finds an `issuer`
+     * other than the one it was sent to refuses it (RFC 8414 §3.3).
      */
     public function testTheResourceIdentifierIsNormalised(): void
     {
         // Act
         $metadata = $this->document();
+        $server   = new \Pramnos\Auth\Controllers\Discovery(null);
+        \Pramnos\Document\Document::reset();
+        $server->oauth2Metadata();
+        $issuer = (array) json_decode((string) \Pramnos\Framework\Factory::getDocument('raw')->render(), true);
 
         // Assert
         $this->assertStringEndsNotWith('/', (string) $metadata['resource']);
-
-        foreach ((array) $metadata['authorization_servers'] as $issuer) {
-            $this->assertStringEndsNotWith('/', (string) $issuer);
-        }
+        $this->assertSame([$issuer['issuer'] ?? null], $metadata['authorization_servers'], 'the issuer, character for character');
     }
 }

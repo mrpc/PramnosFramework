@@ -73,7 +73,9 @@ class McpController extends Controller
 
         // A token bound to another resource is treated as no token: the client is sent back
         // to get one for this endpoint, which is what the 401 says how to do.
-        if ($user === null || !$this->tokenIsForThisEndpoint()) {
+        // So is a bearer that is not an access token: the API's own sign-in JWT identifies the
+        // same person, but it was never consented to for an assistant and carries no scopes.
+        if ($user === null || !$this->bearerIsAnAccessToken() || !$this->tokenIsForThisEndpoint()) {
             return $this->unauthenticated();
         }
 
@@ -250,6 +252,26 @@ class McpController extends Controller
             $resources,
             true
         );
+    }
+
+    /**
+     * Was the bearer this call carried issued as an access token — by the authorization server
+     * or `mcp:token` — rather than as a sign-in?
+     *
+     * The API's middleware identifies a caller from any token it signed, the API's own sign-in
+     * JWT (`tokentype` `auth`) included. That token is the person's session in an application,
+     * never consented to for an assistant; accepted here, it handed any signed-in user's app an
+     * MCP credential. A call with no bearer, identified by the same-origin session, is not this
+     * check's business.
+     */
+    protected function bearerIsAnAccessToken(): bool
+    {
+        if (\Pramnos\Http\Request::accessToken() === null) {
+            return true;
+        }
+        $token = $_SESSION['usertoken'] ?? null;
+
+        return is_object($token) && (string) ($token->tokentype ?? '') === 'access_token';
     }
 
     /** This endpoint's path from the host root, without slashes at either end. */

@@ -51,8 +51,11 @@ class Oauth extends Controller
 
         $this->addAuthAction(['display']);
 
+        // No key is made here. A pair made mid-request belongs to the web server's user, is never
+        // backed up, and a new container makes a new one — signing everybody out of every client.
+        // `oauth:keys` makes it on purpose; until then the signing_keys health check says why
+        // the token endpoint cannot sign.
         $this->oauth2Factory = new OAuth2ServerFactory($this);
-        $this->oauth2Factory->generateKeyPair();
 
         header('Access-Control-Allow-Origin: *');
 

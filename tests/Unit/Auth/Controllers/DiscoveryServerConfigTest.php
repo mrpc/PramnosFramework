@@ -38,12 +38,53 @@ class DiscoveryServerConfigTest extends TestCase
             define('ROOT', sys_get_temp_dir());
         }
         HealthRegistry::reset();
+        // These tests read the components, which app.php has to make public.
+        $app = \Pramnos\Application\Application::currentInstance() ?? \Pramnos\Application\Application::getInstance();
+        $this->savedHealth = $app->applicationInfo['health'] ?? null;
+        $app->applicationInfo['health'] = ['public_details' => true];
     }
+
+    /** app.php's `health` block as it was before the test. */
+    private mixed $savedHealth = null;
 
     protected function tearDown(): void
     {
         HealthRegistry::reset();
         unset($_SERVER['REQUEST_METHOD']);
+        $app = \Pramnos\Application\Application::currentInstance();
+        if ($app !== null) {
+            $app->applicationInfo['health'] = $this->savedHealth;
+        }
+    }
+
+    /**
+     * By default the health answer is the status and nothing more: which component is failing
+     * is a map of the installation for anybody who asks. A monitor still gets 200 or 503.
+     */
+    public function testTheComponentsAreNamedOnlyWhenAppPhpSaysSo(): void
+    {
+        // Arrange
+        \Pramnos\Application\Application::currentInstance()->applicationInfo['health'] = [];
+        HealthRegistry::register(new class implements HealthCheck {
+            /** The check's name. */
+            public function getName(): string
+            {
+                return 'database';
+            }
+
+            /** Always down. */
+            public function run(): HealthCheckResult
+            {
+                return HealthCheckResult::down('database', 'gone');
+            }
+        });
+
+        // Act
+        $health = $this->capture('health');
+
+        // Assert
+        $this->assertSame(['status', 'timestamp'], array_keys($health));
+        $this->assertSame('unhealthy', $health['status']);
     }
 
     /**

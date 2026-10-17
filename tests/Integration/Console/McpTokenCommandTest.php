@@ -286,7 +286,7 @@ class McpTokenCommandTest extends TestCase
         // Act
         $tester = $this->mint(array(
             '--user' => (string) $this->userId,
-            '--url'  => 'https://example.com',
+            '--url'  => 'https://example.com/api',
             '--name' => 'prod',
         ));
         $display = $tester->getDisplay();
@@ -297,7 +297,7 @@ class McpTokenCommandTest extends TestCase
         $config = json_decode(substr($display, (int) $start, strrpos($display, '}') - (int) $start + 1), true);
 
         $this->assertIsArray($config, 'the printed configuration was not valid JSON');
-        $this->assertSame('https://example.com/mcp', $config['mcpServers']['prod']['url']);
+        $this->assertSame('https://example.com/api/' . \Pramnos\Application\Api::version() . '/mcp', $config['mcpServers']['prod']['url'], 'the API route the token verifies at');
         $this->assertSame('http', $config['mcpServers']['prod']['type']);
         $this->assertSame(
             'Bearer ' . $jwt,

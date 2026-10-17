@@ -116,7 +116,7 @@ class OAuth2ServerFactory
             $clientRepo,
             $accessTokenRepo,
             $scopeRepo,
-            new CryptKey($this->privateKeyPath, null, false),
+            new CryptKey(self::readableKey($this->privateKeyPath), null, false),
             $this->encryptionKey,
             $this->makeResponseType()
         );
@@ -233,7 +233,8 @@ class OAuth2ServerFactory
     {
         $response = new \Pramnos\Auth\OAuth2\ResponseTypes\IdTokenResponse(
             $this->privateKeyPath,
-            defined('sURL') ? (string) \sURL : ''
+            // The issuer the discovery documents publish: `iss` has to equal it exactly.
+            defined('sURL') ? \Pramnos\Auth\Controllers\Discovery::issuer() : ''
         );
         $response->setAuthorizationContext($this->redeemedContext);
 
@@ -259,7 +260,7 @@ class OAuth2ServerFactory
 
         return new ResourceServer(
             $tokens,
-            new CryptKey($this->publicKeyPath, null, false),
+            new CryptKey(self::readableKey($this->publicKeyPath), null, false),
             new \League\OAuth2\Server\AuthorizationValidators\BearerTokenValidator(
                 $tokens,
                 new \DateInterval('PT' . self::CLOCK_LEEWAY_SECONDS . 'S')
@@ -355,6 +356,39 @@ class OAuth2ServerFactory
     public function makeScopeRepository(): ScopeRepository
     {
         return new ScopeRepository();
+    }
+
+    /**
+     * A key file this process can read, or an exception that says what to run.
+     *
+     * League's own refusal is "Key path does not exist", which reads the same for a key nobody
+     * made and for one made by root that the web server cannot open — the second being what
+     * `oauth:keys` run with sudo leaves behind.
+     */
+    private static function readableKey(string $path): string
+    {
+        if (!is_file($path)) {
+            $why = 'OAuth2 signing key missing at ' . $path . ': run `php bin/pramnos oauth:keys` as the web server\'s user.';
+        } elseif (($handle = @fopen($path, 'rb')) === false) {
+            // Opened rather than is_readable(): access() asks for the real user, and a process
+            // can read as another.
+            $why = 'OAuth2 signing key at ' . $path . ' is not readable by this process (user ' . self::processUser() . '): give it to the web server\'s user, or run `php bin/pramnos oauth:keys --force --owner=<user>`.';
+        } else {
+            fclose($handle);
+
+            return $path;
+        }
+        \Pramnos\Logs\Logger::log($why, 'oauth');
+
+        throw new \RuntimeException($why);
+    }
+
+    /** The user this process runs as, for a message about ownership. */
+    private static function processUser(): string
+    {
+        $info = function_exists('posix_getpwuid') ? posix_getpwuid(posix_geteuid()) : false;
+
+        return is_array($info) ? (string) $info['name'] : (string) get_current_user();
     }
 
     /**

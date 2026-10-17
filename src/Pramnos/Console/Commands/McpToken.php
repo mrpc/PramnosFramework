@@ -86,7 +86,7 @@ class McpToken extends Command
                 'url',
                 null,
                 InputOption::VALUE_REQUIRED,
-                'Base URL of this installation. Defaults to the configured sURL.'
+                'Base URL of the API the MCP endpoint is under (e.g. https://example.com/api). Defaults to the API\'s own base.'
             )
             ->addOption(
                 'name',
@@ -163,6 +163,9 @@ class McpToken extends Command
             // The same twelve-hour backdate SessionExchange uses, for the same reason:
             // a clock a few minutes behind the signer must not reject a fresh token.
             'nbf' => $now - (3600 * 12),
+            // Unique per token: two minted in the same second for the same expiry were the
+            // same string, and the second collided with the first's token_lookup.
+            'jti' => bin2hex(random_bytes(16)),
         ];
 
         if ($expires !== null) {
@@ -170,6 +173,18 @@ class McpToken extends Command
         }
 
         $jwt = JWT::encode($claims, $key);
+
+        // Stored encrypted, which is about twice the token; an older usertokens.token is a
+        // varchar(255) that MySQL outside strict mode and MariaDB cut without a word, leaving a
+        // row nobody can reveal.
+        $stored  = strlen(\Pramnos\User\Token::storageFor($jwt)['token']);
+        $ceiling = $this->tokenCeiling();
+        if ($ceiling > 0 && $stored > $ceiling) {
+            $output->writeln('<error>usertokens.token holds ' . $ceiling . ' characters; this token is stored as ' . $stored . '.</error>');
+            $output->writeln(' Widen it to TEXT (run the framework migrations, or ALTER the column), then mint again.');
+
+            return Command::FAILURE;
+        }
 
         $user->addScopedToken(
             'access_token',
@@ -322,7 +337,10 @@ class McpToken extends Command
     {
         $app = \Pramnos\Application\Application::currentInstance();
 
-        if (is_object($app) && isset($app->authenticationKey) && $app->authenticationKey !== '') {
+        // The API's key, because the MCP endpoint is an API route: its middleware verifies with
+        // the API's key, and a console or site application's own key — which this read first —
+        // produced a token that answered 401 there.
+        if ($app instanceof \Pramnos\Application\Api && $app->authenticationKey !== '') {
             return (string) $app->authenticationKey;
         }
 
@@ -348,7 +366,17 @@ class McpToken extends Command
      */
     protected function configuredBaseUrl(): string
     {
-        return defined('sURL') ? (string) sURL : '';
+        return \Pramnos\Application\Api::baseUrl();
+    }
+
+    /** The most characters usertokens.token holds; 0 for none or unknown. A seam for a test. */
+    protected function tokenCeiling(): int
+    {
+        try {
+            return \Pramnos\Framework\Factory::getDatabase()->schema()->columnLength('#PREFIX#usertokens', 'token');
+        } catch (\Throwable) {
+            return 0;
+        }
     }
 
     private function report(
@@ -359,8 +387,9 @@ class McpToken extends Command
         array $scopes,
         ?int $expires
     ): void {
+        // The API's route, `/<version>/mcp` under its base: the address the token verifies at.
         $base = rtrim((string) ($input->getOption('url') ?: $this->configuredBaseUrl()), '/');
-        $url  = ($base !== '' ? $base : 'https://your-site') . '/mcp';
+        $url  = ($base !== '' ? $base : 'https://your-site/api') . '/' . \Pramnos\Application\Api::version() . '/mcp';
         $name = (string) $input->getOption('name');
 
         $output->writeln('');

@@ -1427,6 +1427,12 @@ The address is the RFC 9728 §3.1 path-suffixed form, built from the **site's** 
 than from the API's `sURL`, and the document there answers with the endpoint itself as its
 `resource` — clients check that it matches the URL they were given.
 
+**Only an access token opens it.** A bearer is accepted when it was issued as an access token,
+by the authorization server or `mcp:token`. The API's own sign-in JWT (`tokentype` `auth`)
+identifies the same person to the API's middleware, but it was never consented to for an
+assistant, so the endpoint answers it with the same `401` as no token. A call with no bearer,
+identified by a same-origin session, is not affected.
+
 **A token issued for another resource is refused.** An MCP client sends
 `resource=https://example.com/api/1.0/mcp` on the token request (RFC 8707), and the token's `aud`
 then names that URL beside the client id. The endpoint accepts a token whose `aud` names it, and

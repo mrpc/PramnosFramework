@@ -35,7 +35,7 @@ class Discovery extends Controller
         header('Cache-Control: public, max-age=3600');
 
         $config = [
-            'issuer'                               => sURL,
+            'issuer'                               => self::issuer(),
             'authorization_endpoint'               => sURL . 'oauth/authorize',
             'token_endpoint'                       => sURL . 'oauth/token',
             'userinfo_endpoint'                    => sURL . 'oauth/userinfo',
@@ -216,7 +216,9 @@ class Discovery extends Controller
 
         $metadata = [
             'resource'                 => $suffix === '' ? rtrim(sURL, '/') : self::origin() . '/' . $suffix,
-            'authorization_servers'    => [rtrim(sURL, '/')],
+            // The issuer exactly: a client fetches that server's metadata and compares its
+            // `issuer` with this string (RFC 8414 §3.3), so the two forms of one address fail it.
+            'authorization_servers'    => [self::issuer()],
             'scopes_supported'         => array_keys(Scopes::getScopeDescriptions()),
             // The only method this framework accepts. Saying so keeps a client from trying the
             // form-encoded and query-parameter variants RFC 6750 also describes — both of which
@@ -243,7 +245,7 @@ class Discovery extends Controller
         header('Cache-Control: public, max-age=3600');
 
         $metadata = [
-            'issuer'                                => sURL,
+            'issuer'                                => self::issuer(),
             'authorization_endpoint'                => sURL . 'oauth/authorize',
             'token_endpoint'                        => sURL . 'oauth/token',
             'scopes_supported'                      => array_keys(Scopes::getScopeDescriptions()),
@@ -327,6 +329,16 @@ class Discovery extends Controller
     }
 
     /**
+     * The issuer identifier, the one string the discovery documents, the ID token's `iss` and the
+     * protected-resource metadata's `authorization_servers` all use. With its trailing slash,
+     * because that is the form relying parties already compare `iss` with.
+     */
+    public static function issuer(): string
+    {
+        return sURL;
+    }
+
+    /**
      * `scheme://host[:port]` of the site, with no path.
      *
      * The well-known location is defined against the host, not the directory a site is served
@@ -396,10 +408,15 @@ class Discovery extends Controller
         }
 
         $health = [
-            'status'     => $healthy ? 'healthy' : 'unhealthy',
-            'timestamp'  => date('c'),
-            'components' => $components,
+            'status'    => $healthy ? 'healthy' : 'unhealthy',
+            'timestamp' => date('c'),
         ];
+        // What is failing is a map of the installation for anybody who asks, so the components
+        // are named only where app.php says so; the status and its 200/503 are what a monitor
+        // reads, and stay public.
+        if (self::healthDetailsArePublic()) {
+            $health['components'] = $components;
+        }
 
         if (!$healthy) {
             http_response_code(503);
@@ -408,6 +425,14 @@ class Discovery extends Controller
         \Pramnos\Framework\Factory::getDocument('raw')->setContent(
             (string) json_encode($health, JSON_PRETTY_PRINT)
         );
+    }
+
+    /** Whether `health()` names its components: `'health' => ['public_details' => true]`. */
+    private static function healthDetailsArePublic(): bool
+    {
+        $app = \Pramnos\Application\Application::currentInstance();
+
+        return is_object($app) && ($app->applicationInfo['health']['public_details'] ?? false) === true;
     }
 
     /**

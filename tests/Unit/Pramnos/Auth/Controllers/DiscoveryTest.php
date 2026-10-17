@@ -43,6 +43,11 @@ class DiscoveryTest extends TestCase
             $prop->setValue($app, true);
         }
 
+        // These tests read the components, which app.php has to make public.
+        $this->savedHealth = $app->applicationInfo['health'] ?? null;
+        $app->applicationInfo['health'] = ['public_details' => true];
+        $this->app = $app;
+
         $this->controller = new Discovery($app);
         
         $this->keyDir = ROOT . '/app/keys';
@@ -52,8 +57,16 @@ class DiscoveryTest extends TestCase
         $this->publicKeyPath = $this->keyDir . '/public.key';
     }
 
+    /** app.php's `health` block before the test, and the application it belongs to. */
+    private mixed $savedHealth = null;
+
+    private ?Application $app = null;
+
     protected function tearDown(): void
     {
+        if ($this->app !== null) {
+            $this->app->applicationInfo['health'] = $this->savedHealth;
+        }
         // Leave the registry as we found it, so the next class in the process
         // does not inherit whatever health() registered on our behalf.
         \Pramnos\Health\HealthRegistry::reset();

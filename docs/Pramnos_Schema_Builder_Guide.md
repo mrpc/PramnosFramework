@@ -422,6 +422,8 @@ if ($schema->hasIndex('users', 'idx_users_email')) {
     // index exists
 }
 
+$schema->columnLength('usertokens', 'token');   // 255 for a varchar(255); 0 for text, a number, or no answer
+
 if ($schema->hasView('reports.daily')) {
     // a plain view, a materialized view or a continuous aggregate — any of the three
 }

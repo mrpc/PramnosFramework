@@ -49,12 +49,16 @@ GET /.well-known/oauth-protected-resource
 ### The two halves of discovery
 
 The first two say where the **authorization server** is. The third — RFC 9728, Protected Resource
-Metadata — says where the **resource** is and which authorization servers it trusts:
+Metadata — says where the **resource** is and which authorization servers it trusts. Each server is
+named by its `issuer`, character for character, trailing slash included: a client fetches that
+server's metadata and refuses it when the `issuer` there differs from the name it was given
+(RFC 8414 §3.3). `Discovery::issuer()` is the one place the string comes from, and the ID token's
+`iss` uses it too:
 
 ```json
 {
   "resource": "https://example.com",
-  "authorization_servers": ["https://example.com"],
+  "authorization_servers": ["https://example.com/"],
   "scopes_supported": ["profile", "email", "phone", "address", "user", "openid", "offline_access"],
   "bearer_methods_supported": ["header"],
   "resource_documentation": "https://example.com/docs"
@@ -397,14 +401,22 @@ GET /.well-known/health
 ```json
 {
   "status": "healthy",
-  "timestamp": "2026-08-25T14:46:08+00:00",
-  "components": { "database": "ok", "signing_keys": "ok", "session": "ok" }
+  "timestamp": "2026-08-25T14:46:08+00:00"
 }
 ```
 
-`503` when anything is wrong. The `components` map lists every check the server
-has registered — including `signing_keys`, which is the one that catches a server
-answering pages normally and refusing every token. See
+`503` when anything is wrong. That is what a monitor, a load balancer or a relying party needs,
+and it is public. Which component failed is a map of the installation for anybody who asks, so the
+`components` map is added only where `app/app.php` says so:
+
+```php
+'health' => ['public_details' => true],
+// → "components": { "database": "ok", "signing_keys": "ok", "session": "ok" }
+```
+
+It lists every check the server has registered — including `signing_keys`, which is the one that
+catches a server answering pages normally and refusing every token. An operator reads the same
+report, with the reasons, on the signed-in health screen or with `health:check`. See
 [Health checks](Pramnos_Health_Guide.md) for what each check means and how to add
 one.
 
@@ -828,6 +840,9 @@ $apps->tokens($appId);                          // active tokens, never the toke
 $apps->find($appId);                            // the public description, no secrets
 ```
 
+- **An older `applications` table** is written as it is: a column it lacks
+  (`broadcast_secret`, the lifetimes) is left out, and an empty value for a column that refuses
+  NULL with no default is written as `''` (or `0` for a number).
 - **Input** has the administration form's fields and defaults. `trusted`,
   `access_token_ttl` and `refresh_token_ttl` change only when present, and only where the column
   exists. Callbacks may be typed one per
@@ -983,6 +998,11 @@ but a secret to do it with — the token endpoint refuses that combination.
 
 If your client runs on a server you control, leave it confidential. The secret is
 worth having.
+
+**The consent screen is translated.** Its words, the scope categories and each scope's
+description go through `t()`, so a catalogue with `Allow`, `Deny`, `Authorize %s` and the
+descriptions (`Scopes::getScopes()`, the MCP scopes among them) shows the page in the site's
+language.
 
 ### Dynamic client registration (RFC 7591)
 

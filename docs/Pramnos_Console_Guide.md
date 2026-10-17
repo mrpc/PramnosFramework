@@ -939,7 +939,7 @@ php bin/pramnos logs:convert /path/to/file.log --no-backup
 | `auth:twofactor-reset <user>` | Clear an account's second-factor enrolment so it can enrol again | `--passkeys/-p`, `--dry-run` |
 | `auth:twofactor-cleanup` | Delete spent and expired second-factor codes and enrolments | — |
 | `auth:token-cleanup` | Retire session tokens that have been idle | `--days/-d` |
-| `oauth:keys` | Generate the RSA pair OAuth2 / OpenID Connect tokens are signed with, in `app/keys/`; refuses to replace one, since a new key invalidates every token signed with the old | `--force` |
+| `oauth:keys` | Generate the RSA pair OAuth2 / OpenID Connect tokens are signed with, and `encryption.key` once, in `app/keys/`; refuses to replace a pair, since a new key invalidates every token signed with the old; warns when run as root without `--owner` | `--force`, `--owner=<user>` |
 | `oauth:refresh` | Refresh third-party OAuth2 tokens that are close to expiring | `--within`, `--provider`, `--dry-run` |
 
 **Site, cache and messaging**
@@ -2596,12 +2596,15 @@ php bin/pramnos mcp:token --user=you@example.com --scopes=diagnostics,logs,db --
 | `--user` | Id, email or username. **Required** — a token acts as somebody, and every call it makes is recorded as theirs. |
 | `--scopes` | `diagnostics`, `logs`, `db`, or full scope names. Default `diagnostics`. `mcp` is always added. |
 | `--days` | Days until expiry, default `30`. `0` never expires, which is rarely what you want. |
-| `--url` | Base URL for the printed config. Defaults to `sURL`. |
+| `--url` | The API's base URL for the printed config (`https://example.com/api`); the endpoint is `<url>/<version>/mcp`. Defaults to the API's own base. |
 | `--name` | What the server is called in `.mcp.json`. Default `production`. |
 
 It prints the token **once** — `usertokens.token` is encrypted at rest, so this is the only
 moment it is readable — followed by a ready `.mcp.json` block with the bearer header filled
-in. Losing it means minting another and revoking this one, which is cheap: a token is one
+in. The token is signed with the **API's** key, whatever application the console runs as,
+because the endpoint is an API route; it carries a `jti`, so two minted in one second differ. A
+`usertokens.token` too short for the encrypted token (an older `varchar(255)`) mints nothing and
+says to widen the column. Losing it means minting another and revoking this one, which is cheap: a token is one
 revocable grant, not an identity.
 
 What it will **not** do is tell you whether the endpoint offers those scopes. The call that

@@ -11,6 +11,7 @@ use Pramnos\Auth\ApplicationService;
  * {@see ApplicationServiceTest} on PostgreSQL.
  */
 #[CoversClass(ApplicationService::class)]
+#[CoversClass(\Pramnos\Database\SchemaBuilder::class)]
 class ApplicationServicePostgreSQLTest extends ApplicationServiceTest
 {
     protected function settingsFixture(): string

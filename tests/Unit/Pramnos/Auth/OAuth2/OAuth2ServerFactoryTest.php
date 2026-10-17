@@ -344,4 +344,61 @@ class OAuth2ServerFactoryTest extends TestCase
         // Cleanup
         unlink($blocker);
     }
+
+    /**
+     * With no key, the servers refuse with what to run — not League's "Key path does not exist",
+     * which reads the same for a key nobody made and for one the web server cannot open.
+     */
+    public function testAMissingKeySaysWhatToRun(): void
+    {
+        // Arrange
+        $factory = new OAuth2ServerFactory($this->controller, $this->privateKeyPath, $this->publicKeyPath, base64_encode(random_bytes(32)));
+        $messages = [];
+
+        // Act
+        foreach (['createAuthorizationServer', 'createResourceServer'] as $server) {
+            try {
+                $factory->$server();
+                $messages[] = 'built';
+            } catch (\RuntimeException $e) {
+                $messages[] = $e->getMessage();
+            }
+        }
+
+        // Assert
+        $this->assertStringContainsString('missing at ' . $this->privateKeyPath . ': run `php bin/pramnos oauth:keys`', $messages[0]);
+        $this->assertStringContainsString('missing at ' . $this->publicKeyPath, $messages[1]);
+    }
+
+    /**
+     * A key the process cannot read — `oauth:keys` run as root, the web server as somebody else
+     * — is named as that, with the user this process is.
+     */
+    public function testAnUnreadableKeySaysWhose(): void
+    {
+        if (!function_exists('posix_seteuid') || posix_geteuid() !== 0) {
+            $this->markTestSkipped('Reading as somebody else needs root.');
+        }
+
+        // Arrange — root's 0600 key, read as nobody
+        $factory = new OAuth2ServerFactory($this->controller, $this->privateKeyPath, $this->publicKeyPath, base64_encode(random_bytes(32)));
+        $factory->generateKeyPair();
+        chmod($this->tempDir, 0755);
+        $nobody = (int) posix_getpwnam('nobody')['uid'];
+
+        // Act
+        posix_seteuid($nobody);
+        try {
+            $factory->createAuthorizationServer();
+            $message = 'built';
+        } catch (\RuntimeException $e) {
+            $message = $e->getMessage();
+        } finally {
+            posix_seteuid(0);
+        }
+
+        // Assert
+        $this->assertStringContainsString('is not readable by this process (user nobody)', $message);
+        $this->assertStringContainsString('--owner=<user>', $message);
+    }
 }

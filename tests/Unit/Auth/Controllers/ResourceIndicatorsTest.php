@@ -44,7 +44,7 @@ class ResourceIndicatorsTest extends TestCase
         $this->appUrl === false ? putenv('APP_URL') : putenv('APP_URL=' . $this->appUrl);
         SiteUrl::reset();
         $_POST = [];
-        unset($_SERVER['HTTP_AUTHORIZATION'], $_SERVER['HTTP_ACCESSTOKEN'], $_SERVER['REQUEST_URI']);
+        unset($_SERVER['HTTP_AUTHORIZATION'], $_SERVER['HTTP_ACCESSTOKEN'], $_SERVER['REQUEST_URI'], $_SESSION['usertoken']);
     }
 
     /**
@@ -174,6 +174,7 @@ class ResourceIndicatorsTest extends TestCase
         $_SERVER['REQUEST_METHOD']     = 'POST';
         $_SERVER['REQUEST_URI']        = '/api/1.0/mcp';
         $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer ' . $this->jwt(['aud' => ['c', 'https://example.test/other']]);
+        $_SESSION['usertoken']         = new \Pramnos\User\Token(['tokentype' => 'access_token', 'scope' => 'mcp']);
         $mcp = $this->mcp();
 
         // Act
@@ -182,6 +183,44 @@ class ResourceIndicatorsTest extends TestCase
         // Assert
         $this->assertSame(401, $mcp->status);
         $_SERVER['REQUEST_METHOD'] = 'GET';
+    }
+
+    /**
+     * Only an access token opens the endpoint. The API's own sign-in JWT (`tokentype` `auth`),
+     * which its middleware also takes as identifying the person, is refused with the discovery
+     * 401: it was never consented to for an assistant. The same call with an access token
+     * proceeds — here to the JSON-RPC parse error, past every credential check.
+     */
+    public function testOnlyAnAccessTokenOpensTheEndpoint(): void
+    {
+        // Arrange
+        $_SERVER['REQUEST_METHOD']     = 'POST';
+        $_SERVER['REQUEST_URI']        = '/api/1.0/mcp';
+        $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer ' . $this->jwt(['aud' => 'client-1']);
+        $status = function (string $type): int {
+            $_SESSION['usertoken'] = new \Pramnos\User\Token(['tokentype' => $type, 'scope' => 'mcp']);
+            $mcp = $this->mcp();
+            $mcp->display();
+
+            return $mcp->status;
+        };
+
+        // Act
+        $signIn = $status('auth');
+        $access = $status('access_token');
+        unset($_SESSION['usertoken']);
+        $none = $this->mcp();
+        $none->display();
+        unset($_SERVER['HTTP_AUTHORIZATION']);
+        $session = $this->mcp();
+        $session->display();
+        $_SERVER['REQUEST_METHOD'] = 'GET';
+
+        // Assert
+        $this->assertSame(401, $signIn, 'a sign-in JWT is not an MCP credential');
+        $this->assertSame(400, $access, 'an access token gets past the credential checks');
+        $this->assertSame(401, $none->status, 'a bearer with no stored token behind it neither');
+        $this->assertSame(400, $session->status, 'no bearer at all — a same-origin session — is not this check\'s business');
     }
 
     /** An unsigned token with these claims — the MCP check reads claims the middleware verified. */

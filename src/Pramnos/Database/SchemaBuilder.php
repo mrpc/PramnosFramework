@@ -1110,6 +1110,40 @@ class SchemaBuilder
     }
 
     /**
+     * The most characters a column holds, or 0 for none (`text`, a number) or an answer the
+     * catalogue cannot give.
+     *
+     * The answer differs by installation rather than by driver: a table the framework created
+     * has `text` where one that predates the migration system still has `varchar(255)`, which
+     * MySQL outside strict mode and MariaDB cut without a word. A caller about to write
+     * something long asks first.
+     *
+     * Catalogue introspection, so raw SQL: the query builder does not reach
+     * `information_schema.columns`.
+     */
+    public function columnLength(string $table, string $column): int
+    {
+        $name   = $this->resolveTable($table);
+        $schema = null;
+        if (str_contains($name, '.')) {
+            [$schema, $name] = explode('.', $name, 2);
+        }
+        try {
+            $result = $this->db->query($this->db->prepareQuery(
+                'SELECT COALESCE(character_maximum_length, 0) AS len FROM information_schema.columns'
+                . ' WHERE table_name = %s AND column_name = %s'
+                . ($schema !== null ? ' AND table_schema = %s' : ($this->capabilities->isMySQL() ? ' AND table_schema = DATABASE()' : ''))
+                . ' ORDER BY table_schema LIMIT 1',
+                ...array_values(array_filter([$name, $column, $schema], static fn ($v): bool => $v !== null))
+            ));
+        } catch (\Throwable) {
+            return 0;
+        }
+
+        return $result && $result->numRows ? (int) ($result->fields['len'] ?? 0) : 0;
+    }
+
+    /**
      * The declared type of one column, lower-cased, or null when it cannot be read.
      *
      * Used to tell a `bigint` time column from a `timestamptz` one before a hypertable

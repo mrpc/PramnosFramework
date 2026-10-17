@@ -22,6 +22,7 @@ use Pramnos\Framework\Testing\Schema;
  * revokes what it holds.
  */
 #[CoversClass(ApplicationService::class)]
+#[CoversClass(\Pramnos\Database\SchemaBuilder::class)]
 class ApplicationServiceTest extends BaseTestCase
 {
     private $db;
@@ -254,5 +255,54 @@ class ApplicationServiceTest extends BaseTestCase
 
         // Assert
         $this->assertTrue($ceiling === 0 || $ceiling >= 65535, 'ceiling read as ' . $ceiling);
+    }
+
+    /**
+     * An older `applications` — no `broadcast_secret`, no lifetimes, and `NOT NULL` columns
+     * with no default — takes a new application: what it lacks is left out, and an empty value
+     * where it refuses NULL is written as '' or 0. The framework's full row failed on it.
+     */
+    public function testAnOlderApplicationsTableTakesANewApplication(): void
+    {
+        // Arrange — the same connection under another prefix, and the table as it once was
+        $legacy         = clone $this->db;
+        $legacy->prefix = 'lgcy' . bin2hex(random_bytes(2)) . '_';
+        $legacy->schema()->createTable('#PREFIX#applications', function ($table): void {
+            $table->increments('appid');
+            $table->string('name', 100);
+            $table->string('description', 255);
+            $table->string('apikey', 64);
+            $table->string('apisecret', 255);
+            $table->string('callback', 255);
+            $table->string('organization', 100);
+            $table->string('url', 255);
+            $table->integer('status');
+            $table->integer('apptype');
+            $table->integer('added');
+        });
+
+        try {
+            // Act
+            $created = (new ApplicationService($legacy))->create(['name' => 'Legacy client', 'apptype' => 2, 'trusted' => 1, 'access_token_ttl' => 600]);
+            $row     = $legacy->queryBuilder()->table('#PREFIX#applications')->where('appid', $created['appid'])->first()->fields;
+            $lengths = [
+                (new ApplicationService($legacy))->callbackCeiling(),
+                $legacy->schema()->columnLength('#PREFIX#applications', 'status'),
+                $legacy->schema()->columnLength('#PREFIX#applications', 'no_such_column'),
+            ];
+        } finally {
+            $legacy->schema()->dropTableIfExists('#PREFIX#applications');
+        }
+
+        // Assert
+        $this->assertGreaterThan(0, $created['appid']);
+        $this->assertSame(['Legacy client', '', '', '', '', 2], [$row['name'], $row['description'], $row['callback'], $row['organization'], $row['url'], (int) $row['apptype']]);
+        $this->assertNotSame('', (string) $row['apisecret'], 'the credentials are written');
+        $this->assertArrayNotHasKey('broadcast_secret', $row);
+        $this->assertSame([255, 0, 0], $lengths, 'the varchar\'s limit; none for a number or a column that is not there');
+        if ($this->db->type === 'postgresql') {
+            // A schema-qualified name is looked up in its schema.
+            $this->assertGreaterThan(0, $this->db->schema()->columnLength('public.usertokens', 'tokentype'));
+        }
     }
 }
