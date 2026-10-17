@@ -71,7 +71,7 @@ class FatalErrorReporterTest extends TestCase
     {
         // Arrange
         $savedArgv       = $_SERVER['argv'] ?? null;
-        $_SERVER['argv'] = ['urbanwater.php', 'maintenance', '--db-password=hunter2', '--zone=7'];
+        $_SERVER['argv'] = ['app.php', 'maintenance', '--db-password=hunter2', '--zone=7'];
 
         try {
             // Act
@@ -89,7 +89,7 @@ class FatalErrorReporterTest extends TestCase
         $log = $this->logged();
         $this->assertTrue($written);
         $this->assertStringContainsString('Allowed memory size', $log);
-        $this->assertStringContainsString('urbanwater.php maintenance', $log, 'the command is not named');
+        $this->assertStringContainsString('app.php maintenance', $log, 'the command is not named');
         $this->assertStringContainsString('--zone=7', $log);
         $this->assertStringNotContainsString('hunter2', $log, 'a password reached the log');
         $this->assertStringContainsString('Model.php:1741', $log);
