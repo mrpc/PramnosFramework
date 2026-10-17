@@ -806,11 +806,16 @@ class User extends \Pramnos\Framework\Base implements
                     $database->upsert(self::userDetailsTable(), $upsertData, ['userid', 'fieldname']);
                 }
 
-            } elseif (!isset($this->originalOtherinfo[$fieldname])
-                || $this->originalOtherinfo[$fieldname] != $this->$fieldname
+            } elseif (
+                // Parenthesised: `&&` binds before `||`, so the `_` guards sat on the second half
+                // only, and a private field that was never loaded — an application's cache
+                // property reaching __set() — was written on every save.
+                (!isset($this->originalOtherinfo[$fieldname])
+                    || $this->originalOtherinfo[$fieldname] != $this->$fieldname)
                 && substr($fixname, 0, 1) != '_'
-                && substr($fieldname, 0, 1) != '_') {
-                
+                && substr($fieldname, 0, 1) != '_'
+            ) {
+
                 $upsertData = [
                     ['fieldName' => 'userid', 'value' => $this->userid, 'type' => 'integer'],
                     ['fieldName' => 'fieldname', 'value' => $fieldname, 'type' => 'string'],

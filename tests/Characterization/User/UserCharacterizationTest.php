@@ -630,4 +630,39 @@ class UserCharacterizationTest extends TestCase
             }
         }
     }
+
+    /**
+     * A field whose name begins with `_` is never written to userdetails — on any branch of
+     * save(), including the one for a field that was not loaded. An application's private cache
+     * property reaching `__set()` (`_location`, a serialized model) was written on every save:
+     * the guard sat on the second half of an `||` only, and an installation found 262,000 such
+     * rows. A plain field beside it is still written.
+     */
+    public function testPrivateUnderscoreFieldsAreNeverPersisted(): void
+    {
+        // Arrange
+        $username = 'char_priv_' . bin2hex(random_bytes(4));
+        $user = new User();
+        $user->username = $username;
+        $user->email = $username . '@example.com';
+        $user->setPassword('secret123');
+        $user->save();
+        $user->_cache = 'a private scalar';
+        $user->_model = ['a' => 'private array'];
+        $user->kept_note = 'written';
+
+        // Act
+        $user->save();
+        $rows = [];
+        $result = $this->db->queryBuilder()->table(defined('DB_USERDETAILSTABLE') ? DB_USERDETAILSTABLE : '#PREFIX#userdetails')->select(['fieldname'])->where('userid', (int) $user->userid)->get();
+        while ($result && $result->fetch()) {
+            $rows[] = (string) $result->fields['fieldname'];
+        }
+        $user->deleteuser();
+
+        // Assert — the plain field proves the save wrote details at all
+        $this->assertContains('kept_note', $rows);
+        $this->assertNotContains('_cache', $rows, 'a private scalar that was never loaded');
+        $this->assertNotContains('_model', $rows);
+    }
 }

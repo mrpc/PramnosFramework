@@ -1403,6 +1403,11 @@ $user->deleteuser();
 `deleteuser()` removes the `users` row and nothing else. For a person's data, use
 `AccountErasure` — see [Erasure](#erasure-accountdata_erase).
 
+**A property that is not a column is a `userdetails` row.** `$user->kept_note = 'x'` reaches
+`__set()` and `save()` writes it as a `userdetails` row for that user. A name that begins with
+`_` never is, whether or not it was loaded: it is the place for a subclass's private cache (a
+loaded model, a computed value), which must not become a row on every save.
+
 ### `userlog` is deprecated
 
 `userlog` holds one row per event about a user. It records the user the row is about but
