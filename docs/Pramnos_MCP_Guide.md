@@ -1516,7 +1516,7 @@ because a model told "0 results" concludes the thing does not exist and tells th
 
 | Method | Result |
 |---|---|
-| `initialize` | Server name, version, capabilities |
+| `initialize` | Server name, version, capabilities, and `instructions` when set |
 | `tools/list` | Every registered tool with its schema |
 | `tools/call` | Runs one and returns its value |
 | `resources/list` | Every registered resource |
@@ -1524,6 +1524,11 @@ because a model told "0 results" concludes the thing does not exist and tells th
 | `ping` | Empty result |
 
 Anything else returns JSON-RPC error `-32601`.
+
+`instructions` (MCP 2025-03-26) is what a client tells its model about the server. Set it with
+`McpServer::setInstructions()`. The HTTP endpoint sets it from the application's analyst
+(`AnalystAssistant::mcpInstructions()`, see the [LLM guide](Pramnos_LLM_Guide.md)), so a question
+asked through a remote assistant is answered with what the application's own Ask knows.
 
 ## Related
 

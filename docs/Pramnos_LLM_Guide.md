@@ -1034,6 +1034,25 @@ protected function peoplePolicy(): string
 }
 ```
 
+**The same analyst speaks over MCP.** `mcpInstructions()` is what the MCP endpoint sends with
+`initialize`, and a remote assistant passes it to its model. It contains:
+
+- `about()`;
+- the analyst's time zone;
+- `peoplePolicy()`;
+- that masked values stay masked;
+- which tool to reach for: `toolGuidance()`, or by default "schema and sql are the last resort".
+
+Without the tool line, a model asked about the application's visits writes SQL against the schema
+instead of calling the tool made for visits:
+
+```php
+protected function toolGuidance(): string
+{
+    return 'Visits, bookings and their counts: visits_report. Reach for sql only when no tool answers.';
+}
+```
+
 An application that charges for the
 analyst, or limits it, overrides `analystDesk()` on its `Admin\Controllers\Ai` and returns an
 `Analyst\Desk` with its own `beforeAsk()`.

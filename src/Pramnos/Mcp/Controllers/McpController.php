@@ -135,7 +135,7 @@ class McpController extends Controller
      */
     protected function server(array $scopes): McpServer
     {
-        $server = new McpServer($this->serverName());
+        $server = (new McpServer($this->serverName()))->setInstructions($this->instructions());
 
         foreach (PublicRegistry::visibleTo($scopes) as $tool) {
             $server->addTool($tool);
@@ -193,6 +193,20 @@ class McpController extends Controller
     }
 
     /** What the server calls itself in `initialize`. */
+    /**
+     * What the client's model is told with `initialize`: the application's analyst's
+     * {@see \Pramnos\Llm\Analyst\AnalystAssistant::mcpInstructions()}, so Ask and MCP know the
+     * same things. '' when the analyst cannot be made.
+     */
+    protected function instructions(): string
+    {
+        try {
+            return \Pramnos\Llm\Analyst\Analyst::assistant()->mcpInstructions();
+        } catch (\Throwable) {
+            return '';
+        }
+    }
+
     protected function serverName(): string
     {
         return (string) ($this->application?->applicationInfo['appname'] ?? 'Pramnos');

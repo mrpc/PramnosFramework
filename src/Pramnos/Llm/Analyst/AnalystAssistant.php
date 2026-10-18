@@ -96,6 +96,42 @@ class AnalystAssistant extends BaseAssistant
         return \Pramnos\Llm\Chat\Markdown::CHARTS;
     }
 
+    /**
+     * What an MCP client's model is told about this application — the same things this analyst
+     * knows, so a question asked through an assistant elsewhere is answered as it would be here:
+     * what the application is, its clock, which tool to reach for, the rule about people, and
+     * that masked values stay masked.
+     */
+    public function mcpInstructions(): string
+    {
+        $about = trim($this->about());
+        $guide = trim($this->toolGuidance());
+
+        return implode("\n\n", array_values(array_filter([
+            $about !== '' ? 'About this application: ' . $about : '',
+            'Dates and days are in ' . Analyst::timezone() . '.',
+            $guide !== '' ? $guide : 'Prefer the tool made for a question over a general one: schema and sql are the last resort, for what no other tool answers.',
+            trim($this->peoplePolicy()),
+            'Masked values ([phone], [ip], a***@…) were removed on purpose; never try to recover them.',
+        ], static fn (string $part): bool => $part !== '')));
+    }
+
+    /**
+     * Which tool answers what, for a model reaching this application over MCP — in place of the
+     * framework's one line, "schema and sql are the last resort":
+     *
+     * ```php
+     * protected function toolGuidance(): string
+     * {
+     *     return 'Visits, bookings and their counts: visits_report. Reach for sql only when no tool answers.';
+     * }
+     * ```
+     */
+    protected function toolGuidance(): string
+    {
+        return '';
+    }
+
     /** What the application is, for the model — a sentence or two. */
     protected function about(): string
     {

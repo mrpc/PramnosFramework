@@ -40,6 +40,9 @@ class McpServer
      */
     private ?string $trafficLog = null;
 
+    /** Sent with `initialize`; '' sends none. */
+    private string $instructions = '';
+
     public function __construct(
         private readonly string $appName    = 'Pramnos App',
         private readonly string $appVersion = '1.0.0',
@@ -60,6 +63,19 @@ class McpServer
     }
 
     // ── Tool / Resource Registration ─────────────────────────────────────────
+
+    /**
+     * What a client tells its model about this server, sent with `initialize` (MCP 2025-03-26).
+     * The tools say what each does; this says what the application is and which tool to reach
+     * for — without it, a model asked about the application's visits writes SQL against its
+     * schema instead of calling the tool that answers exactly that. '' sends none.
+     */
+    public function setInstructions(string $instructions): static
+    {
+        $this->instructions = trim($instructions);
+
+        return $this;
+    }
 
     public function addTool(McpToolInterface $tool): static
     {
@@ -287,7 +303,7 @@ class McpServer
                 'name'    => $this->appName,
                 'version' => $this->appVersion,
             ],
-        ]);
+        ] + ($this->instructions !== '' ? ['instructions' => $this->instructions] : []));
     }
 
     private function handleToolsList(mixed $id): array
