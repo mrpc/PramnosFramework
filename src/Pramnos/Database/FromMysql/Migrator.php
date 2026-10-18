@@ -114,8 +114,13 @@ final class Migrator
             $target = $targetOf($name);
             $create = null;
             $finish = ['statements' => [], 'skipped' => []];
+            // A table an earlier run made and stopped before finishing: it is there, without its
+            // indexes and keys — and, unlike one the migrations made, is this tool's to finish.
+            $unfinished = isset($targets[$target]) && $this->madeAndUnfinished($name, $targets);
             if (!isset($targets[$target])) {
                 $create = $this->createStatement($target, $shape);
+            }
+            if ($create !== null || $unfinished) {
                 $finish = $this->finishStatements($target, $shape, $targetOf);
             }
             $targetColumns = $target !== null && isset($targets[$target]) ? $targets[$target]['columns'] : [];
@@ -131,6 +136,7 @@ final class Migrator
                 'target'      => $target,
                 'create'      => $create,
                 'finish'      => $finish,
+                'unfinished'  => $unfinished,
                 'rows'        => $shape['rows'],
                 'copied'      => $copied,
                 'sourceOnly'  => $create !== null ? [] : array_values(array_diff(array_keys($shape['columns']), $copied)),
@@ -198,6 +204,9 @@ final class Migrator
         foreach ($plan['order'] as $name) {
             $table = $plan['tables'][$name];
             if ($table['create'] !== null && !$this->hasTargetTable($table['target'])) {
+                // Noted before it is made, so a run that stops anywhere after leaves the table
+                // marked as this tool's, with its indexes and keys still to come.
+                $this->tracker()->put($name, 'created', 0, 0, 0, ProgressTracker::RUNNING);
                 $this->target->query($table['create']);
             }
         }
@@ -247,8 +256,11 @@ final class Migrator
         // keeping them up row by row, and a key that its rows break is still added, unchecked.
         $result['finished'] = [];
         foreach ($plan['order'] as $name) {
-            if ($plan['tables'][$name]['create'] !== null) {
+            if ($plan['tables'][$name]['create'] !== null || ($plan['tables'][$name]['unfinished'] ?? false)) {
                 $result['finished'][$name] = $this->finish($plan['tables'][$name]['finish']['statements']);
+                if ($result['finished'][$name]['errors'] === []) {
+                    $this->tracker()->put($name, 'created', 0, 0, 0, ProgressTracker::DONE);
+                }
             }
         }
 
@@ -1025,6 +1037,21 @@ final class Migrator
         }
 
         return $done;
+    }
+
+    /**
+     * Whether an earlier run made this table and stopped before its indexes and keys were in.
+     * Asked only where the progress table exists, so a dry run on a fresh target creates nothing.
+     *
+     * @param array<string, mixed> $targets
+     */
+    private function madeAndUnfinished(string $source, array $targets): bool
+    {
+        if (!isset($targets[ProgressTracker::TABLE])) {
+            return false;
+        }
+
+        return ($this->tracker()->of($source, 'created')[0]['status'] ?? null) === ProgressTracker::RUNNING;
     }
 
     /** Run a statement on the target; whether it succeeded, the error left for pg_last_error(). */

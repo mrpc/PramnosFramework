@@ -319,6 +319,38 @@ class MigrateFromMysqlTest extends TestCase
     }
 
     /**
+     * A run that stopped after making a table and before its indexes and keys leaves the table
+     * marked as this tool's: the next run finds it there, unfinished, and finishes it — where a
+     * table that is simply there (the migrations made it) is never touched. Once finished, a
+     * third run has nothing left to make. The state is the one a crash leaves: the table as the
+     * tool creates it, and its note still open.
+     */
+    public function testATableAStoppedRunMadeIsFinishedByTheNext(): void
+    {
+        // Arrange — tags made as the tool makes it, then the run "stopped"
+        $tester = $this->databases();
+        $this->target->query('CREATE TABLE tags (id INTEGER NOT NULL, name VARCHAR(200) NOT NULL, body TEXT, owner BIGINT, PRIMARY KEY ("id"))');
+        (new \Pramnos\Database\FromMysql\ProgressTracker($this->target))->put('tags', 'created', 0, 0, 0, \Pramnos\Database\FromMysql\ProgressTracker::RUNNING);
+        $only = ['--source' => $this->dsn(), '--tables' => 'users,tags', '--null-orphans' => true];
+
+        // Act
+        $tester->execute($only + ['--dry-run' => true]);
+        $dry = $tester->getDisplay();
+        $tester->execute($only);
+        $indexes = array_column($this->rows("SELECT indexname AS i FROM pg_indexes WHERE tablename = 'tags' AND indexname NOT LIKE '%pkey' ORDER BY indexname"), 'i');
+        $keys    = array_column($this->rows("SELECT conname AS n FROM pg_constraint WHERE contype = 'f' AND conrelid = 'tags'::regclass"), 'n');
+        $tester->execute($only + ['--dry-run' => true]);
+        $after = $tester->getDisplay();
+
+        // Assert
+        $this->assertStringContainsString('made by an earlier run that stopped', $dry);
+        $this->assertSame(['tags_tag_both', 'tags_tag_name', 'tags_tag_owner'], $indexes, 'its indexes, made by the next run');
+        $this->assertSame(['tags_tag_owner'], $keys, 'and its foreign key');
+        $this->assertStringNotContainsString('made by an earlier run', $after, 'finished: nothing left to make');
+        $this->assertStringNotContainsString('index(es) and foreign key(s)', $after);
+    }
+
+    /**
      * `--verify` after a full move compares every row with MySQL as the move would have written
      * it: a moved row with its values converted (a flag as a boolean, invalid bytes repaired)
      * compares equal; the orphan set to NULL and the row the target refused are found, by key,

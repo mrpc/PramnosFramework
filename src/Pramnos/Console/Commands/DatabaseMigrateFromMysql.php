@@ -247,6 +247,9 @@ class DatabaseMigrateFromMysql extends Command
             $t = $plan['tables'][$name];
             $output->writeln('  ' . $name . ' → ' . $t['target'] . ($t['create'] !== null ? ' <comment>(created: no migration makes it)</comment>' : '')
                 . '  ~' . $t['rows'] . ' rows, ' . count($t['copied']) . ' column(s)');
+            if ($t['unfinished'] ?? false) {
+                $output->writeln('      <comment>made by an earlier run that stopped:</comment> its indexes and keys are made now');
+            }
             if ($t['finish']['statements'] !== []) {
                 $output->writeln('      then ' . count($t['finish']['statements']) . ' index(es) and foreign key(s), as MySQL has them');
             }

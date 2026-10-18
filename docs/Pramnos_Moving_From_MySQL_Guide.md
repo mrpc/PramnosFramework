@@ -68,6 +68,9 @@ unique keys and foreign keys, with their `ON DELETE` / `ON UPDATE` rules:
   run prints the `VALIDATE CONSTRAINT` to run once those rows are dealt with. With
   `--null-orphans`, the references that can be NULL are set to NULL first, and the key is then
   validated.
+- A run that stops after making a table and before its indexes and keys leaves it marked, in
+  `pramnos_migration_progress`, as made by this tool. The next run finishes it, and the dry run
+  says so. A table the migrations made carries no such mark and is never touched.
 
 | MySQL | PostgreSQL |
 |---|---|
