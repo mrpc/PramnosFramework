@@ -137,6 +137,8 @@ class MigrateFromMysqlTest extends TestCase
             'CREATE TABLE nokey (v INT) ENGINE=InnoDB',
             'INSERT INTO nokey VALUES (1), (2)',
             // Greek and an emoji as they should be; Greek written once through a latin1 connection; a real latin1 column
+            'CREATE TABLE stamped (id INT AUTO_INCREMENT PRIMARY KEY, a INT, b INT, total INT) ENGINE=InnoDB',
+            'INSERT INTO stamped VALUES (3, 1, 2, 99), (7, 10, 20, 99)',
             'CREATE TABLE greek (id INT PRIMARY KEY, name VARCHAR(50), legacy VARCHAR(50), old VARCHAR(20) CHARACTER SET latin1) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4',
             "INSERT INTO greek VALUES (1, 'Μαρία 😀', CONVERT(CAST('Ελλάδα' AS BINARY) USING latin1), 'café'), (2, 'Νίκος', 'plain', NULL)",
         ] as $sql) {
@@ -155,6 +157,7 @@ class MigrateFromMysqlTest extends TestCase
             'CREATE TABLE strict_t (id INT PRIMARY KEY, must_have VARCHAR(5) NOT NULL)',
             'CREATE TABLE moments (at TIMESTAMP PRIMARY KEY, v INT)',
             'CREATE TABLE nokey (v INT)',
+            'CREATE TABLE stamped (id INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, a INT, b INT, total INT GENERATED ALWAYS AS (a + b) STORED)',
         ] as $sql) {
             $this->target->query($sql);
         }
@@ -319,6 +322,36 @@ class MigrateFromMysqlTest extends TestCase
         $this->assertStringContainsString('1 row(s) of user_tags.tagid name no tags — the column takes no NULL', $display, 'not told to do what it cannot');
         $this->assertStringContainsString('VALIDATE CONSTRAINT "user_tags_ut_tag"', $display);
         $this->assertStringNotContainsString('already exists', $again, 'a second run finds them there');
+    }
+
+    /**
+     * A target whose migration made the key `GENERATED ALWAYS AS IDENTITY` refuses an id it is
+     * given — every row of the table — unless the insert says `OVERRIDING SYSTEM VALUE`; the ids
+     * are kept, as the rows pointing at them name them, and the identity continues past them. A
+     * column the target computes (`GENERATED ALWAYS AS (…) STORED`) takes no value at all: it is
+     * left out, named in the dry run, and PostgreSQL computes it.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('transports')]
+    public function testGeneratedColumnsOnTheTarget(string $transport): void
+    {
+        // Arrange
+        $tester = $this->databases();
+        $only   = ['--source' => $this->dsn(), '--tables' => 'stamped'];
+
+        // Act
+        $tester->execute($only + ['--dry-run' => true]);
+        $dry  = $tester->getDisplay();
+        $code = $tester->execute($only + ['--transport' => $transport]);
+        $text = $tester->getDisplay();
+        $rows = $this->rows('SELECT id, total FROM stamped ORDER BY id');
+        $this->target->query('INSERT INTO stamped (a, b) VALUES (0, 0)');
+        $next = $this->rows('SELECT MAX(id) AS m FROM stamped')[0]['m'] ?? null;
+
+        // Assert
+        $this->assertStringContainsString('not moved, the target computes them: total', $dry);
+        $this->assertSame(0, $code, $text);
+        $this->assertSame([[3, 3], [7, 30]], array_map(static fn (array $r): array => [(int) $r['id'], (int) $r['total']], $rows), 'ids kept, totals computed here');
+        $this->assertSame(8, (int) $next, 'the identity continues past the moved ids');
     }
 
     /**

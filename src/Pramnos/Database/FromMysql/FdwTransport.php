@@ -99,15 +99,17 @@ final class FdwTransport
      * @param string       $where    A PostgreSQL condition on the foreign table's columns, or ''
      * @param array<string, string> $foreignTypes A column's type in the foreign table, where it is not the default
      * @param string                $zone         The zone the source's `datetime` values were written in
+     * @param bool                  $overriding   The columns name a `GENERATED ALWAYS` identity, whose values are kept
      */
-    public function copy(string $source, string $target, array $sourceColumns, array $targetColumns, array $columns, string $where = '', array $foreignTypes = [], string $zone = 'UTC'): ?int
+    public function copy(string $source, string $target, array $sourceColumns, array $targetColumns, array $columns, string $where = '', array $foreignTypes = [], string $zone = 'UTC', bool $overriding = false): ?int
     {
         $foreign = $this->foreignTable($source, $sourceColumns, $targetColumns, $columns, $foreignTypes);
         $exprs   = [];
         foreach ($columns as $column) {
             $exprs[] = self::expression($column, (string) $sourceColumns[$column]['type'], (string) ($targetColumns[$column]['type'] ?? TypeMapper::toPostgres((string) $sourceColumns[$column]['type'])), $zone);
         }
-        $sql = 'INSERT INTO ' . self::quoted($target) . ' (' . implode(', ', array_map([self::class, 'identifier'], $columns)) . ') SELECT '
+        $sql = 'INSERT INTO ' . self::quoted($target) . ' (' . implode(', ', array_map([self::class, 'identifier'], $columns)) . ')'
+            . ($overriding ? ' OVERRIDING SYSTEM VALUE' : '') . ' SELECT '
             . implode(', ', $exprs) . ' FROM ' . $foreign . ($where !== '' ? ' WHERE ' . $where : '') . ' ON CONFLICT DO NOTHING';
         $result      = @pg_query($this->target->getConnectionLink(), $sql);
         $this->error = $result === false ? trim((string) strtok(pg_last_error($this->target->getConnectionLink()), "\n")) : '';

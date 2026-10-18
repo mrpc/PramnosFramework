@@ -54,6 +54,12 @@ run names it.
 `authserver_things` there is `authserver.things` here. The table prefix on each side is taken off
 before the names are matched; `--source-prefix` names the source's when it differs.
 
+**Columns the target generates.** A key the migrations made `GENERATED ALWAYS AS IDENTITY`
+refuses an id it is given, so it is inserted with `OVERRIDING SYSTEM VALUE`. The ids are kept,
+because the rows that point at them name them, and the identity continues past them. A column
+the target computes (`GENERATED ALWAYS AS (…) STORED`) takes no value at all: it is left out of
+the move, named in the dry run, and PostgreSQL computes it.
+
 **A table no migration makes** (one the application created by hand in MySQL) is created from
 its MySQL definition. Its types follow the mapping below, an `AUTO_INCREMENT` becomes an identity
 column, and the primary key is the same. Once its rows are in, it gets MySQL's other indexes,

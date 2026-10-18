@@ -261,6 +261,9 @@ class DatabaseMigrateFromMysql extends Command
             if ($t['sourceOnly'] !== []) {
                 $output->writeln('      <comment>not moved, the target has no such column:</comment> ' . implode(', ', $t['sourceOnly']));
             }
+            if (($t['computed'] ?? []) !== []) {
+                $output->writeln('      not moved, the target computes them: ' . implode(', ', $t['computed']));
+            }
             if ($t['required'] !== []) {
                 $output->writeln('      <error>the target requires, and the source has not:</error> ' . implode(', ', $t['required']) . ' — every row will be refused');
             }

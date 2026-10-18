@@ -50,6 +50,9 @@ final class Migrator
     /** @var array<string, array<string, true>> Columns whose double-encoded values are repaired, by table */
     private array $repair = [];
 
+    /** @var array<string, list<string>> A target table's `GENERATED ALWAYS` identity columns, read once */
+    private array $always = [];
+
     /** Rows of each table read to look for double-encoded text. */
     private const ENCODING_SAMPLE = 2000;
 
@@ -150,7 +153,9 @@ final class Migrator
                 $finish = $this->finishStatements($target, $shape, $targetOf);
             }
             $targetColumns = $target !== null && isset($targets[$target]) ? $targets[$target]['columns'] : [];
-            $copied        = $create !== null ? array_keys($shape['columns']) : array_values(array_intersect(array_keys($shape['columns']), array_keys($targetColumns)));
+            // A column the target computes (`GENERATED ALWAYS AS (…) STORED`) takes no value: PostgreSQL makes it.
+            $computed      = array_keys(array_filter($targetColumns, static fn (array $c): bool => $c['generated'] ?? false));
+            $copied        = $create !== null ? array_keys($shape['columns']) : array_values(array_diff(array_intersect(array_keys($shape['columns']), array_keys($targetColumns)), $computed));
             $required      = [];
             foreach ($targetColumns as $column => $definition) {
                 if (!in_array($column, $copied, true) && $definition['notnull'] && !$definition['default']) {
@@ -165,7 +170,8 @@ final class Migrator
                 'unfinished'  => $unfinished,
                 'rows'        => $shape['rows'],
                 'copied'      => $copied,
-                'sourceOnly'  => $create !== null ? [] : array_values(array_diff(array_keys($shape['columns']), $copied)),
+                'sourceOnly'  => $create !== null ? [] : array_values(array_diff(array_keys($shape['columns']), $copied, $computed)),
+                'computed'    => array_values(array_intersect($computed, array_keys($shape['columns']))),
                 'targetOnly'  => array_values(array_diff(array_keys($targetColumns), $copied)),
                 'required'    => $required,
                 'compressed'  => $create === null && $this->hasCompressedChunks($target),
@@ -682,7 +688,7 @@ final class Migrator
         $sourceTypes = $this->sourceTables()[$table['source']]['columns'];
         $repair = $this->repair[$table['source']] ?? [];
         if ($this->fdw !== null && $fdwWhere !== null && $updateKey === [] && $repair === []) {
-            $moved = $this->fdw->copy($table['source'], $table['target'], $sourceTypes, $targetColumns, $columns, $fdwWhere, [], $this->zone);
+            $moved = $this->fdw->copy($table['source'], $table['target'], $sourceTypes, $targetColumns, $columns, $fdwWhere, [], $this->zone, $this->overriding($table['target'], $columns));
             if ($moved !== null) {
                 if ($progress !== null) {
                     $progress($table['source'], $moved, 0);
@@ -776,7 +782,8 @@ final class Migrator
             ? ' ON CONFLICT DO NOTHING'
             : ' ON CONFLICT (' . implode(', ', array_map($quote, $updateKey)) . ')'
                 . ($others === [] ? ' DO NOTHING' : ' DO UPDATE SET ' . implode(', ', array_map(static fn (string $c): string => $quote($c) . ' = EXCLUDED.' . $quote($c), $others)));
-        $head       = 'INSERT INTO ' . $this->quoted($table) . ' (' . implode(', ', array_map(static fn (string $c): string => '"' . str_replace('"', '""', $c) . '"', $columns)) . ') VALUES ';
+        $head       = 'INSERT INTO ' . $this->quoted($table) . ' (' . implode(', ', array_map(static fn (string $c): string => '"' . str_replace('"', '""', $c) . '"', $columns)) . ')'
+            . ($this->overriding($table, $columns) ? ' OVERRIDING SYSTEM VALUE' : '') . ' VALUES ';
         $statement  = static function (int $count, int $width) use ($head, $conflict): string {
             $groups = [];
             for ($r = 0, $n = 1; $r < $count; $r++) {
@@ -934,11 +941,12 @@ final class Migrator
             $tables[$row['s'] === 'public' ? (string) $row['t'] : $row['s'] . '.' . $row['t']] = ['columns' => []];
         }
         foreach ($this->rows('SELECT ns.nspname AS s, c.relname AS t, a.attname AS col, format_type(a.atttypid, a.atttypmod) AS type, a.attnotnull AS nn,'
-            . ' (a.atthasdef OR a.attidentity <> \'\') AS def FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid JOIN pg_namespace ns ON ns.oid = c.relnamespace'
+            . ' (a.atthasdef OR a.attidentity <> \'\') AS def, a.attidentity AS ident, a.attgenerated AS gen FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid JOIN pg_namespace ns ON ns.oid = c.relnamespace'
             . " WHERE c.relkind IN ('r', 'p') AND a.attnum > 0 AND NOT a.attisdropped") as $row) {
             $name = $row['s'] === 'public' ? (string) $row['t'] : $row['s'] . '.' . $row['t'];
             if (isset($tables[$name])) {
-                $tables[$name]['columns'][(string) $row['col']] = ['type' => (string) $row['type'], 'notnull' => in_array($row['nn'], [true, 't', 1, '1'], true), 'default' => in_array($row['def'], [true, 't', 1, '1'], true)];
+                $tables[$name]['columns'][(string) $row['col']] = ['type' => (string) $row['type'], 'notnull' => in_array($row['nn'], [true, 't', 1, '1'], true), 'default' => in_array($row['def'], [true, 't', 1, '1'], true),
+                    'always' => $row['ident'] === 'a', 'generated' => (string) $row['gen'] !== ''];
             }
         }
 
@@ -1126,6 +1134,26 @@ final class Migrator
         }
 
         return $found;
+    }
+
+    /**
+     * Whether an insert of these columns names a `GENERATED ALWAYS` identity: PostgreSQL then
+     * refuses the value — every row of the table — unless told `OVERRIDING SYSTEM VALUE`. The
+     * moved id is the one the rows that point at it name, so it is kept, and the sequence moved
+     * past it after.
+     *
+     * @param list<string> $columns
+     */
+    private function overriding(string $table, array $columns): bool
+    {
+        if (!isset($this->always[$table])) {
+            [$schema, $bare] = str_contains($table, '.') ? explode('.', $table, 2) : ['public', $table];
+            $link = $this->target->getConnectionLink();
+            $this->always[$table] = array_column($this->rows("SELECT a.attname AS c FROM pg_attribute a JOIN pg_class t ON t.oid = a.attrelid JOIN pg_namespace n ON n.oid = t.relnamespace"
+                . " WHERE n.nspname = '" . pg_escape_string($link, $schema) . "' AND t.relname = '" . pg_escape_string($link, $bare) . "' AND a.attidentity = 'a'"), 'c');
+        }
+
+        return array_intersect($this->always[$table], $columns) !== [];
     }
 
     /** Run a statement on the target; whether it succeeded, the error left for pg_last_error(). */
