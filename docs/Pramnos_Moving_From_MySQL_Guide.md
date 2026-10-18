@@ -5,6 +5,7 @@ use_cases:
   - Backfilling years of time-series history into TimescaleDB hypertables
   - Checking before a move which tables and columns would not arrive
   - Re-running a move that stopped half way without duplicating rows
+  - Checking after a move that every row arrived as MySQL holds it
   - Finding rows whose references point at nothing after a move
   - Moving DATETIME columns into timestamptz without shifting them by the server's offset
 ---
@@ -162,7 +163,7 @@ refuses rows into them: decompress first.
 |---|---|
 | `--source` | `mysql://user:password@host:port/name` |
 | `--dry-run` | Report, change nothing |
-| `--phase` | `full`, `operational`, `cutover`, `backfill` — see below |
+| `--phase` | `full`, `operational`, `cutover`, `backfill`, `verify` — see below |
 | `--tables`, `--exclude-tables` | Source tables to move, or to leave, comma-separated |
 | `--batch-size` | Rows per `INSERT` (default 5000) |
 | `--source-prefix` | The source tables' prefix, when it is not the application's |
@@ -171,6 +172,9 @@ refuses rows into them: decompress first.
 | `--null-orphans` | After a load with keys off, set references to nothing to `NULL` |
 | `--changed-column` | `cutover`: the column a changed row is told by |
 | `--with-deletes` | `cutover`: delete the rows deleted in MySQL since the copy |
+| `--append-only` | `cutover`: tables without a change column read only for new rows, not compared |
+| `--verify` | `full`, `cutover`: compare every row with MySQL once the phase is done |
+| `--no-snapshot` | `full`, `operational`: read each table a range of keys at a time, no transaction held open |
 | `--time-column` | `backfill`: the column windows are cut on |
 | `--chunk-interval` | `backfill`: a window's length (default `1 month`) |
 | `--throttle-ms` | `backfill`: a pause after each batch (default 50) |
@@ -191,8 +195,8 @@ in three phases, with the application stopped only for the middle one:
 # 1. While the application runs on MySQL: the operational tables
 php bin/pramnos db:migrate-from-mysql --source=… --phase=operational --exclude-tables=devicedata,itemlogs
 
-# 2. Writes stopped (maintenance mode), a few minutes: what changed since, then switch the app
-php bin/pramnos db:migrate-from-mysql --source=… --phase=cutover --exclude-tables=devicedata,itemlogs --with-deletes
+# 2. Writes stopped (maintenance mode), a few minutes: what changed since, checked, then switch the app
+php bin/pramnos db:migrate-from-mysql --source=… --phase=cutover --exclude-tables=devicedata,itemlogs --with-deletes --verify
 
 # 3. The application runs on PostgreSQL: history, in the background
 php bin/pramnos db:migrate-from-mysql --source=… --phase=backfill --tables=devicedata,itemlogs \
@@ -206,20 +210,57 @@ and window. Moments there are Unix times.
 each table's highest integer id are recorded. Leave the large append-only tables (readings,
 logs, mail) to the backfill.
 
+A snapshot is one MySQL transaction held open for the whole copy. On a busy source that is hours
+of undo history kept for it. `--no-snapshot` reads each table instead a range of keys at a time
+(`WHERE (key) > (last) ORDER BY key LIMIT n`), each range its own statement, so no transaction is
+held open. The price is that tables are read at different moments, and a row may point at one
+read before or after it. T0 and the highest ids are taken before the first read, so the cutover
+still catches everything written since, and the verification after it finds whatever was not
+caught.
+
 **Cutover.** What changed in MySQL since each table's copy is written over the target, with
-`ON CONFLICT (key) DO UPDATE`:
+`ON CONFLICT (primary key) DO UPDATE`. A primary key of several columns works the same as one.
+How a table is caught up depends on what it has:
 
-- **new rows**: an id past the highest one the copy saw;
-- **changed rows**: a change column at or after T0. The column is `updated_at` (or `modified`,
-  `last_modified`, `changed_at` and the like), or the one `--changed-column` names. A Unix time in
-  an integer column counts;
-- **deleted rows**, with `--with-deletes`: a key the target has and MySQL no longer has is
-  deleted.
+- **A change column** (`updated_at`, or `modified`, `last_modified`, `changed_at` and the like,
+  or the one `--changed-column` names). The rows changed at or after T0 are read, together with
+  the rows past the highest id the copy saw. A Unix time in an integer column counts.
+- **No change column.** Every row is compared with the target's row of the same key, a range of
+  keys at a time, and the rows that are missing or differ are written. This reads the whole
+  table, so it suits the small and medium tables that make up the operational set.
+- **A big table that only ever grows** (a log, a ledger), named in `--append-only`. Only the rows
+  past the highest id are read. The command says that rows which changed since the copy are not
+  seen.
 
-A table without a change column gets its new rows. The command says that rows which existed at
-the copy and changed since are not seen: copy such a table again in the cutover with
-`--phase=full --tables=…`. A table without a single primary key, or one the operational phase
-never copied, is named and left. Sequences move past the highest id, as in `full`.
+With `--with-deletes`, the target is walked a range of keys at a time, MySQL is asked which of
+those keys it still has, and the rest are deleted. Memory stays at one range whatever the table's
+size. A key whose text differs between the servers (a moment, a float) cannot be looked up across
+them: the command names it and deletes nothing in that table.
+
+A table without a primary key, or one the operational phase never copied, is named and left: copy
+it again with `--phase=full --tables=…`. Sequences move past the highest id, as in `full`.
+`-v` shows how each table was caught up.
+
+**Verify.** `--phase=verify`, or `--verify` after `full` or `cutover`, checks that the target
+holds what MySQL holds:
+
+```
+Compared with MySQL:
+✓ users: 18204 row(s) in MySQL, 18204 here
+✗ log: 2 row(s) in MySQL, 2 here, 1 different — e.g. key 1
+✗ pairs: 3 row(s) in MySQL, 4 here, 1 MySQL has not — e.g. key 9, q
+```
+
+- Each table's rows are counted on both sides.
+- Every source row is converted as the move converts it, and compared with the target's row of
+  the same key by a hash PostgreSQL computes for both. A flag that became a `boolean`, a
+  `datetime` that became a `timestamptz` and JSON reformatted by `jsonb` therefore compare equal.
+- The target is walked for rows MySQL no longer has.
+
+Nothing is changed, and the command exits `1` on any difference, naming up to five keys. Run it
+with writes stopped: rows the application writes to PostgreSQL afterwards count as differences.
+So does a reference that `--null-orphans` set to NULL. A table without a primary key is counted
+but not compared.
 
 **Backfill.** A table's history moves in windows of `--chunk-interval` on `--time-column`, newest
 first. The first window ends at `--until`, by default the moment the cutover finished, so what

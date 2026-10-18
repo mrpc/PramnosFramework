@@ -37,7 +37,9 @@ class DatabaseMigrateFromMysql extends Command
             ->setDescription('Move the data from a MySQL database into this PostgreSQL one')
             ->addOption('source', null, InputOption::VALUE_REQUIRED, 'The MySQL database: mysql://user:password@host:port/name (default: migration_source in app.php)')
             ->addOption('dry-run', null, InputOption::VALUE_NONE, 'Report what would move, change nothing')
-            ->addOption('phase', null, InputOption::VALUE_REQUIRED, 'full | operational | cutover | backfill', 'full')
+            ->addOption('phase', null, InputOption::VALUE_REQUIRED, 'full | operational | cutover | backfill | verify', 'full')
+            ->addOption('verify', null, InputOption::VALUE_NONE, 'full, cutover: compare every row with MySQL once the phase is done')
+            ->addOption('no-snapshot', null, InputOption::VALUE_NONE, 'full, operational: read each table a range of keys at a time, no transaction held open on MySQL')
             ->addOption('tables', null, InputOption::VALUE_REQUIRED, 'Only these source tables, comma-separated')
             ->addOption('exclude-tables', null, InputOption::VALUE_REQUIRED, 'Leave these source tables, comma-separated')
             ->addOption('batch-size', null, InputOption::VALUE_REQUIRED, 'Rows per INSERT', '5000')
@@ -47,6 +49,7 @@ class DatabaseMigrateFromMysql extends Command
             ->addOption('null-orphans', null, InputOption::VALUE_NONE, 'After the load, set references that name no row to NULL where the column takes it')
             ->addOption('changed-column', null, InputOption::VALUE_REQUIRED, 'cutover: the column a changed row is told by, where a table has it (default: updated_at and the like)')
             ->addOption('with-deletes', null, InputOption::VALUE_NONE, 'cutover: delete here the rows deleted in MySQL since the operational copy')
+            ->addOption('append-only', null, InputOption::VALUE_REQUIRED, 'cutover: tables without a change column read only for new rows, not compared, comma-separated')
             ->addOption('time-column', null, InputOption::VALUE_REQUIRED, 'backfill: the column windows are cut on')
             ->addOption('chunk-interval', null, InputOption::VALUE_REQUIRED, 'backfill: each window\'s length', '1 month')
             ->addOption('throttle-ms', null, InputOption::VALUE_REQUIRED, 'backfill: a pause after each batch', '50')
@@ -75,8 +78,8 @@ class DatabaseMigrateFromMysql extends Command
             return Command::FAILURE;
         }
         $phase = (string) $input->getOption('phase');
-        if (!in_array($phase, ['full', 'operational', 'cutover', 'backfill'], true)) {
-            $output->writeln('<error>No phase ' . $phase . ':</error> full, operational, cutover or backfill.');
+        if (!in_array($phase, ['full', 'operational', 'cutover', 'backfill', 'verify'], true)) {
+            $output->writeln('<error>No phase ' . $phase . ':</error> full, operational, cutover, backfill or verify.');
 
             return Command::FAILURE;
         }
@@ -143,6 +146,9 @@ class DatabaseMigrateFromMysql extends Command
             }
         };
         $batch = (int) $input->getOption('batch-size');
+        if ($phase === 'verify') {
+            return $this->reportVerify($output, $migrator->verify($plan, $batch));
+        }
         if ($phase === 'backfill') {
             $until = $input->getOption('until') !== null ? strtotime((string) $input->getOption('until')) : null;
             try {
@@ -159,25 +165,54 @@ class DatabaseMigrateFromMysql extends Command
         }
         if ($phase === 'cutover') {
             $result = $migrator->cutover($plan, $batch, $list($input->getOption('changed-column')), (bool) $input->getOption('with-deletes'),
-                !$input->getOption('keep-constraints'), (bool) $input->getOption('null-orphans'), $progress);
+                !$input->getOption('keep-constraints'), (bool) $input->getOption('null-orphans'), $progress, $list($input->getOption('append-only')));
             foreach ($result['tables'] as $name => $t) {
-                if ($t['unseen'] !== null) {
-                    $output->writeln('<comment>' . $name . ': ' . $t['unseen'] . '</comment>');
+                if ($t['how'] !== null && $output->isVerbose()) {
+                    $output->writeln($name . ': ' . $t['how']);
                 }
-                if (($t['deleted'] ?? 0) > 0) {
+                foreach (array_filter([$t['unseen'], $t['unchecked']]) as $note) {
+                    $output->writeln('<comment>' . $name . ': ' . $note . '</comment>');
+                }
+                if ($t['deleted'] > 0) {
                     $output->writeln($name . ': ' . $t['deleted'] . ' row(s) deleted since the copy, deleted here too');
                 }
             }
-
-            return $this->reportResult($output, $result);
+            $code = $this->reportResult($output, $result);
+        } else {
+            $result = $migrator->run($plan, $batch, !$input->getOption('keep-constraints'), (bool) $input->getOption('null-orphans'), $progress, $phase === 'operational',
+                !$input->getOption('no-snapshot'));
+            if ($phase === 'operational') {
+                $output->writeln('The moment of the copy is recorded. Stop the application\'s writes, then run <info>--phase=cutover</info>.');
+            }
+            $code = $this->reportResult($output, $result);
+        }
+        if ($input->getOption('verify') && $phase !== 'operational') {
+            $verified = $this->reportVerify($output, $migrator->verify($plan, $batch));
+            $code     = $code === Command::SUCCESS ? $verified : $code;
         }
 
-        $result = $migrator->run($plan, $batch, !$input->getOption('keep-constraints'), (bool) $input->getOption('null-orphans'), $progress, $phase === 'operational');
-        if ($phase === 'operational') {
-            $output->writeln('The moment of the copy is recorded. Stop the application\'s writes, then run <info>--phase=cutover</info>.');
+        return $code;
+    }
+
+    /** @param array<string, array<string, mixed>> $result */
+    private function reportVerify(OutputInterface $output, array $result): int
+    {
+        $output->writeln('<info>Compared with MySQL:</info>');
+        $failed = false;
+        foreach ($result as $name => $t) {
+            $off    = $t['source'] !== $t['target'] || $t['missing'] + $t['different'] + $t['extra'] > 0;
+            $failed = $failed || $off;
+            $output->writeln(($off ? '<error>✗</error> ' : '<info>✓</info> ') . $name . ': ' . $t['source'] . ' row(s) in MySQL, ' . $t['target'] . ' here'
+                . ($t['missing'] > 0 ? ', ' . $t['missing'] . ' missing' : '')
+                . ($t['different'] > 0 ? ', ' . $t['different'] . ' different' : '')
+                . ($t['extra'] > 0 ? ', ' . $t['extra'] . ' MySQL has not' : '')
+                . ($t['keys'] !== [] ? ' — e.g. key ' . implode('; ', $t['keys']) : ''));
+            if ($t['unchecked'] !== null) {
+                $output->writeln('      <comment>' . $t['unchecked'] . '</comment>');
+            }
         }
 
-        return $this->reportResult($output, $result);
+        return $failed ? Command::FAILURE : Command::SUCCESS;
     }
 
     /**
@@ -296,7 +331,11 @@ class DatabaseMigrateFromMysql extends Command
         }
         foreach ($result['orphans'] as $o) {
             $output->writeln('<comment>' . $o['rows'] . ' row(s) of ' . $o['table'] . '.' . $o['column'] . ' name no ' . $o['references'] . '</comment>'
-                . ($o['nulled'] ? ' — set to NULL' : ' — <info>--null-orphans</info> sets them to NULL'));
+                . match (true) {
+                    $o['nulled']    => ' — set to NULL',
+                    !$o['nullable'] => ' — the column takes no NULL: delete them, or add what they name',
+                    default         => ' — <info>--null-orphans</info> sets them to NULL',
+                });
         }
         $output->writeln(count($result['sequences']) . ' sequence(s) moved past the highest id.');
 

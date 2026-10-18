@@ -24,6 +24,7 @@ use Symfony\Component\Console\Tester\CommandTester;
  * compressed as windows finish and decompressed when a window is written again.
  */
 #[CoversClass(Migrator::class)]
+#[CoversClass(\Pramnos\Database\FromMysql\KeyRanges::class)]
 #[CoversClass(\Pramnos\Database\FromMysql\FdwTransport::class)]
 #[CoversClass(ProgressTracker::class)]
 #[CoversClass(DatabaseMigrateFromMysql::class)]
@@ -135,9 +136,16 @@ class MigrateFromMysqlPhasesTest extends TestCase
     }
 
     /**
-     * Operational, then changes in MySQL, then the cutover: the new row arrives, the changed row
-     * is written over, the deleted row is deleted, a table without a change column is named, a
-     * table the operational copy never saw is named, and the sequence continues past the new id.
+     * Operational, then changes in MySQL, then the cutover, then a verification.
+     *
+     * The operational copy reads each table a key range at a time (`--no-snapshot`,
+     * `--batch-size=1`, so every table takes several). The cutover then catches each table up the
+     * way it can: by its change column (`items`), by comparing every row with the target where it
+     * has none — a single key (`users`) or a composite one (`pairs`) — and, for a table named
+     * append-only, by its new rows alone (`log`), saying what that leaves unseen. Deletions are
+     * found by walking the target's keys, composite ones too. A table the copy never saw is
+     * named. The verification compares every row: what append-only left behind and a row only
+     * the target has are both found, and it fails; the tables caught up compare equal.
      */
     public function testOperationalThenCutover(): void
     {
@@ -147,16 +155,23 @@ class MigrateFromMysqlPhasesTest extends TestCase
             "INSERT INTO users VALUES (1, 'maria'), (2, 'nikos')",
             'CREATE TABLE items (id INT AUTO_INCREMENT PRIMARY KEY, label VARCHAR(20), updated_at DATETIME) ENGINE=InnoDB',
             "INSERT INTO items VALUES (1, 'one', '2026-01-01 00:00:00'), (2, 'two', '2026-01-01 00:00:00'), (3, 'three', '2026-01-01 00:00:00')",
+            'CREATE TABLE pairs (a INT, b VARCHAR(5), v INT, PRIMARY KEY (a, b)) ENGINE=InnoDB',
+            "INSERT INTO pairs VALUES (1, 'x', 1), (1, 'y', 2), (2, 'x', 3)",
+            'CREATE TABLE log (id INT AUTO_INCREMENT PRIMARY KEY, msg VARCHAR(20)) ENGINE=InnoDB',
+            "INSERT INTO log VALUES (1, 'start')",
             'CREATE TABLE notes (id INT PRIMARY KEY, body VARCHAR(20)) ENGINE=InnoDB',
             "INSERT INTO notes VALUES (1, 'n')",
         ], [
             'CREATE TABLE users (userid SERIAL PRIMARY KEY, username VARCHAR(50))',
             'CREATE TABLE items (id SERIAL PRIMARY KEY, label VARCHAR(20), updated_at TIMESTAMP)',
+            'CREATE TABLE pairs (a INT, b VARCHAR(5), v INT, PRIMARY KEY (a, b))',
+            'CREATE TABLE log (id SERIAL PRIMARY KEY, msg VARCHAR(20))',
             'CREATE TABLE notes (id INT PRIMARY KEY, body VARCHAR(20))',
         ]);
+        $moving = ['--source' => $this->dsn(), '--tables' => 'users,items,pairs,log'];
 
-        // Act — the copy while the application runs
-        $copied = $tester->execute(['--source' => $this->dsn(), '--phase' => 'operational', '--tables' => 'users,items']);
+        // Act — the copy while the application runs, no transaction held open on MySQL
+        $copied   = $tester->execute($moving + ['--phase' => 'operational', '--no-snapshot' => true, '--batch-size' => '1']);
         $copyText = $tester->getDisplay();
         // …the application keeps writing to MySQL…
         sleep(1);
@@ -165,26 +180,47 @@ class MigrateFromMysqlPhasesTest extends TestCase
             "UPDATE users SET username = 'NIKOS' WHERE userid = 2",
             "UPDATE items SET label = 'TWO', updated_at = NOW() WHERE id = 2",
             'DELETE FROM items WHERE id = 3',
+            "UPDATE pairs SET v = 20 WHERE a = 1 AND b = 'y'",
+            "INSERT INTO pairs VALUES (3, 'z', 4)",
+            "DELETE FROM pairs WHERE a = 2 AND b = 'x'",
+            "INSERT INTO log (msg) VALUES ('more')",
+            "UPDATE log SET msg = 'started' WHERE id = 1",
         ] as $sql) {
             $this->source->query($sql);
         }
         // …and the cutover, with writes stopped
-        $cut  = $tester->execute(['--source' => $this->dsn(), '--phase' => 'cutover', '--tables' => 'users,items,notes', '--with-deletes' => true]);
+        $cut  = $tester->execute(['--source' => $this->dsn(), '--tables' => 'users,items,pairs,log,notes', '--phase' => 'cutover', '--with-deletes' => true,
+            '--append-only' => 'log', '--batch-size' => '1'], ['verbosity' => \Symfony\Component\Console\Output\OutputInterface::VERBOSITY_VERBOSE]);
         $text = $tester->getDisplay();
         $this->target->query("INSERT INTO users (username) VALUES ('next')");
+        $this->target->query("INSERT INTO pairs VALUES (9, 'q', 0)");
+        $verified = $tester->execute($moving + ['--phase' => 'verify', '--batch-size' => '2']);
+        $report   = $tester->getDisplay();
 
         // Assert
         $this->assertSame(0, $copied, $copyText);
         $this->assertStringContainsString('Stop the application', $copyText);
         $this->assertSame(0, $cut, $text);
-        $this->assertSame(['maria', 'nikos', 'eleni', 'next'], array_column($this->rows('SELECT username FROM users ORDER BY userid'), 'username'),
-            'the new user arrived; the renamed one was not seen — users has no change column');
-        $this->assertStringContainsString('users: no change column', $text);
+        $this->assertSame(['maria', 'NIKOS', 'eleni', 'next'], array_column($this->rows('SELECT username FROM users ORDER BY userid'), 'username'),
+            'users has no change column: compared, the new user and the renamed one both found');
+        $this->assertStringContainsString('users: compared: 1 new, 1 changed of 3', $text);
         $this->assertSame([['id' => 1, 'label' => 'one'], ['id' => 2, 'label' => 'TWO']], array_map(static fn (array $r): array => ['id' => (int) $r['id'], 'label' => $r['label']], $this->rows('SELECT id, label FROM items ORDER BY id')));
+        $this->assertStringContainsString('items: changed by updated_at', $text);
         $this->assertStringContainsString('items: 1 row(s) deleted since the copy', $text);
+        $this->assertSame(['1|x|1', '1|y|20', '3|z|4', '9|q|0'], array_map(static fn (array $r): string => $r['a'] . '|' . $r['b'] . '|' . $r['v'], $this->rows('SELECT a, b, v FROM pairs ORDER BY a, b')),
+            'the composite key: changed, new and deleted rows all caught up (9|q was written after)');
+        $this->assertStringContainsString('pairs: 1 row(s) deleted since the copy', $text);
+        $this->assertSame(['start', 'more'], array_column($this->rows('SELECT msg FROM log ORDER BY id'), 'msg'), 'append-only: the new row, not the change');
+        $this->assertStringContainsString('log: append-only: rows that existed at the copy and changed since are not seen', $text);
         $this->assertStringContainsString('notes: not copied in the operational phase', $text);
         $this->assertSame(4, (int) $this->rows("SELECT userid FROM users WHERE username = 'next'")[0]['userid'], 'the sequence continues');
-        $this->assertCount(2, $this->rows("SELECT * FROM pramnos_migration_progress WHERE phase = 'cutover'"));
+        $this->assertCount(4, $this->rows("SELECT * FROM pramnos_migration_progress WHERE phase = 'cutover'"));
+
+        $this->assertSame(1, $verified, $report);
+        $this->assertStringContainsString('✓ items: 2 row(s) in MySQL, 2 here', $report);
+        $this->assertStringContainsString('✗ log: 2 row(s) in MySQL, 2 here, 1 different — e.g. key 1', $report, 'what append-only left behind');
+        $this->assertStringContainsString('✗ pairs: 3 row(s) in MySQL, 4 here, 1 MySQL has not — e.g. key 9, q', $report);
+        $this->assertStringContainsString('✗ users: 3 row(s) in MySQL, 4 here, 1 MySQL has not', $report, 'a row the application wrote here since');
     }
 
     /**
@@ -350,7 +386,7 @@ class MigrateFromMysqlPhasesTest extends TestCase
 
         // Assert
         $this->assertSame([1, 20], array_map('intval', array_column($this->rows('SELECT n FROM ticks ORDER BY id'), 'n')), 'the integer change column found the change');
-        $this->assertStringContainsString('loose: no single primary key or change column', $cutText);
+        $this->assertStringContainsString('loose: no primary key the target has', $cutText);
         $this->assertSame(0, $back, $backText);
         $this->assertStringContainsString('events: 3 window(s), 3 inserted' . ($transport === 'fdw' ? ', 3 through mysql_fdw' : ''), $backText);
         $this->assertStringContainsString('quiet: 0 window(s), 0 inserted', $backText, 'an empty table has no windows');

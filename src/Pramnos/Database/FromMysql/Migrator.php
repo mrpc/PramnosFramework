@@ -187,9 +187,12 @@ final class Migrator
      * @param bool                 $nullOrphans After a load without keys, set orphaned references to NULL where the column takes it
      * @param (callable(string, int, int): void)|null $progress Table, rows inserted, rows refused — after each batch
      * @param bool $operational Record each table's moment and highest id, for {@see cutover()}
+     * @param bool $snapshot    Read every table in one snapshot; false reads each a range of keys
+     *                          at a time, no transaction held open — for a source too busy to
+     *                          keep one for hours, at the price of tables read at different moments
      * @return array{tables: array<string, array{inserted: int, refused: int, nulled: int, errors: list<string>}>, orphans: list<array<string, mixed>>, sequences: list<array<string, mixed>>, replica: bool, finished: array<string, array{made: int, unchecked: list<string>, errors: list<string>}>}
      */
-    public function run(array $plan, int $batch = 5000, bool $useReplica = true, bool $nullOrphans = false, ?callable $progress = null, bool $operational = false): array
+    public function run(array $plan, int $batch = 5000, bool $useReplica = true, bool $nullOrphans = false, ?callable $progress = null, bool $operational = false, bool $snapshot = true): array
     {
         $result = ['tables' => [], 'orphans' => [], 'sequences' => [], 'replica' => false];
         foreach ($plan['order'] as $name) {
@@ -203,7 +206,9 @@ final class Migrator
         $result['replica'] = $replica;
         $mysqli = $this->source->getConnectionLink();
         // One snapshot for every table: rows that point at each other were read at one moment.
-        $mysqli->query('START TRANSACTION WITH CONSISTENT SNAPSHOT');
+        if ($snapshot) {
+            $mysqli->query('START TRANSACTION WITH CONSISTENT SNAPSHOT');
+        }
         try {
             // The moment of the snapshot, as the source itself tells it, and each table's highest
             // id in it: what the cutover reads changes from.
@@ -221,7 +226,7 @@ final class Migrator
             $targets = $this->targetTables();
             foreach ($plan['order'] as $name) {
                 $table = $plan['tables'][$name];
-                $result['tables'][$name] = $this->copyTable($table, $targets[$table['target']]['columns'] ?? [], max(1, $batch), $progress, '', [], 0, '');
+                $result['tables'][$name] = $this->copyTable($table, $targets[$table['target']]['columns'] ?? [], max(1, $batch), $progress, '', [], 0, '', !$snapshot);
                 if ($operational) {
                     $this->tracker()->put($name, 'operational', 0, (int) $moment['ts'], $result['tables'][$name]['inserted'], ProgressTracker::DONE, [
                         'now'   => (string) $moment['now'],
@@ -230,7 +235,9 @@ final class Migrator
                 }
             }
         } finally {
-            $mysqli->query('COMMIT');
+            if ($snapshot) {
+                $mysqli->query('COMMIT');
+            }
             if ($replica) {
                 $this->setReplica(false);
             }
@@ -268,18 +275,23 @@ final class Migrator
 
     /**
      * The cutover: what changed in MySQL since each table's operational copy, moved with the
-     * application stopped.
+     * application stopped, and written over what the target holds.
      *
-     * New rows are those past the highest id the copy saw; changed rows are those whose change
-     * column (`updated_at` and the like, or `$changed`) is at or after the copy's moment. Both
-     * are written over what the target holds. A table with neither is named: its changes are not
-     * seen. With `$deletes`, rows deleted in MySQL since are deleted here too, by key.
+     * A table with a change column (`updated_at` and the like, or `$changed`) is read for the
+     * rows changed at or after the copy's moment, and for the rows past the highest id it saw. A
+     * table without one is compared row by row with the target, by its primary key — single or
+     * composite — and what is missing or differs is written: slower, as the whole table is read,
+     * so a big table that only ever grows is named in `$appendOnly` and read for its new rows
+     * only. With `$deletes`, the target's rows whose key MySQL no longer has are deleted, the
+     * target walked a range of keys at a time. A table with no primary key is named: it cannot be
+     * caught up, only copied again.
      *
      * @param array<string, mixed> $plan
-     * @param list<string>         $changed Change columns to use where a table has one
+     * @param list<string>         $changed    Change columns to use where a table has one
+     * @param list<string>         $appendOnly Tables read only for rows past the copy's highest id
      * @return array{tables: array<string, array<string, mixed>>, orphans: list<array<string, mixed>>, sequences: list<array<string, mixed>>, replica: bool}
      */
-    public function cutover(array $plan, int $batch = 5000, array $changed = [], bool $deletes = false, bool $useReplica = true, bool $nullOrphans = false, ?callable $progress = null): array
+    public function cutover(array $plan, int $batch = 5000, array $changed = [], bool $deletes = false, bool $useReplica = true, bool $nullOrphans = false, ?callable $progress = null, array $appendOnly = []): array
     {
         $result  = ['tables' => [], 'orphans' => [], 'sequences' => [], 'replica' => false];
         $replica = $useReplica && $plan['replica'] && $this->setReplica(true);
@@ -289,35 +301,56 @@ final class Migrator
             foreach ($plan['order'] as $name) {
                 $table = $plan['tables'][$name];
                 $state = $this->tracker()->of($name, 'operational')[0] ?? null;
-                $note  = ['inserted' => 0, 'refused' => 0, 'nulled' => 0, 'errors' => [], 'deleted' => 0, 'changeColumn' => null, 'unseen' => null];
+                $note  = ['inserted' => 0, 'refused' => 0, 'nulled' => 0, 'errors' => [], 'deleted' => 0, 'how' => null, 'unseen' => null, 'unchecked' => null];
                 if ($state === null) {
                     $result['tables'][$name] = ['unseen' => 'not copied in the operational phase'] + $note;
                     continue;
                 }
-                $key     = $this->integerKey($name) ?? ($this->sourceTables()[$name]['primary'][0] ?? null);
-                $columns = $this->sourceTables()[$name]['columns'];
-                $column  = null;
+                $shape = $this->sourceTables()[$name];
+                $key   = $shape['primary'];
+                if ($key === [] || array_diff($key, $table['copied']) !== []) {
+                    $result['tables'][$name] = ['unseen' => 'no primary key the target has: changes since the copy are not seen; copy it again'] + $note;
+                    continue;
+                }
+                $column = null;
                 foreach ([...$changed, ...self::CHANGE_COLUMNS] as $candidate) {
-                    if (isset($columns[$candidate])) {
+                    if (isset($shape['columns'][$candidate])) {
                         $column = $candidate;
                         break;
                     }
                 }
-                $conditions = [];
-                if (($state['detail']['maxId'] ?? null) !== null && $key !== null) {
-                    $conditions[] = '`' . $key . '` > ' . (int) $state['detail']['maxId'];
+                $integer   = $this->integerKey($name);
+                $maxId     = $state['detail']['maxId'] ?? null;
+                $newRows   = $integer !== null && $maxId !== null ? '`' . str_replace('`', '``', $integer) . '` > ' . (int) $maxId : null;
+                $targetSet = $targets[$table['target']]['columns'] ?? [];
+                if ($column === null && in_array($name, $appendOnly, true)) {
+                    if ($newRows === null) {
+                        $result['tables'][$name] = ['unseen' => 'append-only, but no integer key to tell new rows by'] + $note;
+                        continue;
+                    }
+                    $stats = $this->copyTable($table, $targetSet, max(1, $batch), $progress, $newRows, $key)
+                        + ['how' => 'new rows by ' . $integer, 'unseen' => 'append-only: rows that existed at the copy and changed since are not seen'];
+                } elseif ($column !== null) {
+                    $since = '`' . str_replace('`', '``', $column) . '` >= ' . $this->sourceMoment((int) $state['end'], (string) $shape['columns'][$column]['type']);
+                    $stats = $this->copyTable($table, $targetSet, max(1, $batch), $progress, $newRows !== null ? $since . ' OR ' . $newRows : $since, $key)
+                        + ['how' => 'changed by ' . $column, 'unseen' => null];
+                } else {
+                    // No way to tell a change but to look: every row against the target's.
+                    $stats = ['inserted' => 0, 'refused' => 0, 'nulled' => 0, 'errors' => []];
+                    $found = $this->ranges()->compare($name, $table['target'], $key, $table['copied'], $shape['columns'], $targetSet, max(1, $batch),
+                        function (array $rows) use ($table, $key, &$stats, $progress, $name): void {
+                            $this->insert($table['target'], $table['copied'], $rows, $stats, $key);
+                            if ($progress !== null) {
+                                $progress($name, $stats['inserted'], $stats['refused']);
+                            }
+                        });
+                    $stats += ['how' => 'compared: ' . $found['missing'] . ' new, ' . $found['different'] . ' changed of ' . $found['rows'], 'unseen' => null];
                 }
-                if ($column !== null) {
-                    $conditions[] = '`' . $column . '` >= ' . $this->sourceMoment((int) $state['end'], (string) $columns[$column]['type']);
-                }
-                if ($conditions === [] || $key === null || count($this->sourceTables()[$name]['primary']) !== 1) {
-                    $result['tables'][$name] = ['unseen' => 'no single primary key or change column: changes since the copy are not seen; copy it again'] + $note;
-                    continue;
-                }
-                $stats = $this->copyTable($table, $targets[$table['target']]['columns'] ?? [], max(1, $batch), $progress, implode(' OR ', $conditions), in_array($key, $table['copied'], true) ? [$key] : []);
-                $stats += ['deleted' => 0, 'changeColumn' => $column, 'unseen' => $column === null ? 'no change column: rows that existed at the copy and changed since are not seen' : null];
+                $stats += ['deleted' => 0, 'unchecked' => null];
                 if ($deletes) {
-                    $stats['deleted'] = $this->deleteMissing($name, $table['target'], $key, (string) ($targets[$table['target']]['columns'][$key]['type'] ?? 'bigint'));
+                    $gone               = $this->ranges()->extras($name, $table['target'], $key, $targetSet, max(1, $batch), true);
+                    $stats['deleted']   = $gone['deleted'];
+                    $stats['unchecked'] = $gone['unchecked'];
                 }
                 $this->tracker()->put($name, 'cutover', 0, time(), $stats['inserted'], ProgressTracker::DONE, ['deleted' => $stats['deleted']]);
                 $result['tables'][$name] = $stats;
@@ -332,6 +365,49 @@ final class Migrator
             $result['orphans'] = $this->orphans($moved, $nullOrphans);
         }
         $result['sequences'] = $this->alignSequences($moved);
+
+        return $result;
+    }
+
+    /**
+     * Whether the target holds what MySQL holds: each table's rows counted on both sides, then
+     * every source row compared with the target's row of the same key, as the move would have
+     * written it, and the target's rows MySQL no longer has looked for. Nothing is changed.
+     *
+     * Run it once the writes are stopped — after the cutover, before the application writes to
+     * PostgreSQL — or rows written since are differences. A reference set to NULL as an orphan
+     * is one too.
+     *
+     * @param array<string, mixed> $plan
+     * @return array<string, array{source: int, target: int, missing: int, different: int, extra: int, keys: list<string>, unchecked: ?string}>
+     */
+    public function verify(array $plan, int $batch = 5000): array
+    {
+        $targets = $this->targetTables();
+        $result  = [];
+        foreach ($plan['order'] as $name) {
+            $table  = $plan['tables'][$name];
+            $shape  = $this->sourceTables()[$name];
+            $quoted = '`' . str_replace('`', '``', $name) . '`';
+            $stats  = [
+                'source'    => (int) ($this->sourceRows('SELECT COUNT(*) AS n FROM ' . $quoted)[0]['n'] ?? 0),
+                'target'    => isset($targets[$table['target']]) ? (int) ($this->rows('SELECT COUNT(*) AS n FROM ' . $this->quoted($table['target']))[0]['n'] ?? 0) : 0,
+                'missing'   => 0, 'different' => 0, 'extra' => 0, 'keys' => [], 'unchecked' => null,
+            ];
+            if (!isset($targets[$table['target']])) {
+                $result[$name] = ['unchecked' => 'the target has no such table'] + $stats;
+                continue;
+            }
+            $key = $shape['primary'];
+            if ($key === [] || array_diff($key, $table['copied']) !== []) {
+                $result[$name] = ['unchecked' => 'no primary key the target has: rows counted, not compared'] + $stats;
+                continue;
+            }
+            $same  = $this->ranges()->compare($name, $table['target'], $key, $table['copied'], $shape['columns'], $targets[$table['target']]['columns'], max(1, $batch));
+            $extra = $this->ranges()->extras($name, $table['target'], $key, $targets[$table['target']]['columns'], max(1, $batch), false);
+            $result[$name] = ['missing' => $same['missing'], 'different' => $same['different'], 'extra' => $extra['rows'],
+                'keys' => array_slice([...$same['keys'], ...$extra['keys']], 0, 5), 'unchecked' => $extra['unchecked']] + $stats;
+        }
 
         return $result;
     }
@@ -456,6 +532,12 @@ final class Migrator
         return "'" . (new \DateTimeImmutable('@' . $at))->setTimezone($zone)->format('Y-m-d H:i:s') . "'";
     }
 
+    /** Key-range reads and comparisons over the two sides. */
+    private function ranges(): KeyRanges
+    {
+        return new KeyRanges($this->source, $this->target, $this->zone);
+    }
+
     /** The tracker, on the target. */
     public function tracker(): ProgressTracker
     {
@@ -472,38 +554,6 @@ final class Migrator
         $key = $shape['primary'][0];
 
         return preg_match('/int/i', (string) $shape['columns'][$key]['type']) === 1 ? $key : null;
-    }
-
-    /**
-     * Delete the target's rows whose key MySQL no longer has. Returns how many went.
-     */
-    private function deleteMissing(string $source, string $target, string $key, string $type): int
-    {
-        $present = [];
-        $read    = $this->source->getConnectionLink()->query('SELECT `' . str_replace('`', '``', $key) . '` AS k FROM `' . str_replace('`', '``', $source) . '`', MYSQLI_USE_RESULT);
-        while ($read && ($row = $read->fetch_assoc()) !== null) {
-            $present[(string) $row['k']] = true;
-        }
-        if ($read) {
-            $read->free();
-        }
-        $gone = [];
-        foreach ($this->rows('SELECT "' . $key . '" AS k FROM ' . $this->quoted($target)) as $row) {
-            if (!isset($present[(string) $row['k']])) {
-                $gone[] = (string) $row['k'];
-            }
-        }
-        $deleted = 0;
-        foreach (array_chunk($gone, 1000) as $keys) {
-            $result = @pg_query_params(
-                $this->target->getConnectionLink(),
-                'DELETE FROM ' . $this->quoted($target) . ' WHERE "' . $key . '"::text = ANY($1::text[])',
-                ['{' . implode(',', array_map(static fn (string $k): string => '"' . addcslashes($k, '"\\') . '"', $keys)) . '}']
-            );
-            $deleted += $result !== false ? pg_affected_rows($result) : 0;
-        }
-
-        return $deleted;
     }
 
     /** The type of a hypertable's time dimension, or null when the table is not one. */
@@ -580,9 +630,10 @@ final class Migrator
      * @param list<string> $updateKey  Columns a conflict is judged on, to update the row; [] keeps the existing row
      * @param int          $throttleMs A pause after each batch, for a load beside live traffic
      * @param string|null  $fdwWhere   The same condition for the foreign table, or null where `mysql_fdw` is not to be used
+     * @param bool         $byKey      Read a range of keys at a time, each its own statement, where the table has a primary key
      * @return array{inserted: int, refused: int, nulled: int, errors: list<string>}
      */
-    private function copyTable(array $table, array $targetColumns, int $batch, ?callable $progress, string $where = '', array $updateKey = [], int $throttleMs = 0, ?string $fdwWhere = null): array
+    private function copyTable(array $table, array $targetColumns, int $batch, ?callable $progress, string $where = '', array $updateKey = [], int $throttleMs = 0, ?string $fdwWhere = null, bool $byKey = false): array
     {
         $stats   = ['inserted' => 0, 'refused' => 0, 'nulled' => 0, 'errors' => []];
         $columns = $table['copied'];
@@ -602,15 +653,17 @@ final class Migrator
             // What PostgreSQL could not convert, PHP can: the same rows, the slower way.
             $stats['errors'][] = 'mysql_fdw refused it (' . $this->fdw->lastError() . '); moved through PHP';
         }
-        $perBatch    = max(1, min($batch, intdiv(self::MAX_PARAMETERS, count($columns))));
-        $mysqli      = $this->source->getConnectionLink();
-        $read        = $mysqli->query(
-            'SELECT ' . implode(', ', array_map(static fn (string $c): string => '`' . str_replace('`', '``', $c) . '`', $columns))
-            . ' FROM `' . str_replace('`', '``', $table['source']) . '`' . ($where !== '' ? ' WHERE ' . $where : ''),
-            MYSQLI_USE_RESULT
-        );
+        $perBatch = max(1, min($batch, intdiv(self::MAX_PARAMETERS, count($columns))));
+        $key      = $this->sourceTables()[$table['source']]['primary'];
+        $read     = $byKey && $key !== [] && array_diff($key, $columns) === []
+            ? (function () use ($table, $key, $columns, $perBatch, $where): \Generator {
+                foreach ($this->ranges()->read($table['source'], $key, $columns, $perBatch, $where) as $range) {
+                    yield from $range;
+                }
+            })()
+            : $this->stream($table['source'], $columns, $where);
         $rows = [];
-        while ($read && ($row = $read->fetch_assoc()) !== null) {
+        foreach ($read as $row) {
             $converted = [];
             foreach ($columns as $column) {
                 $value = TypeMapper::value($row[$column], (string) $sourceTypes[$column]['type'], (string) ($targetColumns[$column]['type'] ?? TypeMapper::toPostgres((string) $sourceTypes[$column]['type'])), $refused, $this->zone);
@@ -629,9 +682,6 @@ final class Migrator
                 }
             }
         }
-        if ($read) {
-            $read->free();
-        }
         if ($rows !== []) {
             $this->insert($table['target'], $columns, $rows, $stats, $updateKey);
             if ($progress !== null) {
@@ -640,6 +690,30 @@ final class Migrator
         }
 
         return $stats;
+    }
+
+    /**
+     * A table's rows read by one unbuffered statement: streamed, whatever its size.
+     *
+     * @param list<string> $columns
+     * @return \Generator<int, array<string, ?string>>
+     */
+    private function stream(string $table, array $columns, string $where): \Generator
+    {
+        $read = $this->source->getConnectionLink()->query(
+            'SELECT ' . implode(', ', array_map(static fn (string $c): string => '`' . str_replace('`', '``', $c) . '`', $columns))
+            . ' FROM `' . str_replace('`', '``', $table) . '`' . ($where !== '' ? ' WHERE ' . $where : ''),
+            MYSQLI_USE_RESULT
+        );
+        try {
+            while ($read && ($row = $read->fetch_assoc()) !== null) {
+                yield $row;
+            }
+        } finally {
+            if ($read) {
+                $read->free();
+            }
+        }
     }
 
     /**
@@ -695,7 +769,7 @@ final class Migrator
      * what a load without keys can leave. With `$null`, set to NULL where the column takes it.
      *
      * @param list<string> $tables
-     * @return list<array{table: string, column: string, references: string, rows: int, nulled: bool}>
+     * @return list<array{table: string, column: string, references: string, rows: int, nulled: bool, nullable: bool}>
      */
     private function orphans(array $tables, bool $null): array
     {
@@ -717,7 +791,7 @@ final class Migrator
                     . '" = ' . $this->quoted($key['table']) . '."' . $key['column'] . '")');
                 $nulled = true;
             }
-            $found[] = ['table' => $key['table'], 'column' => $key['column'], 'references' => $key['references'], 'rows' => $count, 'nulled' => $nulled];
+            $found[] = ['table' => $key['table'], 'column' => $key['column'], 'references' => $key['references'], 'rows' => $count, 'nulled' => $nulled, 'nullable' => $key['nullable']];
         }
 
         return $found;
