@@ -45,8 +45,14 @@ final class MigrateFromMysqlOver extends DatabaseMigrateFromMysql
 #[CoversClass(DatabaseMigrateFromMysql::class)]
 #[CoversClass(TypeMapper::class)]
 #[CoversClass(TopologicalSorter::class)]
-final class MigrateFromMysqlTest extends TestCase
+class MigrateFromMysqlTest extends TestCase
 {
+    /** The source server: MySQL here, MariaDB in the subclass that runs with `--mariadb`. */
+    protected static function sourceHost(): string
+    {
+        return 'db';
+    }
+
     private ?Database $mysql = null;
 
     private ?Database $postgres = null;
@@ -68,11 +74,11 @@ final class MigrateFromMysqlTest extends TestCase
     }
 
     /** A server connection, or the test is skipped. */
-    private static function server(string $type): Database
+    protected static function server(string $type): Database
     {
         $db           = new Database();
         $db->type     = $type;
-        $db->server   = $type === 'mysql' ? 'db' : 'timescaledb';
+        $db->server   = $type === 'mysql' ? static::sourceHost() : 'timescaledb';
         $db->port     = $type === 'mysql' ? 3306 : 5432;
         $db->user     = $type === 'mysql' ? 'root' : 'postgres';
         $db->password = 'secret';
@@ -109,8 +115,8 @@ final class MigrateFromMysqlTest extends TestCase
             "INSERT INTO orders VALUES (1, 1, 12.50, 'first'), (2, 999, 3.00, 'orphan'), (3, 5, 0, '')",
             'CREATE TABLE authserver_things (id INT PRIMARY KEY, label VARCHAR(10)) ENGINE=InnoDB',
             "INSERT INTO authserver_things VALUES (1, 'thing')",
-            'CREATE TABLE only_mysql (id INT AUTO_INCREMENT PRIMARY KEY, v VARCHAR(5) NOT NULL, n INT UNSIGNED DEFAULT 7) ENGINE=InnoDB',
-            "INSERT INTO only_mysql (v) VALUES ('a'), ('b')",
+            "CREATE TABLE only_mysql (id INT AUTO_INCREMENT PRIMARY KEY, v VARCHAR(5) NOT NULL, n INT UNSIGNED DEFAULT 7, meta JSON, at DATETIME DEFAULT CURRENT_TIMESTAMP, kind VARCHAR(10) NOT NULL DEFAULT 'it''s', made DATETIME DEFAULT '0000-00-00 00:00:00') ENGINE=InnoDB",
+            "INSERT INTO only_mysql (v, meta) VALUES ('a', '{\"k\": 1}'), ('b', NULL)",
             'CREATE TABLE strict_t (id INT PRIMARY KEY) ENGINE=InnoDB',
             'INSERT INTO strict_t VALUES (1)',
         ] as $sql) {
@@ -153,7 +159,7 @@ final class MigrateFromMysqlTest extends TestCase
 
     private function dsn(): string
     {
-        return 'mysql://root:secret@db:3306/' . $this->name;
+        return 'mysql://root:secret@' . static::sourceHost() . ':3306/' . $this->name;
     }
 
     /**
@@ -200,6 +206,8 @@ final class MigrateFromMysqlTest extends TestCase
         $this->target->query("INSERT INTO users (username) VALUES ('next')");
         $next    = $this->rows("SELECT userid FROM users WHERE username = 'next'")[0]['userid'] ?? null;
         $made    = $this->rows('SELECT id, v, n FROM only_mysql ORDER BY id');
+        $meta    = $this->rows('SELECT meta::text AS meta FROM only_mysql ORDER BY id');
+        $shape   = $this->rows("SELECT column_name AS c, data_type AS t, column_default AS d FROM information_schema.columns WHERE table_name = 'only_mysql' AND column_name IN ('meta', 'at', 'kind', 'made') ORDER BY column_name");
         $things  = $this->rows('SELECT label FROM authserver.things');
         $tester->execute(['--source' => $this->dsn(), '--transport' => $transport]);
         $again   = $tester->getDisplay();
@@ -222,6 +230,15 @@ final class MigrateFromMysqlTest extends TestCase
         $this->assertStringContainsString('1 row(s) of orders.userid name no users — set to NULL', $display);
         $this->assertSame(6, (int) $next, 'the sequence continues past the moved ids');
         $this->assertSame([['id' => 1, 'v' => 'a', 'n' => 7], ['id' => 2, 'v' => 'b', 'n' => 7]], array_map(static fn (array $r): array => ['id' => (int) $r['id'], 'v' => $r['v'], 'n' => (int) $r['n']], $made));
+        $this->assertSame(['{"k": 1}', null], array_column($meta, 'meta'), 'JSON arrives as JSON');
+        // The created table keeps what the source column meant: MariaDB's JSON is a longtext with a check,
+        // its current_timestamp() and quoted literal are its own spellings of MySQL's.
+        $this->assertSame([
+            ['c' => 'at', 't' => 'timestamp without time zone', 'd' => 'CURRENT_TIMESTAMP'],
+            ['c' => 'kind', 't' => 'character varying', 'd' => "'it''s'::character varying"],
+            ['c' => 'made', 't' => 'timestamp without time zone', 'd' => null],
+            ['c' => 'meta', 't' => 'jsonb', 'd' => null],
+        ], $shape);
         $this->assertSame([['label' => 'thing']], $things);
         $this->assertStringContainsString('strict_t: 0 inserted, 1 refused', $display);
         $this->assertStringContainsString('users: 0 inserted', $again, 'a second run adds nothing');

@@ -11,7 +11,8 @@ use_cases:
 # Moving from MySQL to PostgreSQL
 
 `db:migrate-from-mysql` moves an application's data from its MySQL database into the PostgreSQL
-(or TimescaleDB) database its migrations built.
+(or TimescaleDB) database its migrations built. The source can be MySQL or MariaDB: every test of
+the command runs against both.
 
 ```bash
 # 1. Point the application at PostgreSQL and build the tables
@@ -64,6 +65,11 @@ column, and the primary key is the same:
 | `text` kinds, `enum`, `set` | `text` |
 | `blob` kinds, `binary`, `varbinary` | `bytea` |
 | `json`, `bit(1)` | `jsonb`, `boolean` |
+
+MariaDB stores a `JSON` column as `longtext` with a `json_valid()` check; the check is read and
+the column is created as `jsonb` all the same. Defaults are kept where PostgreSQL can say the same
+thing: the current time (`CURRENT_TIMESTAMP`, or MariaDB's `current_timestamp()`), a number, a
+literal. A zero date and an expression PostgreSQL has no word for are left out.
 
 ## How the rows move
 

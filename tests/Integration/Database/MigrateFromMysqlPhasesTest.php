@@ -27,8 +27,14 @@ use Symfony\Component\Console\Tester\CommandTester;
 #[CoversClass(\Pramnos\Database\FromMysql\FdwTransport::class)]
 #[CoversClass(ProgressTracker::class)]
 #[CoversClass(DatabaseMigrateFromMysql::class)]
-final class MigrateFromMysqlPhasesTest extends TestCase
+class MigrateFromMysqlPhasesTest extends TestCase
 {
+    /** The source server: MySQL here, MariaDB in the subclass that runs with `--mariadb`. */
+    protected static function sourceHost(): string
+    {
+        return 'db';
+    }
+
     private ?Database $mysql = null;
 
     private ?Database $postgres = null;
@@ -50,11 +56,11 @@ final class MigrateFromMysqlPhasesTest extends TestCase
     }
 
     /** A server connection, or the test is skipped. */
-    private static function server(string $type, ?string $database = null): Database
+    protected static function server(string $type, ?string $database = null): Database
     {
         $db           = new Database();
         $db->type     = $type;
-        $db->server   = $type === 'mysql' ? 'db' : 'timescaledb';
+        $db->server   = $type === 'mysql' ? static::sourceHost() : 'timescaledb';
         $db->port     = $type === 'mysql' ? 3306 : 5432;
         $db->user     = $type === 'mysql' ? 'root' : 'postgres';
         $db->password = 'secret';
@@ -125,7 +131,7 @@ final class MigrateFromMysqlPhasesTest extends TestCase
 
     private function dsn(): string
     {
-        return 'mysql://root:secret@db:3306/' . $this->name;
+        return 'mysql://root:secret@' . static::sourceHost() . ':3306/' . $this->name;
     }
 
     /**
