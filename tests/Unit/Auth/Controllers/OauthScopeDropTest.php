@@ -78,7 +78,12 @@ class OauthScopeDropTest extends TestCase
 
     private ?Database $originalDb = null;
 
+    private ?Database $originalFactoryDb = null;
+
     private ?array $savedOauth = null;
+
+    /** @var list<array<string, mixed>> What the endpoint inserted: the consent row among them */
+    private array $inserted = [];
 
     protected function setUp(): void
     {
@@ -95,11 +100,21 @@ class OauthScopeDropTest extends TestCase
         $row->fields  = ['appid' => 42, 'name' => 'An Assistant', 'apikey' => 'client-42', 'apisecret' => '$2y$10$hashed',
             'is_confidential' => 1, 'status' => 1, 'scope' => '', 'callback' => 'https://assistant.example/cb'];
         $builder->method('first')->willReturn($row);
+        $builder->method('insert')->willReturnCallback(function (array $values): bool {
+            $this->inserted[] = $values;
+
+            return true;
+        });
         $db = $this->createMock(Database::class);
         $db->method('queryBuilder')->willReturn($builder);
         $dbRef = $db;
+        // The consent row is written through the factory's database, a singleton of its own.
+        $this->originalFactoryDb = \Pramnos\Framework\Factory::getDatabase();
+        $factoryRef              = &\Pramnos\Framework\Factory::getDatabase();
+        $factoryRef              = $db;
         $_GET  = [];
         $_POST = [];
+        $this->inserted = [];
         $_SERVER['REQUEST_METHOD'] = 'GET';
         $app              = Application::currentInstance() ?? Application::getInstance();
         $this->savedOauth = $app->applicationInfo['oauth'] ?? null;
@@ -107,9 +122,13 @@ class OauthScopeDropTest extends TestCase
 
     protected function tearDown(): void
     {
-        $_GET = [];
+        $_GET  = [];
+        $_POST = [];
+        $_SERVER['REQUEST_METHOD'] = 'GET';
         $dbRef = &Database::getInstance();
         $dbRef = $this->originalDb;
+        $factoryRef = &\Pramnos\Framework\Factory::getDatabase();
+        $factoryRef = $this->originalFactoryDb;
         $app   = Application::currentInstance() ?? Application::getInstance();
         if ($this->savedOauth === null) {
             unset($app->applicationInfo['oauth']);
@@ -123,7 +142,7 @@ class OauthScopeDropTest extends TestCase
     private function authorize(string $scope, array $oauth): array
     {
         $app = Application::currentInstance() ?? Application::getInstance();
-        $app->applicationInfo['oauth'] = ['scope_policy' => NobodyGrantsEmail::class] + $oauth;
+        $app->applicationInfo['oauth'] = $oauth + ['scope_policy' => NobodyGrantsEmail::class];
         $_GET = ['client_id' => 'client-42', 'response_type' => 'code', 'scope' => $scope, 'redirect_uri' => 'https://assistant.example/cb'];
         $controller = new ScopeDropTestableOauth(null);
         ob_start();
@@ -156,5 +175,87 @@ class OauthScopeDropTest extends TestCase
         // Assert
         $this->assertStringContainsString('cannot grant email', $default);
         $this->assertStringContainsString('cannot grant email', $nothing);
+    }
+
+    /** The scope the consent row was written with, after a POST of the consent form. */
+    private function consentAfter(string $requested, array $post): ?string
+    {
+        $_SERVER['REQUEST_METHOD'] = 'POST';
+        $_POST = $post + ['authorize' => 'yes'];
+        $level = ob_get_level();
+        try {
+            // The framework's own policy: every scope may be granted, so only the boxes decide.
+            $this->authorize($requested, ['scope_policy' => ScopePolicy::class]);
+        } catch (\Throwable) {
+            // Issuing the code reaches past the mocked database; the consent row is written first.
+            while (ob_get_level() > $level) {
+                ob_end_clean();
+            }
+        }
+        foreach ($this->inserted as $row) {
+            if (isset($row['applicationid'], $row['scope'])) {
+                return (string) $row['scope'];
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * The consent page's boxes decide what is granted (FW-158 §5): what was left ticked, and the
+     * required scopes (`openid` here), which have no box. A form with no boxes — a theme's own
+     * consent view from before them, which sends no `scope_choice` — grants everything asked for,
+     * as it did. Nothing ticked and nothing required grants nothing: no consent is recorded.
+     */
+    public function testTheBoxesDecideWhatIsGranted(): void
+    {
+        // Act
+        $chosen  = $this->consentAfter('profile email openid', ['scope_choice' => '1', 'scopes' => ['profile']]);
+        $this->inserted = [];
+        $oldForm = $this->consentAfter('profile email openid', []);
+        $this->inserted = [];
+        $none    = $this->consentAfter('profile email', ['scope_choice' => '1']);
+
+        // Assert
+        $this->assertSame('profile openid', $chosen, 'email unticked; openid required');
+        $this->assertSame('profile email openid', $oldForm);
+        $this->assertNull($none, 'nothing granted, nothing recorded');
+        $this->inserted = [];
+        $this->assertSame('', $this->consentAfter('', ['scope_choice' => '1']), 'nothing asked for is not a refusal');
+    }
+
+    /**
+     * Each theme's consent view offers a box per requested scope, ticked, inside the form; a
+     * required one is ticked and cannot be cleared; the form says the boxes are a choice.
+     */
+    public function testEveryThemeOffersTheBoxes(): void
+    {
+        foreach (['plain-css', 'bootstrap', 'tailwind'] as $theme) {
+            // Arrange
+            $view = new class {
+                public object $application;
+                public object $user;
+                public array $allScopes = ['Profile' => ['profile' => ['description' => 'Read your profile'], 'openid' => ['description' => 'Sign you in']]];
+                public array $requestedScopes = ['profile', 'openid'];
+                public array $requiredScopes = ['openid'];
+            };
+            $view->application = (object) ['name' => 'An Assistant'];
+            $view->user        = (object) ['username' => 'maria', 'email' => 'm@example.com'];
+            $_SERVER['REQUEST_URI'] = '/oauth/authorize';
+            $file = ROOT . '/scaffolding/themes/' . $theme . '/views/OAuth2/authorize.html.php';
+
+            // Act
+            ob_start();
+            \Closure::bind(function (string $file): void {
+                include $file;
+            }, $view, null)($file);
+            $html = (string) ob_get_clean();
+
+            // Assert
+            $this->assertMatchesRegularExpression('/<input type="checkbox" form="oauth-consent" name="scopes\[\]" value="profile" checked>/', $html, $theme);
+            $this->assertMatchesRegularExpression('/value="openid" checked disabled>/', $html, $theme . ': required, locked');
+            $this->assertStringContainsString('id="oauth-consent"', $html, $theme);
+            $this->assertStringContainsString('name="scope_choice" value="1"', $html, $theme);
+        }
     }
 }

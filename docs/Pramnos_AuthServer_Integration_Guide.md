@@ -615,7 +615,22 @@ for the configured rule), and name the class:
 
 Applications marked **trusted** (internal/first-party) skip the user consent
 screen; untrusted (third-party) applications always show consent and receive
-only the scopes the user approves. **Trusted** is a switch on the application's edit screen
+only the scopes the user approves.
+
+**The consent page has a box per scope, ticked**, and the person can clear the ones they would
+rather not grant. The code, the token and the stored consent then carry only what stayed ticked.
+Two kinds of scope have no box and are always granted with the rest:
+
+- the **required** ones, without which the client cannot work at all: `openid` for a sign-in and
+  `mcp` to reach the MCP endpoint;
+- the ones named in `'oauth' => ['consent_required' => ['openid', 'mcp', 'reports:read']]`, which
+  replaces the default list (`[]` gives every scope a box).
+
+Granting nothing, with nothing required, is a refusal. A consent view an application published
+before the boxes existed sends no choice, and grants everything asked for, as it did. To offer
+the choice there, copy the checkbox markup and the hidden `scope_choice` field from the bundled
+`OAuth2/authorize.html.php`. A client should read the scopes it was given from the token, not
+assume the ones it asked for. **Trusted** is a switch on the application's edit screen
 (beside *Client Type*); it is saved only when the form sends it, so an application's own older
 copy of the form leaves it as it was. Mark only your own applications trusted — a trusted client
 is never asked about, whatever it requests.

@@ -50,25 +50,33 @@
                         <?php foreach ($this->allScopes as $category => $scopesInCategory): ?>
                             <?php $requested = array_intersect(array_keys($scopesInCategory), $this->requestedScopes); ?>
                             <?php if (empty($requested)) continue; ?>
-                            <details class="mb-2">
+                            <details open class="mb-2">
                                 <summary class="small fw-medium" style="cursor:pointer">
                                     <span class="text-success me-1">&#10003;</span><?php echo htmlspecialchars(t((string) $category)); ?>
                                 </summary>
                                 <ul class="list-unstyled ps-3 mt-1 mb-0">
                                     <?php foreach ($requested as $scope): ?>
-                                        <li class="small text-muted"><?php echo htmlspecialchars(t((string) $scopesInCategory[$scope]['description'])); ?></li>
+                                        <li class="small text-muted">
+                                            <?php $locked = in_array($scope, (array) ($this->requiredScopes ?? []), true); ?>
+                                            <label style="cursor:<?php echo $locked ? 'default' : 'pointer'; ?>">
+                                                <input type="checkbox" form="oauth-consent" name="scopes[]" value="<?php echo htmlspecialchars((string) $scope); ?>" checked<?php echo $locked ? ' disabled' : ''; ?>>
+                                                <?php echo htmlspecialchars(t((string) $scopesInCategory[$scope]['description'])); ?>
+                                            </label>
+                                        </li>
                                     <?php endforeach; ?>
                                 </ul>
                             </details>
                         <?php endforeach; ?>
                     </div>
 
-                    <form method="POST">
+                    <form method="POST" id="oauth-consent">
                         <input type="hidden" name="client_id" value="<?php echo htmlspecialchars($_GET['client_id'] ?? ''); ?>">
                         <input type="hidden" name="redirect_uri" value="<?php echo htmlspecialchars($_GET['redirect_uri'] ?? ''); ?>">
                         <input type="hidden" name="response_type" value="<?php echo htmlspecialchars($_GET['response_type'] ?? ''); ?>">
                         <input type="hidden" name="state" value="<?php echo htmlspecialchars($_GET['state'] ?? ''); ?>">
                         <input type="hidden" name="scope" value="<?php echo htmlspecialchars($_GET['scope'] ?? ''); ?>">
+                        <?php /* The boxes are a choice: without this, a theme's older form that has none grants everything. */ ?>
+                        <input type="hidden" name="scope_choice" value="1">
                         <div class="d-flex gap-2 mt-3">
                             <button type="submit" name="authorize" value="no" class="btn btn-outline-secondary flex-fill"><?php echo htmlspecialchars(t('Deny')); ?></button>
                             <button type="submit" name="authorize" value="yes" class="btn btn-primary flex-fill"><?php echo htmlspecialchars(t('Allow')); ?></button>

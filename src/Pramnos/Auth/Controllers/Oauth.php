@@ -1521,6 +1521,15 @@ class Oauth extends Controller
     private function handleConsentPost(object $user, array $client, array $params): void
     {
         if (($_POST['authorize'] ?? '') === 'yes') {
+            $requested       = array_values(array_filter(explode(' ', (string) $params['scope'])));
+            $params['scope'] = implode(' ', $this->consentedScopes($requested));
+            if ($requested !== [] && $params['scope'] === '') {
+                // Scopes were asked for, every box was cleared and none is required: nothing to grant.
+                $_POST['authorize'] = 'no';
+                $this->handleConsentPost($user, $client, $params);
+
+                return;
+            }
             $this->recordConsent(
                 $user->userid,
                 (int) $client['appid'],
@@ -1548,6 +1557,40 @@ class Oauth extends Controller
             $this->application->setRedirect($params['redirect_uri'] . '?' . http_build_query($redirectParams));
             $this->application->redirect();
         }
+    }
+
+    /**
+     * The scopes a person granted on the consent page: the ones they left ticked, and the
+     * required ones, which have no box. A form with no choices on it — a theme's own consent
+     * view written before the boxes existed, which sends no `scope_choice` — grants everything
+     * requested, as it did.
+     *
+     * @param list<string> $requested
+     * @return list<string>
+     */
+    private function consentedScopes(array $requested): array
+    {
+        if (!isset($_POST['scope_choice'])) {
+            return $requested;
+        }
+        $ticked = array_map('strval', (array) ($_POST['scopes'] ?? []));
+
+        return array_values(array_filter($requested, fn (string $scope): bool => in_array($scope, $ticked, true) || in_array($scope, $this->requiredScopes(), true)));
+    }
+
+    /**
+     * The scopes the consent page offers no box for: without them the client cannot work at
+     * all — `openid` for a sign-in, `mcp` to reach the endpoint. `'oauth' => ['consent_required'
+     * => [...]]` names others, or none.
+     *
+     * @return list<string>
+     */
+    protected function requiredScopes(): array
+    {
+        $app      = $this->application ?? \Pramnos\Application\Application::currentInstance();
+        $required = is_object($app) ? ($app->applicationInfo['oauth']['consent_required'] ?? null) : null;
+
+        return is_array($required) ? array_values(array_map('strval', $required)) : ['openid', 'mcp'];
     }
 
     /**
@@ -1619,6 +1662,7 @@ class Oauth extends Controller
         $view->user            = $user;
         $view->allScopes       = Scopes::getScopes();
         $view->requestedScopes = array_filter(explode(' ', $params['scope']));
+        $view->requiredScopes  = $this->requiredScopes();
         $view->params          = $params;
 
         /**
