@@ -36,7 +36,10 @@ final class KeyRanges
     /** Key types whose text is the same on both servers — what a key can be looked up by across them. */
     private const PORTABLE_KEY = '/^(smallint|integer|bigint|numeric|character|text|uuid)/';
 
-    public function __construct(private Database $source, private Database $target, private string $zone = 'UTC')
+    /**
+     * @param array<string, array<string, true>> $repair Columns whose double-encoded values a move repairs, by table — compared as repaired
+     */
+    public function __construct(private Database $source, private Database $target, private string $zone = 'UTC', private array $repair = [])
     {
     }
 
@@ -95,7 +98,11 @@ final class KeyRanges
             foreach ($rows as $row) {
                 $values = [];
                 foreach ($columns as $i => $column) {
-                    $values[] = TypeMapper::value($row[$column], (string) $sourceTypes[$column]['type'], $types[$i], $refused, $this->zone);
+                    $raw = $row[$column];
+                    if (isset($this->repair[$source][$column]) && is_string($raw)) {
+                        $raw = TypeMapper::repairEncoding($raw) ?? $raw;
+                    }
+                    $values[] = TypeMapper::value($raw, (string) $sourceTypes[$column]['type'], $types[$i], $refused, $this->zone);
                 }
                 $converted[] = $values;
             }

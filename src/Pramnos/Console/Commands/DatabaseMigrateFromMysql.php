@@ -44,6 +44,7 @@ class DatabaseMigrateFromMysql extends Command
             ->addOption('exclude-tables', null, InputOption::VALUE_REQUIRED, 'Leave these source tables, comma-separated')
             ->addOption('batch-size', null, InputOption::VALUE_REQUIRED, 'Rows per INSERT', '5000')
             ->addOption('source-timezone', null, InputOption::VALUE_REQUIRED, 'The zone the source\'s DATETIME values were written in (default: this application\'s)')
+            ->addOption('repair-encoding', null, InputOption::VALUE_REQUIRED, 'Repair double-encoded text (UTF-8 stored through latin1) in these columns, table.column, comma-separated')
             ->addOption('source-prefix', null, InputOption::VALUE_REQUIRED, 'The source tables\' prefix (default: this application\'s)')
             ->addOption('keep-constraints', null, InputOption::VALUE_NONE, 'Load with the target\'s keys checked, even where they could be off')
             ->addOption('null-orphans', null, InputOption::VALUE_NONE, 'After the load, set references that name no row to NULL where the column takes it')
@@ -109,6 +110,7 @@ class DatabaseMigrateFromMysql extends Command
                 return Command::FAILURE;
             }
         }
+        $migrator->repairEncoding($list($input->getOption('repair-encoding')));
         $plan     = $migrator->plan($list($input->getOption('tables')), $list($input->getOption('exclude-tables')));
         $this->reportPlan($output, $plan);
         if ($input->getOption('dry-run')) {
@@ -262,6 +264,15 @@ class DatabaseMigrateFromMysql extends Command
             if ($t['required'] !== []) {
                 $output->writeln('      <error>the target requires, and the source has not:</error> ' . implode(', ', $t['required']) . ' — every row will be refused');
             }
+            foreach ($t['encoding'] ?? [] as $e) {
+                if ($e['charset'] !== null) {
+                    $output->writeln('      <comment>' . $e['column'] . ' is ' . $e['charset'] . ' in MySQL:</comment> read as UTF-8, converted by MySQL');
+                }
+                if ($e['suspect'] > 0) {
+                    $output->writeln('      <error>' . $e['column'] . ': ' . $e['suspect'] . ' of ' . $e['sampled'] . ' sampled value(s) look double-encoded</error> — "'
+                        . mb_strimwidth((string) $e['example'], 0, 40, '…') . '" would be "' . mb_strimwidth((string) $e['repaired'], 0, 40, '…') . '"; --repair-encoding=' . $name . '.' . $e['column'] . ' repairs them');
+                }
+            }
             if ($t['compressed']) {
                 $output->writeln('      <error>the target holds compressed chunks:</error> rows into them are refused; decompress first');
             }
@@ -319,7 +330,8 @@ class DatabaseMigrateFromMysql extends Command
             $output->writeln(($t['refused'] > 0 ? '<error>✗</error> ' : '<info>✓</info> ') . $name . ': ' . $t['inserted'] . ' inserted'
                 . (($t['transport'] ?? 'php') === 'fdw' ? ' (mysql_fdw)' : '')
                 . ($t['refused'] > 0 ? ', ' . $t['refused'] . ' refused' : '')
-                . ($t['nulled'] > 0 ? ', ' . $t['nulled'] . ' value(s) that were not what the column takes, as NULL' : ''));
+                . ($t['nulled'] > 0 ? ', ' . $t['nulled'] . ' value(s) that were not what the column takes, as NULL' : '')
+                . (($t['repaired'] ?? 0) > 0 ? ', ' . $t['repaired'] . ' double-encoded value(s) repaired' : ''));
             foreach ($t['errors'] as $error) {
                 $output->writeln('      ' . $error);
             }

@@ -136,6 +136,9 @@ class MigrateFromMysqlTest extends TestCase
             "INSERT INTO moments VALUES ('2026-01-01 00:00:00', 1)",
             'CREATE TABLE nokey (v INT) ENGINE=InnoDB',
             'INSERT INTO nokey VALUES (1), (2)',
+            // Greek and an emoji as they should be; Greek written once through a latin1 connection; a real latin1 column
+            'CREATE TABLE greek (id INT PRIMARY KEY, name VARCHAR(50), legacy VARCHAR(50), old VARCHAR(20) CHARACTER SET latin1) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4',
+            "INSERT INTO greek VALUES (1, 'Μαρία 😀', CONVERT(CAST('Ελλάδα' AS BINARY) USING latin1), 'café'), (2, 'Νίκος', 'plain', NULL)",
         ] as $sql) {
             $this->source->query($sql);
         }
@@ -316,6 +319,50 @@ class MigrateFromMysqlTest extends TestCase
         $this->assertStringContainsString('1 row(s) of user_tags.tagid name no tags — the column takes no NULL', $display, 'not told to do what it cannot');
         $this->assertStringContainsString('VALIDATE CONSTRAINT "user_tags_ut_tag"', $display);
         $this->assertStringNotContainsString('already exists', $again, 'a second run finds them there');
+    }
+
+    /**
+     * Greek, an emoji and a real `latin1` column arrive as they are, whatever the client
+     * library's default charset — the source connection is set to `utf8mb4` by the migrator
+     * itself. Text that was UTF-8 written through a `latin1` connection (`Î•Î»Î»...`) is named by
+     * the dry run, with what it would be, and repaired with `--repair-encoding`; its table moves
+     * through PHP even with `--transport=fdw`. A verification compares it as repaired when given
+     * the same option, and finds the difference when not.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('transports')]
+    public function testGreekArrivesAndDoubleEncodedTextIsRepaired(string $transport): void
+    {
+        // Arrange
+        $tester = $this->databases();
+        $only   = ['--source' => $this->dsn(), '--tables' => 'greek'];
+        $latin1 = self::server('mysql');
+        $latin1->getConnectionLink()->set_charset('latin1');
+        $latin1->query('USE `' . $this->name . '`');
+
+        // Act
+        new Migrator($latin1, $this->target);
+        $charset = $latin1->getConnectionLink()->character_set_name();
+        $latin1->close();
+        $tester->execute($only + ['--dry-run' => true]);
+        $dry = $tester->getDisplay();
+        $tester->execute($only + ['--repair-encoding' => 'greek.legacy', '--transport' => $transport]);
+        $moved = $tester->getDisplay();
+        $rows  = $this->rows('SELECT name, legacy, old FROM greek ORDER BY id');
+        $verified = $tester->execute($only + ['--phase' => 'verify', '--repair-encoding' => 'greek.legacy']);
+        $unrepaired = $tester->execute($only + ['--phase' => 'verify']);
+        $report = $tester->getDisplay();
+
+        // Assert
+        $this->assertSame('utf8mb4', $charset, 'the migrator names the charset, whatever the connection had');
+        $this->assertStringContainsString('legacy: 1 of 2 sampled value(s) look double-encoded', $dry);
+        $this->assertStringContainsString('would be "Ελλάδα"; --repair-encoding=greek.legacy repairs them', $dry);
+        $this->assertStringContainsString('old is latin1 in MySQL', $dry);
+        $this->assertStringNotContainsString('name: ', $dry, 'proper Greek is not suspected');
+        $this->assertSame([['name' => 'Μαρία 😀', 'legacy' => 'Ελλάδα', 'old' => 'café'], ['name' => 'Νίκος', 'legacy' => 'plain', 'old' => null]], $rows);
+        $this->assertStringContainsString('greek: 2 inserted, 1 double-encoded value(s) repaired', $moved, 'through PHP, whatever the transport');
+        $this->assertSame(0, $verified, 'compared as repaired');
+        $this->assertSame(1, $unrepaired);
+        $this->assertStringContainsString('✗ greek: 2 row(s) in MySQL, 2 here, 1 different — e.g. key 1', $report);
     }
 
     /**

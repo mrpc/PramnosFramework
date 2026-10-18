@@ -8,6 +8,7 @@ use_cases:
   - Checking after a move that every row arrived as MySQL holds it
   - Finding rows whose references point at nothing after a move
   - Moving DATETIME columns into timestamptz without shifting them by the server's offset
+  - Repairing Greek or other text stored double-encoded (Î±Î²Î³) in MySQL
 ---
 
 # Moving from MySQL to PostgreSQL
@@ -110,6 +111,31 @@ literal. A zero date and an expression PostgreSQL has no word for are left out.
 
 The command exits `1` when any row was refused.
 
+## Text, character sets and double encoding
+
+The source is read in `utf8mb4`, which the migrator sets on the connection itself rather than
+leaving to the client library's default. Greek, emoji and every other script arrive as they are.
+A column that is `latin1` (or any other character set) in MySQL is converted to UTF-8 by MySQL as
+it is read, and the dry run names it.
+
+**Double-encoded text** is the one problem a correct read cannot fix. An application that wrote
+UTF-8 through a `latin1` connection had each byte stored as a character of its own, so `Ελλάδα`
+sits in the table as `Î•Î»Î»Î¬Î´Î±`. MySQL returns it exactly as stored, and it would move like
+that. The dry run reads up to 2,000 rows of each table and names every column where it finds
+such values, with one of them repaired:
+
+```
+legacy: 37 of 2000 sampled value(s) look double-encoded — "Î•Î»Î»Î¬Î´Î±" would be "Ελλάδα";
+--repair-encoding=greek.legacy repairs them
+```
+
+`--repair-encoding=table.column,…` repairs those columns value by value. Each character is turned
+back into the byte `latin1` (Windows-1252) made of it, and the value is replaced only when the
+result is valid UTF-8 that differs from it. So `café` in a genuine `latin1` column, or proper
+Greek, is left alone. A table with a column to repair moves through PHP, even with
+`--transport=fdw`. Give `--phase=verify` the same option, so it compares the values as they were
+written.
+
 ## Dates, times and zones
 
 MySQL has two kinds of moment, and they move differently:
@@ -170,6 +196,7 @@ refuses rows into them: decompress first.
 | `--tables`, `--exclude-tables` | Source tables to move, or to leave, comma-separated |
 | `--batch-size` | Rows per `INSERT` (default 5000) |
 | `--source-prefix` | The source tables' prefix, when it is not the application's |
+| `--repair-encoding` | Repair double-encoded text in these columns, `table.column` — see [Text, character sets and double encoding](#text-character-sets-and-double-encoding) |
 | `--source-timezone` | The zone the source's `DATETIME` values were written in (default: the application's) — see [Dates, times and zones](#dates-times-and-zones) |
 | `--keep-constraints` | Check the target's keys as rows arrive |
 | `--null-orphans` | After a load with keys off, set references to nothing to `NULL` |

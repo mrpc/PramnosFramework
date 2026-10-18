@@ -47,6 +47,12 @@ final class Migrator
     /** The zone the source's `datetime` values were written in. */
     private string $zone;
 
+    /** @var array<string, array<string, true>> Columns whose double-encoded values are repaired, by table */
+    private array $repair = [];
+
+    /** Rows of each table read to look for double-encoded text. */
+    private const ENCODING_SAMPLE = 2000;
+
     /** The source server's own offset from UTC, in minutes, before the session was set to UTC. */
     private int $serverOffset;
 
@@ -68,8 +74,28 @@ final class Migrator
         // The source is read in UTC, as mysql_fdw reads it: a `timestamp` then arrives as the
         // moment it is, whatever the server's zone.
         $mysqli             = $source->getConnectionLink();
+        // Named, not left to the client library's default: a connection in `latin1` would hand
+        // over every Greek letter as two characters of nonsense, and nothing would refuse it.
+        $mysqli->set_charset('utf8mb4');
         $this->serverOffset = (int) ($mysqli->query('SELECT TIMESTAMPDIFF(MINUTE, UTC_TIMESTAMP(), NOW()) AS o')->fetch_assoc()['o'] ?? 0);
         $mysqli->query("SET time_zone = '+00:00'");
+    }
+
+    /**
+     * Columns, as `table.column`, whose double-encoded values are repaired on the way —
+     * {@see TypeMapper::repairEncoding()}, value by value. Their tables move through PHP.
+     *
+     * @param list<string> $columns
+     */
+    public function repairEncoding(array $columns): void
+    {
+        $this->repair = [];
+        foreach ($columns as $column) {
+            [$table, $name] = array_pad(explode('.', $column, 2), 2, '');
+            if ($name !== '') {
+                $this->repair[$table][$name] = true;
+            }
+        }
     }
 
     /**
@@ -143,6 +169,7 @@ final class Migrator
                 'targetOnly'  => array_values(array_diff(array_keys($targetColumns), $copied)),
                 'required'    => $required,
                 'compressed'  => $create === null && $this->hasCompressedChunks($target),
+                'encoding'    => $this->encodingFindings($name, $shape, $copied),
             ];
         }
 
@@ -547,7 +574,7 @@ final class Migrator
     /** Key-range reads and comparisons over the two sides. */
     private function ranges(): KeyRanges
     {
-        return new KeyRanges($this->source, $this->target, $this->zone);
+        return new KeyRanges($this->source, $this->target, $this->zone, $this->repair);
     }
 
     /** The tracker, on the target. */
@@ -647,13 +674,14 @@ final class Migrator
      */
     private function copyTable(array $table, array $targetColumns, int $batch, ?callable $progress, string $where = '', array $updateKey = [], int $throttleMs = 0, ?string $fdwWhere = null, bool $byKey = false): array
     {
-        $stats   = ['inserted' => 0, 'refused' => 0, 'nulled' => 0, 'errors' => []];
+        $stats   = ['inserted' => 0, 'refused' => 0, 'nulled' => 0, 'errors' => [], 'repaired' => 0];
         $columns = $table['copied'];
         if ($columns === []) {
             return $stats;
         }
         $sourceTypes = $this->sourceTables()[$table['source']]['columns'];
-        if ($this->fdw !== null && $fdwWhere !== null && $updateKey === []) {
+        $repair = $this->repair[$table['source']] ?? [];
+        if ($this->fdw !== null && $fdwWhere !== null && $updateKey === [] && $repair === []) {
             $moved = $this->fdw->copy($table['source'], $table['target'], $sourceTypes, $targetColumns, $columns, $fdwWhere, [], $this->zone);
             if ($moved !== null) {
                 if ($progress !== null) {
@@ -678,7 +706,12 @@ final class Migrator
         foreach ($read as $row) {
             $converted = [];
             foreach ($columns as $column) {
-                $value = TypeMapper::value($row[$column], (string) $sourceTypes[$column]['type'], (string) ($targetColumns[$column]['type'] ?? TypeMapper::toPostgres((string) $sourceTypes[$column]['type'])), $refused, $this->zone);
+                $raw = $row[$column];
+                if (isset($repair[$column]) && is_string($raw) && ($repaired = TypeMapper::repairEncoding($raw)) !== null) {
+                    $raw = $repaired;
+                    $stats['repaired']++;
+                }
+                $value = TypeMapper::value($raw, (string) $sourceTypes[$column]['type'], (string) ($targetColumns[$column]['type'] ?? TypeMapper::toPostgres((string) $sourceTypes[$column]['type'])), $refused, $this->zone);
                 $stats['nulled'] += $refused ? 1 : 0;
                 $converted[] = $value;
             }
@@ -846,10 +879,10 @@ final class Migrator
         foreach ($this->sourceRows("SELECT TABLE_NAME AS t, TABLE_ROWS AS n FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'BASE TABLE' ORDER BY TABLE_NAME") as $row) {
             $tables[(string) $row['t']] = ['columns' => [], 'primary' => [], 'rows' => (int) $row['n'], 'indexes' => [], 'foreign' => []];
         }
-        foreach ($this->sourceRows('SELECT TABLE_NAME AS t, COLUMN_NAME AS c, COLUMN_TYPE AS type, IS_NULLABLE AS n, COLUMN_DEFAULT AS d, EXTRA AS e'
+        foreach ($this->sourceRows('SELECT TABLE_NAME AS t, COLUMN_NAME AS c, COLUMN_TYPE AS type, IS_NULLABLE AS n, COLUMN_DEFAULT AS d, EXTRA AS e, CHARACTER_SET_NAME AS cs'
             . ' FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() ORDER BY TABLE_NAME, ORDINAL_POSITION') as $row) {
             if (isset($tables[$row['t']])) {
-                $tables[$row['t']]['columns'][(string) $row['c']] = ['type' => (string) $row['type'], 'nullable' => $row['n'] === 'YES', 'auto' => str_contains((string) $row['e'], 'auto_increment')]
+                $tables[$row['t']]['columns'][(string) $row['c']] = ['type' => (string) $row['type'], 'nullable' => $row['n'] === 'YES', 'auto' => str_contains((string) $row['e'], 'auto_increment'), 'charset' => $row['cs']]
                     + self::sourceDefault($row['d'], (string) $row['e'], $mariadb);
             }
         }
@@ -1052,6 +1085,47 @@ final class Migrator
         }
 
         return ($this->tracker()->of($source, 'created')[0]['status'] ?? null) === ProgressTracker::RUNNING;
+    }
+
+    /**
+     * What a sample of a table's text says about its encoding: per text column that is not
+     * UTF-8 in MySQL's catalogue, its character set; per column holding double-encoded values,
+     * how many of the sample and one of them, repaired.
+     *
+     * @param array<string, mixed> $shape
+     * @param list<string>         $copied
+     * @return list<array{column: string, charset: ?string, suspect: int, sampled: int, example: ?string, repaired: ?string}>
+     */
+    private function encodingFindings(string $table, array $shape, array $copied): array
+    {
+        $text = array_values(array_filter($copied, static fn (string $c): bool => preg_match('/char|text|enum|set/i', (string) $shape['columns'][$c]['type']) === 1));
+        if ($text === []) {
+            return [];
+        }
+        $found  = [];
+        $counts = array_fill_keys($text, 0);
+        $first  = [];
+        $rows   = $this->sourceRows('SELECT ' . implode(', ', array_map(static fn (string $c): string => '`' . str_replace('`', '``', $c) . '`', $text))
+            . ' FROM `' . str_replace('`', '``', $table) . '` LIMIT ' . self::ENCODING_SAMPLE);
+        foreach ($rows as $row) {
+            foreach ($text as $column) {
+                $value = $row[$column] ?? null;
+                if (is_string($value) && ($repaired = TypeMapper::repairEncoding($value)) !== null) {
+                    $counts[$column]++;
+                    $first[$column] ??= [$value, $repaired];
+                }
+            }
+        }
+        foreach ($text as $column) {
+            $charset = $shape['columns'][$column]['charset'] ?? null;
+            $foreign = $charset !== null && !str_starts_with((string) $charset, 'utf8');
+            if ($counts[$column] > 0 || $foreign) {
+                $found[] = ['column' => $column, 'charset' => $foreign ? (string) $charset : null, 'suspect' => $counts[$column], 'sampled' => count($rows),
+                    'example' => $first[$column][0] ?? null, 'repaired' => $first[$column][1] ?? null];
+            }
+        }
+
+        return $found;
     }
 
     /** Run a statement on the target; whether it succeeded, the error left for pg_last_error(). */

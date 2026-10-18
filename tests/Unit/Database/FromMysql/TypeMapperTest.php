@@ -127,4 +127,43 @@ final class TypeMapperTest extends TestCase
             $this->assertSame($refusal, $refused, $in . ' refused?');
         }
     }
+
+    /**
+     * UTF-8 as a `latin1` connection stores it: each byte made the character Windows-1252 (MySQL's
+     * `latin1`) gives it, then stored as UTF-8 again.
+     */
+    private static function doubleEncoded(string $text): string
+    {
+        $cp1252 = [0x80 => 0x20AC, 0x82 => 0x201A, 0x83 => 0x0192, 0x84 => 0x201E, 0x85 => 0x2026, 0x86 => 0x2020, 0x87 => 0x2021, 0x88 => 0x02C6,
+            0x89 => 0x2030, 0x8A => 0x0160, 0x8B => 0x2039, 0x8C => 0x0152, 0x8E => 0x017D, 0x91 => 0x2018, 0x92 => 0x2019, 0x93 => 0x201C,
+            0x94 => 0x201D, 0x95 => 0x2022, 0x96 => 0x2013, 0x97 => 0x2014, 0x98 => 0x02DC, 0x99 => 0x2122, 0x9A => 0x0161, 0x9B => 0x203A,
+            0x9C => 0x0153, 0x9E => 0x017E, 0x9F => 0x0178];
+        $out = '';
+        foreach (str_split($text) as $byte) {
+            $out .= mb_chr($cp1252[ord($byte)] ?? ord($byte), 'UTF-8');
+        }
+
+        return $out;
+    }
+
+    /**
+     * Double-encoded text is repaired to what it was — Greek (with `ρ`, whose second byte is
+     * 0x81, a byte Windows-1252 leaves undefined), a typographic apostrophe, an emoji — and text
+     * that is not double-encoded is left: proper Greek, ASCII, and `café` from a real `latin1`
+     * column, whose `é` is one byte that is not UTF-8 on its own.
+     */
+    public function testDoubleEncodedTextIsRepairedAndOnlyThat(): void
+    {
+        // Arrange
+        $repaired = ['Ελληνικά ρ', 'it’s', 'ok 😀', 'Ἀθῆναι'];
+        $left     = ['Ελληνικά', 'plain ascii', 'café', 'Â£ is not a pound sign here, Ω'];
+
+        foreach ($repaired as $text) {
+            // Act + Assert
+            $this->assertSame($text, TypeMapper::repairEncoding(self::doubleEncoded($text)), $text);
+        }
+        foreach ($left as $text) {
+            $this->assertNull(TypeMapper::repairEncoding($text), $text . ' is not double-encoded');
+        }
+    }
 }
