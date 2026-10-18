@@ -176,6 +176,7 @@ final class Migrator
                 'required'    => $required,
                 'compressed'  => $create === null && $this->hasCompressedChunks($target),
                 'encoding'    => $this->encodingFindings($name, $shape, $copied),
+                'caseless'    => self::caselessLookups($shape, $copied, $create !== null ? [] : $targetColumns),
             ];
         }
 
@@ -886,10 +887,10 @@ final class Migrator
         foreach ($this->sourceRows("SELECT TABLE_NAME AS t, TABLE_ROWS AS n FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'BASE TABLE' ORDER BY TABLE_NAME") as $row) {
             $tables[(string) $row['t']] = ['columns' => [], 'primary' => [], 'rows' => (int) $row['n'], 'indexes' => [], 'foreign' => []];
         }
-        foreach ($this->sourceRows('SELECT TABLE_NAME AS t, COLUMN_NAME AS c, COLUMN_TYPE AS type, IS_NULLABLE AS n, COLUMN_DEFAULT AS d, EXTRA AS e, CHARACTER_SET_NAME AS cs'
+        foreach ($this->sourceRows('SELECT TABLE_NAME AS t, COLUMN_NAME AS c, COLUMN_TYPE AS type, IS_NULLABLE AS n, COLUMN_DEFAULT AS d, EXTRA AS e, CHARACTER_SET_NAME AS cs, COLLATION_NAME AS co'
             . ' FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() ORDER BY TABLE_NAME, ORDINAL_POSITION') as $row) {
             if (isset($tables[$row['t']])) {
-                $tables[$row['t']]['columns'][(string) $row['c']] = ['type' => (string) $row['type'], 'nullable' => $row['n'] === 'YES', 'auto' => str_contains((string) $row['e'], 'auto_increment'), 'charset' => $row['cs']]
+                $tables[$row['t']]['columns'][(string) $row['c']] = ['type' => (string) $row['type'], 'nullable' => $row['n'] === 'YES', 'auto' => str_contains((string) $row['e'], 'auto_increment'), 'charset' => $row['cs'], 'collation' => $row['co']]
                     + self::sourceDefault($row['d'], (string) $row['e'], $mariadb);
             }
         }
@@ -1154,6 +1155,38 @@ final class Migrator
         }
 
         return array_intersect($this->always[$table], $columns) !== [];
+    }
+
+    /**
+     * The indexed text columns MySQL compares without regard to case (a `_ci` collation) and
+     * PostgreSQL will compare exactly: where `WHERE email = 'Maria@…'` found `maria@…` and will
+     * not, and where a unique key that refused `Maria@…` beside `maria@…` will take both. A
+     * `citext` target column compares as MySQL did, and is not named.
+     *
+     * @param array<string, mixed>                $shape
+     * @param list<string>                        $copied
+     * @param array<string, array<string, mixed>> $targetColumns
+     * @return list<array{column: string, collation: string, unique: bool}>
+     */
+    private static function caselessLookups(array $shape, array $copied, array $targetColumns): array
+    {
+        $indexed = [];
+        foreach ([['columns' => $shape['primary'], 'unique' => true], ...array_values($shape['indexes'])] as $index) {
+            foreach ($index['columns'] as $column) {
+                if ($column !== null) {
+                    $indexed[$column] = ($indexed[$column] ?? false) || $index['unique'];
+                }
+            }
+        }
+        $found = [];
+        foreach ($indexed as $column => $unique) {
+            $collation = (string) ($shape['columns'][$column]['collation'] ?? '');
+            if (in_array($column, $copied, true) && str_ends_with($collation, '_ci') && !str_contains(strtolower((string) ($targetColumns[$column]['type'] ?? '')), 'citext')) {
+                $found[] = ['column' => $column, 'collation' => $collation, 'unique' => $unique];
+            }
+        }
+
+        return $found;
     }
 
     /** Run a statement on the target; whether it succeeded, the error left for pg_last_error(). */

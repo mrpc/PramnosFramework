@@ -9,6 +9,7 @@ use_cases:
   - Finding rows whose references point at nothing after a move
   - Moving DATETIME columns into timestamptz without shifting them by the server's offset
   - Repairing Greek or other text stored double-encoded (Î±Î²Î³) in MySQL
+  - Finding the logins and lookups that relied on MySQL comparing without regard to case
 ---
 
 # Moving from MySQL to PostgreSQL
@@ -141,6 +142,29 @@ result is valid UTF-8 that differs from it. So `café` in a genuine `latin1` col
 Greek, is left alone. A table with a column to repair moves through PHP, even with
 `--transport=fdw`. Give `--phase=verify` the same option, so it compares the values as they were
 written.
+
+### Comparisons without regard to case
+
+MySQL's `_ci` collations (`utf8mb4_general_ci`, `utf8mb4_0900_ai_ci`, MariaDB's
+`utf8mb4_uca1400_ai_ci`) compare text without regard to case, and PostgreSQL compares it exactly.
+After the move, `WHERE email = 'Maria@example.com'` no longer finds `maria@example.com`, and a
+unique key that refused the second spelling now takes it. The dry run names every indexed text
+column where that changes something:
+
+```
+email is unique without regard to case in MySQL (utf8mb4_general_ci): here 'A' and 'a' are two
+values, both allowed, and = matches one — citext, or lower() in the index and the query, keeps
+MySQL's answer
+```
+
+What to do is the application's decision, made in its migrations before the move:
+
+- **`citext`** keeps MySQL's behaviour column by column.
+- **A unique index on `lower(email)`**, with the lookups written `lower(email) = lower(?)`, keeps
+  it in the queries that matter.
+
+A column the target made `citext` is not named, and neither is one whose MySQL collation is
+binary.
 
 ## Dates, times and zones
 

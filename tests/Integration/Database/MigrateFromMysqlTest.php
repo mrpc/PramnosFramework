@@ -137,6 +137,8 @@ class MigrateFromMysqlTest extends TestCase
             'CREATE TABLE nokey (v INT) ENGINE=InnoDB',
             'INSERT INTO nokey VALUES (1), (2)',
             // Greek and an emoji as they should be; Greek written once through a latin1 connection; a real latin1 column
+            'CREATE TABLE accounts (id INT PRIMARY KEY, email VARCHAR(100), nick VARCHAR(20), city VARCHAR(20), code VARCHAR(10) COLLATE utf8mb4_bin,'
+                . ' UNIQUE KEY (email), KEY (nick), KEY (city), UNIQUE KEY (code)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4',
             'CREATE TABLE stamped (id INT AUTO_INCREMENT PRIMARY KEY, a INT, b INT, total INT) ENGINE=InnoDB',
             'INSERT INTO stamped VALUES (3, 1, 2, 99), (7, 10, 20, 99)',
             'CREATE TABLE greek (id INT PRIMARY KEY, name VARCHAR(50), legacy VARCHAR(50), old VARCHAR(20) CHARACTER SET latin1) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4',
@@ -158,6 +160,8 @@ class MigrateFromMysqlTest extends TestCase
             'CREATE TABLE moments (at TIMESTAMP PRIMARY KEY, v INT)',
             'CREATE TABLE nokey (v INT)',
             'CREATE TABLE stamped (id INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, a INT, b INT, total INT GENERATED ALWAYS AS (a + b) STORED)',
+            'CREATE EXTENSION IF NOT EXISTS citext',
+            'CREATE TABLE accounts (id INT PRIMARY KEY, email VARCHAR(100) UNIQUE, nick CITEXT, city VARCHAR(20), code VARCHAR(10) UNIQUE)',
         ] as $sql) {
             $this->target->query($sql);
         }
@@ -322,6 +326,31 @@ class MigrateFromMysqlTest extends TestCase
         $this->assertStringContainsString('1 row(s) of user_tags.tagid name no tags — the column takes no NULL', $display, 'not told to do what it cannot');
         $this->assertStringContainsString('VALIDATE CONSTRAINT "user_tags_ut_tag"', $display);
         $this->assertStringNotContainsString('already exists', $again, 'a second run finds them there');
+    }
+
+    /**
+     * MySQL's `_ci` collations compare without regard to case and PostgreSQL compares exactly, so
+     * an indexed text column — a login looked up by e-mail — changes its answers after the move.
+     * The dry run names each: a unique one (now taking `A` beside `a`) and a looked-up one. It does
+     * not name a column whose collation is binary, nor one the target made `citext`, which
+     * compares as MySQL did, nor a column with no collation at all.
+     */
+    public function testTheDryRunNamesWhatComparesWithoutCase(): void
+    {
+        // Arrange
+        $tester = $this->databases();
+
+        // Act
+        $tester->execute(['--source' => $this->dsn(), '--tables' => 'accounts', '--dry-run' => true]);
+        $dry = $tester->getDisplay();
+
+        // Assert
+        $this->assertMatchesRegularExpression('/email is unique without regard to case in MySQL \(utf8mb4_[a-z0-9_]+_ci\)/', $dry);
+        $this->assertStringContainsString('both allowed', $dry);
+        $this->assertMatchesRegularExpression('/city is looked up without regard to case/', $dry);
+        $this->assertStringNotContainsString('nick is', $dry, 'citext compares as MySQL did');
+        $this->assertStringNotContainsString('code is', $dry, 'a binary collation compares exactly already');
+        $this->assertStringNotContainsString('id is', $dry);
     }
 
     /**

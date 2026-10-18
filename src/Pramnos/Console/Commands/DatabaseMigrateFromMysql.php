@@ -276,6 +276,10 @@ class DatabaseMigrateFromMysql extends Command
                         . mb_strimwidth((string) $e['example'], 0, 40, '…') . '" would be "' . mb_strimwidth((string) $e['repaired'], 0, 40, '…') . '"; --repair-encoding=' . $name . '.' . $e['column'] . ' repairs them');
                 }
             }
+            foreach ($t['caseless'] ?? [] as $c) {
+                $output->writeln('      <comment>' . $c['column'] . ($c['unique'] ? ' is unique' : ' is looked up') . ' without regard to case in MySQL (' . $c['collation'] . '):</comment> '
+                    . 'here \'A\' and \'a\' are two values' . ($c['unique'] ? ', both allowed' : '') . ', and = matches one — citext, or lower() in the index and the query, keeps MySQL\'s answer');
+            }
             if ($t['compressed']) {
                 $output->writeln('      <error>the target holds compressed chunks:</error> rows into them are refused; decompress first');
             }
