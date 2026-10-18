@@ -87,6 +87,8 @@ class TestEnvironment
             // @codeCoverageIgnoreEnd
         }
 
+        $testSettingsPath = self::settingsPath((string) $testSettingsPath);
+
         // Return early if test settings don't exist (e.g. running framework core unit tests)
         if (!file_exists($testSettingsPath)) {
             return;
@@ -145,6 +147,31 @@ class TestEnvironment
      * instead would replace a hundred specific failures with one message about migrations
      * from a developer who was trying to run one unrelated test.
      */
+    /**
+     * The settings file a run uses: the bootstrap's, or the one `PRAMNOS_TEST_SETTINGS` names.
+     *
+     * The same suite against another database, without a second bootstrap: an application on
+     * MySQL that is moving to PostgreSQL runs it once with `PRAMNOS_TEST_SETTINGS=
+     * app/config/testsettings.pgsql.php`, and sees what breaks before the move does. A relative
+     * path is read from the project's root. A name that is not a file is refused, rather than a
+     * run that quietly falls back to the database it was meant to avoid.
+     *
+     * @throws RuntimeException When the file named does not exist
+     */
+    public static function settingsPath(string $bootstrapPath): string
+    {
+        $named = trim((string) getenv('PRAMNOS_TEST_SETTINGS'));
+        if ($named === '') {
+            return $bootstrapPath;
+        }
+        $path = str_starts_with($named, '/') ? $named : ROOT . DIRECTORY_SEPARATOR . $named;
+        if (!is_file($path)) {
+            throw new RuntimeException('PRAMNOS_TEST_SETTINGS names ' . $named . ', which is not a file.');
+        }
+
+        return $path;
+    }
+
     protected static function migrate(string $testSettingsPath): void
     {
         /*

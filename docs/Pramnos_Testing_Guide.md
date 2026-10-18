@@ -10,6 +10,7 @@ use_cases:
   - Testing a page script that uses jQuery, fetch or the framework's pf-*.js
   - Asserting that an action broadcast a realtime event
   - Creating users in a test without leaving them in the test database
+  - Running an application's MySQL suite against PostgreSQL before moving to it
   - Running the framework's own suite in parallel, or a test that fails only in parallel
   - Finding why a test passes on its own and fails in the full suite
 ---
@@ -879,6 +880,65 @@ from MySQL where MySQL shows nothing: it refuses `DROP CHECK`, keeps a CHECK wri
 as part of the column, and takes a column's CHECK only after its COMMENT. A test joins the group
 by extending the MySQL one with `#[Group('mariadb')]` and a data provider that points at host
 `mariadb` — see `MariaDbOauthGrantsMigrationTest`.
+
+## An application's suite against PostgreSQL, before moving to it
+
+An application on MySQL that is moving to PostgreSQL can measure what breaks before the move:
+the same suite, run once against PostgreSQL. `PRAMNOS_TEST_SETTINGS` names the settings file a
+run uses in place of the bootstrap's. A relative path is read from the project's root, and a name
+that is not a file stops the run, rather than letting it fall back to MySQL without a word.
+
+**1. A PostgreSQL service**, off unless asked for, in `docker-compose.yml`:
+
+```yaml
+  pgtest:
+    image: timescale/timescaledb:2.26.4-pg17   # TimescaleDB is PostgreSQL; the target, if it is the target
+    profiles: [pgtest]
+    environment:
+      POSTGRES_PASSWORD: secret
+    tmpfs: [/var/lib/postgresql/data]          # a test database: nothing to keep
+```
+
+**2. Its settings**, `app/config/testsettings.pgsql.php`: a copy of `testsettings.php` with the
+database block pointed at it, and the application's MySQL-written SQL translated:
+
+```php
+'database' => [
+    'type'            => 'postgresql',
+    'hostname'        => 'pgtest',
+    'port'            => 5432,
+    'user'            => 'postgres',
+    'password'        => 'secret',
+    'database'        => 'app_test',
+    'translate_mysql' => true,
+],
+```
+
+**3. The run**:
+
+```bash
+docker-compose --profile pgtest up -d pgtest
+docker-compose exec -e PRAMNOS_TEST_SETTINGS=app/config/testsettings.pgsql.php app \
+    vendor/bin/phpunit --log-junit var/pgsql.xml
+```
+
+`TestEnvironment` creates the test database on PostgreSQL and runs the migrations there, so the
+first thing measured is whether they build the schema at all.
+
+**Reading what fails.** Run the suite on MySQL with `--log-junit var/mysql.xml` too, and compare
+the two lists. What fails only on PostgreSQL is one of four things:
+
+- **A migration that does not build** on PostgreSQL: the schema builder speaks both dialects, raw
+  `CREATE TABLE` does not.
+- **`DialectException`**: an upsert whose conflict key the table does not decide. Write its
+  `ON CONFLICT (…)` by hand.
+- **SQL the translator leaves alone because it would change meaning**: a `LIKE` that relied on
+  MySQL ignoring case, a `GROUP BY` that leaves columns out, `"…"` as a string.
+- **A test that assumed MySQL**: an error message, an auto-increment that starts at 1 after a
+  truncate, rows in an order nobody asked for.
+
+The data moves separately, with `db:migrate-from-mysql`. See
+[Moving from MySQL](Pramnos_Moving_From_MySQL_Guide.md).
 
 ## Running the framework's suite in parallel
 
