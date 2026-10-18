@@ -91,6 +91,16 @@ class McpController extends Controller
             ], 400);
         }
 
+        // A tool this user may reach but whose scope the token was not granted: say which scope,
+        // so the assistant knows reconnecting would help. A tool the user may not reach at all
+        // stays "unknown" — its existence is not the caller's to learn.
+        if (($message['method'] ?? null) === 'tools/call') {
+            $missing = PublicRegistry::missingScope((string) ($message['params']['name'] ?? ''), $this->scopesOf(), $user);
+            if ($missing !== null) {
+                return $this->insufficientScope($message['id'] ?? null, $missing);
+            }
+        }
+
         $answer = $this->server($this->scopesOf())->dispatch($message);
 
         // A notification — a message with no id — gets no reply by specification. `202` says it
@@ -137,7 +147,7 @@ class McpController extends Controller
     {
         $server = (new McpServer($this->serverName()))->setInstructions($this->instructions());
 
-        foreach (PublicRegistry::visibleTo($scopes) as $tool) {
+        foreach (PublicRegistry::availableTo($scopes, $this->authenticatedUser()) as $tool) {
             $server->addTool($tool);
         }
 
@@ -304,6 +314,26 @@ class McpController extends Controller
         $scope = implode(' ', \Pramnos\Auth\Controllers\Discovery::scopesForResource($this->endpointPath(), $this->application ?? null));
 
         return 'Bearer resource_metadata="' . $this->resourceMetadataUrl() . '"' . ($scope !== '' ? ', scope="' . $scope . '"' : '');
+    }
+
+    /**
+     * `403 insufficient_scope`, naming the scope the token lacks (RFC 6750 §3.1, and the MCP
+     * authorization spec's step-up): the client asks the user to grant it, rather than reading
+     * "unknown tool" and giving up.
+     */
+    protected function insufficientScope(mixed $id, string $scope): mixed
+    {
+        header('WWW-Authenticate: Bearer error="insufficient_scope", scope="' . $scope . '", resource_metadata="' . $this->resourceMetadataUrl() . '"');
+
+        return $this->json([
+            'jsonrpc' => '2.0',
+            'id'      => $id,
+            'error'   => [
+                'code'    => self::RPC_FORBIDDEN,
+                'message' => 'insufficient_scope: this tool needs the scope ' . $scope . '; reconnect and grant it',
+                'data'    => ['error' => 'insufficient_scope', 'scope' => $scope],
+            ],
+        ], 403);
     }
 
     /**

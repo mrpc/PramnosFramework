@@ -37,18 +37,30 @@ namespace Pramnos\Mcp;
  */
 final class ScopedTool implements ScopedMcpTool
 {
+    /**
+     * @param string|null $minRole The least role ({@see \Pramnos\User\Roles}) that sees the tool at all,
+     *                             whatever its token's scopes; null for anybody the scope admits
+     */
     public function __construct(
         private readonly McpToolInterface $tool,
-        private readonly string $scope
+        private readonly string $scope,
+        private readonly ?string $minRole = null,
     ) {
     }
 
     /**
-     * The same thing as the constructor, named for how it reads at a call site.
+     * The same thing as the constructor, named for how it reads at a call site:
+     * `ScopedTool::wrap($tool, 'mcp:people', minRole: Roles::ROOT)`.
      */
-    public static function wrap(McpToolInterface $tool, string $scope): self
+    public static function wrap(McpToolInterface $tool, string $scope, ?string $minRole = null): self
     {
-        return new self($tool, $scope);
+        return new self($tool, $scope, $minRole);
+    }
+
+    /** The least role that sees the tool, or null. */
+    public function minRole(): ?string
+    {
+        return $this->minRole;
     }
 
     public function name(): string

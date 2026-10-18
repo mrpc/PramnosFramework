@@ -38,6 +38,12 @@ class PublicRegistry
     /** @var array<string, ScopedMcpTool> */
     private static array $tools = [];
 
+    /** @var list<callable(?object, ScopedMcpTool): bool> Who may see which tool, beside its scope */
+    private static array $gates = [];
+
+    /** @var list<callable(ScopedMcpTool, array<string, mixed>, callable(array<string, mixed>): mixed, ?object): mixed> Around every call */
+    private static array $around = [];
+
     /**
      * Offer a tool publicly.
      *
@@ -261,7 +267,195 @@ class PublicRegistry
     /** Forget everything. For tests, and for an application that rebuilds its own registry. */
     public static function reset(): void
     {
-        self::$tools = [];
+        self::$tools  = [];
+        self::$gates  = [];
+        self::$around = [];
+    }
+
+    /**
+     * Decide, beside a tool's scope, whether a user sees it at all — the role, an organisation,
+     * a flag. Every gate must allow it. A tool a gate refuses is not listed and answers as no
+     * tool; one the gates allow but the token's scopes do not is listed nowhere, and a call to it
+     * is told which scope it needs.
+     *
+     * ```php
+     * PublicRegistry::gate(static fn (?object $user, ScopedMcpTool $tool): bool =>
+     *     $tool->name() !== 'people' || Roles::atLeast($user, Roles::ROOT));
+     * ```
+     *
+     * A {@see ScopedTool} wrapped with `minRole:` is gated by that role without one.
+     *
+     * @param callable(?object, ScopedMcpTool): bool $gate
+     */
+    public static function gate(callable $gate): void
+    {
+        self::$gates[] = $gate;
+    }
+
+    /**
+     * Run something around every call of every public tool — redaction, an audit row — instead
+     * of each application wrapping each tool. Hooks nest in the order added, the first outermost.
+     *
+     * ```php
+     * PublicRegistry::around(PublicRegistry::audited());
+     * PublicRegistry::around(PublicRegistry::redacting());
+     * ```
+     *
+     * @param callable(ScopedMcpTool, array<string, mixed>, callable(array<string, mixed>): mixed, ?object): mixed $hook
+     */
+    public static function around(callable $hook): void
+    {
+        self::$around[] = $hook;
+    }
+
+    /**
+     * The tools a user may reach, whatever the token's scopes: those every gate, and the tool's
+     * own least role, allow.
+     *
+     * @return list<ScopedMcpTool>
+     */
+    public static function reachableBy(?object $user): array
+    {
+        return array_values(array_filter(self::$tools, static function (ScopedMcpTool $tool) use ($user): bool {
+            if ($tool instanceof ScopedTool && $tool->minRole() !== null && !\Pramnos\User\Roles::atLeast($user, $tool->minRole())) {
+                return false;
+            }
+            foreach (self::$gates as $gate) {
+                if (!$gate($user, $tool)) {
+                    return false;
+                }
+            }
+
+            return true;
+        }));
+    }
+
+    /**
+     * The tools a user holding these scopes may call: reachable by them, permitted by the
+     * scopes, each running through the {@see around()} hooks.
+     *
+     * @param list<string> $scopes
+     * @return list<ScopedMcpTool>
+     */
+    public static function availableTo(array $scopes, ?object $user): array
+    {
+        $tools = [];
+        foreach (self::reachableBy($user) as $tool) {
+            if (self::permits($scopes, $tool->requiredScope())) {
+                $tools[] = self::$around === [] ? $tool : self::hooked($tool, $user);
+            }
+        }
+
+        return $tools;
+    }
+
+    /**
+     * The scope a reachable tool needs that these scopes lack — for telling a caller that
+     * reconnecting would help, where "no such tool" says nothing. Null when the tool is not
+     * reachable by this user at all, or the scopes already permit it.
+     *
+     * @param list<string> $scopes
+     */
+    public static function missingScope(string $name, array $scopes, ?object $user): ?string
+    {
+        foreach (self::reachableBy($user) as $tool) {
+            if ($tool->name() === $name) {
+                return self::permits($scopes, $tool->requiredScope()) ? null : $tool->requiredScope();
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * A hook that redacts what a tool returns, as the analyst's tools are — email addresses to
+     * their shape, tokens, cards, phone numbers and IP addresses replaced — through every string
+     * in the result.
+     *
+     * @return callable(ScopedMcpTool, array<string, mixed>, callable(array<string, mixed>): mixed, ?object): mixed
+     */
+    public static function redacting(): callable
+    {
+        $clean = static function (mixed $value) use (&$clean): mixed {
+            return match (true) {
+                is_string($value) => \Pramnos\Llm\Analyst\Redactor::clean($value),
+                is_array($value)  => array_map($clean, $value),
+                default           => $value,
+            };
+        };
+
+        return static fn (ScopedMcpTool $tool, array $input, callable $next, ?object $user): mixed => $clean($next($input));
+    }
+
+    /**
+     * A hook that writes an audit row for every call: `mcp.tool_call`, the user, the tool, the
+     * client the token was issued to, and the names of the parameters — not their values, which
+     * may be anything the model typed.
+     *
+     * @return callable(ScopedMcpTool, array<string, mixed>, callable(array<string, mixed>): mixed, ?object): mixed
+     */
+    public static function audited(): callable
+    {
+        return static function (ScopedMcpTool $tool, array $input, callable $next, ?object $user): mixed {
+            $token  = \Pramnos\Http\Request::accessToken();
+            $claims = $token !== null ? \Pramnos\Auth\JWT::decodeUnverified($token) : false;
+            \Pramnos\Auth\AuditLog::record('mcp.tool_call', isset($user->userid) ? (int) $user->userid : null, null, [
+                'tool'       => $tool->name(),
+                'client'     => is_object($claims) ? (string) (is_array($claims->aud ?? null) ? ($claims->aud[0] ?? '') : ($claims->aud ?? '')) : '',
+                'parameters' => array_keys($input),
+            ], 'mcp_tool', $tool->name());
+
+            return $next($input);
+        };
+    }
+
+    /** A tool whose calls run through the hooks, the first added outermost. */
+    private static function hooked(ScopedMcpTool $tool, ?object $user): ScopedMcpTool
+    {
+        $hooks = self::$around;
+
+        return new class ($tool, $hooks, $user) implements ScopedMcpTool {
+            /** @param list<callable> $hooks */
+            public function __construct(private ScopedMcpTool $tool, private array $hooks, private ?object $user)
+            {
+            }
+
+            /** The tool's own name. */
+            public function name(): string
+            {
+                return $this->tool->name();
+            }
+
+            /** The tool's own description. */
+            public function description(): string
+            {
+                return $this->tool->description();
+            }
+
+            /** The tool's own schema. */
+            public function inputSchema(): array
+            {
+                return $this->tool->inputSchema();
+            }
+
+            /** The tool's own scope. */
+            public function requiredScope(): string
+            {
+                return $this->tool->requiredScope();
+            }
+
+            /** The call, through every hook. */
+            public function execute(array $input): mixed
+            {
+                $next = fn (array $input): mixed => $this->tool->execute($input);
+                foreach (array_reverse($this->hooks) as $hook) {
+                    $inner = $next;
+                    $next  = fn (array $input): mixed => $hook($this->tool, $input, $inner, $this->user);
+                }
+
+                return $next($input);
+            }
+        };
     }
 
     /**

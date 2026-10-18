@@ -1380,6 +1380,58 @@ model a sentence to re-read to somebody. Returning `['station' => 4, 'checked_at
 something to reason with, combine with another answer, and phrase itself. Structure survives
 translation, summarising and being asked a follow-up; a sentence does not.
 
+### Who sees a tool, beside its scope
+
+The scope says what a **token** may do. Whether a **user** sees a tool at all can depend on more,
+such as their role, an organisation or a flag. Two ways say so, and every one of them has to
+allow the tool:
+
+```php
+use Pramnos\Mcp\{PublicRegistry, ScopedMcpTool, ScopedTool};
+use Pramnos\User\Roles;
+
+// A least role, on the tool itself
+PublicRegistry::add(ScopedTool::wrap(new PeopleTool(), 'mcp:people', minRole: Roles::ROOT));
+
+// Any rule, for every tool
+PublicRegistry::gate(static fn (?object $user, ScopedMcpTool $tool): bool =>
+    $tool->name() !== 'beta_report' || in_array((int) $user?->userid, [1, 7], true));
+```
+
+A tool the gates refuse is not listed, and a call to it answers as a tool that does not exist:
+its existence is not that user's to learn. A tool the gates allow but the token's scopes do not
+cover is not listed either. A call to it is refused with `403` and
+`WWW-Authenticate: Bearer error="insufficient_scope", scope="mcp:people"`, and the JSON-RPC error
+names the scope. An assistant can then tell its user that reconnecting and granting it would help,
+where "Unknown tool" told it nothing.
+
+### Around every call: redaction and audit
+
+`PublicRegistry::around()` runs a hook around every call of every public tool, so no application
+wraps each tool itself. Hooks nest in the order they are added, the first outermost. Two come
+ready-made:
+
+```php
+PublicRegistry::around(PublicRegistry::audited());   // a row per call: user, tool, client, parameter names
+PublicRegistry::around(PublicRegistry::redacting()); // emails, tokens, cards, phones, IPs out of every string
+```
+
+`audited()` records `mcp.tool_call` in the audit log with the parameter **names**, never their
+values, since a value may be anything a model typed. `redacting()` passes each string of the
+result through the same `Redactor` the analyst's tools use. A hook of your own receives the tool,
+the input, the next step and the user:
+
+```php
+PublicRegistry::around(static function (ScopedMcpTool $tool, array $input, callable $next, ?object $user): mixed {
+    $started = microtime(true);
+    try {
+        return $next($input);
+    } finally {
+        Metrics::timing('mcp.' . $tool->name(), microtime(true) - $started);
+    }
+});
+```
+
 ### Why two registries and not one list with a flag
 
 A shared collection with an "expose this" flag means every tool written from then on is public
