@@ -129,9 +129,10 @@ final class Migrator
      *
      * @param list<string> $only Source tables to move, all when empty
      * @param list<string> $skip Source tables to leave
+     * @param string|null  $timeColumn The backfill's column: whether MySQL has an index that starts with it
      * @return array{tables: array<string, array<string, mixed>>, order: list<string>, cycles: list<string>, replica: bool, zone: array{name: string, offset: int, serverOffset: int, columns: list<string>}}
      */
-    public function plan(array $only = [], array $skip = []): array
+    public function plan(array $only = [], array $skip = [], ?string $timeColumn = null): array
     {
         $sources = $this->sourceTables();
         $targets = $this->targetTables();
@@ -185,6 +186,9 @@ final class Migrator
                 'required'    => $required,
                 'compressed'  => $create === null && $this->hasCompressedChunks($target),
                 'encoding'    => $this->encodingFindings($name, $shape, $copied),
+                // Without an index that starts with it, every backfill window is a scan of the table.
+                'timeIndexed' => $timeColumn === null || !isset($shape['columns'][$timeColumn]) ? null
+                    : in_array($timeColumn, [$shape['primary'][0] ?? null, ...array_map(static fn (array $i): ?string => $i['columns'][0] ?? null, array_values($shape['indexes']))], true),
                 'caseless'    => self::caselessLookups($shape, $copied, $create !== null ? [] : $targetColumns),
             ];
         }
@@ -224,7 +228,7 @@ final class Migrator
         }
         $offset = intdiv((new \DateTimeImmutable('now', new \DateTimeZone($this->zone)))->getOffset(), 60);
 
-        return ['tables' => $tables, 'order' => $sorted['order'], 'cycles' => $sorted['cycles'], 'replica' => $this->replicaAllowed(),
+        return ['tables' => $tables, 'order' => $sorted['order'], 'cycles' => $sorted['cycles'], 'replica' => $this->replicaAllowed(), 'timeColumn' => $timeColumn,
             'zone' => ['name' => $this->zone, 'offset' => $offset, 'serverOffset' => $this->serverOffset, 'columns' => $wallClock]];
     }
 

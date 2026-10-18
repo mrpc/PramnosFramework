@@ -113,7 +113,8 @@ class DatabaseMigrateFromMysql extends Command
         }
         $migrator->batchBytes(max(1, (int) $input->getOption('batch-mb')) * 1024 * 1024);
         $migrator->repairEncoding($list($input->getOption('repair-encoding')));
-        $plan     = $migrator->plan($list($input->getOption('tables')), $list($input->getOption('exclude-tables')));
+        $plan     = $migrator->plan($list($input->getOption('tables')), $list($input->getOption('exclude-tables')),
+            $input->getOption('time-column') !== null ? (string) $input->getOption('time-column') : null);
         $this->reportPlan($output, $plan);
         if ($input->getOption('dry-run')) {
             return Command::SUCCESS;
@@ -293,6 +294,11 @@ class DatabaseMigrateFromMysql extends Command
                     $output->writeln('      <error>' . $e['column'] . ': ' . $e['suspect'] . ' of ' . $e['sampled'] . ' sampled value(s) look double-encoded</error> — "'
                         . mb_strimwidth((string) $e['example'], 0, 40, '…') . '" would be "' . mb_strimwidth((string) $e['repaired'], 0, 40, '…') . '"; --repair-encoding=' . $name . '.' . $e['column'] . ' repairs them');
                 }
+            }
+            if (($t['timeIndexed'] ?? null) === false) {
+                $column = (string) $plan['timeColumn'];
+                $output->writeln('      <error>' . $column . ' has no index in MySQL that starts with it:</error> every window reads the whole table — '
+                    . 'CREATE INDEX ' . $name . '_' . $column . ' ON `' . $name . '` (`' . $column . '`) before the backfill');
             }
             foreach ($t['caseless'] ?? [] as $c) {
                 $output->writeln('      <comment>' . $c['column'] . ($c['unique'] ? ' is unique' : ' is looked up') . ' without regard to case in MySQL (' . $c['collation'] . '):</comment> '

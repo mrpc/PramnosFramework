@@ -365,6 +365,9 @@ the application has written to PostgreSQL since is not touched.
       refuses rows into a compressed chunk.
     - With `--compress-after-chunk`, each window's chunks are compressed as soon as the window is
       done, so the disk does not fill with uncompressed history.
+- **The time column needs an index in MySQL.** A window is a range on it; without an index that
+  starts with it, every window reads the whole table, which for years of history means days.
+  The dry run with `--time-column` names such a table, with the `CREATE INDEX` to run first.
 - **Each window is checked as it is written.** Its rows are counted on both sides, and a window
   that lost rows is named at once, with the run exiting `1`. With `--verify`, each window is
   also digested, as `--phase=verify` digests it. That costs a second read of the window.

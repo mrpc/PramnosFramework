@@ -312,6 +312,38 @@ class MigrateFromMysqlPhasesTest extends TestCase
     }
 
     /**
+     * A backfill window is a range on the time column; without an index in MySQL that starts
+     * with it, each window reads the whole table — years of history, window after window. The
+     * dry run names such a table with the index to add, and says nothing of one that has it,
+     * whether as a plain index or the first column of a composite one.
+     */
+    public function testTheDryRunNamesATimeColumnWithoutAnIndex(): void
+    {
+        // Arrange
+        $tester = $this->databases([
+            'CREATE TABLE bare (id INT PRIMARY KEY, time DATETIME) ENGINE=InnoDB',
+            'CREATE TABLE indexed (id INT PRIMARY KEY, time DATETIME, KEY (time)) ENGINE=InnoDB',
+            'CREATE TABLE firstcol (id INT PRIMARY KEY, time DATETIME, device INT, KEY (time, device)) ENGINE=InnoDB',
+            'CREATE TABLE secondcol (id INT PRIMARY KEY, time DATETIME, device INT, KEY (device, time)) ENGINE=InnoDB',
+        ], [
+            'CREATE TABLE bare (id INT PRIMARY KEY, time TIMESTAMPTZ)',
+            'CREATE TABLE indexed (id INT PRIMARY KEY, time TIMESTAMPTZ)',
+            'CREATE TABLE firstcol (id INT PRIMARY KEY, time TIMESTAMPTZ, device INT)',
+            'CREATE TABLE secondcol (id INT PRIMARY KEY, time TIMESTAMPTZ, device INT)',
+        ]);
+
+        // Act
+        $tester->execute(['--source' => $this->dsn(), '--dry-run' => true, '--time-column' => 'time']);
+        $dry = $tester->getDisplay();
+
+        // Assert
+        $this->assertStringContainsString('CREATE INDEX bare_time ON `bare` (`time`) before the backfill', $dry);
+        $this->assertStringContainsString('CREATE INDEX secondcol_time ON `secondcol` (`time`)', $dry, 'second in an index is no help to a range on it');
+        $this->assertStringNotContainsString('INDEX indexed_time', $dry);
+        $this->assertStringNotContainsString('INDEX firstcol_time', $dry);
+    }
+
+    /**
      * A hypertable keeps its rows without MySQL's key, so it is checked by time window. The
      * backfill counts each window as it writes it: two MySQL rows that are one row here (the
      * target's `UNIQUE (time, device)` took the first) make March a window that lost a row, named
