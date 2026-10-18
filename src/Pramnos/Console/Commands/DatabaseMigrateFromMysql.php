@@ -38,7 +38,7 @@ class DatabaseMigrateFromMysql extends Command
             ->addOption('source', null, InputOption::VALUE_REQUIRED, 'The MySQL database: mysql://user:password@host:port/name (default: migration_source in app.php)')
             ->addOption('dry-run', null, InputOption::VALUE_NONE, 'Report what would move, change nothing')
             ->addOption('phase', null, InputOption::VALUE_REQUIRED, 'full | operational | cutover | backfill | verify', 'full')
-            ->addOption('verify', null, InputOption::VALUE_NONE, 'full, cutover: compare every row with MySQL once the phase is done')
+            ->addOption('verify', null, InputOption::VALUE_NONE, 'full, cutover: compare every row with MySQL once the phase is done; backfill: digest each window as it is written, not only count it')
             ->addOption('no-snapshot', null, InputOption::VALUE_NONE, 'full, operational: read each table a range of keys at a time, no transaction held open on MySQL')
             ->addOption('tables', null, InputOption::VALUE_REQUIRED, 'Only these source tables, comma-separated')
             ->addOption('exclude-tables', null, InputOption::VALUE_REQUIRED, 'Leave these source tables, comma-separated')
@@ -149,14 +149,24 @@ class DatabaseMigrateFromMysql extends Command
         };
         $batch = (int) $input->getOption('batch-size');
         if ($phase === 'verify') {
-            return $this->reportVerify($output, $migrator->verify($plan, $batch));
+            $until = $input->getOption('until') !== null ? strtotime((string) $input->getOption('until')) : null;
+            try {
+                $verified = $migrator->verify($plan, $batch, $input->getOption('time-column') !== null ? (string) $input->getOption('time-column') : null,
+                    (string) $input->getOption('chunk-interval'), $until === false ? null : $until);
+            } catch (\InvalidArgumentException $e) {
+                $output->writeln('<error>' . $e->getMessage() . '</error>');
+
+                return Command::FAILURE;
+            }
+
+            return $this->reportVerify($output, $verified);
         }
         if ($phase === 'backfill') {
             $until = $input->getOption('until') !== null ? strtotime((string) $input->getOption('until')) : null;
             try {
                 $result = $migrator->backfill($plan, (string) $input->getOption('time-column'), (string) $input->getOption('chunk-interval'), $batch,
                     (int) $input->getOption('throttle-ms'), (bool) $input->getOption('compress-after-chunk'), (bool) $input->getOption('restart'),
-                    $until === false ? null : $until, $progress);
+                    $until === false ? null : $until, $progress, (bool) $input->getOption('verify'));
             } catch (\InvalidArgumentException $e) {
                 $output->writeln('<error>' . $e->getMessage() . '</error>');
 
@@ -188,7 +198,7 @@ class DatabaseMigrateFromMysql extends Command
             }
             $code = $this->reportResult($output, $result);
         }
-        if ($input->getOption('verify') && $phase !== 'operational') {
+        if ($input->getOption('verify') && in_array($phase, ['full', 'cutover'], true)) {
             $verified = $this->reportVerify($output, $migrator->verify($plan, $batch));
             $code     = $code === Command::SUCCESS ? $verified : $code;
         }
@@ -202,13 +212,19 @@ class DatabaseMigrateFromMysql extends Command
         $output->writeln('<info>Compared with MySQL:</info>');
         $failed = false;
         foreach ($result as $name => $t) {
-            $off    = $t['source'] !== $t['target'] || $t['missing'] + $t['different'] + $t['extra'] > 0;
+            $off    = $t['source'] !== $t['target'] || $t['missing'] + $t['different'] + $t['extra'] > 0 || ($t['mismatched'] ?? []) !== [];
             $failed = $failed || $off;
             $output->writeln(($off ? '<error>✗</error> ' : '<info>✓</info> ') . $name . ': ' . $t['source'] . ' row(s) in MySQL, ' . $t['target'] . ' here'
                 . ($t['missing'] > 0 ? ', ' . $t['missing'] . ' missing' : '')
                 . ($t['different'] > 0 ? ', ' . $t['different'] . ' different' : '')
                 . ($t['extra'] > 0 ? ', ' . $t['extra'] . ' MySQL has not' : '')
                 . ($t['keys'] !== [] ? ' — e.g. key ' . implode('; ', $t['keys']) : ''));
+            if (isset($t['windows'])) {
+                $output->writeln('      ' . $t['windows'] . ' window(s) compared' . (($t['mismatched'] ?? []) === [] ? ', all equal' : ''));
+                foreach (array_slice($t['mismatched'], 0, 10) as $window) {
+                    $output->writeln('      <error>window ' . $window . '</error>');
+                }
+            }
             if ($t['unchecked'] !== null) {
                 $output->writeln('      <comment>' . $t['unchecked'] . '</comment>');
             }
@@ -313,7 +329,7 @@ class DatabaseMigrateFromMysql extends Command
                 $failed = true;
                 continue;
             }
-            $failed = $failed || $t['refused'] > 0;
+            $failed = $failed || $t['refused'] > 0 || ($t['mismatched'] ?? []) !== [];
             $output->writeln(($t['refused'] > 0 ? '<error>✗</error> ' : '<info>✓</info> ') . $name . ': ' . $t['windows'] . ' window(s), '
                 . $t['inserted'] . ' inserted' . ($t['refused'] > 0 ? ', ' . $t['refused'] . ' refused' : '')
                 . ($t['skipped'] > 0 ? ', ' . $t['skipped'] . ' window(s) done before' : '')
@@ -322,6 +338,9 @@ class DatabaseMigrateFromMysql extends Command
                 . (($t['policyRestored'] ?? false) ? ', compression policy put back' : ''));
             foreach ($t['errors'] as $error) {
                 $output->writeln('      ' . $error);
+            }
+            foreach ($t['mismatched'] ?? [] as $window) {
+                $output->writeln('      <error>window ' . $window . '</error> — run it again with --restart, or compare it with --phase=verify');
             }
         }
 

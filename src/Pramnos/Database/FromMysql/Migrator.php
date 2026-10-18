@@ -424,11 +424,19 @@ final class Migrator
      * PostgreSQL — or rows written since are differences. A reference set to NULL as an orphan
      * is one too.
      *
+     * With `$timeColumn`, a table that has it is compared window by window instead, `$interval`
+     * long and ending at `$until`: each window's rows counted and digested on both sides — the
+     * way to verify a hypertable, whose rows the target keeps without MySQL's key. The windows
+     * that differ are named.
+     *
      * @param array<string, mixed> $plan
-     * @return array<string, array{source: int, target: int, missing: int, different: int, extra: int, keys: list<string>, unchecked: ?string}>
+     * @return array<string, array{source: int, target: int, missing: int, different: int, extra: int, keys: list<string>, unchecked: ?string, windows?: int, mismatched?: list<string>}>
      */
-    public function verify(array $plan, int $batch = 5000): array
+    public function verify(array $plan, int $batch = 5000, ?string $timeColumn = null, string $interval = '1 month', ?int $until = null): array
     {
+        if ($timeColumn !== null) {
+            self::back(time(), $interval);
+        }
         $targets = $this->targetTables();
         $result  = [];
         foreach ($plan['order'] as $name) {
@@ -444,9 +452,13 @@ final class Migrator
                 $result[$name] = ['unchecked' => 'the target has no such table'] + $stats;
                 continue;
             }
+            if ($timeColumn !== null && isset($shape['columns'][$timeColumn])) {
+                $result[$name] = $this->verifyWindows($table, $targets[$table['target']]['columns'], $timeColumn, $interval, $until, $batch) + $stats;
+                continue;
+            }
             $key = $shape['primary'];
             if ($key === [] || array_diff($key, $table['copied']) !== []) {
-                $result[$name] = ['unchecked' => 'no primary key the target has: rows counted, not compared'] + $stats;
+                $result[$name] = ['unchecked' => 'no primary key the target has: rows counted, not compared' . ($timeColumn === null ? ' — --time-column compares it window by window' : '')] + $stats;
                 continue;
             }
             $same  = $this->ranges()->compare($name, $table['target'], $key, $table['copied'], $shape['columns'], $targets[$table['target']]['columns'], max(1, $batch));
@@ -467,12 +479,13 @@ final class Migrator
      * touched. A window done is not read again: a stopped backfill continues where it stopped,
      * and `$restart` forgets that. On a hypertable, the compression policy is removed for the
      * duration and put back after; compressed chunks in a window are decompressed before rows go
-     * in; with `$compress`, each window's chunks are compressed once it is done.
+     * in; with `$compress`, each window's chunks are compressed once it is done. Each window is
+     * checked once written: its rows counted on both sides, or with `$verify` compared by digest.
      *
      * @param array<string, mixed> $plan
      * @return array<string, array<string, mixed>> Per table: windows done and skipped, rows, chunks compressed
      */
-    public function backfill(array $plan, string $timeColumn, string $interval = '1 month', int $batch = 5000, int $throttleMs = 50, bool $compress = false, bool $restart = false, ?int $until = null, ?callable $progress = null): array
+    public function backfill(array $plan, string $timeColumn, string $interval = '1 month', int $batch = 5000, int $throttleMs = 50, bool $compress = false, bool $restart = false, ?int $until = null, ?callable $progress = null, bool $verify = false): array
     {
         // Checked before anything is touched — a policy suspended for a run that then refuses its
         // interval would stay off until the next one.
@@ -483,7 +496,7 @@ final class Migrator
         foreach ($plan['order'] as $name) {
             $table   = $plan['tables'][$name];
             $columns = $this->sourceTables()[$name]['columns'];
-            $stats   = ['windows' => 0, 'skipped' => 0, 'inserted' => 0, 'refused' => 0, 'nulled' => 0, 'errors' => [], 'compressed' => 0, 'error' => null, 'fdw' => 0];
+            $stats   = ['windows' => 0, 'skipped' => 0, 'inserted' => 0, 'refused' => 0, 'nulled' => 0, 'errors' => [], 'compressed' => 0, 'error' => null, 'fdw' => 0, 'mismatched' => []];
             if (!isset($columns[$timeColumn])) {
                 $result[$name] = ['error' => 'has no column ' . $timeColumn] + $stats;
                 continue;
@@ -492,13 +505,8 @@ final class Migrator
                 $this->tracker()->forget($name, 'backfill');
             }
             $type    = (string) $columns[$timeColumn]['type'];
-            $integer = preg_match('/int/i', $type) === 1;
             $quoted  = '`' . str_replace('`', '``', $timeColumn) . '`';
-            $first   = $this->source->getConnectionLink()->query('SELECT MIN(' . $quoted . ') AS m FROM `' . $name . '` WHERE ' . $quoted
-                . ($integer ? ' > 0' : " > '1000-01-01'"))->fetch_assoc()['m'];
-            if ($first !== null && !$integer) {
-                $first = (new \DateTimeImmutable((string) $first, new \DateTimeZone(str_starts_with(strtolower($type), 'timestamp') ? 'UTC' : $this->zone)))->getTimestamp();
-            }
+            $first   = $this->firstMoment($name, $timeColumn);
             if ($first === null) {
                 $result[$name] = $stats;
                 continue;
@@ -526,7 +534,14 @@ final class Migrator
                 if ($compress && $hypertable !== null) {
                     $stats['compressed'] += $this->chunks($table['target'], $hypertable, $start, $end, true);
                 }
-                $this->tracker()->put($name, 'backfill', $start, $end, $window['inserted'], ProgressTracker::DONE, ['refused' => $window['refused']]);
+                // Each window checked as it is written: its rows counted on both sides — or, with
+                // `$verify`, digested — so a window that lost rows is named now, not at the end.
+                $check = $this->windowDigest($table, $targets[$table['target']]['columns'] ?? [], $timeColumn, $start, $end, $verify, max(1, $batch));
+                if ($check !== null && $check['source'] !== $check['target']) {
+                    $stats['mismatched'][] = self::windowLabel($start, $end) . ': ' . $check['source']['n'] . ' row(s) in MySQL, ' . $check['target']['n'] . ' here'
+                        . ($check['source']['n'] === $check['target']['n'] ? ', different' : '');
+                }
+                $this->tracker()->put($name, 'backfill', $start, $end, $window['inserted'], ProgressTracker::DONE, ['refused' => $window['refused'], 'check' => $check]);
                 $stats['windows']++;
                 $stats['fdw']      += ($window['transport'] ?? 'php') === 'fdw' ? 1 : 0;
                 $stats['inserted'] += $window['inserted'];
@@ -542,6 +557,140 @@ final class Migrator
         }
 
         return $result;
+    }
+
+    /**
+     * A table compared window by window on its time column, newest first, to the first moment
+     * it holds.
+     *
+     * @param array<string, mixed>                $table
+     * @param array<string, array<string, mixed>> $targetColumns
+     * @return array{windows: int, mismatched: list<string>, missing: int, different: int, extra: int, unchecked: ?string}
+     */
+    private function verifyWindows(array $table, array $targetColumns, string $timeColumn, string $interval, ?int $until, int $batch): array
+    {
+        $found = ['windows' => 0, 'mismatched' => [], 'missing' => 0, 'different' => 0, 'extra' => 0, 'unchecked' => null];
+        if (!isset($targetColumns[$timeColumn])) {
+            return ['unchecked' => 'the target has no column ' . $timeColumn . ': rows counted, not compared'] + $found;
+        }
+        $first = $this->firstMoment($table['source'], $timeColumn);
+        $until ??= time() + 1;
+        for ($end = $until; $first !== null && $end > $first; $end = $start) {
+            $start  = self::back($end, $interval);
+            $digest = $this->windowDigest($table, $targetColumns, $timeColumn, $start, $end, true, max(1, $batch));
+            $found['windows']++;
+            if ($digest !== null && $digest['source'] !== $digest['target']) {
+                $gap = $digest['source']['n'] - $digest['target']['n'];
+                $found[$gap > 0 ? 'missing' : ($gap < 0 ? 'extra' : 'different')] += $gap === 0 ? 1 : abs($gap);
+                $found['mismatched'][] = self::windowLabel($start, $end) . ': ' . $digest['source']['n'] . ' in MySQL, ' . $digest['target']['n'] . ' here' . ($gap === 0 ? ', different' : '');
+            }
+        }
+
+        return $found;
+    }
+
+    /**
+     * A window's rows on both sides: how many, and — with `$sums` — the sum of a 32-bit hash of
+     * each, which does not depend on the order rows come in and so needs no key. The source rows
+     * are converted as the move converts them and hashed by PostgreSQL, cast to the target's
+     * types, so both sides are written alike. Null when the target has no such time column.
+     *
+     * @param array<string, mixed>                $table
+     * @param array<string, array<string, mixed>> $targetColumns
+     * @return array{source: array{n: int, s: int}, target: array{n: int, s: int}}|null
+     */
+    private function windowDigest(array $table, array $targetColumns, string $timeColumn, int $start, int $end, bool $sums, int $batch): ?array
+    {
+        if (!isset($targetColumns[$timeColumn])) {
+            return null;
+        }
+        $sourceTypes = $this->sourceTables()[$table['source']]['columns'];
+        $type        = (string) $sourceTypes[$timeColumn]['type'];
+        $quoted      = '`' . str_replace('`', '``', $timeColumn) . '`';
+        $where       = $quoted . ' >= ' . $this->sourceMoment($start, $type) . ' AND ' . $quoted . ' < ' . $this->sourceMoment($end, $type);
+        $columns     = $table['copied'];
+        $types       = array_map(static fn (string $c): string => (string) ($targetColumns[$c]['type'] ?? TypeMapper::toPostgres((string) $sourceTypes[$c]['type'])), $columns);
+        $name        = static fn (string $c): string => '"' . str_replace('"', '""', $c) . '"';
+        $hash        = static fn (string $alias): string => "('x' || substr(md5(ROW(" . implode(', ', array_map(static fn (string $c): string => $alias . '.' . $name($c), $columns)) . ")::text), 1, 8))::bit(32)::bigint";
+        $link        = $this->target->getConnectionLink();
+        $digest      = static function (string $sql, array $params) use ($link): array {
+            $result = @pg_query_params($link, $sql, $params);
+            $row    = $result !== false ? pg_fetch_assoc($result) : false;
+
+            return ['n' => (int) ($row['n'] ?? 0), 's' => (int) ($row['s'] ?? 0)];
+        };
+
+        // The window's ends as the target column holds them: the same conversion the rows took.
+        $pgTime = (string) $targetColumns[$timeColumn]['type'];
+        $bounds = [TypeMapper::value((string) $start, 'int', $pgTime, $r, $this->zone), TypeMapper::value((string) $end, 'int', $pgTime, $r, $this->zone)];
+        if (preg_match('/^(smallint|integer|bigint|numeric)/', $pgTime) === 1) {
+            $bounds = [(string) $start, (string) $end];
+        }
+        $ours = $digest('SELECT COUNT(*) AS n, ' . ($sums ? 'COALESCE(SUM(' . $hash('t') . '), 0)' : '0') . ' AS s FROM ' . $this->quoted($table['target'])
+            . ' AS t WHERE t.' . $name($timeColumn) . ' >= $1::' . $pgTime . ' AND t.' . $name($timeColumn) . ' < $2::' . $pgTime, $bounds);
+
+        if (!$sums) {
+            $theirs = ['n' => (int) ($this->sourceRows('SELECT COUNT(*) AS n FROM `' . str_replace('`', '``', $table['source']) . '` WHERE ' . $where)[0]['n'] ?? 0), 's' => 0];
+
+            return ['source' => $theirs, 'target' => $ours];
+        }
+        $repair = $this->repair[$table['source']] ?? [];
+        $theirs = ['n' => 0, 's' => 0];
+        $size   = max(1, min($batch, intdiv(self::MAX_PARAMETERS, count($columns))));
+        $rows   = [];
+        $flush  = function () use (&$rows, &$theirs, $digest, $types, $columns, $name, $hash): void {
+            if ($rows === []) {
+                return;
+            }
+            $groups = [];
+            for ($r = 0, $n = 1; $r < count($rows); $r++) {
+                $groups[] = '(' . implode(', ', array_map(static function (string $t) use (&$n): string {
+                    return '$' . $n++ . '::' . $t;
+                }, $types)) . ')';
+            }
+            $part = $digest('SELECT COUNT(*) AS n, COALESCE(SUM(' . $hash('v') . '), 0) AS s FROM (VALUES ' . implode(', ', $groups) . ') AS v('
+                . implode(', ', array_map($name, $columns)) . ')', array_merge(...$rows));
+            $theirs['n'] += $part['n'];
+            $theirs['s'] += $part['s'];
+            $rows = [];
+        };
+        foreach ($this->stream($table['source'], $columns, $where) as $row) {
+            $values = [];
+            foreach ($columns as $i => $column) {
+                $raw = $row[$column];
+                if (isset($repair[$column]) && is_string($raw)) {
+                    $raw = TypeMapper::repairEncoding($raw) ?? $raw;
+                }
+                $values[] = TypeMapper::value($raw, (string) $sourceTypes[$column]['type'], $types[$i], $refused, $this->zone);
+            }
+            $rows[] = $values;
+            if (count($rows) >= $size) {
+                $flush();
+            }
+        }
+        $flush();
+
+        return ['source' => $theirs, 'target' => $ours];
+    }
+
+    /** The earliest moment a table holds on its time column, as a Unix time; null when it holds none. */
+    private function firstMoment(string $table, string $timeColumn): ?int
+    {
+        $type    = (string) $this->sourceTables()[$table]['columns'][$timeColumn]['type'];
+        $integer = preg_match('/int/i', $type) === 1;
+        $quoted  = '`' . str_replace('`', '``', $timeColumn) . '`';
+        $first   = $this->sourceRows('SELECT MIN(' . $quoted . ') AS m FROM `' . str_replace('`', '``', $table) . '` WHERE ' . $quoted . ($integer ? ' > 0' : " > '1000-01-01'"))[0]['m'] ?? null;
+        if ($first === null) {
+            return null;
+        }
+
+        return $integer ? (int) $first : (new \DateTimeImmutable((string) $first, new \DateTimeZone(str_starts_with(strtolower($type), 'timestamp') ? 'UTC' : $this->zone)))->getTimestamp();
+    }
+
+    /** A window as a person reads it: `2026-01-01 → 2026-02-01`, in UTC. */
+    private static function windowLabel(int $start, int $end): string
+    {
+        return gmdate('Y-m-d H:i', $start) . ' → ' . gmdate('Y-m-d H:i', $end);
     }
 
     /**

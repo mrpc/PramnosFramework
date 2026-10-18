@@ -268,6 +268,54 @@ class MigrateFromMysqlPhasesTest extends TestCase
     }
 
     /**
+     * A hypertable keeps its rows without MySQL's key, so it is checked by time window. The
+     * backfill counts each window as it writes it: two MySQL rows that are one row here (the
+     * target's `UNIQUE (time, device)` took the first) make March a window that lost a row, named
+     * at once, and the run fails. `--phase=verify --time-column` digests every window on both
+     * sides: it finds March again, and a value changed here in April — the same count, a
+     * different digest — and calls the other windows equal. `--verify` on the backfill digests as
+     * it goes.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('transports')]
+    public function testEachWindowIsChecked(string $transport): void
+    {
+        // Arrange — March to May, one row a day, and March 5th twice
+        $values = [];
+        for ($day = 0; $day < 90; $day++) {
+            $values[] = "('" . gmdate('Y-m-d H:i:s', strtotime('2026-03-01 12:00:00 UTC') + $day * 86400) . "', 1, " . $day . ')';
+        }
+        $tester = $this->databases([
+            'CREATE TABLE metrics (id INT AUTO_INCREMENT PRIMARY KEY, time DATETIME NOT NULL, device INT, value DOUBLE) ENGINE=InnoDB',
+            'INSERT INTO metrics (time, device, value) VALUES ' . implode(', ', $values) . ", ('2026-03-05 12:00:00', 1, 4)",
+        ], [
+            'CREATE EXTENSION IF NOT EXISTS timescaledb',
+            'CREATE TABLE metrics (time TIMESTAMPTZ NOT NULL, device INT, value DOUBLE PRECISION, UNIQUE (time, device))',
+            "SELECT create_hypertable('metrics', 'time', chunk_time_interval => INTERVAL '7 days')",
+        ]);
+        $window = ['--source' => $this->dsn(), '--tables' => 'metrics', '--time-column' => 'time', '--chunk-interval' => '1 month', '--until' => '2026-06-01 00:00:00 UTC'];
+
+        // Act
+        $backfill = $tester->execute($window + ['--phase' => 'backfill', '--throttle-ms' => '0', '--transport' => $transport]);
+        $written  = $tester->getDisplay();
+        $this->target->query("UPDATE metrics SET value = -1 WHERE time = '2026-04-10 12:00:00+00'");
+        $verified = $tester->execute($window + ['--phase' => 'verify', '--batch-size' => '7']);
+        $report   = $tester->getDisplay();
+        $digested = $tester->execute($window + ['--phase' => 'backfill', '--throttle-ms' => '0', '--restart' => true, '--verify' => true]);
+        $again    = $tester->getDisplay();
+
+        // Assert
+        $this->assertSame(1, $backfill, $written);
+        $this->assertStringContainsString('window 2026-03-01 00:00 → 2026-04-01 00:00: 32 row(s) in MySQL, 31 here', $written, 'counted as it was written');
+        $this->assertSame(1, $verified, $report);
+        $this->assertStringContainsString('3 window(s) compared', $report);
+        $this->assertStringContainsString('window 2026-03-01 00:00 → 2026-04-01 00:00: 32 in MySQL, 31 here', $report);
+        $this->assertStringContainsString('window 2026-04-01 00:00 → 2026-05-01 00:00: 30 in MySQL, 30 here, different', $report, 'the same count, not the same rows');
+        $this->assertStringNotContainsString('2026-05-01 00:00 → 2026-06-01', $report, 'May is equal');
+        $this->assertSame(1, $digested);
+        $this->assertStringContainsString('window 2026-04-01 00:00 → 2026-05-01 00:00: 30 row(s) in MySQL, 30 here, different', $again, 'digested as it went');
+    }
+
+    /**
      * The backfill into a hypertable: windows newest first up to `--until`, nothing after it;
      * the compression policy removed and put back; each finished window's chunks compressed; a
      * second run reads nothing; `--restart` writes the windows again over compressed chunks; a

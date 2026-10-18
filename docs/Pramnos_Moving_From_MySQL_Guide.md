@@ -233,7 +233,7 @@ refuses rows into them: decompress first.
 | `--changed-column` | `cutover`: the column a changed row is told by |
 | `--with-deletes` | `cutover`: delete the rows deleted in MySQL since the copy |
 | `--append-only` | `cutover`: tables without a change column read only for new rows, not compared |
-| `--verify` | `full`, `cutover`: compare every row with MySQL once the phase is done |
+| `--verify` | `full`, `cutover`: compare every row with MySQL once the phase is done; `backfill`: digest each window as it is written |
 | `--no-snapshot` | `full`, `operational`: read each table a range of keys at a time, no transaction held open |
 | `--time-column` | `backfill`: the column windows are cut on |
 | `--chunk-interval` | `backfill`: a window's length (default `1 month`) |
@@ -317,6 +317,22 @@ Compared with MySQL:
   `datetime` that became a `timestamptz` and JSON reformatted by `jsonb` therefore compare equal.
 - The target is walked for rows MySQL no longer has.
 
+**A hypertable is verified by time window.** Its rows usually arrive without MySQL's `id`, so
+there is no key to compare by. `--phase=verify --time-column=time --chunk-interval="1 month"`
+compares each window instead, from `--until` (default: now) back to the first row. Each window's
+rows are counted on both sides and digested: the sum of a hash of every row, as the move writes
+it, so the order rows come in does not matter. The windows that differ are named:
+
+```
+✗ metrics: 2401003 row(s) in MySQL, 2401002 here
+      27 window(s) compared
+      window 2026-03-01 00:00 → 2026-04-01 00:00: 32 in MySQL, 31 here
+      window 2026-04-01 00:00 → 2026-05-01 00:00: 30 in MySQL, 30 here, different
+```
+
+A window with fewer rows here often means MySQL held two rows the target's unique key takes as
+one. "Different" with equal counts means a value did not arrive as written.
+
 Nothing is changed, and the command exits `1` on any difference, naming up to five keys. Run it
 with writes stopped: rows the application writes to PostgreSQL afterwards count as differences.
 So does a reference that `--null-orphans` set to NULL. A table without a primary key is counted
@@ -337,6 +353,9 @@ the application has written to PostgreSQL since is not touched.
       refuses rows into a compressed chunk.
     - With `--compress-after-chunk`, each window's chunks are compressed as soon as the window is
       done, so the disk does not fill with uncompressed history.
+- **Each window is checked as it is written.** Its rows are counted on both sides, and a window
+  that lost rows is named at once, with the run exiting `1`. With `--verify`, each window is
+  also digested, as `--phase=verify` digests it. That costs a second read of the window.
 - **Beside live traffic.** `--batch-size` rows at a time, and `--throttle-ms` between batches, so
   WAL and replicas keep up. Rows of a past window land in past chunks, never in the chunk the
   application is writing to.
