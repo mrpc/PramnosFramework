@@ -206,7 +206,7 @@ final class Analyst
         $tools = Tools::fromMcp(self::mcpTools($adminId, $area));
 
         foreach ($tools as $name => $tool) {
-            if ($name !== 'user') {
+            if (!in_array($name, Redactor::SELF_REDACTING, true)) {
                 $run                 = $tool['run'];
                 $tools[$name]['run'] = static fn (array $arguments): string => Redactor::clean((string) $run($arguments));
             }

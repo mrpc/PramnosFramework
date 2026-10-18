@@ -19,6 +19,13 @@ namespace Pramnos\Llm\Analyst;
 final class Redactor
 {
     /**
+     * Tools that redact their own answer, and so are not passed through {@see clean()} again:
+     * `user` masks everything but the one email it was asked for, which a second pass would mask
+     * too. Read by the analyst and by the public MCP endpoint's `redacting()`, so the two agree.
+     */
+    public const SELF_REDACTING = ['user'];
+
+    /**
      * @param list<string> $keep Exact strings left as they are — the one email the `user` tool was asked for
      */
     public static function clean(string $text, array $keep = []): string

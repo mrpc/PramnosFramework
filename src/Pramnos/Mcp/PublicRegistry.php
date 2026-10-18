@@ -427,28 +427,54 @@ class PublicRegistry
             };
         };
 
-        return static fn (ScopedMcpTool $tool, array $input, callable $next, ?object $user): mixed => $clean($next($input));
+        // A tool that redacts itself — `user`, sparing the email it was asked for — is left as it answers.
+        return static fn (ScopedMcpTool $tool, array $input, callable $next, ?object $user): mixed => in_array($tool->name(), \Pramnos\Llm\Analyst\Redactor::SELF_REDACTING, true)
+            ? $next($input)
+            : $clean($next($input));
     }
 
     /**
-     * A hook that writes an audit row for every call: `mcp.tool_call`, the user, the tool, the
-     * client the token was issued to, and the names of the parameters — not their values, which
-     * may be anything the model typed.
+     * A hook that writes an audit row for every call: the event (`mcp.tool_call`), the user, the
+     * account the call was about, the tool, the client the token was issued to, the names of the
+     * parameters — not their values, which may be anything the model typed — and whether it
+     * succeeded. Written once the call is over, whichever way it ended.
      *
+     * The account it was about is what an audit screen filters "who looked at this person" by:
+     * by default the input's `userid`, or its `id`; `$target` decides otherwise, from the tool and
+     * the input, null for none.
+     *
+     * @param (callable(ScopedMcpTool, array<string, mixed>): ?int)|null $target
      * @return callable(ScopedMcpTool, array<string, mixed>, callable(array<string, mixed>): mixed, ?object): mixed
      */
-    public static function audited(): callable
+    public static function audited(string $event = 'mcp.tool_call', ?callable $target = null): callable
     {
-        return static function (ScopedMcpTool $tool, array $input, callable $next, ?object $user): mixed {
-            $token  = \Pramnos\Http\Request::accessToken();
-            $claims = $token !== null ? \Pramnos\Auth\JWT::decodeUnverified($token) : false;
-            \Pramnos\Auth\AuditLog::record('mcp.tool_call', isset($user->userid) ? (int) $user->userid : null, null, [
-                'tool'       => $tool->name(),
-                'client'     => is_object($claims) ? (string) (is_array($claims->aud ?? null) ? ($claims->aud[0] ?? '') : ($claims->aud ?? '')) : '',
-                'parameters' => array_keys($input),
-            ], 'mcp_tool', $tool->name());
+        $target ??= static function (ScopedMcpTool $tool, array $input): ?int {
+            foreach (['userid', 'id'] as $key) {
+                if (isset($input[$key]) && is_numeric($input[$key])) {
+                    return (int) $input[$key];
+                }
+            }
 
-            return $next($input);
+            return null;
+        };
+
+        return static function (ScopedMcpTool $tool, array $input, callable $next, ?object $user) use ($event, $target): mixed {
+            $ok = false;
+            try {
+                $result = $next($input);
+                $ok     = true;
+
+                return $result;
+            } finally {
+                $token  = \Pramnos\Http\Request::accessToken();
+                $claims = $token !== null ? \Pramnos\Auth\JWT::decodeUnverified($token) : false;
+                \Pramnos\Auth\AuditLog::record($event, isset($user->userid) ? (int) $user->userid : null, $target($tool, $input), [
+                    'tool'       => $tool->name(),
+                    'client'     => is_object($claims) ? (string) (is_array($claims->aud ?? null) ? ($claims->aud[0] ?? '') : ($claims->aud ?? '')) : '',
+                    'parameters' => array_keys($input),
+                    'ok'         => $ok,
+                ], 'mcp_tool', $tool->name());
+            }
         };
     }
 

@@ -16,8 +16,9 @@ use Pramnos\Mcp\ScopedTool;
 
 /**
  * `PublicRegistry::audited()` writes an audit row for every public tool call, on both backends:
- * the user, the tool, the client the token names, and the parameter names — never their values,
- * which may be anything a model typed.
+ * the user, the account the call was about (so "who looked at this person" finds MCP calls too),
+ * the tool, the client the token names, the parameter names — never their values, which may be
+ * anything a model typed — and whether it succeeded, written whichever way the call ended.
  */
 #[CoversClass(PublicRegistry::class)]
 final class McpAuditHookTest extends TestCase
@@ -101,25 +102,41 @@ final class McpAuditHookTest extends TestCase
                 return ['type' => 'object', 'properties' => []];
             }
 
-            /** A count. */
+            /** A count — or a failure, when asked for one. */
             public function execute(array $input): mixed
             {
+                if (!empty($input['fail'])) {
+                    throw new \RuntimeException('the tool failed');
+                }
+
                 return 3;
             }
         }, 'mcp'));
         PublicRegistry::around(PublicRegistry::audited());
 
         // Act
-        $result = PublicRegistry::availableTo(['mcp'], (object) ['userid' => 42, 'usertype' => 90])[0]->execute(['search' => 'secret words', 'limit' => 5]);
-        $rows   = AuditLog::query(['event_type' => 'mcp.tool_call'], 200);
-        $row    = array_values(array_filter($rows, fn (array $r): bool => ($r['object_id'] ?? null) === $this->tool))[0] ?? null;
+        $tool   = PublicRegistry::availableTo(['mcp'], (object) ['userid' => 42, 'usertype' => 90])[0];
+        $result = $tool->execute(['search' => 'secret words', 'userid' => 5]);
+        try {
+            $tool->execute(['fail' => true]);
+            $thrown = null;
+        } catch (\RuntimeException $e) {
+            $thrown = $e->getMessage();
+        }
+        $rows   = array_values(array_filter(AuditLog::query(['event_type' => 'mcp.tool_call'], 200), fn (array $r): bool => ($r['object_id'] ?? null) === $this->tool));
+        $meta   = static fn (array $r): array => is_array($r['metadata']) ? $r['metadata'] : (array) json_decode((string) $r['metadata'], true);
+        $row    = array_values(array_filter($rows, static fn (array $r): bool => in_array('search', $meta($r)['parameters'] ?? [], true)))[0] ?? null;
+        $failed = array_values(array_filter($rows, static fn (array $r): bool => in_array('fail', $meta($r)['parameters'] ?? [], true)))[0] ?? null;
 
         // Assert
         $this->assertSame(3, $result, 'the call went through');
         $this->assertNotNull($row, 'the call left a row');
-        $metadata = is_array($row['metadata']) ? $row['metadata'] : (array) json_decode((string) $row['metadata'], true);
         $this->assertSame(42, (int) $row['actor_userid']);
-        $this->assertSame(['tool' => $this->tool, 'client' => 'claude-connector', 'parameters' => ['search', 'limit']], $metadata);
+        $this->assertSame('5', (string) $row['target_id'], 'the account the call was about, from its userid');
+        $this->assertEquals(['tool' => $this->tool, 'client' => 'claude-connector', 'parameters' => ['search', 'userid'], 'ok' => true], $meta($row));
+        $this->assertSame('the tool failed', $thrown, 'the failure reaches the caller');
+        $this->assertNotNull($failed, 'and still leaves its row');
+        $this->assertFalse($meta($failed)['ok']);
         $this->assertStringNotContainsString('secret words', (string) json_encode($row), 'names, never values');
     }
 }

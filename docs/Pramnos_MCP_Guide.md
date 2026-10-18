@@ -1436,9 +1436,21 @@ PublicRegistry::around(PublicRegistry::audited());   // a row per call: user, to
 PublicRegistry::around(PublicRegistry::redacting()); // emails, tokens, cards, phones, IPs out of every string
 ```
 
-`audited()` records `mcp.tool_call` in the audit log with the parameter **names**, never their
-values, since a value may be anything a model typed. `redacting()` passes each string of the
-result through the same `Redactor` the analyst's tools use. A hook of your own receives the tool,
+`audited()` records `mcp.tool_call` in the audit log once the call is over, whichever way it
+ended. The row carries the user, the tool, the client, the parameter **names** (never their
+values, since a value may be anything a model typed), and `ok`. It also records the account the
+call was about, so an audit screen filtering "who looked at this person" finds MCP calls too. By
+default that is the input's `userid`, or its `id`. Name another event, or decide the account
+yourself:
+
+```php
+PublicRegistry::around(PublicRegistry::audited('admin.mcp', static fn (ScopedMcpTool $tool, array $input): ?int =>
+    $tool->name() === 'orders' ? (int) ($input['customer'] ?? 0) ?: null : null));
+```
+
+`redacting()` passes each string of the result through the same `Redactor` the analyst's tools
+use. A tool that redacts itself (`Redactor::SELF_REDACTING`, which holds `user`, keeping the one
+email it was asked for) is left as it answers, on the MCP endpoint and in the analyst alike. A hook of your own receives the tool,
 the input, the next step and the user:
 
 ```php

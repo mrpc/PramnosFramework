@@ -224,4 +224,22 @@ class PublicRegistryGateTest extends TestCase
         $this->assertSame(200, $admin->status);
         $this->assertStringContainsString('Unknown tool', (string) ($admin->body['error']['message'] ?? ''), 'not reachable: as if there were none');
     }
+
+    /**
+     * `redacting()` leaves a tool that redacts itself as it answers — `user` keeps the one email
+     * it was asked for — the same list the analyst reads, so the MCP endpoint and Ask agree.
+     */
+    public function testRedactingLeavesASelfRedactingTool(): void
+    {
+        // Arrange
+        PublicRegistry::add(ScopedTool::wrap(self::tool('user'), 'mcp'));
+        PublicRegistry::around(PublicRegistry::redacting());
+
+        // Act
+        $result = PublicRegistry::availableTo(['mcp'], self::user(90))[0]->execute([]);
+
+        // Assert
+        $this->assertContains('user', \Pramnos\Llm\Analyst\Redactor::SELF_REDACTING);
+        $this->assertSame('write to maria@example.com', $result['said']);
+    }
 }
