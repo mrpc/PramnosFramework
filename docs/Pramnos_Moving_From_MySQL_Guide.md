@@ -54,7 +54,19 @@ before the names are matched; `--source-prefix` names the source's when it diffe
 
 **A table no migration makes** (one the application created by hand in MySQL) is created from
 its MySQL definition. Its types follow the mapping below, an `AUTO_INCREMENT` becomes an identity
-column, and the primary key is the same:
+column, and the primary key is the same. Once its rows are in, it gets MySQL's other indexes,
+unique keys and foreign keys, with their `ON DELETE` / `ON UPDATE` rules:
+
+- An index over a prefix (`name(50)`) covers the whole column. A unique one stays unique, which
+  the prefix already guaranteed.
+- A `FULLTEXT` or `SPATIAL` index, or one over an expression, has no plain PostgreSQL equivalent.
+  The dry run names it, and it is not made.
+- A foreign key points at wherever the referenced table went: one the migrations made, or one
+  made in the same run. The table loads after the tables it points at.
+- A foreign key that the moved rows break is added `NOT VALID`, so it holds for new rows, and the
+  run prints the `VALIDATE CONSTRAINT` to run once those rows are dealt with. With
+  `--null-orphans`, the references that can be NULL are set to NULL first, and the key is then
+  validated.
 
 | MySQL | PostgreSQL |
 |---|---|

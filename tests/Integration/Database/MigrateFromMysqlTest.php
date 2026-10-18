@@ -119,6 +119,15 @@ class MigrateFromMysqlTest extends TestCase
             "INSERT INTO only_mysql (v, meta) VALUES ('a', '{\"k\": 1}'), ('b', NULL)",
             'CREATE TABLE strict_t (id INT PRIMARY KEY) ENGINE=InnoDB',
             'INSERT INTO strict_t VALUES (1)',
+            // Two tables only MySQL has, one pointing at the other and at a table the target has
+            'CREATE TABLE tags (id INT PRIMARY KEY, name VARCHAR(200) NOT NULL, body TEXT, UNIQUE KEY tag_name (name(50)), KEY tag_both (id, name), FULLTEXT KEY tag_text (body)) ENGINE=InnoDB',
+            "INSERT INTO tags VALUES (1, 'red', 'a'), (2, 'blue', 'b')",
+            'CREATE TABLE user_tags (userid INT UNSIGNED NOT NULL, tagid INT, PRIMARY KEY (userid, tagid), KEY ut_tag (tagid),'
+                . ' CONSTRAINT ut_user FOREIGN KEY (userid) REFERENCES users (userid) ON DELETE CASCADE,'
+                . ' CONSTRAINT ut_tag FOREIGN KEY (tagid) REFERENCES tags (id)) ENGINE=InnoDB',
+            'SET FOREIGN_KEY_CHECKS = 0',
+            'INSERT INTO user_tags VALUES (1, 1), (5, 2), (1, 9)',
+            'SET FOREIGN_KEY_CHECKS = 1',
         ] as $sql) {
             $this->source->query($sql);
         }
@@ -249,6 +258,45 @@ class MigrateFromMysqlTest extends TestCase
         } else {
             $this->assertStringContainsString('  users: 2 rows', $display, '-v reports each batch');
         }
+    }
+
+    /**
+     * A table no migration makes is made with what MySQL gave it, not only its primary key: its
+     * indexes and unique keys (a prefix dropped, the whole column unique), and its foreign keys —
+     * to a table made in the same run and to one the migrations made — with their rules. They are
+     * made after the rows are in; one its rows break is kept `NOT VALID` and named, not lost. It
+     * loads after the tables it points at. A `FULLTEXT` index is named, not made. A second run
+     * finds them there and says nothing.
+     */
+    public function testATableMadeHereGetsItsIndexesAndKeys(): void
+    {
+        // Arrange
+        $tester = $this->databases();
+        $only   = ['--source' => $this->dsn(), '--tables' => 'user_tags,tags,users'];
+
+        // Act
+        $tester->execute($only + ['--dry-run' => true]);
+        $dry = $tester->getDisplay();
+        $tester->execute($only);
+        $display = $tester->getDisplay();
+        $indexes = $this->rows("SELECT indexname AS i, indexdef AS d FROM pg_indexes WHERE tablename IN ('tags', 'user_tags') AND indexname NOT LIKE '%pkey' ORDER BY indexname");
+        $keys    = $this->rows("SELECT conname AS n, convalidated AS v, confdeltype AS d FROM pg_constraint WHERE contype = 'f' AND conrelid = 'user_tags'::regclass ORDER BY conname");
+        $tester->execute($only);
+        $again = $tester->getDisplay();
+
+        // Assert
+        $this->assertLessThan(strpos($dry, 'user_tags →'), strpos($dry, 'tags →'), 'the table it points at first');
+        $this->assertLessThan(strpos($dry, 'user_tags →'), strpos($dry, 'users →'));
+        $this->assertStringContainsString('not made, PostgreSQL has no plain equivalent: FULLTEXT index tag_text', $dry);
+        $this->assertSame(['tags_tag_both', 'tags_tag_name', 'user_tags_ut_tag'], array_column($indexes, 'i'));
+        $this->assertStringContainsString('CREATE UNIQUE INDEX tags_tag_name ON public.tags USING btree (name)', $indexes[1]['d'], 'unique over the whole column');
+        $this->assertSame([['n' => 'user_tags_ut_tag', 'v' => false, 'd' => 'a'], ['n' => 'user_tags_ut_user', 'v' => true, 'd' => 'c']],
+            // RESTRICT ('r') and NO ACTION ('a') are one rule in InnoDB: MariaDB reports its default as the first, MySQL as the second.
+            array_map(static fn (array $r): array => ['n' => $r['n'], 'v' => in_array($r['v'], [true, 't'], true), 'd' => $r['d'] === 'r' ? 'a' : $r['d']], $keys),
+            'ON DELETE CASCADE kept; the key a row breaks (tag 9) kept, unchecked');
+        $this->assertStringContainsString('user_tags: a foreign key its rows break is kept NOT VALID', $display);
+        $this->assertStringContainsString('VALIDATE CONSTRAINT "user_tags_ut_tag"', $display);
+        $this->assertStringNotContainsString('already exists', $again, 'a second run finds them there');
     }
 
     /** @return array<string, array{string}> */

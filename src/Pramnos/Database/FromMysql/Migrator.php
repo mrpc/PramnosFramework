@@ -102,17 +102,21 @@ final class Migrator
             $byName[$this->comparable($name, (string) $this->targetPrefix, true)] = $name;
         }
 
+        // Where each source table goes: the target table of the same name, or one made after it.
+        $targetOf = fn (string $source): string => $byName[$this->comparable($source, (string) $this->sourcePrefix, false)]
+            ?? $this->targetPrefix . $this->comparable($source, (string) $this->sourcePrefix, false);
+
         $tables = [];
         foreach ($sources as $name => $shape) {
             if (($only !== [] && !in_array($name, $only, true)) || in_array($name, $skip, true)) {
                 continue;
             }
-            $key    = $this->comparable($name, (string) $this->sourcePrefix, false);
-            $target = $byName[$key] ?? null;
+            $target = $targetOf($name);
             $create = null;
-            if ($target === null) {
-                $target = $this->targetPrefix . $key;
+            $finish = ['statements' => [], 'skipped' => []];
+            if (!isset($targets[$target])) {
                 $create = $this->createStatement($target, $shape);
+                $finish = $this->finishStatements($target, $shape, $targetOf);
             }
             $targetColumns = $target !== null && isset($targets[$target]) ? $targets[$target]['columns'] : [];
             $copied        = $create !== null ? array_keys($shape['columns']) : array_values(array_intersect(array_keys($shape['columns']), array_keys($targetColumns)));
@@ -126,6 +130,7 @@ final class Migrator
                 'source'      => $name,
                 'target'      => $target,
                 'create'      => $create,
+                'finish'      => $finish,
                 'rows'        => $shape['rows'],
                 'copied'      => $copied,
                 'sourceOnly'  => $create !== null ? [] : array_values(array_diff(array_keys($shape['columns']), $copied)),
@@ -144,6 +149,16 @@ final class Migrator
         foreach ($this->targetForeignKeys() as $key) {
             if (isset($byTarget[$key['table']], $byTarget[$key['references']])) {
                 $dependsOn[$byTarget[$key['table']]][] = $byTarget[$key['references']];
+            }
+        }
+        // A table that is to be made has no keys on the target yet: its MySQL ones decide.
+        foreach ($tables as $name => $table) {
+            if ($table['create'] !== null) {
+                foreach ($sources[$name]['foreign'] as $key) {
+                    if (isset($tables[$key['references']]) && $key['references'] !== $name) {
+                        $dependsOn[$name][] = $key['references'];
+                    }
+                }
             }
         }
         $sorted = TopologicalSorter::sort(array_keys($tables), $dependsOn);
@@ -172,7 +187,7 @@ final class Migrator
      * @param bool                 $nullOrphans After a load without keys, set orphaned references to NULL where the column takes it
      * @param (callable(string, int, int): void)|null $progress Table, rows inserted, rows refused — after each batch
      * @param bool $operational Record each table's moment and highest id, for {@see cutover()}
-     * @return array{tables: array<string, array{inserted: int, refused: int, nulled: int, errors: list<string>}>, orphans: list<array<string, mixed>>, sequences: list<array<string, mixed>>, replica: bool}
+     * @return array{tables: array<string, array{inserted: int, refused: int, nulled: int, errors: list<string>}>, orphans: list<array<string, mixed>>, sequences: list<array<string, mixed>>, replica: bool, finished: array<string, array{made: int, unchecked: list<string>, errors: list<string>}>}
      */
     public function run(array $plan, int $batch = 5000, bool $useReplica = true, bool $nullOrphans = false, ?callable $progress = null, bool $operational = false): array
     {
@@ -221,9 +236,27 @@ final class Migrator
             }
         }
 
+        // The indexes and keys of the tables made here, once their rows are in: faster than
+        // keeping them up row by row, and a key that its rows break is still added, unchecked.
+        $result['finished'] = [];
+        foreach ($plan['order'] as $name) {
+            if ($plan['tables'][$name]['create'] !== null) {
+                $result['finished'][$name] = $this->finish($plan['tables'][$name]['finish']['statements']);
+            }
+        }
+
         $copied = array_values(array_unique(array_map(static fn (array $t): string => $t['target'], array_intersect_key($plan['tables'], array_flip($plan['order'])))));
-        if ($replica) {
+        if ($replica || $result['finished'] !== []) {
             $result['orphans'] = $this->orphans($copied, $nullOrphans);
+        }
+        // A key added unchecked over rows that broke it holds now that they are set to NULL.
+        foreach ($result['finished'] as $name => $finished) {
+            foreach ($finished['unchecked'] as $i => $validate) {
+                if ($this->quietly($validate)) {
+                    unset($result['finished'][$name]['unchecked'][$i]);
+                }
+            }
+            $result['finished'][$name]['unchecked'] = array_values($result['finished'][$name]['unchecked']);
         }
         $result['sequences'] = $this->alignSequences($copied);
 
@@ -716,7 +749,7 @@ final class Migrator
         return $aligned;
     }
 
-    /** @return array<string, array{columns: array<string, array<string, mixed>>, primary: list<string>, rows: int}> */
+    /** @return array<string, array{columns: array<string, array<string, mixed>>, primary: list<string>, rows: int, indexes: array<string, array<string, mixed>>, foreign: array<string, array<string, mixed>>}> */
     private function sourceTables(): array
     {
         if ($this->sourceShape !== null) {
@@ -725,7 +758,7 @@ final class Migrator
         $tables  = [];
         $mariadb = str_contains((string) ($this->sourceRows('SELECT VERSION() AS v')[0]['v'] ?? ''), 'MariaDB');
         foreach ($this->sourceRows("SELECT TABLE_NAME AS t, TABLE_ROWS AS n FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'BASE TABLE' ORDER BY TABLE_NAME") as $row) {
-            $tables[(string) $row['t']] = ['columns' => [], 'primary' => [], 'rows' => (int) $row['n']];
+            $tables[(string) $row['t']] = ['columns' => [], 'primary' => [], 'rows' => (int) $row['n'], 'indexes' => [], 'foreign' => []];
         }
         foreach ($this->sourceRows('SELECT TABLE_NAME AS t, COLUMN_NAME AS c, COLUMN_TYPE AS type, IS_NULLABLE AS n, COLUMN_DEFAULT AS d, EXTRA AS e'
             . ' FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() ORDER BY TABLE_NAME, ORDINAL_POSITION') as $row) {
@@ -745,6 +778,29 @@ final class Migrator
         foreach ($this->sourceRows("SELECT TABLE_NAME AS t, COLUMN_NAME AS c FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND INDEX_NAME = 'PRIMARY' ORDER BY TABLE_NAME, SEQ_IN_INDEX") as $row) {
             if (isset($tables[$row['t']])) {
                 $tables[$row['t']]['primary'][] = (string) $row['c'];
+            }
+        }
+
+        // Expression parts (no column) make an index PostgreSQL would have to be told about by hand.
+        foreach ($this->sourceRows("SELECT TABLE_NAME AS t, INDEX_NAME AS i, NON_UNIQUE AS u, COLUMN_NAME AS c, INDEX_TYPE AS k FROM information_schema.STATISTICS"
+            . " WHERE TABLE_SCHEMA = DATABASE() AND INDEX_NAME <> 'PRIMARY' ORDER BY TABLE_NAME, INDEX_NAME, SEQ_IN_INDEX") as $row) {
+            if (isset($tables[$row['t']])) {
+                $index = &$tables[$row['t']]['indexes'][(string) $row['i']];
+                $index ??= ['unique' => (int) $row['u'] === 0, 'columns' => [], 'kind' => strtoupper((string) $row['k'])];
+                $index['columns'][] = $row['c'] === null ? null : (string) $row['c'];
+                unset($index);
+            }
+        }
+        foreach ($this->sourceRows('SELECT k.TABLE_NAME AS t, k.CONSTRAINT_NAME AS n, k.COLUMN_NAME AS c, k.REFERENCED_TABLE_NAME AS rt, k.REFERENCED_COLUMN_NAME AS rc,'
+            . ' r.UPDATE_RULE AS u, r.DELETE_RULE AS d FROM information_schema.KEY_COLUMN_USAGE k JOIN information_schema.REFERENTIAL_CONSTRAINTS r'
+            . ' ON r.CONSTRAINT_SCHEMA = k.CONSTRAINT_SCHEMA AND r.CONSTRAINT_NAME = k.CONSTRAINT_NAME AND r.TABLE_NAME = k.TABLE_NAME'
+            . ' WHERE k.TABLE_SCHEMA = DATABASE() AND k.REFERENCED_TABLE_NAME IS NOT NULL ORDER BY k.TABLE_NAME, k.CONSTRAINT_NAME, k.ORDINAL_POSITION') as $row) {
+            if (isset($tables[$row['t']])) {
+                $key = &$tables[$row['t']]['foreign'][(string) $row['n']];
+                $key ??= ['columns' => [], 'references' => (string) $row['rt'], 'referenced' => [], 'update' => (string) $row['u'], 'delete' => (string) $row['d']];
+                $key['columns'][]    = (string) $row['c'];
+                $key['referenced'][] = (string) $row['rc'];
+                unset($key);
             }
         }
 
@@ -827,6 +883,80 @@ final class Migrator
         }
 
         return 'CREATE TABLE ' . $this->quoted($table) . ' (' . implode(', ', $columns) . ')';
+    }
+
+    /**
+     * What a table made here gets once its rows are in: MySQL's indexes and unique keys, and its
+     * foreign keys to the tables their references now live in. A `FULLTEXT` or `SPATIAL` index,
+     * and one over an expression, have no plain PostgreSQL equivalent and are named instead. A
+     * prefix (`name(20)`) is dropped: the index covers the whole column — still unique, where
+     * the prefix was.
+     *
+     * @param array<string, mixed>     $shape
+     * @param callable(string): string $targetOf Where a source table goes
+     * @return array{statements: list<array{sql: string, unchecked: ?string}>, skipped: list<string>}
+     */
+    private function finishStatements(string $table, array $shape, callable $targetOf): array
+    {
+        $bare       = str_contains($table, '.') ? explode('.', $table, 2)[1] : $table;
+        $quote      = static fn (string $c): string => '"' . str_replace('"', '""', $c) . '"';
+        $columns    = static fn (array $list): string => implode(', ', array_map($quote, $list));
+        $statements = [];
+        $skipped    = [];
+        foreach ($shape['indexes'] as $name => $index) {
+            if (in_array($index['kind'], ['FULLTEXT', 'SPATIAL'], true) || in_array(null, $index['columns'], true)) {
+                $skipped[] = (in_array(null, $index['columns'], true) ? 'expression' : $index['kind']) . ' index ' . $name;
+                continue;
+            }
+            $statements[] = ['sql' => 'CREATE ' . ($index['unique'] ? 'UNIQUE ' : '') . 'INDEX IF NOT EXISTS ' . $quote(substr($bare . '_' . $name, 0, 63))
+                . ' ON ' . $this->quoted($table) . ' (' . $columns($index['columns']) . ')', 'unchecked' => null];
+        }
+        foreach ($shape['foreign'] as $name => $key) {
+            $constraint = $quote(substr($bare . '_' . $name, 0, 63));
+            $add        = 'ALTER TABLE ' . $this->quoted($table) . ' ADD CONSTRAINT ' . $constraint . ' FOREIGN KEY (' . $columns($key['columns']) . ')'
+                . ' REFERENCES ' . $this->quoted($targetOf($key['references'])) . ' (' . $columns($key['referenced']) . ')'
+                . ' ON DELETE ' . $key['delete'] . ' ON UPDATE ' . $key['update'];
+            $statements[] = ['sql' => $add, 'unchecked' => 'ALTER TABLE ' . $this->quoted($table) . ' VALIDATE CONSTRAINT ' . $constraint];
+        }
+
+        return ['statements' => $statements, 'skipped' => $skipped];
+    }
+
+    /**
+     * Run what {@see finishStatements()} made. A foreign key its rows break is added `NOT VALID`
+     * — kept for the rows to come — and its `VALIDATE` returned, for after the orphans are dealt
+     * with; one already there (a second run) is left.
+     *
+     * @param list<array{sql: string, unchecked: ?string}> $statements
+     * @return array{made: int, unchecked: list<string>, errors: list<string>}
+     */
+    private function finish(array $statements): array
+    {
+        $done = ['made' => 0, 'unchecked' => [], 'errors' => []];
+        foreach ($statements as $statement) {
+            if ($this->quietly($statement['sql'])) {
+                $done['made']++;
+                continue;
+            }
+            $error = trim((string) strtok(pg_last_error($this->target->getConnectionLink()), "\n"));
+            if (str_contains($error, 'already exists')) {
+                continue;
+            }
+            if ($statement['unchecked'] !== null && $this->quietly($statement['sql'] . ' NOT VALID')) {
+                $done['made']++;
+                $done['unchecked'][] = $statement['unchecked'];
+                continue;
+            }
+            $done['errors'][] = $error;
+        }
+
+        return $done;
+    }
+
+    /** Run a statement on the target; whether it succeeded, the error left for pg_last_error(). */
+    private function quietly(string $sql): bool
+    {
+        return @pg_query($this->target->getConnectionLink(), $sql) !== false;
     }
 
     /**

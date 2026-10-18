@@ -212,6 +212,12 @@ class DatabaseMigrateFromMysql extends Command
             $t = $plan['tables'][$name];
             $output->writeln('  ' . $name . ' → ' . $t['target'] . ($t['create'] !== null ? ' <comment>(created: no migration makes it)</comment>' : '')
                 . '  ~' . $t['rows'] . ' rows, ' . count($t['copied']) . ' column(s)');
+            if ($t['finish']['statements'] !== []) {
+                $output->writeln('      then ' . count($t['finish']['statements']) . ' index(es) and foreign key(s), as MySQL has them');
+            }
+            if ($t['finish']['skipped'] !== []) {
+                $output->writeln('      <comment>not made, PostgreSQL has no plain equivalent:</comment> ' . implode(', ', $t['finish']['skipped']));
+            }
             if ($t['sourceOnly'] !== []) {
                 $output->writeln('      <comment>not moved, the target has no such column:</comment> ' . implode(', ', $t['sourceOnly']));
             }
@@ -278,6 +284,14 @@ class DatabaseMigrateFromMysql extends Command
                 . ($t['nulled'] > 0 ? ', ' . $t['nulled'] . ' value(s) that were not what the column takes, as NULL' : ''));
             foreach ($t['errors'] as $error) {
                 $output->writeln('      ' . $error);
+            }
+        }
+        foreach ($result['finished'] ?? [] as $name => $f) {
+            foreach ($f['unchecked'] as $validate) {
+                $output->writeln('<comment>' . $name . ': a foreign key its rows break is kept NOT VALID</comment> — once they are dealt with: ' . $validate);
+            }
+            foreach ($f['errors'] as $error) {
+                $output->writeln('<error>' . $name . ': ' . $error . '</error>');
             }
         }
         foreach ($result['orphans'] as $o) {
