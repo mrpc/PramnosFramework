@@ -29,7 +29,7 @@ local state    = redis.call('HMGET', KEYS[1], 'tokens', 'at')
 local tokens   = tonumber(state[1])
 local at       = tonumber(state[2])
 if tokens == nil then tokens = capacity; at = now end
-tokens = math.min(capacity, tokens + (now - at) * rate)
+tokens = math.min(capacity, tokens + math.max(0, now - at) * rate)
 local allowed = 0
 if tokens >= 1 then tokens = tokens - 1; allowed = 1 end
 redis.call('HSET', KEYS[1], 'tokens', tostring(tokens), 'at', tostring(now))
@@ -73,7 +73,8 @@ LUA;
             $id    = 'tokenbucket-' . md5($key);
             $state = json_decode((string) $cache->load($id), true);
             $state = is_array($state) && isset($state['tokens'], $state['at']) ? $state : ['tokens' => $capacity, 'at' => $now];
-            $tokens  = min($capacity, (float) $state['tokens'] + ($now - (float) $state['at']) * $perSecond);
+            // A clock stepped back (NTP, a VM resumed) is no time passed — never tokens taken away.
+            $tokens  = min($capacity, (float) $state['tokens'] + max(0.0, $now - (float) $state['at']) * $perSecond);
             $allowed = $tokens >= 1;
             if ($allowed) {
                 $tokens--;

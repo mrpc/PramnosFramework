@@ -86,7 +86,11 @@ class TokenBucketTest extends TestCase
     }
 
     /**
-     * Tokens come back at the rate: at ten a second, a tenth of a second later there is one again.
+     * Tokens come back at the rate: at one a second, a second later there is one again.
+     *
+     * One a second, not faster: the check that the token is spent runs two takes apart, and at
+     * ten a second a pause of a tenth of a second between them — a loaded suite — had already
+     * refilled it.
      */
     #[\PHPUnit\Framework\Attributes\DataProvider('stores')]
     public function testTokensComeBackAtTheRate(string $store): void
@@ -94,15 +98,46 @@ class TokenBucketTest extends TestCase
         // Arrange
         $bucket = $this->bucket($store);
         $key    = 'test:' . bin2hex(random_bytes(6));
-        $bucket->take($key, 1, 10, 1);
-        $this->assertFalse($bucket->take($key, 1, 10, 1)['allowed'], 'the one token is spent');
+        $bucket->take($key, 1, 1, 1);
+        $this->assertFalse($bucket->take($key, 1, 1, 1)['allowed'], 'the one token is spent');
 
         // Act
-        self::wait(0.15);
-        $later = $bucket->take($key, 1, 10, 1);
+        self::wait(1.05);
+        $later = $bucket->take($key, 1, 1, 1);
 
         // Assert
         $this->assertTrue($later['allowed']);
+    }
+
+    /**
+     * A clock that steps back — NTP correcting it, a virtual machine resumed — is no time passed,
+     * not negative time: the bucket keeps its tokens. Read as negative, an hour back drained a
+     * full bucket far below zero, and its client was refused for the hour.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('stores')]
+    public function testAClockSteppedBackTakesNoTokensAway(string $store): void
+    {
+        // Arrange — one token of three taken, then the last take recorded an hour in the future
+        $cache  = $store === 'redis' ? $this->redisCache() : new InMemoryBucketCache();
+        $bucket = new TokenBucket($cache);
+        $key    = 'test:' . bin2hex(random_bytes(6));
+        $bucket->take($key, 3, 1, 1);
+        $full   = (defined('sURL') ? md5((string) sURL) . ':' : '') . $key;
+        $future = microtime(true) + 3600;
+        if ($store === 'redis') {
+            $cache->getAdapter()->getConnection()->hSet('tokenbucket:' . $full, 'at', sprintf('%.6F', $future));
+        } else {
+            $id                  = 'tokenbucket-' . md5($full);
+            $state               = json_decode($cache->values[$id], true);
+            $cache->values[$id]  = (string) json_encode(['tokens' => $state['tokens'], 'at' => $future]);
+        }
+
+        // Act
+        $next = $bucket->take($key, 3, 1, 1);
+
+        // Assert
+        $this->assertTrue($next['allowed'], 'the two tokens left are still there');
+        $this->assertSame(1, $next['remaining']);
     }
 
     /**

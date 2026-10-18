@@ -504,6 +504,8 @@ sending is held to the rate. A burst of 0 is a bucket of one — the rate, and n
 Every API answer to an application carries `X-RateLimit-Limit` (requests per window) and
 `X-RateLimit-Remaining`; a refusal carries `Retry-After` in seconds. On Redis the bucket is one
 atomic script; on any other cache two requests racing for the last token can both get through.
+A clock that steps back (NTP correcting it, a virtual machine resumed) counts as no time passed,
+so it never takes tokens away.
 
 **HTTPS** is HTTPS on the server, or a proxy's `X-Forwarded-Proto: https`. A request from the
 server's own loopback address is exempt — a developer's machine has no certificate.
