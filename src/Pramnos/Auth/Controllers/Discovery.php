@@ -340,7 +340,8 @@ class Discovery extends Controller
      * - a path named in `'oauth' => ['resource_scopes' => ['api/1.0/reports' => ['reports:read']]]`
      *   lists those;
      * - an MCP endpoint (a path ending in `mcp`) lists `mcp`, the scopes its offered tools
-     *   require, and `offline_access` — so the connection survives its access token;
+     *   require and app.php's `mcp.scopes` declares, and `offline_access` — so the connection
+     *   survives its access token;
      * - the site itself, and any other path, lists every scope, as before.
      *
      * @param \Pramnos\Application\Application|null $app The application whose `oauth` settings apply; the current one when null
@@ -356,7 +357,7 @@ class Discovery extends Controller
             return array_values(array_map('strval', $configured[$path]));
         }
         if ($path !== '' && basename($path) === 'mcp') {
-            $scopes = array_values(array_unique(['mcp', ...\Pramnos\Mcp\PublicRegistry::scopesInUse()]));
+            $scopes = array_values(array_unique(['mcp', ...\Pramnos\Mcp\PublicRegistry::scopesOffered()]));
             if (in_array('offline_access', $known, true)) {
                 $scopes[] = 'offline_access';
             }

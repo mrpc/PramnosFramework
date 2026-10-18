@@ -1405,6 +1405,26 @@ cover is not listed either. A call to it is refused with `403` and
 names the scope. An assistant can then tell its user that reconnecting and granting it would help,
 where "Unknown tool" told it nothing.
 
+### When consent and the endpoint are two applications
+
+A scope is grantable while a registered tool asks for it. An installation whose authorization
+server and MCP endpoint are separate applications, such as a main site and an edge API, registers
+the tools in only one of them. The other serves the consent page and the protected-resource
+metadata, knows none of the tool scopes, and refuses them as unknown.
+
+Declare them in `app.php`, which both applications read:
+
+```php
+'mcp' => ['scopes' => [
+    'mcp:diagnostics', 'mcp:logs', 'mcp:db_read',                  // the framework's, described by it
+    'mcp:people' => 'Find and read the accounts of the people here.', // your own, described by you
+]],
+```
+
+Every declared scope is grantable, listed in the MCP endpoint's metadata, and inherits `mcp`. Only
+`mcp` and `mcp:*` names are taken. An application-specific scope needs no `Scopes` provider of its
+own: its description is the string given.
+
 ### Around every call: redaction and audit
 
 `PublicRegistry::around()` runs a hook around every call of every public tool, so no application

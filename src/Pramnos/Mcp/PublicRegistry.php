@@ -237,6 +237,49 @@ class PublicRegistry
         return array_keys($scopes);
     }
 
+    /**
+     * The MCP scopes app.php declares, by name, with their descriptions:
+     *
+     * ```php
+     * 'mcp' => ['scopes' => [
+     *     'mcp:diagnostics', 'mcp:logs',                                 // the framework's, described by it
+     *     'mcp:people' => 'Find and read the accounts of the people here.', // the application's own
+     * ]],
+     * ```
+     *
+     * For an installation whose authorization server and MCP endpoint are two processes: the one
+     * that serves consent and the metadata holds none of the tools, and would refuse their scopes
+     * as unknown. Both read app.php, so both know them. Only `mcp` and `mcp:*` are taken.
+     *
+     * @return array<string, string> Name to description, '' where the framework describes it
+     */
+    public static function declaredScopes(): array
+    {
+        $app      = \Pramnos\Application\Application::currentInstance();
+        $declared = is_object($app) ? ($app->applicationInfo['mcp']['scopes'] ?? []) : [];
+        $scopes   = [];
+        foreach (is_array($declared) ? $declared : [] as $key => $value) {
+            [$name, $description] = is_int($key) ? [(string) $value, ''] : [(string) $key, is_string($value) ? $value : ''];
+            $name = trim($name);
+            if ($name === 'mcp' || str_starts_with($name, 'mcp:')) {
+                $scopes[$name] = trim($description);
+            }
+        }
+
+        return $scopes;
+    }
+
+    /**
+     * Every MCP scope this installation grants: those its registered tools ask for, and those
+     * app.php declares — {@see declaredScopes()}.
+     *
+     * @return list<string>
+     */
+    public static function scopesOffered(): array
+    {
+        return array_values(array_unique([...self::scopesInUse(), ...array_keys(self::declaredScopes())]));
+    }
+
     /** Is anything offered at all? */
     public static function hasTools(): bool
     {

@@ -244,7 +244,8 @@ class Scopes
      */
     protected static function mcpScopes(): array
     {
-        $offered = \Pramnos\Mcp\PublicRegistry::scopesInUse();
+        $offered  = \Pramnos\Mcp\PublicRegistry::scopesOffered();
+        $declared = \Pramnos\Mcp\PublicRegistry::declaredScopes();
 
         if ($offered === []) {
             return [];
@@ -282,6 +283,14 @@ class Scopes
         foreach ($offered as $scope) {
             if (isset($known[$scope])) {
                 $scopes[$scope] = $known[$scope];
+            } elseif (str_starts_with($scope, 'mcp:')) {
+                // The application's own, declared in app.php or asked for by its tool: described
+                // as it says, and reaching the endpoint as every other MCP scope does.
+                $scopes[$scope] = [
+                    'description' => ($declared[$scope] ?? '') !== '' ? $declared[$scope] : 'Use this installation\'s ' . substr($scope, 4) . ' tools.',
+                    'is_default'  => false,
+                    'inherits'    => ['mcp'],
+                ];
             }
         }
 
