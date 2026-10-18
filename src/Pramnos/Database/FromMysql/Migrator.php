@@ -53,6 +53,9 @@ final class Migrator
     /** @var array<string, list<string>> A target table's `GENERATED ALWAYS` identity columns, read once */
     private array $always = [];
 
+    /** Most bytes of values one batch holds, whatever its row count: rows of megabytes come fewer at a time. */
+    private int $batchBytes = 32 * 1024 * 1024;
+
     /** Rows of each table read to look for double-encoded text. */
     private const ENCODING_SAMPLE = 2000;
 
@@ -82,6 +85,12 @@ final class Migrator
         $mysqli->set_charset('utf8mb4');
         $this->serverOffset = (int) ($mysqli->query('SELECT TIMESTAMPDIFF(MINUTE, UTC_TIMESTAMP(), NOW()) AS o')->fetch_assoc()['o'] ?? 0);
         $mysqli->query("SET time_zone = '+00:00'");
+    }
+
+    /** The most bytes of values one batch holds — `--batch-mb`; at least one row goes, however large. */
+    public function batchBytes(int $bytes): void
+    {
+        $this->batchBytes = max(1, $bytes);
     }
 
     /**
@@ -657,6 +666,7 @@ final class Migrator
         }
         $repair = $this->repair[$table['source']] ?? [];
         $theirs = ['n' => 0, 's' => 0];
+        $weight = 0;
         $size   = max(1, min($batch, intdiv(self::MAX_PARAMETERS, count($columns))));
         $rows   = [];
         $flush  = function () use (&$rows, &$theirs, $digest, $types, $columns, $name, $hash): void {
@@ -684,9 +694,11 @@ final class Migrator
                 }
                 $values[] = TypeMapper::value($raw, (string) $sourceTypes[$column]['type'], $types[$i], $refused, $this->zone);
             }
-            $rows[] = $values;
-            if (count($rows) >= $size) {
+            $rows[]  = $values;
+            $weight += KeyRanges::bytes($values);
+            if (count($rows) >= $size || $weight >= $this->batchBytes) {
                 $flush();
+                $weight = 0;
             }
         }
         $flush();
@@ -751,7 +763,7 @@ final class Migrator
     /** Key-range reads and comparisons over the two sides. */
     private function ranges(): KeyRanges
     {
-        return new KeyRanges($this->source, $this->target, $this->zone, $this->repair);
+        return new KeyRanges($this->source, $this->target, $this->zone, $this->repair, $this->batchBytes);
     }
 
     /** The tracker, on the target. */
@@ -879,7 +891,8 @@ final class Migrator
                 }
             })()
             : $this->stream($table['source'], $columns, $where);
-        $rows = [];
+        $rows   = [];
+        $weight = 0;
         foreach ($read as $row) {
             $converted = [];
             foreach ($columns as $column) {
@@ -892,10 +905,12 @@ final class Migrator
                 $stats['nulled'] += $refused ? 1 : 0;
                 $converted[] = $value;
             }
-            $rows[] = $converted;
-            if (count($rows) >= $perBatch) {
+            $rows[]  = $converted;
+            $weight += KeyRanges::bytes($converted);
+            if (count($rows) >= $perBatch || $weight >= $this->batchBytes) {
                 $this->insert($table['target'], $columns, $rows, $stats, $updateKey);
-                $rows = [];
+                $rows   = [];
+                $weight = 0;
                 if ($progress !== null) {
                     $progress($table['source'], $stats['inserted'], $stats['refused']);
                 }

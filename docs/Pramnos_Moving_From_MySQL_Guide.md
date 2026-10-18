@@ -102,7 +102,10 @@ literal. A zero date and an expression PostgreSQL has no word for are left out.
   (`START TRANSACTION WITH CONSISTENT SNAPSHOT`), so rows that point at each other were read at
   the same moment. Reads are streamed, not loaded whole.
 - **In batches, without duplicates.** Rows go in with `INSERT … ON CONFLICT DO NOTHING`,
-  `--batch-size` at a time (5,000 by default, fewer for a wide table). A second run adds only
+  `--batch-size` at a time (5,000 by default, fewer for a wide table). A batch also stops at
+  `--batch-mb` megabytes of values (32 by default), so a table of large BLOBs goes a few rows at
+  a time and the PHP process stays near that size. A read by key range starts with one row to
+  weigh, and sizes each next range by what the last one weighed. A second run adds only
   what the first did not. A move that stopped half way is run again.
 - **A refused batch costs only its bad rows.** The batch is tried again row by row, and each row
   the target refuses is counted, with the first errors shown.
@@ -225,6 +228,7 @@ refuses rows into them: decompress first.
 | `--phase` | `full`, `operational`, `cutover`, `backfill`, `verify` — see below |
 | `--tables`, `--exclude-tables` | Source tables to move, or to leave, comma-separated |
 | `--batch-size` | Rows per `INSERT` (default 5000) |
+| `--batch-mb` | Most megabytes of values per batch, whatever the row count (default 32) |
 | `--source-prefix` | The source tables' prefix, when it is not the application's |
 | `--repair-encoding` | Repair double-encoded text in these columns, `table.column` — see [Text, character sets and double encoding](#text-character-sets-and-double-encoding) |
 | `--source-timezone` | The zone the source's `DATETIME` values were written in (default: the application's) — see [Dates, times and zones](#dates-times-and-zones) |

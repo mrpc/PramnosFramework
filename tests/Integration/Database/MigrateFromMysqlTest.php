@@ -329,6 +329,48 @@ class MigrateFromMysqlTest extends TestCase
     }
 
     /**
+     * A batch is bounded by bytes as well as rows: ten rows of 300 KB under `--batch-mb=1` go in
+     * several batches of three, though `--batch-size` would take them all at once — read as one
+     * stream, or a key range at a time (`--no-snapshot`). A range read starts with one row, to
+     * weigh, and sizes each next range by what the last one weighed. Every row arrives whole.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('reads')]
+    public function testABatchIsBoundedByBytes(array $read): void
+    {
+        // Arrange
+        $tester = $this->databases();
+        $this->source->query('CREATE TABLE heavy (id INT PRIMARY KEY, body MEDIUMBLOB) ENGINE=InnoDB');
+        for ($id = 1; $id <= 10; $id++) {
+            $this->source->query("INSERT INTO heavy VALUES ($id, REPEAT('x', 300000))");
+        }
+        $this->target->query('CREATE TABLE heavy (id INT PRIMARY KEY, body BYTEA)');
+
+        // Act
+        $code = $tester->execute(['--source' => $this->dsn(), '--tables' => 'heavy', '--batch-mb' => '1', '--batch-size' => '5000'] + $read,
+            ['verbosity' => \Symfony\Component\Console\Output\OutputInterface::VERBOSITY_VERBOSE]);
+        $display = $tester->getDisplay();
+        $arrived = $this->rows('SELECT COUNT(*) AS n, MIN(length(body)) AS l FROM heavy')[0];
+        $ranges  = array_map('count', iterator_to_array(
+            (new \Pramnos\Database\FromMysql\KeyRanges($this->source, $this->target, 'UTC', [], 1024 * 1024))->read('heavy', ['id'], ['id', 'body'], 5000),
+            false
+        ));
+
+        // Assert
+        $this->assertSame(0, $code, $display);
+        $this->assertGreaterThanOrEqual(4, preg_match_all('/^  heavy: \d+ rows/m', $display), 'several batches, not one of ten');
+        $this->assertSame(10, (int) $arrived['n']);
+        $this->assertSame(300000, (int) $arrived['l'], 'every row whole');
+        // One row to weigh, then ranges of what fits in a megabyte — never the batch of 5000 at once.
+        $this->assertSame([1, 3, 3, 3], $ranges);
+    }
+
+    /** @return array<string, array{array<string, bool>}> */
+    public static function reads(): array
+    {
+        return ['one stream' => [[]], 'by key range' => [['--no-snapshot' => true]]];
+    }
+
+    /**
      * MySQL's `_ci` collations compare without regard to case and PostgreSQL compares exactly, so
      * an indexed text column — a login looked up by e-mail — changes its answers after the move.
      * The dry run names each: a unique one (now taking `A` beside `a`) and a looked-up one. It does

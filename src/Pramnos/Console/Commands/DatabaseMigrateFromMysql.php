@@ -43,6 +43,7 @@ class DatabaseMigrateFromMysql extends Command
             ->addOption('tables', null, InputOption::VALUE_REQUIRED, 'Only these source tables, comma-separated')
             ->addOption('exclude-tables', null, InputOption::VALUE_REQUIRED, 'Leave these source tables, comma-separated')
             ->addOption('batch-size', null, InputOption::VALUE_REQUIRED, 'Rows per INSERT', '5000')
+            ->addOption('batch-mb', null, InputOption::VALUE_REQUIRED, 'Most megabytes of values per batch, whatever the row count', '32')
             ->addOption('source-timezone', null, InputOption::VALUE_REQUIRED, 'The zone the source\'s DATETIME values were written in (default: this application\'s)')
             ->addOption('repair-encoding', null, InputOption::VALUE_REQUIRED, 'Repair double-encoded text (UTF-8 stored through latin1) in these columns, table.column, comma-separated')
             ->addOption('source-prefix', null, InputOption::VALUE_REQUIRED, 'The source tables\' prefix (default: this application\'s)')
@@ -110,6 +111,7 @@ class DatabaseMigrateFromMysql extends Command
                 return Command::FAILURE;
             }
         }
+        $migrator->batchBytes(max(1, (int) $input->getOption('batch-mb')) * 1024 * 1024);
         $migrator->repairEncoding($list($input->getOption('repair-encoding')));
         $plan     = $migrator->plan($list($input->getOption('tables')), $list($input->getOption('exclude-tables')));
         $this->reportPlan($output, $plan);

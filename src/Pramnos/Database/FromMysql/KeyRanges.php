@@ -39,8 +39,19 @@ final class KeyRanges
     /**
      * @param array<string, array<string, true>> $repair Columns whose double-encoded values a move repairs, by table — compared as repaired
      */
-    public function __construct(private Database $source, private Database $target, private string $zone = 'UTC', private array $repair = [])
+    public function __construct(private Database $source, private Database $target, private string $zone = 'UTC', private array $repair = [], private int $maxBytes = 32 * 1024 * 1024)
     {
+    }
+
+    /** The bytes a row's values take: what a batch of them costs in memory. */
+    public static function bytes(array $row): int
+    {
+        $bytes = 0;
+        foreach ($row as $value) {
+            $bytes += is_string($value) ? strlen($value) : 8;
+        }
+
+        return $bytes;
     }
 
     /**
@@ -57,6 +68,9 @@ final class KeyRanges
         $quote  = static fn (string $c): string => '`' . str_replace('`', '``', $c) . '`';
         $order  = implode(', ', array_map($quote, $key));
         $size   = max(1, $size);
+        // One row first, to weigh: a range sized before anything is known would be the whole
+        // batch of whatever the table holds — five thousand rows of megabytes.
+        $limit  = 1;
         $last   = null;
         do {
             $conditions = $where !== '' ? ['(' . $where . ')'] : [];
@@ -64,15 +78,20 @@ final class KeyRanges
                 $conditions[] = '(' . $order . ') > (' . implode(', ', array_map(static fn (mixed $v): string => "'" . $mysqli->real_escape_string((string) $v) . "'", $last)) . ')';
             }
             $result = $mysqli->query('SELECT ' . implode(', ', array_map($quote, $columns)) . ' FROM ' . $quote($table)
-                . ($conditions !== [] ? ' WHERE ' . implode(' AND ', $conditions) : '') . ' ORDER BY ' . $order . ' LIMIT ' . $size);
+                . ($conditions !== [] ? ' WHERE ' . implode(' AND ', $conditions) : '') . ' ORDER BY ' . $order . ' LIMIT ' . $limit);
             $rows = $result !== false ? $result->fetch_all(MYSQLI_ASSOC) : [];
             if ($rows === []) {
                 return;
             }
             yield $rows;
-            $tail = $rows[count($rows) - 1];
-            $last = array_map(static fn (string $k): mixed => $tail[$k], $key);
-        } while (count($rows) === $size);
+            $tail  = $rows[count($rows) - 1];
+            $last  = array_map(static fn (string $k): mixed => $tail[$k], $key);
+            $full  = count($rows) === $limit;
+            // The next range sized by what this one weighed: rows of megabytes come fewer at a
+            // time, so memory stays near `$maxBytes` whatever the table holds.
+            $bytes = array_sum(array_map([self::class, 'bytes'], $rows));
+            $limit = max(1, min($size, $bytes > 0 ? intdiv(count($rows) * $this->maxBytes, $bytes) : $size));
+        } while ($full);
     }
 
     /**
