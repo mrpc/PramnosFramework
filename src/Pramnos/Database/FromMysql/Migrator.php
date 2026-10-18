@@ -227,12 +227,13 @@ final class Migrator
      * @param bool                 $nullOrphans After a load without keys, set orphaned references to NULL where the column takes it
      * @param (callable(string, int, int): void)|null $progress Table, rows inserted, rows refused — after each batch
      * @param bool $operational Record each table's moment and highest id, for {@see cutover()}
+     * @param bool $restart     operational: copy again the tables an earlier run finished
      * @param bool $snapshot    Read every table in one snapshot; false reads each a range of keys
      *                          at a time, no transaction held open — for a source too busy to
      *                          keep one for hours, at the price of tables read at different moments
      * @return array{tables: array<string, array{inserted: int, refused: int, nulled: int, errors: list<string>}>, orphans: list<array<string, mixed>>, sequences: list<array<string, mixed>>, replica: bool, finished: array<string, array{made: int, unchecked: list<string>, errors: list<string>}>}
      */
-    public function run(array $plan, int $batch = 5000, bool $useReplica = true, bool $nullOrphans = false, ?callable $progress = null, bool $operational = false, bool $snapshot = true): array
+    public function run(array $plan, int $batch = 5000, bool $useReplica = true, bool $nullOrphans = false, ?callable $progress = null, bool $operational = false, bool $snapshot = true, bool $restart = false): array
     {
         $result = ['tables' => [], 'orphans' => [], 'sequences' => [], 'replica' => false];
         foreach ($plan['order'] as $name) {
@@ -269,13 +270,33 @@ final class Migrator
             $targets = $this->targetTables();
             foreach ($plan['order'] as $name) {
                 $table = $plan['tables'][$name];
-                $result['tables'][$name] = $this->copyTable($table, $targets[$table['target']]['columns'] ?? [], max(1, $batch), $progress, '', [], 0, '', !$snapshot);
-                if ($operational) {
-                    $this->tracker()->put($name, 'operational', 0, (int) $moment['ts'], $result['tables'][$name]['inserted'], ProgressTracker::DONE, [
-                        'now'   => (string) $moment['now'],
-                        'maxId' => $highest[$name] ?? null,
-                    ]);
+                if (!$operational) {
+                    $result['tables'][$name] = $this->copyTable($table, $targets[$table['target']]['columns'] ?? [], max(1, $batch), $progress, '', [], 0, '', !$snapshot);
+                    continue;
                 }
+                // A copy that stopped is taken up where it stopped. A table finished before is not
+                // read again; one stopped half way keeps the moment and highest id of the attempt
+                // that began it — the cutover then reads changes from the earlier moment, which
+                // takes in everything since — and is read on past the highest key already here.
+                $state = $restart ? null : ($this->tracker()->of($name, 'operational')[0] ?? null);
+                if (($state['status'] ?? null) === ProgressTracker::DONE) {
+                    $result['tables'][$name] = ['inserted' => 0, 'refused' => 0, 'nulled' => 0, 'errors' => [], 'resumed' => 'copied by an earlier run'];
+                    continue;
+                }
+                $began = $state !== null
+                    ? ['end' => (int) $state['end'], 'detail' => $state['detail']]
+                    : ['end' => (int) $moment['ts'], 'detail' => ['now' => (string) $moment['now'], 'maxId' => $highest[$name] ?? null]];
+                $this->tracker()->put($name, 'operational', 0, $began['end'], 0, ProgressTracker::RUNNING, $began['detail']);
+                $where = '';
+                $after = null;
+                $key   = $this->integerKey($name);
+                if ($state !== null && $key !== null && in_array($key, $table['copied'], true)) {
+                    $after = $this->rows('SELECT MAX("' . str_replace('"', '""', $key) . '") AS m FROM ' . $this->quoted($table['target']))[0]['m'] ?? null;
+                    $where = $after !== null ? '`' . str_replace('`', '``', $key) . '` > ' . (int) $after : '';
+                }
+                $result['tables'][$name] = $this->copyTable($table, $targets[$table['target']]['columns'] ?? [], max(1, $batch), $progress, $where, [], 0, $where === '' ? '' : '"' . str_replace('"', '""', (string) $key) . '" > ' . (int) $after, !$snapshot)
+                    + ($after !== null ? ['resumed' => 'taken up after ' . $key . ' ' . (int) $after] : []);
+                $this->tracker()->put($name, 'operational', 0, $began['end'], $result['tables'][$name]['inserted'], ProgressTracker::DONE, $began['detail']);
             }
         } finally {
             if ($snapshot) {

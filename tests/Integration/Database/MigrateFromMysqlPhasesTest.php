@@ -224,6 +224,50 @@ class MigrateFromMysqlPhasesTest extends TestCase
     }
 
     /**
+     * An operational copy that stopped is taken up where it stopped. A table it finished is not
+     * read again. The table it was copying when it stopped is read on past the highest id already
+     * here, and keeps the moment and highest id of the attempt that began it, so the cutover
+     * reads changes from the earlier moment and misses nothing between the two. `--restart`
+     * copies everything again.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('transports')]
+    public function testAStoppedOperationalCopyIsTakenUp(string $transport): void
+    {
+        // Arrange — a first copy, then the state a stop half way through `items` leaves
+        $tester = $this->databases([
+            'CREATE TABLE users (userid INT PRIMARY KEY, username VARCHAR(50)) ENGINE=InnoDB',
+            "INSERT INTO users VALUES (1, 'maria')",
+            'CREATE TABLE items (id INT PRIMARY KEY, label VARCHAR(20)) ENGINE=InnoDB',
+            "INSERT INTO items VALUES (1, 'a'), (2, 'b'), (3, 'c'), (4, 'd')",
+        ], [
+            'CREATE TABLE users (userid INT PRIMARY KEY, username VARCHAR(50))',
+            'CREATE TABLE items (id INT PRIMARY KEY, label VARCHAR(20))',
+        ]);
+        $copy = ['--source' => $this->dsn(), '--tables' => 'users,items', '--phase' => 'operational', '--transport' => $transport];
+        $tester->execute($copy);
+        $began = $this->rows("SELECT chunk_end AS e, detail FROM pramnos_migration_progress WHERE table_name = 'items' AND phase = 'operational'")[0];
+        $this->target->query("UPDATE pramnos_migration_progress SET status = 'IN_PROGRESS', chunk_end = chunk_end - 3600 WHERE table_name = 'items' AND phase = 'operational'");
+        $this->target->query('DELETE FROM items WHERE id > 2');
+        $this->source->query("INSERT INTO items VALUES (5, 'e')");
+
+        // Act
+        $resumed = $tester->execute($copy);
+        $text    = $tester->getDisplay();
+        $items   = array_column($this->rows('SELECT id FROM items ORDER BY id'), 'id');
+        $kept    = (int) $this->rows("SELECT chunk_end AS e FROM pramnos_migration_progress WHERE table_name = 'items' AND phase = 'operational' AND status = 'COMPLETED'")[0]['e'];
+        $tester->execute($copy + ['--restart' => true]);
+        $restarted = $tester->getDisplay();
+
+        // Assert
+        $this->assertSame(0, $resumed, $text);
+        $this->assertStringContainsString('users: 0 inserted — copied by an earlier run', $text);
+        $this->assertMatchesRegularExpression('/items: 3 inserted( \(mysql_fdw\))? — taken up after id 2/u', $text, 'only past the highest id here, the new row among them');
+        $this->assertSame([1, 2, 3, 4, 5], array_map('intval', $items));
+        $this->assertSame((int) $began['e'] - 3600, $kept, 'the moment of the attempt that began it, not this one');
+        $this->assertStringNotContainsString('copied by an earlier run', $restarted, '--restart copies again');
+    }
+
+    /**
      * A `datetime` has no zone: it is the wall-clock time of whoever wrote it, and going into a
      * `timestamptz` it names a moment only in `--source-timezone`. A `timestamp` is a moment,
      * whatever zone the writing session had. And the cutover finds a change by its `datetime`

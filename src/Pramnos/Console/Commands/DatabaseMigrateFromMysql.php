@@ -56,7 +56,7 @@ class DatabaseMigrateFromMysql extends Command
             ->addOption('throttle-ms', null, InputOption::VALUE_REQUIRED, 'backfill: a pause after each batch', '50')
             ->addOption('compress-after-chunk', null, InputOption::VALUE_NONE, 'backfill: compress each window\'s chunks once it is done')
             ->addOption('until', null, InputOption::VALUE_REQUIRED, 'backfill: where the newest window ends (default: the cutover\'s moment)')
-            ->addOption('restart', null, InputOption::VALUE_NONE, 'backfill: forget the windows done and start again')
+            ->addOption('restart', null, InputOption::VALUE_NONE, 'backfill: forget the windows done and start again; operational: copy again the tables an earlier run finished')
             ->addOption('transport', null, InputOption::VALUE_REQUIRED, 'php: rows through PHP; fdw: through mysql_fdw on the PostgreSQL server, where it is installed', 'php')
             ->addOption('fdw-host', null, InputOption::VALUE_REQUIRED, 'fdw: the MySQL host as the PostgreSQL server reaches it (default: the --source host)');
     }
@@ -192,7 +192,7 @@ class DatabaseMigrateFromMysql extends Command
             $code = $this->reportResult($output, $result);
         } else {
             $result = $migrator->run($plan, $batch, !$input->getOption('keep-constraints'), (bool) $input->getOption('null-orphans'), $progress, $phase === 'operational',
-                !$input->getOption('no-snapshot'));
+                !$input->getOption('no-snapshot'), (bool) $input->getOption('restart'));
             if ($phase === 'operational') {
                 $output->writeln('The moment of the copy is recorded. Stop the application\'s writes, then run <info>--phase=cutover</info>.');
             }
@@ -357,7 +357,8 @@ class DatabaseMigrateFromMysql extends Command
                 . (($t['transport'] ?? 'php') === 'fdw' ? ' (mysql_fdw)' : '')
                 . ($t['refused'] > 0 ? ', ' . $t['refused'] . ' refused' : '')
                 . ($t['nulled'] > 0 ? ', ' . $t['nulled'] . ' value(s) that were not what the column takes, as NULL' : '')
-                . (($t['repaired'] ?? 0) > 0 ? ', ' . $t['repaired'] . ' double-encoded value(s) repaired' : ''));
+                . (($t['repaired'] ?? 0) > 0 ? ', ' . $t['repaired'] . ' double-encoded value(s) repaired' : '')
+                . (isset($t['resumed']) ? ' — ' . $t['resumed'] : ''));
             foreach ($t['errors'] as $error) {
                 $output->writeln('      ' . $error);
             }

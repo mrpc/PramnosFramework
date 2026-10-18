@@ -240,7 +240,7 @@ refuses rows into them: decompress first.
 | `--throttle-ms` | `backfill`: a pause after each batch (default 50) |
 | `--compress-after-chunk` | `backfill`: compress a window's chunks once it is done |
 | `--until` | `backfill`: where the newest window ends (default: the cutover's moment) |
-| `--restart` | `backfill`: forget the windows done |
+| `--restart` | `backfill`: forget the windows done; `operational`: copy again the tables an earlier run finished |
 | `--transport` | `php` (default), or `fdw`: rows moved by PostgreSQL through `mysql_fdw` |
 | `--fdw-host` | `fdw`: the MySQL host as the PostgreSQL server reaches it |
 | `-v` | Report each batch |
@@ -269,6 +269,14 @@ and window. Moments there are Unix times.
 **Operational.** The same copy as `full`, in one snapshot, and the snapshot's moment (T0) and
 each table's highest integer id are recorded. Leave the large append-only tables (readings,
 logs, mail) to the backfill.
+
+**A copy that stops is taken up where it stopped.** Run the same command again:
+
+- A table the earlier run finished is not read again.
+- The table it was copying is read on past the highest id already in the target, when its key
+  is one integer column. It keeps the moment (T0) and highest id of the attempt that began it,
+  so the cutover reads changes from the earlier moment, which takes in everything since.
+- `--restart` copies every table again.
 
 A snapshot is one MySQL transaction held open for the whole copy. On a busy source that is hours
 of undo history kept for it. `--no-snapshot` reads each table instead a range of keys at a time
