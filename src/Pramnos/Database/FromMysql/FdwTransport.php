@@ -98,13 +98,14 @@ final class FdwTransport
      * @param list<string> $columns  The columns that move
      * @param string       $where    A PostgreSQL condition on the foreign table's columns, or ''
      * @param array<string, string> $foreignTypes A column's type in the foreign table, where it is not the default
+     * @param string                $zone         The zone the source's `datetime` values were written in
      */
-    public function copy(string $source, string $target, array $sourceColumns, array $targetColumns, array $columns, string $where = '', array $foreignTypes = []): ?int
+    public function copy(string $source, string $target, array $sourceColumns, array $targetColumns, array $columns, string $where = '', array $foreignTypes = [], string $zone = 'UTC'): ?int
     {
         $foreign = $this->foreignTable($source, $sourceColumns, $targetColumns, $columns, $foreignTypes);
         $exprs   = [];
         foreach ($columns as $column) {
-            $exprs[] = self::expression($column, (string) $sourceColumns[$column]['type'], (string) ($targetColumns[$column]['type'] ?? TypeMapper::toPostgres((string) $sourceColumns[$column]['type'])));
+            $exprs[] = self::expression($column, (string) $sourceColumns[$column]['type'], (string) ($targetColumns[$column]['type'] ?? TypeMapper::toPostgres((string) $sourceColumns[$column]['type'])), $zone);
         }
         $sql = 'INSERT INTO ' . self::quoted($target) . ' (' . implode(', ', array_map([self::class, 'identifier'], $columns)) . ') SELECT '
             . implode(', ', $exprs) . ' FROM ' . $foreign . ($where !== '' ? ' WHERE ' . $where : '') . ' ON CONFLICT DO NOTHING';
@@ -168,9 +169,10 @@ final class FdwTransport
     /**
      * The SQL that turns a foreign column into what the target column takes — the same answers
      * as {@see TypeMapper::value()}: a flag as a boolean, a unix time as a moment, MySQL's zero
-     * date as NULL, JSON only when it is JSON, a number only when it is one.
+     * date as NULL, JSON only when it is JSON, a number only when it is one; a `datetime` in
+     * `$zone`, the zone it was written in.
      */
-    public static function expression(string $column, string $mysqlType, string $pgType): string
+    public static function expression(string $column, string $mysqlType, string $pgType, string $zone = 'UTC'): string
     {
         $c     = self::identifier($column);
         $mysql = strtolower($mysqlType);
@@ -181,17 +183,27 @@ final class FdwTransport
             return $int ? '(' . $c . ' <> 0)' : "(lower(" . $c . "::text) IN ('1', 't', 'true', 'y', 'yes'))";
         }
         if (str_starts_with($pg, 'timestamp') || $pg === 'date') {
+            $in = "'" . str_replace("'", "''", $zone) . "'";
             if ($int) {
                 $moment = 'to_timestamp(' . $c . ')';
-
-                return 'CASE WHEN ' . $c . ' > 0 THEN ' . match (true) {
-                    $pg === 'timestamp with time zone' => $moment,
-                    $pg === 'date'                     => '(' . $moment . " AT TIME ZONE 'UTC')::date",
-                    default                            => '(' . $moment . " AT TIME ZONE 'UTC')",
-                } . ' END';
+            } elseif (!str_starts_with($mysql, 'timestamp') && $pg !== 'timestamp with time zone') {
+                // A wall-clock time into a column without a zone: as it was.
+                $moment = null;
+            } else {
+                // The wrapper reads with the session in UTC, so a MySQL `timestamp` is UTC; a
+                // `datetime` is the wall-clock time of the zone it was written in.
+                $moment = '(' . $c . '::timestamp AT TIME ZONE ' . (str_starts_with($mysql, 'timestamp') ? "'UTC'" : $in) . ')';
             }
+            $value = match (true) {
+                $moment === null                   => $c . '::' . $pg,
+                $pg === 'timestamp with time zone' => $moment,
+                $pg === 'date'                     => '(' . $moment . ' AT TIME ZONE ' . $in . ')::date',
+                default                            => '(' . $moment . ' AT TIME ZONE ' . $in . ')',
+            };
 
-            return 'CASE WHEN ' . $c . " IS NULL OR " . $c . " = '' OR " . $c . " LIKE '0000-00-00%' THEN NULL ELSE " . $c . '::' . $pg . ' END';
+            return $int
+                ? 'CASE WHEN ' . $c . ' > 0 THEN ' . $value . ' END'
+                : 'CASE WHEN ' . $c . " IS NULL OR " . $c . " = '' OR " . $c . " LIKE '0000-00-00%' THEN NULL ELSE " . $value . ' END';
         }
         if ($pg === 'json' || $pg === 'jsonb') {
             return 'CASE WHEN ' . $c . ' IS JSON THEN ' . $c . '::' . $pg . ' END';

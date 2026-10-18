@@ -188,6 +188,50 @@ class MigrateFromMysqlPhasesTest extends TestCase
     }
 
     /**
+     * A `datetime` has no zone: it is the wall-clock time of whoever wrote it, and going into a
+     * `timestamptz` it names a moment only in `--source-timezone`. A `timestamp` is a moment,
+     * whatever zone the writing session had. And the cutover finds a change by its `datetime`
+     * column in that zone — a zone behind UTC compared as UTC would miss every change of the
+     * last hours. The dry run says how the values are read, and that the server's zone differs.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('transports')]
+    public function testAWallClockIsReadInItsZone(string $transport): void
+    {
+        // Arrange — written in New York time; the TIMESTAMPs by a session at UTC+05:00
+        $tester = $this->databases([
+            'CREATE TABLE stamps (id INT PRIMARY KEY, label VARCHAR(10), wall DATETIME, at TIMESTAMP NULL, seen TIMESTAMP NULL, updated_at DATETIME) ENGINE=InnoDB',
+            "SET time_zone = '+05:00'",
+            "INSERT INTO stamps VALUES (1, 'one', '2026-01-15 12:00:00', '2026-01-15 17:00:00', '2026-01-15 17:00:00', '2026-01-01 00:00:00')",
+        ], [
+            'CREATE TABLE stamps (id INT PRIMARY KEY, label VARCHAR(10), wall TIMESTAMPTZ, at TIMESTAMPTZ, seen TIMESTAMP, updated_at TIMESTAMP)',
+        ]);
+        $zone = ['--source' => $this->dsn(), '--source-timezone' => 'America/New_York'];
+
+        // Act
+        $tester->execute($zone + ['--dry-run' => true]);
+        $dry = $tester->getDisplay();
+        $tester->execute($zone + ['--phase' => 'operational', '--transport' => $transport]);
+        $moved = $this->rows('SELECT extract(epoch FROM wall)::bigint AS w, extract(epoch FROM at)::bigint AS a, seen::text AS s FROM stamps')[0] ?? [];
+        sleep(1);
+        // …the application changes the row, stamping it with New York's clock…
+        $this->source->query("UPDATE stamps SET label = 'ONE', updated_at = '" . (new \DateTimeImmutable('now', new \DateTimeZone('America/New_York')))->format('Y-m-d H:i:s') . "' WHERE id = 1");
+        $cut   = $tester->execute($zone + ['--phase' => 'cutover']);
+        $label = $this->rows('SELECT label FROM stamps')[0]['label'] ?? null;
+        $badZone = $tester->execute(['--source' => $this->dsn(), '--source-timezone' => 'Mars/Olympus', '--dry-run' => true]);
+
+        // Assert
+        $this->assertStringContainsString('read as America/New_York time: stamps.wall', $dry);
+        $this->assertStringContainsString('name that zone with --source-timezone', $dry, 'the server runs in UTC, not New York');
+        $this->assertSame(gmmktime(17, 0, 0, 1, 15, 2026), (int) $moved['w'], 'noon in New York is 17:00 UTC');
+        $this->assertSame(gmmktime(12, 0, 0, 1, 15, 2026), (int) $moved['a'], 'the TIMESTAMP is the moment, not the session\'s wall clock');
+        $this->assertSame('2026-01-15 07:00:00', $moved['s'], 'a moment into a column without a zone: New York\'s wall clock');
+        $this->assertSame(0, $cut, $tester->getDisplay());
+        $this->assertSame('ONE', $label, 'the change was found by its New York time');
+        $this->assertSame(1, $badZone);
+        $this->assertStringContainsString('No time zone Mars/Olympus', $tester->getDisplay());
+    }
+
+    /**
      * The backfill into a hypertable: windows newest first up to `--until`, nothing after it;
      * the compression policy removed and put back; each finished window's chunks compressed; a
      * second run reads nothing; `--restart` writes the windows again over compressed chunks; a

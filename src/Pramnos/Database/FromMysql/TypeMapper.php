@@ -63,8 +63,9 @@ final class TypeMapper
      * @param string $mysqlType The source column's MySQL type
      * @param string $pgType    The target column's PostgreSQL type (`format_type`)
      * @param bool   $refused   Set when a value had to become NULL because it was not one
+     * @param string $zone      The zone a `datetime` was written in
      */
-    public static function value(mixed $value, string $mysqlType, string $pgType, ?bool &$refused = null): mixed
+    public static function value(mixed $value, string $mysqlType, string $pgType, ?bool &$refused = null, string $zone = 'UTC'): mixed
     {
         $refused = false;
         if ($value === null) {
@@ -79,21 +80,7 @@ final class TypeMapper
         }
 
         if (str_starts_with($pg, 'timestamp') || $pg === 'date') {
-            // A unix time in an integer column, as a moment.
-            if (preg_match('/^(tiny|small|medium|big)?int/', $mysql) === 1 || ctype_digit($text)) {
-                if (!is_numeric($text) || (int) $text <= 0) {
-                    $refused = (int) $text < 0;
-
-                    return null;
-                }
-
-                return gmdate($pg === 'date' ? 'Y-m-d' : 'Y-m-d H:i:s', (int) $text) . ($pg === 'timestamp with time zone' ? '+00' : '');
-            }
-            if ($text === '' || preg_match(self::ZERO_DATE, $text) === 1) {
-                return null;
-            }
-
-            return $text;
+            return self::moment($text, $mysql, $pg, $zone, $refused);
         }
 
         if ($pg === 'json' || $pg === 'jsonb') {
@@ -134,5 +121,45 @@ final class TypeMapper
         }
 
         return $text;
+    }
+
+    /**
+     * A moment as a `timestamptz`, `timestamp` or `date` column takes it.
+     *
+     * A unix time and a MySQL `timestamp` (read with the session in UTC) are moments; a
+     * `datetime` is a wall-clock time, in `$zone`. Into a `timestamptz` each becomes the moment it
+     * names; into a column without a zone, the wall-clock time in `$zone` — a `datetime` as it was.
+     */
+    private static function moment(string $text, string $mysql, string $pg, string $zone, ?bool &$refused): ?string
+    {
+        $withZone = $pg === 'timestamp with time zone';
+        $local    = new \DateTimeZone($zone);
+        $utc      = new \DateTimeZone('UTC');
+        try {
+            if (preg_match('/^(tiny|small|medium|big)?int/', $mysql) === 1 || ctype_digit($text)) {
+                if (!is_numeric($text) || (int) $text <= 0) {
+                    $refused = (int) $text < 0;
+
+                    return null;
+                }
+                $moment = new \DateTimeImmutable('@' . (int) $text);
+            } elseif ($text === '' || preg_match(self::ZERO_DATE, $text) === 1) {
+                return null;
+            } elseif (str_starts_with($mysql, 'timestamp')) {
+                $moment = new \DateTimeImmutable($text, $utc);
+            } elseif (!$withZone) {
+                return $text;
+            } else {
+                $moment = new \DateTimeImmutable($text, $local);
+            }
+        } catch (\Throwable) {
+            $refused = true;
+
+            return null;
+        }
+        $moment = $moment->setTimezone($withZone ? $utc : $local);
+        $format = $pg === 'date' ? 'Y-m-d' : ($moment->format('u') !== '000000' ? 'Y-m-d H:i:s.u' : 'Y-m-d H:i:s');
+
+        return $moment->format($format) . ($withZone ? '+00' : '');
     }
 }

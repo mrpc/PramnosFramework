@@ -54,6 +54,20 @@ final class FdwTransportTest extends TestCase
         $this->assertSame('"v"::text', FdwTransport::expression('v', 'varchar(20)', ''));
     }
 
+    /**
+     * Moments in a zone, in SQL: the wrapper reads with the session in UTC, so a MySQL
+     * `timestamp` is UTC and a `datetime` is the wall-clock time of the zone it was written in.
+     */
+    public function testExpressionsInAZone(): void
+    {
+        // Act + Assert
+        $this->assertStringContainsString('ELSE ("w"::timestamp AT TIME ZONE \'America/New_York\') END', FdwTransport::expression('w', 'datetime', 'timestamp with time zone', 'America/New_York'));
+        $this->assertStringContainsString('ELSE "w"::timestamp without time zone END', FdwTransport::expression('w', 'datetime', 'timestamp without time zone', 'America/New_York'), 'a wall clock into a wall clock: as it was');
+        $this->assertStringContainsString('ELSE ("a"::timestamp AT TIME ZONE \'UTC\') END', FdwTransport::expression('a', 'timestamp', 'timestamp with time zone', 'America/New_York'));
+        $this->assertStringContainsString('ELSE (("a"::timestamp AT TIME ZONE \'UTC\') AT TIME ZONE \'America/New_York\') END', FdwTransport::expression('a', 'timestamp', 'timestamp without time zone', 'America/New_York'));
+        $this->assertSame('CASE WHEN "t" > 0 THEN (to_timestamp("t") AT TIME ZONE \'America/New_York\')::date END', FdwTransport::expression('t', 'int(11)', 'date', 'America/New_York'));
+    }
+
     /** Without the extension on the server there is no transport, and nothing is created. */
     public function testWithoutTheExtensionThereIsNone(): void
     {

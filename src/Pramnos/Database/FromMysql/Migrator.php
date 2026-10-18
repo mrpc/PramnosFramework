@@ -44,6 +44,12 @@ final class Migrator
 
     private ?FdwTransport $fdw = null;
 
+    /** The zone the source's `datetime` values were written in. */
+    private string $zone;
+
+    /** The source server's own offset from UTC, in minutes, before the session was set to UTC. */
+    private int $serverOffset;
+
     /** Move rows through `mysql_fdw` where it can; null moves them all through PHP. */
     public function useFdw(?FdwTransport $fdw): void
     {
@@ -58,6 +64,24 @@ final class Migrator
     ) {
         $this->sourcePrefix ??= (string) $source->prefix;
         $this->targetPrefix ??= (string) $target->prefix;
+        $this->zone           = date_default_timezone_get();
+        // The source is read in UTC, as mysql_fdw reads it: a `timestamp` then arrives as the
+        // moment it is, whatever the server's zone.
+        $mysqli             = $source->getConnectionLink();
+        $this->serverOffset = (int) ($mysqli->query('SELECT TIMESTAMPDIFF(MINUTE, UTC_TIMESTAMP(), NOW()) AS o')->fetch_assoc()['o'] ?? 0);
+        $mysqli->query("SET time_zone = '+00:00'");
+    }
+
+    /**
+     * The zone the source's `datetime` values were written in — by default this application's.
+     * A `datetime` has no zone of its own; going into a `timestamptz`, it names a moment only once
+     * one is given.
+     *
+     * @throws \Exception For a zone PHP does not know
+     */
+    public function sourceTimezone(string $zone): void
+    {
+        $this->zone = (new \DateTimeZone($zone))->getName();
     }
 
     /**
@@ -67,7 +91,7 @@ final class Migrator
      *
      * @param list<string> $only Source tables to move, all when empty
      * @param list<string> $skip Source tables to leave
-     * @return array{tables: array<string, array<string, mixed>>, order: list<string>, cycles: list<string>, replica: bool}
+     * @return array{tables: array<string, array<string, mixed>>, order: list<string>, cycles: list<string>, replica: bool, zone: array{name: string, offset: int, serverOffset: int, columns: list<string>}}
      */
     public function plan(array $only = [], array $skip = []): array
     {
@@ -124,7 +148,20 @@ final class Migrator
         }
         $sorted = TopologicalSorter::sort(array_keys($tables), $dependsOn);
 
-        return ['tables' => $tables, 'order' => $sorted['order'], 'cycles' => $sorted['cycles'], 'replica' => $this->replicaAllowed()];
+        // `datetime` columns that go into a `timestamptz`: what they mean depends on the zone.
+        $wallClock = [];
+        foreach ($tables as $name => $table) {
+            foreach ($table['copied'] as $column) {
+                if (preg_match('/^(datetime|date)\b/i', (string) $sources[$name]['columns'][$column]['type']) === 1
+                    && ($targets[$table['target']]['columns'][$column]['type'] ?? '') === 'timestamp with time zone') {
+                    $wallClock[] = $name . '.' . $column;
+                }
+            }
+        }
+        $offset = intdiv((new \DateTimeImmutable('now', new \DateTimeZone($this->zone)))->getOffset(), 60);
+
+        return ['tables' => $tables, 'order' => $sorted['order'], 'cycles' => $sorted['cycles'], 'replica' => $this->replicaAllowed(),
+            'zone' => ['name' => $this->zone, 'offset' => $offset, 'serverOffset' => $this->serverOffset, 'columns' => $wallClock]];
     }
 
     /**
@@ -215,7 +252,6 @@ final class Migrator
         $replica = $useReplica && $plan['replica'] && $this->setReplica(true);
         $result['replica'] = $replica;
         $targets = $this->targetTables();
-        $mysqli  = $this->source->getConnectionLink();
         try {
             foreach ($plan['order'] as $name) {
                 $table = $plan['tables'][$name];
@@ -239,9 +275,7 @@ final class Migrator
                     $conditions[] = '`' . $key . '` > ' . (int) $state['detail']['maxId'];
                 }
                 if ($column !== null) {
-                    $conditions[] = preg_match('/int/i', (string) $columns[$column]['type']) === 1
-                        ? '`' . $column . '` >= ' . (int) $state['end']
-                        : '`' . $column . "` >= '" . $mysqli->real_escape_string((string) $state['detail']['now']) . "'";
+                    $conditions[] = '`' . $column . '` >= ' . $this->sourceMoment((int) $state['end'], (string) $columns[$column]['type']);
                 }
                 if ($conditions === [] || $key === null || count($this->sourceTables()[$name]['primary']) !== 1) {
                     $result['tables'][$name] = ['unseen' => 'no single primary key or change column: changes since the copy are not seen; copy it again'] + $note;
@@ -302,11 +336,14 @@ final class Migrator
             if ($restart) {
                 $this->tracker()->forget($name, 'backfill');
             }
-            $integer = preg_match('/int/i', (string) $columns[$timeColumn]['type']) === 1;
+            $type    = (string) $columns[$timeColumn]['type'];
+            $integer = preg_match('/int/i', $type) === 1;
             $quoted  = '`' . str_replace('`', '``', $timeColumn) . '`';
-            $first   = $this->source->getConnectionLink()->query($integer
-                ? 'SELECT MIN(' . $quoted . ') AS m FROM `' . $name . '` WHERE ' . $quoted . ' > 0'
-                : 'SELECT UNIX_TIMESTAMP(MIN(' . $quoted . ')) AS m FROM `' . $name . '` WHERE ' . $quoted . " > '1000-01-01'")->fetch_assoc()['m'];
+            $first   = $this->source->getConnectionLink()->query('SELECT MIN(' . $quoted . ') AS m FROM `' . $name . '` WHERE ' . $quoted
+                . ($integer ? ' > 0' : " > '1000-01-01'"))->fetch_assoc()['m'];
+            if ($first !== null && !$integer) {
+                $first = (new \DateTimeImmutable((string) $first, new \DateTimeZone(str_starts_with(strtolower($type), 'timestamp') ? 'UTC' : $this->zone)))->getTimestamp();
+            }
             if ($first === null) {
                 $result[$name] = $stats;
                 continue;
@@ -324,17 +361,12 @@ final class Migrator
                 if ($hypertable !== null) {
                     $this->chunks($table['target'], $hypertable, $start, $end, false);
                 }
-                $where = $integer
-                    ? $quoted . ' >= ' . $start . ' AND ' . $quoted . ' < ' . $end
-                    : $quoted . ' >= FROM_UNIXTIME(' . $start . ') AND ' . $quoted . ' < FROM_UNIXTIME(' . $end . ')';
-                $fdwWhere = null;
-                if ($this->fdw !== null) {
-                    $bounds   = $integer ? [$start, $end] : array_values($this->source->getConnectionLink()->query('SELECT FROM_UNIXTIME(' . $start . ') AS s, FROM_UNIXTIME(' . $end . ') AS e')->fetch_assoc());
-                    $column   = '"' . str_replace('"', '""', $timeColumn) . '"';
-                    $fdwWhere = $integer
-                        ? $column . ' >= ' . $bounds[0] . ' AND ' . $column . ' < ' . $bounds[1]
-                        : $column . " >= '" . $bounds[0] . "' AND " . $column . " < '" . $bounds[1] . "'";
-                }
+                // The window's ends as the column holds them; the same text serves the foreign table.
+                $low      = $this->sourceMoment($start, $type);
+                $high     = $this->sourceMoment($end, $type);
+                $where    = $quoted . ' >= ' . $low . ' AND ' . $quoted . ' < ' . $high;
+                $column   = '"' . str_replace('"', '""', $timeColumn) . '"';
+                $fdwWhere = $this->fdw !== null ? $column . ' >= ' . $low . ' AND ' . $column . ' < ' . $high : null;
                 $window = $this->copyTable($table, $targets[$table['target']]['columns'] ?? [], max(1, $batch), $progress, $where, [], $throttleMs, $fdwWhere);
                 if ($compress && $hypertable !== null) {
                     $stats['compressed'] += $this->chunks($table['target'], $hypertable, $start, $end, true);
@@ -375,6 +407,20 @@ final class Migrator
         }
 
         return $to;
+    }
+
+    /**
+     * A moment as a source column holding it compares: a unix time, a `timestamp` in UTC (the
+     * session's zone), a `datetime` as the wall-clock time of the zone it was written in.
+     */
+    private function sourceMoment(int $at, string $mysqlType): string
+    {
+        if (preg_match('/int/i', $mysqlType) === 1) {
+            return (string) $at;
+        }
+        $zone = new \DateTimeZone(str_starts_with(strtolower($mysqlType), 'timestamp') ? 'UTC' : $this->zone);
+
+        return "'" . (new \DateTimeImmutable('@' . $at))->setTimezone($zone)->format('Y-m-d H:i:s') . "'";
     }
 
     /** The tracker, on the target. */
@@ -512,7 +558,7 @@ final class Migrator
         }
         $sourceTypes = $this->sourceTables()[$table['source']]['columns'];
         if ($this->fdw !== null && $fdwWhere !== null && $updateKey === []) {
-            $moved = $this->fdw->copy($table['source'], $table['target'], $sourceTypes, $targetColumns, $columns, $fdwWhere);
+            $moved = $this->fdw->copy($table['source'], $table['target'], $sourceTypes, $targetColumns, $columns, $fdwWhere, [], $this->zone);
             if ($moved !== null) {
                 if ($progress !== null) {
                     $progress($table['source'], $moved, 0);
@@ -534,7 +580,7 @@ final class Migrator
         while ($read && ($row = $read->fetch_assoc()) !== null) {
             $converted = [];
             foreach ($columns as $column) {
-                $value = TypeMapper::value($row[$column], (string) $sourceTypes[$column]['type'], (string) ($targetColumns[$column]['type'] ?? TypeMapper::toPostgres((string) $sourceTypes[$column]['type'])), $refused);
+                $value = TypeMapper::value($row[$column], (string) $sourceTypes[$column]['type'], (string) ($targetColumns[$column]['type'] ?? TypeMapper::toPostgres((string) $sourceTypes[$column]['type'])), $refused, $this->zone);
                 $stats['nulled'] += $refused ? 1 : 0;
                 $converted[] = $value;
             }

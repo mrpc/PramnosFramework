@@ -41,6 +41,7 @@ class DatabaseMigrateFromMysql extends Command
             ->addOption('tables', null, InputOption::VALUE_REQUIRED, 'Only these source tables, comma-separated')
             ->addOption('exclude-tables', null, InputOption::VALUE_REQUIRED, 'Leave these source tables, comma-separated')
             ->addOption('batch-size', null, InputOption::VALUE_REQUIRED, 'Rows per INSERT', '5000')
+            ->addOption('source-timezone', null, InputOption::VALUE_REQUIRED, 'The zone the source\'s DATETIME values were written in (default: this application\'s)')
             ->addOption('source-prefix', null, InputOption::VALUE_REQUIRED, 'The source tables\' prefix (default: this application\'s)')
             ->addOption('keep-constraints', null, InputOption::VALUE_NONE, 'Load with the target\'s keys checked, even where they could be off')
             ->addOption('null-orphans', null, InputOption::VALUE_NONE, 'After the load, set references that name no row to NULL where the column takes it')
@@ -96,6 +97,15 @@ class DatabaseMigrateFromMysql extends Command
 
         $list     = static fn (mixed $value): array => array_values(array_filter(array_map('trim', explode(',', (string) $value))));
         $migrator = new Migrator($source, $target, $source->prefix, (string) $target->prefix);
+        if ($input->getOption('source-timezone') !== null) {
+            try {
+                $migrator->sourceTimezone((string) $input->getOption('source-timezone'));
+            } catch (\Throwable) {
+                $output->writeln('<error>No time zone ' . $input->getOption('source-timezone') . ':</error> name one as Europe/Athens or UTC.');
+
+                return Command::FAILURE;
+            }
+        }
         $plan     = $migrator->plan($list($input->getOption('tables')), $list($input->getOption('exclude-tables')));
         $this->reportPlan($output, $plan);
         if ($input->getOption('dry-run')) {
@@ -212,9 +222,23 @@ class DatabaseMigrateFromMysql extends Command
                 $output->writeln('      <error>the target holds compressed chunks:</error> rows into them are refused; decompress first');
             }
         }
+        $zone = $plan['zone'];
+        if ($zone['columns'] !== []) {
+            $output->writeln('DATETIME values going into timestamptz are read as <info>' . $zone['name'] . '</info> time: ' . implode(', ', $zone['columns']));
+            if ($zone['offset'] !== $zone['serverOffset']) {
+                $output->writeln('<comment>The MySQL server runs at UTC' . self::offset($zone['serverOffset']) . ', ' . $zone['name'] . ' is at UTC' . self::offset($zone['offset'])
+                    . ':</comment> if the application wrote them in the server\'s time, name that zone with --source-timezone.');
+            }
+        }
         if ($plan['cycles'] !== []) {
             $output->writeln('<comment>These point at each other and load in name order:</comment> ' . implode(', ', $plan['cycles']));
         }
+    }
+
+    /** An offset in minutes as `+03:00`. */
+    private static function offset(int $minutes): string
+    {
+        return ($minutes < 0 ? '-' : '+') . sprintf('%02d:%02d', intdiv(abs($minutes), 60), abs($minutes) % 60);
     }
 
     /** @param array<string, array<string, mixed>> $result */

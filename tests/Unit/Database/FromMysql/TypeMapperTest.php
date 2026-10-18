@@ -96,4 +96,35 @@ final class TypeMapperTest extends TestCase
             $this->assertSame($refusal, $refused, var_export($in, true) . ' refused?');
         }
     }
+
+    /**
+     * Moments and zones: a `datetime` is the wall-clock time of the zone it was written in, a
+     * MySQL `timestamp` (read with the session in UTC) and a unix time are moments. Into a
+     * `timestamptz` each becomes the moment; into a column without a zone, the zone's wall clock.
+     * A date that is not one is refused rather than passed to PostgreSQL to fail the batch.
+     */
+    public function testMomentsInAZone(): void
+    {
+        // Arrange
+        $cases = [
+            ['2026-01-15 12:00:00', 'datetime', 'timestamp with time zone', '2026-01-15 17:00:00+00', false],
+            ['2026-01-15 12:00:00.250000', 'datetime(6)', 'timestamp with time zone', '2026-01-15 17:00:00.250000+00', false],
+            ['2026-01-15 12:00:00', 'datetime', 'timestamp without time zone', '2026-01-15 12:00:00', false],
+            ['2026-01-15', 'date', 'timestamp with time zone', '2026-01-15 05:00:00+00', false],
+            ['2026-01-15 12:00:00', 'timestamp', 'timestamp with time zone', '2026-01-15 12:00:00+00', false],
+            ['2026-01-15 12:00:00', 'timestamp', 'timestamp without time zone', '2026-01-15 07:00:00', false],
+            ['2026-01-15 03:00:00', 'timestamp', 'date', '2026-01-14', false],
+            ['1768478400', 'int(11)', 'timestamp without time zone', '2026-01-15 07:00:00', false],
+            ['not a date', 'datetime', 'timestamp with time zone', null, true],
+        ];
+
+        foreach ($cases as [$in, $mysql, $pg, $out, $refusal]) {
+            // Act
+            $got = TypeMapper::value($in, $mysql, $pg, $refused, 'America/New_York');
+
+            // Assert
+            $this->assertSame($out, $got, $in . ' ' . $mysql . ' → ' . $pg);
+            $this->assertSame($refusal, $refused, $in . ' refused?');
+        }
+    }
 }

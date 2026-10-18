@@ -6,6 +6,7 @@ use_cases:
   - Checking before a move which tables and columns would not arrive
   - Re-running a move that stopped half way without duplicating rows
   - Finding rows whose references point at nothing after a move
+  - Moving DATETIME columns into timestamptz without shifting them by the server's offset
 ---
 
 # Moving from MySQL to PostgreSQL
@@ -93,6 +94,40 @@ literal. A zero date and an expression PostgreSQL has no word for are left out.
 
 The command exits `1` when any row was refused.
 
+## Dates, times and zones
+
+MySQL has two kinds of moment, and they move differently:
+
+- **`TIMESTAMP` is a moment.** MySQL stores it in UTC and shows it in the session's zone. The
+  source is read with the session in UTC, as `mysql_fdw` reads it, so a `TIMESTAMP` arrives as
+  the moment it is, whatever the server's zone.
+- **`DATETIME` is a wall-clock time.** It has no zone: it is whatever the application's clock
+  said. It names a moment only once a zone is given, so going into a `timestamptz` it is read in
+  `--source-timezone`, which defaults to the application's zone (`date_default_timezone_get()`).
+
+| Source | Into `timestamptz` | Into `timestamp` / `date` |
+|---|---|---|
+| `DATETIME`, `DATE` | the moment it names in `--source-timezone` | as it was |
+| `TIMESTAMP` | the moment | the wall-clock time in `--source-timezone` |
+| a unix time in an `int` | the moment | the wall-clock time in `--source-timezone` |
+
+The dry run lists every `DATETIME` that goes into a `timestamptz`, and warns when the MySQL
+server's own zone is not `--source-timezone`:
+
+```
+DATETIME values going into timestamptz are read as Europe/Athens time: orders.created
+The MySQL server runs at UTC+00:00, Europe/Athens is at UTC+03:00: if the application wrote them
+in the server's time, name that zone with --source-timezone.
+```
+
+That is the one question to settle before a move: which clock wrote these values. An
+application that set its own zone wrote in that zone; one that used `NOW()` in SQL wrote in the
+server's.
+
+The same zone is used where a phase compares with a `DATETIME`. The cutover finds changed rows by
+their change column, and the backfill cuts its windows, in that zone. Compared in the wrong zone,
+a zone behind UTC would miss every change made in the last hours.
+
 ## What the dry run tells you
 
 ```
@@ -119,6 +154,7 @@ refuses rows into them: decompress first.
 | `--tables`, `--exclude-tables` | Source tables to move, or to leave, comma-separated |
 | `--batch-size` | Rows per `INSERT` (default 5000) |
 | `--source-prefix` | The source tables' prefix, when it is not the application's |
+| `--source-timezone` | The zone the source's `DATETIME` values were written in (default: the application's) — see [Dates, times and zones](#dates-times-and-zones) |
 | `--keep-constraints` | Check the target's keys as rows arrive |
 | `--null-orphans` | After a load with keys off, set references to nothing to `NULL` |
 | `--changed-column` | `cutover`: the column a changed row is told by |
