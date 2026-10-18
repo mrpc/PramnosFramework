@@ -123,6 +123,8 @@ refuses rows into them: decompress first.
 | `--compress-after-chunk` | `backfill`: compress a window's chunks once it is done |
 | `--until` | `backfill`: where the newest window ends (default: the cutover's moment) |
 | `--restart` | `backfill`: forget the windows done |
+| `--transport` | `php` (default), or `fdw`: rows moved by PostgreSQL through `mysql_fdw` |
+| `--fdw-host` | `fdw`: the MySQL host as the PostgreSQL server reaches it |
 | `-v` | Report each batch |
 
 ## A live production move, in three phases
@@ -186,3 +188,36 @@ the application has written to PostgreSQL since is not touched.
 
 An interval that does not move back in time (`0 days`, or a typo) is refused before anything is
 touched.
+
+## Faster: through `mysql_fdw`
+
+With `mysql_fdw` installed on the PostgreSQL server, `--transport=fdw` lets PostgreSQL read
+MySQL itself. Each table, or each backfill window, moves as one `INSERT … SELECT` from a foreign
+table, and the rows never pass through PHP. For years of history that is the difference between
+hours and days.
+
+```bash
+php bin/pramnos db:migrate-from-mysql --source=mysql://u:p@mysql.internal/app --phase=backfill \
+    --tables=devicedata --time-column=date --transport=fdw --fdw-host=10.0.0.5
+```
+
+- **What the run makes, and drops.** A foreign server, a user mapping and a schema of foreign
+  tables (`pramnos_mysql`) are made for the run and dropped after it. MySQL is reached from the
+  PostgreSQL server, not from PHP: `--fdw-host` names it as that server sees it, when that is not
+  the `--source` host.
+- **The same conversions, in SQL.** A flag becomes a boolean, a unix time a moment, a zero date
+  `NULL`, JSON only when it is JSON (`IS JSON`, PostgreSQL 16 and later), a number only when it
+  is one.
+- **PHP takes over where SQL cannot.** Bytes that are not UTF-8, a NUL byte, or a value the
+  wrapper refuses fail the statement. That table, or that window, then moves through PHP, which
+  repairs them, and the report says so. Values made `NULL` on the way are counted only through
+  PHP.
+- **No shared snapshot.** Each table is read in its own MySQL transaction, not in one snapshot
+  for all of them. That is no loss for a backfill of history that is only appended to. For an
+  operational copy of tables that point at each other, prefer `--transport=php`.
+- **The cutover always moves through PHP.** Its rows are few, and they are written over the
+  target, which `ON CONFLICT … DO UPDATE` needs PHP for here.
+
+`mysql_fdw` is not packaged for every distribution. The framework's own test image builds it on
+the pinned TimescaleDB (`docker/timescaledb/Dockerfile`), and that Dockerfile is a recipe for a
+server of your own.

@@ -42,6 +42,14 @@ final class Migrator
 
     private ?ProgressTracker $tracker = null;
 
+    private ?FdwTransport $fdw = null;
+
+    /** Move rows through `mysql_fdw` where it can; null moves them all through PHP. */
+    public function useFdw(?FdwTransport $fdw): void
+    {
+        $this->fdw = $fdw;
+    }
+
     public function __construct(
         private Database $source,
         private Database $target,
@@ -161,7 +169,7 @@ final class Migrator
             $targets = $this->targetTables();
             foreach ($plan['order'] as $name) {
                 $table = $plan['tables'][$name];
-                $result['tables'][$name] = $this->copyTable($table, $targets[$table['target']]['columns'] ?? [], max(1, $batch), $progress);
+                $result['tables'][$name] = $this->copyTable($table, $targets[$table['target']]['columns'] ?? [], max(1, $batch), $progress, '', [], 0, '');
                 if ($operational) {
                     $this->tracker()->put($name, 'operational', 0, (int) $moment['ts'], $result['tables'][$name]['inserted'], ProgressTracker::DONE, [
                         'now'   => (string) $moment['now'],
@@ -286,7 +294,7 @@ final class Migrator
         foreach ($plan['order'] as $name) {
             $table   = $plan['tables'][$name];
             $columns = $this->sourceTables()[$name]['columns'];
-            $stats   = ['windows' => 0, 'skipped' => 0, 'inserted' => 0, 'refused' => 0, 'nulled' => 0, 'errors' => [], 'compressed' => 0, 'error' => null];
+            $stats   = ['windows' => 0, 'skipped' => 0, 'inserted' => 0, 'refused' => 0, 'nulled' => 0, 'errors' => [], 'compressed' => 0, 'error' => null, 'fdw' => 0];
             if (!isset($columns[$timeColumn])) {
                 $result[$name] = ['error' => 'has no column ' . $timeColumn] + $stats;
                 continue;
@@ -319,12 +327,21 @@ final class Migrator
                 $where = $integer
                     ? $quoted . ' >= ' . $start . ' AND ' . $quoted . ' < ' . $end
                     : $quoted . ' >= FROM_UNIXTIME(' . $start . ') AND ' . $quoted . ' < FROM_UNIXTIME(' . $end . ')';
-                $window = $this->copyTable($table, $targets[$table['target']]['columns'] ?? [], max(1, $batch), $progress, $where, [], $throttleMs);
+                $fdwWhere = null;
+                if ($this->fdw !== null) {
+                    $bounds   = $integer ? [$start, $end] : array_values($this->source->getConnectionLink()->query('SELECT FROM_UNIXTIME(' . $start . ') AS s, FROM_UNIXTIME(' . $end . ') AS e')->fetch_assoc());
+                    $column   = '"' . str_replace('"', '""', $timeColumn) . '"';
+                    $fdwWhere = $integer
+                        ? $column . ' >= ' . $bounds[0] . ' AND ' . $column . ' < ' . $bounds[1]
+                        : $column . " >= '" . $bounds[0] . "' AND " . $column . " < '" . $bounds[1] . "'";
+                }
+                $window = $this->copyTable($table, $targets[$table['target']]['columns'] ?? [], max(1, $batch), $progress, $where, [], $throttleMs, $fdwWhere);
                 if ($compress && $hypertable !== null) {
                     $stats['compressed'] += $this->chunks($table['target'], $hypertable, $start, $end, true);
                 }
                 $this->tracker()->put($name, 'backfill', $start, $end, $window['inserted'], ProgressTracker::DONE, ['refused' => $window['refused']]);
                 $stats['windows']++;
+                $stats['fdw']      += ($window['transport'] ?? 'php') === 'fdw' ? 1 : 0;
                 $stats['inserted'] += $window['inserted'];
                 $stats['refused']  += $window['refused'];
                 $stats['nulled']   += $window['nulled'];
@@ -483,9 +500,10 @@ final class Migrator
      * @param string       $where      A MySQL condition on the rows to read, or '' for all of them
      * @param list<string> $updateKey  Columns a conflict is judged on, to update the row; [] keeps the existing row
      * @param int          $throttleMs A pause after each batch, for a load beside live traffic
+     * @param string|null  $fdwWhere   The same condition for the foreign table, or null where `mysql_fdw` is not to be used
      * @return array{inserted: int, refused: int, nulled: int, errors: list<string>}
      */
-    private function copyTable(array $table, array $targetColumns, int $batch, ?callable $progress, string $where = '', array $updateKey = [], int $throttleMs = 0): array
+    private function copyTable(array $table, array $targetColumns, int $batch, ?callable $progress, string $where = '', array $updateKey = [], int $throttleMs = 0, ?string $fdwWhere = null): array
     {
         $stats   = ['inserted' => 0, 'refused' => 0, 'nulled' => 0, 'errors' => []];
         $columns = $table['copied'];
@@ -493,6 +511,18 @@ final class Migrator
             return $stats;
         }
         $sourceTypes = $this->sourceTables()[$table['source']]['columns'];
+        if ($this->fdw !== null && $fdwWhere !== null && $updateKey === []) {
+            $moved = $this->fdw->copy($table['source'], $table['target'], $sourceTypes, $targetColumns, $columns, $fdwWhere);
+            if ($moved !== null) {
+                if ($progress !== null) {
+                    $progress($table['source'], $moved, 0);
+                }
+
+                return ['inserted' => $moved, 'refused' => 0, 'nulled' => 0, 'errors' => [], 'transport' => 'fdw'];
+            }
+            // What PostgreSQL could not convert, PHP can: the same rows, the slower way.
+            $stats['errors'][] = 'mysql_fdw refused it (' . $this->fdw->lastError() . '); moved through PHP';
+        }
         $perBatch    = max(1, min($batch, intdiv(self::MAX_PARAMETERS, count($columns))));
         $mysqli      = $this->source->getConnectionLink();
         $read        = $mysqli->query(

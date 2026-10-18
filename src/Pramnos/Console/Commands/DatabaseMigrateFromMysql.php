@@ -51,7 +51,9 @@ class DatabaseMigrateFromMysql extends Command
             ->addOption('throttle-ms', null, InputOption::VALUE_REQUIRED, 'backfill: a pause after each batch', '50')
             ->addOption('compress-after-chunk', null, InputOption::VALUE_NONE, 'backfill: compress each window\'s chunks once it is done')
             ->addOption('until', null, InputOption::VALUE_REQUIRED, 'backfill: where the newest window ends (default: the cutover\'s moment)')
-            ->addOption('restart', null, InputOption::VALUE_NONE, 'backfill: forget the windows done and start again');
+            ->addOption('restart', null, InputOption::VALUE_NONE, 'backfill: forget the windows done and start again')
+            ->addOption('transport', null, InputOption::VALUE_REQUIRED, 'php: rows through PHP; fdw: through mysql_fdw on the PostgreSQL server, where it is installed', 'php')
+            ->addOption('fdw-host', null, InputOption::VALUE_REQUIRED, 'fdw: the MySQL host as the PostgreSQL server reaches it (default: the --source host)');
     }
 
     /** The application the command runs for; a method, so a test can hand it one. */
@@ -100,6 +102,31 @@ class DatabaseMigrateFromMysql extends Command
             return Command::SUCCESS;
         }
 
+        if ((string) $input->getOption('transport') === 'fdw') {
+            $fdw = \Pramnos\Database\FromMysql\FdwTransport::open($target, $source, $input->getOption('fdw-host') !== null ? (string) $input->getOption('fdw-host') : null);
+            if ($fdw === null) {
+                $output->writeln('<error>The PostgreSQL server has no mysql_fdw.</error> Install it there, or move the rows through PHP (--transport=php).');
+
+                return Command::FAILURE;
+            }
+            $migrator->useFdw($fdw);
+            try {
+                return $this->move($input, $output, $migrator, $plan, $phase, $list);
+            } finally {
+                $fdw->close();
+            }
+        }
+
+        return $this->move($input, $output, $migrator, $plan, $phase, $list);
+    }
+
+    /**
+     * Run the phase and report it.
+     *
+     * @param array<string, mixed> $plan
+     */
+    private function move(InputInterface $input, OutputInterface $output, Migrator $migrator, array $plan, string $phase, callable $list): int
+    {
         $progress = static function (string $table, int $inserted, int $refused) use ($output): void {
             if ($output->isVerbose()) {
                 $output->writeln('  ' . $table . ': ' . $inserted . ' rows' . ($refused > 0 ? ', ' . $refused . ' refused' : ''));
@@ -204,6 +231,7 @@ class DatabaseMigrateFromMysql extends Command
             $output->writeln(($t['refused'] > 0 ? '<error>✗</error> ' : '<info>✓</info> ') . $name . ': ' . $t['windows'] . ' window(s), '
                 . $t['inserted'] . ' inserted' . ($t['refused'] > 0 ? ', ' . $t['refused'] . ' refused' : '')
                 . ($t['skipped'] > 0 ? ', ' . $t['skipped'] . ' window(s) done before' : '')
+                . ($t['fdw'] > 0 ? ', ' . $t['fdw'] . ' through mysql_fdw' : '')
                 . ($t['compressed'] > 0 ? ', ' . $t['compressed'] . ' chunk(s) compressed' : '')
                 . (($t['policyRestored'] ?? false) ? ', compression policy put back' : ''));
             foreach ($t['errors'] as $error) {
@@ -221,6 +249,7 @@ class DatabaseMigrateFromMysql extends Command
         foreach ($result['tables'] as $name => $t) {
             $refused += $t['refused'];
             $output->writeln(($t['refused'] > 0 ? '<error>✗</error> ' : '<info>✓</info> ') . $name . ': ' . $t['inserted'] . ' inserted'
+                . (($t['transport'] ?? 'php') === 'fdw' ? ' (mysql_fdw)' : '')
                 . ($t['refused'] > 0 ? ', ' . $t['refused'] . ' refused' : '')
                 . ($t['nulled'] > 0 ? ', ' . $t['nulled'] . ' value(s) that were not what the column takes, as NULL' : ''));
             foreach ($t['errors'] as $error) {

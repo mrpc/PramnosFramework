@@ -24,6 +24,7 @@ use Symfony\Component\Console\Tester\CommandTester;
  * compressed as windows finish and decompressed when a window is written again.
  */
 #[CoversClass(Migrator::class)]
+#[CoversClass(\Pramnos\Database\FromMysql\FdwTransport::class)]
 #[CoversClass(ProgressTracker::class)]
 #[CoversClass(DatabaseMigrateFromMysql::class)]
 final class MigrateFromMysqlPhasesTest extends TestCase
@@ -186,7 +187,8 @@ final class MigrateFromMysqlPhasesTest extends TestCase
      * second run reads nothing; `--restart` writes the windows again over compressed chunks; a
      * table without the time column is named.
      */
-    public function testBackfillIntoAHypertable(): void
+    #[\PHPUnit\Framework\Attributes\DataProvider('transports')]
+    public function testBackfillIntoAHypertable(string $transport): void
     {
         // Arrange — ninety days of history and one row after the cutover's moment
         $mysql = ['CREATE TABLE metrics (id INT AUTO_INCREMENT PRIMARY KEY, time DATETIME NOT NULL, device INT, value DOUBLE) ENGINE=InnoDB',
@@ -205,7 +207,8 @@ final class MigrateFromMysqlPhasesTest extends TestCase
             'CREATE TABLE plain (id INT PRIMARY KEY)',
         ]);
         $options = ['--source' => $this->dsn(), '--phase' => 'backfill', '--tables' => 'metrics', '--time-column' => 'time',
-            '--chunk-interval' => '1 month', '--until' => '2026-07-01 00:00:00 UTC', '--throttle-ms' => '0', '--compress-after-chunk' => true, '--batch-size' => '20'];
+            '--chunk-interval' => '1 month', '--until' => '2026-07-01 00:00:00 UTC', '--throttle-ms' => '0', '--compress-after-chunk' => true, '--batch-size' => '20',
+            '--transport' => $transport];
 
         // Act
         $first     = $tester->execute($options);
@@ -227,7 +230,8 @@ final class MigrateFromMysqlPhasesTest extends TestCase
         // Assert
         $this->assertSame(0, $first, $firstText);
         $this->assertSame(90, $count, 'every row before --until, and not the one after');
-        $this->assertMatchesRegularExpression('/metrics: \d+ window\(s\), 90 inserted, \d+ chunk\(s\) compressed, compression policy put back/', $firstText);
+        $this->assertMatchesRegularExpression('/metrics: \d+ window\(s\), 90 inserted' . ($transport === 'fdw' ? ', \d+ through mysql_fdw' : '') . ', \d+ chunk\(s\) compressed, compression policy put back/', $firstText);
+        $this->assertStringNotContainsString('mysql_fdw refused', $firstText, 'every window moved the way it was asked to');
         $this->assertSame([['a' => '30 days']], $policy, 'the policy, back as it was');
         $this->assertGreaterThan(0, $compressed);
         $this->assertMatchesRegularExpression('/metrics: 0 window\(s\), 0 inserted, \d+ window\(s\) done before/', $secondText, 'a second run reads nothing');
@@ -237,6 +241,12 @@ final class MigrateFromMysqlPhasesTest extends TestCase
         $this->assertStringContainsString('does not move back in time', $badIntervalText);
         $this->assertSame(1, $nonsense);
         $this->assertCount(1, $policyAfter, 'a refused interval leaves the policy where it was');
+    }
+
+    /** @return array<string, array{string}> */
+    public static function transports(): array
+    {
+        return ['through PHP' => ['php'], 'through mysql_fdw' => ['fdw']];
     }
 
     /** A backfill without its tables or time column is refused before anything runs. */
@@ -259,7 +269,8 @@ final class MigrateFromMysqlPhasesTest extends TestCase
      * a plain table, pausing between batches; an empty table has no windows; a table without a
      * primary key is named in the cutover rather than half moved.
      */
-    public function testUnixTimesInIntegerColumns(): void
+    #[\PHPUnit\Framework\Attributes\DataProvider('transports')]
+    public function testUnixTimesInIntegerColumns(string $transport): void
     {
         // Arrange
         $now    = time();
@@ -284,14 +295,14 @@ final class MigrateFromMysqlPhasesTest extends TestCase
         $tester->execute(['--source' => $this->dsn(), '--phase' => 'cutover', '--tables' => 'ticks,loose', '--changed-column' => 'changed']);
         $cutText = $tester->getDisplay();
         $back = $tester->execute(['--source' => $this->dsn(), '--phase' => 'backfill', '--tables' => 'events,quiet', '--time-column' => 'at',
-            '--chunk-interval' => '10 days', '--throttle-ms' => '1', '--batch-size' => '1', '--until' => '@' . $now]);
+            '--chunk-interval' => '10 days', '--throttle-ms' => '1', '--batch-size' => '1', '--until' => '@' . $now, '--transport' => $transport]);
         $backText = $tester->getDisplay();
 
         // Assert
         $this->assertSame([1, 20], array_map('intval', array_column($this->rows('SELECT n FROM ticks ORDER BY id'), 'n')), 'the integer change column found the change');
         $this->assertStringContainsString('loose: no single primary key or change column', $cutText);
         $this->assertSame(0, $back, $backText);
-        $this->assertStringContainsString('events: 3 window(s), 3 inserted', $backText);
+        $this->assertStringContainsString('events: 3 window(s), 3 inserted' . ($transport === 'fdw' ? ', 3 through mysql_fdw' : ''), $backText);
         $this->assertStringContainsString('quiet: 0 window(s), 0 inserted', $backText, 'an empty table has no windows');
         $this->assertSame(3, (int) $this->rows('SELECT COUNT(*) AS n FROM events WHERE at < NOW()')[0]['n'], 'the unix times as moments');
     }

@@ -41,6 +41,7 @@ final class MigrateFromMysqlOver extends DatabaseMigrateFromMysql
  * a column only the target requires refuses its rows and is named in the plan.
  */
 #[CoversClass(Migrator::class)]
+#[CoversClass(\Pramnos\Database\FromMysql\FdwTransport::class)]
 #[CoversClass(DatabaseMigrateFromMysql::class)]
 #[CoversClass(TypeMapper::class)]
 #[CoversClass(TopologicalSorter::class)]
@@ -185,13 +186,14 @@ final class MigrateFromMysqlTest extends TestCase
      * sequences past the moved ids, the created table filled, the required column's rows refused;
      * and a second run adds nothing.
      */
-    public function testTheFullMove(): void
+    #[\PHPUnit\Framework\Attributes\DataProvider('transports')]
+    public function testTheFullMove(string $transport): void
     {
         // Arrange
         $tester = $this->databases();
 
         // Act
-        $code    = $tester->execute(['--source' => $this->dsn(), '--null-orphans' => true, '--batch-size' => '2'], ['verbosity' => \Symfony\Component\Console\Output\OutputInterface::VERBOSITY_VERBOSE]);
+        $code    = $tester->execute(['--source' => $this->dsn(), '--null-orphans' => true, '--batch-size' => '2', '--transport' => $transport], ['verbosity' => \Symfony\Component\Console\Output\OutputInterface::VERBOSITY_VERBOSE]);
         $display = $tester->getDisplay();
         $users   = $this->rows('SELECT userid, username, active, lastlogin, created, prefs::text AS prefs, encode(avatar, \'hex\') AS avatar, bio FROM users ORDER BY userid');
         $orders  = $this->rows('SELECT id, userid FROM orders ORDER BY id');
@@ -199,8 +201,9 @@ final class MigrateFromMysqlTest extends TestCase
         $next    = $this->rows("SELECT userid FROM users WHERE username = 'next'")[0]['userid'] ?? null;
         $made    = $this->rows('SELECT id, v, n FROM only_mysql ORDER BY id');
         $things  = $this->rows('SELECT label FROM authserver.things');
-        $tester->execute(['--source' => $this->dsn()]);
+        $tester->execute(['--source' => $this->dsn(), '--transport' => $transport]);
         $again   = $tester->getDisplay();
+        $leftover = $this->rows("SELECT 1 FROM pg_namespace WHERE nspname = 'pramnos_mysql'");
 
         // Assert
         $this->assertSame(1, $code, 'strict_t refused its row');
@@ -221,8 +224,20 @@ final class MigrateFromMysqlTest extends TestCase
         $this->assertSame([['id' => 1, 'v' => 'a', 'n' => 7], ['id' => 2, 'v' => 'b', 'n' => 7]], array_map(static fn (array $r): array => ['id' => (int) $r['id'], 'v' => $r['v'], 'n' => (int) $r['n']], $made));
         $this->assertSame([['label' => 'thing']], $things);
         $this->assertStringContainsString('strict_t: 0 inserted, 1 refused', $display);
-        $this->assertStringContainsString('  users: 2 rows', $display, '-v reports each batch');
         $this->assertStringContainsString('users: 0 inserted', $again, 'a second run adds nothing');
+        $this->assertSame([], $leftover, 'the foreign tables are dropped after the run');
+        if ($transport === 'fdw') {
+            $this->assertStringContainsString('orders: 3 inserted (mysql_fdw)', $display, 'moved by PostgreSQL itself');
+            $this->assertStringContainsString('mysql_fdw refused it', $display, 'users holds what SQL cannot convert, and moved through PHP');
+        } else {
+            $this->assertStringContainsString('  users: 2 rows', $display, '-v reports each batch');
+        }
+    }
+
+    /** @return array<string, array{string}> */
+    public static function transports(): array
+    {
+        return ['through PHP' => ['php'], 'through mysql_fdw' => ['fdw']];
     }
 
     /**

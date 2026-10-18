@@ -27,7 +27,7 @@ Commands are grouped by a `namespace:` prefix that reflects what they act on:
 |---|---|---|
 | `create:` | Code generation (models, controllers, views, screens, components, APIs, migrations, tasks, commands, …) | `create:model`, `create:crud`, `create:screen`, `create:component`, `create:command`, `create:task` |
 | `migrate`, `migrate:` | Database schema migrations | `migrate`, `migrate:status`, `migrate:rollback` |
-| `schema:` | The tables against the framework's shape | `db:migrate-from-mysql` | Move the data from a MySQL database into this PostgreSQL one, values converted to the target's types ([guide](Pramnos_Moving_From_MySQL_Guide.md)) | `--source`, `--dry-run`, `--phase=full`, `--tables`, `--exclude-tables`, `--batch-size`, `--keep-constraints`, `--null-orphans` |
+| `schema:` | The tables against the framework's shape | `db:migrate-from-mysql` | Move the data from a MySQL database into this PostgreSQL one, values converted to the target's types ([guide](Pramnos_Moving_From_MySQL_Guide.md)) | `--source`, `--dry-run`, `--phase=full`, `--tables`, `--exclude-tables`, `--batch-size`, `--keep-constraints`, `--null-orphans`, `--transport=php\|fdw`, `--fdw-host` |
 | `schema:diff` |
 | `maintenance:` | Put the site up or down by hand | `maintenance:on`, `maintenance:off` |
 | `project:` | **Set up / reconfigure an existing project** without re-running `init` | `project:reconfigure`, `project:install`, `project:publish-views`, `project:git-webhook` |
