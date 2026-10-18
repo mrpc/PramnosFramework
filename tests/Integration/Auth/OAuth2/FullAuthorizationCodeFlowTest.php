@@ -834,6 +834,57 @@ class FullAuthorizationCodeFlowTest extends TestCase
     }
 
     /**
+     * With `'scope_refusal' => 'drop'`, a scope the account may not grant is left out of the
+     * token rather than refusing it — at the exchange, and at a refresh after the role was taken
+     * away — while a request of nothing but such scopes is still refused.
+     */
+    public function testARefusedScopeIsDroppedWhenSoConfigured(): void
+    {
+        // Arrange
+        $factory = $this->factory();
+        $server  = $factory->createAuthorizationServer();
+        $oauth   = (new \ReflectionClass(\Pramnos\Auth\Controllers\Oauth::class))->newInstanceWithoutConstructor();
+        $oauth->application = $this->app;
+        (new \ReflectionProperty($oauth, 'oauth2Factory'))->setValue($oauth, $factory);
+        $application = Application::currentInstance() ?? Application::getInstance();
+        $saved       = $application->applicationInfo['oauth'] ?? null;
+        $exchange    = function (string $scope) use ($oauth, $server): array {
+            $verifier  = rtrim(strtr(base64_encode(random_bytes(32)), '+/', '-_'), '=');
+            $challenge = rtrim(strtr(base64_encode(hash('sha256', $verifier, true)), '+/', '-_'), '=');
+            $code = (new \ReflectionMethod($oauth, 'generateAuthCode'))->invoke($oauth, self::CLIENT_ID, self::USER_ID, $scope, self::REDIRECT_URI, $challenge, 'S256');
+
+            return $this->tokenRequest($server, ['grant_type' => 'authorization_code', 'code' => $code, 'redirect_uri' => self::REDIRECT_URI, 'code_verifier' => $verifier]);
+        };
+        $scopesOf = static fn (array $answer): array => (array) (\Pramnos\Auth\JWT::decodeUnverified((string) ($answer['access_token'] ?? ''))->scopes ?? []);
+        $rules    = static function (?int $usertype) use ($application): void {
+            $application->applicationInfo['oauth'] = ['scope_refusal' => 'drop']
+                + ($usertype === null ? [] : ['scopes' => ['us*' => ['min_usertype' => $usertype]]]);
+        };
+
+        try {
+            // Act
+            $rules(50);
+            $narrowed = $exchange('read user');
+            $nothing  = $exchange('user');
+            $rules(null);
+            $granted = $exchange('read user');
+            $rules(50);
+            $refreshed = $this->tokenRequest($server, ['grant_type' => 'refresh_token', 'refresh_token' => (string) ($granted['refresh_token'] ?? '')]);
+        } finally {
+            $application->applicationInfo['oauth'] = $saved;
+            if ($saved === null) {
+                unset($application->applicationInfo['oauth']);
+            }
+        }
+
+        // Assert
+        $this->assertSame(['read'], $scopesOf($narrowed), 'user dropped, read kept');
+        $this->assertSame('invalid_scope', $nothing['error'] ?? null, 'nothing left to issue: refused as before');
+        $this->assertEqualsCanonicalizing(['read', 'user'], $scopesOf($granted));
+        $this->assertSame(['read'], $scopesOf($refreshed), 'the role taken away narrows the refresh instead of ending it');
+    }
+
+    /**
      * One token request to the server, answered as the client would see it: the token, or the
      * error payload.
      *

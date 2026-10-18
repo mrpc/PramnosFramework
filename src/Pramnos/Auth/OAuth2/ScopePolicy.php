@@ -40,6 +40,21 @@ class ScopePolicy
     }
 
     /**
+     * Whether a scope the account may not grant is dropped from the request rather than refusing
+     * it: `'oauth' => ['scope_refusal' => 'drop']`.
+     *
+     * An assistant asks for every scope a resource lists, and one it may not have — `mcp:people`
+     * behind Root — refused the whole request, so an administrator below Root could not connect
+     * at all. RFC 6749 §3.3 lets a server issue fewer scopes than were asked for; dropped, the
+     * request goes on with the rest, and the consent page shows only those. Refusing stays the
+     * default: a client that cannot work without a scope is better told so than handed less.
+     */
+    public function drops(): bool
+    {
+        return (self::config()['scope_refusal'] ?? 'refuse') === 'drop';
+    }
+
+    /**
      * The scopes of `$scopes` this account may not grant, in their order; [] when it may grant
      * them all.
      *

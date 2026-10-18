@@ -187,11 +187,22 @@ class Oauth extends Controller
             // What this person may grant, by role, before they are asked to consent to it or a
             // consent they gave earlier is reused. The token endpoint checks again, a refresh
             // included, so a role taken away is felt at the next token.
-            $refused = \Pramnos\Auth\OAuth2\ScopePolicy::current()->refused(
-                (int) $user->userid,
-                array_values(array_filter(explode(' ', (string) $params['scope']))),
-                (string) $params['client_id']
-            );
+            $policy    = \Pramnos\Auth\OAuth2\ScopePolicy::current();
+            $requested = array_values(array_filter(explode(' ', (string) $params['scope'])));
+            $refused   = $policy->refused((int) $user->userid, $requested, (string) $params['client_id']);
+            $kept      = array_values(array_diff($requested, $refused));
+            if ($refused !== [] && $policy->drops() && $kept !== []) {
+                // What the account may not grant is left out, and the request goes on with the
+                // rest: the consent page shows those, and the code carries those.
+                $this->logDecision('scopes dropped: the account may not grant them', [
+                    'endpoint'  => 'authorize',
+                    'client_id' => (string) $params['client_id'],
+                    'userid'    => $user->userid,
+                    'dropped'   => implode(' ', $refused),
+                ]);
+                $params['scope'] = implode(' ', $kept);
+                $refused         = [];
+            }
             if ($refused !== []) {
                 throw new OAuthServerException(
                     t('Your account cannot grant %s to this application.', implode(', ', $refused)),

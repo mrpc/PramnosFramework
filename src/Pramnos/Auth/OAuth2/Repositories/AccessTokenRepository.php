@@ -51,11 +51,19 @@ class AccessTokenRepository implements AccessTokenRepositoryInterface
         // account has now, not the one it had when it consented. A client acting for itself
         // (no person) has nobody to judge.
         if ($userIdentifier !== null && $userIdentifier !== '' && is_numeric($userIdentifier)) {
-            $refused = \Pramnos\Auth\OAuth2\ScopePolicy::current()->refused(
+            $policy  = \Pramnos\Auth\OAuth2\ScopePolicy::current();
+            $refused = $policy->refused(
                 (int) $userIdentifier,
                 array_map(static fn ($scope): string => $scope->getIdentifier(), $scopes),
                 $clientEntity->getIdentifier()
             );
+            $kept = array_values(array_filter($scopes, static fn ($scope): bool => !in_array($scope->getIdentifier(), $refused, true)));
+            if ($refused !== [] && $policy->drops() && $kept !== []) {
+                // Dropped, as at consent: a role taken away narrows the next token rather than
+                // ending the connection.
+                $scopes  = $kept;
+                $refused = [];
+            }
             if ($refused !== []) {
                 // invalidScope()'s second argument is a redirect URI, not a hint: built directly.
                 throw new \League\OAuth2\Server\Exception\OAuthServerException(

@@ -584,6 +584,25 @@ in, as before. The rule is checked:
   taken away is felt at the next token: `invalid_scope`, with the scopes named in the hint. A
   client acting for itself (`client_credentials`) has no person to judge.
 
+**Refusing, or dropping.** By default one scope the account may not grant refuses the whole
+request. An assistant asks for every scope a resource lists, so an administrator below the role
+of a single scope could not connect at all. Set:
+
+```php
+'oauth' => ['scope_refusal' => 'drop', 'scopes' => [...]],
+```
+
+With `drop`, those scopes are left out and the request goes on with the rest. RFC 6749 §3.3 lets
+a server issue fewer scopes than were asked for.
+
+- The consent page asks for the remaining scopes, and the code carries only those.
+- At `/oauth/token`, a refresh after a role was taken away narrows the token instead of ending
+  the connection.
+- A request of nothing but such scopes is still refused.
+
+Keep the default where a client that cannot work without a scope is better told so than handed
+less.
+
 A rule that cannot be read refuses: a role nobody defined, or an account that cannot be loaded.
 A typo must never open a scope. For a rule a role cannot express (one client only, an
 organisation, a flag on the account), extend `Pramnos\Auth\OAuth2\ScopePolicy`, override
