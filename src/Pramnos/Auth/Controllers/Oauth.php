@@ -1326,7 +1326,7 @@ class Oauth extends Controller
             return false;
         }
 
-        if (!in_array($redirect, $registered, true)) {
+        if (!in_array($redirect, $registered, true) && !self::loopbackMatches($registered, $redirect)) {
             // The requested URI is deliberately absent from the message. It is
             // attacker-controlled on the request that matters, and an error page that
             // echoes it turns a refusal into a place to put a link. It is in the log line
@@ -1337,6 +1337,49 @@ class Oauth extends Controller
         }
 
         return true;
+    }
+
+    /**
+     * A loopback redirect with any port, where a loopback one is registered (RFC 8252 §7.3).
+     *
+     * A native client — a CLI, an IDE, an MCP inspector — listens on a port the system gives it
+     * that run, so no fixed port can be registered for it. Where the registration is
+     * `http://127.0.0.1/callback`, `http://[::1]/…` or `http://localhost/…`, a request naming the
+     * same scheme, host, path and query with any port matches. Only then: the code goes to this
+     * machine whatever the port, and nowhere else. `localhost` is taken too, though the RFC
+     * prefers the literal addresses, because that is what such clients send.
+     *
+     * @param list<string> $registered
+     */
+    private static function loopbackMatches(array $registered, string $redirect): bool
+    {
+        $asked = parse_url($redirect);
+        if (!is_array($asked) || !self::isLoopback($asked)) {
+            return false;
+        }
+        foreach ($registered as $uri) {
+            $on = parse_url($uri);
+            if (is_array($on) && self::isLoopback($on)
+                && strtolower((string) $on['host']) === strtolower((string) $asked['host'])
+                && ($on['path'] ?? '') === ($asked['path'] ?? '')
+                && ($on['query'] ?? '') === ($asked['query'] ?? '')) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * `http` to a loopback host, with nothing a loopback callback has no use for.
+     *
+     * @param array<string, mixed> $uri From parse_url()
+     */
+    private static function isLoopback(array $uri): bool
+    {
+        return strtolower((string) ($uri['scheme'] ?? '')) === 'http'
+            && in_array(strtolower((string) ($uri['host'] ?? '')), ['127.0.0.1', '[::1]', 'localhost'], true)
+            && !isset($uri['user']) && !isset($uri['pass']) && !isset($uri['fragment']);
     }
 
     /**

@@ -254,6 +254,74 @@ class OauthRedirectUriRegistrationTest extends TestCase
     }
 
     /**
+     * A native client listens on a port it is given each run, so no port can be registered for
+     * it (RFC 8252 §7.3, FW-159). Where a loopback callback is registered, the same scheme,
+     * host, path and query match on any port: the code goes to this machine, whatever the port.
+     *
+     * @param string $registered What the client registered
+     * @param string $requested  What the request asked for
+     */
+    #[DataProvider('loopbacks')]
+    public function testALoopbackCallbackMatchesOnAnyPort(string $registered, string $requested): void
+    {
+        // Arrange
+        $this->clientRegisters($registered);
+
+        // Act
+        $out = $this->authorizeWith($requested);
+
+        // Assert
+        $this->assertStringContainsString('REDIRECTED_TO:', $out, $requested . ' should satisfy ' . $registered);
+    }
+
+    /** @return array<string, array{string, string}> */
+    public static function loopbacks(): array
+    {
+        return [
+            'IPv4, a port registered'   => ['http://127.0.0.1:33418/callback', 'http://127.0.0.1:51234/callback'],
+            'IPv4, no port registered'  => ['http://127.0.0.1/callback', 'http://127.0.0.1:8080/callback'],
+            'IPv6'                      => ['http://[::1]/cb', 'http://[::1]:60000/cb'],
+            'localhost'                 => ['http://localhost/callback', 'http://localhost:7777/callback'],
+            'with its query'            => ['http://127.0.0.1/cb?app=1', 'http://127.0.0.1:9000/cb?app=1'],
+        ];
+    }
+
+    /**
+     * Only the port is free, and only on loopback: another path, host or scheme, a query added,
+     * a non-loopback host, a loopback host where a public one is registered — each is refused.
+     *
+     * @param string $registered What the client registered
+     * @param string $requested  What the request asked for
+     */
+    #[DataProvider('loopbackNearMisses')]
+    public function testOnlyThePortIsFreeAndOnlyOnLoopback(string $registered, string $requested): void
+    {
+        // Arrange
+        $this->clientRegisters($registered);
+
+        // Act
+        $out = $this->authorizeWith($requested);
+
+        // Assert
+        $this->assertStringContainsString('Authorization Error', $out, $requested . ' must not satisfy ' . $registered);
+    }
+
+    /** @return array<string, array{string, string}> */
+    public static function loopbackNearMisses(): array
+    {
+        return [
+            'another path'                 => ['http://127.0.0.1/callback', 'http://127.0.0.1:5000/collect'],
+            'another loopback host'        => ['http://127.0.0.1/callback', 'http://localhost:5000/callback'],
+            'https'                        => ['http://127.0.0.1/callback', 'https://127.0.0.1:5000/callback'],
+            'a query added'                => ['http://127.0.0.1/callback', 'http://127.0.0.1:5000/callback?x=1'],
+            'a public host, any port'      => ['https://client.example/cb', 'https://client.example:8443/cb'],
+            'loopback for a public host'   => ['https://client.example/cb', 'http://127.0.0.1:5000/cb'],
+            'a lookalike host'             => ['http://127.0.0.1/cb', 'http://127.0.0.1.attacker.test:5000/cb'],
+            'userinfo'                     => ['http://127.0.0.1/cb', 'http://attacker@127.0.0.1:5000/cb'],
+        ];
+    }
+
+    /**
      * A confidential client with a secret and nothing registered keeps working, and is recorded.
      *
      * Deliberately **not** refused: for this client a registration is the operator's choice.

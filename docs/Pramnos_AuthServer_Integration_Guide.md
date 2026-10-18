@@ -827,6 +827,14 @@ Register several by storing a comma-separated list or a JSON array; any one of t
 accepted, exactly. A native application registers its custom scheme URI in full
 (`myapp://oauth`). An empty `callback`, a lone comma and `[]` all mean *not registered*.
 
+**One exception: the port of a loopback callback** (RFC 8252 §7.3). A native client, such as a
+CLI, an IDE or an MCP inspector, listens on whatever port the system gives it that run, so no
+port can be registered for it. Register the callback on a loopback host, with or without a port:
+`http://127.0.0.1/callback`, `http://[::1]/callback`, or `http://localhost/callback`. A request
+with the same scheme, host, path and query then matches on any port. Nothing else is relaxed:
+another path, another loopback host, `https`, an added query, or a public host on another port
+is still a different registration. The code still goes only to this machine.
+
 ---
 
 ### Deleting a client revokes its tokens
