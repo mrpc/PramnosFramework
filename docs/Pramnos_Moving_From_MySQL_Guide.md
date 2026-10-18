@@ -116,6 +116,16 @@ literal. A zero date and an expression PostgreSQL has no word for are left out.
   The rows whose references then name nothing are counted afterwards, and `--null-orphans` sets
   them to `NULL` where the column takes `NULL`. Without a superuser, or with
   `--keep-constraints`, the keys are checked and such a row is refused.
+- **Indexes out of the way, on request.** Loading millions of rows into a table with half a
+  dozen indexes keeps each of them up row by row. `--defer-indexes` (for `full` and
+  `operational`) drops a migration-made table's plain indexes for the load and makes them again
+  after.
+    - Each definition is recorded in `pramnos_migration_progress` before its index is dropped.
+      A load that dies leaves what is needed, and the next run of any phase makes them again,
+      with or without the option.
+    - Unique indexes and those behind a constraint stay, because `ON CONFLICT` and the keys need
+      them.
+    - The backfill never sets indexes aside: the application is already reading the table.
 - **Sequences continue.** Every sequence behind a moved column is set past the highest id, so the
   application's next row does not collide with a moved one.
 
@@ -238,6 +248,7 @@ refuses rows into them: decompress first.
 | `--with-deletes` | `cutover`: delete the rows deleted in MySQL since the copy |
 | `--append-only` | `cutover`: tables without a change column read only for new rows, not compared |
 | `--verify` | `full`, `cutover`: compare every row with MySQL once the phase is done; `backfill`: digest each window as it is written |
+| `--defer-indexes` | `full`, `operational`: drop the target's plain indexes for the load and make them again after |
 | `--no-snapshot` | `full`, `operational`: read each table a range of keys at a time, no transaction held open |
 | `--time-column` | `backfill`: the column windows are cut on |
 | `--chunk-interval` | `backfill`: a window's length (default `1 month`) |

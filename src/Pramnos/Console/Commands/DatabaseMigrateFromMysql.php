@@ -39,6 +39,7 @@ class DatabaseMigrateFromMysql extends Command
             ->addOption('dry-run', null, InputOption::VALUE_NONE, 'Report what would move, change nothing')
             ->addOption('phase', null, InputOption::VALUE_REQUIRED, 'full | operational | cutover | backfill | verify', 'full')
             ->addOption('verify', null, InputOption::VALUE_NONE, 'full, cutover: compare every row with MySQL once the phase is done; backfill: digest each window as it is written, not only count it')
+            ->addOption('defer-indexes', null, InputOption::VALUE_NONE, 'full, operational: drop the target\'s plain indexes for the load and make them again after')
             ->addOption('no-snapshot', null, InputOption::VALUE_NONE, 'full, operational: read each table a range of keys at a time, no transaction held open on MySQL')
             ->addOption('tables', null, InputOption::VALUE_REQUIRED, 'Only these source tables, comma-separated')
             ->addOption('exclude-tables', null, InputOption::VALUE_REQUIRED, 'Leave these source tables, comma-separated')
@@ -195,7 +196,7 @@ class DatabaseMigrateFromMysql extends Command
             $code = $this->reportResult($output, $result);
         } else {
             $result = $migrator->run($plan, $batch, !$input->getOption('keep-constraints'), (bool) $input->getOption('null-orphans'), $progress, $phase === 'operational',
-                !$input->getOption('no-snapshot'), (bool) $input->getOption('restart'));
+                !$input->getOption('no-snapshot'), (bool) $input->getOption('restart'), (bool) $input->getOption('defer-indexes'));
             if ($phase === 'operational') {
                 $output->writeln('The moment of the copy is recorded. Stop the application\'s writes, then run <info>--phase=cutover</info>.');
             }
@@ -369,6 +370,12 @@ class DatabaseMigrateFromMysql extends Command
                 . (isset($t['resumed']) ? ' — ' . $t['resumed'] : ''));
             foreach ($t['errors'] as $error) {
                 $output->writeln('      ' . $error);
+            }
+        }
+        foreach ($result['deferred'] ?? [] as $name => $d) {
+            $output->writeln($name . ': ' . $d['made'] . ' index(es) set aside for the load, made again');
+            foreach ($d['errors'] as $error) {
+                $output->writeln('<error>' . $name . ': ' . $error . '</error> — the definition is kept; the next run tries again');
             }
         }
         foreach ($result['finished'] ?? [] as $name => $f) {

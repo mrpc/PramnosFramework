@@ -241,14 +241,22 @@ final class Migrator
      * @param (callable(string, int, int): void)|null $progress Table, rows inserted, rows refused — after each batch
      * @param bool $operational Record each table's moment and highest id, for {@see cutover()}
      * @param bool $restart     operational: copy again the tables an earlier run finished
+     * @param bool $deferIndexes Set the target's plain indexes aside for the load and make them again after
      * @param bool $snapshot    Read every table in one snapshot; false reads each a range of keys
      *                          at a time, no transaction held open — for a source too busy to
      *                          keep one for hours, at the price of tables read at different moments
      * @return array{tables: array<string, array{inserted: int, refused: int, nulled: int, errors: list<string>}>, orphans: list<array<string, mixed>>, sequences: list<array<string, mixed>>, replica: bool, finished: array<string, array{made: int, unchecked: list<string>, errors: list<string>}>}
      */
-    public function run(array $plan, int $batch = 5000, bool $useReplica = true, bool $nullOrphans = false, ?callable $progress = null, bool $operational = false, bool $snapshot = true, bool $restart = false): array
+    public function run(array $plan, int $batch = 5000, bool $useReplica = true, bool $nullOrphans = false, ?callable $progress = null, bool $operational = false, bool $snapshot = true, bool $restart = false, bool $deferIndexes = false): array
     {
-        $result = ['tables' => [], 'orphans' => [], 'sequences' => [], 'replica' => false];
+        $result = ['tables' => [], 'orphans' => [], 'sequences' => [], 'replica' => false, 'deferred' => []];
+        if ($deferIndexes) {
+            foreach ($plan['order'] as $name) {
+                if ($plan['tables'][$name]['create'] === null) {
+                    $this->deferIndexes($name, $plan['tables'][$name]['target']);
+                }
+            }
+        }
         foreach ($plan['order'] as $name) {
             $table = $plan['tables'][$name];
             if ($table['create'] !== null && !$this->hasTargetTable($table['target'])) {
@@ -320,6 +328,8 @@ final class Migrator
             }
         }
 
+        $result['deferred'] = $this->restoreDeferredIndexes();
+
         // The indexes and keys of the tables made here, once their rows are in: faster than
         // keeping them up row by row, and a key that its rows break is still added, unchecked.
         $result['finished'] = [];
@@ -374,6 +384,8 @@ final class Migrator
     public function cutover(array $plan, int $batch = 5000, array $changed = [], bool $deletes = false, bool $useReplica = true, bool $nullOrphans = false, ?callable $progress = null, array $appendOnly = []): array
     {
         $result  = ['tables' => [], 'orphans' => [], 'sequences' => [], 'replica' => false];
+        // Indexes an earlier load set aside and did not live to make again.
+        $result['deferred'] = $this->restoreDeferredIndexes();
         $replica = $useReplica && $plan['replica'] && $this->setReplica(true);
         $result['replica'] = $replica;
         $targets = $this->targetTables();
@@ -524,6 +536,7 @@ final class Migrator
         // Checked before anything is touched — a policy suspended for a run that then refuses its
         // interval would stay off until the next one.
         self::back(time(), $interval);
+        $this->restoreDeferredIndexes();
         $until ??= $this->tracker()->latest('cutover') ?? $this->tracker()->latest('operational') ?? (int) $this->source->getConnectionLink()->query('SELECT UNIX_TIMESTAMP() AS ts')->fetch_assoc()['ts'];
         $targets = $this->targetTables();
         $result  = [];
@@ -1376,6 +1389,63 @@ final class Migrator
         }
 
         return $found;
+    }
+
+    /**
+     * Set a target table's plain indexes aside for the load: each definition recorded in the
+     * progress table first, then the index dropped — so a load that dies leaves what is needed to
+     * make them again. Unique indexes and those behind a constraint stay: `ON CONFLICT` and the
+     * keys need them.
+     */
+    private function deferIndexes(string $source, string $table): void
+    {
+        [$schema, $bare] = str_contains($table, '.') ? explode('.', $table, 2) : ['public', $table];
+        $link    = $this->target->getConnectionLink();
+        $indexes = $this->rows('SELECT format(\'%I.%I\', n.nspname, i.relname) AS name, pg_get_indexdef(i.oid) AS def FROM pg_index x'
+            . ' JOIN pg_class i ON i.oid = x.indexrelid JOIN pg_class t ON t.oid = x.indrelid JOIN pg_namespace n ON n.oid = t.relnamespace'
+            . " WHERE n.nspname = '" . pg_escape_string($link, $schema) . "' AND t.relname = '" . pg_escape_string($link, $bare) . "'"
+            . ' AND NOT x.indisunique AND NOT x.indisprimary AND NOT EXISTS (SELECT 1 FROM pg_constraint c WHERE c.conindid = x.indexrelid)');
+        if ($indexes === []) {
+            return;
+        }
+        $previous = $this->tracker()->of($source, 'deferred-indexes')[0]['detail']['indexes'] ?? [];
+        $this->tracker()->put($source, 'deferred-indexes', 0, 0, 0, ProgressTracker::RUNNING,
+            ['indexes' => array_values(array_unique([...$previous, ...array_column($indexes, 'def')]))]);
+        foreach ($indexes as $index) {
+            $this->target->query('DROP INDEX IF EXISTS ' . $index['name']);
+        }
+    }
+
+    /**
+     * Make again every index a load set aside — this run's, or one that died before it could.
+     *
+     * @return array<string, array{made: int, errors: list<string>}>
+     */
+    private function restoreDeferredIndexes(): array
+    {
+        if (!$this->hasTargetTable(ProgressTracker::TABLE)) {
+            return [];
+        }
+        $made = [];
+        $link = $this->target->getConnectionLink();
+        foreach ($this->rows("SELECT table_name AS t FROM " . ProgressTracker::TABLE . " WHERE phase = 'deferred-indexes' AND status = '" . ProgressTracker::RUNNING . "'") as $row) {
+            $source = (string) $row['t'];
+            $done   = ['made' => 0, 'errors' => []];
+            foreach ($this->tracker()->of($source, 'deferred-indexes')[0]['detail']['indexes'] ?? [] as $definition) {
+                $sql = (string) preg_replace('/^CREATE INDEX /', 'CREATE INDEX IF NOT EXISTS ', (string) $definition);
+                if (@pg_query($link, $sql) !== false) {
+                    $done['made']++;
+                } else {
+                    $done['errors'][] = trim((string) strtok(pg_last_error($link), "\n"));
+                }
+            }
+            if ($done['errors'] === []) {
+                $this->tracker()->put($source, 'deferred-indexes', 0, 0, $done['made'], ProgressTracker::DONE);
+            }
+            $made[$source] = $done;
+        }
+
+        return $made;
     }
 
     /** Run a statement on the target; whether it succeeded, the error left for pg_last_error(). */

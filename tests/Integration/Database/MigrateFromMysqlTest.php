@@ -329,6 +329,43 @@ class MigrateFromMysqlTest extends TestCase
     }
 
     /**
+     * `--defer-indexes` loads a migration-made table without its plain indexes and makes them
+     * again after, from definitions recorded before they were dropped; a unique index stays, as
+     * `ON CONFLICT` needs it. A load that died with an index set aside leaves its definition in
+     * the progress table, and the next run makes it again even without the option.
+     */
+    public function testIndexesSetAsideForTheLoadComeBack(): void
+    {
+        // Arrange
+        $tester = $this->databases();
+        $this->target->query('CREATE INDEX orders_note ON orders (note)');
+        $this->target->query('CREATE UNIQUE INDEX orders_pair ON orders (id, note)');
+        $only    = ['--source' => $this->dsn(), '--tables' => 'users,orders', '--null-orphans' => true];
+        $indexes = fn (): array => array_column($this->rows("SELECT indexname AS i FROM pg_indexes WHERE tablename = 'orders' ORDER BY indexname"), 'i');
+
+        // Act — first the setting aside alone, to see the index gone while rows would go in
+        $migrator = new Migrator($this->source, $this->target);
+        (new \ReflectionMethod($migrator, 'deferIndexes'))->invoke($migrator, 'orders', 'orders');
+        $during = $indexes();
+        $tester->execute($only + ['--defer-indexes' => true]);
+        $deferred = $tester->getDisplay();
+        $after    = $indexes();
+        // …a load that died after setting the index aside…
+        $definition = $this->rows("SELECT pg_get_indexdef('orders_note'::regclass) AS d")[0]['d'];
+        (new \Pramnos\Database\FromMysql\ProgressTracker($this->target))->put('orders', 'deferred-indexes', 0, 0, 0, \Pramnos\Database\FromMysql\ProgressTracker::RUNNING, ['indexes' => [$definition]]);
+        $this->target->query('DROP INDEX orders_note');
+        $tester->execute($only);
+        $recovered = $tester->getDisplay();
+
+        // Assert
+        $this->assertStringContainsString('orders: 1 index(es) set aside for the load, made again', $deferred, 'the plain one, not the unique one');
+        $this->assertSame(['orders_pair', 'orders_pkey'], $during, 'set aside: the plain index gone, the unique one kept');
+        $this->assertSame(['orders_note', 'orders_pair', 'orders_pkey'], $after);
+        $this->assertStringContainsString('orders: 1 index(es) set aside for the load, made again', $recovered, 'made again by the next run');
+        $this->assertSame(['orders_note', 'orders_pair', 'orders_pkey'], $indexes());
+    }
+
+    /**
      * A batch is bounded by bytes as well as rows: ten rows of 300 KB under `--batch-mb=1` go in
      * several batches of three, though `--batch-size` would take them all at once — read as one
      * stream, or a key range at a time (`--no-snapshot`). A range read starts with one row, to
