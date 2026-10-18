@@ -91,6 +91,10 @@ unique keys and foreign keys, with their `ON DELETE` / `ON UPDATE` rules:
 | `blob` kinds, `binary`, `varbinary` | `bytea` |
 | `json`, `bit(1)` | `jsonb`, `boolean` |
 
+An `enum` becomes `text` with a `CHECK` that keeps its list. The list also takes `''`, because
+outside strict mode MySQL stores `''` for any value not on the list, and old rows hold it. A `set`
+stays plain `text`, since any combination of its words is a value.
+
 MariaDB stores a `JSON` column as `longtext` with a `json_valid()` check; the check is read and
 the column is created as `jsonb` all the same. Defaults are kept where PostgreSQL can say the same
 thing: the current time (`CURRENT_TIMESTAMP`, or MariaDB's `current_timestamp()`), a number, a

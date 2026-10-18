@@ -117,8 +117,8 @@ class MigrateFromMysqlTest extends TestCase
             "INSERT INTO orders VALUES (1, 1, 12.50, 'first'), (2, 999, 3.00, 'orphan'), (3, 5, 0, '')",
             'CREATE TABLE authserver_things (id INT PRIMARY KEY, label VARCHAR(10)) ENGINE=InnoDB',
             "INSERT INTO authserver_things VALUES (1, 'thing')",
-            "CREATE TABLE only_mysql (id INT AUTO_INCREMENT PRIMARY KEY, v VARCHAR(5) NOT NULL, n INT UNSIGNED DEFAULT 7, meta JSON, at DATETIME DEFAULT CURRENT_TIMESTAMP, kind VARCHAR(10) NOT NULL DEFAULT 'it''s', made DATETIME DEFAULT '0000-00-00 00:00:00') ENGINE=InnoDB",
-            "INSERT INTO only_mysql (v, meta) VALUES ('a', '{\"k\": 1}'), ('b', NULL)",
+            "CREATE TABLE only_mysql (id INT AUTO_INCREMENT PRIMARY KEY, v VARCHAR(5) NOT NULL, n INT UNSIGNED DEFAULT 7, meta JSON, at DATETIME DEFAULT CURRENT_TIMESTAMP, kind VARCHAR(10) NOT NULL DEFAULT 'it''s', made DATETIME DEFAULT '0000-00-00 00:00:00', status ENUM('new','it''s','done')) ENGINE=InnoDB",
+            "INSERT INTO only_mysql (v, meta, status) VALUES ('a', '{\"k\": 1}', 'it''s'), ('b', NULL, 'nonsense')",
             'CREATE TABLE strict_t (id INT PRIMARY KEY) ENGINE=InnoDB',
             'INSERT INTO strict_t VALUES (1)',
             // Two tables only MySQL has, one pointing at the other and at a table the target has
@@ -271,6 +271,12 @@ class MigrateFromMysqlTest extends TestCase
             ['c' => 'meta', 't' => 'jsonb', 'd' => null],
         ], $shape);
         $this->assertSame([['label' => 'thing']], $things);
+        // The enum keeps its list — with '', which MySQL stored for 'nonsense' outside strict mode.
+        $this->assertSame(["it's", ''], array_column($this->rows('SELECT status FROM only_mysql ORDER BY id'), 'status'));
+        $this->assertStringContainsString("status = ANY (ARRAY[''::text, 'new'::text, 'it''s'::text, 'done'::text])",
+            (string) ($this->rows("SELECT pg_get_constraintdef(oid) AS d FROM pg_constraint WHERE conrelid = 'only_mysql'::regclass AND contype = 'c'")[0]['d'] ?? ''));
+        $refusedWord = @pg_query($this->target->getConnectionLink(), "INSERT INTO only_mysql (v, status) VALUES ('c', 'other')");
+        $this->assertFalse($refusedWord, 'a word not on the list is refused');
         $this->assertStringContainsString('strict_t: 0 inserted, 1 refused', $display);
         $this->assertStringContainsString('users: 0 inserted', $again, 'a second run adds nothing');
         $this->assertSame([], $leftover, 'the foreign tables are dropped after the run');
