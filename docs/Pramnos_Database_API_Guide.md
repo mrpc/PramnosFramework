@@ -7,6 +7,7 @@ use_cases:
   - Holding a database handle in a long-lived worker or daemon
   - Sending reads to a replica and writes to a primary
   - Reading a table's columns, types or foreign keys from code
+  - Running an application's MySQL-written SQL on PostgreSQL without rewriting it
 ---
 
 # Pramnos Database API Guide
@@ -1283,6 +1284,57 @@ renders it.
 
 See [One server to several](Pramnos_Multi_Server_Guide.md) for the rest of what changes
 when an application stops being on one machine.
+
+## MySQL's SQL on PostgreSQL (`database.translate_mysql`)
+
+An application moving from MySQL to PostgreSQL usually has hand-written SQL in MySQL's dialect.
+Much of it is mechanically translatable, and should not be rewritten by hand:
+
+```php
+'database' => ['type' => 'postgresql', 'translate_mysql' => true],
+```
+
+Each statement is then translated on its way to the server. That covers `query()`, `execute()`,
+`prepare()` and `prepareQuery()`, and the query builder's raw fragments too, `whereRaw()` and
+`joinRaw()` included, which is how the admin datatables pass their conditions.
+
+| MySQL | PostgreSQL |
+|---|---|
+| `` `name` `` | `"name"` |
+| `IFNULL(a, b)`, `IF(c, a, b)`, `ISNULL(x)` | `COALESCE(a, b)`, `CASE WHEN c THEN a ELSE b END`, `((x) IS NULL)` |
+| `LCASE(x)`, `UCASE(x)`, `RAND()` | `lower(x)`, `upper(x)`, `random()` |
+| `LIMIT 20, 10` | `LIMIT 10 OFFSET 20` |
+| `UNIX_TIMESTAMP()`, `UNIX_TIMESTAMP(x)` | `EXTRACT(EPOCH FROM …)::bigint` |
+| `FROM_UNIXTIME(x)`, `FROM_UNIXTIME(x, fmt)` | `to_timestamp(x)`, `to_char(to_timestamp(x), …)` |
+| `CURDATE()`, `CURTIME()` | `CURRENT_DATE`, `LOCALTIME` |
+| `DATE_FORMAT(d, '%d/%m/%Y')` | `to_char(d, 'DD"/"MM"/"YYYY')` |
+| `DATE_ADD(d, INTERVAL 7 DAY)`, `DATE_SUB(…)` | `(d + (7) * INTERVAL '1 day')`, `(d - …)` |
+| `GROUP_CONCAT([DISTINCT] x [ORDER BY …] [SEPARATOR s])` | `string_agg([DISTINCT] (x)::text, s [ORDER BY …])` |
+| `INSERT IGNORE …` | `INSERT … ON CONFLICT DO NOTHING` |
+| `… ON DUPLICATE KEY UPDATE n = n + VALUES(n)` | `… ON CONFLICT (key) DO UPDATE SET n = t.n + EXCLUDED.n` |
+| `REPLACE INTO t (…) VALUES …` | `INSERT INTO t (…) VALUES … ON CONFLICT (key) DO UPDATE SET …` |
+
+**Only what means the same in both is translated.** Every construct above is invalid in
+PostgreSQL, so SQL already written for it passes untouched, and a statement that goes through
+twice comes out the same. String literals and comments are never altered: they are only read
+past, MySQL's `\'` escapes included.
+
+**Upserts need a conflict target**, and PostgreSQL wants it named where MySQL fires on any unique
+key. The translator uses the table's one unique key whose columns the insert names, read from
+the catalogue. Where two qualify, or none, the statement is refused with
+`Pramnos\Database\Dialect\DialectException`, which says to write `ON CONFLICT (…)` yourself,
+rather than guessed at. A bare column on the right of an update (`n = n + 1`) is the row already
+there, as in MySQL, and is qualified with the table's name, since PostgreSQL would find it
+ambiguous with `EXCLUDED`.
+
+**Left alone, on purpose**: what would run on PostgreSQL and mean something else. That is a
+`LIKE` that ignored case under MySQL's collation, a `GROUP BY` that leaves columns out, `"…"`
+used as a string, and a comparison of text with a number. They are the dialect linter's to
+report, not the translator's to change. A `DATE_FORMAT` pattern `to_char` cannot express
+(`%U`), or one that is not a literal, is also left as written, to fail where it can be seen.
+
+Off by default, and only on PostgreSQL. It is a bridge for the move, not a dialect to keep
+writing in: new code goes through the query builder.
 
 ## Session time zone (`database.timezone`)
 

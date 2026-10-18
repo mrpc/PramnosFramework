@@ -123,6 +123,17 @@ class Database extends \Pramnos\Framework\Base
      */
     public $prefixBareNames = true;
     /**
+     * Whether SQL written for MySQL is translated for PostgreSQL on its way to the server —
+     * `'database' => ['translate_mysql' => true]`: {@see \Pramnos\Database\Dialect\MysqlToPostgres}.
+     * Only on PostgreSQL, and off unless asked for.
+     * @var bool
+     */
+    public $translateMysql = false;
+    /** The translator, made on first use. */
+    private ?\Pramnos\Database\Dialect\MysqlToPostgres $dialect = null;
+    /** @var array<string, list<list<string>>> Each table's unique keys, read once, for the translator */
+    private array $uniqueKeysOf = [];
+    /**
      * Extra controller prefix for tables
      * @var string
      */
@@ -824,6 +835,9 @@ class Database extends \Pramnos\Framework\Base
             }
             if (isset($dbSettings->prefix_bare_names)) {
                 $this->prefixBareNames = (bool) $dbSettings->prefix_bare_names;
+            }
+            if (isset($dbSettings->translate_mysql)) {
+                $this->translateMysql = (bool) $dbSettings->translate_mysql;
             }
             if (isset($dbSettings->port)) {
                 $this->port = $dbSettings->port;
@@ -1635,6 +1649,73 @@ class Database extends \Pramnos\Framework\Base
 
 
     /**
+     * SQL written for MySQL, as PostgreSQL takes it, when this connection translates — or the
+     * statement as it came.
+     *
+     * @throws \Pramnos\Database\Dialect\DialectException For an upsert the table cannot decide
+     */
+    public function fromMysql(string $sql): string
+    {
+        if (!$this->translateMysql || $this->type !== 'postgresql') {
+            return $sql;
+        }
+        $this->dialect ??= new \Pramnos\Database\Dialect\MysqlToPostgres(
+            fn (string $table): array => $this->uniqueKeysFor($table),
+            fn (string $table): array => $this->columnsFor($table)
+        );
+
+        return $this->dialect->translate($sql);
+    }
+
+    /**
+     * A table's unique keys — its primary key among them — each as its columns, for an upsert's
+     * conflict target. Read from the catalogue by the connection itself, not through query(),
+     * so the reading is not translated in turn; partial and expression indexes take no part.
+     *
+     * Catalogue introspection: nothing the query builder reaches.
+     *
+     * @return list<list<string>>
+     */
+    private function uniqueKeysFor(string $table): array
+    {
+        $table = str_replace('#PREFIX#', $this->prefix, $table);
+        if (isset($this->uniqueKeysOf[$table])) {
+            return $this->uniqueKeysOf[$table];
+        }
+        $result = @pg_query_params(
+            $this->getConnectionLink(),
+            'SELECT array_to_json(array_agg(a.attname::text ORDER BY k.ord)) AS cols FROM pg_index i'
+            . ' CROSS JOIN LATERAL unnest(i.indkey) WITH ORDINALITY AS k(attnum, ord)'
+            . ' JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = k.attnum'
+            . ' WHERE i.indrelid = to_regclass($1) AND i.indisunique AND i.indpred IS NULL AND NOT (0 = ANY(i.indkey))'
+            . ' GROUP BY i.indexrelid',
+            [$table]
+        );
+        $keys = [];
+        while ($result !== false && ($row = pg_fetch_assoc($result)) !== false) {
+            $keys[] = array_values(array_map('strval', (array) json_decode((string) $row['cols'], true)));
+        }
+
+        return $this->uniqueKeysOf[$table] = $keys;
+    }
+
+    /**
+     * A table's columns, for the translator: read from the catalogue by the connection itself.
+     *
+     * @return list<string>
+     */
+    private function columnsFor(string $table): array
+    {
+        $result = @pg_query_params(
+            $this->getConnectionLink(),
+            'SELECT attname::text AS c FROM pg_attribute WHERE attrelid = to_regclass($1) AND attnum > 0 AND NOT attisdropped',
+            [str_replace('#PREFIX#', $this->prefix, $table)]
+        );
+
+        return $result !== false ? array_values(array_map('strval', array_column(pg_fetch_all($result) ?: [], 'c'))) : [];
+    }
+
+    /**
      * Prepare an SQL statement for execution (as a prepared statement)
      * Used mostly to run a query multiple times
      * @param string $sql
@@ -1670,11 +1751,11 @@ class Database extends \Pramnos\Framework\Base
             $sql = preg_replace('/\bAS\s+\'([^\']+)\'/i', 'AS "$1"', $sql);
             // Rewrite DELETE/UPDATE ... LIMIT N (not valid in PostgreSQL)
             $sql = $this->pgRewriteDmlLimit($sql);
-            $query = str_replace(
+            $query = $this->fromMysql(str_replace(
                 array('"#PREFIX#', '#PREFIX#', "#CP#"),
                 array($schema . '"' . $this->prefix, $schema . $this->prefix, $this->controllerPrefix),
                 $sql
-            );
+            ));
         } else {
             $query = str_replace(
                 array("#PREFIX#", "#CP#"),
@@ -2287,6 +2368,7 @@ class Database extends \Pramnos\Framework\Base
             return;
         }
         if ($this->type == 'postgresql') {
+            $sqlQueryString = $this->fromMysql($sqlQueryString);
             $sqlQueryString = str_replace("`", '"', $sqlQueryString);
             $sqlQueryString = preg_replace("/\bas\s+'([^']+)'/i", 'AS "$1"', $sqlQueryString);
             // Rewrite DELETE/UPDATE ... LIMIT N (not valid in PostgreSQL)
@@ -3437,7 +3519,7 @@ class Database extends \Pramnos\Framework\Base
     public function query($sql, $cache = false,
         $cachetime = 60, $category = "", $dieOnFatalError = false, $skipDataFix = false)
     {
-        $sql = str_replace('#PREFIX#', $this->prefix, $sql);
+        $sql = $this->fromMysql(str_replace('#PREFIX#', $this->prefix, $sql));
         $cacheData = false;
         $cacheInstance = null;
         // Check if caching is enabled for this query

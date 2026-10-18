@@ -31,6 +31,11 @@ php bin/pramnos db:migrate-from-mysql --source=mysql://user:password@host:3306/a
 
 The source can also be `'migration_source' => 'mysql://…'` in `app/app.php`.
 
+**The data is half of a move; the SQL is the other.** An application whose code holds
+MySQL-written SQL can run it on PostgreSQL while it is converted, with
+`'database' => ['translate_mysql' => true]`: see
+[MySQL's SQL on PostgreSQL](Pramnos_Database_API_Guide.md#mysqls-sql-on-postgresql-databasetranslate_mysql).
+
 ## The target is what the migrations made
 
 The PostgreSQL tables come from the framework's migrations and the application's, so they are
