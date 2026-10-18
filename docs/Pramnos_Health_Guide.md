@@ -132,7 +132,7 @@ GET /health/phpinfo  phpinfo()               (usertype >= 90)
 Both JSON endpoints are deliberately public, because a monitor calls them with no
 credentials, and both answer with the status in the body **and** in the HTTP code.
 
-`/health/check` is the full report:
+`/health/check` is the full report, to a signed-in administrator:
 
 ```json
 {
@@ -141,6 +141,21 @@ credentials, and both answer with the status in the body **and** in the HTTP cod
     "database": { "status": "ok", "name": "database", "message": "Reachable", "details": { "latency_ms": 4.7 } }
   }
 }
+```
+
+To everybody else it gives the verdict, its HTTP code, and each check by name as `ok` or
+`error`. `ok` covers both `ok` and `notice`.
+
+```json
+{ "status": "degraded", "checks": { "database": { "status": "ok" }, "redis": { "status": "error" } } }
+```
+
+What a check found, its `message` and `details`, names versions, drivers, hosts and
+latencies: it is a map of the installation. It is shown to anybody only where `app.php` says so,
+with the same switch as the authorization server's discovery `health`:
+
+```php
+'health' => ['public_details' => true],
 ```
 
 | Overall status | HTTP |
@@ -180,12 +195,12 @@ Reach for it in two situations.
 status page widget or a shell script wants one field. Asking it to walk
 `checks.*.status` is how a probe ends up parsing JSON with `grep`.
 
-**The endpoint is reachable from the internet.** `/health/check` publishes
-versions, drivers, paths and latencies in `details`. That is a fair trade on a
-private network and not one to make publicly — a database version and a driver
-name are a starting point for somebody who is looking for one. `/health/status`
-gives away whether the application is well and where to look, which is what an
-operator needs and all an attacker gets.
+**The endpoint is reachable from the internet.** With `public_details` on,
+`/health/check` publishes versions, drivers, paths and latencies in `details`. That is
+a fair trade on a private network and not one to make publicly — a database version
+and a driver name are a starting point for somebody who is looking for one.
+`/health/status` gives away whether the application is well and where to look, which
+is what an operator needs and all an attacker gets.
 
 It does not re-probe anything: both endpoints read the same
 `HealthRegistry::runAll()`. Two endpoints answering the same question from two

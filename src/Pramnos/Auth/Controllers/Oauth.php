@@ -2098,7 +2098,9 @@ class Oauth extends Controller
         $ttl     = \Pramnos\Auth\OAuth2\TokenLifetimes::access($app->access_token_ttl !== null ? (int) $app->access_token_ttl : null);
         $now     = time();
         $jti     = bin2hex(random_bytes(16));
-        $issuer  = defined('sURL') ? rtrim((string) sURL, '/') : 'https://localhost';
+        // The issuer the discovery document publishes, exactly — trailing slash and all — so a
+        // client that compares `iss` with it, as RFC 8414 has it do, finds them equal.
+        $issuer  = defined('sURL') ? Discovery::issuer() : 'https://localhost';
         $payload = [
             'iss'        => $issuer,
             'sub'        => (string) $systemUserId,

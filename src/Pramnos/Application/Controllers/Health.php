@@ -116,6 +116,12 @@ class Health extends Controller
      * Returns HTTP 200 for ok and notice, 503 for degraded and down.
      * Response format:
      *   {"status":"ok|notice|degraded|down","checks":{name:{status,message,details},...}}
+     *
+     * Public, as a monitor calls it unsigned — and so, like the discovery `health`, it tells
+     * everybody only what a monitor needs: the verdict, its 200/503, and each check by name as
+     * `ok` or `error`. What a check found — its message, and details that name versions,
+     * drivers, paths and latencies — is a map of the installation, shown to a signed-in
+     * administrator, or to everybody where app.php says `'health' => ['public_details' => true]`.
      */
     public function check(): mixed
     {
@@ -135,6 +141,13 @@ class Health extends Controller
          */
         $status   = \Pramnos\Health\HealthStatus::tryFrom((string) $report['status']);
         $httpCode = $status !== null && $status->isHealthy() ? 200 : 503;
+
+        if (!$this->detailsAreVisible()) {
+            $report['checks'] = array_map(
+                static fn (array $check): array => ['status' => \Pramnos\Health\HealthStatus::tryFrom((string) ($check['status'] ?? ''))?->isHealthy() === true ? 'ok' : 'error'],
+                $report['checks'] ?? []
+            );
+        }
 
         return \Pramnos\Http\Response::json($report, $httpCode, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
             ->withHeader('Cache-Control', 'no-cache, no-store');
@@ -229,6 +242,21 @@ class Health extends Controller
     // =========================================================================
     // Helpers
     // =========================================================================
+
+    /** Whether check() shows what each check found: to an administrator, or to all where app.php says so. */
+    private function detailsAreVisible(): bool
+    {
+        $app = $this->application ?? \Pramnos\Application\Application::currentInstance();
+        if (is_object($app) && ($app->applicationInfo['health']['public_details'] ?? false) === true) {
+            return true;
+        }
+        try {
+            return \Pramnos\User\Roles::atLeast(\Pramnos\User\User::getCurrentUser() ?: null, \Pramnos\User\Roles::ADMIN);
+        } catch (\Throwable) {
+            // No application, no session: nobody is signed in.
+            return false;
+        }
+    }
 
     private function humanBytes(int $bytes): string
     {

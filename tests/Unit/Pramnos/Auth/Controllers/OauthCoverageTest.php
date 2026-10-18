@@ -1006,6 +1006,8 @@ class OauthCoverageTest extends TestCase
             'client_id extracted from Basic auth header must produce 200');
         $data = json_decode($response->getBody(), true);
         $this->assertArrayHasKey('access_token', $data);
+        // The token's issuer is the discovery document's, character for character.
+        $this->assertSame(\Pramnos\Auth\Controllers\Discovery::issuer(), JWT::decodeUnverified($data['access_token'])->iss ?? null);
     }
 
     // ─────────────────────────────────────────────────────────────────────────

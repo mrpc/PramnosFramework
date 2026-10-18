@@ -165,6 +165,11 @@ does.
 
 ### Client credentials, and the account behind the token
 
+The token's `iss` is the issuer the discovery document publishes (`Discovery::issuer()`),
+character for character, trailing slash included, so a client that compares the two finds them
+equal. The server resolves a token it receives by its `usertokens` row, not by `iss`, so a token
+issued before carrying the form without the slash is still accepted.
+
 A `client_credentials` token has no end user — it represents your application. The
 server still needs an account to hang it on, because `usertokens.userid` is a
 foreign key, so each application gets one **system account**, created on first use

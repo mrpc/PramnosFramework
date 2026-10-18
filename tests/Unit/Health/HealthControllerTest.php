@@ -557,6 +557,97 @@ class HealthControllerTest extends TestCase
             'check() must set Cache-Control: no-cache to prevent stale results');
     }
 
+    // ── check() — what an unsigned caller sees ───────────────────────────────
+
+    /** A registry holding one check that found something, with a message and details worth hiding. */
+    private static function registerAFinding(): void
+    {
+        HealthRegistry::register(new class implements HealthCheck {
+            public function run(): HealthCheckResult {
+                return HealthCheckResult::degraded('database', 'MySQL 8.0.36 at db:3306 slow', ['version' => '8.0.36', 'host' => 'db']);
+            }
+            public function getName(): string { return 'database'; }
+        });
+    }
+
+    /**
+     * check() is public, so to an unsigned caller it says what a monitor needs and nothing
+     * more: the verdict, its 503, each check by name as ok or error. The message and details
+     * — a version and a host here — are a map of the installation, and are left out.
+     */
+    public function testCheckTellsAnUnsignedCallerOnlyTheVerdict(): void
+    {
+        // Arrange
+        self::registerAFinding();
+
+        // Act
+        $response = (new Health())->check();
+        $data     = json_decode($response->getBody(), true);
+
+        // Assert
+        $this->assertSame(503, $response->getStatusCode());
+        $this->assertSame('degraded', $data['status'], 'the verdict is public');
+        $this->assertSame(['database' => ['status' => 'error']], $data['checks'], 'the name and ok/error, nothing found');
+        $this->assertStringNotContainsString('8.0.36', $response->getBody());
+    }
+
+    /**
+     * Where app.php says `'health' => ['public_details' => true]`, everybody sees what each
+     * check found — the same switch as the discovery `health` endpoint.
+     */
+    public function testCheckShowsTheFindingsWhereTheyArePublic(): void
+    {
+        // Arrange
+        self::registerAFinding();
+        $app = (new \ReflectionClass(Application::class))->newInstanceWithoutConstructor();
+        $app->applicationInfo = ['health' => ['public_details' => true]];
+
+        // Act
+        $data = json_decode((new Health($app))->check()->getBody(), true);
+
+        // Assert
+        $this->assertSame('degraded', $data['checks']['database']['status']);
+        $this->assertSame('MySQL 8.0.36 at db:3306 slow', $data['checks']['database']['message']);
+        $this->assertSame('8.0.36', $data['checks']['database']['details']['version']);
+    }
+
+    /** A signed-in administrator sees what each check found, as on the dashboard. */
+    public function testCheckShowsTheFindingsToAnAdministrator(): void
+    {
+        // Arrange — a signed-in session, and an application whose current user is an administrator
+        self::registerAFinding();
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+        $_SESSION['logged'] = true;
+        $_SESSION['login']  = true;
+        $_SESSION['userid'] = 99;
+        $_SESSION['uid']    = 99;
+        $appRef    = new \ReflectionClass(Application::class);
+        $instances = $appRef->getProperty('appInstances');
+        $lastUsed  = $appRef->getProperty('lastUsedApplication');
+        $instances->setValue(null, []);
+        $lastUsed->setValue(null, null);
+        $app = new Application();
+        $appRef->getProperty('initialized')->setValue($app, true);
+        $user           = new \Pramnos\User\User(0);
+        $user->userid   = 99;
+        $user->usertype = 90;
+        $app->currentUser = $user;
+
+        try {
+            // Act
+            $data = json_decode((new Health())->check()->getBody(), true);
+
+            // Assert
+            $this->assertSame('MySQL 8.0.36 at db:3306 slow', $data['checks']['database']['message']);
+        } finally {
+            $_SESSION = [];
+            $instances->setValue(null, []);
+            $lastUsed->setValue(null, null);
+        }
+    }
+
     // ── phpinfo() access control ──────────────────────────────────────────────
 
     /**
