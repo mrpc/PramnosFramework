@@ -167,10 +167,63 @@ class QueryBuilder
     // State accessors (used by Grammar — read-only view of builder state)
     // -------------------------------------------------------------------------
 
-    public function getFrom(): ?string          { return $this->from; }
+    public function getFrom(): ?string          { return $this->physicalTable($this->from, false); }
     public function getColumns(): array         { return $this->columns; }
     public function isDistinct(): bool          { return $this->distinct; }
-    public function getJoins(): array           { return $this->joins; }
+    public function getJoins(): array
+    {
+        return array_map(fn (array $join): array => isset($join['table']) ? ['table' => $this->physicalTable($join['table'], true)] + $join : $join, $this->joins);
+    }
+
+    /**
+     * The table a SELECT reads, as {@see getFrom()} names it — and a bare name that took the
+     * prefix keeps its own name as the alias, so `users.id` in a column still names it.
+     */
+    public function getFromClause(): ?string
+    {
+        return $this->physicalTable($this->from, true);
+    }
+
+    /**
+     * A bare table name with the configured prefix, as the schema builder names the table it
+     * creates: `users` is `pramnos_users` on an installation prefixed `pramnos_`.
+     *
+     * Bare means one plain identifier, optionally followed by an alias. A name already carrying
+     * the prefix, `#PREFIX#`, a `schema.table`, a subquery, a PostgreSQL catalogue (`pg_*`) and a
+     * CTE of this query are left as they are. `'database' => ['prefix_bare_names' => false]`
+     * turns it off, for an installation whose own tables were made without the prefix.
+     *
+     * Resolved when the statement is compiled rather than in {@see from()}, so a CTE defined
+     * after the `from()` that names it is still recognised.
+     *
+     * @param mixed $table  The name as given, alias and all
+     * @param bool  $alias  Alias a prefixed bare name with its own name (a SELECT's FROM and JOINs)
+     * @return mixed
+     */
+    protected function physicalTable($table, bool $alias)
+    {
+        $prefix = (string) ($this->db->prefix ?? '');
+        if (!is_string($table) || $prefix === '' || !($this->db->prefixBareNames ?? true)) {
+            return $table;
+        }
+        $parts = preg_split('/\s+/', trim($table)) ?: [];
+        $name  = (string) ($parts[0] ?? '');
+        $shape = count($parts) === 1 || count($parts) === 2 || (count($parts) === 3 && strcasecmp($parts[1], 'AS') === 0);
+        if (!$shape
+            || preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $name) !== 1
+            || str_starts_with($name, $prefix)
+            || str_starts_with(strtolower($name), 'pg_')
+            || in_array($name, array_column($this->ctes, 'name'), true)
+        ) {
+            return $table;
+        }
+        $parts[0] = $prefix . $name;
+        if ($alias && count($parts) === 1) {
+            $parts[] = $name;
+        }
+
+        return implode(' ', $parts);
+    }
     public function getWheres(): array          { return $this->wheres; }
     public function getGroups(): array          { return $this->groups; }
     public function getHavings(): array         { return $this->havings; }

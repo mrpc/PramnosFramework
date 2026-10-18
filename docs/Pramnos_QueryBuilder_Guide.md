@@ -267,35 +267,46 @@ $qb->from('users AS u');        // explicit AS
 $qb->table('users')->insert([...]);
 ```
 
-#### Table prefixes — write `#PREFIX#` yourself
+#### Table prefixes
 
-The builder does **not** add the installation's table prefix for you. It
-substitutes the `#PREFIX#` token, and only that:
+A bare table name takes the installation's prefix, as it does in the schema builder that
+created the table. `createTable('settings')` makes `pramnos_settings`, and the builder reads
+the same table:
 
 ```php
-$qb->table('#PREFIX#settings')      // → prefix_settings
-$qb->table('settings')              // → settings  (no prefix, ever)
+$qb->table('settings')              // → pramnos_settings settings
+$qb->table('#PREFIX#settings')      // → pramnos_settings
+$qb->table('pramnos_settings')      // → pramnos_settings  (already prefixed: not doubled)
+$qb->table('settings s')            // → pramnos_settings s
 ```
 
-A **model** is the other way round: `Model::resolveTableName()` prefixes its table
-whether it is declared `'#PREFIX#queueitems'` or `'queueitems'`. So beside a model, a
-query that names the same table without `#PREFIX#` reads a different table on an
-installation with a prefix — the model writes to `pramnos_queueitems` and the query
-counts `queueitems`.
+- **In a SELECT, the prefixed table is aliased by its bare name.** So `things.id` in a column, a
+  condition or a join still names it. `INSERT`, `UPDATE` and `DELETE` name the prefixed table
+  without an alias.
+- **Left as written:** a name already carrying the prefix, `#PREFIX#`, `schema.table` (resolved
+  per driver, as below), a PostgreSQL catalogue (`pg_*`), a subquery, and a CTE of the same
+  query.
+- **With no prefix configured**, nothing changes.
 
-Every table a migration creates through the schema builder is prefixed, so a query
-over one of them writes `#PREFIX#`. The bare form is for a table an application made
-itself, unprefixed, and nothing else. The framework's own queries follow that
-without exception, and `TablePrefixInQueriesTest` holds them to it — reading both
-the names written with `#PREFIX#` somewhere and the tables the migrations create.
+An installation whose own tables were made **without** the prefix, beside prefixed framework
+tables, turns this off and writes `#PREFIX#` where it means the prefixed ones:
 
-Rule of thumb: if the raw SQL you are replacing had `#PREFIX#`, keep it; if a model
-owns the table, write `#PREFIX#`.
+```php
+'database' => [
+    'prefix'            => 'pramnos_',
+    'prefix_bare_names' => false,   // table('settings') → settings
+],
+```
+
+The framework's own queries write `#PREFIX#` without exception, so they hold under either
+setting. `TablePrefixInQueriesTest` holds them to it, reading both the names written with
+`#PREFIX#` somewhere and the tables the migrations create.
 
 !!! danger "The suite cannot catch a missing prefix — a static check does"
     Both test fixtures declare `'prefix' => ''`, which makes `#PREFIX#users` and
     `users` the same string. Every test passes either way, so nothing about running
-    the suite tells you a query is missing its prefix.
+    the suite tells you a framework query would miss its prefix with
+    `prefix_bare_names` off.
 
     `tests/Unit/Database/TablePrefixInQueriesTest.php` fails on any bare
     occurrence, in a `table()` / `from()` / join position, of a name the framework

@@ -234,7 +234,7 @@ abstract class Grammar implements GrammarInterface
             // A raw expression is the caller's SQL, exactly as written.
             array_map(fn ($column) => $column instanceof \Pramnos\Database\Expression ? (string) $column : $this->quoteIfCaseSensitive((string) $column), $qb->getColumns())
         );
-        $sql .= ' FROM ' . $qb->getFrom();
+        $sql .= ' FROM ' . $qb->getFromClause();
 
         foreach ($qb->getJoins() as $join) {
             if (isset($join['type']) && $join['type'] === 'Raw') {

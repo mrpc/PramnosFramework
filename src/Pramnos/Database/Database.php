@@ -116,6 +116,13 @@ class Database extends \Pramnos\Framework\Base
      */
     public $prefix = "";
     /**
+     * Whether the query builder gives a bare table name (`users`) the prefix, as the schema
+     * builder does when it creates the table. `'database' => ['prefix_bare_names' => false]`
+     * keeps bare names as they are, for an installation whose own tables have no prefix.
+     * @var bool
+     */
+    public $prefixBareNames = true;
+    /**
      * Extra controller prefix for tables
      * @var string
      */
@@ -814,6 +821,9 @@ class Database extends \Pramnos\Framework\Base
             }
             if ($this->prefix == '_') {
                 $this->prefix = '';
+            }
+            if (isset($dbSettings->prefix_bare_names)) {
+                $this->prefixBareNames = (bool) $dbSettings->prefix_bare_names;
             }
             if (isset($dbSettings->port)) {
                 $this->port = $dbSettings->port;
