@@ -219,7 +219,7 @@ class Discovery extends Controller
             // The issuer exactly: a client fetches that server's metadata and compares its
             // `issuer` with this string (RFC 8414 §3.3), so the two forms of one address fail it.
             'authorization_servers'    => [self::issuer()],
-            'scopes_supported'         => array_keys(Scopes::getScopeDescriptions()),
+            'scopes_supported'         => self::scopesForResource($suffix, $this->application ?? null),
             // The only method this framework accepts. Saying so keeps a client from trying the
             // form-encoded and query-parameter variants RFC 6750 also describes — both of which
             // put a credential somewhere it gets logged.
@@ -326,6 +326,45 @@ class Discovery extends Controller
             . (isset($parts['port']) ? ':' . $parts['port'] : '');
 
         return self::origin() !== '' && $origin === strtolower(self::origin());
+    }
+
+    /**
+     * The scopes a resource is reached with — what its metadata's `scopes_supported` lists, and
+     * what its `401` names in `scope="…"`.
+     *
+     * A client asks for every scope listed there; an MCP connector does, on the user's behalf,
+     * and gets every one the user's role allows — `system:admin` and the rest, for a token that
+     * only ever needed to call tools. So a resource lists what it takes, not what the server
+     * knows:
+     *
+     * - a path named in `'oauth' => ['resource_scopes' => ['api/1.0/reports' => ['reports:read']]]`
+     *   lists those;
+     * - an MCP endpoint (a path ending in `mcp`) lists `mcp`, the scopes its offered tools
+     *   require, and `offline_access` — so the connection survives its access token;
+     * - the site itself, and any other path, lists every scope, as before.
+     *
+     * @param \Pramnos\Application\Application|null $app The application whose `oauth` settings apply; the current one when null
+     * @return list<string>
+     */
+    public static function scopesForResource(string $path, ?\Pramnos\Application\Application $app = null): array
+    {
+        $path       = trim($path, '/');
+        $known      = array_keys(Scopes::getScopeDescriptions());
+        $app      ??= \Pramnos\Application\Application::currentInstance();
+        $configured = is_object($app) ? ($app->applicationInfo['oauth']['resource_scopes'] ?? []) : [];
+        if ($path !== '' && is_array($configured) && isset($configured[$path]) && is_array($configured[$path])) {
+            return array_values(array_map('strval', $configured[$path]));
+        }
+        if ($path !== '' && basename($path) === 'mcp') {
+            $scopes = array_values(array_unique(['mcp', ...\Pramnos\Mcp\PublicRegistry::scopesInUse()]));
+            if (in_array('offline_access', $known, true)) {
+                $scopes[] = 'offline_access';
+            }
+
+            return $scopes;
+        }
+
+        return $known;
     }
 
     /**

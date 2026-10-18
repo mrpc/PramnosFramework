@@ -80,6 +80,19 @@ well-known one: `/.well-known/oauth-protected-resource/api/1.0/mcp` answers with
 at, because a client checks that `resource` is the URL it started from. A suffix that is not a
 plain path answers `404`.
 
+**A resource lists the scopes it takes**, because a client, and an MCP connector in particular,
+asks for everything `scopes_supported` lists, and gets everything the user's role allows:
+
+| Resource | `scopes_supported` |
+|---|---|
+| The site (`/.well-known/oauth-protected-resource`) | every scope the server has |
+| The MCP endpoint (a path ending in `mcp`) | `mcp`, the scopes its offered tools require, `offline_access` |
+| A path named in `'oauth' => ['resource_scopes' => ['api/1.0/reports' => ['reports:read']]]` | those |
+| Any other path | every scope the server has |
+
+Without this, a Root user connecting an assistant to the MCP endpoint got a token carrying
+`system:admin` and the rest, to call tools that needed `mcp`.
+
 Three things about that document are deliberate. `scopes_supported` is read from the server's own
 scope table rather than written out, so it cannot drift from what the server will actually grant.
 `bearer_methods_supported` is `["header"]` and only that — RFC 6750 also permits a token in a form

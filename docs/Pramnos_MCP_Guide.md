@@ -1415,8 +1415,13 @@ answers an anonymous call itself:
 
 ```
 HTTP/1.1 401 Unauthorized
-WWW-Authenticate: Bearer resource_metadata="https://example.com/.well-known/oauth-protected-resource/api/1.0/mcp"
+WWW-Authenticate: Bearer resource_metadata="https://example.com/.well-known/oauth-protected-resource/api/1.0/mcp", scope="mcp mcp:diagnostics offline_access"
 ```
+
+`scope` names what the endpoint takes: `mcp`, the scopes the offered tools require, and
+`offline_access`. The MCP spec has a client prefer it to the metadata's list, and the metadata
+document lists the same scopes. A connector therefore asks for these few, not for every scope the
+server knows.
 
 That header **is** the discovery mechanism. An MCP client is expected to call blind, be refused,
 read the document it is pointed at, find the authorization server and come back with a token. A

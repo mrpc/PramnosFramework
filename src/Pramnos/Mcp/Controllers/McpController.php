@@ -281,6 +281,18 @@ class McpController extends Controller
     }
 
     /**
+     * The `WWW-Authenticate` value of a refusal: where the metadata is (RFC 9728 §5.1), and the
+     * scopes this endpoint takes — which an MCP client prefers to the metadata's list, and asks
+     * for instead of everything the server knows.
+     */
+    protected function challenge(): string
+    {
+        $scope = implode(' ', \Pramnos\Auth\Controllers\Discovery::scopesForResource($this->endpointPath(), $this->application ?? null));
+
+        return 'Bearer resource_metadata="' . $this->resourceMetadataUrl() . '"' . ($scope !== '' ? ', scope="' . $scope . '"' : '');
+    }
+
+    /**
      * `401`, and the address of the document that says how to authenticate.
      *
      * RFC 9728 §5.1 defines the `resource_metadata` parameter, and the MCP authorization spec
@@ -290,7 +302,7 @@ class McpController extends Controller
     {
         $metadata = $this->resourceMetadataUrl();
 
-        header('WWW-Authenticate: Bearer resource_metadata="' . $metadata . '"');
+        header('WWW-Authenticate: ' . $this->challenge());
 
         return $this->json([
             'jsonrpc' => '2.0',
