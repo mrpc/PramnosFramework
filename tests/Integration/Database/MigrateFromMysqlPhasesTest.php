@@ -313,6 +313,37 @@ class MigrateFromMysqlPhasesTest extends TestCase
     }
 
     /**
+     * Triggers, views, procedures, functions and events carry MySQL's logic in MySQL's dialect;
+     * none of it moves. The dry run names each, with what it hangs on, and whether the target
+     * already has one of that name — so the one the migrations forgot stands out.
+     */
+    public function testTheDryRunNamesWhatIsNotATable(): void
+    {
+        // Arrange
+        $tester = $this->databases([
+            'CREATE TABLE orders (id INT PRIMARY KEY, total INT) ENGINE=InnoDB',
+            'CREATE TRIGGER orders_bi BEFORE INSERT ON orders FOR EACH ROW SET NEW.total = IFNULL(NEW.total, 0)',
+            'CREATE VIEW big_orders AS SELECT * FROM orders WHERE total > 100',
+            'CREATE FUNCTION twice(x INT) RETURNS INT DETERMINISTIC RETURN x * 2',
+            'CREATE EVENT nightly ON SCHEDULE EVERY 1 DAY DO DELETE FROM orders WHERE total = 0',
+        ], [
+            'CREATE TABLE orders (id INT PRIMARY KEY, total INT)',
+            'CREATE VIEW big_orders AS SELECT * FROM orders WHERE total > 100',
+        ]);
+
+        // Act
+        $tester->execute(['--source' => $this->dsn(), '--dry-run' => true]);
+        $dry = $tester->getDisplay();
+
+        // Assert
+        $this->assertStringContainsString('Not moved — MySQL logic the migrations are to make again:', $dry);
+        $this->assertStringContainsString('trigger orders_bi (on orders) — the target has none', $dry);
+        $this->assertStringContainsString('view big_orders — the target has one of that name', $dry);
+        $this->assertStringContainsString('function twice — the target has none', $dry);
+        $this->assertStringContainsString('event nightly — the target has none', $dry);
+    }
+
+    /**
      * A backfill window is a range on the time column; without an index in MySQL that starts
      * with it, each window reads the whole table — years of history, window after window. The
      * dry run names such a table with the index to add, and says nothing of one that has it,

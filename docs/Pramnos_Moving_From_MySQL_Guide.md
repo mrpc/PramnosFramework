@@ -234,6 +234,16 @@ a zone behind UTC would miss every change made in the last hours.
       the target requires, and the source has not: must_have — every row will be refused
 ```
 
+Triggers, views, procedures, functions and events are not moved. They carry the application's
+logic in MySQL's dialect, and making them again belongs to the migrations. The dry run names each,
+with whether the target already has one of that name:
+
+```
+Not moved — MySQL logic the migrations are to make again:
+  trigger orders_bi (on orders) — the target has none
+  view big_orders — the target has one of that name
+```
+
 A column the target requires (`NOT NULL`, no default) that MySQL does not have refuses every row:
 give it a default, or a value, before the move. A target table with compressed TimescaleDB chunks
 refuses rows into them: decompress first.

@@ -325,6 +325,13 @@ class DatabaseMigrateFromMysql extends Command
                     . ':</comment> if the application wrote them in the server\'s time, name that zone with --source-timezone.');
             }
         }
+        if (($plan['objects'] ?? []) !== []) {
+            $output->writeln('<comment>Not moved — MySQL logic the migrations are to make again:</comment>');
+            foreach ($plan['objects'] as $o) {
+                $output->writeln('  ' . $o['kind'] . ' ' . $o['name'] . ($o['on'] !== null ? ' (on ' . $o['on'] . ')' : '')
+                    . ($o['there'] ? ' — the target has one of that name' : ' — <error>the target has none</error>'));
+            }
+        }
         if ($plan['cycles'] !== []) {
             $output->writeln('<comment>These point at each other and load in name order:</comment> ' . implode(', ', $plan['cycles']));
         }

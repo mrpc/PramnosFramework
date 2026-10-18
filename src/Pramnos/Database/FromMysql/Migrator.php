@@ -245,7 +245,7 @@ final class Migrator
         }
         $offset = intdiv((new \DateTimeImmutable('now', new \DateTimeZone($this->zone)))->getOffset(), 60);
 
-        return ['tables' => $tables, 'order' => $sorted['order'], 'cycles' => $sorted['cycles'], 'replica' => $this->replicaAllowed(), 'timeColumn' => $timeColumn,
+        return ['tables' => $tables, 'order' => $sorted['order'], 'cycles' => $sorted['cycles'], 'replica' => $this->replicaAllowed(), 'timeColumn' => $timeColumn, 'objects' => $this->sourceObjects(),
             'zone' => ['name' => $this->zone, 'offset' => $offset, 'serverOffset' => $this->serverOffset, 'columns' => $wallClock]];
     }
 
@@ -1461,6 +1461,41 @@ final class Migrator
         }
 
         return $made;
+    }
+
+    /**
+     * What MySQL holds besides tables — triggers, views, procedures, functions, events. None of it
+     * moves: the logic it carries is MySQL's dialect, and making it again is the migrations' work.
+     * Each is named so that none is forgotten, with whether the target has one of that name.
+     *
+     * @return list<array{kind: string, name: string, on: ?string, there: bool}>
+     */
+    private function sourceObjects(): array
+    {
+        $there = [];
+        foreach ($this->rows("SELECT lower(table_name) AS n FROM information_schema.views WHERE table_schema NOT IN (" . self::SYSTEM_SCHEMAS . ')'
+            . " UNION SELECT lower(routine_name) FROM information_schema.routines WHERE routine_schema NOT IN (" . self::SYSTEM_SCHEMAS . ')'
+            . ' UNION SELECT lower(tgname) FROM pg_trigger WHERE NOT tgisinternal') as $row) {
+            $there[(string) $row['n']] = true;
+        }
+        $found = [];
+        $add   = static function (string $kind, string $name, ?string $on) use (&$found, $there): void {
+            $found[] = ['kind' => $kind, 'name' => $name, 'on' => $on, 'there' => isset($there[strtolower($name)])];
+        };
+        foreach ($this->sourceRows('SELECT TRIGGER_NAME AS n, EVENT_OBJECT_TABLE AS t FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA = DATABASE() ORDER BY TRIGGER_NAME') as $row) {
+            $add('trigger', (string) $row['n'], (string) $row['t']);
+        }
+        foreach ($this->sourceRows('SELECT TABLE_NAME AS n FROM information_schema.VIEWS WHERE TABLE_SCHEMA = DATABASE() ORDER BY TABLE_NAME') as $row) {
+            $add('view', (string) $row['n'], null);
+        }
+        foreach ($this->sourceRows('SELECT ROUTINE_NAME AS n, ROUTINE_TYPE AS k FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA = DATABASE() ORDER BY ROUTINE_NAME') as $row) {
+            $add(strtolower((string) $row['k']), (string) $row['n'], null);
+        }
+        foreach ($this->sourceRows('SELECT EVENT_NAME AS n FROM information_schema.EVENTS WHERE EVENT_SCHEMA = DATABASE() ORDER BY EVENT_NAME') as $row) {
+            $add('event', (string) $row['n'], null);
+        }
+
+        return $found;
     }
 
     /** Run a statement on the target; whether it succeeded, the error left for pg_last_error(). */
