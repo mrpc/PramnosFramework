@@ -25,6 +25,7 @@ use Symfony\Component\Console\Tester\CommandTester;
  */
 #[CoversClass(Migrator::class)]
 #[CoversClass(\Pramnos\Database\FromMysql\KeyRanges::class)]
+#[CoversClass(\Pramnos\Database\FromMysql\RowConverter::class)]
 #[CoversClass(\Pramnos\Database\FromMysql\FdwTransport::class)]
 #[CoversClass(ProgressTracker::class)]
 #[CoversClass(DatabaseMigrateFromMysql::class)]

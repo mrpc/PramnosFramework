@@ -131,6 +131,15 @@ literal. A zero date and an expression PostgreSQL has no word for are left out.
 
 The command exits `1` when any row was refused.
 
+**Values the target cannot hold as they are** are converted, never guessed, and every one is
+counted in the result:
+
+- **MySQL's zero date** (`0000-00-00`) becomes NULL. In a column that takes no NULL it would
+  refuse its row, so `--zero-date='1970-01-01 00:00:00'` names what it becomes there instead.
+  Such a table moves through PHP, whatever the transport.
+- **A NUL byte in text** is dropped, since PostgreSQL text cannot hold one. The result counts the
+  values that had one.
+
 ## Text, character sets and double encoding
 
 The source is read in `utf8mb4`, which the migrator sets on the connection itself rather than
@@ -240,6 +249,7 @@ refuses rows into them: decompress first.
 | `--batch-size` | Rows per `INSERT` (default 5000) |
 | `--batch-mb` | Most megabytes of values per batch, whatever the row count (default 32) |
 | `--source-prefix` | The source tables' prefix, when it is not the application's |
+| `--zero-date` | What MySQL's zero date becomes in a column that takes no NULL (default: NULL, and the row is refused) |
 | `--repair-encoding` | Repair double-encoded text in these columns, `table.column` — see [Text, character sets and double encoding](#text-character-sets-and-double-encoding) |
 | `--source-timezone` | The zone the source's `DATETIME` values were written in (default: the application's) — see [Dates, times and zones](#dates-times-and-zones) |
 | `--keep-constraints` | Check the target's keys as rows arrive |

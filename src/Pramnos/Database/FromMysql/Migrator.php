@@ -50,6 +50,9 @@ final class Migrator
     /** @var array<string, array<string, true>> Columns whose double-encoded values are repaired, by table */
     private array $repair = [];
 
+    /** What a zero date becomes in a column that takes no NULL; null leaves it NULL, and the row refused. */
+    private ?string $zeroDate = null;
+
     /** @var array<string, list<string>> A target table's `GENERATED ALWAYS` identity columns, read once */
     private array $always = [];
 
@@ -85,6 +88,20 @@ final class Migrator
         $mysqli->set_charset('utf8mb4');
         $this->serverOffset = (int) ($mysqli->query('SELECT TIMESTAMPDIFF(MINUTE, UTC_TIMESTAMP(), NOW()) AS o')->fetch_assoc()['o'] ?? 0);
         $mysqli->query("SET time_zone = '+00:00'");
+    }
+
+    /**
+     * What MySQL's zero date (`0000-00-00`) becomes where the target column takes no NULL —
+     * `--zero-date='1970-01-01 00:00:00'`. Elsewhere it is NULL, as before.
+     *
+     * @throws \InvalidArgumentException For a value that is not a date
+     */
+    public function zeroDate(?string $value): void
+    {
+        if ($value !== null && strtotime($value) === false) {
+            throw new \InvalidArgumentException('The zero date\'s replacement "' . $value . '" is not a date.');
+        }
+        $this->zeroDate = $value;
     }
 
     /** The most bytes of values one batch holds — `--batch-mb`; at least one row goes, however large. */
@@ -681,8 +698,9 @@ final class Migrator
 
             return ['source' => $theirs, 'target' => $ours];
         }
-        $repair = $this->repair[$table['source']] ?? [];
-        $theirs = ['n' => 0, 's' => 0];
+        $convert = $this->converter();
+        $ignored = [];
+        $theirs  = ['n' => 0, 's' => 0];
         $weight = 0;
         $size   = max(1, min($batch, intdiv(self::MAX_PARAMETERS, count($columns))));
         $rows   = [];
@@ -705,11 +723,7 @@ final class Migrator
         foreach ($this->stream($table['source'], $columns, $where) as $row) {
             $values = [];
             foreach ($columns as $i => $column) {
-                $raw = $row[$column];
-                if (isset($repair[$column]) && is_string($raw)) {
-                    $raw = TypeMapper::repairEncoding($raw) ?? $raw;
-                }
-                $values[] = TypeMapper::value($raw, (string) $sourceTypes[$column]['type'], $types[$i], $refused, $this->zone);
+                $values[] = $convert->value($table['source'], $column, $row[$column], (string) $sourceTypes[$column]['type'], $types[$i], (bool) ($targetColumns[$column]['notnull'] ?? false), $ignored);
             }
             $rows[]  = $values;
             $weight += KeyRanges::bytes($values);
@@ -780,7 +794,13 @@ final class Migrator
     /** Key-range reads and comparisons over the two sides. */
     private function ranges(): KeyRanges
     {
-        return new KeyRanges($this->source, $this->target, $this->zone, $this->repair, $this->batchBytes);
+        return new KeyRanges($this->source, $this->target, $this->converter(), $this->batchBytes);
+    }
+
+    /** The conversion every value goes through: the move's, the comparison's and the digest's alike. */
+    private function converter(): RowConverter
+    {
+        return new RowConverter($this->zone, $this->repair, $this->zeroDate);
     }
 
     /** The tracker, on the target. */
@@ -880,14 +900,15 @@ final class Migrator
      */
     private function copyTable(array $table, array $targetColumns, int $batch, ?callable $progress, string $where = '', array $updateKey = [], int $throttleMs = 0, ?string $fdwWhere = null, bool $byKey = false): array
     {
-        $stats   = ['inserted' => 0, 'refused' => 0, 'nulled' => 0, 'errors' => [], 'repaired' => 0];
+        $stats   = ['inserted' => 0, 'refused' => 0, 'nulled' => 0, 'errors' => [], 'repaired' => 0, 'zeroDates' => 0, 'nulBytes' => 0];
         $columns = $table['copied'];
         if ($columns === []) {
             return $stats;
         }
         $sourceTypes = $this->sourceTables()[$table['source']]['columns'];
-        $repair = $this->repair[$table['source']] ?? [];
-        if ($this->fdw !== null && $fdwWhere !== null && $updateKey === [] && $repair === []) {
+        $convert = $this->converter();
+        // A zero date replaced, a value repaired: PHP's to do, not the wrapper's SQL.
+        if ($this->fdw !== null && $fdwWhere !== null && $updateKey === [] && !$convert->repairs($table['source']) && $this->zeroDate === null) {
             $moved = $this->fdw->copy($table['source'], $table['target'], $sourceTypes, $targetColumns, $columns, $fdwWhere, [], $this->zone, $this->overriding($table['target'], $columns));
             if ($moved !== null) {
                 if ($progress !== null) {
@@ -913,14 +934,8 @@ final class Migrator
         foreach ($read as $row) {
             $converted = [];
             foreach ($columns as $column) {
-                $raw = $row[$column];
-                if (isset($repair[$column]) && is_string($raw) && ($repaired = TypeMapper::repairEncoding($raw)) !== null) {
-                    $raw = $repaired;
-                    $stats['repaired']++;
-                }
-                $value = TypeMapper::value($raw, (string) $sourceTypes[$column]['type'], (string) ($targetColumns[$column]['type'] ?? TypeMapper::toPostgres((string) $sourceTypes[$column]['type'])), $refused, $this->zone);
-                $stats['nulled'] += $refused ? 1 : 0;
-                $converted[] = $value;
+                $converted[] = $convert->value($table['source'], $column, $row[$column], (string) $sourceTypes[$column]['type'],
+                    (string) ($targetColumns[$column]['type'] ?? TypeMapper::toPostgres((string) $sourceTypes[$column]['type'])), (bool) ($targetColumns[$column]['notnull'] ?? false), $stats);
             }
             $rows[]  = $converted;
             $weight += KeyRanges::bytes($converted);

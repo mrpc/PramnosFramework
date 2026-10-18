@@ -10,7 +10,7 @@ use Pramnos\Database\Database;
  * A table walked by its primary key, a range of keys at a time, on both sides of a move.
  *
  * ```php
- * $ranges = new KeyRanges($mysql, $postgres, 'Europe/Athens');
+ * $ranges = new KeyRanges($mysql, $postgres, new RowConverter('Europe/Athens'));
  * foreach ($ranges->read('orders', ['id'], ['id', 'total'], 5000) as $rows) { … }   // no long transaction
  * $ranges->compare('orders', 'orders', ['id'], $columns, $sourceTypes, $targetTypes, 5000);
  * $ranges->extras('orders', 'orders', ['id'], $targetTypes, 5000, delete: false);
@@ -36,11 +36,16 @@ final class KeyRanges
     /** Key types whose text is the same on both servers — what a key can be looked up by across them. */
     private const PORTABLE_KEY = '/^(smallint|integer|bigint|numeric|character|text|uuid)/';
 
+    /** How each source value becomes the target's: the move's own conversion, so a comparison sees what was written. */
+    private RowConverter $convert;
+
     /**
-     * @param array<string, array<string, true>> $repair Columns whose double-encoded values a move repairs, by table — compared as repaired
+     * @param RowConverter|null $convert  The move's conversion; UTC and nothing repaired when null
+     * @param int               $maxBytes Most bytes of values one range of reads holds
      */
-    public function __construct(private Database $source, private Database $target, private string $zone = 'UTC', private array $repair = [], private int $maxBytes = 32 * 1024 * 1024)
+    public function __construct(private Database $source, private Database $target, ?RowConverter $convert = null, private int $maxBytes = 32 * 1024 * 1024)
     {
+        $this->convert = $convert ?? new RowConverter();
     }
 
     /** The bytes a row's values take: what a batch of them costs in memory. */
@@ -112,16 +117,13 @@ final class KeyRanges
         $types    = array_map(static fn (string $c): string => (string) ($targetTypes[$c]['type'] ?? TypeMapper::toPostgres((string) $sourceTypes[$c]['type'])), $columns);
         $keyTypes = array_map(static fn (string $c): string => $types[array_search($c, $columns, true)], $key);
         $at       = array_map(static fn (string $c): int => (int) array_search($c, $columns, true), $key);
+        $ignored = [];
         foreach ($this->read($source, $key, $columns, $size) as $rows) {
             $converted = [];
             foreach ($rows as $row) {
                 $values = [];
                 foreach ($columns as $i => $column) {
-                    $raw = $row[$column];
-                    if (isset($this->repair[$source][$column]) && is_string($raw)) {
-                        $raw = TypeMapper::repairEncoding($raw) ?? $raw;
-                    }
-                    $values[] = TypeMapper::value($raw, (string) $sourceTypes[$column]['type'], $types[$i], $refused, $this->zone);
+                    $values[] = $this->convert->value($source, $column, $row[$column], (string) $sourceTypes[$column]['type'], $types[$i], (bool) ($targetTypes[$column]['notnull'] ?? false), $ignored);
                 }
                 $converted[] = $values;
             }

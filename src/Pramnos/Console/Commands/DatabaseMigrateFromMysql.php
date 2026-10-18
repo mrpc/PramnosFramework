@@ -47,6 +47,7 @@ class DatabaseMigrateFromMysql extends Command
             ->addOption('batch-mb', null, InputOption::VALUE_REQUIRED, 'Most megabytes of values per batch, whatever the row count', '32')
             ->addOption('source-timezone', null, InputOption::VALUE_REQUIRED, 'The zone the source\'s DATETIME values were written in (default: this application\'s)')
             ->addOption('repair-encoding', null, InputOption::VALUE_REQUIRED, 'Repair double-encoded text (UTF-8 stored through latin1) in these columns, table.column, comma-separated')
+            ->addOption('zero-date', null, InputOption::VALUE_REQUIRED, 'What MySQL\'s zero date becomes in a column that takes no NULL, e.g. "1970-01-01 00:00:00" (default: NULL, and the row is refused)')
             ->addOption('source-prefix', null, InputOption::VALUE_REQUIRED, 'The source tables\' prefix (default: this application\'s)')
             ->addOption('keep-constraints', null, InputOption::VALUE_NONE, 'Load with the target\'s keys checked, even where they could be off')
             ->addOption('null-orphans', null, InputOption::VALUE_NONE, 'After the load, set references that name no row to NULL where the column takes it')
@@ -111,6 +112,13 @@ class DatabaseMigrateFromMysql extends Command
 
                 return Command::FAILURE;
             }
+        }
+        try {
+            $migrator->zeroDate($input->getOption('zero-date') !== null ? (string) $input->getOption('zero-date') : null);
+        } catch (\InvalidArgumentException $e) {
+            $output->writeln('<error>' . $e->getMessage() . '</error>');
+
+            return Command::FAILURE;
         }
         $migrator->batchBytes(max(1, (int) $input->getOption('batch-mb')) * 1024 * 1024);
         $migrator->repairEncoding($list($input->getOption('repair-encoding')));
@@ -367,6 +375,8 @@ class DatabaseMigrateFromMysql extends Command
                 . ($t['refused'] > 0 ? ', ' . $t['refused'] . ' refused' : '')
                 . ($t['nulled'] > 0 ? ', ' . $t['nulled'] . ' value(s) that were not what the column takes, as NULL' : '')
                 . (($t['repaired'] ?? 0) > 0 ? ', ' . $t['repaired'] . ' double-encoded value(s) repaired' : '')
+                . (($t['zeroDates'] ?? 0) > 0 ? ', ' . $t['zeroDates'] . ' zero date(s) replaced (--zero-date)' : '')
+                . (($t['nulBytes'] ?? 0) > 0 ? ', ' . $t['nulBytes'] . ' value(s) with NUL bytes, dropped from the text' : '')
                 . (isset($t['resumed']) ? ' — ' . $t['resumed'] : ''));
             foreach ($t['errors'] as $error) {
                 $output->writeln('      ' . $error);

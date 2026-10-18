@@ -42,6 +42,7 @@ final class MigrateFromMysqlOver extends DatabaseMigrateFromMysql
  */
 #[CoversClass(Migrator::class)]
 #[CoversClass(\Pramnos\Database\FromMysql\KeyRanges::class)]
+#[CoversClass(\Pramnos\Database\FromMysql\RowConverter::class)]
 #[CoversClass(\Pramnos\Database\FromMysql\FdwTransport::class)]
 #[CoversClass(DatabaseMigrateFromMysql::class)]
 #[CoversClass(TypeMapper::class)]
@@ -255,6 +256,7 @@ class MigrateFromMysqlTest extends TestCase
         $this->assertNull($users[1]['prefs'], 'invalid JSON as NULL');
         $this->assertSame('00ff', $users[0]['avatar']);
         $this->assertStringContainsString('1 value(s) that were not what the column takes, as NULL', $display);
+        $this->assertStringContainsString('1 value(s) with NUL bytes, dropped from the text', $display, 'nik\\0os: said, not silent');
         $this->assertSame([1, null, 5], array_map(static fn ($v) => $v === null ? null : (int) $v, array_column($orders, 'userid')), 'the orphan set to NULL');
         $this->assertStringContainsString('1 row(s) of orders.userid name no users — set to NULL', $display);
         $this->assertSame(6, (int) $next, 'the sequence continues past the moved ids');
@@ -329,6 +331,42 @@ class MigrateFromMysqlTest extends TestCase
     }
 
     /**
+     * MySQL's zero date goes into a nullable column as NULL. Into a column that takes no NULL it
+     * refuses the row — unless `--zero-date` names what it becomes, which is then counted. Such a
+     * table moves through PHP whatever the transport. A replacement that is not a date is refused
+     * before anything moves.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('transports')]
+    public function testAZeroDateInAColumnThatTakesNoNull(string $transport): void
+    {
+        // Arrange
+        $tester = $this->databases();
+        $this->source->query("SET SESSION sql_mode = ''");
+        $this->source->query('CREATE TABLE dated (id INT PRIMARY KEY, d DATETIME NOT NULL) ENGINE=InnoDB');
+        $this->source->query("INSERT INTO dated VALUES (1, '0000-00-00 00:00:00'), (2, '2026-01-01 10:00:00')");
+        $this->target->query('CREATE TABLE dated (id INT PRIMARY KEY, d TIMESTAMP NOT NULL)');
+        $only = ['--source' => $this->dsn(), '--tables' => 'dated', '--transport' => $transport];
+
+        // Act
+        $refused = $tester->execute($only);
+        $without = $tester->getDisplay();
+        $moved   = $tester->execute($only + ['--zero-date' => '1970-01-01 00:00:00']);
+        $with    = $tester->getDisplay();
+        $rows    = $this->rows('SELECT id, d::text AS d FROM dated ORDER BY id');
+        $bad     = $tester->execute($only + ['--zero-date' => 'whenever']);
+
+        // Assert
+        $this->assertSame(1, $refused, 'the zero date, as NULL, refused by NOT NULL');
+        $this->assertStringContainsString('violates not-null constraint', $without);
+        $this->assertSame(0, $moved, $with);
+        $this->assertStringContainsString('1 zero date(s) replaced (--zero-date)', $with);
+        $this->assertSame([['id' => 1, 'd' => '1970-01-01 00:00:00'], ['id' => 2, 'd' => '2026-01-01 10:00:00']],
+            array_map(static fn (array $r): array => ['id' => (int) $r['id'], 'd' => $r['d']], $rows));
+        $this->assertSame(1, $bad);
+        $this->assertStringContainsString('is not a date', $tester->getDisplay());
+    }
+
+    /**
      * `--defer-indexes` loads a migration-made table without its plain indexes and makes them
      * again after, from definitions recorded before they were dropped; a unique index stays, as
      * `ON CONFLICT` needs it. A load that died with an index set aside leaves its definition in
@@ -388,7 +426,7 @@ class MigrateFromMysqlTest extends TestCase
         $display = $tester->getDisplay();
         $arrived = $this->rows('SELECT COUNT(*) AS n, MIN(length(body)) AS l FROM heavy')[0];
         $ranges  = array_map('count', iterator_to_array(
-            (new \Pramnos\Database\FromMysql\KeyRanges($this->source, $this->target, 'UTC', [], 1024 * 1024))->read('heavy', ['id'], ['id', 'body'], 5000),
+            (new \Pramnos\Database\FromMysql\KeyRanges($this->source, $this->target, null, 1024 * 1024))->read('heavy', ['id'], ['id', 'body'], 5000),
             false
         ));
 
