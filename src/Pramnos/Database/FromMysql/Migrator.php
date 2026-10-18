@@ -40,6 +40,8 @@ final class Migrator
     /** @var array<string, array<string, mixed>>|null The source's tables, read once */
     private ?array $sourceShape = null;
 
+    private ?ProgressTracker $tracker = null;
+
     public function __construct(
         private Database $source,
         private Database $target,
@@ -124,9 +126,10 @@ final class Migrator
      * @param bool                 $useReplica Load with the target's keys and triggers off, where allowed
      * @param bool                 $nullOrphans After a load without keys, set orphaned references to NULL where the column takes it
      * @param (callable(string, int, int): void)|null $progress Table, rows inserted, rows refused — after each batch
+     * @param bool $operational Record each table's moment and highest id, for {@see cutover()}
      * @return array{tables: array<string, array{inserted: int, refused: int, nulled: int, errors: list<string>}>, orphans: list<array<string, mixed>>, sequences: list<array<string, mixed>>, replica: bool}
      */
-    public function run(array $plan, int $batch = 5000, bool $useReplica = true, bool $nullOrphans = false, ?callable $progress = null): array
+    public function run(array $plan, int $batch = 5000, bool $useReplica = true, bool $nullOrphans = false, ?callable $progress = null, bool $operational = false): array
     {
         $result = ['tables' => [], 'orphans' => [], 'sequences' => [], 'replica' => false];
         foreach ($plan['order'] as $name) {
@@ -142,10 +145,29 @@ final class Migrator
         // One snapshot for every table: rows that point at each other were read at one moment.
         $mysqli->query('START TRANSACTION WITH CONSISTENT SNAPSHOT');
         try {
+            // The moment of the snapshot, as the source itself tells it, and each table's highest
+            // id in it: what the cutover reads changes from.
+            $moment  = $mysqli->query('SELECT NOW() AS now, UNIX_TIMESTAMP() AS ts')->fetch_assoc();
+            $highest = [];
+            if ($operational) {
+                foreach ($plan['order'] as $name) {
+                    $key = $this->integerKey($name);
+                    if ($key !== null) {
+                        $max = $mysqli->query('SELECT MAX(`' . str_replace('`', '``', $key) . '`) AS m FROM `' . str_replace('`', '``', $name) . '`')->fetch_assoc();
+                        $highest[$name] = $max['m'] === null ? 0 : (int) $max['m'];
+                    }
+                }
+            }
             $targets = $this->targetTables();
             foreach ($plan['order'] as $name) {
                 $table = $plan['tables'][$name];
                 $result['tables'][$name] = $this->copyTable($table, $targets[$table['target']]['columns'] ?? [], max(1, $batch), $progress);
+                if ($operational) {
+                    $this->tracker()->put($name, 'operational', 0, (int) $moment['ts'], $result['tables'][$name]['inserted'], ProgressTracker::DONE, [
+                        'now'   => (string) $moment['now'],
+                        'maxId' => $highest[$name] ?? null,
+                    ]);
+                }
             }
         } finally {
             $mysqli->query('COMMIT');
@@ -163,15 +185,307 @@ final class Migrator
         return $result;
     }
 
+    /** Columns a change after the operational copy is recognised by, when none is named. */
+    public const CHANGE_COLUMNS = ['updated_at', 'updatedat', 'modified_at', 'modified', 'updated', 'last_modified', 'lastmodified', 'date_modified', 'lastupdate', 'last_update', 'changed_at', 'mtime'];
+
+    /**
+     * The cutover: what changed in MySQL since each table's operational copy, moved with the
+     * application stopped.
+     *
+     * New rows are those past the highest id the copy saw; changed rows are those whose change
+     * column (`updated_at` and the like, or `$changed`) is at or after the copy's moment. Both
+     * are written over what the target holds. A table with neither is named: its changes are not
+     * seen. With `$deletes`, rows deleted in MySQL since are deleted here too, by key.
+     *
+     * @param array<string, mixed> $plan
+     * @param list<string>         $changed Change columns to use where a table has one
+     * @return array{tables: array<string, array<string, mixed>>, orphans: list<array<string, mixed>>, sequences: list<array<string, mixed>>, replica: bool}
+     */
+    public function cutover(array $plan, int $batch = 5000, array $changed = [], bool $deletes = false, bool $useReplica = true, bool $nullOrphans = false, ?callable $progress = null): array
+    {
+        $result  = ['tables' => [], 'orphans' => [], 'sequences' => [], 'replica' => false];
+        $replica = $useReplica && $plan['replica'] && $this->setReplica(true);
+        $result['replica'] = $replica;
+        $targets = $this->targetTables();
+        $mysqli  = $this->source->getConnectionLink();
+        try {
+            foreach ($plan['order'] as $name) {
+                $table = $plan['tables'][$name];
+                $state = $this->tracker()->of($name, 'operational')[0] ?? null;
+                $note  = ['inserted' => 0, 'refused' => 0, 'nulled' => 0, 'errors' => [], 'deleted' => 0, 'changeColumn' => null, 'unseen' => null];
+                if ($state === null) {
+                    $result['tables'][$name] = ['unseen' => 'not copied in the operational phase'] + $note;
+                    continue;
+                }
+                $key     = $this->integerKey($name) ?? ($this->sourceTables()[$name]['primary'][0] ?? null);
+                $columns = $this->sourceTables()[$name]['columns'];
+                $column  = null;
+                foreach ([...$changed, ...self::CHANGE_COLUMNS] as $candidate) {
+                    if (isset($columns[$candidate])) {
+                        $column = $candidate;
+                        break;
+                    }
+                }
+                $conditions = [];
+                if (($state['detail']['maxId'] ?? null) !== null && $key !== null) {
+                    $conditions[] = '`' . $key . '` > ' . (int) $state['detail']['maxId'];
+                }
+                if ($column !== null) {
+                    $conditions[] = preg_match('/int/i', (string) $columns[$column]['type']) === 1
+                        ? '`' . $column . '` >= ' . (int) $state['end']
+                        : '`' . $column . "` >= '" . $mysqli->real_escape_string((string) $state['detail']['now']) . "'";
+                }
+                if ($conditions === [] || $key === null || count($this->sourceTables()[$name]['primary']) !== 1) {
+                    $result['tables'][$name] = ['unseen' => 'no single primary key or change column: changes since the copy are not seen; copy it again'] + $note;
+                    continue;
+                }
+                $stats = $this->copyTable($table, $targets[$table['target']]['columns'] ?? [], max(1, $batch), $progress, implode(' OR ', $conditions), in_array($key, $table['copied'], true) ? [$key] : []);
+                $stats += ['deleted' => 0, 'changeColumn' => $column, 'unseen' => $column === null ? 'no change column: rows that existed at the copy and changed since are not seen' : null];
+                if ($deletes) {
+                    $stats['deleted'] = $this->deleteMissing($name, $table['target'], $key, (string) ($targets[$table['target']]['columns'][$key]['type'] ?? 'bigint'));
+                }
+                $this->tracker()->put($name, 'cutover', 0, time(), $stats['inserted'], ProgressTracker::DONE, ['deleted' => $stats['deleted']]);
+                $result['tables'][$name] = $stats;
+            }
+        } finally {
+            if ($replica) {
+                $this->setReplica(false);
+            }
+        }
+        $moved = array_values(array_map(static fn (array $t): string => $t['target'], array_intersect_key($plan['tables'], array_flip($plan['order']))));
+        if ($replica) {
+            $result['orphans'] = $this->orphans($moved, $nullOrphans);
+        }
+        $result['sequences'] = $this->alignSequences($moved);
+
+        return $result;
+    }
+
+    /**
+     * The backfill: a table's history, window by window, newest first, with the application
+     * already running on PostgreSQL.
+     *
+     * Each window is `[start, end)` on `$timeColumn`, `$interval` long, the first ending at
+     * `$until` — by default the cutover's moment, so what the application wrote since is not
+     * touched. A window done is not read again: a stopped backfill continues where it stopped,
+     * and `$restart` forgets that. On a hypertable, the compression policy is removed for the
+     * duration and put back after; compressed chunks in a window are decompressed before rows go
+     * in; with `$compress`, each window's chunks are compressed once it is done.
+     *
+     * @param array<string, mixed> $plan
+     * @return array<string, array<string, mixed>> Per table: windows done and skipped, rows, chunks compressed
+     */
+    public function backfill(array $plan, string $timeColumn, string $interval = '1 month', int $batch = 5000, int $throttleMs = 50, bool $compress = false, bool $restart = false, ?int $until = null, ?callable $progress = null): array
+    {
+        // Checked before anything is touched — a policy suspended for a run that then refuses its
+        // interval would stay off until the next one.
+        self::back(time(), $interval);
+        $until ??= $this->tracker()->latest('cutover') ?? $this->tracker()->latest('operational') ?? (int) $this->source->getConnectionLink()->query('SELECT UNIX_TIMESTAMP() AS ts')->fetch_assoc()['ts'];
+        $targets = $this->targetTables();
+        $result  = [];
+        foreach ($plan['order'] as $name) {
+            $table   = $plan['tables'][$name];
+            $columns = $this->sourceTables()[$name]['columns'];
+            $stats   = ['windows' => 0, 'skipped' => 0, 'inserted' => 0, 'refused' => 0, 'nulled' => 0, 'errors' => [], 'compressed' => 0, 'error' => null];
+            if (!isset($columns[$timeColumn])) {
+                $result[$name] = ['error' => 'has no column ' . $timeColumn] + $stats;
+                continue;
+            }
+            if ($restart) {
+                $this->tracker()->forget($name, 'backfill');
+            }
+            $integer = preg_match('/int/i', (string) $columns[$timeColumn]['type']) === 1;
+            $quoted  = '`' . str_replace('`', '``', $timeColumn) . '`';
+            $first   = $this->source->getConnectionLink()->query($integer
+                ? 'SELECT MIN(' . $quoted . ') AS m FROM `' . $name . '` WHERE ' . $quoted . ' > 0'
+                : 'SELECT UNIX_TIMESTAMP(MIN(' . $quoted . ')) AS m FROM `' . $name . '` WHERE ' . $quoted . " > '1000-01-01'")->fetch_assoc()['m'];
+            if ($first === null) {
+                $result[$name] = $stats;
+                continue;
+            }
+            $hypertable = $this->hypertableDimension($table['target']);
+            $policy     = $hypertable !== null ? $this->suspendCompressionPolicy($name, $table['target']) : null;
+            $done       = $this->tracker()->of($name, 'backfill');
+            for ($end = $until; $end > (int) $first; $end = $start) {
+                $start = self::back($end, $interval);
+                if (($done[$start]['status'] ?? null) === ProgressTracker::DONE && $done[$start]['end'] === $end) {
+                    $stats['skipped']++;
+                    continue;
+                }
+                $this->tracker()->put($name, 'backfill', $start, $end, 0, ProgressTracker::RUNNING);
+                if ($hypertable !== null) {
+                    $this->chunks($table['target'], $hypertable, $start, $end, false);
+                }
+                $where = $integer
+                    ? $quoted . ' >= ' . $start . ' AND ' . $quoted . ' < ' . $end
+                    : $quoted . ' >= FROM_UNIXTIME(' . $start . ') AND ' . $quoted . ' < FROM_UNIXTIME(' . $end . ')';
+                $window = $this->copyTable($table, $targets[$table['target']]['columns'] ?? [], max(1, $batch), $progress, $where, [], $throttleMs);
+                if ($compress && $hypertable !== null) {
+                    $stats['compressed'] += $this->chunks($table['target'], $hypertable, $start, $end, true);
+                }
+                $this->tracker()->put($name, 'backfill', $start, $end, $window['inserted'], ProgressTracker::DONE, ['refused' => $window['refused']]);
+                $stats['windows']++;
+                $stats['inserted'] += $window['inserted'];
+                $stats['refused']  += $window['refused'];
+                $stats['nulled']   += $window['nulled'];
+                $stats['errors']    = array_slice([...$stats['errors'], ...$window['errors']], 0, 3);
+            }
+            if ($policy !== null) {
+                $this->target->query("SELECT add_compression_policy('" . $table['target'] . "', " . $policy . ', if_not_exists => true)');
+                $stats['policyRestored'] = true;
+            }
+            $result[$name] = $stats;
+        }
+
+        return $result;
+    }
+
+    /**
+     * A moment one interval earlier.
+     *
+     * @throws \InvalidArgumentException For an interval that does not move back in time
+     */
+    private static function back(int $from, string $interval): int
+    {
+        try {
+            $to = (new \DateTimeImmutable('@' . $from))->modify('-' . $interval)->getTimestamp();
+        } catch (\Throwable) {
+            // Not an interval at all ("banana").
+            $to = $from;
+        }
+        if ($to >= $from) {
+            throw new \InvalidArgumentException('The chunk interval "' . $interval . '" does not move back in time.');
+        }
+
+        return $to;
+    }
+
+    /** The tracker, on the target. */
+    public function tracker(): ProgressTracker
+    {
+        return $this->tracker ??= new ProgressTracker($this->target);
+    }
+
+    /** A table's primary key when it is one integer column — the one new rows can be told by. */
+    private function integerKey(string $table): ?string
+    {
+        $shape = $this->sourceTables()[$table] ?? null;
+        if ($shape === null || count($shape['primary']) !== 1) {
+            return null;
+        }
+        $key = $shape['primary'][0];
+
+        return preg_match('/int/i', (string) $shape['columns'][$key]['type']) === 1 ? $key : null;
+    }
+
+    /**
+     * Delete the target's rows whose key MySQL no longer has. Returns how many went.
+     */
+    private function deleteMissing(string $source, string $target, string $key, string $type): int
+    {
+        $present = [];
+        $read    = $this->source->getConnectionLink()->query('SELECT `' . str_replace('`', '``', $key) . '` AS k FROM `' . str_replace('`', '``', $source) . '`', MYSQLI_USE_RESULT);
+        while ($read && ($row = $read->fetch_assoc()) !== null) {
+            $present[(string) $row['k']] = true;
+        }
+        if ($read) {
+            $read->free();
+        }
+        $gone = [];
+        foreach ($this->rows('SELECT "' . $key . '" AS k FROM ' . $this->quoted($target)) as $row) {
+            if (!isset($present[(string) $row['k']])) {
+                $gone[] = (string) $row['k'];
+            }
+        }
+        $deleted = 0;
+        foreach (array_chunk($gone, 1000) as $keys) {
+            $result = @pg_query_params(
+                $this->target->getConnectionLink(),
+                'DELETE FROM ' . $this->quoted($target) . ' WHERE "' . $key . '"::text = ANY($1::text[])',
+                ['{' . implode(',', array_map(static fn (string $k): string => '"' . addcslashes($k, '"\\') . '"', $keys)) . '}']
+            );
+            $deleted += $result !== false ? pg_affected_rows($result) : 0;
+        }
+
+        return $deleted;
+    }
+
+    /** The type of a hypertable's time dimension, or null when the table is not one. */
+    private function hypertableDimension(string $table): ?string
+    {
+        [$schema, $bare] = str_contains($table, '.') ? explode('.', $table, 2) : ['public', $table];
+        try {
+            $row = $this->rows("SELECT column_type AS t FROM timescaledb_information.dimensions WHERE hypertable_schema = '" . pg_escape_string($this->target->getConnectionLink(), $schema)
+                . "' AND hypertable_name = '" . pg_escape_string($this->target->getConnectionLink(), $bare) . "' AND dimension_number = 1")[0] ?? null;
+        } catch (\Throwable) {
+            return null;
+        }
+
+        return $row === null ? null : strtolower((string) $row['t']);
+    }
+
+    /**
+     * Remove a hypertable's compression policy for the backfill, remembering it, and answer the
+     * `compress_after` to put back — or null when it had none. A policy removed by an earlier
+     * run that stopped is still remembered, and put back by this one.
+     */
+    private function suspendCompressionPolicy(string $source, string $table): ?string
+    {
+        [$schema, $bare] = str_contains($table, '.') ? explode('.', $table, 2) : ['public', $table];
+        $link = $this->target->getConnectionLink();
+        $row  = $this->rows("SELECT config->>'compress_after' AS a FROM timescaledb_information.jobs WHERE proc_name = 'policy_compression' AND hypertable_schema = '"
+            . pg_escape_string($link, $schema) . "' AND hypertable_name = '" . pg_escape_string($link, $bare) . "'")[0] ?? null;
+        $remembered = $this->tracker()->of($source, 'backfill-policy')[0]['detail']['compressAfter'] ?? null;
+        $after      = $row !== null ? (string) $row['a'] : $remembered;
+        if ($after === null) {
+            return null;
+        }
+        $this->tracker()->put($source, 'backfill-policy', 0, 0, 0, 'REMOVED', ['compressAfter' => $after]);
+        if ($row !== null) {
+            $this->target->query("SELECT remove_compression_policy('" . $table . "', if_exists => true)");
+        }
+
+        return ctype_digit($after) ? $after : "INTERVAL '" . pg_escape_string($link, $after) . "'";
+    }
+
+    /**
+     * Decompress the chunks that overlap a window (`$compress` false), or compress those wholly
+     * inside it (`$compress` true). Returns how many changed.
+     */
+    private function chunks(string $table, string $dimension, int $start, int $end, bool $compress): int
+    {
+        [$schema, $bare] = str_contains($table, '.') ? explode('.', $table, 2) : ['public', $table];
+        $link    = $this->target->getConnectionLink();
+        $integer = preg_match('/int/', $dimension) === 1;
+        $low     = $integer ? 'range_start_integer' : 'range_start';
+        $high    = $integer ? 'range_end_integer' : 'range_end';
+        $from    = $integer ? (string) $start : 'to_timestamp(' . $start . ')';
+        $to      = $integer ? (string) $end : 'to_timestamp(' . $end . ')';
+        $which   = $compress
+            ? 'NOT is_compressed AND ' . $low . ' >= ' . $from . ' AND ' . $high . ' <= ' . $to
+            : 'is_compressed AND ' . $high . ' > ' . $from . ' AND ' . $low . ' < ' . $to;
+        $changed = 0;
+        foreach ($this->rows("SELECT format('%I.%I', chunk_schema, chunk_name) AS c FROM timescaledb_information.chunks WHERE hypertable_schema = '"
+            . pg_escape_string($link, $schema) . "' AND hypertable_name = '" . pg_escape_string($link, $bare) . "' AND " . $which) as $row) {
+            $this->target->query('SELECT ' . ($compress ? 'compress_chunk' : 'decompress_chunk') . "('" . $row['c'] . "', true)");
+            $changed++;
+        }
+
+        return $changed;
+    }
+
     /**
      * Stream one table: read unbuffered, convert, insert in batches; a batch that is refused is
      * tried row by row, so one bad row costs that row.
      *
      * @param array<string, mixed> $table
      * @param array<string, array<string, mixed>> $targetColumns
+     * @param string       $where      A MySQL condition on the rows to read, or '' for all of them
+     * @param list<string> $updateKey  Columns a conflict is judged on, to update the row; [] keeps the existing row
+     * @param int          $throttleMs A pause after each batch, for a load beside live traffic
      * @return array{inserted: int, refused: int, nulled: int, errors: list<string>}
      */
-    private function copyTable(array $table, array $targetColumns, int $batch, ?callable $progress): array
+    private function copyTable(array $table, array $targetColumns, int $batch, ?callable $progress, string $where = '', array $updateKey = [], int $throttleMs = 0): array
     {
         $stats   = ['inserted' => 0, 'refused' => 0, 'nulled' => 0, 'errors' => []];
         $columns = $table['copied'];
@@ -183,7 +497,7 @@ final class Migrator
         $mysqli      = $this->source->getConnectionLink();
         $read        = $mysqli->query(
             'SELECT ' . implode(', ', array_map(static fn (string $c): string => '`' . str_replace('`', '``', $c) . '`', $columns))
-            . ' FROM `' . str_replace('`', '``', $table['source']) . '`',
+            . ' FROM `' . str_replace('`', '``', $table['source']) . '`' . ($where !== '' ? ' WHERE ' . $where : ''),
             MYSQLI_USE_RESULT
         );
         $rows = [];
@@ -196,10 +510,13 @@ final class Migrator
             }
             $rows[] = $converted;
             if (count($rows) >= $perBatch) {
-                $this->insert($table['target'], $columns, $rows, $stats);
+                $this->insert($table['target'], $columns, $rows, $stats, $updateKey);
                 $rows = [];
                 if ($progress !== null) {
                     $progress($table['source'], $stats['inserted'], $stats['refused']);
+                }
+                if ($throttleMs > 0) {
+                    usleep($throttleMs * 1000);
                 }
             }
         }
@@ -207,7 +524,7 @@ final class Migrator
             $read->free();
         }
         if ($rows !== []) {
-            $this->insert($table['target'], $columns, $rows, $stats);
+            $this->insert($table['target'], $columns, $rows, $stats, $updateKey);
             if ($progress !== null) {
                 $progress($table['source'], $stats['inserted'], $stats['refused']);
             }
@@ -220,12 +537,19 @@ final class Migrator
      * @param list<string>             $columns
      * @param list<list<mixed>>        $rows
      * @param array<string, mixed>     $stats
+     * @param list<string>             $updateKey Conflict on these updates the row; [] leaves it
      */
-    private function insert(string $table, array $columns, array $rows, array &$stats): void
+    private function insert(string $table, array $columns, array $rows, array &$stats, array $updateKey = []): void
     {
         $connection = $this->target->getConnectionLink();
+        $quote      = static fn (string $c): string => '"' . str_replace('"', '""', $c) . '"';
+        $others     = array_values(array_diff($columns, $updateKey));
+        $conflict   = $updateKey === []
+            ? ' ON CONFLICT DO NOTHING'
+            : ' ON CONFLICT (' . implode(', ', array_map($quote, $updateKey)) . ')'
+                . ($others === [] ? ' DO NOTHING' : ' DO UPDATE SET ' . implode(', ', array_map(static fn (string $c): string => $quote($c) . ' = EXCLUDED.' . $quote($c), $others)));
         $head       = 'INSERT INTO ' . $this->quoted($table) . ' (' . implode(', ', array_map(static fn (string $c): string => '"' . str_replace('"', '""', $c) . '"', $columns)) . ') VALUES ';
-        $statement  = static function (int $count, int $width) use ($head): string {
+        $statement  = static function (int $count, int $width) use ($head, $conflict): string {
             $groups = [];
             for ($r = 0, $n = 1; $r < $count; $r++) {
                 $placeholders = [];
@@ -235,7 +559,7 @@ final class Migrator
                 $groups[] = '(' . implode(', ', $placeholders) . ')';
             }
 
-            return $head . implode(', ', $groups) . ' ON CONFLICT DO NOTHING';
+            return $head . implode(', ', $groups) . $conflict;
         };
 
         $result = @pg_query_params($connection, $statement(count($rows), count($columns)), array_merge(...$rows));

@@ -258,7 +258,7 @@ final class MigrateFromMysqlTest extends TestCase
         // Act
         $badSource = $tester->execute(['--source' => 'postgres://x@y/z']);
         $badSourceText = $tester->getDisplay();
-        $badPhase  = $tester->execute(['--source' => $this->dsn(), '--phase' => 'backfill']);
+        $badPhase  = $tester->execute(['--source' => $this->dsn(), '--phase' => 'sideways']);
         $badPhaseText = $tester->getDisplay();
         $noHost    = $tester->execute(['--source' => 'mysql://root:secret@nohost.invalid:3306/x']);
         $notPg     = $onMysql->execute(['--source' => $this->dsn()]);
@@ -267,7 +267,7 @@ final class MigrateFromMysqlTest extends TestCase
         $this->assertSame(1, $badSource);
         $this->assertStringContainsString('mysql://user:password@host:port/name', $badSourceText);
         $this->assertSame(1, $badPhase);
-        $this->assertStringContainsString('Only --phase=full is available', $badPhaseText);
+        $this->assertStringContainsString('No phase sideways', $badPhaseText);
         $this->assertSame(1, $noHost);
         $this->assertStringContainsString('Could not open the MySQL source', $tester->getDisplay());
         $this->assertSame(1, $notPg);

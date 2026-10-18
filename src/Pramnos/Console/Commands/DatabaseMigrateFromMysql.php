@@ -19,6 +19,11 @@ use Symfony\Component\Console\Output\OutputInterface;
  * php bin/pramnos migrate                                                     # the PostgreSQL tables
  * php bin/pramnos db:migrate-from-mysql --source=mysql://u:p@host/app --dry-run
  * php bin/pramnos db:migrate-from-mysql --source=mysql://u:p@host/app --phase=full
+ *
+ * # a live production move
+ * php bin/pramnos db:migrate-from-mysql --source=… --phase=operational --exclude-tables=devicedata,logs
+ * php bin/pramnos db:migrate-from-mysql --source=… --phase=cutover --exclude-tables=devicedata,logs
+ * php bin/pramnos db:migrate-from-mysql --source=… --phase=backfill --tables=devicedata --time-column=date
  * ```
  *
  * The application is configured for PostgreSQL; the source is named by `--source` or by
@@ -32,13 +37,21 @@ class DatabaseMigrateFromMysql extends Command
             ->setDescription('Move the data from a MySQL database into this PostgreSQL one')
             ->addOption('source', null, InputOption::VALUE_REQUIRED, 'The MySQL database: mysql://user:password@host:port/name (default: migration_source in app.php)')
             ->addOption('dry-run', null, InputOption::VALUE_NONE, 'Report what would move, change nothing')
-            ->addOption('phase', null, InputOption::VALUE_REQUIRED, 'full: every table, in one consistent snapshot', 'full')
+            ->addOption('phase', null, InputOption::VALUE_REQUIRED, 'full | operational | cutover | backfill', 'full')
             ->addOption('tables', null, InputOption::VALUE_REQUIRED, 'Only these source tables, comma-separated')
             ->addOption('exclude-tables', null, InputOption::VALUE_REQUIRED, 'Leave these source tables, comma-separated')
             ->addOption('batch-size', null, InputOption::VALUE_REQUIRED, 'Rows per INSERT', '5000')
             ->addOption('source-prefix', null, InputOption::VALUE_REQUIRED, 'The source tables\' prefix (default: this application\'s)')
             ->addOption('keep-constraints', null, InputOption::VALUE_NONE, 'Load with the target\'s keys checked, even where they could be off')
-            ->addOption('null-orphans', null, InputOption::VALUE_NONE, 'After the load, set references that name no row to NULL where the column takes it');
+            ->addOption('null-orphans', null, InputOption::VALUE_NONE, 'After the load, set references that name no row to NULL where the column takes it')
+            ->addOption('changed-column', null, InputOption::VALUE_REQUIRED, 'cutover: the column a changed row is told by, where a table has it (default: updated_at and the like)')
+            ->addOption('with-deletes', null, InputOption::VALUE_NONE, 'cutover: delete here the rows deleted in MySQL since the operational copy')
+            ->addOption('time-column', null, InputOption::VALUE_REQUIRED, 'backfill: the column windows are cut on')
+            ->addOption('chunk-interval', null, InputOption::VALUE_REQUIRED, 'backfill: each window\'s length', '1 month')
+            ->addOption('throttle-ms', null, InputOption::VALUE_REQUIRED, 'backfill: a pause after each batch', '50')
+            ->addOption('compress-after-chunk', null, InputOption::VALUE_NONE, 'backfill: compress each window\'s chunks once it is done')
+            ->addOption('until', null, InputOption::VALUE_REQUIRED, 'backfill: where the newest window ends (default: the cutover\'s moment)')
+            ->addOption('restart', null, InputOption::VALUE_NONE, 'backfill: forget the windows done and start again');
     }
 
     /** The application the command runs for; a method, so a test can hand it one. */
@@ -58,8 +71,14 @@ class DatabaseMigrateFromMysql extends Command
 
             return Command::FAILURE;
         }
-        if ((string) $input->getOption('phase') !== 'full') {
-            $output->writeln('<error>Only --phase=full is available.</error> The operational, cutover and backfill phases are not built yet.');
+        $phase = (string) $input->getOption('phase');
+        if (!in_array($phase, ['full', 'operational', 'cutover', 'backfill'], true)) {
+            $output->writeln('<error>No phase ' . $phase . ':</error> full, operational, cutover or backfill.');
+
+            return Command::FAILURE;
+        }
+        if ($phase === 'backfill' && ((string) $input->getOption('time-column') === '' || (string) $input->getOption('tables') === '')) {
+            $output->writeln('<error>A backfill names its tables and the column its windows are cut on:</error> --tables=… --time-column=….');
 
             return Command::FAILURE;
         }
@@ -81,17 +100,45 @@ class DatabaseMigrateFromMysql extends Command
             return Command::SUCCESS;
         }
 
-        $result = $migrator->run(
-            $plan,
-            (int) $input->getOption('batch-size'),
-            !$input->getOption('keep-constraints'),
-            (bool) $input->getOption('null-orphans'),
-            static function (string $table, int $inserted, int $refused) use ($output): void {
-                if ($output->isVerbose()) {
-                    $output->writeln('  ' . $table . ': ' . $inserted . ' rows' . ($refused > 0 ? ', ' . $refused . ' refused' : ''));
+        $progress = static function (string $table, int $inserted, int $refused) use ($output): void {
+            if ($output->isVerbose()) {
+                $output->writeln('  ' . $table . ': ' . $inserted . ' rows' . ($refused > 0 ? ', ' . $refused . ' refused' : ''));
+            }
+        };
+        $batch = (int) $input->getOption('batch-size');
+        if ($phase === 'backfill') {
+            $until = $input->getOption('until') !== null ? strtotime((string) $input->getOption('until')) : null;
+            try {
+                $result = $migrator->backfill($plan, (string) $input->getOption('time-column'), (string) $input->getOption('chunk-interval'), $batch,
+                    (int) $input->getOption('throttle-ms'), (bool) $input->getOption('compress-after-chunk'), (bool) $input->getOption('restart'),
+                    $until === false ? null : $until, $progress);
+            } catch (\InvalidArgumentException $e) {
+                $output->writeln('<error>' . $e->getMessage() . '</error>');
+
+                return Command::FAILURE;
+            }
+
+            return $this->reportBackfill($output, $result);
+        }
+        if ($phase === 'cutover') {
+            $result = $migrator->cutover($plan, $batch, $list($input->getOption('changed-column')), (bool) $input->getOption('with-deletes'),
+                !$input->getOption('keep-constraints'), (bool) $input->getOption('null-orphans'), $progress);
+            foreach ($result['tables'] as $name => $t) {
+                if ($t['unseen'] !== null) {
+                    $output->writeln('<comment>' . $name . ': ' . $t['unseen'] . '</comment>');
+                }
+                if (($t['deleted'] ?? 0) > 0) {
+                    $output->writeln($name . ': ' . $t['deleted'] . ' row(s) deleted since the copy, deleted here too');
                 }
             }
-        );
+
+            return $this->reportResult($output, $result);
+        }
+
+        $result = $migrator->run($plan, $batch, !$input->getOption('keep-constraints'), (bool) $input->getOption('null-orphans'), $progress, $phase === 'operational');
+        if ($phase === 'operational') {
+            $output->writeln('The moment of the copy is recorded. Stop the application\'s writes, then run <info>--phase=cutover</info>.');
+        }
 
         return $this->reportResult($output, $result);
     }
@@ -141,6 +188,30 @@ class DatabaseMigrateFromMysql extends Command
         if ($plan['cycles'] !== []) {
             $output->writeln('<comment>These point at each other and load in name order:</comment> ' . implode(', ', $plan['cycles']));
         }
+    }
+
+    /** @param array<string, array<string, mixed>> $result */
+    private function reportBackfill(OutputInterface $output, array $result): int
+    {
+        $failed = false;
+        foreach ($result as $name => $t) {
+            if ($t['error'] !== null) {
+                $output->writeln('<error>✗</error> ' . $name . ': ' . $t['error']);
+                $failed = true;
+                continue;
+            }
+            $failed = $failed || $t['refused'] > 0;
+            $output->writeln(($t['refused'] > 0 ? '<error>✗</error> ' : '<info>✓</info> ') . $name . ': ' . $t['windows'] . ' window(s), '
+                . $t['inserted'] . ' inserted' . ($t['refused'] > 0 ? ', ' . $t['refused'] . ' refused' : '')
+                . ($t['skipped'] > 0 ? ', ' . $t['skipped'] . ' window(s) done before' : '')
+                . ($t['compressed'] > 0 ? ', ' . $t['compressed'] . ' chunk(s) compressed' : '')
+                . (($t['policyRestored'] ?? false) ? ', compression policy put back' : ''));
+            foreach ($t['errors'] as $error) {
+                $output->writeln('      ' . $error);
+            }
+        }
+
+        return $failed ? Command::FAILURE : Command::SUCCESS;
     }
 
     /** @param array<string, mixed> $result */
