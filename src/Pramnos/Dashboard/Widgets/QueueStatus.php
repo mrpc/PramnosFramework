@@ -54,10 +54,23 @@ final class QueueStatus extends Widget
         return Figures::link($this->id(), 'Queue');
     }
 
-    public function render(): string
+    /** The same figures for everybody who may see it: worked out once, kept a while. */
+    public function shared(): bool
+    {
+        return true;
+    }
+
+    /** The queue's figures over the period. */
+    public function data(): array
     {
         $queue = (new \Pramnos\Llm\Analyst\Tools\QueueTool())->execute($this->window());
-        if (!is_array($queue) || ($queue['available'] ?? true) === false) {
+
+        return is_array($queue) ? $queue : ['available' => false];
+    }
+
+    public function present(array $queue): string
+    {
+        if (($queue['available'] ?? true) === false) {
             return '';
         }
         $failed = array_sum(array_column((array) ($queue['failed'] ?? []), 'count'));

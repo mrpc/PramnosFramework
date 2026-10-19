@@ -57,10 +57,23 @@ final class AiSpend extends Widget
         return Figures::link($this->id(), 'Ai/settings');
     }
 
-    public function render(): string
+    /** The same figures for everybody who may see it: worked out once, kept a while. */
+    public function shared(): bool
+    {
+        return true;
+    }
+
+    /** What the calls of the period cost. */
+    public function data(): array
     {
         $spend = (new \Pramnos\Llm\Analyst\Tools\LlmSpendTool())->execute($this->window());
-        if (!is_array($spend) || ($spend['available'] ?? true) === false) {
+
+        return is_array($spend) ? $spend : ['available' => false];
+    }
+
+    public function present(array $spend): string
+    {
+        if (($spend['available'] ?? true) === false) {
             return '';
         }
         $calls  = (int) ($spend['calls'] ?? 0);

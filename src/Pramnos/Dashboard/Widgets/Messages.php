@@ -59,27 +59,57 @@ final class Messages extends Widget
         return $this->periodOptions();
     }
 
-    public function render(): string
+    /** The same figures for everybody who may see it: worked out once, kept a while. */
+    public function shared(): bool
+    {
+        return true;
+    }
+
+    /** Each channel's figures over the period, by its id; null for one that could not be read. */
+    public function data(): array
     {
         [$from, $to] = $this->periodRange();
-        $html = '';
+        $channels = [];
         foreach (WidgetRegistry::channels() as $channel) {
             try {
-                $html .= $this->row($channel, $from, $to);
+                $channels[$channel->id()] = [
+                    'figures' => $channel->figures($from, $to),
+                    'reach'   => $channel instanceof MessageReach ? $channel->reach($from, $to) : null,
+                ];
             } catch (\Throwable $e) {
                 // One channel that fails is a line saying so, not a card that is gone.
                 \Pramnos\Logs\Logger::log('Message channel ' . $channel->id() . ' failed: ' . $e->getMessage(), 'dashboard');
-                $html .= '<p class="pf-dashboard-health-message">' . self::e(sprintf(Figures::words('%s could not be read.'), Figures::words($channel->label()))) . '</p>';
+                $channels[$channel->id()] = null;
             }
+        }
+
+        return ['channels' => $channels];
+    }
+
+    public function present(array $data): string
+    {
+        $html = '';
+        foreach (WidgetRegistry::channels() as $channel) {
+            if (!array_key_exists($channel->id(), (array) ($data['channels'] ?? []))) {
+                continue;
+            }
+            $figures = $data['channels'][$channel->id()];
+            $html   .= is_array($figures)
+                ? $this->row($channel, (array) ($figures['figures'] ?? []), is_array($figures['reach'] ?? null) ? $figures['reach'] : null)
+                : '<p class="pf-dashboard-health-message">' . self::e(sprintf(Figures::words('%s could not be read.'), Figures::words($channel->label()))) . '</p>';
         }
 
         return $html;
     }
 
-    /** One channel's row: its name and its tiles. */
-    private function row(MessageChannel $channel, int $from, int $to): string
+    /**
+     * One channel's row: its name and its tiles.
+     *
+     * @param array<string, mixed>      $f     Its figures
+     * @param array<string, mixed>|null $reach Who it reached, where it says
+     */
+    private function row(MessageChannel $channel, array $f, ?array $reach): string
     {
-        $f      = $channel->figures($from, $to);
         $total  = (int) ($f['total'] ?? 0);
         $failed = (int) ($f['failed'] ?? 0);
         $rate   = $total > 0 ? $failed / $total : 0.0;
@@ -97,7 +127,7 @@ final class Messages extends Widget
         if (isset($f['cost'])) {
             $tiles[] = StatTile::render(Figures::words('Cost'), (string) ($f['currency'] ?? '') . number_format((float) $f['cost'], 2));
         }
-        if ($channel instanceof MessageReach && ($reach = $channel->reach($from, $to)) !== null) {
+        if ($reach !== null) {
             $tiles[] = StatTile::render(Figures::words('Reached'), number_format((int) $reach['recipients']),
                 sprintf(Figures::words('%s a day'), number_format((float) $reach['average'], 1))
                 . ((int) $reach['missing_days'] > 0 ? ' · ' . sprintf(Figures::words('%d days missing'), (int) $reach['missing_days']) : ''));

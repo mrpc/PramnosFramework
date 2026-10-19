@@ -31,9 +31,20 @@ final class DatabaseOverview extends Widget
         return Figures::link($this->id(), 'Dashboard/database');
     }
 
-    public function render(): string
+    /** The same figures for everybody who may see it: worked out once, kept a while. */
+    public function shared(): bool
     {
-        $db    = Figures::database();
+        return true;
+    }
+
+    /** The server's figures. */
+    public function data(): array
+    {
+        return Figures::database();
+    }
+
+    public function present(array $db): string
+    {
         $tiles = [
             StatTile::render(Figures::words('Size'), Figures::bytes((float) ($db['db_size_bytes'] ?? 0)), (string) ($db['version'] ?? $db['type'] ?? ''), $this->link()),
             StatTile::render(Figures::words('Connections'), (int) ($db['connections_active'] ?? 0), (int) ($db['connections_total'] ?? 0) . ' ' . Figures::words('in all')),

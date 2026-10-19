@@ -52,16 +52,32 @@ final class RecentErrors extends Widget
         return Figures::link($this->id(), 'logs');
     }
 
-    public function render(): string
+    /** The same figures for everybody who may see it: worked out once, kept a while. */
+    public function shared(): bool
+    {
+        return true;
+    }
+
+    /** How many errors, and the commonest — reading every log, which is why it is shared. */
+    public function data(): array
     {
         $summary = \Pramnos\Logs\LogAnalytics::summary('24h');
         $levels  = array_change_key_case((array) ($summary['levels'] ?? []));
-        $count   = array_sum(array_intersect_key($levels, array_flip(self::LEVELS)));
-
-        $html = StatTile::grid([StatTile::render(Figures::words('Errors'), number_format((int) $count), link: $this->link(), state: $count > 0 ? StatTile::WARNING : StatTile::GOOD)]);
-        $items = '';
+        $top     = [];
         foreach (array_slice((array) ($summary['topErrors'] ?? []), 0, self::SHOWN) as $error) {
-            $items .= '<li><span class="pf-dashboard-health-message">' . self::e(mb_strimwidth((string) ($error['message'] ?? ''), 0, 160, '…')) . '</span>'
+            $top[] = ['message' => mb_strimwidth((string) ($error['message'] ?? ''), 0, 160, '…'), 'count' => (int) ($error['count'] ?? 0)];
+        }
+
+        return ['count' => (int) array_sum(array_intersect_key($levels, array_flip(self::LEVELS))), 'top' => $top];
+    }
+
+    public function present(array $data): string
+    {
+        $count = (int) ($data['count'] ?? 0);
+        $html  = StatTile::grid([StatTile::render(Figures::words('Errors'), number_format($count), link: $this->link(), state: $count > 0 ? StatTile::WARNING : StatTile::GOOD)]);
+        $items = '';
+        foreach ((array) ($data['top'] ?? []) as $error) {
+            $items .= '<li><span class="pf-dashboard-health-message">' . self::e((string) ($error['message'] ?? '')) . '</span>'
                 . '<span class="pf-dashboard-status">' . (int) ($error['count'] ?? 0) . '×</span></li>';
         }
 

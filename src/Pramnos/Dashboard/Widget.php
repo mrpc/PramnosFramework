@@ -53,6 +53,21 @@ namespace Pramnos\Dashboard;
  * (`Html\StatTile` draws in every theme); the dashboard draws the card around it. An empty string
  * is a card with nothing to show today. A widget that throws is drawn as a short note, not as a
  * broken dashboard.
+ *
+ * A card whose figures are slow to work out, and the same for everybody who may see it, is
+ * **shared**: it splits `render()` into {@see data()} — the figures, without words, links or
+ * HTML — and {@see present()}, which draws them for the person looking. The dashboard keeps the
+ * data in the cache ({@see WidgetData}) under {@see dataKey()}, and `dashboard:precompute` can
+ * keep it filled from a cron line, so nobody waits for it.
+ *
+ * ```php
+ * public function shared(): bool { return true; }
+ * public function data(): array { return ['open' => Order::openCount()]; }   // slow, the same for all
+ * public function present(array $data): string
+ * {
+ *     return \Pramnos\Html\StatTile::render(t('Open'), (string) $data['open'], link: adminUrl('Orders'));
+ * }
+ * ```
  */
 abstract class Widget
 {
@@ -97,8 +112,59 @@ abstract class Widget
     /** The card's heading. */
     abstract public function title(): string;
 
-    /** The card's inside, as HTML. */
-    abstract public function render(): string;
+    /**
+     * The card's inside, as HTML: what {@see present()} draws of {@see data()}, unless the card
+     * draws itself.
+     */
+    public function render(): string
+    {
+        return $this->present($this->data());
+    }
+
+    /**
+     * Whether the card's data is the same for everybody who may see it with the same settings,
+     * so the dashboard may keep it and hand it to the next — {@see data()} and {@see present()}.
+     */
+    public function shared(): bool
+    {
+        return false;
+    }
+
+    /**
+     * The card's figures, for {@see present()}: plain values only — no words in a language, no
+     * links, no HTML, nothing of the person looking — as they are kept as JSON and handed to
+     * whoever opens the card next.
+     *
+     * @return array<string, mixed>
+     */
+    public function data(): array
+    {
+        return [];
+    }
+
+    /**
+     * The card's inside, drawn from {@see data()} for the person looking: their language, the
+     * links they may follow.
+     *
+     * @param array<string, mixed> $data
+     */
+    public function present(array $data): string
+    {
+        return '';
+    }
+
+    /**
+     * What the data depends on: the card and its settings, without those that only change how it
+     * is drawn (`title`, `chart`). Two people's cards with the same key share one entry. A card
+     * whose data depends on something else — a market the site is showing — adds it.
+     */
+    public function dataKey(): string
+    {
+        $settings = array_diff_key($this->dashboardSettings, ['title' => true, 'chart' => true]);
+        ksort($settings);
+
+        return $this->id() . ':' . md5((string) json_encode($settings));
+    }
 
     /** Whether this person may have it. The dashboard's role, `manager`, by default. */
     public function allowed(?object $user): bool

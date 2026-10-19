@@ -31,10 +31,20 @@ final class ActiveUsers extends Widget
         return Figures::link($this->id(), 'Users/sessions');
     }
 
-    public function render(): string
+    /** The same figures for everybody who may see it: worked out once, kept a while. */
+    public function shared(): bool
     {
-        $counts = Figures::activeUsers();
+        return true;
+    }
 
+    /** The counts. */
+    public function data(): array
+    {
+        return Figures::activeUsers();
+    }
+
+    public function present(array $counts): string
+    {
         return StatTile::grid([
             StatTile::render(Figures::words('Now'), (int) ($counts['now'] ?? 0), link: $this->link()),
             StatTile::render(Figures::words('Last 24 hours'), (int) ($counts['last_24h'] ?? 0)),

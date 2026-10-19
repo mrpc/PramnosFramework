@@ -232,6 +232,8 @@ class Application extends \Symfony\Component\Console\Application
         // Moving an application's data from MySQL into the PostgreSQL its migrations built.
         $this->add(new \Pramnos\Console\Commands\DatabaseMigrateFromMysql());
         $this->add(new \Pramnos\Console\Commands\DatabaseDialectLint());
+        // The shared dashboard cards worked out ahead of anybody waiting for them, from cron.
+        $this->add(new \Pramnos\Console\Commands\DashboardPrecompute());
         // Push has five parts and four of them are invisible when missing. Five numbered steps
         // in a guide are five chances to stop after four.
         $this->add(new \Pramnos\Console\Commands\PushSetup());

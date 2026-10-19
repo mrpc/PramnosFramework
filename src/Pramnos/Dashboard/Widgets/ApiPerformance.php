@@ -34,9 +34,20 @@ final class ApiPerformance extends Widget
         return Figures::link($this->id(), 'TokenActions');
     }
 
-    public function render(): string
+    /** The same figures for everybody who may see it: worked out once, kept a while. */
+    public function shared(): bool
     {
-        $api   = Figures::api();
+        return true;
+    }
+
+    /** The last day's calls. */
+    public function data(): array
+    {
+        return Figures::api();
+    }
+
+    public function present(array $api): string
+    {
         $error = (float) ($api['error_rate'] ?? 0) * 100;
 
         return StatTile::grid([

@@ -152,6 +152,25 @@ class DashboardLayoutsMySQLTest extends TestCase
     }
 
     /**
+     * Every layout saved for an area, as `dashboard:precompute` reads it (FW-167): this area's,
+     * with each card's settings, and not another area's.
+     */
+    public function testTheSavedLayoutsOfAnArea(): void
+    {
+        // Arrange
+        $layouts = new Layouts($this->db);
+        $layouts->save(self::me(), [['id' => 'database', 'size' => 'full']], 'pf-precompute');
+        $layouts->save(self::me(), [['id' => 'health']], 'pf-elsewhere');
+
+        // Act
+        $saved = $layouts->saved('pf-precompute');
+
+        // Assert
+        $this->assertSame([[['id' => 'database', 'size' => 'full', 'settings' => []]]], $saved);
+        $this->assertSame([], $layouts->saved('pf-nobody'));
+    }
+
+    /**
      * The controller: a posted layout is kept and answered cleaned; display draws this person's
      * widgets in order, offers the rest, and still hands a view of the older shape its figures;
      * reset forgets the layout and goes back to the dashboard; nobody signed in is refused.

@@ -6,6 +6,7 @@ use_cases:
   - Replacing or removing the framework's own dashboard cards
   - Letting each person set a card's period, market or chart type
   - Adding or redrawing a dashboard card without reloading the page
+  - Making a slow dashboard card fast by working its figures out once for everybody
 ---
 
 # Dashboard Guide
@@ -47,7 +48,8 @@ final class OpenOrders extends Widget
 |---|---|---|
 | `id()` | A unique name, kept in the layouts people save: do not rename it | — |
 | `title()` | The card's heading | — |
-| `render()` | The card's inside, as HTML; `''` is "nothing to show today" | — |
+| `render()` | The card's inside, as HTML; `''` is "nothing to show today" | `present(data())` |
+| `shared()`, `data()`, `present()`, `dataKey()` | A card whose figures are kept and shared — see [Slow cards](#slow-cards-shared-figures) | not shared |
 | `allowed($user)` | Whether this person may have it | the `manager` role |
 | `size()` | The width it starts at: `Widget::SMALL`, `MEDIUM`, `LARGE` or `FULL` | medium |
 | `options()` | What a person may set on it — see [Settings](#settings) | nothing |
@@ -65,6 +67,59 @@ classes. A widget that needs a model has the controller drawing it:
 application's own dashboard controller hands it over with `$widget->setController($this)`. Draw figures with `Html\StatTile`, which every theme styles, or with the theme's own
 classes. A widget that throws becomes a short note on its card and a line in the
 `dashboard` log, and the rest of the dashboard still draws.
+
+## Slow cards: shared figures
+
+A card that reads every log, or sums a month of API calls, should not do so on every dashboard
+anybody opens. If its figures are the same for everybody who may see it with the same settings,
+make it **shared**. Split `render()` into the figures and the drawing:
+
+```php
+final class OpenOrders extends Widget
+{
+    public function shared(): bool { return true; }
+
+    /** Plain values only: no words in a language, no links, no HTML, nothing of the person. */
+    public function data(): array
+    {
+        return ['open' => Order::openCount(), 'late' => Order::lateCount()];
+    }
+
+    /** Drawn for the person looking: their language, the links they may follow. */
+    public function present(array $data): string
+    {
+        return StatTile::grid([
+            StatTile::render(t('Open'), (string) $data['open'], link: $this->link()),
+            StatTile::render(t('Late'), (string) $data['late'], state: StatTile::WARNING),
+        ]);
+    }
+}
+```
+
+The dashboard keeps `data()` in the cache's `dashboard` category (`Dashboard\WidgetData`), under
+`dataKey()`: the card's id and its settings, without `title` and `chart`, which only change the
+drawing. Two people whose cards differ only in that share one entry. A card whose figures depend
+on something else adds it, for example the market a site is showing:
+`return parent::dataKey() . ':' . Market::current();`. The first dashboard after an entry expires
+works the figures out and keeps them. The card handed to a view carries `at`, when they were
+worked out, so a view can say "updated 3 minutes ago". It is null for a card drawn on the spot.
+
+`allowed()` still decides who sees the card. Kept figures are only ever drawn for somebody the card
+allows, and `card()` answers 404 before reading them.
+
+**How long they are kept:** five minutes, or `'dashboard' => ['data_ttl' => 600]` in app.php.
+**Nobody waiting for them:** `dashboard:precompute` works out every shared card with its default
+settings and with every setting saved in the area's layouts. From cron:
+
+```bash
+*/5 * * * * cd /var/www/app && php bin/pramnos dashboard:precompute            # --area=partner for another
+```
+
+With the cron every five minutes, keep `data_ttl` longer than that, so an entry never expires
+between runs. The command exits `1` when a card could not be worked out, and keeps the others.
+
+The framework's slow cards are shared: `logs.errors`, `ai.spend`, `messages`, `users.active`,
+`database`, `queue` and `api.performance`.
 
 ## Settings
 

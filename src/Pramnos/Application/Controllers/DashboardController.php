@@ -201,8 +201,13 @@ class DashboardController extends Controller
             // name => {input: select|text|date|number, label, values, when}
             'fields'   => $fields,
             'html'     => $this->drawWidget($widget->configure($settings)),
+            // When a shared card's figures were worked out; null for a card drawn now.
+            'at'       => $widget->shared() ? $this->drawnAt : null,
         ];
     }
+
+    /** When the shared card drawn last had its figures worked out. */
+    private ?int $drawnAt = null;
 
     /** The store of layouts. */
     protected function layouts(): \Pramnos\Dashboard\Layouts
@@ -216,8 +221,18 @@ class DashboardController extends Controller
      */
     protected function drawWidget(\Pramnos\Dashboard\Widget $widget): string
     {
+        $this->drawnAt = null;
         try {
-            return $widget->setController($this)->render();
+            $widget->setController($this);
+            if ($widget->shared()) {
+                // The figures as somebody — or dashboard:precompute — worked them out lately.
+                $entry         = \Pramnos\Dashboard\WidgetData::read($widget);
+                $this->drawnAt = $entry['at'];
+
+                return $widget->present($entry['data']);
+            }
+
+            return $widget->render();
         } catch (\Throwable $e) {
             \Pramnos\Logs\Logger::log('Dashboard widget ' . $widget->id() . ' failed: ' . $e->getMessage(), 'dashboard');
 

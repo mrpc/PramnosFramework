@@ -125,6 +125,25 @@ final class Layouts
         return Widget::normalSize($size) ?? Widget::MEDIUM;
     }
 
+    /**
+     * Every layout saved for an area, as kept — what `dashboard:precompute` works out the shared
+     * cards of. Each is cleaned against nobody: settings are cleaned by the card that reads them.
+     *
+     * @return list<list<array<string, mixed>>>
+     */
+    public function saved(string $area = 'admin'): array
+    {
+        $layouts = [];
+        foreach ($this->table()->select(['layout'])->where('area', $area)->get()->fetchAll() as $row) {
+            $layout = json_decode((string) ($row['layout'] ?? ''), true);
+            if (is_array($layout)) {
+                $layouts[] = array_values(array_filter($layout, 'is_array'));
+            }
+        }
+
+        return $layouts;
+    }
+
     private function table(): \Pramnos\Database\QueryBuilder
     {
         return ($this->db ?? Database::getInstance())->queryBuilder()->table('#PREFIX#user_dashboards');

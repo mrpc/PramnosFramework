@@ -194,8 +194,13 @@ class MessagesTest extends TestCase
         // Act
         $ids  = array_keys(WidgetRegistry::channels());
         $html = $card->render();
+        // Figures kept before a channel was added: the channels they do not name are left out.
+        $kept = $card->present(['channels' => ['sms' => $card->data()['channels']['sms']]]);
 
         // Assert
+        $this->assertTrue($card->shared(), 'its figures are kept and shared (FW-167)');
+        $this->assertStringContainsString('<h4 class="pf-dashboard-channel">SMS</h4>', $kept);
+        $this->assertStringNotContainsString('Email', $kept, 'a channel the figures do not name');
         $this->assertSame(['email', 'sms', 'broken'], $ids);
         $this->assertTrue($card->allowed($root));
         $this->assertFalse($card->byDefault());
