@@ -107,14 +107,26 @@ class DashboardPrecompute extends Command
     }
 
     /**
-     * A controller of the current application for the cards, as the dashboard hands them its own;
-     * null without an application.
+     * The application's dashboard controller for the cards, as the dashboard hands them itself —
+     * so a card's `getModel()` finds the models the area's screens find: `'dashboard' =>
+     * ['controller' => App\Admin\Controllers\Dashboard::class]`, or `Controllers\Dashboard` in
+     * the application's namespace, or a plain controller of it. Null without an application.
      */
     protected function controller(): ?\Pramnos\Application\Controller
     {
         $app = \Pramnos\Application\Application::currentInstance();
+        if ($app === null) {
+            return null;
+        }
+        $namespace  = trim((string) ($app->applicationInfo['namespace'] ?? ''), '\\');
+        $candidates = [$app->applicationInfo['dashboard']['controller'] ?? null, $namespace !== '' ? $namespace . '\\Controllers\\Dashboard' : null];
+        foreach ($candidates as $class) {
+            if (is_string($class) && class_exists($class) && is_subclass_of($class, \Pramnos\Application\Controller::class)) {
+                return new $class($app);
+            }
+        }
 
-        return $app !== null ? new \Pramnos\Application\Controller($app) : null;
+        return new \Pramnos\Application\Controller($app);
     }
 
     /**

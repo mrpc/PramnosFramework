@@ -611,7 +611,9 @@ session path.
 - **A stopped session stays stopped.** It reads as signed out, but it is not a guest: while its
   login waits for the step, or its account is locked out, every page it opens is sent to the
   step again, at most fifteen minutes. Finishing the login, abandoning it or letting it expire
-  ends that. An application that throws away a guest's session on every request loses the
+  ends that. Asked before the application exists, as a front controller deciding on its page
+  cache does, the session counts as owed and nothing is forgotten. The question asked once the
+  application is up decides. An application that throws away a guest's session on every request loses the
   pending login with it, and the person signs in again.
 - **An account without a second factor, or a browser it trusts,** is marked and passes. A
   remember-me cookie in a browser trusted with "Don't ask again on this device" is therefore not

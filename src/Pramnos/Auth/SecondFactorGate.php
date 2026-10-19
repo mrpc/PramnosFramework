@@ -82,6 +82,12 @@ final class SecondFactorGate
         if ($owed === null) {
             return false;
         }
+        // Asked before the application exists — a front controller deciding on its page cache —
+        // the policy cannot be read: still owed, nothing forgotten and nobody sent anywhere yet.
+        // The question asked once the application is up decides.
+        if (\Pramnos\Application\Application::currentInstance() === null) {
+            return is_array($owed);
+        }
         $userId  = is_array($owed) ? (int) ($owed['user'] ?? 0) : 0;
         $waiting = $userId > 1 && SecurityPolicy::secondFactorEverywhere() && (int) ($owed['until'] ?? 0) >= time()
             && (self::lockedFor() > 0 || LoginFlow::make()->pendingUserId() === $userId);

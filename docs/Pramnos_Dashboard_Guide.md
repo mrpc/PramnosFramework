@@ -121,8 +121,11 @@ between runs. The command exits `1` when a card could not be worked out, and kee
 - **Whose cards:** those of `--app=<name>`, or of the area's own application where there is one
   (`app/admin.php` for `--area=admin`), or of the application the console started. A console
   that boots the site would otherwise find only the framework's cards.
-- **A controller:** each card is handed one of that application's, so a `data()` that builds a
-  model with `$this->controller?->getModel()` has one. There is no person and no request.
+- **A controller:** each card is handed the application's dashboard controller, so a `data()`
+  that builds a model with `$this->controller?->getModel()` finds the models the area's screens
+  find. That is `'dashboard' => ['controller' => App\Admin\Controllers\Dashboard::class]`, or
+  `Controllers\Dashboard` in the application's namespace, or a plain controller of it. There
+  is no person and no request.
 - **Settings nobody saved:** the command works out each card with its defaults and every saved
   layout's settings. A card whose data has variants that people use without saving them — a
   market taken from a cookie — spreads them in `precomputeSettings(array $settings): array`,

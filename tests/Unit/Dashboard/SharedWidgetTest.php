@@ -79,6 +79,11 @@ final class SlowSharedCard extends Widget
     }
 }
 
+/** An application's own dashboard controller, as app.php names it for the cards. */
+final class AppDashboardController extends \Pramnos\Application\Controller
+{
+}
+
 /** The dashboard's controller, without an application, with cardFor() reachable. */
 final class SharedCardController extends DashboardController
 {
@@ -360,7 +365,7 @@ final class SharedWidgetTest extends TestCase
             {
             }
         };
-        $other->applicationInfo = ['dashboard' => ['framework' => false, 'widgets' => [SlowSharedCard::class]]];
+        $other->applicationInfo = ['dashboard' => ['framework' => false, 'widgets' => [SlowSharedCard::class], 'controller' => AppDashboardController::class]];
         $ref = new \ReflectionProperty(\Pramnos\Application\Application::class, 'appInstances');
         $ref->setValue(null, $ref->getValue() + ['backoffice' => $other]);
         SlowSharedCard::$spreads = true;
@@ -387,7 +392,7 @@ final class SharedWidgetTest extends TestCase
         $this->assertStringContainsString('2 card(s) worked out.', $display, 'the default (7) and its variant (30)');
         $this->assertSame(2, SlowSharedCard::$computed);
         $this->assertNotEmpty(SlowSharedCard::$controllers);
-        $this->assertContainsOnlyInstancesOf(\Pramnos\Application\Controller::class, SlowSharedCard::$controllers, 'each card has one');
+        $this->assertContainsOnlyInstancesOf(AppDashboardController::class, SlowSharedCard::$controllers, 'each card has the application\'s own (FW-173)');
         $this->assertSame($console, \Pramnos\Application\Application::currentInstance(), 'the console\'s application is current again');
     }
 }

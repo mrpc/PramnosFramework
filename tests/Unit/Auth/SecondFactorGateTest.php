@@ -332,4 +332,30 @@ final class SecondFactorGateTest extends TestCase
         $this->assertArrayNotHasKey(SecondFactorGate::OWED, $_SESSION, 'settled: nothing owed');
         $this->assertSame(0, SecondFactorGate::lockedFor());
     }
+
+    /**
+     * Asked before the application exists (FW-173) — a front controller deciding on its page
+     * cache — the policy is unknown: the session is still owed and nothing is forgotten, so the
+     * question asked once the application is up still sends it to the step.
+     */
+    public function testAskedBeforeTheApplicationNothingIsForgotten(): void
+    {
+        // Arrange
+        $_SESSION = ['loginflow_pending_userid' => 7, 'loginflow_pending_time' => time(),
+            SecondFactorGate::OWED => ['user' => 7, 'until' => time() + 600]];
+        (new \ReflectionProperty(\Pramnos\Application\Application::class, 'appInstances'))->setValue(null, []);
+
+        // Act
+        $before = SecondFactorGate::stillOwed();
+        $kept   = $_SESSION[SecondFactorGate::OWED] ?? null;
+        self::gate(true);
+        $_SERVER = ['REQUEST_METHOD' => 'GET', 'REQUEST_URI' => '/el', 'HTTP_ACCEPT' => 'text/html'];
+        $after = SecondFactorGate::stillOwed();
+
+        // Assert
+        $this->assertTrue($before, 'not signed in, whatever the policy turns out to be');
+        $this->assertSame(7, $kept['user'] ?? null, 'and nothing forgotten');
+        $this->assertTrue($after, 'the application up: still owed, sent to the step');
+        $this->assertSame('/el', $_SESSION[SecondFactorGate::RETURN]);
+    }
 }
