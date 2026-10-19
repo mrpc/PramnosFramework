@@ -341,6 +341,7 @@ class TestEnvironment
                 );
                 $pdo->exec("CREATE DATABASE \"$dbName\" WITH TEMPLATE template1");
             });
+            self::forgetTheDatabaseBefore();
         }
 
         /*
@@ -375,6 +376,32 @@ class TestEnvironment
             );
             self::runImport($command, 'psql');
         }
+    }
+
+    /**
+     * Forget what was remembered about a database of the same name that is gone.
+     *
+     * A database dropped and created again under its old name — by
+     * {@see rebuildIfOvergrown()}, or by hand — is a new database to the server and the same
+     * one to two caches keyed on its name:
+     *
+     *  - the `var/migrations/*.verified` markers (and their APCu twins) say its migrations are
+     *    up to date, so none runs, and every test fails on a table that does not exist with
+     *    nothing mentioning migrations;
+     *  - the SQL cache still answers queries from the old database — the settings first,
+     *    so a migration that writes a setting only when it is not set yet reads the old value
+     *    and writes nothing.
+     *
+     * Neither can see the change by itself: both are keyed on the connection's name, because
+     * asking the database who it is would cost the round trip they exist to save. The one
+     * place that knows the database is new is here, where it was created.
+     */
+    protected static function forgetTheDatabaseBefore(): void
+    {
+        \Pramnos\Application\Application::forgetVerifiedMigrations();
+
+        // Scoped to this connection's prefix: another installation's cache is not touched.
+        \Pramnos\Database\Database::getInstance()->cacheflush();
     }
 
     /**
@@ -516,7 +543,13 @@ class TestEnvironment
         // Created when absent, not dropped and rebuilt on every run — see the
         // PostgreSQL branch for why. `IF NOT EXISTS` rather than a lookup because
         // MySQL offers it and the two statements would race each other anyway.
+        $found = $pdo->query(
+            'SELECT 1 FROM information_schema.SCHEMATA WHERE SCHEMA_NAME = ' . $pdo->quote($dbName)
+        )->fetchColumn();
         $pdo->exec("CREATE DATABASE IF NOT EXISTS `$dbName`");
+        if ($found === false) {
+            self::forgetTheDatabaseBefore();
+        }
 
         // Import dump via mysql if provided
         if ($schemaPath && file_exists($schemaPath)) {

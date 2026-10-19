@@ -622,6 +622,13 @@ the test database, says so on STDERR, and builds it from nothing, which costs on
 migration. Keys are the table names in the database, with the prefix on MySQL. A table or a
 database that does not exist counts as empty. The setting is off unless you set it.
 
+Whenever `TestEnvironment` creates the test database — the first run, after a rebuild, or after
+you dropped it yourself — it first forgets what was remembered under the database's name: the
+`var/migrations/*.verified` markers (and their APCu entries), which would otherwise say the
+migrations are done, and the connection's SQL cache, which would otherwise answer the settings of
+the database that is gone. Both are keyed on the connection's name, so neither can tell a new
+database from the old one by itself.
+
 ### Writes are real
 
 `BaseTestCase` does not wrap a test in a transaction: what the code under test writes is
