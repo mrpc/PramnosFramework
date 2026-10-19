@@ -1142,9 +1142,10 @@ final class PageCache
 
     /**
      * What identifies this visitor and must not be in a stored body: the session's
-     * `visitorid`, and the value of each harmless cookie this response sets. Values shorter
-     * than eight characters are left out — `lastseen`'s small numbers would match a page by
-     * accident, and an identifier is never that short.
+     * `visitorid`, and the value of each harmless cookie this response sets. Left out: values
+     * shorter than eight characters, and values that are only digits — `lastseen` holds
+     * `time()`, which identifies nobody and is exactly what a page prints for a script or a
+     * cache-buster; looking for it refused every such page to every visitor without cookies.
      *
      * @return list<string>
      */
@@ -1165,7 +1166,10 @@ final class PageCache
             }
         }
 
-        return array_values(array_unique(array_filter($values, static fn (string $v): bool => strlen($v) >= 8)));
+        return array_values(array_unique(array_filter(
+            $values,
+            static fn (string $v): bool => strlen($v) >= 8 && !ctype_digit($v)
+        )));
     }
 
     /**

@@ -130,7 +130,8 @@ first visitor's, handed to all the rest. And the first visitor of a page is ofte
 The tracking cookies (`harmlessCookies`, `visitorid` and `lastseen` by default) may go with a
 stored page, because a cookie is the browser's own. Their values may not be in its body. So
 `store()` refuses a body that contains the session's `visitorid`, or the value of a harmless
-cookie the same response sets. A page that wants to tell a script who the visitor is cannot be
+cookie the same response sets. A value that is only digits is not looked for: `lastseen` holds
+`time()`, which identifies nobody and which a page may well print for its own scripts. A page that wants to tell a script who the visitor is cannot be
 shared; let the script read its own cookie instead.
 
 ### A HIT records no visit

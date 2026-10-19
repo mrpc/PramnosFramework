@@ -222,6 +222,34 @@ class PageCacheMiddlewareTest extends TestCase
     }
 
     /**
+     * A page that prints the time is stored, though the `lastseen` cookie this response sets holds
+     * the same `time()`: a timestamp identifies nobody, and looking for it refused every such
+     * page — a script's clock, a cache-buster — to every visitor without cookies.
+     */
+    public function testAPagePrintingTheTimeIsStored(): void
+    {
+        // Arrange
+        $prefix = substr(md5('pcms'), 0, 10);
+        $now    = (string) time();
+        $cache  = $this->middleware();
+        $ran    = 0;
+        $page   = function () use (&$ran, $now): Response {
+            $ran++;
+
+            return Response::make('<html><script>var now = ' . $now . ';</script></html>');
+        };
+
+        // Act
+        PageCache::useQueuedHeaders(['Set-Cookie: ' . urlencode($prefix . '[' . str_rot13('lastseen') . ']') . '=' . $now . '; path=/']);
+        $cache->handle($this->request('/clock'), $page);
+        PageCache::useQueuedHeaders([]);
+        $cache->handle($this->request('/clock'), $page);
+
+        // Assert
+        $this->assertSame(1, $ran, 'the page printing the time was not stored');
+    }
+
+    /**
      * The framework's own cookies arrive as an array under its prefix, by an encoded name; the
      * remember-me `logged` among them is still found, so a remembered visitor without a session is
      * not served the anonymous page. An array cookie of an application's own is matched as
