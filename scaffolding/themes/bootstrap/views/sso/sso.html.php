@@ -35,14 +35,16 @@
                     </ul>
                 <?php endif; ?>
 
-                <a href="<?php echo adminUrl('Dashboard'); ?>" class="btn btn-primary me-2"><?php echo htmlspecialchars(t('Dashboard'), ENT_QUOTES, 'UTF-8'); ?></a>
+                <a href="<?php echo sURL . rawurlencode((string) ($this->routeBase ?? 'Account')); ?>" class="btn btn-primary me-2"><?php echo htmlspecialchars(t('Your account'), ENT_QUOTES, 'UTF-8'); ?></a>
                 <a href="<?php echo sURL; ?>login/logout" class="btn btn-outline-danger"><?php echo htmlspecialchars(t('Sign Out'), ENT_QUOTES, 'UTF-8'); ?></a>
             <?php else: ?>
                 <div class="alert alert-secondary">
                     <strong>&#10007; <?php echo htmlspecialchars(t('Not Signed In'), ENT_QUOTES, 'UTF-8'); ?></strong> — <?php echo htmlspecialchars(t('You are not currently signed in to any application.'), ENT_QUOTES, 'UTF-8'); ?>
                 </div>
                 <a href="<?php echo sURL; ?>login" class="btn btn-primary me-2"><?php echo htmlspecialchars(t('Sign In'), ENT_QUOTES, 'UTF-8'); ?></a>
-                <a href="<?php echo sURL; ?>register" class="btn btn-outline-secondary"><?php echo htmlspecialchars(t('Create Account'), ENT_QUOTES, 'UTF-8'); ?></a>
+                <?php if ($this->registrationOpen ?? true): ?>
+                    <a href="<?php echo sURL; ?>register" class="btn btn-outline-secondary"><?php echo htmlspecialchars(t('Create Account'), ENT_QUOTES, 'UTF-8'); ?></a>
+                <?php endif; ?>
             <?php endif; ?>
         </div>
     </div>

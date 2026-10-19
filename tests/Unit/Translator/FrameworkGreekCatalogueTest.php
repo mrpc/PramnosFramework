@@ -20,8 +20,11 @@ final class FrameworkGreekCatalogueTest extends TestCase
 {
     /** Where the phrases are, relative to the repository. */
     private const SOURCES = [
-        'scaffolding/themes/*/views/{login,OAuth2,twofactor,register,passkey,device,sso,profile,organization,home,status,partials}/*.php',
+        'scaffolding/themes/*/views/{login,OAuth2,twofactor,register,passkey,device,sso,profile,organization,home,status,partials,messages}/*.php',
+        'scaffolding/themes/*/views/dashboard/dashboard.html.php',
         'src/Pramnos/Auth/Controllers/{Account,TwoFactorAuth,Device,Passkey}.php',
+        'src/Pramnos/Auth/Notifications/{SecondFactorCode,NewSignIn,NewDeviceAuthLink,SecurityChange}Notification.php',
+        'src/Pramnos/Security/CookieConsent.php',
         'src/Pramnos/Application/Controllers/Status.php',
         'src/Pramnos/Html/NotificationBell.php',
     ];
@@ -80,7 +83,9 @@ final class FrameworkGreekCatalogueTest extends TestCase
                     static fn ($t): bool => !is_array($t) || !in_array($t[0], [T_WHITESPACE, T_COMMENT, T_DOC_COMMENT], true)
                 ));
                 foreach ($tokens as $i => $token) {
-                    if (!is_array($token) || $token[0] !== T_STRING || $token[1] !== 't' || ($tokens[$i + 1] ?? null) !== '(') {
+                    // `t(…)`, and `$t(…)` — the local closure over t() some views and classes use.
+                    $named = is_array($token) && (($token[0] === T_STRING && $token[1] === 't') || ($token[0] === T_VARIABLE && $token[1] === '$t'));
+                    if (!$named || ($tokens[$i + 1] ?? null) !== '(') {
                         continue;
                     }
                     $before = $tokens[$i - 1] ?? null;

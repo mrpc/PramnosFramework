@@ -53,7 +53,7 @@ Four settings, read by every auth screen through `Pramnos\Auth\Brand`:
 |---|---|
 | `auth_brand_name` | the name over the card; `sitename` when unset |
 | `auth_brand_logo` | the logo's URL; the name is shown when unset |
-| `auth_brand_primary_color` | the buttons' colour (`#2563eb` by default) |
+| `auth_brand_primary_color` | the buttons' colour; when unset, the theme's own primary, so a daisyUI or dark theme keeps its colours |
 | `auth_brand_footer` | a line under the forms: the operator, a link to the terms |
 
 The brand is drawn by one partial, `partials/auth_brand`, on every screen somebody reaches from a
@@ -65,6 +65,17 @@ link, so a person can see whose server it is before typing a password:
 - the messages.
 
 The public screens before sign-in also carry a link back to the site (`partials/auth_home_link`).
+
+The logo is drawn at most 220×64 pixels. A wider or taller one needs a line of CSS rather than a
+copy of the partial:
+
+```css
+:root { --pf-auth-logo-max-width: 320px; --pf-auth-logo-max-height: 96px; }
+```
+
+With registration closed (`auth_allow_registration` off and no pending invitation), the
+registration page says so once and shows no form, and the single sign-on page offers no
+"Create Account" button.
 
 ## 4. Its language
 

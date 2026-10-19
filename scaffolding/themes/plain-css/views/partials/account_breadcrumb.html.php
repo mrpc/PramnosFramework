@@ -32,11 +32,13 @@ $trails = [
         'twofactor_backup' => [[t('Security'), $securityUrl], [t('Two-Factor Auth'), $twoUrl], [t('Backup codes'), '']],
     'exportdata'     => [[t('Privacy'), $privacyUrl], [t('Export My Data'), '']],
     'deleteaccount'  => [[t('Privacy'), $privacyUrl], [t('Delete Account'), '']],
+    'organization'      => [[t('Organisations'), '']],
+    'organization_view' => [[t('Organisations'), sURL . 'organization'], [(string) ($this->name ?? ''), '']],
 ];
 
 $bc = new \Pramnos\Html\Breadcrumb();
 $bc->addItem(t('Home'), sURL);
-$bc->addItem(t('Dashboard'), sURL . $routeBase);
+$bc->addItem(t('Overview'), sURL . $routeBase);
 foreach ($trails[$active] ?? [] as $crumb) {
     $bc->addItem($crumb[0], $crumb[1]);
 }

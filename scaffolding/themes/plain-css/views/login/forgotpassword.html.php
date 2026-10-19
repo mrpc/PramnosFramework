@@ -9,7 +9,8 @@
  *   $this->message   — optional message key ('sent')
  */
 $brand   = $this->brand ?? \Pramnos\Auth\Brand::current();
-$primary = htmlspecialchars((string) ($brand['primary_color'] ?? '#2563eb'), ENT_QUOTES);
+// The brand's colour only where one was set: otherwise the theme's own primary, light or dark.
+$primary = ($brand['primary_color_set'] ?? true) ? htmlspecialchars((string) ($brand['primary_color'] ?? ''), ENT_QUOTES) : '';
 $base    = sURL . rawurlencode((string) ($this->routeBase ?? 'Account'));
 
 $errorMessages = [
@@ -60,7 +61,7 @@ $sent      = (($this->message ?? '') === 'sent');
                         <label for="email" style="display:block;margin-bottom:4px;font-weight:500"><?php echo htmlspecialchars(t('Email'), ENT_QUOTES, 'UTF-8'); ?></label>
                         <input type="email" name="email" id="email" style="width:100%;padding:8px 12px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box;font-size:15px" value="<?php echo htmlspecialchars((string) ($this->email ?? '')); ?>" required autofocus autocomplete="email"<?php echo $errorFieldAttributes; ?> enterkeyhint="go">
                     </div>
-                    <button type="submit" class="btn" style="width:100%;background-color:<?php echo $primary; ?>;border-color:<?php echo $primary; ?>"><?php echo htmlspecialchars(t('Send reset link'), ENT_QUOTES, 'UTF-8'); ?></button>
+                    <button type="submit" class="btn" style="width:100%;<?php echo $primary !== '' ? 'background-color:' . $primary . ';border-color:' . $primary : ''; ?>"><?php echo htmlspecialchars(t('Send reset link'), ENT_QUOTES, 'UTF-8'); ?></button>
                 </form>
                 <div style="text-align:center;margin-top:12px">
                     <a href="<?php echo $base; ?>/login" style="font-size:13px">&larr; <?php echo htmlspecialchars(t('Back to login'), ENT_QUOTES, 'UTF-8'); ?></a>

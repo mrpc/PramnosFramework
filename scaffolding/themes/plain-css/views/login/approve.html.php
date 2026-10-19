@@ -14,14 +14,15 @@
  * needs none — a browser the account trusted before, with nothing unusual about the attempt.
  */
 $brand    = $this->brand ?? \Pramnos\Auth\Brand::current();
-$primary  = htmlspecialchars((string) ($brand['primary_color'] ?? '#2563eb'), ENT_QUOTES);
+// The brand's colour only where one was set: otherwise the theme's own primary, light or dark.
+$primary  = ($brand['primary_color_set'] ?? true) ? htmlspecialchars((string) ($brand['primary_color'] ?? ''), ENT_QUOTES) : '';
 $base     = sURL . rawurlencode((string) ($this->routeBase ?? 'Account'));
 $approval = $this->approval ?? null;
 $result   = (string) ($this->result ?? '');
 $token    = htmlspecialchars((string) ($this->token ?? ''), ENT_QUOTES);
 $country  = $approval !== null ? (string) ($approval['country'] ?? '') : '';
 $where    = $country !== '' ? $country : t('an unknown place');
-$btnStyle = 'width:100%;background-color:' . $primary . ';border-color:' . $primary;
+$btnStyle = 'width:100%' . ($primary !== '' ? ';background-color:' . $primary . ';border-color:' . $primary : '');
 $row      = 'display:flex;justify-content:space-between;gap:16px;margin:0 0 4px';
 ?>
 <div style="display:flex;align-items:center;justify-content:center;min-height:60vh;padding:20px">

@@ -35,13 +35,15 @@
             </ul>
         <?php endif; ?>
 
-        <a href="<?php echo adminUrl('Dashboard'); ?>" class="btn"><?php echo htmlspecialchars(t('Dashboard'), ENT_QUOTES, 'UTF-8'); ?></a>
+        <a href="<?php echo sURL . rawurlencode((string) ($this->routeBase ?? 'Account')); ?>" class="btn"><?php echo htmlspecialchars(t('Your account'), ENT_QUOTES, 'UTF-8'); ?></a>
         <a href="<?php echo sURL; ?>login/logout" class="btn" style="margin-left:8px;background:#e74c3c;color:white"><?php echo htmlspecialchars(t('Sign Out'), ENT_QUOTES, 'UTF-8'); ?></a>
     <?php else: ?>
         <div class="alert" style="background:#f5f5f5;border:1px solid #ddd;padding:12px 16px;border-radius:4px;margin-bottom:16px">
             <strong>&#10007; <?php echo htmlspecialchars(t('Not Signed In'), ENT_QUOTES, 'UTF-8'); ?></strong> — <?php echo htmlspecialchars(t('You are not currently signed in to any application.'), ENT_QUOTES, 'UTF-8'); ?>
         </div>
         <a href="<?php echo sURL; ?>login" class="btn"><?php echo htmlspecialchars(t('Sign In'), ENT_QUOTES, 'UTF-8'); ?></a>
-        <a href="<?php echo sURL; ?>register" class="btn" style="margin-left:8px;background:#f0f0f0;color:#333"><?php echo htmlspecialchars(t('Create Account'), ENT_QUOTES, 'UTF-8'); ?></a>
+        <?php if ($this->registrationOpen ?? true): ?>
+            <a href="<?php echo sURL; ?>register" class="btn" style="margin-left:8px;background:#f0f0f0;color:#333"><?php echo htmlspecialchars(t('Create Account'), ENT_QUOTES, 'UTF-8'); ?></a>
+        <?php endif; ?>
     <?php endif; ?>
 </div>

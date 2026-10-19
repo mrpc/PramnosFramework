@@ -170,9 +170,7 @@ class SecurityChangeNotification implements NotificationInterface
 
         if ($this->toFormerAddress) {
             $body .= '<p>' . t(
-                'This account no longer uses this email address. You are being told because '
-                . 'the change was made <strong>from</strong> this address, and if it was not '
-                . 'you, it means somebody else has access to the account.'
+                'This account no longer uses this email address. You are being told because the change was made <strong>from</strong> this address, and if it was not you, it means somebody else has access to the account.'
             ) . '</p>';
         }
 
@@ -180,9 +178,7 @@ class SecurityChangeNotification implements NotificationInterface
         // password worked, so somebody else has it, and the one thing to do is change it.
         if ($this->what === \Pramnos\Auth\SecurityChangeNotifier::SIGNIN_DENIED) {
             $body .= '<p>' . t(
-                'Somebody signed in with your password and you refused it from your phone, so '
-                . 'they did not get in. But your password is known to them. Open the site '
-                . 'yourself — not a link in an email, including this one — and change it.'
+                'Somebody signed in with your password and you refused it from your phone, so they did not get in. But your password is known to them. Open the site yourself — not a link in an email, including this one — and change it.'
             ) . '</p>';
 
             return array(
@@ -193,9 +189,7 @@ class SecurityChangeNotification implements NotificationInterface
 
         $body .= '<p>' . t('If you made this change, there is nothing to do.') . '</p>'
             . '<p>' . t(
-                '<strong>If you did not</strong>, somebody else is using your account. Open '
-                . 'the site yourself — not a link in an email, including this one — and change '
-                . 'your password. If you cannot sign in, contact us.'
+                '<strong>If you did not</strong>, somebody else is using your account. Open the site yourself — not a link in an email, including this one — and change your password. If you cannot sign in, contact us.'
             ) . '</p>';
 
         return array(

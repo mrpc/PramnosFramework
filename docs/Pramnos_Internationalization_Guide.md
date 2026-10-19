@@ -563,9 +563,16 @@ keyed by the English text, and `load()` merges it **under** the application's ca
 - English needs no catalogue — the keys are the English;
 - a code that is not one (`../x`) loads nothing.
 
+Besides the screens, the catalogue covers the mail the auth code sends — the sign-in code, a new
+sign-in, the link that finishes a sign-in from a new browser, a security change — the messages
+inbox, the organisation pages, the account overview, the scheduled tasks handed over when an
+account is deleted, the password show/hide button and the cookie banner.
+
 Greek ships today (`resources/language/el.php`). Another language is one file with the same keys;
 `tests/Unit/Translator/FrameworkGreekCatalogueTest.php` is the list of what a catalogue has to
-cover and checks that every line takes the key's placeholders.
+cover and checks that every line takes the key's placeholders. It reads `t('…')` and `$t('…')` —
+the local closure over `t()` some views use — and a phrase must be **one literal**: a phrase split
+over `'…' . '…'` is looked up by its whole text and would never match a key read from the source.
 
 To word a framework phrase differently, put the same key in the application's catalogue:
 

@@ -24,10 +24,11 @@ $active    = $this->activeNav ?? '';
 $parents   = [
     'changepassword' => 'security', 'twofactor' => 'security', 'passkey' => 'security', 'twofactor_setup' => 'security', 'twofactor_backup' => 'security',
     'exportdata'     => 'privacy',  'deleteaccount' => 'privacy',
+    'organization_view' => 'organization',
 ];
 $active = $parents[$active] ?? $active;
 $navItems = [
-    ['key' => 'dashboard',    'href' => $routeBase,                   'label' => t('Dashboard')],
+    ['key' => 'dashboard',    'href' => $routeBase,                   'label' => t('Overview')],
     ['key' => 'profile',      'href' => $routeBase . '/profile',      'label' => t('Profile')],
     ['key' => 'applications', 'href' => $routeBase . '/applications', 'label' => t('Authorized Applications')],
     ['key' => 'security',     'href' => $routeBase . '/security',     'label' => t('Security')],

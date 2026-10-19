@@ -32,11 +32,13 @@ $trails = [
         'twofactor_backup' => [[t('Security'), $securityUrl], [t('Two-Factor Auth'), $twoUrl], [t('Backup codes'), '']],
     'exportdata'     => [[t('Privacy'), $privacyUrl], [t('Export My Data'), '']],
     'deleteaccount'  => [[t('Privacy'), $privacyUrl], [t('Delete Account'), '']],
+    'organization'      => [[t('Organisations'), '']],
+    'organization_view' => [[t('Organisations'), sURL . 'organization'], [(string) ($this->name ?? ''), '']],
 ];
 
 $bc = new \Pramnos\Html\Breadcrumb();
 $bc->addItem(htmlspecialchars(t('Home'), ENT_QUOTES, 'UTF-8'), sURL, t('Home'));
-$bc->addItem(htmlspecialchars(t('Dashboard'), ENT_QUOTES, 'UTF-8'), sURL . $routeBase, t('Dashboard'));
+$bc->addItem(htmlspecialchars(t('Overview'), ENT_QUOTES, 'UTF-8'), sURL . $routeBase, t('Dashboard'));
 foreach ($trails[$active] ?? [] as $crumb) {
     // Labels are rendered as HTML by Breadcrumb, so a translation is escaped here.
     $bc->addItem(htmlspecialchars($crumb[0], ENT_QUOTES, 'UTF-8'), $crumb[1], $crumb[0]);

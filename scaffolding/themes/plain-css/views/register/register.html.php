@@ -51,6 +51,20 @@ $errorFieldAttributes = $errorText !== ''
     : '';
 
 $closed    = ($this->registrationOpen ?? true) === false;
+/*
+ * A closed registration is said once, as a notice: it is the state of the server, not a mistake on
+ * the form. The refusal can arrive both as the error key and as a flashed error, so the flashed
+ * errors are read once here and the notice is left out when they already say it.
+ */
+$flashed      = $this->hasErrors() ? (string) $this->_printErrors() : '';
+$closedText   = $messages['registration_closed'];
+$closedNotice = ($closed || $errorKey === 'registration_closed') && !str_contains($flashed, htmlspecialchars($closedText))
+    ? $closedText
+    : '';
+if ($errorKey === 'registration_closed') {
+    $errorText = '';
+    $errorFieldAttributes = '';
+}
 ?>
 <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:70vh;padding:20px">
     <div class="card" style="width:100%;max-width:460px">
@@ -61,8 +75,11 @@ $closed    = ($this->registrationOpen ?? true) === false;
             <?php if ($errorText !== ''): ?>
                 <div role="alert" id="form-error" class="alert alert-danger"><?php echo htmlspecialchars($errorText); ?></div>
             <?php endif; ?>
-            <?php if ($this->hasErrors()): ?>
-                <div role="alert" class="alert alert-danger"><?php echo $this->_printErrors(); ?></div>
+            <?php if ($flashed !== ''): ?>
+                <div role="alert" class="alert alert-danger"><?php echo $flashed; ?></div>
+            <?php endif; ?>
+            <?php if ($closedNotice !== ''): ?>
+                <div role="status" class="alert alert-info"><?php echo htmlspecialchars($closedNotice, ENT_QUOTES, 'UTF-8'); ?></div>
             <?php endif; ?>
 
             <?php if (!$closed): ?>

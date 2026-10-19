@@ -753,6 +753,7 @@ class Account extends Controller
         $view->isLoggedIn = $userId !== null;
         $view->user       = $userId !== null ? $this->currentUser() : null;
         $view->activeApps = $userId !== null ? $this->getAuthorizedApplications($userId) : [];
+        $view->registrationOpen = $this->registrationIsOpen();
 
         return $view->display('sso');
     }
@@ -946,7 +947,7 @@ class Account extends Controller
      * a safe default, so a scaffolded app rebrands by setting a handful of keys
      * (or by overriding this method) — no view edits required.
      *
-     * @return array{name:string, logo:string, primary_color:string, footer:string}
+     * @return array{name:string, logo:string, primary_color:string, primary_color_set:bool, footer:string}
      */
     protected function brand(): array
     {
@@ -961,6 +962,8 @@ class Account extends Controller
             'name'          => $name !== '' ? $name : 'Sign in',
             'logo'          => $this->setting('auth_brand_logo'),
             'primary_color' => $color !== '' ? $color : '#2563eb',
+            // Whether it was chosen: the views apply it only then, and keep the theme's otherwise.
+            'primary_color_set' => $color !== '',
             'footer'        => $this->setting('auth_brand_footer'),
         ];
     }

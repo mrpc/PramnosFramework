@@ -8577,10 +8577,15 @@ class Login extends Account
         return \$this->login();
     }
 
-    /** After a successful login, go home rather than back to /login. */
+    /**
+     * After a successful login, go home rather than back to /login.
+     *
+     * Through the parent, which also forgets the page the second step was to return to — left
+     * in the session, a later sign-in would land on it.
+     */
     protected function postLoginTarget(string \$return): string
     {
-        return \$return !== '' ? \$return : sURL;
+        return parent::postLoginTarget(\$return !== '' ? \$return : sURL);
     }
 }
 PHP;

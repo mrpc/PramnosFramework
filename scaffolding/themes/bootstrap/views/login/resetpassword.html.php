@@ -6,7 +6,8 @@
  *   $this->routeBase, $this->brand, $this->token, $this->error
  */
 $brand   = $this->brand ?? \Pramnos\Auth\Brand::current();
-$primary = htmlspecialchars((string) ($brand['primary_color'] ?? '#2563eb'), ENT_QUOTES);
+// The brand's colour only where one was set: otherwise the theme's own primary, light or dark.
+$primary = ($brand['primary_color_set'] ?? true) ? htmlspecialchars((string) ($brand['primary_color'] ?? ''), ENT_QUOTES) : '';
 $base    = sURL . rawurlencode((string) ($this->routeBase ?? 'Account'));
 $token   = (string) ($this->token ?? '');
 
@@ -76,7 +77,7 @@ $expired   = ($errorKey === 'invalid_reset_link' && $token === '');
                                     'confirm_password', '', ''
                                 ); ?>
                             </div>
-                            <button type="submit" class="btn btn-primary w-100" style="background-color:<?php echo $primary; ?>;border-color:<?php echo $primary; ?>"><?php echo htmlspecialchars(t('Reset password'), ENT_QUOTES, 'UTF-8'); ?></button>
+                            <button type="submit" class="btn btn-primary w-100" style="<?php echo $primary !== '' ? 'background-color:' . $primary . ';border-color:' . $primary : ''; ?>"><?php echo htmlspecialchars(t('Reset password'), ENT_QUOTES, 'UTF-8'); ?></button>
                         </form>
                     <?php endif; ?>
                     <div class="text-center mt-3">

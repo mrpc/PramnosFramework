@@ -587,6 +587,8 @@ class AccountControllerTest extends TestCase
         $blank = new BrandAccount(null);
         $this->assertSame('Sign in', $blank->brandPublic()['name']);
         $this->assertSame('#2563eb', $blank->brandPublic()['primary_color']);
+        // …but marked unchosen, so the views keep the theme's own primary
+        $this->assertFalse($blank->brandPublic()['primary_color_set']);
 
         // sitename fills the name when no explicit brand name is set.
         $sn = new BrandAccount(null);
@@ -603,6 +605,7 @@ class AccountControllerTest extends TestCase
         $b = $full->brandPublic();
         $this->assertSame('Acme ID', $b['name'], 'explicit brand name beats sitename');
         $this->assertSame('#111', $b['primary_color']);
+        $this->assertTrue($b['primary_color_set']);
         $this->assertSame('/l.png', $b['logo']);
         $this->assertSame('© Acme', $b['footer']);
     }

@@ -432,7 +432,25 @@ class OrganizationAdminTest extends BaseTestCase
     {
         foreach (['bootstrap', 'tailwind', 'plain-css'] as $theme) {
             // Arrange
-            $data = new \stdClass();
+            // What a View gives the screens: the partials and flash messages, none here.
+            $data = new #[\AllowDynamicProperties] class {
+                /** A partial: the account breadcrumb and sidebar have tests of their own. */
+                public function insert(string $partial): void
+                {
+                }
+
+                /** No flashed message. */
+                public function hasMessages(): bool
+                {
+                    return false;
+                }
+
+                /** No flashed error. */
+                public function hasErrors(): bool
+                {
+                    return false;
+                }
+            };
             $data->organization_id = self::ORG;
             $data->name = 'Acme';
             $data->members = [['userid' => 7, 'username' => 'u', 'email' => 'u@example.test', 'name' => 'U', 'roles' => [['roleid' => 9902, 'role_name' => 'Reader', 'counts' => true]]]];

@@ -72,8 +72,7 @@ class NewDeviceAuthLinkNotification implements NotificationInterface
             : t('It works once and expires in %s minutes.', $minutes);
 
         $body = '<p>' . t(
-                'Somebody just entered your password on <strong>%s</strong>, which this '
-                . 'account has not been used from before.',
+                'Somebody just entered your password on <strong>%s</strong>, which this account has not been used from before.',
                 $device
             ) . '</p>'
             . '<p>' . t('<strong>If that was you</strong>, open this link to finish signing in:')
@@ -81,9 +80,7 @@ class NewDeviceAuthLinkNotification implements NotificationInterface
             . '<p><a href="' . $url . '">' . $url . '</a></p>'
             . '<p>' . $expiry . '</p>'
             . '<p>' . t(
-                '<strong>If it was not you</strong>, do nothing — without this link the '
-                . 'sign-in cannot continue. But somebody has your password, so change it: '
-                . 'open the site yourself rather than following a link in an email.'
+                '<strong>If it was not you</strong>, do nothing — without this link the sign-in cannot continue. But somebody has your password, so change it: open the site yourself rather than following a link in an email.'
             ) . '</p>';
 
         return array(

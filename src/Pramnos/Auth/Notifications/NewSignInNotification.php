@@ -212,18 +212,15 @@ class NewSignInNotification implements NotificationInterface
         $safeTime   = htmlspecialchars($time, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 
         $body = '<p>' . t(
-                'Your account was just signed in to from <strong>%s</strong>, which this '
-                . 'account has not been used from before.',
+                'Your account was just signed in to from <strong>%s</strong>, which this account has not been used from before.',
                 $safeDevice
             ) . '</p>'
             . '<p>' . t('Time: %s', $safeTime) . '</p>'
             . '<p>' . t(
-                'If this was you, there is nothing to do — you will not be told again about '
-                . 'this browser.'
+                'If this was you, there is nothing to do — you will not be told again about this browser.'
             ) . '</p>'
             . '<p>' . t(
-                '<strong>If it was not you, change your password now.</strong> Open the site '
-                . 'yourself rather than following a link in an email, including this one.'
+                '<strong>If it was not you, change your password now.</strong> Open the site yourself rather than following a link in an email, including this one.'
             ) . '</p>';
 
         return array(

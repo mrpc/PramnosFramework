@@ -18,18 +18,18 @@ $this->activeNav = 'dashboard';
 
     <div class="flex flex-wrap items-center justify-between gap-3 mb-6">
         <div>
-            <h2 class="text-2xl font-bold text-base-content">Account Dashboard</h2>
+            <h2 class="text-2xl font-bold text-base-content"><?php echo htmlspecialchars(t('Account Dashboard'), ENT_QUOTES, 'UTF-8'); ?></h2>
             <p class="text-sm text-base-content/70 mt-1">
-                Welcome back, <?php echo htmlspecialchars($this->user->firstname ?? $this->user->username ?? ''); ?>
+                <?php echo htmlspecialchars(t('Welcome back, %s', (string) ($this->user->firstname ?? $this->user->username ?? '')), ENT_QUOTES, 'UTF-8'); ?>
             </p>
         </div>
         <?php if ($this->twoFactorEnabled): ?>
             <span class="badge badge-success inline-flex items-center whitespace-nowrap h-auto py-1">
-                &#10003; 2FA Active
+                &#10003; <?php echo htmlspecialchars(t('2FA Active'), ENT_QUOTES, 'UTF-8'); ?>
             </span>
         <?php else: ?>
             <span class="badge badge-warning inline-flex items-center whitespace-nowrap h-auto py-1">
-                &#9888; 2FA Inactive
+                &#9888; <?php echo htmlspecialchars(t('2FA Inactive'), ENT_QUOTES, 'UTF-8'); ?>
             </span>
         <?php endif; ?>
     </div>
@@ -44,12 +44,12 @@ $this->activeNav = 'dashboard';
             <!-- Authorized apps -->
             <div class="card bg-base-100 shadow-sm">
                 <div class="flex items-center justify-between px-4 py-3 border-b border-base-300">
-                    <h3 class="font-semibold text-base-content">Authorized Applications</h3>
+                    <h3 class="font-semibold text-base-content"><?php echo htmlspecialchars(t('Authorized Applications'), ENT_QUOTES, 'UTF-8'); ?></h3>
                     <a href="<?php echo sURL . $routeBase; ?>/applications"
-                       class="text-sm text-primary hover:underline">Manage</a>
+                       class="text-sm text-primary hover:underline"><?php echo htmlspecialchars(t('Manage'), ENT_QUOTES, 'UTF-8'); ?></a>
                 </div>
                 <?php if (empty($this->authorizedApps)): ?>
-                    <p class="px-4 py-4 text-sm text-base-content/60">No authorized applications.</p>
+                    <p class="px-4 py-4 text-sm text-base-content/60"><?php echo htmlspecialchars(t('No authorized applications.'), ENT_QUOTES, 'UTF-8'); ?></p>
                 <?php else: ?>
                     <ul class="divide-y divide-base-300">
                         <?php foreach (array_slice($this->authorizedApps, 0, 3) as $app): ?>
@@ -65,14 +65,14 @@ $this->activeNav = 'dashboard';
                                     <?php endif; ?>
                                 </div>
                                 <span class="text-xs text-base-content/60">
-                                    <?php echo (int) $app['token_count']; ?> token<?php echo $app['token_count'] != 1 ? 's' : ''; ?>
+                                    <?php echo htmlspecialchars(t((int) $app['token_count'] === 1 ? '%d token' : '%d tokens', (int) $app['token_count']), ENT_QUOTES, 'UTF-8'); ?>
                                 </span>
                             </li>
                         <?php endforeach; ?>
                         <?php if (count($this->authorizedApps) > 3): ?>
                             <li class="px-4 py-3 text-center text-sm text-primary">
                                 <a href="<?php echo sURL . $routeBase; ?>/applications">
-                                    + <?php echo count($this->authorizedApps) - 3; ?> more
+                                    <?php echo htmlspecialchars(t('+ %d more', count($this->authorizedApps) - 3), ENT_QUOTES, 'UTF-8'); ?>
                                 </a>
                             </li>
                         <?php endif; ?>
@@ -83,10 +83,10 @@ $this->activeNav = 'dashboard';
             <!-- Recent activity -->
             <div class="card bg-base-100 shadow-sm">
                 <div class="px-4 py-3 border-b border-base-300 font-semibold text-base-content">
-                    Recent Activity
+                    <?php echo htmlspecialchars(t('Recent Activity'), ENT_QUOTES, 'UTF-8'); ?>
                 </div>
                 <?php if (empty($this->recentActivity)): ?>
-                    <p class="px-4 py-4 text-sm text-base-content/60">No recent activity.</p>
+                    <p class="px-4 py-4 text-sm text-base-content/60"><?php echo htmlspecialchars(t('No recent activity.'), ENT_QUOTES, 'UTF-8'); ?></p>
                 <?php else: ?>
                     <ul class="divide-y divide-base-300">
                         <?php foreach ($this->recentActivity as $entry): ?>
@@ -101,7 +101,7 @@ $this->activeNav = 'dashboard';
                                 </div>
                                 <?php if (!empty($entry['ip_address'])): ?>
                                     <span class="text-xs text-base-content/60">
-                                        from <?php echo htmlspecialchars($entry['ip_address']); ?>
+                                        <?php echo htmlspecialchars(t('from %s', (string) $entry['ip_address']), ENT_QUOTES, 'UTF-8'); ?>
                                     </span>
                                 <?php endif; ?>
                             </li>

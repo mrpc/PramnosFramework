@@ -9,7 +9,8 @@
  * handled server-side (see login_2fa) — no password round-trip.
  */
 $brand   = $this->brand ?? \Pramnos\Auth\Brand::current();
-$primary = htmlspecialchars((string) ($brand['primary_color'] ?? '#2563eb'), ENT_QUOTES);
+// The brand's colour only where one was set: otherwise the theme's own primary, light or dark.
+$primary = ($brand['primary_color_set'] ?? true) ? htmlspecialchars((string) ($brand['primary_color'] ?? ''), ENT_QUOTES) : '';
 $base    = sURL . rawurlencode((string) ($this->routeBase ?? 'Account'));
 // The return address in the form's own URL too, so a refresh after a failed attempt keeps it.
 $returnQuery = (string) ($this->returnUrl ?? '') !== ''
@@ -46,7 +47,7 @@ $errorFieldAttributes = $errorText !== ''
 
 ?>
 <div class="flex flex-col items-center justify-center min-h-screen bg-base-200 px-4">
-    <div class="card bg-base-100 shadow-md p-8 w-full max-w-sm" style="--color-primary:<?php echo $primary; ?>">
+    <div class="card bg-base-100 shadow-md p-8 w-full max-w-sm"<?php echo $primary !== '' ? ' style="--color-primary:' . $primary . '"' : ''; ?>>
         <?php $this->insert('../partials/auth_brand'); ?>
 
         <?php if ($errorText !== ''): ?>

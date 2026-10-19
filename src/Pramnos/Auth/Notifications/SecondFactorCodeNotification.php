@@ -91,9 +91,7 @@ class SecondFactorCodeNotification implements NotificationInterface
             . $code . '</p>'
             . '<p>' . $expiry . '</p>'
             . '<p>' . t(
-                'If you were not signing in, somebody else has your password. Ignore this '
-                . 'code and change it — open the site yourself rather than following a link '
-                . 'in an email.'
+                'If you were not signing in, somebody else has your password. Ignore this code and change it — open the site yourself rather than following a link in an email.'
             ) . '</p>';
 
         return array(

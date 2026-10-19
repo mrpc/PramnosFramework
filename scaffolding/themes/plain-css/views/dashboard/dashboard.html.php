@@ -18,15 +18,15 @@ $this->activeNav = 'dashboard';
 
     <div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:space-between;align-items:center;margin-bottom:16px">
         <div>
-            <h2 style="margin:0">Account Dashboard</h2>
+            <h2 style="margin:0"><?php echo htmlspecialchars(t('Account Dashboard'), ENT_QUOTES, 'UTF-8'); ?></h2>
             <small style="color:#666">
-                Welcome back, <?php echo htmlspecialchars($this->user->firstname ?? $this->user->username ?? ''); ?>
+                <?php echo htmlspecialchars(t('Welcome back, %s', (string) ($this->user->firstname ?? $this->user->username ?? '')), ENT_QUOTES, 'UTF-8'); ?>
             </small>
         </div>
         <?php if ($this->twoFactorEnabled): ?>
-            <span class="badge badge-success">&#10003; 2FA Active</span>
+            <span class="badge badge-success">&#10003; <?php echo htmlspecialchars(t('2FA Active'), ENT_QUOTES, 'UTF-8'); ?></span>
         <?php else: ?>
-            <span class="badge badge-warning">&#9888; 2FA Inactive</span>
+            <span class="badge badge-warning">&#9888; <?php echo htmlspecialchars(t('2FA Inactive'), ENT_QUOTES, 'UTF-8'); ?></span>
         <?php endif; ?>
     </div>
 
@@ -39,12 +39,12 @@ $this->activeNav = 'dashboard';
             <!-- Authorized apps -->
             <div class="card" style="margin-bottom:20px">
                 <div class="card-header" style="display:flex;justify-content:space-between;align-items:center">
-                    <strong>Authorized Applications</strong>
-                    <a href="<?php echo sURL . $routeBase; ?>/applications" class="btn btn-sm">Manage</a>
+                    <strong><?php echo htmlspecialchars(t('Authorized Applications'), ENT_QUOTES, 'UTF-8'); ?></strong>
+                    <a href="<?php echo sURL . $routeBase; ?>/applications" class="btn btn-sm"><?php echo htmlspecialchars(t('Manage'), ENT_QUOTES, 'UTF-8'); ?></a>
                 </div>
                 <div class="card-body" style="padding:0">
                     <?php if (empty($this->authorizedApps)): ?>
-                        <p style="padding:12px 16px;color:#666;margin:0">No authorized applications.</p>
+                        <p style="padding:12px 16px;color:#666;margin:0"><?php echo htmlspecialchars(t('No authorized applications.'), ENT_QUOTES, 'UTF-8'); ?></p>
                     <?php else: ?>
                         <ul style="list-style:none;margin:0;padding:0">
                             <?php foreach (array_slice($this->authorizedApps, 0, 3) as $app): ?>
@@ -58,14 +58,14 @@ $this->activeNav = 'dashboard';
                                         <?php endif; ?>
                                     </div>
                                     <small style="color:#888">
-                                        <?php echo (int) $app['token_count']; ?> token<?php echo $app['token_count'] != 1 ? 's' : ''; ?>
+                                        <?php echo htmlspecialchars(t((int) $app['token_count'] === 1 ? '%d token' : '%d tokens', (int) $app['token_count']), ENT_QUOTES, 'UTF-8'); ?>
                                     </small>
                                 </li>
                             <?php endforeach; ?>
                             <?php if (count($this->authorizedApps) > 3): ?>
                                 <li style="padding:10px 16px;text-align:center">
                                     <a href="<?php echo sURL . $routeBase; ?>/applications">
-                                        + <?php echo count($this->authorizedApps) - 3; ?> more
+                                        <?php echo htmlspecialchars(t('+ %d more', count($this->authorizedApps) - 3), ENT_QUOTES, 'UTF-8'); ?>
                                     </a>
                                 </li>
                             <?php endif; ?>
@@ -76,10 +76,10 @@ $this->activeNav = 'dashboard';
 
             <!-- Recent activity -->
             <div class="card">
-                <div class="card-header"><strong>Recent Activity</strong></div>
+                <div class="card-header"><strong><?php echo htmlspecialchars(t('Recent Activity'), ENT_QUOTES, 'UTF-8'); ?></strong></div>
                 <div class="card-body" style="padding:0">
                     <?php if (empty($this->recentActivity)): ?>
-                        <p style="padding:12px 16px;color:#666;margin:0">No recent activity.</p>
+                        <p style="padding:12px 16px;color:#666;margin:0"><?php echo htmlspecialchars(t('No recent activity.'), ENT_QUOTES, 'UTF-8'); ?></p>
                     <?php else: ?>
                         <ul style="list-style:none;margin:0;padding:0">
                             <?php foreach ($this->recentActivity as $entry): ?>
@@ -90,7 +90,7 @@ $this->activeNav = 'dashboard';
                                     </div>
                                     <?php if (!empty($entry['ip_address'])): ?>
                                         <small style="color:#aaa">
-                                            from <?php echo htmlspecialchars($entry['ip_address']); ?>
+                                            <?php echo htmlspecialchars(t('from %s', (string) $entry['ip_address']), ENT_QUOTES, 'UTF-8'); ?>
                                         </small>
                                     <?php endif; ?>
                                 </li>

@@ -2298,6 +2298,18 @@ class InitCommandUnitTest extends TestCase
         $this->assertStringContainsString('public function display()', $login);
         $this->assertStringContainsString('$this->login()', $login);
 
+        // Executed, not grepped: after a sign-in it goes home, and forgets the page the second
+        // step was to return to — left in the session, a later sign-in would land there.
+        if (!class_exists('AuthApp\\Controllers\\Login', false)) {
+            require $loginPath;
+        }
+        $controller = (new \ReflectionClass('AuthApp\\Controllers\\Login'))->newInstanceWithoutConstructor();
+        $target     = new \ReflectionMethod($controller, 'postLoginTarget');
+        $_SESSION[\Pramnos\Auth\SecondFactorGate::RETURN] = '/stale-page';
+        $this->assertSame(sURL, $target->invoke($controller, ''), 'no return address: home');
+        $this->assertArrayNotHasKey(\Pramnos\Auth\SecondFactorGate::RETURN, $_SESSION, 'the stale return was forgotten');
+        $this->assertSame('/next', $target->invoke($controller, '/next'));
+
         // It must NOT re-implement login: no hand-rolled credential handling.
         $this->assertStringNotContainsString('function dologin', $login,
             'Login must not re-implement credential handling — the framework does it');

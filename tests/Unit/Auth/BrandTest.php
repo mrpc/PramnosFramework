@@ -56,7 +56,7 @@ final class BrandTest extends TestCase
         $brand = Brand::current();
 
         // Assert
-        $this->assertSame(['name' => 'Sign in', 'logo' => '', 'primary_color' => '#2563eb', 'footer' => ''], $brand);
+        $this->assertSame(['name' => 'Sign in', 'logo' => '', 'primary_color' => '#2563eb', 'primary_color_set' => false, 'footer' => ''], $brand);
     }
 
     /**
@@ -79,6 +79,7 @@ final class BrandTest extends TestCase
         // Assert
         $this->assertSame('Example Site', $fallback['name']);
         $this->assertSame('#ff0000', $fallback['primary_color']);
+        $this->assertTrue($fallback['primary_color_set']);
         $this->assertSame('/logo.svg', $fallback['logo']);
         $this->assertSame('Example Ltd', $fallback['footer']);
         $this->assertSame('Example Accounts', $named['name']);
@@ -138,5 +139,36 @@ final class BrandTest extends TestCase
 
         // Assert
         $this->assertSame([], $missing);
+    }
+
+    /**
+     * No view forces the brand's colour on a theme: every view that reads it applies it only
+     * when `primary_color_set` says an administrator chose one, so a daisyUI or dark theme with
+     * its own primary keeps it.
+     */
+    public function testNoViewForcesTheBrandColourWhenNoneWasChosen(): void
+    {
+        // Arrange
+        $views = glob(dirname(__DIR__, 3) . '/scaffolding/themes/*/views/*/*.html.php') ?: [];
+        $this->assertNotEmpty($views, 'the sweep found nothing to check');
+        $readers = 0;
+        $forced  = [];
+
+        // Act
+        foreach ($views as $file) {
+            $source = (string) file_get_contents($file);
+            if (!str_contains($source, "primary_color'")) {
+                continue;
+            }
+            $readers++;
+            if (!str_contains($source, "primary_color_set")
+                || preg_match('/<\?php echo \$primary; \?>/', $source) === 1) {
+                $forced[] = basename(dirname($file, 3)) . '/' . basename(dirname($file)) . '/' . basename($file);
+            }
+        }
+
+        // Assert
+        $this->assertGreaterThan(0, $readers, 'no view reads the brand colour: the sweep is looking in the wrong place');
+        $this->assertSame([], $forced, 'views that print the brand colour whether or not it was chosen');
     }
 }

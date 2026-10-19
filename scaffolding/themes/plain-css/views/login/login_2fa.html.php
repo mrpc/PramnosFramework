@@ -14,7 +14,8 @@
  * server-side. This form submits only the code to <routeBase>/verify.
  */
 $brand   = $this->brand ?? \Pramnos\Auth\Brand::current();
-$primary = htmlspecialchars((string) ($brand['primary_color'] ?? '#2563eb'), ENT_QUOTES);
+// The brand's colour only where one was set: otherwise the theme's own primary, light or dark.
+$primary = ($brand['primary_color_set'] ?? true) ? htmlspecialchars((string) ($brand['primary_color'] ?? ''), ENT_QUOTES) : '';
 $base    = sURL . rawurlencode((string) ($this->routeBase ?? 'Account'));
 // The return address in the form's own URL too, so a refresh after a failed attempt keeps it.
 $returnQuery = (string) ($this->returnUrl ?? '') !== ''
@@ -97,7 +98,7 @@ $intro = $pushFirst
         ? t('Enter the 6-digit code we sent to your email address.')
         : t('Enter the 6-digit code from your authenticator app.')));
 ?>
-<div style="display:flex;align-items:center;justify-content:center;min-height:60vh;padding:20px">
+<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:60vh;padding:20px">
     <div class="card" style="width:100%;max-width:400px">
         <?php $this->insert('../partials/auth_brand'); ?>
         <div class="card-header">
@@ -150,7 +151,7 @@ $intro = $pushFirst
                         <input type="hidden" name="return" value="<?php echo htmlspecialchars((string) $this->returnUrl); ?>">
                     <?php endif; ?>
                     <input type="hidden" name="method" value="push">
-                    <noscript><button type="submit" class="btn" style="width:100%;background-color:<?php echo $primary; ?>;border-color:<?php echo $primary; ?>"><?php echo htmlspecialchars(t('I approved it on my phone'), ENT_QUOTES, 'UTF-8'); ?></button></noscript>
+                    <noscript><button type="submit" class="btn" style="width:100%;<?php echo $primary !== '' ? 'background-color:' . $primary . ';border-color:' . $primary : ''; ?>"><?php echo htmlspecialchars(t('I approved it on my phone'), ENT_QUOTES, 'UTF-8'); ?></button></noscript>
                 </form>
                 <form data-pf-progress method="POST" action="<?php echo $base; ?>/verify<?php echo $returnQuery; ?>" data-pf-push-resend
                       style="<?php echo $pushStuck ? '' : 'display:none'; ?>">
@@ -163,7 +164,7 @@ $intro = $pushFirst
             <?php /* Every other way through, one click away. Opened by itself when the phone
                      has not received the prompt in twenty seconds, or it failed. */ ?>
             <details id="pf-other-ways" style="margin-top:20px"<?php echo $pushStuck ? ' open' : ''; ?>>
-                <summary style="font-size:13px;color:<?php echo $primary; ?>;cursor:pointer"><?php echo htmlspecialchars(t('Try another way'), ENT_QUOTES, 'UTF-8'); ?></summary>
+                <summary style="font-size:13px;color:<?php echo $primary !== '' ? $primary : 'var(--primary-color)'; ?>;cursor:pointer"><?php echo htmlspecialchars(t('Try another way'), ENT_QUOTES, 'UTF-8'); ?></summary>
                 <div style="margin-top:16px">
             <?php endif; ?>
 
@@ -183,7 +184,7 @@ $intro = $pushFirst
                            maxlength="6" pattern="[0-9]{6}" placeholder="000000"
                            autocomplete="one-time-code"<?php echo $errorFieldAttributes; ?> inputmode="numeric" enterkeyhint="go" required autofocus>
                 </div>
-                <button type="submit" class="btn" style="width:100%;background-color:<?php echo $primary; ?>;border-color:<?php echo $primary; ?>"><?php echo htmlspecialchars(t('Verify & Sign In'), ENT_QUOTES, 'UTF-8'); ?></button>
+                <button type="submit" class="btn" style="width:100%;<?php echo $primary !== '' ? 'background-color:' . $primary . ';border-color:' . $primary : ''; ?>"><?php echo htmlspecialchars(t('Verify & Sign In'), ENT_QUOTES, 'UTF-8'); ?></button>
             </form>
             <?php endif; ?>
 
@@ -272,6 +273,7 @@ $intro = $pushFirst
             </div>
         </div>
     </div>
+    <?php $this->insert('../partials/auth_home_link'); ?>
 </div>
 <script src="<?php echo assetUrl('assets/js/pf-webauthn.js'); ?>"></script>
 <script src="<?php echo assetUrl('assets/js/pf-auth.js'); ?>"></script>

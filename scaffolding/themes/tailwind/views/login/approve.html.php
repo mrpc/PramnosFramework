@@ -14,7 +14,8 @@
  * needs none — a browser the account trusted before, with nothing unusual about the attempt.
  */
 $brand    = $this->brand ?? \Pramnos\Auth\Brand::current();
-$primary  = htmlspecialchars((string) ($brand['primary_color'] ?? '#2563eb'), ENT_QUOTES);
+// The brand's colour only where one was set: otherwise the theme's own primary, light or dark.
+$primary  = ($brand['primary_color_set'] ?? true) ? htmlspecialchars((string) ($brand['primary_color'] ?? ''), ENT_QUOTES) : '';
 $base     = sURL . rawurlencode((string) ($this->routeBase ?? 'Account'));
 $approval = $this->approval ?? null;
 $result   = (string) ($this->result ?? '');
@@ -23,7 +24,7 @@ $country  = $approval !== null ? (string) ($approval['country'] ?? '') : '';
 $where    = $country !== '' ? $country : t('an unknown place');
 ?>
 <div class="flex items-center justify-center min-h-screen bg-base-200 px-4">
-    <div class="card bg-base-100 shadow-md p-8 w-full max-w-sm" style="--color-primary:<?php echo $primary; ?>">
+    <div class="card bg-base-100 shadow-md p-8 w-full max-w-sm"<?php echo $primary !== '' ? ' style="--color-primary:' . $primary . '"' : ''; ?>>
         <?php $this->insert('../partials/auth_brand'); ?>
         <?php if ($approval === null): ?>
             <h1 class="text-2xl font-semibold mb-2"><?php echo htmlspecialchars(t('This cannot be answered here'), ENT_QUOTES, 'UTF-8'); ?></h1>
