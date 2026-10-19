@@ -1916,6 +1916,43 @@ php bin/pramnos mail:bounces --block=someone@example.com --reason="asked by phon
 php bin/pramnos mail:bounces --clear=someone@example.com
 ```
 
+### Reading the bounce mailbox over IMAP
+
+```bash
+php bin/pramnos mail:bounces --imap               # the unseen messages of the bounce mailbox
+php bin/pramnos mail:bounces --imap --limit=50
+```
+
+```php
+// app/app.php
+'email' => ['bounces' => ['mailbox' => [
+    'host'       => 'imap.gmail.com',
+    'port'       => 993,
+    'encryption' => 'ssl',          // 'tls' for STARTTLS on 143, 'none' for a server on this host
+    'username'   => 'bounces@example.com',
+    'password'   => '…',            // or, for Gmail and Microsoft 365:
+    'oauth'      => ['client_id' => '…', 'client_secret' => '…', 'refresh_token' => '…'],
+    'folder'     => 'INBOX',
+]]],
+```
+
+The unseen messages are read without being marked. Each delivery report is recorded and marked
+seen. Anything else stays unread, for a person. With `oauth` the refresh token is exchanged for
+an access token (Google's endpoint unless `token_url` says otherwise), and the mailbox is signed
+into with XOAUTH2: Gmail accepts no password from an application, and IMAP needs nothing more.
+Without the block, the settings an application already keeps are read:
+- `imap_host`, the imap extension's `{imap.gmail.com:993/imap/ssl}INBOX` form included;
+- `imap_user` and `imap_pass`;
+- `imap_oauth_client_id`, `imap_oauth_client_secret` and `imap_oauth_refresh_token`.
+
+PHP no longer ships its `imap` extension, so this speaks IMAP itself, through
+`Pramnos\Email\ImapClient`. An application can use the client directly, for any mailbox it
+reads:
+- `connect()`, then `login()` or `authenticate()` (XOAUTH2), then `select()`;
+- `unseen()` and `seenBefore($day)`;
+- `fetch()`, which reads a message without marking it;
+- `markSeen()`, `delete()`, `expunge()` and `logout()`.
+
 Standard input makes the command a mail server's delivery target — an alias such as
 `bounces: "|php /srv/site/bin/pramnos mail:bounces"` with the site's `Return-Path` pointing at
 it records each report as it arrives. A folder is for a mailbox fetched to disk. A message in the

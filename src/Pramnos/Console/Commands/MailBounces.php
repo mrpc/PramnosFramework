@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Pramnos\Console\Commands;
 
+use Pramnos\Email\BounceMailbox;
 use Pramnos\Email\Bounces;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
@@ -18,6 +19,7 @@ use Symfony\Component\Console\Output\OutputInterface;
  * php bin/pramnos mail:bounces var/inbox                  # every .eml in the folder
  * php bin/pramnos mail:bounces var/inbox --delete         # … and remove the reports read
  * php bin/pramnos mail:bounces < report.eml               # one message on standard input
+ * php bin/pramnos mail:bounces --imap                     # the bounce mailbox, over IMAP
  * php bin/pramnos mail:bounces --block=a@example.com --reason="asked by phone"
  * php bin/pramnos mail:bounces --clear=a@example.com
  * php bin/pramnos mail:bounces --status=a@example.com
@@ -26,7 +28,9 @@ use Symfony\Component\Console\Output\OutputInterface;
  * Standard input makes it a mail server's delivery target: an alias such as
  * `bounces: "|php /srv/site/bin/pramnos mail:bounces"` records each report as it arrives. A
  * folder is for a mailbox fetched to disk. With `--delete`, a file that was a report is removed
- * once recorded; anything else is left for a person to read.
+ * once recorded; anything else is left for a person to read. With `--imap` the mailbox the
+ * application names is read ({@see BounceMailbox}): its unseen messages, each report recorded and
+ * marked seen, the rest left unread.
  */
 class MailBounces extends Command
 {
@@ -39,7 +43,9 @@ class MailBounces extends Command
             ->addOption('block', null, InputOption::VALUE_REQUIRED, 'Stop all mail to this address')
             ->addOption('clear', null, InputOption::VALUE_REQUIRED, 'Forget this address\'s bounces and block')
             ->addOption('status', null, InputOption::VALUE_REQUIRED, 'Show what is recorded for this address')
-            ->addOption('reason', null, InputOption::VALUE_REQUIRED, 'Why, for --block', '');
+            ->addOption('reason', null, InputOption::VALUE_REQUIRED, 'Why, for --block', '')
+            ->addOption('imap', null, InputOption::VALUE_NONE, 'Read the bounce mailbox the application names, over IMAP')
+            ->addOption('limit', null, InputOption::VALUE_REQUIRED, 'With --imap: at most this many messages (0: all)', '200');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -49,6 +55,10 @@ class MailBounces extends Command
             if ($address !== '') {
                 return $this->byHand($action, $address, (string) $input->getOption('reason'), $output);
             }
+        }
+
+        if ($input->getOption('imap')) {
+            return $this->imap(max(0, (int) $input->getOption('limit')), $output);
         }
 
         $paths = (array) $input->getArgument('paths');
@@ -80,6 +90,43 @@ class MailBounces extends Command
         $output->writeln(sprintf('<info>%d report(s)</info> in %d file(s).', $reports, count($files)));
 
         return Command::SUCCESS;
+    }
+
+    /** Read the bounce mailbox: each report recorded and marked seen, the rest left unread. */
+    private function imap(int $limit, OutputInterface $output): int
+    {
+        $mailbox = $this->mailbox();
+        if ($mailbox === null) {
+            $output->writeln('<error>No bounce mailbox is configured.</error> Set email.bounces.mailbox in app.php, or the imap_host setting.');
+
+            return Command::FAILURE;
+        }
+        try {
+            $mailbox->open();
+            $uids    = $mailbox->unseen($limit);
+            $reports = 0;
+            foreach ($uids as $uid) {
+                if ($this->report($mailbox->fetch($uid), $output) !== null) {
+                    $mailbox->markSeen($uid);
+                    $reports++;
+                }
+            }
+        } catch (\Throwable $e) {
+            $output->writeln('<error>' . $e->getMessage() . '</error>');
+
+            return Command::FAILURE;
+        } finally {
+            $mailbox->close();
+        }
+        $output->writeln(sprintf('<info>%d report(s)</info> in %d unseen message(s) of %s.', $reports, count($uids), $mailbox->describe()));
+
+        return Command::SUCCESS;
+    }
+
+    /** The bounce mailbox — a seam, so a test can give one. */
+    protected function mailbox(): ?BounceMailbox
+    {
+        return BounceMailbox::configured();
     }
 
     /** Record one message's failures; null when it was not a delivery report. */
