@@ -1019,7 +1019,9 @@ class Email extends \Pramnos\Framework\Base
         // sent, and rendering a body first only wastes the work. This also fills in the
         // unsubscribe link, which the wrapper below reads.
         if (!$this->applyMailType()) {
-            $this->renderedBody = (string) $this->body;
+            $this->renderedBody     = TemplateValues::fill((string) $this->body, $this->bodyValues ?? []);
+            $this->subject          = TemplateValues::fill((string) $this->subject, $this->bodyValues ?? []);
+            $this->templateRendered = null;
 
             return false;
         }
@@ -1042,6 +1044,15 @@ class Email extends \Pramnos\Framework\Base
                 'language'        => $this->messageLanguage(),
             ]
         );
+
+        // A templated body: wrapped as the template, then filled — the wrapped template is kept,
+        // and filling it again gives back exactly this.
+        $this->templateRendered = null;
+        if ($this->bodyValues !== null) {
+            $this->templateRendered = $this->renderedBody;
+            $this->renderedBody     = TemplateValues::fill($this->renderedBody, $this->bodyValues);
+            $this->subject          = TemplateValues::fill((string) $this->subject, $this->bodyValues);
+        }
 
         return true;
     }
@@ -1222,6 +1233,31 @@ class Email extends \Pramnos\Framework\Base
      */
     protected ?int $sentStamp = null;
 
+    /** The values a templated body is filled with ({@see setBodyTemplate()}); null when it is not one. */
+    protected ?array $bodyValues = null;
+
+    /** The templated body wrapped, before its values: what is kept, once for every recipient. */
+    protected ?string $templateRendered = null;
+
+    /**
+     * The body as a template and the values to fill it with for this recipient — the account's
+     * ({@see TemplateValues::forUser()}) under the ones given. The subject's placeholders are
+     * filled too.
+     *
+     * Sent, it is wrapped first and filled after, so the body kept is the template — one for every
+     * recipient of it, filled again when read — and what was sent is, by construction, what reading
+     * gives back. The preheader a wrapper prints comes from the template, filled.
+     *
+     * @param array<string, scalar> $values
+     */
+    public function setBodyTemplate(string $body, array $values = [], ?object $user = null): static
+    {
+        $this->body       = $body;
+        $this->bodyValues = $values + TemplateValues::forUser($user);
+
+        return $this;
+    }
+
     /**
      * The state the outbox keeps for this message; see {@see OUTBOX_STATE}.
      *
@@ -1280,7 +1316,7 @@ class Email extends \Pramnos\Framework\Base
             // A queued message keeps its body in the row for the worker, as composed; one that was
             // sent, or failed, is kept where the body store keeps bodies.
             $kept    = $status === \Pramnos\Messaging\Mail::STATUS_QUEUED
-                ? ['content' => (string) ($this->renderedBody ?? $this->body), 'path' => '', 'hash' => md5((string) ($this->renderedBody ?? $this->body)), 'kept' => '']
+                ? ['content' => (string) ($this->renderedBody ?? $this->body), 'path' => '', 'hash' => md5((string) ($this->renderedBody ?? $this->body)), 'kept' => '', 'bodyvars' => null]
                 : $this->keptBody($date, $tomail);
             \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
                 ->table('#PREFIX#mails')
@@ -1306,7 +1342,7 @@ class Email extends \Pramnos\Framework\Base
                     },
                     'path'       => $kept['path'],
                     'hash'       => $kept['hash'],
-                ]);
+                ] + ($kept['bodyvars'] !== null ? ['bodyvars' => $kept['bodyvars']] : []));
             $mailId = (int) \Pramnos\Framework\Factory::getDatabase()->getInsertId();
             if ($kept['path'] === BodyStore::IN_DATABASE) {
                 $this->keepInDatabase($mailId, $date, $kept['kept']);
@@ -1341,18 +1377,22 @@ class Email extends \Pramnos\Framework\Base
      * does not add — in a file, in `mail_bodies`, or in `content`. A store that cannot be written
      * keeps it in `content`: a body is never lost to its store.
      *
-     * @return array{content: string, path: string, hash: string, kept: string}
+     * A templated message keeps its wrapped template and the values, where `mails` has the
+     * `bodyvars` column to hold them; without it, the body as filled.
+     *
+     * @return array{content: string, path: string, hash: string, kept: string, bodyvars: ?string}
      */
     protected function keptBody(int $date, string $tomail): array
     {
         $rendered = (string) ($this->renderedBody ?? $this->body);
-        $inRow    = ['content' => $rendered, 'path' => '', 'hash' => md5($rendered), 'kept' => ''];
+        $inRow    = ['content' => $rendered, 'path' => '', 'hash' => md5($rendered), 'kept' => '', 'bodyvars' => null];
         try {
             $mode = BodyStore::mode();
             if ($mode === BodyStore::CONTENT) {
                 return $inRow;
             }
-            $kept = BodyStore::prepare($this->embedStructuredData($rendered), $tomail, (string) $this->unsubscribe, (string) $this->unsubscribeList);
+            $templated = $this->templateRendered !== null && BodyStore::hasBodyVars();
+            $kept      = BodyStore::prepare($this->embedStructuredData($templated ? (string) $this->templateRendered : $rendered), $tomail, (string) $this->unsubscribe, (string) $this->unsubscribeList);
             $path = $mode === BodyStore::DATABASE ? BodyStore::IN_DATABASE : BodyStore::putFile($kept, $date);
         } catch (\Throwable $e) {
             \Pramnos\Logs\Logger::log('Mail body kept in its row, the store refused it: ' . $e->getMessage(), 'mail');
@@ -1360,7 +1400,8 @@ class Email extends \Pramnos\Framework\Base
             return $inRow;
         }
 
-        return ['content' => '', 'path' => $path, 'hash' => md5($kept), 'kept' => $kept];
+        return ['content' => '', 'path' => $path, 'hash' => md5($kept), 'kept' => $kept,
+            'bodyvars' => $templated ? (string) json_encode($this->bodyValues, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE) : null];
     }
 
     /**

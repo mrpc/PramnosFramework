@@ -65,6 +65,8 @@ class BodyStoreMailFlush extends MailFlush
 #[CoversClass(Email::class)]
 #[CoversClass(MailFlush::class)]
 #[CoversClass(\Pramnos\Console\Commands\MailBodiesToDatabase::class)]
+#[CoversClass(\Pramnos\Email\TemplateValues::class)]
+#[CoversClass(\Pramnos\Framework\Migrations\Messaging\AddBodyvarsToMails::class)]
 class MailBodyStoreTest extends BaseTestCase
 {
     protected \Pramnos\Database\Database $db;
@@ -92,6 +94,7 @@ class MailBodyStoreTest extends BaseTestCase
         $this->runMigrations([
             \Pramnos\Framework\Migrations\Messaging\CreateMailsTable::class,
             \Pramnos\Framework\Migrations\Messaging\CreateEmailTrackingTables::class,
+            \Pramnos\Framework\Migrations\Messaging\AddBodyvarsToMails::class,
         ], $this->db);
         $this->folder = sys_get_temp_dir() . '/pf-mailbodies-' . bin2hex(random_bytes(3));
         $this->configure(['store' => 'files', 'path' => $this->folder]);
@@ -125,7 +128,7 @@ class MailBodyStoreTest extends BaseTestCase
             {
             }
         };
-        $stub->applicationInfo = ['email' => ['tracking' => true, 'bodies' => $bodies]] + $more;
+        $stub->applicationInfo = array_replace_recursive(['email' => ['tracking' => true, 'bodies' => $bodies]], $more);
         $ref = new \ReflectionProperty(Application::class, 'appInstances');
         $this->savedInstances ??= $ref->getValue() ?? [];
         $ref->setValue(null, ['default' => $stub] + $this->savedInstances);
@@ -403,6 +406,95 @@ class MailBodyStoreTest extends BaseTestCase
         // Assert
         $this->assertSame(1, $code);
         $this->assertStringContainsString('There is no mail_bodies table', $tester->getDisplay());
+    }
+
+    /** An account to send to, with a name that has a character HTML would read. */
+    private static function account(int $id, string $first): \Pramnos\User\User
+    {
+        $user = (new \ReflectionClass(\Pramnos\User\User::class))->newInstanceWithoutConstructor();
+        $user->userid    = $id;
+        $user->firstname = $first;
+        $user->lastname  = 'Smith';
+        $user->username  = 'user' . $id;
+        $user->email     = 'user' . $id . '@bodystore.test';
+
+        return $user;
+    }
+
+    /**
+     * A templated message, through the installation's wrapper, to three people: one body kept —
+     * the wrapped template — and each reads back as it was sent to them, to the byte: their name
+     * in the body, the subject and the preheader, their unsubscribe link, their tracking. The row
+     * keeps their values and their filled subject.
+     */
+    public function testATemplatedMessageIsKeptOnceAndFilledForEach(): void
+    {
+        // Arrange
+        $transport = new HtmlCapturingTransport();
+        $people    = [self::account(901, 'Anna'), self::account(902, 'Bob & <Co>'), self::account(903, 'Chloé')];
+
+        // Act
+        foreach ($people as $user) {
+            $mail = (new Email())->withTransport($transport);
+            $mail->setTo((string) $user->email)->setSubject('Hello {firstname}')->setTemplate('default')
+                ->setBodyTemplate('<p>Dear {firstname}, your plan renews on {renewal}. <a href="https://example.com/plan">Your plan</a></p>', ['renewal' => '1/11'], $user)
+                ->offerUnsubscribe('newsletter', (string) $user->email)
+                ->enableTracking();
+            $mail->send();
+        }
+        $rows = array_map(fn ($user): array => $this->row((string) $user->email), $people);
+
+        // Assert
+        $this->assertCount(1, array_unique(array_column($rows, 'path')), 'one body kept for the three');
+        foreach ($rows as $i => $row) {
+            $this->assertSame($transport->html[$i], Body::of($row), 'as sent to ' . $people[$i]->firstname);
+            $this->assertNotNull(json_decode((string) $row['bodyvars'], true));
+        }
+        $this->assertSame('Hello Anna', (string) $rows[0]['subject'], 'the subject, filled');
+        $this->assertStringContainsString('Dear Anna, your plan renews on 1/11.', $transport->html[0]);
+        $this->assertStringContainsString('Dear Bob &amp; &lt;Co&gt;', $transport->html[1], 'the account\'s text escaped');
+        $this->assertStringContainsString('<title>Hello Chloé</title>', $transport->html[2], 'the wrapper\'s subject, filled');
+    }
+
+    /**
+     * The application's values join the account's and win over them; given values win over
+     * both. Without `bodyvars` — its migration not run — a templated message is kept as filled,
+     * and still reads back as sent.
+     */
+    public function testTheValuesAndATableWithoutBodyvars(): void
+    {
+        // Arrange
+        $this->configure(['store' => 'files', 'path' => $this->folder], ['email' => ['template_values' => BodyStoreValues::class]]);
+        $user = self::account(904, 'Dora');
+
+        // Act
+        $values = \Pramnos\Email\TemplateValues::forUser($user);
+        $given  = (new Email())->setBodyTemplate('{firstname} {credits}', ['credits' => '7'], $user);
+        (new \ReflectionProperty(BodyStore::class, 'bodyVars'))->setValue(null, false);
+        $transport = new HtmlCapturingTransport();
+        $mail      = (new Email())->withTransport($transport);
+        $mail->setTo('novars@bodystore.test')->setSubject('No vars')->setBodyTemplate('<p>Hi {firstname}</p>', [], $user)->send();
+        $row = $this->row('novars@bodystore.test');
+
+        // Assert
+        $this->assertSame('Dora', $values['firstname']);
+        $this->assertSame('42', $values['credits'], 'the application\'s');
+        $this->assertSame('Theirs', $values['username'], 'the application\'s win over the account\'s');
+        $this->assertSame('{firstname} {credits}', $given->body, 'the template, until it is sent');
+        $this->assertNull($row['bodyvars']);
+        $this->assertSame('<p>Hi Dora</p>', Body::of($row), 'kept as filled');
+        $this->assertSame($transport->html[0], Body::of($row));
+        $this->assertArrayNotHasKey('firstname', \Pramnos\Email\TemplateValues::forUser(null), 'no account: none of its values');
+        $this->assertArrayHasKey('login_url', \Pramnos\Email\TemplateValues::forUser(null), 'the site\'s still');
+    }
+}
+
+/** An application's own template values. */
+class BodyStoreValues implements \Pramnos\Email\TemplateValueProvider
+{
+    public function values(?object $user): array
+    {
+        return ['credits' => 42, 'username' => 'Theirs'];
     }
 }
 

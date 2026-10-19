@@ -1730,6 +1730,47 @@ byte, as long as the site's address and the signing secret have not changed.
 **A queued message** keeps its body in `content` for the worker, as composed. Once sent, it moves
 to the store.
 
+### A templated message: kept once, filled for each
+
+A message that is the same for everybody but a few values hands the framework the template and
+the values, rather than the filled body:
+
+```php
+$mail->setTo($user->email)
+     ->setSubject('Hello {firstname}')
+     ->setBodyTemplate('<p>Dear {firstname}, your plan renews on {renewal}.</p>', ['renewal' => '1/11'], $user)
+     ->send();
+```
+
+The values are the account's (`TemplateValues::forUser()`) with the ones given over them. The
+subject's placeholders are filled too. The body kept is the template, wrapped, once for every
+recipient of it, and the values go into the row's `bodyvars`. Reading fills it again.
+
+**The order is what makes it exact.** A templated message is wrapped as the template and filled
+afterwards, so what was sent is, by construction, the kept template filled. The preheader a
+wrapper prints comes from the template, filled, and so does the subject in its `<title>`.
+
+| Placeholder | Value |
+|---|---|
+| `{firstname}`, `{first_name}`, `{lastname}`, `{last_name}`, `{full_name}` | the account's names |
+| `{username}`, `{email}`, `{id}` | the account's |
+| `{url}`, `{login_url}` (and `{Login_url}`) | the site, its sign-in page |
+
+The account's values are its own text, so they are escaped: a name with a `<` in it is shown,
+never read as markup. An application adds its own values with a provider:
+
+```php
+// app/app.php
+'email' => ['template_values' => App\Mail\Values::class],   // implements Pramnos\Email\TemplateValueProvider
+```
+
+They win over the account's, and go in as given: HTML stays HTML, so a `{photo}` can be an
+`<img>`. A value that is the user's own text is the provider's to escape. A placeholder nobody
+fills is left as it is, so the mistake shows in a test send.
+
+A queued templated message is kept filled. Without the `bodyvars` column, before its migration
+has run, a templated message is kept filled as well. Either way it reads back the same.
+
 **A store that cannot be written** keeps the body in `content` and logs why; a body is never lost
 to its store. The application has to be able to write the `files` folder.
 

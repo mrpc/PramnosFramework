@@ -66,7 +66,7 @@ final class Body
 
         // Kept before what differs per recipient: put back, as it was sent.
         return $rebuild && $body !== ''
-            ? BodyStore::rebuild($body, (string) ($row['tomail'] ?? ''), (int) ($row['id'] ?? 0), (int) ($row['date'] ?? 0))
+            ? BodyStore::rebuild($body, (string) ($row['tomail'] ?? ''), (int) ($row['id'] ?? 0), (int) ($row['date'] ?? 0), self::values($row))
             : $body;
     }
 
@@ -90,6 +90,19 @@ final class Body
         }
 
         return null;
+    }
+
+    /**
+     * A templated message's values, from its row; null for one that was not templated.
+     *
+     * @param array<string, mixed> $row
+     * @return array<string, scalar>|null
+     */
+    private static function values(array $row): ?array
+    {
+        $values = json_decode((string) ($row['bodyvars'] ?? ''), true);
+
+        return is_array($values) ? $values : null;
     }
 
     /** The application's root, resolved; null where there is none. */

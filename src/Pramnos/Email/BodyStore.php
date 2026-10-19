@@ -47,6 +47,15 @@ final class BodyStore
     /** @var string|null This process's answer to 'auto' */
     private static ?string $resolved = null;
 
+    /** @var bool|null Whether `mails` has `bodyvars`, asked once a process */
+    private static ?bool $bodyVars = null;
+
+    /** Whether `mails` can hold a templated message's values — its migration has run. */
+    public static function hasBodyVars(): bool
+    {
+        return self::$bodyVars ??= \Pramnos\Framework\Factory::getDatabase()->schema()->hasColumn('mails', 'bodyvars');
+    }
+
     /** Where bodies are kept: one of the constants, 'auto' resolved. */
     public static function mode(): string
     {
@@ -63,6 +72,7 @@ final class BodyStore
     public static function forget(): void
     {
         self::$resolved = null;
+        self::$bodyVars = null;
     }
 
     /**
@@ -81,11 +91,15 @@ final class BodyStore
     }
 
     /**
-     * A kept body as it was sent to `$recipient`: the unsubscribe link put back, and — for a
-     * tracked message — its links wrapped and its pixel, as of the moment it was sent.
+     * A kept body as it was sent to `$recipient`: a template filled with its values, the
+     * unsubscribe link put back, and — for a tracked message — its links wrapped and its pixel,
+     * as of the moment it was sent.
+     *
+     * @param array<string, scalar>|null $values A templated message's values
      */
-    public static function rebuild(string $kept, string $recipient, int $mailId, int $sentAt): string
+    public static function rebuild(string $kept, string $recipient, int $mailId, int $sentAt, ?array $values = null): string
     {
+        $kept        = $values !== null ? TemplateValues::fill($kept, $values) : $kept;
         $unsubscribe = '';
         $body        = (string) preg_replace_callback('/\{\{pf-unsubscribe:([^}]*)\}\}/', static function (array $m) use ($recipient, &$unsubscribe): string {
             return $unsubscribe = self::unsubscribeUrl($recipient, rawurldecode($m[1]));

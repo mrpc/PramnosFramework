@@ -378,7 +378,7 @@ each alone.
 1. **Reading** — `Email\Body::of()`: `content`, or the file `path` names. *Done.*
 2. Deterministic tokens: new methods beside the existing ones.
 3. The store, with rebuild — `BodyStore`, as a hypertable or as files (and S3). *Done.*
-4. Template + variables through the framework, with values taken from the user.
+4. Template + variables through the framework, with values taken from the user. *Done.*
 5. Bounces and suppression: the table, a check in `send()`, a command reading the bounce mailbox,
    and a screen.
 6. GDPR erasure and retention, files and rows alike.
