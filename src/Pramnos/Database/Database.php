@@ -1538,6 +1538,7 @@ class Database extends \Pramnos\Framework\Base
                     } catch (\mysqli_sql_exception $exception) {
                         $this->queryResult = false;
                         $queryException = $exception;
+                        $this->forgetIfARelationIsMissing($exception->getMessage(), $exception->getCode());
                     }
 
                     if ($this->queryResult === false && $retry
@@ -1906,6 +1907,7 @@ class Database extends \Pramnos\Framework\Base
             if (empty($this->error_text)) {
                 $this->error_text = $e->getMessage();
             }
+            $this->forgetIfARelationIsMissing($e->getMessage(), $e->getCode());
             if ($this->throwOnError) {
                 throw new QueryException($e->getMessage(), is_string($query) ? $query : '');
             }
@@ -1988,6 +1990,7 @@ class Database extends \Pramnos\Framework\Base
                     $this->error_text = $err;
                 }
             }
+            $this->forgetIfARelationIsMissing((string) $this->error_text);
             // This return-false is the one silent path (prepare failure — e.g. a
             // missing table): the execution-failure paths below go through
             // setError(), which already throws. In strict mode, surface it too so a
@@ -3444,6 +3447,7 @@ class Database extends \Pramnos\Framework\Base
     {
         $this->error_number = $errorNumber;
         $this->error_text = $errorMessage;
+        $this->forgetIfARelationIsMissing((string) $errorMessage, $errorNumber);
         // error 1141 is okay ... should not die on 1141,
         // but just continue on instead
         if ($fatal && $errorNumber != 1141) {
@@ -3459,6 +3463,26 @@ class Database extends \Pramnos\Framework\Base
                 . $this->currentQuery
                 . "\n"
             );
+        }
+    }
+
+    /**
+     * A query failed on a table that is not there: forget what the schema builder found.
+     *
+     * `hasTable()` remembers a table it found for the life of the process, and only DDL through
+     * this connection forgets it. A table another process dropped — a migration run beside a
+     * long-lived worker — would otherwise be reported forever. Here the process is wrong once,
+     * on the query that fails, and right from then on.
+     *
+     * MySQL's error 1146, PostgreSQL's SQLSTATE 42P01 — which its message names as `relation …
+     * does not exist`.
+     */
+    private function forgetIfARelationIsMissing(string $message, int|string|null $code = null): void
+    {
+        if ((string) $code === '1146' || (string) $code === '42P01'
+            || preg_match('/relation "[^"]*" does not exist|doesn\'t exist/i', $message) === 1
+        ) {
+            SchemaBuilder::forgetWhatExists($this);
         }
     }
 

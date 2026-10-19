@@ -305,12 +305,36 @@ abstract class CommandBase extends Command
      */
     protected function shouldStop(): bool
     {
+        // Asked between tasks by every loop, so the cheapest place to notice a migration.
+        $this->followSchemaGeneration();
+
         if ($this->signalStop()->requested() || $this->workerLock()->stopRequested()) {
             return true;
         }
 
         return $this->workerLock()->isHeld()
             && !file_exists($this->resolvedJobLockFilePath());
+    }
+
+    /** The schema generation this process last saw; null before the first look. */
+    private ?string $schemaSeen = null;
+
+    /**
+     * Forget what this process knows of the schema when a migration has changed it since the
+     * last look ({@see \Pramnos\Database\MigrationRunner::schemaGeneration()}).
+     *
+     * A long-lived worker remembers the tables and columns it found; a migration run by another
+     * process — a request, a deploy after this worker started — changes them behind it. The
+     * orchestrator restarts its workers when the generation moves; a worker run by anything else
+     * at least stops answering from what was true before. One small file read between tasks.
+     */
+    protected function followSchemaGeneration(): void
+    {
+        $now = \Pramnos\Database\MigrationRunner::schemaGeneration();
+        if ($this->schemaSeen !== null && $now !== $this->schemaSeen) {
+            \Pramnos\Database\SchemaBuilder::forgetWhatExists();
+        }
+        $this->schemaSeen = $now;
     }
 
     protected function checkIfRunning(): bool

@@ -836,6 +836,7 @@ abstract class DaemonOrchestrator extends CommandBase
         $cycleCount          = 1;
         $lastGitHash         = $this->getCurrentGitHash();
         $lastGitCheck        = time();
+        $lastSchema          = \Pramnos\Database\MigrationRunner::schemaGeneration();
 
         do {
             $enabled = $this->isOrchestratorEnabled();
@@ -887,6 +888,14 @@ abstract class DaemonOrchestrator extends CommandBase
                 }
                 if ($currentHash !== '') {
                     $lastGitHash = $currentHash;
+                }
+                // A migration changes no commit: run by a request after the deploy's restart,
+                // or on its own, it left every worker on the old schema.
+                $currentSchema = \Pramnos\Database\MigrationRunner::schemaGeneration();
+                if ($currentSchema !== $lastSchema) {
+                    $output->writeln('<info>[schema]</info> Migrations changed the schema. Requesting graceful restart of all daemons…');
+                    $this->requestStopAll($output);
+                    $lastSchema = $currentSchema;
                 }
                 $lastGitCheck = time();
             }

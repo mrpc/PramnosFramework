@@ -614,6 +614,36 @@ class CommandBaseTest extends TestCase
     }
 
     /**
+     * A worker that notices, between tasks, that a migration changed the schema forgets the
+     * tables it remembered as existing — they may be gone — and forgets nothing when nothing
+     * moved, which is every other task.
+     */
+    public function testAMigrationBetweenTasksMakesTheWorkerForgetTheSchema(): void
+    {
+        // Arrange — something remembered, and a generation read
+        $found = new \ReflectionProperty(\Pramnos\Database\SchemaBuilder::class, 'found');
+        $bump  = new \ReflectionMethod(\Pramnos\Database\MigrationRunner::class, 'bumpSchemaGeneration');
+        $remembered = static function () use ($found): void {
+            $map = new \WeakMap();
+            $map[\Pramnos\Database\Database::getInstance()] = ['|probe' => true];
+            $found->setValue(null, $map);
+        };
+        $remembered();
+        $this->cmd->publicShouldStop();
+
+        // Act — a task with nothing migrated, then one after a migration
+        $this->cmd->publicShouldStop();
+        $keptWhenStill = $found->getValue() !== null;
+        $bump->invoke(null);
+        $this->cmd->publicShouldStop();
+        $keptAfterMigration = $found->getValue() !== null;
+
+        // Assert
+        $this->assertTrue($keptWhenStill, 'forgot the schema with nothing migrated');
+        $this->assertFalse($keptAfterMigration, 'a migration left the worker on the old schema');
+    }
+
+    /**
      * The supervisor's `.stop` sentinel alone also trips shouldStop().
      */
     public function testShouldStopHonoursStopSentinel(): void

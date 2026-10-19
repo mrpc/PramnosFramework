@@ -142,6 +142,36 @@ class SchemaExistenceMemoTest extends DatabaseTestCase
     }
 
     /**
+     * A table another process dropped is reported once more, and then the query on it fails —
+     * and that failure makes the connection forget, so the process is wrong once and right from
+     * then on. By hand-written SQL and through the query builder alike.
+     */
+    public function testAQueryOnAMissingTableForgetsWhatWasFound(): void
+    {
+        foreach (['raw', 'builder'] as $how) {
+            // Arrange
+            $this->createScratchElsewhere();
+            $this->assertTrue($this->db->schema()->hasTable('sem_scratch'));
+            $this->dropScratchElsewhere();
+            $this->assertTrue($this->db->schema()->hasTable('sem_scratch'), 'remembered: nothing to test');
+
+            // Act
+            try {
+                if ($how === 'raw') {
+                    $this->db->query('SELECT * FROM sem_scratch');
+                } else {
+                    $this->db->queryBuilder()->table('sem_scratch')->where('id', 1)->get();
+                }
+            } catch (\Throwable) {
+                // The failure is the point; how it surfaces is the driver's.
+            }
+
+            // Assert
+            $this->assertFalse($this->db->schema()->hasTable('sem_scratch'), $how . ': the failed query left the table reported');
+        }
+    }
+
+    /**
      * Columns the same way: a found column is remembered, a missing one asked again, and
      * forgetting every connection's answers works too.
      */

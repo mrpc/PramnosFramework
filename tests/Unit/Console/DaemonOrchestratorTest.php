@@ -3187,6 +3187,35 @@ class DaemonOrchestratorTest extends TestCase
     }
 
     /**
+     * A migration with no new commit — run by a request after the deploy's restart — restarts the
+     * daemons as a new commit does, so no worker stays on the old schema.
+     */
+    public function testExecuteSchemaGenerationChangeRestart(): void
+    {
+        // Arrange
+        $tmpDir = sys_get_temp_dir() . '/pramnos_orch_schema_' . bin2hex(random_bytes(4));
+        mkdir($tmpDir . '/var/logs', 0777, true);
+        $orch = new TestableDaemonOrchestratorSchemaCheck($tmpDir);
+        $orch->desiredProcesses = [];
+        $orch->processRunning = [];
+        $orch->setShouldContinue(false);
+        $app = new \Symfony\Component\Console\Application();
+        $app->add($orch);
+        $input = new ArrayInput([], $orch->getDefinition());
+        $output = new \Symfony\Component\Console\Output\BufferedOutput();
+
+        // Act
+        $orch->publicExecute($input, $output);
+
+        // Assert
+        $out = $output->fetch();
+        $this->assertStringContainsString('[schema] Migrations changed the schema', $out);
+        $this->assertStringNotContainsString('[git] New deployment detected', $out, 'the commit did not move');
+
+        $this->rmdirRecursive($tmpDir);
+    }
+
+    /**
      * execute() should run deduplication and print [dedup] messages in non-interactive mode.
      */
     public function testExecutePrintsDeduplicateMessagesInNonInteractiveMode(): void
@@ -3932,6 +3961,25 @@ class TestableDaemonOrchestratorGitCheck extends TestableDaemonOrchestrator
     {
         $this->gitCalls++;
         return $this->gitCalls === 1 ? 'hash1' : 'hash2';
+    }
+}
+
+/**
+ * The git hash never moves; a migration runs between the orchestrator's start and its first check
+ * (from inside the second git read, which comes just before the schema check).
+ */
+class TestableDaemonOrchestratorSchemaCheck extends TestableDaemonOrchestrator
+{
+    protected const GIT_CHECK_SECONDS = -1;
+    private int $gitCalls = 0;
+    /** The same commit every time; on the second read, a migration runs elsewhere. */
+    protected function getCurrentGitHash(): string
+    {
+        if (++$this->gitCalls === 2) {
+            (new \ReflectionMethod(\Pramnos\Database\MigrationRunner::class, 'bumpSchemaGeneration'))->invoke(null);
+        }
+
+        return 'hash1';
     }
 }
 

@@ -728,6 +728,7 @@ class MigrationRunner
          */
         if ($ran !== []) {
             $this->db?->forgetAllColumns();
+            self::bumpSchemaGeneration();
         }
 
         return ['ran' => $ran, 'failed' => $failed, 'warned' => $warned, 'declined' => $declined];
@@ -820,9 +821,50 @@ class MigrationRunner
          */
         if ($rolledBack !== []) {
             $this->db?->forgetAllColumns();
+            self::bumpSchemaGeneration();
         }
 
         return ['rolledBack' => $rolledBack];
+    }
+
+    /**
+     * Which version of the schema this checkout's database is at, as an opaque token — or an
+     * empty string when no migration has changed anything since the file was last cleared.
+     *
+     * It changes each time a batch applies or rolls back anything, in whatever process ran it.
+     * A long-lived process compares it with what it read before: the daemon orchestrator
+     * restarts its workers when it moves, as it does on a new commit, and a worker loop may
+     * forget what it knows of the schema ({@see SchemaBuilder::forgetWhatExists()}). Without it a
+     * migration run by a request, after a deploy had already restarted everything, left every
+     * worker on the old tables, columns and prepared statements.
+     *
+     * A file under `var/`, read in one `file_get_contents()`, cheap enough for a worker to ask
+     * between jobs.
+     */
+    public static function schemaGeneration(): string
+    {
+        $file = self::schemaGenerationFile();
+
+        return is_file($file) ? trim((string) @file_get_contents($file)) : '';
+    }
+
+    /** A new schema generation, after a batch that changed something. */
+    private static function bumpSchemaGeneration(): void
+    {
+        // Written beside and moved into place, so a reader never sees half of it. A checkout
+        // without a writable var/ keeps no generation, and its daemons restart on commits only.
+        $file      = self::schemaGenerationFile();
+        $temporary = $file . '.' . getmypid();
+        if (@file_put_contents($temporary, bin2hex(random_bytes(8)) . '@' . time()) !== false) {
+            @rename($temporary, $file);
+        }
+    }
+
+    /** Where the schema generation is kept: `var/schema-generation`, beside the migration markers. */
+    private static function schemaGenerationFile(): string
+    {
+        return (defined('VAR_PATH') ? VAR_PATH : (defined('ROOT') ? ROOT : '.') . DIRECTORY_SEPARATOR . 'var')
+            . DIRECTORY_SEPARATOR . 'schema-generation';
     }
 
     /**

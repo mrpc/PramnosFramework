@@ -744,6 +744,23 @@ supervised entry that could only ever fail to start.
   `shouldStop()` (or a standalone script's `WorkerLock::stopRequested()`) sees it and exits
   after the current job. Constants: `HEARTBEAT_STALE_SECONDS` (300), `GIT_CHECK_SECONDS` (60).
 
+### A new commit or a migration restarts the daemons
+
+Every `GIT_CHECK_SECONDS` the orchestrator compares two things with what it last saw: the
+checkout's git hash, and the **schema generation** (`MigrationRunner::schemaGeneration()`, kept
+in `var/schema-generation`). When either has moved, it asks every daemon to stop after its
+current job and starts them again.
+
+The second is for a migration that changes no commit: one run by a request after the deploy
+had already restarted everything, or one run on its own. A worker started before it would
+otherwise keep the old view of the schema — the tables `hasTable()` found, the column lists of
+its models, its prepared statements. The generation moves whenever a batch applies or rolls
+back anything, in whatever process ran it, and not when `migrate` finds nothing pending.
+
+A worker not run by the orchestrator notices too, less thoroughly: `CommandBase::shouldStop()`,
+which every loop asks between tasks, reads the generation and forgets which tables and columns
+it found when it has moved.
+
 ### A supervised worker watches the supervisor's lock path, and stops painting
 
 Two things follow from being spawned by `DaemonOrchestrator`, and both are read from

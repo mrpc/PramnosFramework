@@ -435,6 +435,33 @@ class MigrationRunnerMySQLTest extends TestCase
     }
 
     /**
+     * The schema generation moves when a batch applies or rolls back something, and only then:
+     * a `migrate` with nothing pending is the common case, and a moved generation restarts every
+     * daemon.
+     */
+    public function testTheSchemaGenerationMovesOnlyWhenSomethingChanged(): void
+    {
+        // Arrange
+        $roles  = new CreateMrMyRoles($this->app);
+        $runner = new MigrationRunner($this->db, $this->historyTable);
+        $before = MigrationRunner::schemaGeneration();
+
+        // Act
+        $runner->run([$roles]);
+        $afterRun = MigrationRunner::schemaGeneration();
+        $runner->run([$roles]);
+        $afterNothing = MigrationRunner::schemaGeneration();
+        $runner->rollback([$roles]);
+        $afterRollback = MigrationRunner::schemaGeneration();
+
+        // Assert
+        $this->assertNotSame($before, $afterRun, 'a batch that ran something did not move it');
+        $this->assertNotSame('', $afterRun);
+        $this->assertSame($afterRun, $afterNothing, 'a batch with nothing pending moved it');
+        $this->assertNotSame($afterNothing, $afterRollback, 'a rollback did not move it');
+    }
+
+    /**
      * rollback() without a prior run (empty history) must return an empty
      * rolledBack list and not throw.
      */

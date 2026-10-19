@@ -431,9 +431,12 @@ is seen at once. The answers are forgotten:
 - by any `DROP`, `ALTER` or `RENAME` the same connection runs, hand-written included;
 - by the migration runner, before and after each migration.
 
-What none of those can see is a table dropped by **another** connection or process. A queue
-worker keeps "it exists" until it restarts, which a deploy that drops tables restarts it for
-anyway. Inside one process, after DDL through a second connection:
+A table dropped by **another** connection or process is caught three ways:
+- a query that fails because the table is not there (MySQL 1146, PostgreSQL 42P01) makes the
+  connection forget, so the process is wrong once and right from then on;
+- a migration moves the schema generation, which restarts the orchestrator's daemons and makes
+  any worker loop forget between tasks — see the Workers and Daemons Guide;
+- and by hand, after DDL through a second connection in the same process:
 
 ```php
 \Pramnos\Database\SchemaBuilder::forgetWhatExists();      // every connection
