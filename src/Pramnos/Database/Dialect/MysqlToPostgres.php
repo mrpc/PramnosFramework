@@ -36,6 +36,7 @@ namespace Pramnos\Database\Dialect;
  * | `DELETE a FROM t a JOIN u b ON … WHERE …` | `DELETE FROM t a USING u b WHERE (…) AND (…)` |
  * | `… HAVING alias > 5` | the aliased expression in its place |
  * | `SET FOREIGN_KEY_CHECKS = 0` / `1` | `SET session_replication_role = 'replica'` / `'origin'` |
+ * | `a REGEXP p`, `a RLIKE p`, `a NOT REGEXP p` | `a ~* p`, `a ~* p`, `a !~* p` |
  *
  * What would change meaning silently is not translated — a `LIKE` that ignored case, a `GROUP BY`
  * over columns it does not name, `"…"` as a string — and is the dialect linter's to report. Each
@@ -64,7 +65,7 @@ final class MysqlToPostgres
         'SHA2', 'CAST', 'DAY', 'MONTH', 'YEAR', 'GET_LOCK', 'RELEASE_LOCK', 'JSON_EXTRACT', 'JSON_UNQUOTE'];
 
     /** Words a statement this translates may contain; one of them, or a backtick, or nothing to do. */
-    private const MARKERS = '/`|\bLIMIT\s+[^\s,]+\s*,|\b(?:IF|ISNULL|LCASE|UCASE|DATE_ADD|DATE_SUB)\s*\(|\b(?:IFNULL|RAND|UNIX_TIMESTAMP|FROM_UNIXTIME|CURDATE|CURTIME|DATE_FORMAT|GROUP_CONCAT|IGNORE|DUPLICATE|REPLACE|CONFLICT|HAVING|FOREIGN_KEY_CHECKS)\b|\b(?:SHA2|DAY|MONTH|YEAR|GET_LOCK|RELEASE_LOCK|JSON_EXTRACT|JSON_UNQUOTE)\s*\(|\bAS\s+(?:UN)?SIGNED\b|^\s*DELETE\s+(?!FROM\b)/i';
+    private const MARKERS = '/`|\bLIMIT\s+[^\s,]+\s*,|\b(?:IF|ISNULL|LCASE|UCASE|DATE_ADD|DATE_SUB)\s*\(|\b(?:IFNULL|RAND|UNIX_TIMESTAMP|FROM_UNIXTIME|CURDATE|CURTIME|DATE_FORMAT|GROUP_CONCAT|IGNORE|DUPLICATE|REPLACE|CONFLICT|HAVING|FOREIGN_KEY_CHECKS|REGEXP|RLIKE)\b|\b(?:SHA2|DAY|MONTH|YEAR|GET_LOCK|RELEASE_LOCK|JSON_EXTRACT|JSON_UNQUOTE)\s*\(|\bAS\s+(?:UN)?SIGNED\b|^\s*DELETE\s+(?!FROM\b)/i';
 
     /** @var array<string, string> Statements translated, by their text */
     private array $cache = [];
@@ -123,7 +124,7 @@ final class MysqlToPostgres
         }
         // The statement's shape first, while every column is still a token of its own; then the
         // functions, which turn each call into one.
-        $tokens = $this->functions($this->statement(self::tokenize($sql)));
+        $tokens = $this->functions($this->operators($this->statement(self::tokenize($sql))));
         $out    = implode('', array_column($tokens, 'v'));
         if (count($this->cache) >= 1000) {
             $this->cache = [];
@@ -813,6 +814,37 @@ final class MysqlToPostgres
         }
 
         return [...array_slice($tokens, 0, $end), ['t' => 'raw', 'v' => $clause], ...array_slice($tokens, $end)];
+    }
+
+    /**
+     * MySQL's regular-expression operators as PostgreSQL's: `REGEXP` and `RLIKE` as `~*`, and
+     * `NOT REGEXP` as `!~*`. Case-insensitive, as MySQL matches under the `_ci` collations a
+     * table is usually in; a match that has to tell cases apart is written `~` for PostgreSQL.
+     * `REGEXP_SUBSTR()` and `REGEXP_LIKE()` are left as they are: PostgreSQL has both from 15.
+     *
+     * @param list<array{t: string, v: string}> $tokens
+     * @return list<array{t: string, v: string}>
+     */
+    private function operators(array $tokens): array
+    {
+        foreach ($tokens as $k => $token) {
+            if ($token['t'] !== 'word' || !in_array(strtoupper($token['v']), ['REGEXP', 'RLIKE'], true)) {
+                continue;
+            }
+            // The word before it, past whitespace and comments.
+            for ($previous = $k - 1; $previous >= 0 && in_array($tokens[$previous]['t'], ['ws', 'comment'], true); $previous--);
+            if ($previous >= 0 && $tokens[$previous]['t'] === 'word' && strcasecmp($tokens[$previous]['v'], 'NOT') === 0) {
+                $tokens[$previous] = ['t' => 'raw', 'v' => '!~*'];
+                // `NOT REGEXP` and what was between them: one operator.
+                for ($j = $previous + 1; $j <= $k; $j++) {
+                    $tokens[$j] = ['t' => 'raw', 'v' => ''];
+                }
+                continue;
+            }
+            $tokens[$k] = ['t' => 'raw', 'v' => '~*'];
+        }
+
+        return $tokens;
     }
 
     /** The index of the next token that is not whitespace or a comment, after `$from`; null at the end. */

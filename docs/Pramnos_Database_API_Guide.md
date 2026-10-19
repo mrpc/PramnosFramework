@@ -1358,6 +1358,7 @@ Each statement is then translated on its way to the server. That covers `query()
 | `SHA2(x, 256)` (224, 384, 512; 0 is 256) | `encode(sha256(convert_to((x)::text, 'UTF8')), 'hex')` |
 | `CAST(x AS SIGNED)`, `CAST(x AS UNSIGNED [INTEGER])` | `CAST(x AS bigint)` |
 | `DAY(d)`, `MONTH(d)`, `YEAR(d)` | `EXTRACT(DAY FROM d)::int`, … |
+| `a REGEXP p`, `a RLIKE p`, `a NOT REGEXP p` | `a ~* p`, `a ~* p`, `a !~* p` — case-insensitive, as under a `_ci` collation |
 | `GET_LOCK(name, t)`, `RELEASE_LOCK(name)` | `pg_try_advisory_lock(hashtext(name))`, `pg_advisory_unlock(…)`, as 1 or 0 |
 | `JSON_EXTRACT(doc, '$.a.b[0]')`, `JSON_UNQUOTE(x)` | `((doc)::jsonb #> '{a,b,0}')`, `((x)::jsonb #>> '{}')` |
 | `DELETE a FROM t a JOIN u b ON … WHERE …` | `DELETE FROM t a USING u b WHERE (…) AND (…)` |
@@ -1397,6 +1398,8 @@ is not read for it: name the alias yourself.
 used as a string, and a comparison of text with a number. They are the dialect linter's to
 report, not the translator's to change. A `DATE_FORMAT` pattern `to_char` cannot express
 (`%U`), or one that is not a literal, is also left as written, to fail where it can be seen.
+`REGEXP_SUBSTR()` and `REGEXP_LIKE()` need nothing: PostgreSQL has both from 15. A regular
+expression that has to tell cases apart is written `~` for PostgreSQL.
 
 Through `prepareQuery()` a pattern is written for printf, like everything else in the
 statement: `DATE_FORMAT(d, '%%Y-%%m')` is MySQL's `'%Y-%m'`, and it reaches PostgreSQL as
