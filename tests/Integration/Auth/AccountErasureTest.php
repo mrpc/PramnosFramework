@@ -26,6 +26,7 @@ use Pramnos\Framework\Testing\Schema;
  * devices, its roles, its memberships, its push subscriptions and its notifications.
  */
 #[CoversClass(AccountErasure::class)]
+#[CoversClass(\Pramnos\Email\MailPersonalData::class)]
 #[CoversClass(\Pramnos\Llm\Chat\TaskPolicy::class)]
 class AccountErasureTest extends TestCase
 {
@@ -90,6 +91,7 @@ class AccountErasureTest extends TestCase
             Notifications\CreatePushLogTable::class,
             Notifications\CreatePushtestsTable::class,
             \Pramnos\Framework\Migrations\Core\CreateUserDashboardsTable::class,
+            \Pramnos\Framework\Migrations\Messaging\CreateMailsTable::class,
             ...self::llmMigrations(),
         ]);
 
@@ -217,6 +219,36 @@ class AccountErasureTest extends TestCase
         // Assert
         $this->assertSame([], array_filter($this->leftOf($leaving)), 'the erase left these behind');
         $this->assertNotContains(0, $this->leftOf($staying), "another account's rows went too");
+    }
+
+    /**
+     * The mail sent to the account stays in the log without them: no address, no name, the
+     * subject `[erased]`, no body. Another account's mail is as it was.
+     */
+    #[DataProvider('databases')]
+    public function testTheMailSentToThemIsErasedFromTheLog(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->boot($type, $host, $port, $user);
+        $leaving = $this->userWithEverything('leaving');
+        $this->userWithEverything('staying');
+        foreach (['Leaving@example.com' => 'Your code is 123', 'staying@example.com' => 'Your code is 456'] as $to => $body) {
+            $this->db->queryBuilder()->table('mails')->insert([
+                'status' => 1, 'frommail' => 'site@example.com', 'fromname' => 'Site', 'tomail' => $to, 'toname' => 'Name',
+                'subject' => 'Your code', 'content' => $body, 'date' => time(), 'module' => 'auth', 'moduleinfo' => '',
+                'extrainfo' => '', 'path' => '', 'hash' => md5($body),
+            ]);
+        }
+
+        // Act
+        (new AccountErasure($this->db))->erase($leaving);
+        $rows = $this->db->queryBuilder()->table('mails')->orderBy('id')->get()->fetchAll();
+
+        // Assert
+        $this->assertCount(2, $rows, 'the rows stay: the log keeps that mail went');
+        $this->assertSame(['', '', '[erased]', ''], [$rows[0]['tomail'], $rows[0]['toname'], $rows[0]['subject'], $rows[0]['content']], 'stored with a capital, erased all the same');
+        $this->assertSame('auth', $rows[0]['module'], 'what kind of mail it was is not the person');
+        $this->assertSame(['staying@example.com', 'Your code is 456'], [$rows[1]['tomail'], $rows[1]['content']]);
     }
 
     /**

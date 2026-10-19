@@ -176,6 +176,76 @@ final class BodyStore
             : null;
     }
 
+    /**
+     * Remove the kept bodies of these `mails` rows — their `mail_bodies` rows, their files — and
+     * answer how many went. A file another row still names is left: identical bodies of the same
+     * hour are one file, and one row's erasure is not the others'.
+     *
+     * Called before the rows themselves are emptied or deleted, by {@see Retention} and
+     * {@see MailPersonalData}. A body that cannot be removed is logged and left; the rows go on.
+     *
+     * @param list<array{id: int|string, date: int|string, path: string}> $rows
+     */
+    public static function discard(array $rows): int
+    {
+        $db      = \Pramnos\Framework\Factory::getDatabase();
+        $ids     = array_map(static fn (array $row): int => (int) $row['id'], $rows);
+        $removed = 0;
+
+        $inDatabase = array_values(array_filter($rows, static fn (array $row): bool => (string) $row['path'] === self::IN_DATABASE));
+        if ($inDatabase !== [] && $db->schema()->hasTable('mail_bodies')) {
+            $dates = array_map(static fn (array $row): int => (int) $row['date'], $inDatabase);
+            $result = $db->queryBuilder()->table('#PREFIX#mail_bodies')
+                ->whereIn('mail_id', array_map(static fn (array $row): int => (int) $row['id'], $inDatabase))
+                // The rows' own moments: only the chunks they are in are read.
+                ->whereBetween('sent_at', [gmdate('Y-m-d H:i:s+00', min($dates)), gmdate('Y-m-d H:i:s+00', max($dates))])
+                ->delete();
+            $removed += $result ? (int) $result->getAffectedRows() : 0;
+        }
+
+        $files = [];
+        foreach ($rows as $row) {
+            $path = (string) $row['path'];
+            if ($path !== '' && $path !== self::IN_DATABASE) {
+                $files[$path][] = (int) $row['date'];
+            }
+        }
+        foreach ($files as $path => $dates) {
+            // The rows that share a file were sent in the same hour; a day either side reads the
+            // date index and allows for a clock or a time zone.
+            $others = $db->queryBuilder()->table('#PREFIX#mails')->where('path', $path)
+                ->whereBetween('date', [min($dates) - 86400, max($dates) + 86400])
+                ->whereIn('id', $ids, 'and', true)
+                ->count();
+            if ($others === 0 && self::removeFile($path)) {
+                $removed++;
+            }
+        }
+
+        return $removed;
+    }
+
+    /** Remove one kept file — on its disk, or under the root — and say whether it went. */
+    private static function removeFile(string $path): bool
+    {
+        try {
+            if (str_starts_with($path, 'disk:')) {
+                [, $disk, $relative] = array_pad(explode(':', $path, 3), 3, '');
+
+                return (bool) \Pramnos\Storage\Storage::getManager()->disk($disk)->delete($relative);
+            }
+            // Only a body file, inside the roots a body is read from: a `path` is a column, not
+            // an instruction to delete whatever it names.
+            $file = Body::file($path);
+
+            return $file !== null && @unlink($file);
+        } catch (\Throwable $e) {
+            \Pramnos\Logs\Logger::log('A mail body could not be removed (' . $path . '): ' . $e->getMessage(), 'mail');
+
+            return false;
+        }
+    }
+
     /** The folder files are kept in, without its trailing slash. */
     public static function root(): string
     {

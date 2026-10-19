@@ -123,6 +123,10 @@ class AccountErasure
             $userId,
             $account && $account->numRows > 0 ? (string) $account->fields['email'] : ''
         );
+        // The mail sent to them: each row kept, without them, its body gone.
+        if ($account && $account->numRows > 0) {
+            \Pramnos\Email\MailPersonalData::erase((string) $account->fields['email']);
+        }
 
         $this->database->queryBuilder()->table('#PREFIX#users')->where('userid', $userId)->delete();
         // A role or a membership just went: answers cached about this user are stale.

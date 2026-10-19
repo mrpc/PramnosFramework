@@ -2087,14 +2087,52 @@ With nothing configured the command reports the table's size and explains the tw
 **assumes no policy**. `mail:prune --apply` is scheduled daily at 04:10 and does nothing until
 somebody has decided; a default here would apply a guess to an audit trail.
 
+**The body goes from wherever it is kept**: the row's `content`, its `mail_bodies` row, its file
+under `var/emails`, or its file on a storage disk. A file that another message still names is left
+until that message is stripped too, because identical bodies of the same hour are one file. A
+stripped row has an empty `path`, and reads as a message with no body.
+
 Two smaller notes. Deleting runs **before** stripping — the other order strips a body and then
 deletes the row it belonged to, having written every one of those rows twice. And the sweep
-works in batches, because a neglected table is millions of rows and one statement over all of
-them holds a lock long enough to make the maintenance the outage.
+works in batches by id on every database, because a neglected table is millions of rows and one
+statement over all of them holds a lock long enough to make the maintenance the outage. A write
+the database refuses ends the run with what it did, logged.
 
 `recipients_after` covers `massmessagerecipients`, the other table that grows without limit: one
 row per recipient per campaign, whose only remaining purpose once the campaign is finished is
 the count on its page — and the count is on the campaign row.
+
+### A person in the mail log: their copy, and their erasure
+
+```php
+use Pramnos\Email\MailPersonalData;
+
+MailPersonalData::export('someone@example.com');  // every message to them, with its body
+MailPersonalData::erase('someone@example.com');   // how many messages were erased
+```
+
+An account's data export carries the first as its `mail` section, labelled *Mail sent to you*.
+Each message comes with its date, status, sender, subject and module, and with its body as it
+was sent, read from wherever it is kept.
+
+An account erasure (`Pramnos\Auth\AccountErasure`) calls this with the account's address. Each message
+to the address **stays, pseudonymised**:
+
+- no address and no name;
+- the subject `[erased]`;
+- no body, from wherever it was kept;
+- no outbox state or error that names the person.
+
+What survives is that a message of this module went out then, with this outcome: the audit
+log's question, without the person. A newsletter body that other readers share stays, for them.
+The tracking row keeps its counts, and loses the address and the subject.
+
+The address matches however it was stored: `Someone@Example.com` is the same person.
+
+Two records are left on purpose:
+- **`bounces`** holds only a hash, which tells nothing to somebody without the address.
+- **`emailoptouts`** is the record that this address asked not to be mailed. Erasing it would
+  undo the request.
 
 ## Mail from a customer's own domain: its signature and its server
 

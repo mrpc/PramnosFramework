@@ -43,6 +43,8 @@ class Retention
      *
      * The number that decides whether anybody bothers. `bodies` against `rows` is the whole
      * argument for stripping rather than deleting: they are two orders of magnitude apart.
+     * `body_bytes` counts the bodies kept in the row; one kept in the body store is counted in
+     * `with_body` and not in bytes.
      *
      * @return array<string, mixed>
      */
@@ -50,9 +52,10 @@ class Retention
     {
         try {
             $db     = Factory::getDatabase();
+            // Raw: conditional aggregates the query builder cannot express.
             $result = $db->query(
                 'SELECT COUNT(*) AS rows_total,
-                        COUNT(CASE WHEN content <> \'\' THEN 1 END) AS with_body,
+                        COUNT(CASE WHEN content <> \'\' OR path <> \'\' THEN 1 END) AS with_body,
                         SUM(LENGTH(content)) AS body_bytes,
                         MIN(date) AS oldest,
                         MAX(date) AS newest
@@ -73,18 +76,19 @@ class Retention
         ];
 
         if ($stripAfter > 0) {
-            $stats['would_strip'] = self::count('content <> \'\' AND date > 0 AND date < ' . (time() - $stripAfter));
+            $stats['would_strip'] = self::count(self::older($stripAfter, true));
         }
 
         if ($deleteAfter > 0) {
-            $stats['would_delete'] = self::count('date > 0 AND date < ' . (time() - $deleteAfter));
+            $stats['would_delete'] = self::count(self::older($deleteAfter, false));
         }
 
         return $stats;
     }
 
     /**
-     * Empty the body of messages older than this, keeping the row.
+     * Empty the body of messages older than this, keeping the row — the body in the row, and
+     * the one in the body store, its file or its `mail_bodies` row.
      *
      * @param  int $olderThan Seconds
      * @return int How many rows were stripped
@@ -95,21 +99,16 @@ class Retention
             return 0;
         }
 
-        /*
-         * `date > 0` is not redundant.
-         *
-         * A row whose timestamp was never set has `date = 0`, which is older than every cutoff
-         * — so without this the first run of a policy quietly strips the bodies of every
-         * malformed row in the table, including ones written this morning.
-         */
-        return self::run(
-            'UPDATE ' . self::prefix() . 'mails SET content = \'\' '
-            . 'WHERE content <> \'\' AND date > 0 AND date < ' . (time() - $olderThan)
-        );
+        $columns = ['content' => '', 'path' => ''];
+        if (BodyStore::hasBodyVars()) {
+            $columns['bodyvars'] = null;
+        }
+
+        return self::sweep(self::older($olderThan, true), static fn (\Pramnos\Database\QueryBuilder $rows) => $rows->update($columns));
     }
 
     /**
-     * Remove messages older than this entirely.
+     * Remove messages older than this entirely, and their bodies with them.
      *
      * @param  int $olderThan Seconds
      * @return int How many rows were removed
@@ -120,9 +119,7 @@ class Retention
             return 0;
         }
 
-        return self::run(
-            'DELETE FROM ' . self::prefix() . 'mails WHERE date > 0 AND date < ' . (time() - $olderThan)
-        );
+        return self::sweep(self::older($olderThan, false), static fn (\Pramnos\Database\QueryBuilder $rows) => $rows->delete());
     }
 
     /**
@@ -145,95 +142,93 @@ class Retention
             return 0;
         }
 
-        $prefix = self::prefix();
-        $cutoff = time() - $olderThan;
+        $db = Factory::getDatabase();
+        try {
+            $campaigns = $db->queryBuilder()->table('#PREFIX#massmessages')->select(['messageid'])
+                ->where('status', \Pramnos\Messaging\MassMessage::STATUS_SENT)
+                ->where('created', '>', 0)->where('created', '<', time() - $olderThan)
+                ->get()->fetchAll();
+            $removed = 0;
+            foreach (array_chunk(array_map(static fn (array $row): int => (int) $row['messageid'], $campaigns), 500) as $ids) {
+                $result   = $db->queryBuilder()->table('#PREFIX#massmessagerecipients')->whereIn('messageid', $ids)->delete();
+                $removed += $result ? (int) $result->getAffectedRows() : 0;
+            }
 
-        return self::run(
-            'DELETE FROM ' . $prefix . 'massmessagerecipients WHERE messageid IN ('
-            . 'SELECT messageid FROM ' . $prefix . 'massmessages '
-            . 'WHERE status = ' . (int) \Pramnos\Messaging\MassMessage::STATUS_SENT
-            . ' AND created > 0 AND created < ' . $cutoff . ')'
-        );
+            return $removed;
+        } catch (\Throwable $exception) {
+            \Pramnos\Logs\Logger::log('Mail retention failed: ' . $exception->getMessage(), 'email');
+
+            return 0;
+        }
     }
 
     /**
-     * Run a statement in batches until it stops matching.
+     * Apply `$apply` to the matching rows a batch at a time, their kept bodies removed first.
      *
      * A neglected table is millions of rows, and one statement over all of them holds a lock
-     * long enough to time out every request behind it — the maintenance being the outage.
+     * long enough to time out every request behind it — the maintenance being the outage. Read
+     * by id and applied by id, the same on every database.
+     *
+     * A failure is logged and ends the run with what was done so far: this runs from a
+     * scheduled job, and a zero is a number the next run can act on where a fatal is a cron mail
+     * nobody reads.
+     *
+     * @param callable(\Pramnos\Database\QueryBuilder): mixed $apply The write; false when refused
      */
-    protected static function run(string $sql): int
+    protected static function sweep(\Pramnos\Database\QueryBuilder $matching, callable $apply): int
     {
         $db      = Factory::getDatabase();
         $touched = 0;
+        $after   = 0;
 
         try {
-            /*
-             * PostgreSQL has no `LIMIT` on UPDATE or DELETE.
-             *
-             * Branched on the driver rather than attempted and caught, because "run it and see
-             * whether it was a syntax error" makes a real failure — a lock timeout, a
-             * connection drop — indistinguishable from a dialect difference, and quietly
-             * escalates it to the unbatched statement it was trying to avoid.
-             *
-             * On PostgreSQL that means one statement over the whole range and a longer lock.
-             * The `WHERE ctid IN (SELECT … LIMIT n)` form would batch there too, at the cost of
-             * a second dialect of every statement here — and the one that is wrong is always
-             * the one nobody runs.
-             */
-            if (static::batches()) {
-                for ($pass = 0; $pass < 1000; $pass++) {
-                    // The count comes off the `Result`, not off the connection: `Database` has
-                    // no `getAffectedRows()`, and reading one from it returns nothing at all —
-                    // so every pass reported zero and the whole policy looked like a no-op that
-                    // had run successfully.
-                    $result   = $db->query($sql . ' LIMIT ' . self::BATCH);
-                    $affected = $result ? (int) $result->getAffectedRows() : 0;
-                    $touched += $affected;
-
-                    if ($affected < self::BATCH) {
-                        break;
-                    }
+            do {
+                $rows = (clone $matching)->select(['id', 'date', 'path'])->where('id', '>', $after)
+                    ->orderBy('id')->limit(self::BATCH)->get()->fetchAll();
+                if ($rows === []) {
+                    break;
                 }
-
-                return $touched;
-            }
-
-            $result = $db->query($sql);
-
-            return $result ? (int) $result->getAffectedRows() : 0;
+                $after = (int) end($rows)['id'];
+                BodyStore::discard($rows);
+                if ($apply($db->queryBuilder()->table('#PREFIX#mails')->whereIn('id', array_map(static fn (array $row): int => (int) $row['id'], $rows))) === false) {
+                    throw new \RuntimeException($db->getError()['message'] ?: 'the write was refused');
+                }
+                $touched += count($rows);
+            } while (count($rows) === self::BATCH);
         } catch (\Throwable $exception) {
-            \Pramnos\Logs\Logger::log(
-                'Mail retention failed: ' . $exception->getMessage(),
-                'email'
-            );
-
-            return 0;
+            \Pramnos\Logs\Logger::log('Mail retention failed: ' . $exception->getMessage(), 'email');
         }
+
+        return $touched;
     }
 
-    /** Can this engine put a `LIMIT` on an UPDATE or a DELETE? */
-    protected static function batches(): bool
+    /**
+     * The messages older than this — with a body still kept, when `$withBody`.
+     *
+     * `date > 0` is not redundant. A row whose timestamp was never set has `date = 0`, which is
+     * older than every cutoff — so without it the first run of a policy quietly takes the rows
+     * of every malformed message in the table, including ones written this morning.
+     */
+    protected static function older(int $seconds, bool $withBody): \Pramnos\Database\QueryBuilder
     {
-        return (string) (Factory::getDatabase()->type ?? '') !== 'postgresql';
+        $query = Factory::getDatabase()->queryBuilder()->table('#PREFIX#mails')
+            ->where('date', '>', 0)->where('date', '<', time() - $seconds);
+        if ($withBody) {
+            $query->where(static function ($q): void {
+                $q->where('content', '<>', '')->orWhere('path', '<>', '');
+            });
+        }
+
+        return $query;
     }
 
-    protected static function count(string $where): int
+    /** How many rows a query matches; 0 when it cannot be asked. */
+    protected static function count(\Pramnos\Database\QueryBuilder $query): int
     {
         try {
-            $db     = Factory::getDatabase();
-            $result = $db->query(
-                'SELECT COUNT(*) AS total FROM ' . $db->prefix . 'mails WHERE ' . $where
-            );
-
-            return (int) (((array) ($result?->fetch() ?? []))['total'] ?? 0);
+            return $query->count();
         } catch (\Throwable) {
             return 0;
         }
-    }
-
-    protected static function prefix(): string
-    {
-        return (string) (Factory::getDatabase()->prefix ?? '');
     }
 }

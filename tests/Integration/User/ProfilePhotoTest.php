@@ -25,6 +25,7 @@ use Pramnos\User\User;
 #[CoversClass(\Pramnos\Auth\Controllers\Account::class)]
 #[CoversClass(\Pramnos\User\User::class)]
 #[CoversClass(\Pramnos\Auth\AccountErasure::class)]
+#[CoversClass(\Pramnos\Email\MailPersonalData::class)]
 #[CoversClass(\Pramnos\Auth\OAuth2\UserClaims::class)]
 #[CoversClass(MediaObject::class)]
 #[Group('serial')]
@@ -421,6 +422,53 @@ class ProfilePhotoTest extends BaseTestCase
         // Assert
         $this->assertMatchesRegularExpression('#^https?://#', (string) ($export['profile_photo']['url'] ?? ''));
         $this->assertContains('Profile picture', $probe->labels());
+    }
+
+    /**
+     * The data export carries the mail sent to the account, with each body as it went, under its
+     * own label.
+     */
+    public function testTheExportIncludesTheMailSentToThem(): void
+    {
+        // Arrange
+        $db = \Pramnos\Framework\Factory::getDatabase();
+        \Pramnos\Framework\Testing\Schema::ensure([\Pramnos\Framework\Migrations\Messaging\CreateMailsTable::class], $db);
+        $address = (string) $this->user->email;
+        $db->queryBuilder()->table('#PREFIX#mails')->insert([
+            'status' => 1, 'frommail' => 'site@example.com', 'fromname' => 'Site', 'tomail' => $address, 'toname' => 'Them',
+            'subject' => 'Welcome', 'content' => '<p>Welcome aboard</p>', 'date' => time(), 'module' => 'export-test',
+            'moduleinfo' => '', 'extrainfo' => '', 'path' => '', 'hash' => md5('export'),
+        ]);
+        $probe = new class () extends \Pramnos\Auth\Controllers\Account {
+            /** Nothing to build: only the export is asked. */
+            public function __construct()
+            {
+            }
+
+            /** The export, from outside. */
+            public function export(int $userId): array
+            {
+                return $this->buildExportData($userId);
+            }
+
+            /** The labels, from outside. */
+            public function labels(): array
+            {
+                return $this->exportSectionLabels();
+            }
+        };
+
+        // Act
+        try {
+            $export = $probe->export((int) $this->user->userid);
+        } finally {
+            $db->queryBuilder()->table('#PREFIX#mails')->where('module', 'export-test')->delete();
+        }
+
+        // Assert
+        $this->assertNotEmpty($export['mail']);
+        $this->assertSame(['Welcome', '<p>Welcome aboard</p>'], [end($export['mail'])['subject'], end($export['mail'])['body']]);
+        $this->assertContains('Mail sent to you', $probe->labels());
     }
 
     /** The stored files of the user's picture: its thumb and its original. @return list<string> */

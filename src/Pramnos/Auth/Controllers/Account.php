@@ -2532,6 +2532,8 @@ class Account extends Controller
             // this person's too.
             'mailing_lists'    => fn (): array => (new \Pramnos\Email\MailingList($db))
                 ->rowsFor($userId, (string) ($userData['email'] ?? '')),
+            // What they were sent, with each message's body as it went.
+            'mail'             => fn (): array => \Pramnos\Email\MailPersonalData::export((string) ($userData['email'] ?? '')),
             // The picture itself is at the URL: the export says where, and the person downloads it.
             'profile_photo'    => fn (): array => (int) ($userData['photo'] ?? 0) > 0
                 ? ['url' => \Pramnos\User\ProfilePhoto::url((int) $userData['photo'])]
@@ -2589,6 +2591,7 @@ class Account extends Controller
             'Privacy settings',
             'Activity log',
             'Mailing lists',
+            'Mail sent to you',
             'Profile picture',
         ];
         if (\Pramnos\Event\Event::hasListeners('account.data_export')) {

@@ -381,7 +381,7 @@ each alone.
 4. Template + variables through the framework, with values taken from the user. *Done.*
 5. Bounces and suppression: the table, a check in `send()`, a command reading the bounce mailbox,
    and a screen. *Done* — `Email\Bounces`, `mail:bounces`, the message page in Email History.
-6. GDPR erasure and retention, files and rows alike.
+6. GDPR erasure and retention, files and rows alike. *Done* — `Email\MailPersonalData`, `BodyStore::discard()`, `Retention` over the store.
 7. `mails` as a hypertable. The move of an application's files into `mail_bodies` is
    `mail:bodies-to-database`. *Done.*
 

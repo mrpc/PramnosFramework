@@ -290,6 +290,9 @@ class PersonalDataRegistry
             'oauth2_user_consents',
             'oauth2_device_codes',
             'mails',
+            // Sent messages' bodies, and who opened them.
+            'mail_bodies',
+            'emailtracking',
             'notifications',
             'pushtokens',
             // Addresses, with or without an account: who left a list, and who asked for one.

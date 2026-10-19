@@ -264,32 +264,6 @@ class RetentionTest extends TestCase
     }
 
     /**
-     * On an engine that cannot batch, one statement does the whole range.
-     *
-     * PostgreSQL has no `LIMIT` on UPDATE or DELETE. Branched on the driver rather than
-     * attempted and caught, because "run it and see whether it was a syntax error" makes a real
-     * failure — a lock timeout, a dropped connection — indistinguishable from a dialect
-     * difference.
-     */
-    public function testAnEngineThatCannotBatchStillWorks(): void
-    {
-        // Arrange
-        $this->insert(time() - 86400 * 200, 'old body');
-        $this->insert(time() - 3600, 'new body');
-
-        $unbatched = new class extends \Pramnos\Email\Retention {
-            protected static function batches(): bool { return false; }
-        };
-
-        // Act
-        $stripped = $unbatched::strip(86400 * 90);
-
-        // Assert
-        $this->assertSame(1, $stripped);
-        $this->assertSame(2, $this->rows());
-    }
-
-    /**
      * A statement that fails is logged and reported as nothing done.
      *
      * This runs from a scheduled job at four in the morning. A fatal there is a cron mail
@@ -300,9 +274,22 @@ class RetentionTest extends TestCase
         // Arrange
         $this->db->query('DROP TABLE IF EXISTS `mails`');
 
+        foreach (['massmessagerecipients', 'massmessages'] as $table) {
+            $this->db->query('DROP TABLE IF EXISTS `' . $this->db->prefix . $table . '`');
+        }
+        $counting = new class extends \Pramnos\Email\Retention {
+            /** The count of a query that cannot run. */
+            public static function countOf(\Pramnos\Database\QueryBuilder $query): int
+            {
+                return static::count($query);
+            }
+        };
+
         // Act & Assert — no exception, and nothing claimed
         $this->assertSame(0, \Pramnos\Email\Retention::strip(86400 * 90));
         $this->assertSame(0, \Pramnos\Email\Retention::prune(86400 * 365));
+        $this->assertSame(0, \Pramnos\Email\Retention::pruneRecipients(86400 * 365), 'no campaign tables either');
+        $this->assertSame(0, $counting::countOf($this->db->queryBuilder()->table('mails')), 'a count that cannot be asked is none');
     }
 
     // ── Fixture ──────────────────────────────────────────────────────────────
