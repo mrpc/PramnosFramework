@@ -2369,20 +2369,33 @@ class Application extends Base
          * only the screens that belong to it: an application whose `Home` is shared
          * still reaches `<Ns>\Controllers\Home` from inside `/admin`.
          */
-        if ($this->area !== '') {
-            $areaClass = '\\' . $namespace . '\\' . $this->area . '\\Controllers\\' . $className;
-            if (class_exists($areaClass)) {
-                return new $areaClass($this, $userPermissions);
+        /*
+         * Exact names everywhere first, as they always were; only when the area, the site and
+         * the framework all have nothing by that name is any case tried ({@see controllerClass()}).
+         * The other order would scan the autoloader on every request for a site controller
+         * reached from inside an area, which is most of an administration's requests.
+         */
+        foreach ([false, true] as $anyCase) {
+            if ($this->area !== '') {
+                $areaClass = $this->controllerClass('\\' . $namespace . '\\' . $this->area . '\\Controllers\\' . $className, $anyCase);
+                if ($areaClass !== null) {
+                    return new $areaClass($this, $userPermissions);
+                }
             }
-        }
 
-        $nameSpacedClass = '\\' . $namespace . '\\Controllers\\' . $className;
-        if (class_exists($nameSpacedClass)) {
-            return new $nameSpacedClass($this, $userPermissions);
-        }
-        $controllerObject = $this->getFrameworkController($controller, $userPermissions);
-        if ($controllerObject) {
-            return $controllerObject;
+            $nameSpacedClass = $this->controllerClass('\\' . $namespace . '\\Controllers\\' . $className, $anyCase);
+            if ($nameSpacedClass !== null) {
+                return new $nameSpacedClass($this, $userPermissions);
+            }
+            if (!$anyCase) {
+                $controllerObject = $this->getFrameworkController($controller, $userPermissions);
+            } else {
+                $frameworkClass   = $this->controllerClass('\\Pramnos\\Application\\Controllers\\' . $className, true);
+                $controllerObject = $frameworkClass !== null ? new $frameworkClass($this, $userPermissions) : false;
+            }
+            if ($controllerObject) {
+                return $controllerObject;
+            }
         }
 
 
@@ -3269,6 +3282,60 @@ class Application extends Base
         }
 
         return false;
+    }
+
+    /**
+     * The controller class a URL segment names, whatever its case, or null.
+     *
+     * A URL is lower case more often than not, and a class is found by `ucfirst()` of it:
+     * `/twofactorauth` asks for `Twofactorauth`. PHP's class names ignore case, so that worked —
+     * but only once `TwoFactorAuth` had been loaded by something else. Before that the autoloader
+     * looked for `Twofactorauth.php`, which a case-sensitive filesystem does not have, and the
+     * same address answered 404 or the page depending on what the request happened to load first.
+     *
+     * So the exact name; then, with `$anyCase`, the autoloader's class map and PSR-4
+     * directories for a class of that name in any case. The name a URL gives is compared with
+     * names that exist, never used to build a path.
+     *
+     * @param string $class   Fully qualified, leading backslash optional
+     * @param bool   $anyCase Search the autoloader when the exact name is not a class
+     */
+    protected function controllerClass(string $class, bool $anyCase = false): ?string
+    {
+        if (class_exists($class)) {
+            return $class;
+        }
+        if (!$anyCase) {
+            return null;
+        }
+        $class = ltrim($class, '\\');
+        // Always qualified: every caller builds the name under a namespace.
+        $split = (int) strrpos($class, '\\');
+        $namespace = substr($class, 0, $split + 1);
+        $short     = substr($class, $split + 1);
+        foreach (\Composer\Autoload\ClassLoader::getRegisteredLoaders() as $loader) {
+            foreach (array_keys($loader->getClassMap()) as $mapped) {
+                if (strcasecmp($mapped, $class) === 0 && class_exists($mapped)) {
+                    return '\\' . $mapped;
+                }
+            }
+            foreach ($loader->getPrefixesPsr4() as $prefix => $directories) {
+                if (!str_starts_with($namespace, $prefix)) {
+                    continue;
+                }
+                $subdirectory = str_replace('\\', DIRECTORY_SEPARATOR, substr($namespace, strlen($prefix)));
+                foreach ($directories as $directory) {
+                    foreach (glob(rtrim($directory, '/\\') . DIRECTORY_SEPARATOR . $subdirectory . '*.php') ?: [] as $file) {
+                        $name = basename($file, '.php');
+                        if (strcasecmp($name, $short) === 0 && class_exists($namespace . $name)) {
+                            return '\\' . $namespace . $name;
+                        }
+                    }
+                }
+            }
+        }
+
+        return null;
     }
 
     /**
