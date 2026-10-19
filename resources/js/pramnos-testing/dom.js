@@ -327,6 +327,15 @@ function createDom({ url = 'https://app.test/', meta = {}, readyState = 'complet
         document.head.appendChild(tag);
     });
     document.createElement = (tag) => createElement(document, tag);
+    // An element in another namespace — an icon's <svg> and <path>. Its name keeps its case, as a
+    // browser keeps it for SVG, and it says which namespace it is in.
+    document.createElementNS = (namespace, tag) => {
+        const element = createElement(document, tag);
+        element.tagName = String(tag);
+        element.namespaceURI = String(namespace);
+
+        return element;
+    };
     document.createTextNode = (text) => ({ nodeType: 3, textContent: String(text), parentNode: null, children: [], cloneNode() { return { ...this }; } });
     document.querySelectorAll = (selector) => html.querySelectorAll(selector);
     document.querySelector = (selector) => html.querySelector(selector);

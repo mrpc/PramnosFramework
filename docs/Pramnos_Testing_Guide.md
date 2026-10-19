@@ -2067,7 +2067,7 @@ Nothing to install. `node --test` and the helpers use only Node. `lint:js` uses 
 
 | Helper | What it gives a test |
 |---|---|
-| `createDom({ url, meta, readyState })` | `{ window, document }`: elements with attributes, classes, `dataset`, children, siblings and listeners. Events bubble to the document and the window. There are `localStorage`/`sessionStorage`, and a `location` whose assignments land in `window.navigatedTo`. `meta: { csrf: 'x' }` puts `<meta name="csrf">` in the head. |
+| `createDom({ url, meta, readyState })` | `{ window, document }`: elements with attributes, classes, `dataset`, children, siblings and listeners. Events bubble to the document and the window. There are `localStorage`/`sessionStorage`, and a `location` whose assignments land in `window.navigatedTo`. `meta: { csrf: 'x' }` puts `<meta name="csrf">` in the head. `document.createElementNS()` makes an SVG element, keeping its name's case and its `namespaceURI`. |
 | `loadScript(file, window)` | Runs a classic browser script, a `<script src>`, with the window as its globals. Returns the context: top-level `var`s and what the script put on `window`. `{ source: true }` takes the code itself. |
 | `stubFetch(routes)` | A `fetch` that answers from a table: `'GET /api/notes'` or `'/api/notes'` maps to a body, to `{ status, body }`, or to `(request) => …`. Anything else answers 404. `fetch.calls` records every request. |
 | `installApiHeaders(window)` | `window.pfApiHeaders`, as `pf-utils.js` defines it: the CSRF token from the page's `<meta name="csrf">`. |

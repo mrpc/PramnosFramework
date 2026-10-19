@@ -582,6 +582,7 @@ a.pf-stat-tile:hover { border-color: var(--bs-primary, #0d6efd); }
 .pf-image-actions { justify-content: flex-end; }
 .pf-image-dialog button { padding: .375rem .75rem; border: 1px solid color-mix(in oklab, currentColor 25%, transparent); border-radius: .375rem; background: transparent; color: inherit; font: inherit; cursor: pointer; }
 .pf-image-dialog button:hover { background: color-mix(in oklab, currentColor 8%, transparent); }
+.pf-image-dialog button.pf-image-icon { display: inline-flex; align-items: center; justify-content: center; padding: .375rem; line-height: 0; }
 .pf-image-dialog .pf-image-use { border-color: var(--bs-primary, #0d6efd); background: var(--bs-primary, #0d6efd); color: #fff; }
 .pf-image-zoom { flex: 1 1 8rem; min-width: 6rem; accent-color: var(--bs-primary, #0d6efd); }
 .pf-image-dialog .pf-image-use:disabled { opacity: .6; cursor: progress; }

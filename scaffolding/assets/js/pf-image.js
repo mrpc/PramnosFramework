@@ -154,6 +154,49 @@
         return element;
     }
 
+    /*
+     * The tools' pictures: lines in the text's colour, so they follow the theme. Paths from
+     * Lucide (ISC licence) — rotate-ccw, rotate-cw, flip-horizontal-2, undo-2.
+     */
+    var ICONS = {
+        'rotate-left': ['M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8', 'M3 3v5h5'],
+        'rotate-right': ['M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8', 'M21 3v5h-5'],
+        'flip': ['m3 7 5 5-5 5V7', 'm21 7-5 5 5 5V7', 'M12 20v2', 'M12 14v2', 'M12 8v2', 'M12 2v2'],
+        'reset': ['M9 14 4 9l5-5', 'M4 9h10.5a5.5 5.5 0 0 1 0 11H11']
+    };
+
+    /**
+     * A tool as a picture: the words are its name to a screen reader and its title on hover, so
+     * nothing is lost by not printing them.
+     */
+    function iconButton(label, action) {
+        var element = document.createElement('button');
+        element.setAttribute('type', 'button');
+        element.setAttribute('data-pf-image-action', action);
+        element.setAttribute('title', label);
+        element.setAttribute('aria-label', label);
+        element.className = 'pf-image-icon';
+        var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('viewBox', '0 0 24 24');
+        svg.setAttribute('width', '20');
+        svg.setAttribute('height', '20');
+        svg.setAttribute('fill', 'none');
+        svg.setAttribute('stroke', 'currentColor');
+        svg.setAttribute('stroke-width', '2');
+        svg.setAttribute('stroke-linecap', 'round');
+        svg.setAttribute('stroke-linejoin', 'round');
+        svg.setAttribute('aria-hidden', 'true');
+        svg.setAttribute('focusable', 'false');
+        ICONS[action].forEach(function (d) {
+            var path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            path.setAttribute('d', d);
+            svg.appendChild(path);
+        });
+        element.appendChild(svg);
+
+        return element;
+    }
+
     /** The crop dialog for a chosen picture. */
     function crop(input, chosen, wanted) {
         var own = {};
@@ -180,7 +223,7 @@
         var tools = document.createElement('div');
         tools.className = 'pf-image-tools';
         [['Rotate left', 'rotate-left'], ['Rotate right', 'rotate-right'], ['Flip', 'flip']].forEach(function (one) {
-            tools.appendChild(button(t(one[0]), one[1]));
+            tools.appendChild(iconButton(t(one[0]), one[1]));
         });
         // Zoom as a multiple of the picture as it opened, fitted: 1× to 4×.
         var zoom = document.createElement('input');
@@ -191,7 +234,7 @@
         zoom.setAttribute('aria-label', t('Zoom'));
         zoom.className = 'pf-image-zoom';
         zoom.value = '1';
-        tools.append(zoom, button(t('Reset'), 'reset'));
+        tools.append(zoom, iconButton(t('Reset'), 'reset'));
         var actions = document.createElement('div');
         actions.className = 'pf-image-actions';
         var cancel = button(t('Cancel'), 'cancel');

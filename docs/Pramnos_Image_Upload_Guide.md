@@ -62,6 +62,11 @@ The dialog's words are translated through `t()`: `Crop the picture`, `Rotate lef
 `Rotate right`, `Flip`, `Zoom` (the slider's label), `Reset`, `Cancel`, `Use this picture`.
 `attributes()` puts the translated ones in `data-words`.
 
+The four tools (rotate left, rotate right, flip and reset) are icons, not words. Each button's
+words are its `title`, shown on hover, and its `aria-label`, read by a screen reader. The icons
+are inline SVG drawn in the text's colour (`currentColor`), so they follow the theme, light or
+dark. `Cancel` and `Use this picture` are decisions, and stay as words.
+
 ## What is told to the page
 
 ```js
@@ -113,6 +118,7 @@ is still a square.
 
 ## The theme's colours
 
-The dialog has the class `pf-image-dialog`, plus `pf-image-round` with the round guide. Each
+The dialog has the class `pf-image-dialog`, plus `pf-image-round` with the round guide, and the
+icon buttons have `pf-image-icon`. Each
 theme's `components.css` styles it in the theme's background, text and primary colour. The
 dialog is a native `<dialog>`, opened modal, so focus stays in it and Escape closes it.

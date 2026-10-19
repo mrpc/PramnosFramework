@@ -281,3 +281,33 @@ test('a file that is not a picture, or no file, is left for the server', () => {
     assert.equal(canvases.length, 0);
     assert.deepEqual(told, []);
 });
+
+/*
+ * The tools are pictures: each rotate, flip and reset button carries an <svg> in the text's colour
+ * and no printed words, and its words are its title, for the mouse, and its accessible name, for a
+ * screen reader. They are translated like the rest. Cancel and use are decisions, and stay words.
+ */
+test('the tools are icons, their words a title and an accessible name', () => {
+    // Arrange
+    const { choose, dialog } = page({ attributes: { 'data-words': '{"Rotate left":"Περιστροφή αριστερά"}' } });
+
+    // Act
+    choose();
+
+    // Assert
+
+    const tools = ['rotate-left', 'rotate-right', 'flip', 'reset'].map((action) => dialog().querySelector('[data-pf-image-action="' + action + '"]'));
+    for (const tool of tools) {
+        const svg = tool.children[0];
+        assert.equal(svg.tagName, 'svg', 'a picture');
+        assert.equal(svg.namespaceURI, 'http://www.w3.org/2000/svg');
+        assert.equal(svg.getAttribute('stroke'), 'currentColor', 'in the text\'s colour');
+        assert.equal(svg.getAttribute('aria-hidden'), 'true');
+        assert.ok(svg.children.length > 0, 'with its lines');
+        assert.equal(tool.textContent, '', 'no printed words');
+        assert.equal(tool.getAttribute('title'), tool.getAttribute('aria-label'));
+    }
+    assert.equal(tools[0].getAttribute('title'), 'Περιστροφή αριστερά', 'translated as the rest');
+    assert.equal(tools[3].getAttribute('aria-label'), 'Reset');
+    assert.notEqual(dialog().querySelector('[data-pf-image-action="use"]').textContent, '', 'a decision stays words');
+});
