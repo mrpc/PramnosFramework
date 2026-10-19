@@ -1398,6 +1398,11 @@ used as a string, and a comparison of text with a number. They are the dialect l
 report, not the translator's to change. A `DATE_FORMAT` pattern `to_char` cannot express
 (`%U`), or one that is not a literal, is also left as written, to fail where it can be seen.
 
+Through `prepareQuery()` a pattern is written for printf, like everything else in the
+statement: `DATE_FORMAT(d, '%%Y-%%m')` is MySQL's `'%Y-%m'`, and it reaches PostgreSQL as
+`to_char(d, 'YYYY"-"MM')`. A literal percent in the pattern is `%%%%` there, as `%%` is anywhere
+else in that statement.
+
 ### `db:dialect-lint`: what would mean something else
 
 ```bash

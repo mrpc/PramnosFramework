@@ -1663,12 +1663,25 @@ class Database extends \Pramnos\Framework\Base
         if (!$this->translateMysql || $this->type !== 'postgresql') {
             return $sql;
         }
-        $this->dialect ??= new \Pramnos\Database\Dialect\MysqlToPostgres(
+        return $this->mysqlDialect()->translate($sql);
+    }
+
+    /** The MySQL-to-PostgreSQL translator, made once a connection. */
+    private function mysqlDialect(): \Pramnos\Database\Dialect\MysqlToPostgres
+    {
+        return $this->dialect ??= new \Pramnos\Database\Dialect\MysqlToPostgres(
             fn (string $table): array => $this->uniqueKeysFor($table),
             fn (string $table): array => $this->columnsFor($table)
         );
+    }
 
-        return $this->dialect->translate($sql);
+    /** {@see fromMysql()}, for a statement written for printf — `prepareQuery()`'s. */
+    private function fromMysqlPercentEscaped(string $sql): string
+    {
+        if (!$this->translateMysql || $this->type !== 'postgresql') {
+            return $sql;
+        }
+        return $this->mysqlDialect()->translatePercentEscaped($sql);
     }
 
     /**
@@ -2380,7 +2393,8 @@ class Database extends \Pramnos\Framework\Base
             return;
         }
         if ($this->type == 'postgresql') {
-            $sqlQueryString = $this->fromMysql($sqlQueryString);
+            // Written for printf: `%%` is a percent, which the translation has to know.
+            $sqlQueryString = $this->fromMysqlPercentEscaped($sqlQueryString);
             $sqlQueryString = str_replace("`", '"', $sqlQueryString);
             $sqlQueryString = preg_replace("/\bas\s+'([^']+)'/i", 'AS "$1"', $sqlQueryString);
             // Rewrite DELETE/UPDATE ... LIMIT N (not valid in PostgreSQL)

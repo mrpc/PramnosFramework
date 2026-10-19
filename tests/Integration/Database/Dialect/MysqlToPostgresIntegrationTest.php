@@ -173,6 +173,25 @@ final class MysqlToPostgresIntegrationTest extends TestCase
     }
 
     /**
+     * `prepareQuery()` with a `DATE_FORMAT` written for printf — `'%%Y-%%m'` — and a value to put
+     * in: the pattern reaches `to_char` as `YYYY-MM` and the value its place. It threw "Unknown
+     * format specifier" because the pattern was translated as MySQL would read it.
+     */
+    public function testPrepareQueryTranslatesAPatternWrittenForPrintf(): void
+    {
+        // Arrange
+        $e = $this->t . '_events';
+
+        // Act
+        $sql   = $this->db->prepareQuery("SELECT DATE_FORMAT(`made`, '%%Y-%%m') AS f FROM `{$e}` WHERE `kind` = %s", 'a');
+        $value = $this->value($sql);
+
+        // Assert
+        $this->assertStringContainsString("'a'", $sql);
+        $this->assertSame('2026-01', $value);
+    }
+
+    /**
      * The query builder's raw fragments — how the admin DataTables pass their WHERE — are
      * translated too.
      */

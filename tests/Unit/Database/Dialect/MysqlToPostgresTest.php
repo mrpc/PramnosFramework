@@ -146,6 +146,28 @@ class MysqlToPostgresTest extends TestCase
      * An upsert whose conflict target the table does not decide is refused, naming what to
      * write: two unique keys among the columns, or none.
      */
+    /**
+     * Written for printf — `prepareQuery()`'s statements — `%%` is a percent: a `DATE_FORMAT`
+     * pattern `'%%Y-%%m'` is MySQL's `'%Y-%m'`, and the `to_char` pattern that comes out keeps any
+     * literal percent doubled, so printf gives it back. The same text translated plainly is
+     * remembered apart.
+     */
+    public function testAStatementWrittenForPrintfKeepsItsPercents(): void
+    {
+        // Arrange
+        $translator = self::translator();
+        $sql        = "SELECT DATE_FORMAT(d, '%%Y-%%m %%%%') FROM t WHERE e = '%s'";
+
+        // Act
+        $escaped = $translator->translatePercentEscaped($sql);
+        $plain   = $translator->translate($sql);
+
+        // Assert
+        $this->assertSame("SELECT to_char(d, 'YYYY\"-\"MM\" %%\"') FROM t WHERE e = '%s'", $escaped);
+        $this->assertSame("SELECT to_char(d, 'YYYY\"-\"MM\" %\"') FROM t WHERE e = 'x'", sprintf($escaped, 'x'), 'printf gives back the pattern');
+        $this->assertNotSame($escaped, $plain, 'the plain reading was taken from the escaped one\'s memory');
+    }
+
     public function testAnUpsertItCannotDecideIsRefused(): void
     {
         // Arrange

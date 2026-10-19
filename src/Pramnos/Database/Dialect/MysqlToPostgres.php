@@ -79,6 +79,28 @@ final class MysqlToPostgres
     {
     }
 
+    /** Whether the statement being translated is written for printf, `%%` for a percent. */
+    private bool $percentEscaped = false;
+
+    /**
+     * {@see translate()}, for a statement written for printf — `Database::prepareQuery()`'s, where
+     * `%%` is a percent and `%s` a value still to come.
+     *
+     * A `DATE_FORMAT` pattern is then `'%%Y-%%m'`, which read as MySQL wrote it is a literal
+     * percent and a `Y`: the translation kept the text, printf then met `%Y`, and the statement
+     * failed with "Unknown format specifier". Here the pattern is read with `%%` as `%`, and what
+     * comes out has its percents doubled again, so printf gives back `to_char`'s pattern.
+     */
+    public function translatePercentEscaped(string $sql): string
+    {
+        $this->percentEscaped = true;
+        try {
+            return $this->translate($sql);
+        } finally {
+            $this->percentEscaped = false;
+        }
+    }
+
     /**
      * The statement in PostgreSQL's dialect.
      *
@@ -89,13 +111,15 @@ final class MysqlToPostgres
         if (preg_match(self::MARKERS, $sql) !== 1) {
             return $sql;
         }
-        if (isset($this->cache[$sql])) {
-            return $this->cache[$sql];
+        // The same text means another thing written for printf: kept apart.
+        $key = ($this->percentEscaped ? "%\0" : '') . $sql;
+        if (isset($this->cache[$key])) {
+            return $this->cache[$key];
         }
         // Foreign keys off for the session: PostgreSQL's way is to act as a replica, which fires
         // no trigger — the keys' among them. It takes a superuser, as an import usually has.
         if (preg_match('/^\s*SET\s+(?:SESSION\s+|@@(?:SESSION\.)?)?FOREIGN_KEY_CHECKS\s*=\s*([01])\s*(;?)\s*$/i', $sql, $m) === 1) {
-            return $this->cache[$sql] = "SET session_replication_role = '" . ($m[1] === '0' ? 'replica' : 'origin') . "'" . $m[2];
+            return $this->cache[$key] = "SET session_replication_role = '" . ($m[1] === '0' ? 'replica' : 'origin') . "'" . $m[2];
         }
         // The statement's shape first, while every column is still a token of its own; then the
         // functions, which turn each call into one.
@@ -105,7 +129,7 @@ final class MysqlToPostgres
             $this->cache = [];
         }
 
-        return $this->cache[$sql] = $out;
+        return $this->cache[$key] = $out;
     }
 
     /**
@@ -276,10 +300,10 @@ final class MysqlToPostgres
             },
             'FROM_UNIXTIME'  => match (count($given)) {
                 1       => 'to_timestamp(' . $text($given[0]) . ')',
-                2       => ($format = self::format($given[1])) !== null ? 'to_char(to_timestamp(' . $text($given[0]) . '), ' . $format . ')' : null,
+                2       => ($format = $this->format($given[1])) !== null ? 'to_char(to_timestamp(' . $text($given[0]) . '), ' . $format . ')' : null,
                 default => null,
             },
-            'DATE_FORMAT'    => count($given) === 2 && ($format = self::format($given[1])) !== null ? 'to_char(' . $text($given[0]) . ', ' . $format . ')' : null,
+            'DATE_FORMAT'    => count($given) === 2 && ($format = $this->format($given[1])) !== null ? 'to_char(' . $text($given[0]) . ', ' . $format . ')' : null,
             'GROUP_CONCAT'   => $this->groupConcat($given),
             'SHA2'           => count($given) === 2 && in_array($bits = $text($given[1]), ['0', '224', '256', '384', '512'], true)
                 ? "encode(sha" . ($bits === '0' ? '256' : $bits) . "(convert_to((" . $text($given[0]) . ")::text, 'UTF8')), 'hex')"
@@ -536,13 +560,16 @@ final class MysqlToPostgres
      *
      * @param list<array{t: string, v: string}> $arg
      */
-    private static function format(array $arg): ?string
+    private function format(array $arg): ?string
     {
         $significant = array_values(array_filter($arg, static fn (array $t): bool => !in_array($t['t'], ['ws', 'comment'], true)));
         if (count($significant) !== 1 || $significant[0]['t'] !== 'str') {
             return null;
         }
         $pattern = str_replace("''", "'", substr($significant[0]['v'], 1, -1));
+        if ($this->percentEscaped) {
+            $pattern = str_replace('%%', '%', $pattern);
+        }
         $out     = '';
         $literal = '';
         $flush   = static function () use (&$out, &$literal): void {
@@ -568,8 +595,10 @@ final class MysqlToPostgres
             $out .= self::FORMAT[$spec];
         }
         $flush();
+        $out = "'" . str_replace("'", "''", $out) . "'";
 
-        return "'" . str_replace("'", "''", $out) . "'";
+        // Back into printf's spelling: a literal percent the pattern kept must survive it.
+        return $this->percentEscaped ? str_replace('%', '%%', $out) : $out;
     }
 
     /**
