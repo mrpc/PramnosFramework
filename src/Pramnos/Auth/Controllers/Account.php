@@ -112,6 +112,12 @@ class Account extends Controller
         }
 
         if ($this->requestMethod() !== 'POST') {
+            // A session the second-factor gate turned back into a pending login lands here: what
+            // it is waiting for is the second step, not the password form again.
+            if (\Pramnos\Auth\SecurityPolicy::secondFactorEverywhere() && $this->flow()->pendingUserId() !== null) {
+                return $this->renderStepUp([]);
+            }
+
             return $this->renderLogin([]);
         }
 

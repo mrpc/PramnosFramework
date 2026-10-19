@@ -944,6 +944,8 @@ class LoginFlow
         if (!$this->establishSession($userId, $remember)) {
             return LoginFlowResult::failed();
         }
+        // Finished here: every factor this account owes was asked for, or none was owed.
+        SecondFactorGate::settle($userId);
 
         // Only after a real second factor: the password alone, or a browser already trusted,
         // is not grounds for trusting anything.
@@ -1045,6 +1047,29 @@ class LoginFlow
             $_SESSION[static::S_PENDING_METHODS],
             $_SESSION[static::S_PENDING_FAILURES]
         );
+    }
+
+    /**
+     * Turn a session signed in some other way into a login waiting for its second factor, when
+     * the account has one — for {@see SecondFactorGate}. False when it owes none (no factor, or
+     * a browser it trusts), and the session is marked as settled. A login already waiting for
+     * this account is left as it is, its wrong codes still counted.
+     */
+    public function demandSecondFactor(int $userId): bool
+    {
+        $pending = $this->pending();
+        if ($pending !== null && $pending['userId'] === $userId) {
+            return true;
+        }
+        $methods = $this->stepUpMethods($userId);
+        if ($methods === []) {
+            SecondFactorGate::settle($userId);
+
+            return false;
+        }
+        $this->beginStepUp($userId, false, '', $methods);
+
+        return true;
     }
 
     /**

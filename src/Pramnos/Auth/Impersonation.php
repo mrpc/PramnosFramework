@@ -89,6 +89,8 @@ final class Impersonation
             return 'That account cannot sign in.';
         }
         $_SESSION[self::SESSION] = ['id' => $id, 'key' => $key, 'actor' => $actorId];
+        // The administrator settled their own second factor; the account is not asked for its own.
+        SecondFactorGate::settle($targetUserId);
 
         ActivityLog::record($actorId, 'impersonate', ['target' => $targetUserId]);
         ActivityLog::record($targetUserId, 'impersonated', ['by' => $actorId]);
@@ -120,6 +122,9 @@ final class Impersonation
         unset($_SESSION[self::SESSION]);
         $auth ??= Auth::getInstance();
         $back = $auth->loginById((int) $row['actor_userid'], in_array($row['remember'], [true, 1, '1', 't'], true));
+        if ($back) {
+            SecondFactorGate::settle((int) $row['actor_userid']);
+        }
         ActivityLog::record((int) $row['actor_userid'], 'impersonation_end', ['target' => (int) $row['target_userid']]);
 
         return $back;

@@ -253,6 +253,21 @@ class SecurityPolicy
      * @param  mixed  $default What this framework did before the switch existed
      * @return mixed
      */
+    /**
+     * Whether a signed-in session owes its second factor wherever it was signed in from:
+     * `'auth' => ['security' => ['second_factor_everywhere' => true]]`. Off by default.
+     *
+     * The login form asks for the second factor; a site's own form, a social login, a remember
+     * cookie do not. Where one session serves a site, an administration and an API, a password
+     * alone then reaches all three through whichever door does not ask. On, every session is
+     * checked once ({@see SecondFactorGate}): one the login flow did not finish, for an account
+     * with a second factor, is turned back into a login waiting for it.
+     */
+    public static function secondFactorEverywhere(): bool
+    {
+        return (bool) static::value('second_factor_everywhere', false);
+    }
+
     protected static function value(string $key, mixed $default): mixed
     {
         $application = \Pramnos\Application\Application::currentInstance();

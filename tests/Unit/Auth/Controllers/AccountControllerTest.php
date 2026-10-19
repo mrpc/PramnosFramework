@@ -65,6 +65,39 @@ class AccountControllerTest extends TestCase
         $this->assertSame('Account', $this->c->view->props['routeBase']);
     }
 
+    /**
+     * With the second factor owed everywhere, a GET of the login page while a login waits for it
+     * — a session the gate turned back — shows the second step, not the password form; without
+     * the switch it shows the form, as before.
+     */
+    public function testLoginGetShowsTheSecondStepTheGateIsWaitingFor(): void
+    {
+        // Arrange
+        $this->c->flow->pending = 7;
+        $ref   = new \ReflectionProperty(\Pramnos\Application\Application::class, 'appInstances');
+        $saved = $ref->getValue() ?? [];
+        $app   = new class extends \Pramnos\Application\Application {
+            public function __construct()
+            {
+            }
+        };
+
+        try {
+            // Act
+            $ref->setValue(null, []);
+            $without = $this->c->login();
+            $app->applicationInfo = ['auth' => ['security' => ['second_factor_everywhere' => true]]];
+            $ref->setValue(null, ['default' => $app]);
+            $with = $this->c->login();
+        } finally {
+            $ref->setValue(null, $saved);
+        }
+
+        // Assert
+        $this->assertSame('VIEW:login', $without);
+        $this->assertSame('VIEW:login_2fa', $with);
+    }
+
     /** An already-authenticated visitor is bounced to the dashboard, not the form. */
     public function testLoginWhenAlreadyLoggedInRedirects(): void
     {

@@ -586,6 +586,33 @@ the lockout, the result is `LOCKED`, with its remaining seconds. Without the lim
 enough to guess a six-digit code at leisure. A factor whose gateway is down refuses without
 counting: that is an outage, not a guess.
 
+### The second factor everywhere, not only on the login form
+
+The login form asks for the second factor. A site's own sign-in form, a social login and a
+remember-me cookie do not. Where one PHP session serves a site, an administration and an API, a
+password alone then reaches all three through whichever door does not ask. Turn on:
+
+```php
+'auth' => ['security' => ['second_factor_everywhere' => true]],
+```
+
+Every session is then checked once, in `Session::staticIsLogged()`, which every "is somebody
+signed in" path goes through: pages, controllers' guards, `/oauth/authorize`, and the API's
+session path.
+
+- **A session the login flow finished** is marked (`SecondFactorGate::SESSION`) and passes from
+  then on.
+- **A session signed in any other way**, for an account with a second factor, is not counted as
+  signed in. It becomes a pending login, and the login page shows the second step. The
+  wrong-code limit applies to it as to any other.
+- **An account without a second factor, or a browser it trusts,** is marked and passes.
+- **An administrator signing in as somebody else** settled their own factor, and the account
+  they become is not asked for its own.
+
+Off by default. With it on, a remember-me cookie no longer skips the second factor: "Don't ask
+again on this device" is what skips it. Nothing of this is inside `Auth::auth()`, which stays
+the password check it is.
+
 ### Trusted devices and sign-in approval
 
 Google's two sign-in conveniences, for every application on the framework. Both are **off until

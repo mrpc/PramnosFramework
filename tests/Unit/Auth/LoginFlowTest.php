@@ -382,6 +382,40 @@ class LoginFlowTest extends TestCase
     }
 
     /**
+     * The second factor owed everywhere (FW-164, the session gate): a finished login marks the
+     * session as settled for its account; a session signed in some other way, for an account with
+     * a second factor, becomes a login waiting for it — and one already waiting is left as it is,
+     * its wrong codes still counted; an account with none is marked settled.
+     */
+    public function testDemandingTheSecondFactorOfASessionSignedInElsewhere(): void
+    {
+        // Arrange — an account with an authenticator app, a pending login already one code wrong
+        $this->flow->fakeTwoFactor->enabled = true;
+
+        // Act
+        $owed = $this->flow->demandSecondFactor(7);
+        $pendingAfter = $_SESSION['loginflow_pending_userid'] ?? null;
+        $_SESSION['loginflow_pending_failures'] = 1;
+        $again = $this->flow->demandSecondFactor(7);
+        $failuresKept = $_SESSION['loginflow_pending_failures'];
+        $this->flow->fakeTwoFactor->verifies = true;
+        $this->flow->completeTwoFactor('123456');
+        $settled = $_SESSION[\Pramnos\Auth\SecondFactorGate::SESSION] ?? null;
+        $_SESSION = [];
+        $this->flow->fakeTwoFactor->enabled = false;
+        $none = $this->flow->demandSecondFactor(8);
+
+        // Assert
+        $this->assertTrue($owed);
+        $this->assertSame(7, $pendingAfter, 'a login waiting for the factor');
+        $this->assertTrue($again);
+        $this->assertSame(1, $failuresKept, 'not restarted: the wrong code still counts');
+        $this->assertSame(7, $settled, 'finishing the login settles the session');
+        $this->assertFalse($none, 'no factor, nothing owed');
+        $this->assertSame(8, $_SESSION[\Pramnos\Auth\SecondFactorGate::SESSION] ?? null);
+    }
+
+    /**
      * Calling completeTwoFactor with no pending step-up (direct hit / expired)
      * fails without touching the 2FA service.
      */

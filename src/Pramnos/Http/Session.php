@@ -347,6 +347,12 @@ class Session extends Base
             return false;
         }
 
+        // A session signed in without its second factor, where the application asks for one
+        // everywhere: not signed in, but a login waiting for it.
+        if (!\Pramnos\Auth\SecondFactorGate::passes((int) $_SESSION['uid'])) {
+            return false;
+        }
+
         // Touched only after the checks, so idleness is measured from the previous request
         // rather than from this one.
         $_SESSION['last_activity'] = time();
