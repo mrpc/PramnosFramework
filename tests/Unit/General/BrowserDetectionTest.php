@@ -230,6 +230,71 @@ class BrowserDetectionTest extends TestCase
             $configured
         );
     }
+
+    /**
+     * An agent is parsed once, not once a call: the second call in the process does not
+     * parse, nor does the next request — the cache answers it — and an unreachable cache
+     * still answers, by parsing. A parse is a third of a second for a phone.
+     */
+    public function testAnAgentIsParsedOnce(): void
+    {
+        // Arrange — an agent nobody has asked about, so no earlier run has cached it
+        $agent = str_replace('151.0.0.0', '151.0.' . random_int(1000, 999999) . '.0', self::CHROME);
+        $memo  = new \ReflectionProperty(Helpers::class, 'parsedAgents');
+        HelpersCountingParses::$parses = 0;
+
+        // Act
+        $first  = HelpersCountingParses::getBrowser($agent);
+        $second = HelpersCountingParses::getBrowser($agent);
+        $inProcess = HelpersCountingParses::$parses;
+        $memo->setValue(null, []);                       // a new request
+        $third  = HelpersCountingParses::getBrowser($agent);
+        $memo->setValue(null, array_fill(0, 1000, []));  // a long-running worker's full memo
+        HelpersUnreachableCache::getBrowser($agent);
+
+        // Assert
+        $this->assertSame(1, $inProcess, 'the second call did not parse');
+        $this->assertSame(1, HelpersCountingParses::$parses, 'nor did the next request: the cache answered');
+        $this->assertEquals($first, $second);
+        $this->assertEquals($first, $third);
+        $this->assertSame('Chrome', $first->browser);
+        $this->assertCount(1, $memo->getValue(), 'a full memo starts again rather than growing');
+        $memo->setValue(null, []);
+    }
+}
+
+/** `Helpers` counting the parses it makes. */
+class HelpersCountingParses extends Helpers
+{
+    /** How many agents were parsed. */
+    public static int $parses = 0;
+
+    /** Parse, and count it. */
+    protected static function parseWithDeviceDetector(string $agent): object
+    {
+        static::$parses++;
+
+        return parent::parseWithDeviceDetector($agent);
+    }
+}
+
+/**
+ * `Helpers` whose cache fails the first parse it asks for: what a cache that cannot be reached
+ * looks like from here, an exception out of `remember()`.
+ */
+class HelpersUnreachableCache extends Helpers
+{
+    /** Fail the first parse, as the cache around it would; parse every later one. */
+    protected static function parseWithDeviceDetector(string $agent): object
+    {
+        static $thrown = false;
+        if (!$thrown) {
+            $thrown = true;
+            throw new \RuntimeException('the cache is away');
+        }
+
+        return parent::parseWithDeviceDetector($agent);
+    }
 }
 
 /**

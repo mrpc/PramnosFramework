@@ -387,6 +387,43 @@ class Helpers
             return null;
         }
 
+        /*
+         * Parsed once a day per agent, not once a call.
+         *
+         * A parse reads the package's regex YAML files, and nothing keeps them between
+         * requests: 60 ms for a desktop Chrome and about 320 ms for a phone or a Mac, on every
+         * page a signed-in visitor opens. A visitor keeps one agent, so the answer is kept by it
+         * — in this process, and in the cache (`browsers`) for the next request.
+         */
+        $key = md5(static::class . "\0" . $agent);
+        if (isset(self::$parsedAgents[$key])) {
+            return (object) self::$parsedAgents[$key];
+        }
+        try {
+            $parsed = \Pramnos\Cache\Cache::getInstance('browsers')->remember($key, 86400, static fn (): array => (array) static::parseWithDeviceDetector($agent));
+        } catch (\Throwable) {
+            // A cache that cannot be reached is a slower page, not a broken one.
+            $parsed = (array) static::parseWithDeviceDetector($agent);
+        }
+        if (count(self::$parsedAgents) >= 1000) {
+            self::$parsedAgents = [];
+        }
+        self::$parsedAgents[$key] = (array) $parsed;
+
+        return (object) self::$parsedAgents[$key];
+    }
+
+    /** @var array<string, array<string, string>> Agents parsed in this process, by key */
+    private static array $parsedAgents = [];
+
+    /**
+     * The parse itself, uncached — {@see detectWithDeviceDetector()}.
+     *
+     * @param  string $agent
+     * @return object
+     */
+    protected static function parseWithDeviceDetector(string $agent): object
+    {
         $detector = new \DeviceDetector\DeviceDetector($agent);
         $detector->parse();
 

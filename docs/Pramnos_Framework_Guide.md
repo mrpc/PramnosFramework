@@ -1815,6 +1815,11 @@ Its regexes ship inside the package, so unlike `browscap/browscap-php` there is 
 file to provision and no monthly refresh: staleness becomes `composer update` rather than
 a cron job, and there is no way for a missing download to degrade it silently.
 
+A parse reads the package's regex files: about 60 ms for a desktop Chrome and 320 ms for a
+phone or a Mac. So an agent is parsed **once a day**: the answer is kept in the process and in
+the cache's `browsers` category, by agent, and a visitor — who keeps one agent — costs nothing
+after the first page. A cache that cannot be reached means parsing again, not an error.
+
 ### What `detector` is for
 
 Without it, an empty `version` could mean either *this agent is not identifiable* or *there
