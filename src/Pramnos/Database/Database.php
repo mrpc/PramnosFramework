@@ -2754,6 +2754,13 @@ class Database extends \Pramnos\Framework\Base
         $connection = $this->_dbConnection ?: $this->getConnection(true);
         $string     = $string ?? '';
 
+        // Bytes, between the quotes prepareQuery() puts round a %s: PostgreSQL's hex form of a
+        // bytea — escaping them as text refuses any byte that is not UTF-8 — and MySQL's own
+        // escape, which takes any byte.
+        if ($string instanceof Binary) {
+            return $this->type == 'postgresql' ? '\\x' . bin2hex($string->bytes) : mysqli_real_escape_string($connection, $string->bytes);
+        }
+
         if ($this->type == 'postgresql') {
             // @codeCoverageIgnoreStart
             // Unreachable in the suite: a connection of type postgresql exists only

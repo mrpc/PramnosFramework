@@ -354,9 +354,13 @@ use Pramnos\Database\Binary;
 
 $db->execute('INSERT INTO files (name, body) VALUES (%s, %s)', ...[$name, new Binary($bytes)]);
 $db->queryBuilder()->table('files')->insert(['name' => $name, 'body' => new Binary($bytes)]);
+$db->query($db->prepareQuery('INSERT INTO files (name, body) VALUES (%s, %s)', $name, new Binary($bytes)));
 ```
 
-On PostgreSQL it is bound with `pg_escape_bytea()`, and on MySQL as the bytes themselves. Read
+On PostgreSQL it is bound with `pg_escape_bytea()`, and on MySQL as the bytes themselves. In
+`prepareQuery()`, where the value is written between quotes, it is a `bytea`'s hex form
+(`'\x00ff…'`) on PostgreSQL and MySQL's escape of the bytes. A `WHERE id = %s` comparison of a
+binary column takes `Binary` the same way. Read
 back through `query()`, `execute()` or the builder, a `bytea` is the bytes again, as a MySQL
 `blob` always was. PostgreSQL itself returns hex text (`\x00ff…`), and the result decodes it.
 

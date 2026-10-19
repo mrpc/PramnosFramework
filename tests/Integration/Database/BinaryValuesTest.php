@@ -16,8 +16,8 @@ use Pramnos\Database\Result;
  *
  * PostgreSQL takes a bound string as text: bytes that are not UTF-8 were refused, a backslash read
  * as an escape — one application's single INSERT of binary data failed 1,343 tests — and a
- * `bytea` came back as hex text where MySQL gave the bytes. `Binary` binds them as bytes, and a
- * `bytea` is read back as the bytes.
+ * `bytea` came back as hex text where MySQL gave the bytes. `Binary` binds them as bytes —
+ * prepareQuery() writes them as a `bytea`'s hex — and a `bytea` is read back as the bytes.
  */
 #[CoversClass(Binary::class)]
 #[CoversClass(Result::class)]
@@ -77,6 +77,8 @@ final class BinaryValuesTest extends TestCase
         $db->execute('INSERT INTO ' . $this->table . ' (id, body) VALUES (%i, %s)', ...[1, new Binary($bytes)]);
         $db->queryBuilder()->table($this->table)->insert(['id' => 2, 'body' => new Binary($bytes)]);
         $db->queryBuilder()->table($this->table)->insert(['id' => 3, 'body' => null]);
+        // The legacy form an application's code is full of: the bytes inside prepareQuery()'s quotes.
+        $db->query($db->prepareQuery('INSERT INTO ' . $this->table . ' (id, body) VALUES (%d, %s)', 4, new Binary($bytes)));
         $viaQuery = $db->query('SELECT body FROM ' . $this->table . ' WHERE id = 1');
         $viaExecute = $db->execute('SELECT body FROM ' . $this->table . ' WHERE id = %i', ...[2]);
         $viaBuilder = $db->queryBuilder()->table($this->table)->select(['id', 'body'])->orderBy('id')->get();
@@ -88,6 +90,6 @@ final class BinaryValuesTest extends TestCase
         // Assert
         $this->assertSame($bytes, $viaQuery->fields['body'], 'through query()');
         $this->assertSame($bytes, $viaExecute->fields['body'], 'through execute()');
-        $this->assertSame([1 => $bytes, 2 => $bytes, 3 => null], $all, 'through the builder, row after row');
+        $this->assertSame([1 => $bytes, 2 => $bytes, 3 => null, 4 => $bytes], $all, 'through the builder, row after row; and in through prepareQuery()');
     }
 }
