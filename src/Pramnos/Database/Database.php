@@ -1675,6 +1675,16 @@ class Database extends \Pramnos\Framework\Base
         );
     }
 
+    /**
+     * A space before a quoted, prefixed name that follows a word with none: MySQL reads
+     * ``insert into`t` `` and PostgreSQL reads `insert into"t"`, but with the schema put in front
+     * of the quote it became `insert intopublic."t"`, a syntax error at "intopublic".
+     */
+    private static function spaceBeforeQuotedPrefix(string $sql): string
+    {
+        return (string) preg_replace('/(?<=[A-Za-z0-9_])"#PREFIX#/', ' "#PREFIX#', $sql);
+    }
+
     /** {@see fromMysql()}, for a statement written for printf — `prepareQuery()`'s. */
     private function fromMysqlPercentEscaped(string $sql): string
     {
@@ -1771,7 +1781,7 @@ class Database extends \Pramnos\Framework\Base
             $query = $this->fromMysql(str_replace(
                 array('"#PREFIX#', '#PREFIX#', "#CP#"),
                 array($schema . '"' . $this->prefix, $schema . $this->prefix, $this->controllerPrefix),
-                $sql
+                self::spaceBeforeQuotedPrefix($sql)
             ));
         } else {
             $query = str_replace(
@@ -2412,7 +2422,7 @@ class Database extends \Pramnos\Framework\Base
                 str_replace(
                     array('"#PREFIX#', "#PREFIX#", "#CP#", "'%s'", '"%s"'),
                     array($schema . '"' . $this->prefix, $schema . $this->prefix, $this->controllerPrefix, '%s', '%s'),
-                    $sqlQueryString
+                    self::spaceBeforeQuotedPrefix($sqlQueryString)
                 )
             );
         } else {

@@ -192,6 +192,28 @@ final class MysqlToPostgresIntegrationTest extends TestCase
     }
 
     /**
+     * A backticked, prefixed name right after a word — ``insert into`t` ``, valid MySQL — keeps a
+     * space before the schema put in front of it, through `prepareQuery()` and through
+     * `prepare()`. It became `insert intopublic."t"`, a syntax error at "intopublic".
+     */
+    public function testASchemaIsNotGluedToTheWordBeforeAName(): void
+    {
+        // Arrange
+        $this->db->schema = 'public';
+        $c = $this->t . '_counters';
+
+        // Act
+        $prepared = $this->db->prepareQuery("insert into`#PREFIX#{$c}`(`id`, `n`) values (%d, %d)", 1, 5);
+        $this->db->query($prepared);
+        [$id, $n] = [2, 6];
+        $this->db->execute("insert into`#PREFIX#{$c}`(`id`, `n`) values (%i, %i)", $id, $n);
+
+        // Assert
+        $this->assertStringContainsString('into public."' . $c . '"', $prepared);
+        $this->assertSame(11, (int) $this->value("SELECT SUM(n) FROM {$c}"));
+    }
+
+    /**
      * The query builder's raw fragments — how the admin DataTables pass their WHERE — are
      * translated too.
      */
