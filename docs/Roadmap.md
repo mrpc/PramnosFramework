@@ -18,21 +18,22 @@ live in the [Changelog](version-history/index.md); this page tracks what is
 
 ### Retire the deprecated `auth` / `session` addons
 
-The built-in login lifecycle, session tracking and activity logging now cover
-what the legacy `auth` and `session` addons provided — **except** cookie-based
-"remember me" re-authentication, which still relies on the `UserDatabase`
-addon's `onAuthCheck()`.
+The built-in login lifecycle, session tracking, activity logging **and remember-me** now cover
+what the legacy addons provided. Remember-me is one rotating token per sign-in in
+`remember_tokens` (`Auth\RememberTokens`). `Auth::authCheck()` re-establishes a remembered login
+through `Auth::rememberLogin()` when no auth addon is registered. `SessionTrackingMiddleware`
+already calls it, and an application in production uses it through its own addon.
 
-**Planned:**
+**Left:**
 
-- A built-in remember-me `authCheck` (validate the `auth`/`username` cookies and
-  re-establish the session) to replace `UserDatabase::onAuthCheck()`.
-- Point `SessionTrackingMiddleware` at the built-in check.
-- Drop the deprecated addons from new scaffolds, keeping backward compatibility
-  for applications that still register them.
+- New scaffolds still register the `UserDatabase` addon. The comment in `Init` says it is needed
+  for remember-me, which is no longer true. Stop registering it, and keep backward compatibility
+  for applications that still do.
+- Verify the addon-free path, with no auth addon at all, across new requests and browser restarts
+  in a real application.
 
-*Done when:* remember-me login persistence is verified across new requests /
-browser restarts in a real application.
+*Done when:* a new scaffold registers no auth addon, and remember-me works there across browser
+restarts.
 
 ## Search engines
 
