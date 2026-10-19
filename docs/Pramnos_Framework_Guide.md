@@ -1815,10 +1815,19 @@ Its regexes ship inside the package, so unlike `browscap/browscap-php` there is 
 file to provision and no monthly refresh: staleness becomes `composer update` rather than
 a cron job, and there is no way for a missing download to degrade it silently.
 
-A parse reads the package's regex files: about 60 ms for a desktop Chrome and 320 ms for a
-phone or a Mac. So an agent is parsed **once a day**: the answer is kept in the process and in
-the cache's `browsers` category, by agent, and a visitor — who keeps one agent — costs nothing
-after the first page. A cache that cannot be reached means parsing again, not an error.
+Two things are kept, both in the application's cache — Redis where it is configured:
+
+- **The package's rules**, category `device-detector`, through
+  `Pramnos\General\DeviceDetectorCache` (the package's own `CacheInterface`). Reading them from
+  YAML is nearly all of a parse: `mobiles.yml` alone is about 230 ms, and every phone, Mac or
+  unrecognised agent needs it. Kept, an agent never seen before costs the matching — tens of
+  milliseconds. The package puts its version in every key, so `composer update` reads the new
+  rules.
+- **Each agent's answer**, category `browsers`, for a day, and in the process: a visitor keeps one
+  agent, so after the first page `getBrowser()` costs nothing.
+
+A cache that cannot be reached means reading the rules again, not an error. A `DeviceDetector`
+of the application's own gets the same with `$detector->setCache(new DeviceDetectorCache())`.
 
 ### What `detector` is for
 

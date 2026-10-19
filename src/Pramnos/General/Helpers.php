@@ -425,6 +425,8 @@ class Helpers
     protected static function parseWithDeviceDetector(string $agent): object
     {
         $detector = new \DeviceDetector\DeviceDetector($agent);
+        // Its rules from the application's store, not read from YAML again: {@see DeviceDetectorCache}.
+        $detector->setCache(new DeviceDetectorCache());
         $detector->parse();
 
         if ($detector->isBot()) {
