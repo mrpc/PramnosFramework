@@ -73,6 +73,12 @@ class LoginFlow
      */
     protected const S_TRUST_DEVICE = 'loginflow_trust_device';
 
+    /** Session key: wrong second-factor codes against the pending login so far. */
+    protected const S_PENDING_FAILURES = 'loginflow_pending_failures';
+
+    /** Wrong second-factor codes a pending login takes before it is ended, unless app.php says. */
+    public const SECOND_FACTOR_ATTEMPTS = 5;
+
     private ?Auth $auth;
     private ?Loginlockout $lockout;
     private ?TwoFactorAuthService $twoFactor;
@@ -275,7 +281,7 @@ class LoginFlow
         }
 
         if (!$this->twoFactor()->verifyCode($pending['userId'], trim($code))) {
-            return LoginFlowResult::failed();
+            return $this->secondFactorRefused($pending);
         }
 
         $this->clearPending();
@@ -473,7 +479,7 @@ class LoginFlow
         }
 
         if (!$verified) {
-            return LoginFlowResult::failed();
+            return $this->secondFactorRefused($pending);
         }
 
         $this->clearPending();
@@ -964,6 +970,7 @@ class LoginFlow
         $_SESSION[static::S_PENDING_IDENTIFIER] = $identifier;
         $_SESSION[static::S_PENDING_TIME]       = time();
         $_SESSION[static::S_PENDING_METHODS]    = array_values($methods);
+        $_SESSION[static::S_PENDING_FAILURES]   = 0;
 
         /**
          * The auth link is sent here, once, and nowhere else.
@@ -1035,7 +1042,50 @@ class LoginFlow
             $_SESSION[static::S_PENDING_REMEMBER],
             $_SESSION[static::S_PENDING_IDENTIFIER],
             $_SESSION[static::S_PENDING_TIME],
-            $_SESSION[static::S_PENDING_METHODS]
+            $_SESSION[static::S_PENDING_METHODS],
+            $_SESSION[static::S_PENDING_FAILURES]
         );
+    }
+
+    /**
+     * How many wrong second-factor codes a pending login takes before it is ended:
+     * `'auth' => ['second_factor_attempts' => 5]`, at least one.
+     */
+    protected function secondFactorAttempts(): int
+    {
+        $app = \Pramnos\Application\Application::currentInstance();
+        $max = is_object($app) ? ($app->applicationInfo['auth']['second_factor_attempts'] ?? null) : null;
+
+        return max(1, is_numeric($max) ? (int) $max : static::SECOND_FACTOR_ATTEMPTS);
+    }
+
+    /**
+     * A wrong second-factor code: counted against the pending login, and against the account's
+     * lockout like a wrong password.
+     *
+     * Without a limit, a password was enough to guess the second factor at leisure: the
+     * challenge took any number of codes for as long as it lived, and a six-digit code has a
+     * million values. Past the limit the pending login is ended — the next try starts again
+     * from the password, which the lockout counts — and a lockout these failures set off is
+     * said as one.
+     *
+     * @param array{userId:int, remember:bool, identifier:string} $pending
+     */
+    protected function secondFactorRefused(array $pending): LoginFlowResult
+    {
+        $failures                            = (int) ($_SESSION[static::S_PENDING_FAILURES] ?? 0) + 1;
+        $_SESSION[static::S_PENDING_FAILURES] = $failures;
+        if ($pending['identifier'] !== '') {
+            $this->lockout()->recordFailedAttempt('identifier', $pending['identifier']);
+        }
+        if ($failures < $this->secondFactorAttempts()) {
+            return LoginFlowResult::failed();
+        }
+
+        $this->clearPending();
+        \Pramnos\Logs\Logger::log('A pending login for user ' . $pending['userId'] . ' was ended after ' . $failures . ' wrong second-factor codes', 'auth');
+        $status = $pending['identifier'] !== '' ? $this->lockout()->getLockoutStatus('identifier', $pending['identifier']) : ['locked' => false];
+
+        return !empty($status['locked']) ? LoginFlowResult::locked((int) ($status['remaining'] ?? 0)) : LoginFlowResult::failed();
     }
 }

@@ -578,6 +578,14 @@ step-up offers them in:
 | `email` | a six-digit code, mailed | weakest; needs nothing set up in advance |
 | `push` | "Is it you trying to sign in?" on a trusted phone | offered first when the account has one — see below |
 
+**Wrong codes are limited.** Each wrong second-factor code (TOTP, a backup code, a mailed code,
+any registered factor) counts against the pending login, and against the account's lockout like a
+wrong password. After `'auth' => ['second_factor_attempts' => 5]` of them, five by default, the
+pending login is ended and the next try starts again from the password. If the failures set off
+the lockout, the result is `LOCKED`, with its remaining seconds. Without the limit, a password was
+enough to guess a six-digit code at leisure. A factor whose gateway is down refuses without
+counting: that is an outage, not a guess.
+
 ### Trusted devices and sign-in approval
 
 Google's two sign-in conveniences, for every application on the framework. Both are **off until

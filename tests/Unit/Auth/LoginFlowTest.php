@@ -328,6 +328,60 @@ class LoginFlowTest extends TestCase
     }
 
     /**
+     * Wrong second-factor codes are limited (FW-164 §1): each is counted against the pending
+     * login and against the account's lockout like a wrong password; past the limit the pending
+     * login is ended, and the next try starts again from the password. A right code after that
+     * finds nothing to complete. Without the limit, a password was enough to guess a six-digit
+     * code at leisure.
+     */
+    public function testWrongSecondFactorCodesAreLimited(): void
+    {
+        // Arrange
+        $this->givenPending(7, false, 'alice');
+        $this->flow->fakeTwoFactor->verifies = false;
+
+        // Act
+        $results = [];
+        for ($i = 0; $i < LoginFlow::SECOND_FACTOR_ATTEMPTS; $i++) {
+            $results[] = $this->flow->completeTwoFactor('00000' . $i);
+            $stillPending[] = isset($_SESSION['loginflow_pending_userid']);
+        }
+        $this->flow->fakeTwoFactor->verifies = true;
+        $afterwards = $this->flow->completeTwoFactor('123456');
+
+        // Assert
+        $this->assertTrue(array_reduce($results, static fn (bool $all, $r): bool => $all && $r->isFailed(), true));
+        $this->assertSame([true, true, true, true, false], $stillPending, 'ended at the fifth');
+        $this->assertCount(LoginFlow::SECOND_FACTOR_ATTEMPTS, $this->flow->fakeLockout->recorded, 'each counted against the lockout');
+        $this->assertSame(['identifier', 'alice'], $this->flow->fakeLockout->recorded[0]);
+        $this->assertTrue($afterwards->isFailed(), 'the right code finds nothing to complete');
+        $this->assertSame([], $this->flow->fakeAuth->loginArgs, 'no session');
+    }
+
+    /**
+     * The limit is app.php's to set, and applies to every registered factor by name as well; a
+     * lockout the failures set off is said as one.
+     */
+    public function testTheLimitIsConfigurableAndSaysALockout(): void
+    {
+        // Arrange — two attempts, and the lockout engaged by the time the second fails
+        (new \ReflectionProperty(\Pramnos\Application\Application::class, 'appInstances'))->getValue()['default']->applicationInfo['auth']['second_factor_attempts'] = 2;
+        $this->givenPending(7, false, 'alice');
+        $this->flow->fakeTwoFactor->verifies = false;
+        $this->flow->fakeLockout->status = ['locked' => true, 'remaining' => 300];
+
+        // Act
+        $first  = $this->flow->completeTwoFactor('000000');
+        $second = $this->flow->completeFactor('totp', '000001');
+
+        // Assert
+        $this->assertTrue($first->isFailed());
+        $this->assertTrue($second->isLocked(), 'the second ended it, under the lockout');
+        $this->assertSame(300, $second->lockoutRemaining);
+        $this->assertArrayNotHasKey('loginflow_pending_userid', $_SESSION);
+    }
+
+    /**
      * Calling completeTwoFactor with no pending step-up (direct hit / expired)
      * fails without touching the 2FA service.
      */
