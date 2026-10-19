@@ -1396,6 +1396,7 @@ report, not the translator's to change. A `DATE_FORMAT` pattern `to_char` cannot
 ```bash
 php bin/pramnos db:dialect-lint                # src and app
 php bin/pramnos db:dialect-lint src/Admin --json
+php bin/pramnos db:dialect-lint --schema       # column types and keys from the database too
 ```
 
 ```
@@ -1404,24 +1405,32 @@ src/Reports/Visits.php:41  group-by  v.name is selected but neither grouped nor 
 3 finding(s): 2 like, 1 group-by
 ```
 
-It reads the SQL in the code's string literals, whole statements and the fragments a datatable
-passes as its WHERE alike, and names each place by file and line:
+It reads the SQL in the code as it will run, and names each place by file and line. A string
+with variables in it, strings joined with `.`, and a variable built up with `.=` over several
+statements are each one piece of SQL, a variable standing in as `?`. Each finding is at the line
+of the part it is in.
 
 | Rule | What it finds | What to do |
 |---|---|---|
 | `like` | `LIKE`, which ignores case on MySQL's `_ci` collations and does not on PostgreSQL | `ILIKE`, or `lower()` on both sides — or nothing, where case should count |
-| `group-by` | a column selected but neither grouped nor aggregated: MySQL returned one of the group's values, PostgreSQL refuses it | `GROUP BY` it, or aggregate it |
+| `group-by` | a column selected or ordered by but neither grouped nor aggregated, and a column a `SELECT DISTINCT` orders by without selecting it: MySQL returned one of the values, PostgreSQL refuses it | `GROUP BY` it, aggregate it, or select it |
 | `double-quoted-string` | `"…"` used as a value: a string to MySQL, a column name to PostgreSQL | single quotes |
+| `implicit-cast` | a text column compared with a number, which MySQL converts and PostgreSQL refuses. With `--schema` only | compare like with like, cast one side, or make the column a number |
 
 A string counts as SQL when it has a statement's shape or a condition's, not when it merely holds
-the word "delete"; markup and an operator's name alone (`'LIKE'`) are not read. A line ending in
-`// dialect-ok` is one somebody has looked at and is not reported again. The command exits `1`
-while anything is found.
+the word "delete". Markup, an operator's name alone (`'LIKE'`) and prose are not read: a prompt
+that says *like "daily"* is sentences, not a condition. A line ending in `// dialect-ok` is one
+somebody has looked at and is not reported again. The command exits `1` while anything is found.
 
-A text column compared with a number is not looked for: without the schema it cannot be told from
-a number compared with a number. PostgreSQL refuses it with an error rather than answering
-differently, so the suite run against PostgreSQL finds it. See
-[An application's suite against PostgreSQL](Pramnos_Testing_Guide.md#an-applications-suite-against-postgresql-before-moving-to-it).
+**A grouped key groups its table**, as PostgreSQL has it: `GROUP BY i.invoiceid` lets the other
+columns of `i` through. With `--schema` the primary keys decide this. Without it, a grouped
+column whose name ends in `id` is taken for its table's key, so that table's columns are not
+reported. Neither are the unqualified ones, when the grouped column is the only clue.
+
+**`--schema`** reads the column types and primary keys from the application's database, MySQL's
+or PostgreSQL's. Without it a text column cannot be told from a number. A table is known by its
+name with and without the prefix, and by its alias. An unqualified column is judged only when one
+table of the statement has it.
 
 Off by default, and only on PostgreSQL. It is a bridge for the move, not a dialect to keep
 writing in: new code goes through the query builder.

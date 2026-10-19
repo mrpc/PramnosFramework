@@ -18,6 +18,7 @@ use Symfony\Component\Console\Output\OutputInterface;
  * ```bash
  * php bin/pramnos db:dialect-lint               # src and app
  * php bin/pramnos db:dialect-lint src/Admin --json
+ * php bin/pramnos db:dialect-lint --schema      # the column types too, from the database
  * ```
  *
  * Exits `1` when it finds any. A line ending in `// dialect-ok` is one somebody has looked at.
@@ -29,7 +30,8 @@ class DatabaseDialectLint extends Command
         $this->setName('db:dialect-lint')
             ->setDescription('Name the SQL that would mean something else on PostgreSQL than on MySQL')
             ->addArgument('paths', InputArgument::IS_ARRAY, 'Files or directories, under the project (default: src app)')
-            ->addOption('json', null, InputOption::VALUE_NONE, 'The findings as JSON');
+            ->addOption('json', null, InputOption::VALUE_NONE, 'The findings as JSON')
+            ->addOption('schema', null, InputOption::VALUE_NONE, 'Read column types and primary keys from the application\'s database: text compared with a number, and exact GROUP BY');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -37,10 +39,11 @@ class DatabaseDialectLint extends Command
         $root     = defined('ROOT') ? (string) ROOT : (string) getcwd();
         $paths    = (array) $input->getArgument('paths') ?: ['src', 'app'];
         $findings = [];
+        $schema   = $input->getOption('schema') ? DialectLinter::schema($this->database()) : null;
         foreach ($paths as $path) {
             $absolute = str_starts_with((string) $path, '/') ? (string) $path : rtrim($root, '/') . '/' . $path;
             foreach (self::phpFiles($absolute) as $file) {
-                foreach (DialectLinter::file($file) as $finding) {
+                foreach (DialectLinter::file($file, $schema) as $finding) {
                     $findings[] = ['file' => ltrim(str_replace($root, '', $file), '/')] + $finding;
                 }
             }
@@ -60,6 +63,17 @@ class DatabaseDialectLint extends Command
             : count($findings) . ' finding(s): ' . implode(', ', array_map(static fn (string $rule, int $n): string => $n . ' ' . $rule, array_keys($counts), $counts)));
 
         return $findings === [] ? Command::SUCCESS : Command::FAILURE;
+    }
+
+    /** The application's database, connected (seam so a test can hand it another). */
+    protected function database(): \Pramnos\Database\Database
+    {
+        $db = \Pramnos\Framework\Factory::getDatabase();
+        if (!$db->connected) {
+            $db->connect();
+        }
+
+        return $db;
     }
 
     /**
