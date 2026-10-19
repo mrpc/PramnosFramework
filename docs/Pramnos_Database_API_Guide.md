@@ -717,6 +717,12 @@ An endpoint that returns `getMessage()` to its client — for example as an OAut
 `error_description`, from the same `catch` that raises its own refusals — must never hand out text
 like that. That is why the driver text lives in `getDriverMessage()`.
 
+**Except for a developer.** On a developer's machine (`APP_DEBUG`, or `DEVELOPMENT`) and in an
+application's own test run, `getMessage()` carries the driver's text after the safe sentence. A
+failing test, or a page in development, then says why the database refused the query, not only
+that it did. `TestEnvironment` turns it on for the run; `QueryException::$detailed = false`
+turns it off, and `true` turns it on anywhere. Production is unchanged: the message names nothing.
+
 A call site that can say something useful without saying what, should:
 
 ```php

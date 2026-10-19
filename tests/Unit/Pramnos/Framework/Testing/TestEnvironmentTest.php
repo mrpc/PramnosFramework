@@ -23,6 +23,8 @@ class TestEnvironmentTest extends TestCase
 
     protected function tearDown(): void
     {
+        // setup() turns detailed query errors on for an application's run: not for the rest of this one.
+        \Pramnos\Database\QueryException::$detailed = null;
         $this->removeDirectory($this->tempDir);
         if (isset($GLOBALS['PRAMNOS_TEST_LOCK'])) {
             @fclose($GLOBALS['PRAMNOS_TEST_LOCK']);

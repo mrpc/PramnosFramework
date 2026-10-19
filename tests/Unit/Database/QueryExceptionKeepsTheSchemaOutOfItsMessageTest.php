@@ -191,4 +191,35 @@ class QueryExceptionKeepsTheSchemaOutOfItsMessageTest extends TestCase
             'neither'       => ['', '', [QueryException::SAFE_MESSAGE], ['SQL:']],
         ];
     }
+
+    /**
+     * Where the driver's text joins the message (FW-165 §4): on a developer's machine, and in an
+     * application's own test run, so a failing test says why — never in production, where the
+     * message is what an API answers. getDetail() says everything once, either way.
+     */
+    public function testTheDriversTextIsForADeveloper(): void
+    {
+        // Arrange
+        $saved = QueryException::$detailed;
+        $make  = static fn (): QueryException => new QueryException('column "secret_col" does not exist', 'SELECT secret_col FROM t', null, 'Could not save Foo');
+
+        try {
+            // Act
+            QueryException::$detailed = false;
+            $production = $make();
+            QueryException::$detailed = true;
+            $testRun = $make();
+            QueryException::$detailed = null;
+            $environment = $make();
+        } finally {
+            QueryException::$detailed = $saved;
+        }
+
+        // Assert
+        $this->assertSame('Could not save Foo', $production->getMessage());
+        $this->assertSame('Could not save Foo column "secret_col" does not exist', $testRun->getMessage());
+        $this->assertSame('Could not save Foo column "secret_col" does not exist | SQL: SELECT secret_col FROM t', $testRun->getDetail(), 'said once, not twice');
+        $this->assertSame(\Pramnos\Application\Application::isDeveloperEnvironment() ? $testRun->getMessage() : 'Could not save Foo', $environment->getMessage(),
+            'left to the environment: APP_DEBUG or DEVELOPMENT decide');
+    }
 }

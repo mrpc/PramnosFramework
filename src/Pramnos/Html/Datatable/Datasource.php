@@ -606,7 +606,10 @@ class Datasource extends Base
         }
 
         if ($result === false || $result === null) {
-            $message = 'Error in Datasource render: query returned no result. SQL: ' . $qb->toSql();
+            // The driver's reason, beside the SQL this message already carries: without it a failing
+            // list says only that it failed.
+            $reason  = trim((string) ($database->error_text ?? ''));
+            $message = 'Error in Datasource render: query returned no result' . ($reason !== '' ? ' (' . $reason . ')' : '') . '. SQL: ' . $qb->toSql();
             \Pramnos\Logs\Logger::log($message);
             throw new \Exception($message);
         }

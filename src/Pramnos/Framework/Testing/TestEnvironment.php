@@ -94,6 +94,10 @@ class TestEnvironment
             return;
         }
 
+        // An application's own run: a refused query says why, so a failing test names the
+        // driver's error rather than «The database refused the query».
+        \Pramnos\Database\QueryException::$detailed = true;
+
         /*
          * **The settings the rest of the run will use.**
          *

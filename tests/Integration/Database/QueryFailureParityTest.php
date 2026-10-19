@@ -150,8 +150,17 @@ class QueryFailureParityTest extends BaseTestCase
      * This test asserted the old arrangement, which is why it is worth saying so here rather
      * than quietly editing the assertion: it was pinning the leak.
      */
+    /** The developer-detail switch, back to the environment's decision. */
+    protected function tearDown(): void
+    {
+        \Pramnos\Database\QueryException::$detailed = null;
+        parent::tearDown();
+    }
+
     public function testTheFailureNamesTheTableInItsDetail(): void
     {
+        // Production's message: a developer's run adds the driver's text on purpose.
+        \Pramnos\Database\QueryException::$detailed = false;
         // Act
         $exception = null;
         try {

@@ -61,6 +61,9 @@ class ModelSaveHidesTheDriverMessageTest extends BaseTestCase
 
     protected function setUp(): void
     {
+        // What production says: a developer's machine and an application's test run add the
+        // driver's text on purpose (QueryException::$detailed), and this is about the other case.
+        \Pramnos\Database\QueryException::$detailed = false;
         if (!defined('CONFIG')) {
             define('CONFIG', 'tests' . DS . 'fixtures' . DS . 'app');
         }
@@ -85,6 +88,7 @@ class ModelSaveHidesTheDriverMessageTest extends BaseTestCase
 
     protected function tearDown(): void
     {
+        \Pramnos\Database\QueryException::$detailed = null;
         if ($this->table !== '') {
             $this->db->query('DROP TABLE IF EXISTS ' . $this->quoted($this->table));
         }

@@ -63,6 +63,17 @@ class QueryException extends \RuntimeException
     /** The driver's own text. Never safe to print — it carries the schema. */
     protected string $driverMessage;
 
+    /** The message that may be surfaced, before any driver text is added for a developer. */
+    protected string $safeMessage;
+
+    /**
+     * Whether `getMessage()` carries the driver's text too: true for an application's test run
+     * ({@see \Pramnos\Framework\Testing\TestEnvironment} sets it), null to decide by the
+     * environment — a developer's machine, `APP_DEBUG` or `DEVELOPMENT`. A failing test, a
+     * page in development, then says why; production still names nothing.
+     */
+    public static ?bool $detailed = null;
+
     /**
      * @param string      $error    The driver's message, or whatever detail there is
      * @param string      $query    The SQL that failed
@@ -79,8 +90,10 @@ class QueryException extends \RuntimeException
     ) {
         $this->query         = $query;
         $this->driverMessage = $error;
+        $this->safeMessage   = $safe === '' ? self::SAFE_MESSAGE : $safe;
+        $detailed            = self::$detailed ?? \Pramnos\Application\Application::isDeveloperEnvironment();
 
-        parent::__construct($safe === '' ? self::SAFE_MESSAGE : $safe, 0, $previous);
+        parent::__construct($this->safeMessage . ($detailed && $error !== '' ? ' ' . $error : ''), 0, $previous);
     }
 
     public function getQuery(): string
@@ -104,7 +117,7 @@ class QueryException extends \RuntimeException
      */
     public function getDetail(): string
     {
-        $detail = $this->getMessage();
+        $detail = $this->safeMessage;
 
         if ($this->driverMessage !== '') {
             $detail .= ' ' . $this->driverMessage;
