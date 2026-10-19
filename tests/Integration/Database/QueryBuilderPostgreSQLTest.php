@@ -65,7 +65,8 @@ class QueryBuilderPostgreSQLTest extends DatabaseTestCase
             price    DECIMAL(10,2)  DEFAULT 0.00,
             stock    INTEGER        DEFAULT 0,
             active   BOOLEAN        DEFAULT true,
-            notes    TEXT           DEFAULT NULL
+            notes    TEXT           DEFAULT NULL,
+            \"restockNote\" TEXT      DEFAULT NULL
         )",
             "CREATE TABLE qb_tags (
             id         SERIAL PRIMARY KEY,
@@ -1816,6 +1817,28 @@ class QueryBuilderPostgreSQLTest extends DatabaseTestCase
      * the default type is 'postgresql' (timescale flag not set), so no native
      * time_bucket() is used here.
      */
+    /**
+     * A qualified mixed-case column — `qb_products.restockNote` — is quoted, so PostgreSQL does
+     * not fold it to a column that is not there; in a WHERE of each kind and in a select.
+     */
+    public function testAQualifiedMixedCaseColumnIsQuoted(): void
+    {
+        // Arrange
+        $this->seedProducts();
+        $this->db->queryBuilder()->table('qb_products')->where('name', 'Apple')->update(['restockNote' => 'monday']);
+
+        // Act
+        $unset  = $this->db->queryBuilder()->table('qb_products')->whereNull('qb_products.restockNote')->count();
+        $set    = $this->db->queryBuilder()->table('qb_products')->whereNotNull('qb_products.restockNote')
+            ->select(['qb_products.restockNote'])->first();
+        $equals = $this->db->queryBuilder()->table('qb_products')->where('qb_products.restockNote', 'monday')->count();
+
+        // Assert
+        $this->assertSame(4, (int) $unset);
+        $this->assertSame('monday', $set->fields['restockNote'] ?? null);
+        $this->assertSame(1, (int) $equals);
+    }
+
     public function testTimeBucketGroupByHourOnPostgres(): void
     {
         // Arrange — 2 events per hour in two distinct hourly windows

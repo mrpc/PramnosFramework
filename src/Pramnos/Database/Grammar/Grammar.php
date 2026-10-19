@@ -49,8 +49,10 @@ abstract class Grammar implements GrammarInterface
      *
      * Only a **bare identifier containing an upper-case letter** is quoted:
      *
-     *  - anything with a dot, a space, a parenthesis, a star or a quote is an
-     *    expression or already qualified, and quoting it would corrupt it;
+     *  - a qualified `table.column` has its column quoted by the same rule, and its table or
+     *    alias only when that is a reserved word;
+     *  - anything else with a dot, a space, a parenthesis, a star or a quote is an
+     *    expression, and quoting it would corrupt it;
      *  - an all-lower-case identifier is unaffected by folding, so it is emitted
      *    exactly as before and no existing generated SQL changes.
      *
@@ -66,8 +68,12 @@ abstract class Grammar implements GrammarInterface
         if (preg_match('/^(.+?)\s+as\s+([A-Za-z_][A-Za-z0-9_]*)$/i', $column, $m) === 1) {
             return $this->quoteIfCaseSensitive($m[1]) . ' AS ' . $this->quoteIfReserved($m[2]);
         }
+        // `u.registrationStatus`: the column by the bare name's rule — a mixed-case one is quoted,
+        // or PostgreSQL folds it to a column that is not there. The table or alias only when it
+        // is a reserved word: an alias written `FROM users U` is folded to `u`, and `"U"` would
+        // name nothing.
         if (preg_match('/^([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)$/', $column, $m) === 1) {
-            return $this->quoteIfReserved($m[1]) . '.' . $this->quoteIfReserved($m[2]);
+            return $this->quoteIfReserved($m[1]) . '.' . $this->quoteIfCaseSensitive($m[2]);
         }
 
         if (preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $column) !== 1) {

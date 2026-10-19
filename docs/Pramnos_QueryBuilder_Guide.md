@@ -1041,13 +1041,15 @@ You need this because **PostgreSQL folds an unquoted identifier to lower case**.
 fails. `INSERT` and `UPDATE` quote as well, so a camelCase column can be both written and
 read; unquoted, the failure would look exactly like an empty result.
 
-Only a **bare identifier** is quoted, and only when it has an upper-case letter:
+A bare identifier is quoted when it has an upper-case letter, and so is the column of a
+qualified `table.column`. The table or alias in front is not: an alias written
+`FROM usertokens UT` is folded to `ut`, and `"UT"` would name nothing.
 
 | Written | Emitted | Why |
 |---|---|---|
 | `parentToken` | `"parentToken"` | Would otherwise fold |
 | `tokenid` | `tokenid` | Folding cannot affect it |
-| `ut.parentToken` | unchanged | Already qualified — quote it yourself if you need to |
+| `ut.parentToken` | `ut."parentToken"` | The column would otherwise fold; the alias would not need it |
 | `MAX(ut.lastused) AS x` | unchanged | An expression, not an identifier |
 | `*`, `ut.*` | unchanged | Not a name |
 | `"parentToken"` | unchanged | Already quoted |

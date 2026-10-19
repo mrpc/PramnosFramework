@@ -131,7 +131,7 @@ class CaseSensitiveColumnTest extends TestCase
     /**
      * Anything that is not a bare identifier is left exactly as written.
      *
-     * These are expressions, qualified names and stars. Quoting one would turn
+     * These are expressions and stars. Quoting one would turn
      * working SQL into a syntax error, so the predicate refuses them by shape
      * rather than by trying to parse them.
      *
@@ -147,12 +147,26 @@ class CaseSensitiveColumnTest extends TestCase
         $this->assertStringContainsString($column, $sql, $column . ' must survive verbatim');
     }
 
+    /**
+     * A qualified mixed-case column has its column quoted, as a bare one does, and its alias
+     * left alone: an alias written without quotes is folded to lower case, and quoting it would
+     * name nothing. The alias is quoted only when it is a reserved word.
+     */
+    public function testAQualifiedColumnHasItsColumnQuoted(): void
+    {
+        // Act
+        $sql = $this->sql($this->postgres()->table('usertokens')->select(['ut.parentToken', 'UT.tokenid']));
+
+        // Assert
+        $this->assertStringContainsString('ut."parentToken"', $sql);
+        $this->assertStringContainsString('UT.tokenid', $sql, 'the alias is not quoted');
+    }
+
     /** @return array<string, array{0: string}> */
     public static function expressionsThatMustNotBeQuoted(): array
     {
         return [
             'star'            => ['*'],
-            'qualified'       => ['ut.parentToken'],
             'qualified star'  => ['ut.*'],
             'aggregate'       => ['MAX(ut.lastused) AS last_used'],
             'count'           => ['COUNT(*) AS total'],
