@@ -20,8 +20,8 @@ $inputCls = 'input w-full';
 <div class="container mx-auto py-8 px-4">
 
     <div class="flex flex-wrap items-center justify-between gap-2 mb-6">
-        <h2 class="text-2xl font-semibold">My Profile</h2>
-        <a href="<?php echo sURL . $routeBase; ?>" class="text-sm text-primary hover:underline">&larr; Back to Dashboard</a>
+        <h2 class="text-2xl font-semibold"><?php echo htmlspecialchars(t('My Profile'), ENT_QUOTES, 'UTF-8'); ?></h2>
+        <a href="<?php echo sURL . $routeBase; ?>" class="text-sm text-primary hover:underline">&larr; <?php echo htmlspecialchars(t('Back to Dashboard'), ENT_QUOTES, 'UTF-8'); ?></a>
     </div>
 
     <?php if ($this->hasMessages()): ?>
@@ -37,77 +37,77 @@ $inputCls = 'input w-full';
 
         <div class="md:col-span-3 space-y-6">
             <div class="card bg-base-100 shadow-sm">
-                <div class="px-6 py-3 border-b border-base-300 font-semibold text-base-content">Profile Picture</div>
+                <div class="px-6 py-3 border-b border-base-300 font-semibold text-base-content"><?php echo htmlspecialchars(t('Profile Picture'), ENT_QUOTES, 'UTF-8'); ?></div>
                 <div class="p-6 flex items-center gap-6 flex-wrap">
-                    <img id="profile-photo-preview"<?php echo empty($u->avatarurl) ? ' hidden' : ' src="' . htmlspecialchars((string) $u->avatarurl) . '"'; ?> alt="Your profile picture" width="96" height="96" class="rounded-full">
+                    <img id="profile-photo-preview"<?php echo empty($u->avatarurl) ? ' hidden' : ' src="' . htmlspecialchars((string) $u->avatarurl) . '"'; ?> alt="<?php echo htmlspecialchars(t('Your profile picture'), ENT_QUOTES, 'UTF-8'); ?>" width="96" height="96" class="rounded-full">
                     <form method="post" action="<?php echo sURL . $routeBase; ?>/profilephoto" enctype="multipart/form-data" class="flex gap-2 flex-wrap items-center">
                         <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
-                        <label for="photo" class="sr-only">Choose a picture</label>
+                        <label for="photo" class="sr-only"><?php echo htmlspecialchars(t('Choose a picture'), ENT_QUOTES, 'UTF-8'); ?></label>
                         <input type="file" id="photo" name="photo" accept="image/jpeg,image/png,image/gif,image/webp"<?php echo \Pramnos\User\ProfilePhoto::uploadAttributes(); ?> class="file-input file-input-bordered">
-                        <button type="submit" class="btn btn-primary">Upload</button>
+                        <button type="submit" class="btn btn-primary"><?php echo htmlspecialchars(t('Upload'), ENT_QUOTES, 'UTF-8'); ?></button>
                         <?php if (\Pramnos\User\ProfilePhoto::gravatarAllowed()): ?>
-                            <button type="submit" name="gravatar" value="1" class="btn btn-outline">Use my Gravatar</button>
+                            <button type="submit" name="gravatar" value="1" class="btn btn-outline"><?php echo htmlspecialchars(t('Use my Gravatar'), ENT_QUOTES, 'UTF-8'); ?></button>
                         <?php endif; ?>
                         <?php if ((int) ($u->photo ?? 0) > 0): ?>
-                            <button type="submit" name="remove" value="1" class="btn btn-outline btn-error">Remove</button>
+                            <button type="submit" name="remove" value="1" class="btn btn-outline btn-error"><?php echo htmlspecialchars(t('Remove'), ENT_QUOTES, 'UTF-8'); ?></button>
                         <?php endif; ?>
                         <?php if (\Pramnos\User\ProfilePhoto::gravatarAllowed()): ?>
-                            <p class="text-sm text-base-content/70 w-full">Use my Gravatar asks Gravatar for the picture of your email address, once, and keeps a copy here.</p>
+                            <p class="text-sm text-base-content/70 w-full"><?php echo htmlspecialchars(t('Use my Gravatar asks Gravatar for the picture of your email address, once, and keeps a copy here.'), ENT_QUOTES, 'UTF-8'); ?></p>
                         <?php endif; ?>
                     </form>
                     <?php echo \Pramnos\Html\ImageUpload::assets(); ?>
                 </div>
             </div>
             <div class="card bg-base-100 shadow-sm">
-                <div class="px-6 py-3 border-b border-base-300 font-semibold text-base-content">Personal Information</div>
+                <div class="px-6 py-3 border-b border-base-300 font-semibold text-base-content"><?php echo htmlspecialchars(t('Personal Information'), ENT_QUOTES, 'UTF-8'); ?></div>
                 <div class="p-6">
                     <form method="post" action="<?php echo sURL . $routeBase; ?>/profile" class="space-y-4">
                         <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
 
                         <div>
-                            <label class="block text-sm font-medium text-base-content mb-1">Username</label>
+                            <label class="block text-sm font-medium text-base-content mb-1"><?php echo htmlspecialchars(t('Username'), ENT_QUOTES, 'UTF-8'); ?></label>
                             <input type="text" class="<?php echo $inputCls; ?> bg-base-200 text-base-content/70" value="<?php echo htmlspecialchars((string) ($u->username ?? '')); ?>" disabled>
                         </div>
 
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <div>
-                                <label for="firstname" class="block text-sm font-medium text-base-content mb-1">First Name</label>
+                                <label for="firstname" class="block text-sm font-medium text-base-content mb-1"><?php echo htmlspecialchars(t('First Name'), ENT_QUOTES, 'UTF-8'); ?></label>
                                 <input type="text" id="firstname" name="firstname" class="<?php echo $inputCls; ?>" value="<?php echo htmlspecialchars((string) ($u->firstname ?? '')); ?>">
                             </div>
                             <div>
-                                <label for="lastname" class="block text-sm font-medium text-base-content mb-1">Last Name</label>
+                                <label for="lastname" class="block text-sm font-medium text-base-content mb-1"><?php echo htmlspecialchars(t('Last Name'), ENT_QUOTES, 'UTF-8'); ?></label>
                                 <input type="text" id="lastname" name="lastname" class="<?php echo $inputCls; ?>" value="<?php echo htmlspecialchars((string) ($u->lastname ?? '')); ?>">
                             </div>
                         </div>
 
                         <div>
-                            <label for="email" class="block text-sm font-medium text-base-content mb-1">Email</label>
+                            <label for="email" class="block text-sm font-medium text-base-content mb-1"><?php echo htmlspecialchars(t('Email'), ENT_QUOTES, 'UTF-8'); ?></label>
                             <input type="email" id="email" name="email" class="<?php echo $inputCls; ?>" value="<?php echo htmlspecialchars((string) ($u->email ?? '')); ?>" required>
                         </div>
 
                         <div>
-                            <label for="phone" class="block text-sm font-medium text-base-content mb-1">Phone</label>
+                            <label for="phone" class="block text-sm font-medium text-base-content mb-1"><?php echo htmlspecialchars(t('Phone'), ENT_QUOTES, 'UTF-8'); ?></label>
                             <input type="text" id="phone" name="phone" class="<?php echo $inputCls; ?>" value="<?php echo htmlspecialchars((string) ($u->phone ?? '')); ?>">
                         </div>
 
-                        <button type="submit" class="btn btn-primary">Save Changes</button>
+                        <button type="submit" class="btn btn-primary"><?php echo htmlspecialchars(t('Save Changes'), ENT_QUOTES, 'UTF-8'); ?></button>
                     </form>
                 </div>
             </div>
 
             <?php if (!empty($u->regdate) || !empty($u->lastlogin)): ?>
             <div class="card bg-base-100 shadow-sm">
-                <div class="px-6 py-3 border-b border-base-300 font-semibold text-base-content">Account</div>
+                <div class="px-6 py-3 border-b border-base-300 font-semibold text-base-content"><?php echo htmlspecialchars(t('Account'), ENT_QUOTES, 'UTF-8'); ?></div>
                 <div class="divide-y divide-base-300">
                     <?php if (!empty($u->regdate)): ?>
                     <div class="flex justify-between px-6 py-3 text-sm">
-                        <span class="text-base-content/70">Member Since</span>
+                        <span class="text-base-content/70"><?php echo htmlspecialchars(t('Member Since'), ENT_QUOTES, 'UTF-8'); ?></span>
                         <span class="text-base-content"><?php echo htmlspecialchars(localDate( is_numeric($u->regdate) ? (int) $u->regdate : (int) strtotime((string) $u->regdate))); ?></span>
                     </div>
                     <?php endif; ?>
                     <?php if (!empty($u->lastlogin)): ?>
                     <div class="flex justify-between px-6 py-3 text-sm">
-                        <span class="text-base-content/70">Last Login</span>
+                        <span class="text-base-content/70"><?php echo htmlspecialchars(t('Last Login'), ENT_QUOTES, 'UTF-8'); ?></span>
                         <span class="text-base-content"><?php echo htmlspecialchars(localDateTime( is_numeric($u->lastlogin) ? (int) $u->lastlogin : (int) strtotime((string) $u->lastlogin))); ?></span>
                     </div>
                     <?php endif; ?>

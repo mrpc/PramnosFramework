@@ -26,18 +26,18 @@ $parents = [
 ];
 $active = $parents[$active] ?? $active;
 $navItems = [
-    ['key' => 'dashboard',    'href' => $routeBase,                   'label' => 'Dashboard'],
-    ['key' => 'profile',      'href' => $routeBase . '/profile',      'label' => 'Profile'],
-    ['key' => 'applications', 'href' => $routeBase . '/applications', 'label' => 'Authorized Applications'],
-    ['key' => 'security',     'href' => $routeBase . '/security',     'label' => 'Security'],
-    ['key' => 'privacy',      'href' => $routeBase . '/privacy',      'label' => 'Privacy'],
+    ['key' => 'dashboard',    'href' => $routeBase,                   'label' => t('Dashboard')],
+    ['key' => 'profile',      'href' => $routeBase . '/profile',      'label' => t('Profile')],
+    ['key' => 'applications', 'href' => $routeBase . '/applications', 'label' => t('Authorized Applications')],
+    ['key' => 'security',     'href' => $routeBase . '/security',     'label' => t('Security')],
+    ['key' => 'privacy',      'href' => $routeBase . '/privacy',      'label' => t('Privacy')],
 ];
 // For somebody who manages an organisation, the way to it — and for nobody else.
 $_signedIn = \Pramnos\User\User::getCurrentUser();
 if (is_object($_signedIn) && (int) ($_signedIn->userid ?? 0) >= 2) {
     try {
         if (\Pramnos\Auth\OrganizationAdmin::managedBy($_signedIn) !== []) {
-            $navItems[] = ['key' => 'organization', 'href' => 'organization', 'label' => 'Organisations'];
+            $navItems[] = ['key' => 'organization', 'href' => 'organization', 'label' => t('Organisations')];
         }
     } catch (\Throwable) {
         // No organisation tables: nothing to manage.
@@ -46,13 +46,13 @@ if (is_object($_signedIn) && (int) ($_signedIn->userid ?? 0) >= 2) {
 ?>
 <?php /* Styled by .account-nav in style.css: a vertical list beside the page, and on a
    phone a single row that scrolls sideways above it. */ ?>
-<nav aria-label="Account settings" class="card account-sidebar" style="align-self:start">
-    <div class="card-header"><strong>Account Settings</strong></div>
+<nav aria-label="<?php echo htmlspecialchars(t('Account settings'), ENT_QUOTES, 'UTF-8'); ?>" class="card account-sidebar" style="align-self:start">
+    <div class="card-header"><strong><?php echo htmlspecialchars(t('Account Settings'), ENT_QUOTES, 'UTF-8'); ?></strong></div>
     <ul class="account-nav pf-account-nav">
         <?php foreach ($navItems as $item): ?>
             <li>
                 <a href="<?php echo sURL . $item['href']; ?>"<?php echo $item['key'] === $active ? ' aria-current="page"' : ''; ?>>
-                    <?php echo htmlspecialchars($item['label']); ?>
+                    <?php echo htmlspecialchars($item['label'], ENT_QUOTES, 'UTF-8'); ?>
                 </a>
             </li>
         <?php endforeach; ?>

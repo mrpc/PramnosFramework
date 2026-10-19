@@ -16,6 +16,7 @@
         <div class="col-sm-10 col-md-7 col-lg-5">
             <div class="card shadow-sm">
                 <div class="card-body p-4">
+                    <?php $this->insert('../partials/auth_brand'); ?>
 
                     <div class="text-center mb-3">
                         <?php if (!empty($this->application->logourl)): ?>
@@ -85,14 +86,22 @@
 
                     <p class="text-muted small text-center mt-3 mb-0">
                         <?php if (!empty($this->application->termsurl) || !empty($this->application->privacyurl)): ?>
-                            <?php echo htmlspecialchars(t('By allowing you agree to the')); ?>
-                            <?php if (!empty($this->application->termsurl)): ?>
-                                <a href="<?php echo htmlspecialchars($this->application->termsurl); ?>" target="_blank"><?php echo htmlspecialchars(t('Terms of Service')); ?></a>
-                            <?php endif; ?>
-                            <?php if (!empty($this->application->termsurl) && !empty($this->application->privacyurl)): ?> and <?php endif; ?>
-                            <?php if (!empty($this->application->privacyurl)): ?>
-                                <a href="<?php echo htmlspecialchars($this->application->privacyurl); ?>" target="_blank"><?php echo htmlspecialchars(t('Privacy Policy')); ?></a>
-                            <?php endif; ?>.
+                            <?php
+                            // One sentence per combination, so a translation never stitches fragments.
+                            $consentLinks = [];
+                            if (!empty($this->application->termsurl)) {
+                                $consentLinks[] = '<a href="' . htmlspecialchars($this->application->termsurl, ENT_QUOTES, 'UTF-8') . '" target="_blank">'
+                                    . htmlspecialchars(t('Terms of Service'), ENT_QUOTES, 'UTF-8') . '</a>';
+                            }
+                            if (!empty($this->application->privacyurl)) {
+                                $consentLinks[] = '<a href="' . htmlspecialchars($this->application->privacyurl, ENT_QUOTES, 'UTF-8') . '" target="_blank">'
+                                    . htmlspecialchars(t('Privacy Policy'), ENT_QUOTES, 'UTF-8') . '</a>';
+                            }
+                            $consentSentence = count($consentLinks) === 2
+                                ? t('By allowing you agree to the %s and %s.')
+                                : t('By allowing you agree to the %s.');
+                            echo vsprintf(htmlspecialchars($consentSentence, ENT_QUOTES, 'UTF-8'), $consentLinks);
+                            ?>
                         <?php else: ?>
                             <?php echo htmlspecialchars(t('By allowing, you grant this application access to your data.')); ?>
                         <?php endif; ?>

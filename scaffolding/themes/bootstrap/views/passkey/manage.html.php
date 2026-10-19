@@ -29,7 +29,7 @@ $this->activeNav   = 'passkey';
 <div class="container py-4">
 
     <?php $this->insert('../partials/account_breadcrumb'); ?>
-    <h2 class="mb-4">Passkeys</h2>
+    <h2 class="mb-4"><?php echo htmlspecialchars(t('Passkeys'), ENT_QUOTES, 'UTF-8'); ?></h2>
 
     <div class="row g-4">
 
@@ -37,15 +37,15 @@ $this->activeNav   = 'passkey';
 
         <div class="col-lg-9 col-md-8" data-pf-passkey-manage data-base="<?php echo $base; ?>">
             <div class="d-flex flex-column flex-sm-row align-items-start align-items-sm-center justify-content-between gap-2 mb-3">
-                <p class="text-muted small mb-0">Passkeys let you sign in without a password, using your device's fingerprint, face or screen lock.</p>
-                <button type="button" data-pf-passkey-add class="btn btn-primary">Add a passkey</button>
+                <p class="text-muted small mb-0"><?php echo htmlspecialchars(t('Passkeys let you sign in without a password, using your device\'s fingerprint, face or screen lock.'), ENT_QUOTES, 'UTF-8'); ?></p>
+                <button type="button" data-pf-passkey-add class="btn btn-primary"><?php echo htmlspecialchars(t('Add a passkey'), ENT_QUOTES, 'UTF-8'); ?></button>
             </div>
 
             <p data-pf-passkey-message class="d-none"></p>
 
             <div class="card">
                 <ul data-pf-passkey-list class="list-group list-group-flush" style="margin:0;padding:0">
-                    <li class="list-group-item text-muted">Loading&hellip;</li>
+                    <li class="list-group-item text-muted"><?php echo htmlspecialchars(t('Loading…'), ENT_QUOTES, 'UTF-8'); ?></li>
                 </ul>
             </div>
         </div>

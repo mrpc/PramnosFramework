@@ -57,6 +57,11 @@ final class ConsentScreenTranslatesTest extends TestCase
             public array $allScopes = ['Personal User Data' => ['profile' => ['description' => 'Read your profile, fixture wording']]];
             /** @var list<string> */
             public array $requestedScopes = ['profile'];
+
+            /** The brand partial the screen inserts; {@see \Pramnos\Tests\Unit\Auth\BrandTest} draws it. */
+            public function insert(string $partial): void
+            {
+            }
         };
         $view->application = (object) ['name' => 'Claude'];
         $view->user        = (object) ['username' => 'maria', 'email' => 'm@example.test'];

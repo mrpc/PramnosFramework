@@ -196,11 +196,54 @@ class Language extends Base
                 $this->setLang($language);
             }
             $this->addlang($lang);
+            $this->addFrameworkCatalogue($language, (array) $lang);
             return true;
         } else {
             return false;
         }
     }
+
+    /**
+     * The framework's own translations for a language, under the application's.
+     *
+     * The framework draws screens of its own — the sign-in, the second factor, the consent screen,
+     * the account area — and their words are its to translate, once, rather than every
+     * application's to copy the views to. `resources/language/<code>.php` holds them, by the
+     * language's `LangShort` (`el`), or its name where it has none (`greek` → `el`). Every phrase
+     * the application's own catalogue has wins: a project that words "Sign in" differently keeps
+     * its wording.
+     *
+     * @param array<string, mixed> $loaded The application's catalogue, as just loaded
+     */
+    protected function addFrameworkCatalogue(string $language, array $loaded): void
+    {
+        $code = strtolower(trim((string) ($loaded['LangShort'] ?? '')));
+        if ($code === '') {
+            $code = self::LANGUAGE_CODES[strtolower($language)] ?? strtolower($language);
+        }
+        if (preg_match('/^[a-z]{2,3}(-[a-z]{2,4})?$/', $code) !== 1) {
+            return;
+        }
+        $file = dirname(__DIR__, 3) . DIRECTORY_SEPARATOR . 'resources' . DIRECTORY_SEPARATOR . 'language' . DIRECTORY_SEPARATOR . $code . '.php';
+        if (!is_file($file)) {
+            return;
+        }
+        $framework = include $file;
+        if (is_array($framework)) {
+            // The application's first: `+` keeps the left side of every key both have.
+            $this->_strings = $this->_strings + $framework;
+        }
+    }
+
+    /** Language names applications use, and the code the framework's catalogue is filed under. */
+    private const LANGUAGE_CODES = [
+        'greek'   => 'el',
+        'english' => 'en',
+        'german'  => 'de',
+        'french'  => 'fr',
+        'italian' => 'it',
+        'spanish' => 'es',
+    ];
 
     /**
      * Return the translation of a string if exists, or the string itself if

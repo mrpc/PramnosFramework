@@ -19,7 +19,7 @@ $this->activeNav   = 'twofactor_backup';
 <div class="container mx-auto px-4 py-8">
 
     <?php $this->insert('../partials/account_breadcrumb'); ?>
-    <h2 class="text-2xl font-bold text-base-content mb-6">Backup Codes</h2>
+    <h2 class="text-2xl font-bold text-base-content mb-6"><?php echo htmlspecialchars(t('Backup Codes'), ENT_QUOTES, 'UTF-8'); ?></h2>
 
     <?php if (!empty($this->success)): ?>
         <div role="status" class="alert alert-success mb-4">
@@ -33,7 +33,7 @@ $this->activeNav   = 'twofactor_backup';
     <?php endif; ?>
     <?php if (!empty($this->setupComplete)): ?>
         <div role="status" class="alert alert-info mb-4">
-            <strong>Setup complete!</strong> Save your backup codes before leaving this page.
+            <strong><?php echo htmlspecialchars(t('Setup complete!'), ENT_QUOTES, 'UTF-8'); ?></strong> <?php echo htmlspecialchars(t('Save your backup codes before leaving this page.'), ENT_QUOTES, 'UTF-8'); ?>
         </div>
     <?php endif; ?>
 
@@ -45,12 +45,12 @@ $this->activeNav   = 'twofactor_backup';
             <?php if (!empty($this->newBackupCodes)): ?>
             <div class="card bg-base-100 shadow-xs">
                 <div role="status" class="alert alert-warning border-b">
-                    New Backup Codes
+                    <?php echo htmlspecialchars(t('New Backup Codes'), ENT_QUOTES, 'UTF-8'); ?>
                 </div>
                 <div class="p-5">
                     <p class="text-xs text-base-content/70 mb-3">
-                        <strong class="text-base-content">Save these codes now.</strong>
-                        They replace your previous codes and will not be shown again.
+                        <strong class="text-base-content"><?php echo htmlspecialchars(t('Save these codes now.'), ENT_QUOTES, 'UTF-8'); ?></strong>
+                        <?php echo htmlspecialchars(t('They replace your previous codes and will not be shown again.'), ENT_QUOTES, 'UTF-8'); ?>
                     </p>
                     <div class="grid grid-cols-2 gap-2">
                         <?php foreach ($this->newBackupCodes as $code): ?>
@@ -65,33 +65,30 @@ $this->activeNav   = 'twofactor_backup';
 
             <!-- Status card -->
             <div class="card bg-base-100 border border-base-300 shadow-xs p-5">
-                <h3 class="font-medium text-base-content mb-2">Remaining codes</h3>
+                <h3 class="font-medium text-base-content mb-2"><?php echo htmlspecialchars(t('Remaining codes'), ENT_QUOTES, 'UTF-8'); ?></h3>
                 <p class="text-sm text-base-content/80 mb-3">
-                    You have
-                    <strong class="<?php echo $this->remainingCodes <= 2 ? 'text-error' : 'text-success'; ?> text-lg">
-                        <?php echo (int) $this->remainingCodes; ?>
-                    </strong>
-                    backup <?php echo $this->remainingCodes === 1 ? 'code' : 'codes'; ?> remaining.
+                    <?php echo sprintf(
+                        htmlspecialchars($this->remainingCodes === 1 ? t('You have %s backup code remaining.') : t('You have %s backup codes remaining.'), ENT_QUOTES, 'UTF-8'),
+                        '<strong class="' . ($this->remainingCodes <= 2 ? 'text-error' : 'text-success') . ' text-lg">' . (int) $this->remainingCodes . '</strong>'
+                    ); ?>
                 </p>
                 <?php if ($this->remainingCodes <= 2): ?>
-                    <p class="text-xs text-error">Running low — consider regenerating your codes.</p>
+                    <p class="text-xs text-error"><?php echo htmlspecialchars(t('Running low — consider regenerating your codes.'), ENT_QUOTES, 'UTF-8'); ?></p>
                 <?php endif; ?>
                 <p class="text-xs text-base-content/60 mt-2">
-                    Use a backup code instead of your authenticator app when you don't have your device.
-                    Each code can only be used once.
+                    <?php echo htmlspecialchars(t("Use a backup code instead of your authenticator app when you don't have your device. Each code can only be used once."), ENT_QUOTES, 'UTF-8'); ?>
                 </p>
             </div>
 
             <!-- Regenerate -->
             <div class="card bg-base-100 border border-base-300 shadow-xs">
-                <div class="px-5 py-3 border-b border-base-300 font-medium text-base-content text-sm">Regenerate Backup Codes</div>
+                <div class="px-5 py-3 border-b border-base-300 font-medium text-base-content text-sm"><?php echo htmlspecialchars(t('Regenerate Backup Codes'), ENT_QUOTES, 'UTF-8'); ?></div>
                 <div class="p-5">
                     <p class="text-xs text-base-content/70 mb-4">
-                        Generating new codes will invalidate all existing ones.
-                        Enter your account password to confirm.
+                        <?php echo htmlspecialchars(t('Generating new codes will invalidate all existing ones. Enter your account password to confirm.'), ENT_QUOTES, 'UTF-8'); ?>
                     </p>
                     <form method="post" action="<?php echo sURL; ?>TwoFactorAuth/backup">
-                        <label class="block text-sm font-medium text-base-content mb-1" for="regenerate_password">Password</label>
+                        <label class="block text-sm font-medium text-base-content mb-1" for="regenerate_password"><?php echo htmlspecialchars(t('Password'), ENT_QUOTES, 'UTF-8'); ?></label>
                         <input type="password" id="regenerate_password" name="regenerate_password"
                                required autocomplete="current-password" enterkeyhint="go"
                                class="input input-sm block w-full mb-4">
@@ -100,7 +97,7 @@ $this->activeNav   = 'twofactor_backup';
                         ); ?>
                         <button type="submit"
                                 class="btn btn-soft btn-warning btn-sm">
-                            Regenerate Codes
+                            <?php echo htmlspecialchars(t('Regenerate Codes'), ENT_QUOTES, 'UTF-8'); ?>
                         </button>
                     </form>
                 </div>

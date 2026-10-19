@@ -22,32 +22,32 @@ $_button = static function (string $list, string $state, string $label, string $
         . '<input type="hidden" name="list" value="' . $_e($list) . '"><input type="hidden" name="state" value="' . $state . '">'
         . '<button type="submit" class="btn btn-sm btn-outline-secondary"' . ($confirm !== '' ? ' data-confirm="' . $_e($confirm) . '"' : '') . '>' . $label . '</button></form>';
 };
-$_words = ['on' => 'On', 'off' => 'Off', 'pending' => 'Waiting to confirm', 'confirmed' => 'Subscribed', 'unsubscribed' => 'Left'];
+$_words = ['on' => t('On'), 'off' => t('Off'), 'pending' => t('Waiting to confirm'), 'confirmed' => t('Subscribed'), 'unsubscribed' => t('Left')];
 ?>
 <div class="card mb-4" id="email-preferences">
-    <div class="card-header fw-semibold">Email</div>
+    <div class="card-header fw-semibold"><?php echo $_e(t('Email')); ?></div>
     <div class="card-body">
         <?php if (!empty($_ep['all'])): ?>
             <div role="status" class="alert alert-warning small">
-                This address left <strong>every</strong> optional mail. Nothing below reaches it until that is cleared.
-                <?php echo $_button('all', 'on', 'Clear', 'Only at the person\'s own request. Clear their unsubscribe from everything?'); ?>
+                <?php echo sprintf($_e(t('This address left %s optional mail. Nothing below reaches it until that is cleared.')), '<strong>' . $_e(t('every')) . '</strong>'); ?>
+                <?php echo $_button('all', 'on', $_e(t('Clear')), t('Only at the person\'s own request. Clear their unsubscribe from everything?')); ?>
             </div>
         <?php endif; ?>
         <table class="table table-sm">
-            <thead><tr><th>Mail</th><th>State</th><th></th></tr></thead>
+            <thead><tr><th><?php echo $_e(t('Mail')); ?></th><th><?php echo $_e(t('State')); ?></th><th></th></tr></thead>
             <tbody>
             <?php foreach ($_ep['types'] as $_t): $_on = in_array($_t['state'], ['on', 'confirmed', 'pending'], true); ?>
                 <tr>
-                    <td><?php echo $_e($_t['label']); ?><?php if (!empty($_t['optIn'])): ?> <span class="small text-muted">opt-in list</span><?php endif; ?>
+                    <td><?php echo $_e($_t['label']); ?><?php if (!empty($_t['optIn'])): ?> <span class="small text-muted"><?php echo $_e(t('opt-in list')); ?></span><?php endif; ?>
                         <div class="small text-muted"><?php echo $_e($_t['description']); ?></div></td>
                     <td><?php echo $_e($_words[$_t['state']] ?? $_t['state']); ?></td>
                     <td style="white-space:nowrap">
                         <?php if ($_on): ?>
-                            <?php echo $_button($_t['list'], 'off', 'Turn off'); ?>
+                            <?php echo $_button($_t['list'], 'off', $_e(t('Turn off'))); ?>
                         <?php elseif (!empty($_t['optIn'])): ?>
-                            <?php echo $_button($_t['list'], 'on', 'Send confirmation', 'Only at the person\'s own request. Send them the confirmation mail?'); ?>
+                            <?php echo $_button($_t['list'], 'on', $_e(t('Send confirmation')), t('Only at the person\'s own request. Send them the confirmation mail?')); ?>
                         <?php else: ?>
-                            <?php echo $_button($_t['list'], 'on', 'Turn on', 'Only at the person\'s own request. Turn this back on?'); ?>
+                            <?php echo $_button($_t['list'], 'on', $_e(t('Turn on')), t('Only at the person\'s own request. Turn this back on?')); ?>
                         <?php endif; ?>
                     </td>
                 </tr>
@@ -55,7 +55,7 @@ $_words = ['on' => 'On', 'off' => 'Off', 'pending' => 'Waiting to confirm', 'con
             </tbody>
         </table>
         <?php if (empty($_ep['all'])): ?>
-            <?php echo $_button('all', 'off', 'Unsubscribe from everything optional', 'Take this address off every optional mail?'); ?>
+            <?php echo $_button('all', 'off', $_e(t('Unsubscribe from everything optional')), t('Take this address off every optional mail?')); ?>
         <?php endif; ?>
     </div>
 </div>

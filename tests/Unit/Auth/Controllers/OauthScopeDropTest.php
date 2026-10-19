@@ -238,6 +238,11 @@ class OauthScopeDropTest extends TestCase
                 public array $allScopes = ['Profile' => ['profile' => ['description' => 'Read your profile'], 'openid' => ['description' => 'Sign you in']]];
                 public array $requestedScopes = ['profile', 'openid'];
                 public array $requiredScopes = ['openid'];
+
+                /** The brand partial the screen inserts; {@see \Pramnos\Tests\Unit\Auth\BrandTest} draws it. */
+                public function insert(string $partial): void
+                {
+                }
             };
             $view->application = (object) ['name' => 'An Assistant'];
             $view->user        = (object) ['username' => 'maria', 'email' => 'm@example.com'];

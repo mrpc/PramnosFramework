@@ -10,16 +10,20 @@
  */
 ?>
 <div class="container mx-auto py-8 px-4 max-w-lg">
-    <h2 class="text-2xl font-semibold mb-6"><?php echo htmlspecialchars($this->header ?? 'Single Sign-On'); ?></h2>
+    <?php $this->insert('../partials/auth_brand'); ?>
+    <h2 class="text-2xl font-semibold mb-6"><?php echo htmlspecialchars($this->header ?? t('Single Sign-On'), ENT_QUOTES, 'UTF-8'); ?></h2>
 
     <?php if ($this->isLoggedIn ?? false): ?>
         <div role="status" class="alert alert-success mb-5">
-            <strong>&#10003; Signed In</strong> — Signed in as <strong><?php echo htmlspecialchars($this->user->username ?? ''); ?></strong>
-            (<?php echo htmlspecialchars($this->user->email ?? ''); ?>)
+            <strong>&#10003; <?php echo htmlspecialchars(t('Signed In'), ENT_QUOTES, 'UTF-8'); ?></strong> — <?php echo sprintf(
+                htmlspecialchars(t('Signed in as %s (%s)'), ENT_QUOTES, 'UTF-8'),
+                '<strong>' . htmlspecialchars($this->user->username ?? '', ENT_QUOTES, 'UTF-8') . '</strong>',
+                htmlspecialchars($this->user->email ?? '', ENT_QUOTES, 'UTF-8')
+            ); ?>
         </div>
 
         <?php if (!empty($this->activeApps)): ?>
-            <h4 class="text-lg font-semibold mb-3">Active Applications</h4>
+            <h4 class="text-lg font-semibold mb-3"><?php echo htmlspecialchars(t('Active Applications'), ENT_QUOTES, 'UTF-8'); ?></h4>
             <ul class="space-y-2 mb-5">
                 <?php foreach ($this->activeApps as $app): ?>
                     <li class="border border-base-300 rounded-lg p-3">
@@ -33,16 +37,16 @@
         <?php endif; ?>
 
         <div class="flex gap-3">
-            <a href="<?php echo adminUrl('Dashboard'); ?>" class="btn btn-primary">Dashboard</a>
-            <a href="<?php echo sURL; ?>login/logout" class="btn btn-outline btn-error">Sign Out</a>
+            <a href="<?php echo adminUrl('Dashboard'); ?>" class="btn btn-primary"><?php echo htmlspecialchars(t('Dashboard'), ENT_QUOTES, 'UTF-8'); ?></a>
+            <a href="<?php echo sURL; ?>login/logout" class="btn btn-outline btn-error"><?php echo htmlspecialchars(t('Sign Out'), ENT_QUOTES, 'UTF-8'); ?></a>
         </div>
     <?php else: ?>
         <div class="alert mb-5">
-            <strong>&#10007; Not Signed In</strong> — You are not currently signed in to any application.
+            <strong>&#10007; <?php echo htmlspecialchars(t('Not Signed In'), ENT_QUOTES, 'UTF-8'); ?></strong> — <?php echo htmlspecialchars(t('You are not currently signed in to any application.'), ENT_QUOTES, 'UTF-8'); ?>
         </div>
         <div class="flex gap-3">
-            <a href="<?php echo sURL; ?>login" class="btn btn-primary">Sign In</a>
-            <a href="<?php echo sURL; ?>register" class="btn btn-outline">Create Account</a>
+            <a href="<?php echo sURL; ?>login" class="btn btn-primary"><?php echo htmlspecialchars(t('Sign In'), ENT_QUOTES, 'UTF-8'); ?></a>
+            <a href="<?php echo sURL; ?>register" class="btn btn-outline"><?php echo htmlspecialchars(t('Create Account'), ENT_QUOTES, 'UTF-8'); ?></a>
         </div>
     <?php endif; ?>
 </div>

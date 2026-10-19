@@ -8,16 +8,17 @@
 ?>
 <div style="display:flex;align-items:center;justify-content:center;min-height:60vh;padding:20px">
     <div class="card" style="width:100%;max-width:400px;text-align:center">
+        <?php $this->insert('../partials/auth_brand'); ?>
         <div class="card-body" style="padding:28px">
             <div style="font-size:3rem;color:#27ae60;margin-bottom:12px">&#10003;</div>
-            <h2 style="margin:0 0 8px;font-size:1.3rem">Device Authorized!</h2>
-            <p style="color:#555;margin-bottom:16px">Your device has been successfully authorized.</p>
+            <h2 style="margin:0 0 8px;font-size:1.3rem"><?php echo htmlspecialchars(t('Device Authorized!'), ENT_QUOTES, 'UTF-8'); ?></h2>
+            <p style="color:#555;margin-bottom:16px"><?php echo htmlspecialchars(t('Your device has been successfully authorized.'), ENT_QUOTES, 'UTF-8'); ?></p>
             <div style="background:#f5f5f5;border-radius:6px;padding:14px;text-align:left;font-size:13px;margin-bottom:14px">
-                <div style="margin-bottom:4px"><strong>Device Code:</strong> <?php echo htmlspecialchars($this->deviceAuth['user_code'] ?? ''); ?></div>
-                <div style="margin-bottom:4px"><strong>Scopes:</strong> <?php echo htmlspecialchars($this->deviceAuth['scope'] ?? ''); ?></div>
-                <div><strong>Authorized:</strong> <?php echo localDateTime(time()); ?></div>
+                <div style="margin-bottom:4px"><strong><?php echo htmlspecialchars(t('Device Code:'), ENT_QUOTES, 'UTF-8'); ?></strong> <?php echo htmlspecialchars($this->deviceAuth['user_code'] ?? ''); ?></div>
+                <div style="margin-bottom:4px"><strong><?php echo htmlspecialchars(t('Scopes:'), ENT_QUOTES, 'UTF-8'); ?></strong> <?php echo htmlspecialchars($this->deviceAuth['scope'] ?? ''); ?></div>
+                <div><strong><?php echo htmlspecialchars(t('Authorized:'), ENT_QUOTES, 'UTF-8'); ?></strong> <?php echo localDateTime(time()); ?></div>
             </div>
-            <p style="color:#888;font-size:12px">You may now close this window and return to your device.</p>
+            <p style="color:#888;font-size:12px"><?php echo htmlspecialchars(t('You may now close this window and return to your device.'), ENT_QUOTES, 'UTF-8'); ?></p>
         </div>
     </div>
 </div>

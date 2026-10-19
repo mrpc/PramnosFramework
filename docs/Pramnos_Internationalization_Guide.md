@@ -549,6 +549,31 @@ directory — and falls back to the search above when neither exists.
 the historical `ROOT/language/`, and returns `false` for a flag sitting anywhere a browser
 cannot reach — which is the truth about it, and better than a URL that 404s.
 
+### The framework's own strings
+
+The screens the framework draws — sign-in, the second factor, registration, the consent screen,
+the device code, the account area, the status page — and the messages its auth controllers flash
+are translated by the framework itself. `resources/language/<code>.php` returns an array of them,
+keyed by the English text, and `load()` merges it **under** the application's catalogue:
+
+- the code is the catalogue's `LangShort` (`el`), or, where it has none, the language's name
+  mapped to one (`greek` → `el`, `english` → `en`, and likewise `german`, `french`, `italian`,
+  `spanish`);
+- a phrase the application translates itself keeps the application's wording;
+- English needs no catalogue — the keys are the English;
+- a code that is not one (`../x`) loads nothing.
+
+Greek ships today (`resources/language/el.php`). Another language is one file with the same keys;
+`tests/Unit/Translator/FrameworkGreekCatalogueTest.php` is the list of what a catalogue has to
+cover and checks that every line takes the key's placeholders.
+
+To word a framework phrase differently, put the same key in the application's catalogue:
+
+```php
+// app/language/greek.php
+$lang['Sign in'] = 'Είσοδος στο Example ID';
+```
+
 ### Listing the languages an installation ships
 
 ```php

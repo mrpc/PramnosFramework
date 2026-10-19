@@ -27,7 +27,7 @@ $this->activeNav   = 'passkey';
 <div class="page-section">
 
     <?php $this->insert('../partials/account_breadcrumb'); ?>
-    <h2>Passkeys</h2>
+    <h2><?php echo htmlspecialchars(t('Passkeys'), ENT_QUOTES, 'UTF-8'); ?></h2>
 
     <div class="account-grid">
 
@@ -36,10 +36,9 @@ $this->activeNav   = 'passkey';
         <div data-pf-passkey-manage data-base="<?php echo $base; ?>">
             <div class="pf-row-split" style="margin-bottom:12px">
                 <p style="color:#666;font-size:.9em;margin:0">
-                    Passkeys let you sign in without a password, using your device's fingerprint,
-                    face or screen lock.
+                    <?php echo htmlspecialchars(t('Passkeys let you sign in without a password, using your device\'s fingerprint, face or screen lock.'), ENT_QUOTES, 'UTF-8'); ?>
                 </p>
-                <button type="button" data-pf-passkey-add class="btn">Add a passkey</button>
+                <button type="button" data-pf-passkey-add class="btn"><?php echo htmlspecialchars(t('Add a passkey'), ENT_QUOTES, 'UTF-8'); ?></button>
             </div>
 
             <p data-pf-passkey-message style="display:none;padding:10px 12px;border-radius:4px"></p>
@@ -47,7 +46,7 @@ $this->activeNav   = 'passkey';
             <div class="card">
                 <div class="card-body" style="padding:0">
                     <ul data-pf-passkey-list style="list-style:none;margin:0;padding:0">
-                        <li style="padding:12px 16px;color:#666">Loading…</li>
+                        <li style="padding:12px 16px;color:#666"><?php echo htmlspecialchars(t('Loading…'), ENT_QUOTES, 'UTF-8'); ?></li>
                     </ul>
                 </div>
             </div>

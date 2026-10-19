@@ -17,7 +17,7 @@ $this->activeNav = 'security';
 <div class="page-section">
 
     <?php $this->insert('../partials/account_breadcrumb'); ?>
-    <h2>Security Overview</h2>
+    <h2><?php echo htmlspecialchars(t('Security Overview'), ENT_QUOTES, 'UTF-8'); ?></h2>
 
     <?php if ($this->hasMessages()): ?>
         <div role="status" class="alert alert-success"><?php echo $this->_printMessages(); ?></div>
@@ -33,19 +33,19 @@ $this->activeNav = 'security';
         <div>
             <!-- 2FA status -->
             <div class="card" style="margin-bottom:16px">
-                <div class="card-header"><strong>Two-Factor Authentication</strong></div>
+                <div class="card-header"><strong><?php echo htmlspecialchars(t('Two-Factor Authentication'), ENT_QUOTES, 'UTF-8'); ?></strong></div>
                 <div class="card-body pf-row-split">
                     <p style="margin:0">
                         <?php if ($this->twoFactorEnabled): ?>
-                            <span style="color:#28a745;font-weight:bold">&#10003; Enabled</span>
-                            — Your account is protected with two-factor authentication.
+                            <span style="color:#28a745;font-weight:bold">&#10003; <?php echo htmlspecialchars(t('Enabled'), ENT_QUOTES, 'UTF-8'); ?></span>
+                            — <?php echo htmlspecialchars(t('Your account is protected with two-factor authentication.'), ENT_QUOTES, 'UTF-8'); ?>
                         <?php else: ?>
-                            <span style="color:#dc3545;font-weight:bold">&#10007; Disabled</span>
-                            — Enable 2FA to protect your account.
+                            <span style="color:#dc3545;font-weight:bold">&#10007; <?php echo htmlspecialchars(t('Disabled'), ENT_QUOTES, 'UTF-8'); ?></span>
+                            — <?php echo htmlspecialchars(t('Enable 2FA to protect your account.'), ENT_QUOTES, 'UTF-8'); ?>
                         <?php endif; ?>
                     </p>
                     <a href="<?php echo sURL; ?>TwoFactorAuth" class="btn">
-                        <?php echo $this->twoFactorEnabled ? 'Manage 2FA' : 'Enable 2FA'; ?>
+                        <?php echo htmlspecialchars($this->twoFactorEnabled ? t('Manage 2FA') : t('Enable 2FA'), ENT_QUOTES, 'UTF-8'); ?>
                     </a>
                 </div>
             </div>
@@ -64,15 +64,15 @@ $this->activeNav = 'security';
              */ ?>
             <?php if (!empty($this->emailFactorOffered)): ?>
             <div class="card" style="margin-bottom:20px">
-                <div class="card-header"><strong>Sign-in codes by email</strong></div>
+                <div class="card-header"><strong><?php echo htmlspecialchars(t('Sign-in codes by email'), ENT_QUOTES, 'UTF-8'); ?></strong></div>
                 <div class="card-body" style="padding:16px">
                     <p style="margin:0 0 12px">
                         <?php if (!empty($this->emailFactorEnabled)): ?>
-                            <span class="badge badge-success">On</span>
-                            We email you a code when you sign in.
+                            <span class="badge badge-success"><?php echo htmlspecialchars(t('On'), ENT_QUOTES, 'UTF-8'); ?></span>
+                            <?php echo htmlspecialchars(t('We email you a code when you sign in.'), ENT_QUOTES, 'UTF-8'); ?>
                         <?php else: ?>
-                            <span class="badge">Off</span>
-                            Weaker than an authenticator app, and better than a password alone.
+                            <span class="badge"><?php echo htmlspecialchars(t('Off'), ENT_QUOTES, 'UTF-8'); ?></span>
+                            <?php echo htmlspecialchars(t('Weaker than an authenticator app, and better than a password alone.'), ENT_QUOTES, 'UTF-8'); ?>
                         <?php endif; ?>
                     </p>
                     <form method="POST" action="<?php echo sURL . $routeBase; ?>/emailfactor"
@@ -81,12 +81,12 @@ $this->activeNav = 'security';
                         <input type="hidden" name="enable" value="<?php echo empty($this->emailFactorEnabled) ? '1' : '0'; ?>">
                         <input id="password" type="password" name="password" required autocomplete="current-password" enterkeyhint="go"
                                style="flex:1;min-width:180px;padding:8px;border:1px solid #ccc;border-radius:4px"
-                               placeholder="Your password">
+                               placeholder="<?php echo htmlspecialchars(t('Your password'), ENT_QUOTES, 'UTF-8'); ?>">
                         <?php echo \Pramnos\Html\PasswordToggle::render(
                             'password', '', ''
                         ); ?>
                         <button type="submit" class="btn btn-sm">
-                            <?php echo empty($this->emailFactorEnabled) ? 'Turn on' : 'Turn off'; ?>
+                            <?php echo htmlspecialchars(empty($this->emailFactorEnabled) ? t('Turn on') : t('Turn off'), ENT_QUOTES, 'UTF-8'); ?>
                         </button>
                     </form>
                 </div>
@@ -95,12 +95,12 @@ $this->activeNav = 'security';
 
             <!-- Passkeys -->
             <div class="card" style="margin-bottom:16px">
-                <div class="card-header"><strong>Passkeys</strong></div>
+                <div class="card-header"><strong><?php echo htmlspecialchars(t('Passkeys'), ENT_QUOTES, 'UTF-8'); ?></strong></div>
                 <div class="card-body pf-row-split">
                     <p style="margin:0;font-size:.9em;color:#666">
-                        Sign in without a password using your device's fingerprint, face or screen lock.
+                        <?php echo htmlspecialchars(t('Sign in without a password using your device\'s fingerprint, face or screen lock.'), ENT_QUOTES, 'UTF-8'); ?>
                     </p>
-                    <a href="<?php echo sURL; ?>Passkey" class="btn">Manage Passkeys</a>
+                    <a href="<?php echo sURL; ?>Passkey" class="btn"><?php echo htmlspecialchars(t('Manage Passkeys'), ENT_QUOTES, 'UTF-8'); ?></a>
                 </div>
             </div>
 
@@ -112,9 +112,9 @@ $this->activeNav = 'security';
                      withdrawn by the people who used to give it (NIST SP 800-63B), because
                      forced changes produce predictable variations of one password and get
                      written down. Change it when there is a reason to. */ ?>
-                        Change it if you think somebody else knows it, or if you have used it anywhere else.
+                        <?php echo htmlspecialchars(t('Change it if you think somebody else knows it, or if you have used it anywhere else.'), ENT_QUOTES, 'UTF-8'); ?>
                     </p>
-                    <a href="<?php echo sURL . $routeBase; ?>/changepassword" class="btn">Change Password</a>
+                    <a href="<?php echo sURL . $routeBase; ?>/changepassword" class="btn"><?php echo htmlspecialchars(t('Change Password'), ENT_QUOTES, 'UTF-8'); ?></a>
                 </div>
             </div>
 
@@ -124,39 +124,38 @@ $this->activeNav = 'security';
             <?php if (!empty($this->trustedDevicesOffered)): ?>
             <div class="card" style="margin-bottom:16px">
                 <div class="card-header" style="display:flex;justify-content:space-between;align-items:center">
-                    <strong>Trusted devices</strong>
+                    <strong><?php echo htmlspecialchars(t('Trusted devices'), ENT_QUOTES, 'UTF-8'); ?></strong>
 <?php if (!empty($this->trustedDevices)): ?>
                     <form method="post" action="<?php echo sURL . $routeBase; ?>/revokedevice" style="margin:0">
                         <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
                         <input type="hidden" name="all" value="1">
-                        <button type="submit" class="btn btn-sm" style="background:transparent;color:#b91c1c;border-color:transparent">Forget all</button>
+                        <button type="submit" class="btn btn-sm" style="background:transparent;color:#b91c1c;border-color:transparent"><?php echo htmlspecialchars(t('Forget all'), ENT_QUOTES, 'UTF-8'); ?></button>
                     </form>
                     <?php endif; ?>
                 </div>
                 <div class="card-body" style="padding:0">
-                    <p style="padding:12px 16px 0;margin:0;font-size:.85em;color:#666">These skip the second step when you sign in, and can approve your sign-ins elsewhere.</p>
+                    <p style="padding:12px 16px 0;margin:0;font-size:.85em;color:#666"><?php echo htmlspecialchars(t('These skip the second step when you sign in, and can approve your sign-ins elsewhere.'), ENT_QUOTES, 'UTF-8'); ?></p>
                 <?php if (empty($this->trustedDevices)): ?>
-                    <p style="padding:12px 16px;margin:0;font-size:.9em;color:#444">No device is trusted yet. When you sign in with your second step, leave “Don't ask again on this device” ticked, and that device will appear here.</p>
+                    <p style="padding:12px 16px;margin:0;font-size:.9em;color:#444"><?php echo htmlspecialchars(t('No device is trusted yet. When you sign in with your second step, leave “Don\'t ask again on this device” ticked, and that device will appear here.'), ENT_QUOTES, 'UTF-8'); ?></p>
                 <?php endif; ?>
                     <table style="width:100%;border-collapse:collapse;font-size:.9em">
                         <tbody>
                         <?php foreach ($this->trustedDevices as $d): ?>
                             <tr style="border-bottom:1px solid #f5f5f5">
                                 <td style="padding:10px 16px">
-                                    <div><?php echo htmlspecialchars((string) ($d['name'] ?? 'A browser')); ?></div>
+                                    <div><?php echo htmlspecialchars((string) ($d['name'] ?? t('A browser'))); ?></div>
                                     <small style="color:#888">
-                                        Trusted <?php echo htmlspecialchars(localDateTime((int) ($d['created_at'] ?? 0))); ?>
-                                        · until <?php echo htmlspecialchars(localDateTime((int) ($d['expires_at'] ?? 0))); ?>
+                                        <?php echo htmlspecialchars(t('Trusted %s · until %s', localDateTime((int) ($d['created_at'] ?? 0)), localDateTime((int) ($d['expires_at'] ?? 0))), ENT_QUOTES, 'UTF-8'); ?>
                                     </small>
                                 </td>
                                 <td style="padding:10px 16px;text-align:right;white-space:nowrap">
                                     <?php if (!empty($d['is_current'])): ?>
-                                        <span style="color:#28a745;font-size:.85em;margin-right:8px">This device</span>
+                                        <span style="color:#28a745;font-size:.85em;margin-right:8px"><?php echo htmlspecialchars(t('This device'), ENT_QUOTES, 'UTF-8'); ?></span>
                                     <?php endif; ?>
                                     <form method="post" action="<?php echo sURL . $routeBase; ?>/revokedevice" style="margin:0;display:inline">
                                         <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
                                         <input type="hidden" name="device" value="<?php echo (int) ($d['device_id'] ?? 0); ?>">
-                                        <button type="submit" class="btn btn-sm">Forget</button>
+                                        <button type="submit" class="btn btn-sm"><?php echo htmlspecialchars(t('Forget'), ENT_QUOTES, 'UTF-8'); ?></button>
                                     </form>
                                 </td>
                             </tr>
@@ -169,10 +168,10 @@ $this->activeNav = 'security';
 
             <!-- Active sessions -->
             <div class="card" style="margin-bottom:16px">
-                <div class="card-header"><strong>Active Sessions</strong></div>
+                <div class="card-header"><strong><?php echo htmlspecialchars(t('Active Sessions'), ENT_QUOTES, 'UTF-8'); ?></strong></div>
                 <div class="card-body" style="padding:0">
                     <?php if (empty($this->activeSessions)): ?>
-                        <p style="padding:12px 16px;color:#666;margin:0">No active sessions.</p>
+                        <p style="padding:12px 16px;color:#666;margin:0"><?php echo htmlspecialchars(t('No active sessions.'), ENT_QUOTES, 'UTF-8'); ?></p>
                     <?php else: ?>
                         <table style="width:100%;border-collapse:collapse;font-size:.9em">
                             <tbody>
@@ -180,7 +179,7 @@ $this->activeNav = 'security';
                                 <?php $isCurrent = (string) ($s['sid'] ?? '') === (string) ($this->currentSid ?? ''); ?>
                                 <tr style="border-bottom:1px solid #f5f5f5">
                                     <td style="padding:10px 16px">
-                                        <div><?php echo htmlspecialchars(substr((string) ($s['agent'] ?? 'Unknown device'), 0, 80)); ?></div>
+                                        <div><?php echo htmlspecialchars(substr((string) ($s['agent'] ?? t('Unknown device')), 0, 80)); ?></div>
                                         <small style="color:#888">
                                             <?php echo htmlspecialchars((string) ($s['host_addr'] ?? '')); ?>
                                             · <?php echo htmlspecialchars(localDateTime( (int) ($s['time'] ?? 0))); ?>
@@ -188,12 +187,12 @@ $this->activeNav = 'security';
                                     </td>
                                     <td style="padding:10px 16px;text-align:right">
                                         <?php if ($isCurrent): ?>
-                                            <span style="color:#28a745;font-size:.85em">This device</span>
+                                            <span style="color:#28a745;font-size:.85em"><?php echo htmlspecialchars(t('This device'), ENT_QUOTES, 'UTF-8'); ?></span>
                                         <?php else: ?>
                                             <form method="post" action="<?php echo sURL . $routeBase; ?>/revokesession" style="margin:0">
                                                 <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
                                                 <input type="hidden" name="sid" value="<?php echo htmlspecialchars((string) ($s['sid'] ?? '')); ?>">
-                                                <button type="submit" class="btn btn-sm">Sign out</button>
+                                                <button type="submit" class="btn btn-sm"><?php echo htmlspecialchars(t('Sign out'), ENT_QUOTES, 'UTF-8'); ?></button>
                                             </form>
                                         <?php endif; ?>
                                     </td>
@@ -207,17 +206,17 @@ $this->activeNav = 'security';
 
             <!-- Activity log -->
             <div class="card">
-                <div class="card-header"><strong>Recent Account Activity</strong></div>
+                <div class="card-header"><strong><?php echo htmlspecialchars(t('Recent Account Activity'), ENT_QUOTES, 'UTF-8'); ?></strong></div>
                 <div class="card-body" style="padding:0">
                     <?php if (empty($this->recentActivity)): ?>
-                        <p style="padding:12px 16px;color:#666;margin:0">No activity recorded yet.</p>
+                        <p style="padding:12px 16px;color:#666;margin:0"><?php echo htmlspecialchars(t('No activity recorded yet.'), ENT_QUOTES, 'UTF-8'); ?></p>
                     <?php else: ?>
                         <table style="width:100%;border-collapse:collapse;font-size:.9em">
                             <thead style="background:#f8f8f8">
                                 <tr>
-                                    <th style="text-align:left;padding:10px 16px;border-bottom:1px solid #eee">Event</th>
-                                    <th style="text-align:left;padding:10px 16px;border-bottom:1px solid #eee">Date</th>
-                                    <th style="text-align:left;padding:10px 16px;border-bottom:1px solid #eee">IP Address</th>
+                                    <th style="text-align:left;padding:10px 16px;border-bottom:1px solid #eee"><?php echo htmlspecialchars(t('Event'), ENT_QUOTES, 'UTF-8'); ?></th>
+                                    <th style="text-align:left;padding:10px 16px;border-bottom:1px solid #eee"><?php echo htmlspecialchars(t('Date'), ENT_QUOTES, 'UTF-8'); ?></th>
+                                    <th style="text-align:left;padding:10px 16px;border-bottom:1px solid #eee"><?php echo htmlspecialchars(t('IP Address'), ENT_QUOTES, 'UTF-8'); ?></th>
                                 </tr>
                             </thead>
                             <tbody>

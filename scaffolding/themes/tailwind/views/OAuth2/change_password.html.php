@@ -12,7 +12,7 @@ $inputCls = 'input w-full';
 <div class="container mx-auto px-4 py-8">
 
     <?php $this->insert('../partials/account_breadcrumb'); ?>
-    <h2 class="text-2xl font-bold text-base-content mb-6">Change Password</h2>
+    <h2 class="text-2xl font-bold text-base-content mb-6"><?php echo htmlspecialchars(t('Change Password'), ENT_QUOTES, 'UTF-8'); ?></h2>
 
     <?php if ($this->hasErrors()): ?>
         <div role="alert" class="alert alert-error mb-4">
@@ -27,13 +27,13 @@ $inputCls = 'input w-full';
         <div class="md:col-span-3">
             <div class="card bg-base-100 shadow-sm p-6 max-w-xl">
                 <p class="text-sm text-base-content/70 mb-5">
-                    Choose a strong password: at least 8 characters, one digit, and one special character.
+                    <?php echo htmlspecialchars(t('Choose a strong password: at least 8 characters, one digit, and one special character.'), ENT_QUOTES, 'UTF-8'); ?>
                 </p>
                 <div data-pf-password-error role="alert" class="alert alert-error hidden mb-4"></div>
                 <form method="post" action="<?php echo sURL . $routeBase; ?>/changepassword" class="space-y-4" data-pf-password-policy>
                     <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
                     <div>
-                        <label for="current_password" class="block text-sm font-medium text-base-content mb-1">Current Password</label>
+                        <label for="current_password" class="block text-sm font-medium text-base-content mb-1"><?php echo htmlspecialchars(t('Current Password'), ENT_QUOTES, 'UTF-8'); ?></label>
                         <input type="password" id="current_password" name="current_password"
                                class="<?php echo $inputCls; ?>" required autocomplete="current-password" enterkeyhint="go" autofocus>
                         <?php echo \Pramnos\Html\PasswordToggle::render(
@@ -41,7 +41,7 @@ $inputCls = 'input w-full';
                         ); ?>
                     </div>
                     <div>
-                        <label for="new_password" class="block text-sm font-medium text-base-content mb-1">New Password</label>
+                        <label for="new_password" class="block text-sm font-medium text-base-content mb-1"><?php echo htmlspecialchars(t('New Password'), ENT_QUOTES, 'UTF-8'); ?></label>
                         <input type="password" id="new_password" name="new_password"
                                class="<?php echo $inputCls; ?>" required autocomplete="new-password" minlength="8">
                         <?php echo \Pramnos\Html\PasswordToggle::render(
@@ -49,7 +49,7 @@ $inputCls = 'input w-full';
                         ); ?>
                     </div>
                     <div>
-                        <label for="confirm_password" class="block text-sm font-medium text-base-content mb-1">Confirm New Password</label>
+                        <label for="confirm_password" class="block text-sm font-medium text-base-content mb-1"><?php echo htmlspecialchars(t('Confirm New Password'), ENT_QUOTES, 'UTF-8'); ?></label>
                         <input type="password" id="confirm_password" name="confirm_password" enterkeyhint="go"
                                class="<?php echo $inputCls; ?>" required autocomplete="new-password">
                         <?php echo \Pramnos\Html\PasswordToggle::render(
@@ -58,7 +58,7 @@ $inputCls = 'input w-full';
                     </div>
                     <button type="submit"
                             class="btn btn-primary">
-                        Update Password
+                        <?php echo htmlspecialchars(t('Update Password'), ENT_QUOTES, 'UTF-8'); ?>
                     </button>
                 </form>
             </div>

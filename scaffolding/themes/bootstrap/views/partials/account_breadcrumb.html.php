@@ -21,23 +21,24 @@ $twoUrl      = sURL . 'TwoFactorAuth';
 // Trail beyond Home / Dashboard, per page. Each entry: [label, url] — the last
 // item's url is '' so it renders as the current (non-link) crumb.
 $trails = [
-    'profile'        => [['Profile', '']],
-    'applications'   => [['Authorized Applications', '']],
-    'security'       => [['Security', '']],
-    'privacy'        => [['Privacy', '']],
-    'changepassword' => [['Security', $securityUrl], ['Change Password', '']],
-    'twofactor'      => [['Security', $securityUrl], ['Two-Factor Auth', '']],
-    'passkey'        => [['Security', $securityUrl], ['Passkeys', '']],
-        'twofactor_setup'  => [['Security', $securityUrl], ['Two-Factor Auth', $twoUrl], ['Set up', '']],
-        'twofactor_backup' => [['Security', $securityUrl], ['Two-Factor Auth', $twoUrl], ['Backup codes', '']],
-    'exportdata'     => [['Privacy', $privacyUrl], ['Export My Data', '']],
-    'deleteaccount'  => [['Privacy', $privacyUrl], ['Delete Account', '']],
+    'profile'        => [[t('Profile'), '']],
+    'applications'   => [[t('Authorized Applications'), '']],
+    'security'       => [[t('Security'), '']],
+    'privacy'        => [[t('Privacy'), '']],
+    'changepassword' => [[t('Security'), $securityUrl], [t('Change Password'), '']],
+    'twofactor'      => [[t('Security'), $securityUrl], [t('Two-Factor Auth'), '']],
+    'passkey'        => [[t('Security'), $securityUrl], [t('Passkeys'), '']],
+        'twofactor_setup'  => [[t('Security'), $securityUrl], [t('Two-Factor Auth'), $twoUrl], [t('Set up'), '']],
+        'twofactor_backup' => [[t('Security'), $securityUrl], [t('Two-Factor Auth'), $twoUrl], [t('Backup codes'), '']],
+    'exportdata'     => [[t('Privacy'), $privacyUrl], [t('Export My Data'), '']],
+    'deleteaccount'  => [[t('Privacy'), $privacyUrl], [t('Delete Account'), '']],
 ];
 
 $bc = new \Pramnos\Html\Breadcrumb();
-$bc->addItem('Home', sURL);
-$bc->addItem('Dashboard', sURL . $routeBase);
+$bc->addItem(htmlspecialchars(t('Home'), ENT_QUOTES, 'UTF-8'), sURL, t('Home'));
+$bc->addItem(htmlspecialchars(t('Dashboard'), ENT_QUOTES, 'UTF-8'), sURL . $routeBase, t('Dashboard'));
 foreach ($trails[$active] ?? [] as $crumb) {
-    $bc->addItem($crumb[0], $crumb[1]);
+    // Labels are rendered as HTML by Breadcrumb, so a translation is escaped here.
+    $bc->addItem(htmlspecialchars($crumb[0], ENT_QUOTES, 'UTF-8'), $crumb[1], $crumb[0]);
 }
 echo $bc->render();

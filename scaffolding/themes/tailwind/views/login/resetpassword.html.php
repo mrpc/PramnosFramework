@@ -5,19 +5,19 @@
  * Variables (set by Pramnos\Auth\Controllers\Account::renderReset):
  *   $this->routeBase, $this->brand, $this->token, $this->error
  */
-$brand   = $this->brand ?? [];
+$brand   = $this->brand ?? \Pramnos\Auth\Brand::current();
 $primary = htmlspecialchars((string) ($brand['primary_color'] ?? '#2563eb'), ENT_QUOTES);
 $base    = sURL . rawurlencode((string) ($this->routeBase ?? 'Account'));
 $token   = (string) ($this->token ?? '');
 
 $errorMessages = [
-    'invalid_token'          => 'Your session expired. Please try again.',
-    'invalid_reset_link'     => 'This reset link is invalid or has expired. Please request a new one.',
-    'password_required'      => 'Please enter a new password.',
-    'password_too_short'     => 'Your password must be at least 8 characters long.',
-    'password_needs_digit'   => 'Your password must contain at least one number.',
-    'password_needs_symbol'  => 'Your password must contain at least one symbol.',
-    'passwords_do_not_match' => 'The two passwords do not match.',
+    'invalid_token'          => t('Your session expired. Please try again.'),
+    'invalid_reset_link'     => t('This reset link is invalid or has expired. Please request a new one.'),
+    'password_required'      => t('Please enter a new password.'),
+    'password_too_short'     => t('Your password must be at least 8 characters long.'),
+    'password_needs_digit'   => t('Your password must contain at least one number.'),
+    'password_needs_symbol'  => t('Your password must contain at least one symbol.'),
+    'passwords_do_not_match' => t('The two passwords do not match.'),
 ];
 $errorKey  = (string) ($this->error ?? '');
 $errorText = $errorMessages[$errorKey] ?? $errorKey;
@@ -40,9 +40,10 @@ $errorFieldAttributes = $errorText !== ''
 
 $expired   = ($errorKey === 'invalid_reset_link' && $token === '');
 ?>
-<div class="flex items-center justify-center min-h-screen bg-base-200 px-4">
+<div class="flex flex-col items-center justify-center min-h-screen bg-base-200 px-4">
     <div class="card bg-base-100 shadow-md p-8 w-full max-w-sm" style="--color-primary:<?php echo $primary; ?>">
-        <h1 class="text-2xl font-semibold mb-4">Choose a new password</h1>
+        <?php $this->insert('../partials/auth_brand'); ?>
+        <h1 class="text-2xl font-semibold mb-4"><?php echo htmlspecialchars(t('Choose a new password'), ENT_QUOTES, 'UTF-8'); ?></h1>
 
         <?php if ($errorText !== ''): ?>
             <div role="alert" id="form-error" class="alert alert-error mb-4"><?php echo htmlspecialchars($errorText); ?></div>
@@ -50,7 +51,7 @@ $expired   = ($errorKey === 'invalid_reset_link' && $token === '');
 
         <?php if ($expired): ?>
             <p class="text-center text-sm">
-                <a href="<?php echo $base; ?>/forgotpassword" class="text-primary hover:underline">Request a new reset link</a>
+                <a href="<?php echo $base; ?>/forgotpassword" class="text-primary hover:underline"><?php echo htmlspecialchars(t('Request a new reset link'), ENT_QUOTES, 'UTF-8'); ?></a>
             </p>
         <?php else: ?>
             <div data-pf-password-error role="alert" class="alert alert-error mb-4 hidden"></div>
@@ -58,26 +59,27 @@ $expired   = ($errorKey === 'invalid_reset_link' && $token === '');
                 <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
                 <input type="hidden" name="token" value="<?php echo htmlspecialchars($token); ?>">
                 <div>
-                    <label for="password" class="block text-sm font-medium text-base-content mb-1">New password</label>
+                    <label for="password" class="block text-sm font-medium text-base-content mb-1"><?php echo htmlspecialchars(t('New password'), ENT_QUOTES, 'UTF-8'); ?></label>
                     <input type="password" name="password" id="password" class="input w-full" required autofocus autocomplete="new-password"<?php echo $errorFieldAttributes; ?>>
                     <?php echo \Pramnos\Html\PasswordToggle::render(
                         'password', '', ''
                     ); ?>
-                    <p class="text-xs text-base-content/70 mt-1">At least 8 characters, with a number and a symbol.</p>
+                    <p class="text-xs text-base-content/70 mt-1"><?php echo htmlspecialchars(t('At least 8 characters, with a number and a symbol.'), ENT_QUOTES, 'UTF-8'); ?></p>
                 </div>
                 <div>
-                    <label for="confirm_password" class="block text-sm font-medium text-base-content mb-1">Confirm new password</label>
+                    <label for="confirm_password" class="block text-sm font-medium text-base-content mb-1"><?php echo htmlspecialchars(t('Confirm new password'), ENT_QUOTES, 'UTF-8'); ?></label>
                     <input type="password" name="confirm_password" enterkeyhint="go" id="confirm_password" class="input w-full" required autocomplete="new-password">
                     <?php echo \Pramnos\Html\PasswordToggle::render(
                         'confirm_password', '', ''
                     ); ?>
                 </div>
-                <button type="submit" class="btn btn-primary w-full">Reset password</button>
+                <button type="submit" class="btn btn-primary w-full"><?php echo htmlspecialchars(t('Reset password'), ENT_QUOTES, 'UTF-8'); ?></button>
             </form>
         <?php endif; ?>
         <p class="text-center text-sm mt-4">
-            <a href="<?php echo $base; ?>/login" class="text-primary hover:underline">&larr; Back to login</a>
+            <a href="<?php echo $base; ?>/login" class="text-primary hover:underline">&larr; <?php echo htmlspecialchars(t('Back to login'), ENT_QUOTES, 'UTF-8'); ?></a>
         </p>
     </div>
+    <?php $this->insert('../partials/auth_home_link'); ?>
 </div>
 <script src="<?php echo assetUrl('assets/js/pf-auth.js'); ?>"></script>

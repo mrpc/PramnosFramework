@@ -12,7 +12,7 @@ $this->activeNav = 'changepassword';
 <div class="page-section">
 
     <?php $this->insert('../partials/account_breadcrumb'); ?>
-    <h2>Change Password</h2>
+    <h2><?php echo htmlspecialchars(t('Change Password'), ENT_QUOTES, 'UTF-8'); ?></h2>
 
     <?php if ($this->hasErrors()): ?>
         <div role="alert" class="alert alert-error"><?php echo $this->_printErrors(); ?></div>
@@ -26,13 +26,13 @@ $this->activeNav = 'changepassword';
             <div class="card" style="max-width:480px">
                 <div class="card-body">
                     <p style="font-size:.9em;color:#666;margin-bottom:16px">
-                        Choose a strong password: at least 8 characters, one digit, and one special character.
+                        <?php echo htmlspecialchars(t('Choose a strong password: at least 8 characters, one digit, and one special character.'), ENT_QUOTES, 'UTF-8'); ?>
                     </p>
                     <div data-pf-password-error role="alert" class="alert alert-error" style="display:none"></div>
                     <form method="post" action="<?php echo sURL . $routeBase; ?>/changepassword" data-pf-password-policy>
                         <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
                         <div class="form-group">
-                            <label for="current_password">Current Password</label>
+                            <label for="current_password"><?php echo htmlspecialchars(t('Current Password'), ENT_QUOTES, 'UTF-8'); ?></label>
                             <input type="password" id="current_password" name="current_password"
                                    class="form-control" required autocomplete="current-password" enterkeyhint="go" autofocus>
                             <?php echo \Pramnos\Html\PasswordToggle::render(
@@ -40,7 +40,7 @@ $this->activeNav = 'changepassword';
                             ); ?>
                         </div>
                         <div class="form-group">
-                            <label for="new_password">New Password</label>
+                            <label for="new_password"><?php echo htmlspecialchars(t('New Password'), ENT_QUOTES, 'UTF-8'); ?></label>
                             <input type="password" id="new_password" name="new_password"
                                    class="form-control" required autocomplete="new-password" minlength="8">
                             <?php echo \Pramnos\Html\PasswordToggle::render(
@@ -48,14 +48,14 @@ $this->activeNav = 'changepassword';
                             ); ?>
                         </div>
                         <div class="form-group">
-                            <label for="confirm_password">Confirm New Password</label>
+                            <label for="confirm_password"><?php echo htmlspecialchars(t('Confirm New Password'), ENT_QUOTES, 'UTF-8'); ?></label>
                             <input type="password" id="confirm_password" name="confirm_password" enterkeyhint="go"
                                    class="form-control" required autocomplete="new-password">
                             <?php echo \Pramnos\Html\PasswordToggle::render(
                                 'confirm_password', '', ''
                             ); ?>
                         </div>
-                        <button type="submit" class="btn btn-primary">Update Password</button>
+                        <button type="submit" class="btn btn-primary"><?php echo htmlspecialchars(t('Update Password'), ENT_QUOTES, 'UTF-8'); ?></button>
                     </form>
                 </div>
             </div>

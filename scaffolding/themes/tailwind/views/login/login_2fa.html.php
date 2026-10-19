@@ -9,7 +9,7 @@
  * No password here — LoginFlow holds the pending login server-side. The form
  * submits only the code to <routeBase>/verify.
  */
-$brand   = $this->brand ?? [];
+$brand   = $this->brand ?? \Pramnos\Auth\Brand::current();
 $primary = htmlspecialchars((string) ($brand['primary_color'] ?? '#2563eb'), ENT_QUOTES);
 $base    = sURL . rawurlencode((string) ($this->routeBase ?? 'Account'));
 // The return address in the form's own URL too, so a refresh after a failed attempt keeps it.
@@ -18,15 +18,15 @@ $returnQuery = (string) ($this->returnUrl ?? '') !== ''
     : '';
 
 $errorMessages = [
-    'invalid_token' => 'Your session expired. Please try again.',
-    'missing_code'  => 'Please enter your verification code.',
-    'invalid_code'  => 'Invalid or expired code. Please try again.',
-    'email_code_failed' => 'We could not send a code to your email address.',
-    'email_code_wait'   => 'We have already sent you a code. You can ask for another one in %d seconds.',
-    'auth_link_failed'  => 'We could not email you a sign-in link.',
-    'authlink_invalid'  => 'That sign-in link has been used or has expired. Please sign in again.',
-    'push_failed'       => 'We could not send a notification to your phone just now. Use another way below.',
-    'push_not_approved' => 'Your phone has not approved this sign-in.',
+    'invalid_token' => t('Your session expired. Please try again.'),
+    'missing_code'  => t('Please enter your verification code.'),
+    'invalid_code'  => t('Invalid or expired code. Please try again.'),
+    'email_code_failed' => t('We could not send a code to your email address.'),
+    'email_code_wait'   => t('We have already sent you a code. You can ask for another one in %d seconds.'),
+    'auth_link_failed'  => t('We could not email you a sign-in link.'),
+    'authlink_invalid'  => t('That sign-in link has been used or has expired. Please sign in again.'),
+    'push_failed'       => t('We could not send a notification to your phone just now. Use another way below.'),
+    'push_not_approved' => t('Your phone has not approved this sign-in.'),
 ];
 $errorKey  = (string) ($this->error ?? '');
 $errorText = $errorMessages[$errorKey] ?? $errorKey;
@@ -67,9 +67,9 @@ $authLink     = (bool) ($this->authLink ?? false);
 $emailFirst   = $hasEmail && !$hasTotp;
 
 $noticeMessages = [
-    'email_code_sent' => 'We have sent a code to your email address.',
-    'auth_link_sent'  => 'We have emailed you a link to finish signing in.',
-    'push_sent'       => 'We have sent the notification again.',
+    'email_code_sent' => t('We have sent a code to your email address.'),
+    'auth_link_sent'  => t('We have emailed you a link to finish signing in.'),
+    'push_sent'       => t('We have sent the notification again.'),
 ];
 $resendIn   = (int) ($this->resendIn ?? 0);
 $noticeKey  = (string) ($this->notice ?? '');
@@ -87,17 +87,18 @@ $pushTo     = implode(', ', array_map('strval', (array) ($pushStatus['devices'] 
 $pushStuck  = in_array($pushState, ['none', 'expired', 'denied'], true);
 
 $intro = $pushFirst
-    ? 'Confirm it is you, from your phone.'
+    ? t('Confirm it is you, from your phone.')
     : ($authLink
-    ? 'This browser has not been used with your account before, so we have emailed you a link to finish signing in.'
+    ? t('This browser has not been used with your account before, so we have emailed you a link to finish signing in.')
     : ($emailFirst
-        ? 'Enter the 6-digit code we sent to your email address.'
-        : 'Enter the 6-digit code from your authenticator app.'));
+        ? t('Enter the 6-digit code we sent to your email address.')
+        : t('Enter the 6-digit code from your authenticator app.')));
 ?>
 <div class="flex items-center justify-center min-h-screen bg-base-200 px-4">
     <div class="card bg-base-100 shadow-md p-8 w-full max-w-sm" style="--color-primary:<?php echo $primary; ?>">
-        <h1 class="text-2xl font-semibold mb-1">Two-step verification</h1>
-        <p class="text-sm text-base-content/70 mb-6"><?php echo $intro; ?></p>
+        <?php $this->insert('../partials/auth_brand'); ?>
+        <h1 class="text-2xl font-semibold mb-1"><?php echo htmlspecialchars(t('Two-step verification'), ENT_QUOTES, 'UTF-8'); ?></h1>
+        <p class="text-sm text-base-content/70 mb-6"><?php echo htmlspecialchars($intro, ENT_QUOTES, 'UTF-8'); ?></p>
 
         <?php if ($errorText !== ''): ?>
             <div role="alert" id="form-error" class="alert alert-error mb-4"><?php echo htmlspecialchars($errorText); ?></div>
@@ -110,12 +111,12 @@ $intro = $pushFirst
                  is how somebody concludes the mail never arrived. */ ?>
         <?php if ($authLink): ?>
         <p class="text-sm text-base-content/70 mb-4">
-            Open the link within 15 minutes. It works once, and only for this sign-in.
+            <?php echo htmlspecialchars(t('Open the link within 15 minutes. It works once, and only for this sign-in.'), ENT_QUOTES, 'UTF-8'); ?>
         </p>
         <form data-pf-progress method="POST" action="<?php echo $base; ?>/verify<?php echo $returnQuery; ?>">
             <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
             <input type="hidden" name="send_auth_link" value="1">
-            <button type="submit" class="btn btn-neutral w-full">Email the link again</button>
+            <button type="submit" class="btn btn-neutral w-full"><?php echo htmlspecialchars(t('Email the link again'), ENT_QUOTES, 'UTF-8'); ?></button>
         </form>
         <?php else: ?>
 
@@ -124,17 +125,20 @@ $intro = $pushFirst
              data-status-url="<?php echo $base; ?>/pushstatus"
              data-other-ways="#pf-other-ways" data-patience="20">
             <p class="text-sm">
-                We sent a notification to <strong><?php echo htmlspecialchars($pushTo !== '' ? $pushTo : 'your phone'); ?></strong>.
-                Open it and tap <strong>Yes</strong>.
+                <?php echo sprintf(
+                    htmlspecialchars(t('We sent a notification to %s. Open it and tap %s.'), ENT_QUOTES, 'UTF-8'),
+                    '<strong>' . htmlspecialchars($pushTo !== '' ? $pushTo : t('your phone'), ENT_QUOTES, 'UTF-8') . '</strong>',
+                    '<strong>' . htmlspecialchars(t('Yes'), ENT_QUOTES, 'UTF-8') . '</strong>'
+                ); ?>
             </p>
             <?php if ($pushNumber !== null): ?>
-            <p class="text-sm">This sign-in looks new, so your phone will ask you to pick this number:</p>
-            <p class="text-center text-5xl font-bold tracking-wider" aria-label="The number to pick on your phone"><?php echo $pushNumber; ?></p>
+            <p class="text-sm"><?php echo htmlspecialchars(t('This sign-in looks new, so your phone will ask you to pick this number:'), ENT_QUOTES, 'UTF-8'); ?></p>
+            <p class="text-center text-5xl font-bold tracking-wider" aria-label="<?php echo htmlspecialchars(t('The number to pick on your phone'), ENT_QUOTES, 'UTF-8'); ?>"><?php echo $pushNumber; ?></p>
             <?php endif; ?>
             <p class="text-sm text-base-content/70" role="status" aria-live="polite" data-pf-push-state>
-                <?php echo $pushStuck
-                    ? 'The notification could not be sent or has expired. Send it again, or use another way.'
-                    : 'Sent. Waiting for your phone…'; ?>
+                <?php echo htmlspecialchars($pushStuck
+                    ? t('The notification could not be sent or has expired. Send it again, or use another way.')
+                    : t('Sent. Waiting for your phone…'), ENT_QUOTES, 'UTF-8'); ?>
             </p>
             <form data-pf-progress method="POST" action="<?php echo $base; ?>/verify<?php echo $returnQuery; ?>" data-pf-push-finish>
                 <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
@@ -142,20 +146,20 @@ $intro = $pushFirst
                     <input type="hidden" name="return" value="<?php echo htmlspecialchars((string) $this->returnUrl); ?>">
                 <?php endif; ?>
                 <input type="hidden" name="method" value="push">
-                <noscript><button type="submit" class="btn btn-primary w-full">I approved it on my phone</button></noscript>
+                <noscript><button type="submit" class="btn btn-primary w-full"><?php echo htmlspecialchars(t('I approved it on my phone'), ENT_QUOTES, 'UTF-8'); ?></button></noscript>
             </form>
             <form data-pf-progress method="POST" action="<?php echo $base; ?>/verify<?php echo $returnQuery; ?>" data-pf-push-resend
                   class="<?php echo $pushStuck ? '' : 'hidden'; ?>">
                 <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
                 <input type="hidden" name="send_factor" value="push">
-                <button type="submit" class="btn btn-neutral btn-sm w-full">Send it again</button>
+                <button type="submit" class="btn btn-neutral btn-sm w-full"><?php echo htmlspecialchars(t('Send it again'), ENT_QUOTES, 'UTF-8'); ?></button>
             </form>
         </div>
 
         <?php /* Every other way through, one click away. Opened by itself when the phone
                  has not received the prompt in twenty seconds, or it failed. */ ?>
         <details id="pf-other-ways" class="mt-5"<?php echo $pushStuck ? ' open' : ''; ?>>
-            <summary class="text-sm text-primary cursor-pointer">Try another way</summary>
+            <summary class="text-sm text-primary cursor-pointer"><?php echo htmlspecialchars(t('Try another way'), ENT_QUOTES, 'UTF-8'); ?></summary>
             <div class="mt-4">
         <?php endif; ?>
 
@@ -169,13 +173,13 @@ $intro = $pushFirst
                      spend an email attempt every time somebody typed an app code. */ ?>
             <input type="hidden" name="method" value="<?php echo $emailFirst ? 'email' : 'totp'; ?>">
             <div>
-                <label for="code" class="block text-sm font-medium text-base-content mb-1">Verification Code</label>
+                <label for="code" class="block text-sm font-medium text-base-content mb-1"><?php echo htmlspecialchars(t('Verification Code'), ENT_QUOTES, 'UTF-8'); ?></label>
                 <input type="text" id="code" name="code" data-pf-otp
                        class="input w-full text-center text-2xl font-mono tracking-widest"
                        maxlength="6" pattern="[0-9]{6}" placeholder="000000"
                        autocomplete="one-time-code"<?php echo $errorFieldAttributes; ?> inputmode="numeric" enterkeyhint="go" required autofocus>
             </div>
-            <button type="submit" class="btn btn-primary w-full">Verify &amp; Sign In</button>
+            <button type="submit" class="btn btn-primary w-full"><?php echo htmlspecialchars(t('Verify & Sign In'), ENT_QUOTES, 'UTF-8'); ?></button>
         </form>
         <?php endif; ?>
 
@@ -190,18 +194,18 @@ $intro = $pushFirst
          */ ?>
         <?php if ($hasEmail && $hasTotp): ?>
         <details class="mt-4" <?php echo $codePending ? 'open' : ''; ?>>
-            <summary class="text-sm text-primary cursor-pointer"><?php echo $pushFirst ? 'A code by email' : 'Try another way'; ?></summary>
+            <summary class="text-sm text-primary cursor-pointer"><?php echo htmlspecialchars($pushFirst ? t('A code by email') : t('Try another way'), ENT_QUOTES, 'UTF-8'); ?></summary>
             <div class="mt-3 space-y-2">
                 <?php if ($codePending): ?>
                 <form data-pf-progress method="POST" action="<?php echo $base; ?>/verify<?php echo $returnQuery; ?>" class="space-y-2">
                     <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
                     <input type="hidden" name="method" value="email">
-                    <label for="email-code" class="block text-sm font-medium mb-1">Code sent to your email</label>
+                    <label for="email-code" class="block text-sm font-medium mb-1"><?php echo htmlspecialchars(t('Code sent to your email'), ENT_QUOTES, 'UTF-8'); ?></label>
                     <input type="text" id="email-code" name="code"
                            class="input w-full text-center text-xl font-mono tracking-widest"
                            maxlength="6" pattern="[0-9]{6}" placeholder="000000"
                            autocomplete="one-time-code" inputmode="numeric" enterkeyhint="go">
-                    <button type="submit" class="btn btn-neutral btn-sm w-full">Use the emailed code</button>
+                    <button type="submit" class="btn btn-neutral btn-sm w-full"><?php echo htmlspecialchars(t('Use the emailed code'), ENT_QUOTES, 'UTF-8'); ?></button>
                 </form>
                 <?php endif; ?>
                 <form data-pf-progress method="POST" action="<?php echo $base; ?>/verify<?php echo $returnQuery; ?>">
@@ -215,18 +219,18 @@ $intro = $pushFirst
                      * from a broken button, and the usual response to one is to reload the
                      * page, which tells the reader nothing.
                      */
-                    $readyLabel = $codePending ? 'Send another code' : 'Email me a code instead';
+                    $readyLabel = $codePending ? t('Send another code') : t('Email me a code instead');
                     ?>
                     <button type="submit" class="btn btn-ghost btn-sm w-full"
                             <?php if ($resendIn > 0): ?>
                             disabled
                             data-pf-countdown="<?php echo $resendIn; ?>"
-                            data-pf-countdown-label="Another code in %ss"
+                            data-pf-countdown-label="<?php echo htmlspecialchars(t('Another code in %ss'), ENT_QUOTES, 'UTF-8'); ?>"
                             data-pf-countdown-ready="<?php echo htmlspecialchars($readyLabel, ENT_QUOTES); ?>"
                             <?php endif; ?>>
-                        <?php echo $resendIn > 0
-                            ? 'Another code in ' . $resendIn . 's'
-                            : $readyLabel; ?>
+                        <?php echo htmlspecialchars($resendIn > 0
+                            ? t('Another code in %ss', $resendIn)
+                            : $readyLabel, ENT_QUOTES, 'UTF-8'); ?>
                     </button>
                 </form>
             </div>
@@ -237,18 +241,18 @@ $intro = $pushFirst
         <form data-pf-progress method="POST" action="<?php echo $base; ?>/verify<?php echo $returnQuery; ?>" class="mt-2">
             <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
             <input type="hidden" name="send_email_code" value="1">
-            <button type="submit" class="btn btn-ghost btn-sm w-full">Send another code</button>
+            <button type="submit" class="btn btn-ghost btn-sm w-full"><?php echo htmlspecialchars(t('Send another code'), ENT_QUOTES, 'UTF-8'); ?></button>
         </form>
         <?php endif; ?>
 
         <?php if ($offerPasskey): ?>
-        <div class="text-center text-sm text-base-content/60 my-4">or</div>
+        <div class="text-center text-sm text-base-content/60 my-4"><?php echo htmlspecialchars(t('or'), ENT_QUOTES, 'UTF-8'); ?></div>
         <button type="button" class="btn btn-neutral w-full"
                 data-pf-passkey-stepup
                 data-options-url="<?php echo $base; ?>/passkeyOptions"
                 data-verify-url="<?php echo $base; ?>/passkeyVerify"
                 data-redirect="<?php echo sURL; ?>"
-                data-error="#passkey-error">Use a passkey</button>
+                data-error="#passkey-error"><?php echo htmlspecialchars(t('Use a passkey'), ENT_QUOTES, 'UTF-8'); ?></button>
         <p id="passkey-error" class="text-error text-sm mt-2 hidden"></p>
         <?php endif; ?>
 
@@ -256,7 +260,7 @@ $intro = $pushFirst
                  the email factor has none, and offering them would be a dead end. */ ?>
         <?php if ($hasTotp): ?>
         <details class="mt-4">
-            <summary class="text-sm text-base-content/70 cursor-pointer">Use a backup code instead</summary>
+            <summary class="text-sm text-base-content/70 cursor-pointer"><?php echo htmlspecialchars(t('Use a backup code instead'), ENT_QUOTES, 'UTF-8'); ?></summary>
             <form data-pf-progress method="POST" action="<?php echo $base; ?>/verify<?php echo $returnQuery; ?>" class="mt-3 space-y-2">
                 <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
                 <?php if (!empty($this->returnUrl)): ?>
@@ -265,7 +269,7 @@ $intro = $pushFirst
                 <input type="text" name="code"
                        class="input w-full uppercase tracking-widest"
                        maxlength="8" placeholder="XXXXXXXX">
-                <button type="submit" class="btn btn-neutral btn-sm w-full">Use Backup Code</button>
+                <button type="submit" class="btn btn-neutral btn-sm w-full"><?php echo htmlspecialchars(t('Use Backup Code'), ENT_QUOTES, 'UTF-8'); ?></button>
             </form>
         </details>
         <?php endif; ?>
@@ -283,16 +287,16 @@ $intro = $pushFirst
             <input type="checkbox" class="checkbox checkbox-sm mt-0.5" data-pf-trust-device
                    <?php echo ($this->trustChosen ?? true) ? 'checked' : ''; ?>>
             <span>
-                Don't ask again on this device
+                <?php echo htmlspecialchars(t("Don't ask again on this device"), ENT_QUOTES, 'UTF-8'); ?>
                 <span class="block text-base-content/60">
-                    For <?php echo (int) ($this->trustDays ?? 30); ?> days.<?php if (!empty($this->pushOffered)): ?> A phone you trust can then also approve your sign-ins elsewhere.<?php endif; ?>
+                    <?php echo htmlspecialchars(t('For %d days.', (int) ($this->trustDays ?? 30)), ENT_QUOTES, 'UTF-8'); ?><?php if (!empty($this->pushOffered)): ?> <?php echo htmlspecialchars(t('A phone you trust can then also approve your sign-ins elsewhere.'), ENT_QUOTES, 'UTF-8'); ?><?php endif; ?>
                 </span>
             </span>
         </label>
         <?php endif; ?>
 
         <p class="text-center text-sm mt-4">
-            <a href="<?php echo $base; ?>/login" class="text-primary hover:underline">&larr; Back to login</a>
+            <a href="<?php echo $base; ?>/login" class="text-primary hover:underline">&larr; <?php echo htmlspecialchars(t('Back to login'), ENT_QUOTES, 'UTF-8'); ?></a>
         </p>
     </div>
 </div>

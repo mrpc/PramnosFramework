@@ -9,7 +9,8 @@
 ?>
 <div style="display:flex;align-items:center;justify-content:center;min-height:60vh;padding:20px">
     <div class="card" style="width:100%;max-width:400px">
-        <div class="card-header"><h2 style="margin:0;font-size:1.25rem"><?php echo htmlspecialchars($this->title ?? 'Notice'); ?></h2></div>
+        <?php $this->insert('../partials/auth_brand'); ?>
+        <div class="card-header"><h2 style="margin:0;font-size:1.25rem"><?php echo htmlspecialchars($this->title ?? t('Notice'), ENT_QUOTES, 'UTF-8'); ?></h2></div>
         <div class="card-body" style="padding:24px">
 
             <?php if ($this->hasErrors()): ?>
@@ -22,11 +23,11 @@
             <?php if (!empty($this->message)): ?>
                 <p><?php echo htmlspecialchars($this->message); ?></p>
             <?php else: ?>
-                <p style="color:#555">Your request has been submitted. If an account exists, you will receive instructions by email.</p>
+                <p style="color:#555"><?php echo htmlspecialchars(t('Your request has been submitted. If an account exists, you will receive instructions by email.'), ENT_QUOTES, 'UTF-8'); ?></p>
             <?php endif; ?>
 
             <div style="text-align:center;margin-top:24px">
-                <a href="<?php echo sURL; ?>login" class="btn">Back to Login</a>
+                <a href="<?php echo sURL; ?>login" class="btn"><?php echo htmlspecialchars(t('Back to Login'), ENT_QUOTES, 'UTF-8'); ?></a>
             </div>
         </div>
     </div>

@@ -13,7 +13,7 @@ $this->activeNav = 'privacy';
 <div class="container py-4">
 
     <?php $this->insert('../partials/account_breadcrumb'); ?>
-    <h2 class="mb-4">Privacy</h2>
+    <h2 class="mb-4"><?php echo htmlspecialchars(t('Privacy'), ENT_QUOTES, 'UTF-8'); ?></h2>
 
     <?php if ($this->hasMessages()): ?>
         <div role="status" class="alert alert-success"><?php echo $this->_printMessages(); ?></div>
@@ -30,8 +30,7 @@ $this->activeNav = 'privacy';
             <div class="card">
                 <div class="card-body">
                     <p class="text-muted mb-4">
-                        Control how your data is used. You can update these preferences at any time.
-                        Changes take effect immediately.
+                        <?php echo htmlspecialchars(t('Control how your data is used. You can update these preferences at any time. Changes take effect immediately.'), ENT_QUOTES, 'UTF-8'); ?>
                     </p>
 
                     <form method="post" action="<?php echo sURL . $routeBase; ?>/privacy">
@@ -42,12 +41,11 @@ $this->activeNav = 'privacy';
                                        id="analytics" name="analytics" role="switch"
                                        <?php echo !empty($this->privacySettings['analytics']) ? 'checked' : ''; ?>>
                                 <label class="form-check-label fw-semibold" for="analytics">
-                                    Analytics &amp; Usage Data
+                                    <?php echo htmlspecialchars(t('Analytics & Usage Data'), ENT_QUOTES, 'UTF-8'); ?>
                                 </label>
                             </div>
                             <div class="form-text ms-4">
-                                Allow collection of anonymous usage data to help us improve the service.
-                                No personal information is shared with third parties.
+                                <?php echo htmlspecialchars(t('Allow collection of anonymous usage data to help us improve the service. No personal information is shared with third parties.'), ENT_QUOTES, 'UTF-8'); ?>
                             </div>
                         </div>
 
@@ -57,12 +55,11 @@ $this->activeNav = 'privacy';
                                        id="marketing" name="marketing" role="switch"
                                        <?php echo !empty($this->privacySettings['marketing']) ? 'checked' : ''; ?>>
                                 <label class="form-check-label fw-semibold" for="marketing">
-                                    Marketing Communications
+                                    <?php echo htmlspecialchars(t('Marketing Communications'), ENT_QUOTES, 'UTF-8'); ?>
                                 </label>
                             </div>
                             <div class="form-text ms-4">
-                                Receive occasional emails about new features, tips, and offers.
-                                You can unsubscribe at any time.
+                                <?php echo htmlspecialchars(t('Receive occasional emails about new features, tips, and offers. You can unsubscribe at any time.'), ENT_QUOTES, 'UTF-8'); ?>
                             </div>
                         </div>
 
@@ -72,11 +69,11 @@ $this->activeNav = 'privacy';
                                        id="notifysignin" name="notifysignin" role="switch"
                                        <?php echo !empty($this->privacySettings['notifysignin']) ? 'checked' : ''; ?>>
                                 <label class="form-check-label fw-semibold" for="notifysignin">
-                                    New sign-in alerts
+                                    <?php echo htmlspecialchars(t('New sign-in alerts'), ENT_QUOTES, 'UTF-8'); ?>
                                 </label>
                             </div>
                             <div class="form-text ms-4">
-                                Email me when my account is signed in to from a browser or device I have not used before. You will not be emailed when your browser updates, or when your network address changes.
+                                <?php echo htmlspecialchars(t('Email me when my account is signed in to from a browser or device I have not used before. You will not be emailed when your browser updates, or when your network address changes.'), ENT_QUOTES, 'UTF-8'); ?>
                             </div>
                         </div>
 
@@ -96,13 +93,13 @@ $this->activeNav = 'privacy';
                             <div class="form-text ms-4">
                                 <?php echo htmlspecialchars((string) $choice['description'], ENT_QUOTES); ?>
                                 <?php if ($choice['status'] === 'pending'): ?>
-                                    <strong>Waiting for you to confirm: check your inbox for the link.</strong>
+                                    <strong><?php echo htmlspecialchars(t('Waiting for you to confirm: check your inbox for the link.'), ENT_QUOTES, 'UTF-8'); ?></strong>
                                 <?php endif; ?>
                             </div>
                         </div>
                         <?php endforeach; ?>
 
-                        <button type="submit" class="btn btn-primary">Save Preferences</button>
+                        <button type="submit" class="btn btn-primary"><?php echo htmlspecialchars(t('Save Preferences'), ENT_QUOTES, 'UTF-8'); ?></button>
                         <?php
                         /*
                          * Browser notifications, outside the form on purpose: this is not a
@@ -111,14 +108,13 @@ $this->activeNav = 'privacy';
                          */
                         ?>
                         <hr class="my-4">
-                        <h5>Browser notifications</h5>
+                        <h5><?php echo htmlspecialchars(t('Browser notifications'), ENT_QUOTES, 'UTF-8'); ?></h5>
                         <p class="text-muted small">
-                            Get told on this device when something happens on your account, even
-                            when this site is not open. This browser only.
+                            <?php echo htmlspecialchars(t('Get told on this device when something happens on your account, even when this site is not open. This browser only.'), ENT_QUOTES, 'UTF-8'); ?>
                         </p>
                         <div class="d-flex flex-wrap align-items-center gap-2">
                             <button type="button" class="btn btn-outline-primary btn-sm" data-push-subscribe hidden>
-                                Turn on notifications
+                                <?php echo htmlspecialchars(t('Turn on notifications'), ENT_QUOTES, 'UTF-8'); ?>
                             </button>
                             <span class="text-muted small" data-push-state></span>
                         </div>
@@ -128,11 +124,14 @@ $this->activeNav = 'privacy';
             </div>
 
             <div class="mt-4">
-                <h5>Your Data Rights</h5>
+                <h5><?php echo htmlspecialchars(t('Your Data Rights'), ENT_QUOTES, 'UTF-8'); ?></h5>
                 <p class="text-muted small">
-                    Under GDPR you have the right to access, rectify, and erase your personal data.
-                    <a href="<?php echo sURL . $routeBase; ?>/exportdata">Download a copy of your data</a> or
-                    <a href="<?php echo sURL . $routeBase; ?>/deleteaccount" class="text-danger">delete your account</a>.
+                    <?php echo htmlspecialchars(t('Under GDPR you have the right to access, rectify, and erase your personal data.'), ENT_QUOTES, 'UTF-8'); ?>
+                    <?php echo sprintf(
+                        htmlspecialchars(t('%s or %s.'), ENT_QUOTES, 'UTF-8'),
+                        '<a href="' . sURL . $routeBase . '/exportdata">' . htmlspecialchars(t('Download a copy of your data'), ENT_QUOTES, 'UTF-8') . '</a>',
+                        '<a href="' . sURL . $routeBase . '/deleteaccount" class="text-danger">' . htmlspecialchars(t('delete your account'), ENT_QUOTES, 'UTF-8') . '</a>'
+                    ); ?>
                 </p>
             </div>
         </div>

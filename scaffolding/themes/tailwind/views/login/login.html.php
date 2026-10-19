@@ -8,7 +8,7 @@
  * The password is submitted once to <routeBase>/login; any second factor is
  * handled server-side (see login_2fa) — no password round-trip.
  */
-$brand   = $this->brand ?? [];
+$brand   = $this->brand ?? \Pramnos\Auth\Brand::current();
 $primary = htmlspecialchars((string) ($brand['primary_color'] ?? '#2563eb'), ENT_QUOTES);
 $base    = sURL . rawurlencode((string) ($this->routeBase ?? 'Account'));
 // The return address in the form's own URL too, so a refresh after a failed attempt keeps it.
@@ -17,13 +17,13 @@ $returnQuery = (string) ($this->returnUrl ?? '') !== ''
     : '';
 
 $errorMessages = [
-    'human_check'       => 'The security check did not complete. Reload the page and try again — it needs a modern browser with JavaScript enabled.',
-    'invalid_token'       => 'Your session expired. Please try again.',
-    'missing_credentials' => 'Please enter your username and password.',
-    'invalid_credentials' => 'Invalid username or password.',
-    'email_unverified'    => 'Confirm your email address first: open the link we emailed you. Signing in again after ten minutes sends a new one.',
-    'locked'              => 'Too many attempts. Please wait a moment and try again.',
-    'session_expired'     => 'Your login session expired. Please sign in again.',
+    'human_check'       => t('The security check did not complete. Reload the page and try again — it needs a modern browser with JavaScript enabled.'),
+    'invalid_token'       => t('Your session expired. Please try again.'),
+    'missing_credentials' => t('Please enter your username and password.'),
+    'invalid_credentials' => t('Invalid username or password.'),
+    'email_unverified'    => t('Confirm your email address first: open the link we emailed you. Signing in again after ten minutes sends a new one.'),
+    'locked'              => t('Too many attempts. Please wait a moment and try again.'),
+    'session_expired'     => t('Your login session expired. Please sign in again.'),
 ];
 $errorKey  = (string) ($this->error ?? '');
 $errorText = $errorMessages[$errorKey] ?? $errorKey;
@@ -45,15 +45,9 @@ $errorFieldAttributes = $errorText !== ''
     : '';
 
 ?>
-<div class="flex items-center justify-center min-h-screen bg-base-200 px-4">
+<div class="flex flex-col items-center justify-center min-h-screen bg-base-200 px-4">
     <div class="card bg-base-100 shadow-md p-8 w-full max-w-sm" style="--color-primary:<?php echo $primary; ?>">
-        <div class="text-center mb-6">
-            <?php if (!empty($brand['logo'])): ?>
-                <img src="<?php echo htmlspecialchars((string) $brand['logo']); ?>" alt="<?php echo htmlspecialchars((string) ($brand['name'] ?? '')); ?>" class="mx-auto" style="max-width:220px;max-height:64px">
-            <?php else: ?>
-                <h1 class="text-2xl font-semibold"><?php echo htmlspecialchars((string) ($brand['name'] ?? 'Sign in')); ?></h1>
-            <?php endif; ?>
-        </div>
+        <?php $this->insert('../partials/auth_brand'); ?>
 
         <?php if ($errorText !== ''): ?>
             <div role="alert" id="form-error" class="alert alert-error mb-4"><?php echo htmlspecialchars($errorText); ?></div>
@@ -91,41 +85,42 @@ $errorFieldAttributes = $errorText !== ''
                 <input type="hidden" name="return" value="<?php echo htmlspecialchars((string) $this->returnUrl); ?>">
             <?php endif; ?>
             <div>
-                <label for="username" class="block text-sm font-medium text-base-content mb-1">Username or Email</label>
+                <label for="username" class="block text-sm font-medium text-base-content mb-1"><?php echo htmlspecialchars(t('Username or Email'), ENT_QUOTES, 'UTF-8'); ?></label>
                 <input type="text" name="username" id="username" class="input w-full" value="<?php echo htmlspecialchars((string) ($this->username ?? '')); ?>" required autocomplete="username webauthn"<?php echo $errorFieldAttributes; ?> autocapitalize="none" autocorrect="off" spellcheck="false" autofocus>
             </div>
             <div>
-                <label for="password" class="block text-sm font-medium text-base-content mb-1">Password</label>
+                <label for="password" class="block text-sm font-medium text-base-content mb-1"><?php echo htmlspecialchars(t('Password'), ENT_QUOTES, 'UTF-8'); ?></label>
                 <input type="password" name="password" id="password" class="input w-full" required autocomplete="current-password" enterkeyhint="go">
                 <?php echo \Pramnos\Html\PasswordToggle::render(
                     'password', '', ''
                 ); ?>
             </div>
             <label class="flex items-center gap-2 text-sm text-base-content">
-                <input type="checkbox" name="remember" value="1" checked> Remember me
+                <input type="checkbox" name="remember" value="1" checked> <?php echo htmlspecialchars(t('Remember me'), ENT_QUOTES, 'UTF-8'); ?>
             </label>
-            <button type="submit" class="btn btn-primary login-submit w-full">Sign In</button>
+            <button type="submit" class="btn btn-primary login-submit w-full"><?php echo htmlspecialchars(t('Sign In'), ENT_QUOTES, 'UTF-8'); ?></button>
         </form>
 
         <div id="passkey-login-wrap" class="hidden">
-            <div class="text-center text-sm text-base-content/60 my-4">or</div>
+            <div class="text-center text-sm text-base-content/60 my-4"><?php echo htmlspecialchars(t('or'), ENT_QUOTES, 'UTF-8'); ?></div>
             <button type="button" class="btn btn-neutral w-full"
                     data-pf-passkey-login
                     data-options-url="<?php echo sURL; ?>Passkey/loginOptions"
                     data-verify-url="<?php echo sURL; ?>Passkey/login"
                     data-redirect="<?php echo sURL; ?>"
                     data-wrap="#passkey-login-wrap"
-                    data-error="#passkey-login-error">Sign in with a passkey</button>
+                    data-error="#passkey-login-error"><?php echo htmlspecialchars(t('Sign in with a passkey'), ENT_QUOTES, 'UTF-8'); ?></button>
             <p id="passkey-login-error" class="text-error text-sm mt-2 hidden"></p>
         </div>
 
         <p class="text-center text-sm mt-4">
-            <a href="<?php echo $base; ?>/forgotpassword" class="text-primary hover:underline">Forgot your password?</a>
+            <a href="<?php echo $base; ?>/forgotpassword" class="text-primary hover:underline"><?php echo htmlspecialchars(t('Forgot your password?'), ENT_QUOTES, 'UTF-8'); ?></a>
         </p>
         <?php if (!empty($brand['footer'])): ?>
             <p class="text-center text-base-content/60 text-xs mt-4"><?php echo htmlspecialchars((string) $brand['footer']); ?></p>
         <?php endif; ?>
     </div>
+    <?php $this->insert('../partials/auth_home_link'); ?>
 </div>
 <script src="<?php echo assetUrl('assets/js/pf-webauthn.js'); ?>"></script>
 <script src="<?php echo assetUrl('assets/js/pf-auth.js'); ?>"></script>

@@ -13,7 +13,7 @@ $this->activeNav = 'privacy';
 <div class="container mx-auto px-4 py-8">
 
     <?php $this->insert('../partials/account_breadcrumb'); ?>
-    <h2 class="text-2xl font-bold text-base-content mb-6">Privacy</h2>
+    <h2 class="text-2xl font-bold text-base-content mb-6"><?php echo htmlspecialchars(t('Privacy'), ENT_QUOTES, 'UTF-8'); ?></h2>
 
     <?php if ($this->hasMessages()): ?>
         <div role="status" class="alert alert-success mb-4"><?php echo $this->_printMessages(); ?></div>
@@ -29,7 +29,7 @@ $this->activeNav = 'privacy';
         <div class="md:col-span-3 space-y-6">
             <div class="card bg-base-100 shadow-sm p-6">
                 <p class="text-sm text-base-content/70 mb-6">
-                    Control how your data is used. You can update these preferences at any time.
+                    <?php echo htmlspecialchars(t('Control how your data is used. You can update these preferences at any time.'), ENT_QUOTES, 'UTF-8'); ?>
                 </p>
 
                 <form method="post" action="<?php echo sURL . $routeBase; ?>/privacy">
@@ -42,9 +42,9 @@ $this->activeNav = 'privacy';
                                        <?php echo !empty($this->privacySettings['analytics']) ? 'checked' : ''; ?>>
                             </div>
                             <div>
-                                <span class="font-semibold text-base-content">Analytics &amp; Usage Data</span>
+                                <span class="font-semibold text-base-content"><?php echo htmlspecialchars(t('Analytics & Usage Data'), ENT_QUOTES, 'UTF-8'); ?></span>
                                 <p class="text-sm text-base-content/70 mt-0.5">
-                                    Allow anonymous usage analytics to help us improve the service.
+                                    <?php echo htmlspecialchars(t('Allow anonymous usage analytics to help us improve the service.'), ENT_QUOTES, 'UTF-8'); ?>
                                 </p>
                             </div>
                         </label>
@@ -56,9 +56,9 @@ $this->activeNav = 'privacy';
                                        <?php echo !empty($this->privacySettings['marketing']) ? 'checked' : ''; ?>>
                             </div>
                             <div>
-                                <span class="font-semibold text-base-content">Marketing Communications</span>
+                                <span class="font-semibold text-base-content"><?php echo htmlspecialchars(t('Marketing Communications'), ENT_QUOTES, 'UTF-8'); ?></span>
                                 <p class="text-sm text-base-content/70 mt-0.5">
-                                    Receive occasional emails about new features and offers.
+                                    <?php echo htmlspecialchars(t('Receive occasional emails about new features and offers.'), ENT_QUOTES, 'UTF-8'); ?>
                                 </p>
                             </div>
                         </label>
@@ -70,9 +70,9 @@ $this->activeNav = 'privacy';
                                        <?php echo !empty($this->privacySettings['notifysignin']) ? 'checked' : ''; ?>>
                             </div>
                             <div>
-                                <span class="font-semibold text-base-content">New sign-in alerts</span>
+                                <span class="font-semibold text-base-content"><?php echo htmlspecialchars(t('New sign-in alerts'), ENT_QUOTES, 'UTF-8'); ?></span>
                                 <p class="text-sm text-base-content/70 mt-0.5">
-                                    Email me when my account is signed in to from a browser or device I have not used before. You will not be emailed when your browser updates, or when your network address changes.
+                                    <?php echo htmlspecialchars(t('Email me when my account is signed in to from a browser or device I have not used before. You will not be emailed when your browser updates, or when your network address changes.'), ENT_QUOTES, 'UTF-8'); ?>
                                 </p>
                             </div>
                         </label>
@@ -91,7 +91,7 @@ $this->activeNav = 'privacy';
                                 <p class="text-sm text-base-content/70 mt-0.5">
                                     <?php echo htmlspecialchars((string) $choice['description'], ENT_QUOTES); ?>
                                     <?php if ($choice['status'] === 'pending'): ?>
-                                        <strong>Waiting for you to confirm: check your inbox for the link.</strong>
+                                        <strong><?php echo htmlspecialchars(t('Waiting for you to confirm: check your inbox for the link.'), ENT_QUOTES, 'UTF-8'); ?></strong>
                                     <?php endif; ?>
                                 </p>
                             </div>
@@ -101,7 +101,7 @@ $this->activeNav = 'privacy';
 
                     <button type="submit"
                             class="btn btn-primary">
-                        Save Preferences
+                        <?php echo htmlspecialchars(t('Save Preferences'), ENT_QUOTES, 'UTF-8'); ?>
                     </button>
                 </form>
             </div>
@@ -122,16 +122,14 @@ $this->activeNav = 'privacy';
             ?>
             <div class="card bg-base-100 border border-base-300 shadow-xs">
                 <div class="p-6">
-                    <h3 class="font-semibold text-base-content">Browser notifications</h3>
+                    <h3 class="font-semibold text-base-content"><?php echo htmlspecialchars(t('Browser notifications'), ENT_QUOTES, 'UTF-8'); ?></h3>
                     <p class="text-sm text-base-content/70 mt-1">
-                        Get told on this device when something happens on your account — a new
-                        sign-in, a message — even when this site is not open. It applies to this
-                        browser only: turning it on here does not turn it on on your phone.
+                        <?php echo htmlspecialchars(t('Get told on this device when something happens on your account — a new sign-in, a message — even when this site is not open. It applies to this browser only: turning it on here does not turn it on on your phone.'), ENT_QUOTES, 'UTF-8'); ?>
                     </p>
 
                     <div class="mt-4 flex flex-wrap items-center gap-3">
                         <button type="button" class="btn btn-outline btn-sm" data-push-subscribe hidden>
-                            Turn on notifications
+                            <?php echo htmlspecialchars(t('Turn on notifications'), ENT_QUOTES, 'UTF-8'); ?>
                         </button>
                         <span class="text-sm text-base-content/70" data-push-state></span>
                     </div>
@@ -141,9 +139,12 @@ $this->activeNav = 'privacy';
 
             <div class="text-sm text-base-content/70">
                 <p>
-                    Under GDPR you have the right to access, rectify, and erase your data.
-                    <a href="<?php echo sURL . $routeBase; ?>/exportdata" class="text-primary hover:underline">Download your data</a>
-                    or <a href="<?php echo sURL . $routeBase; ?>/deleteaccount" class="text-error hover:underline">delete your account</a>.
+                    <?php echo htmlspecialchars(t('Under GDPR you have the right to access, rectify, and erase your data.'), ENT_QUOTES, 'UTF-8'); ?>
+                    <?php echo sprintf(
+                        htmlspecialchars(t('%s or %s.'), ENT_QUOTES, 'UTF-8'),
+                        '<a href="' . sURL . $routeBase . '/exportdata" class="text-primary hover:underline">' . htmlspecialchars(t('Download your data'), ENT_QUOTES, 'UTF-8') . '</a>',
+                        '<a href="' . sURL . $routeBase . '/deleteaccount" class="text-error hover:underline">' . htmlspecialchars(t('delete your account'), ENT_QUOTES, 'UTF-8') . '</a>'
+                    ); ?>
                 </p>
             </div>
         </div>

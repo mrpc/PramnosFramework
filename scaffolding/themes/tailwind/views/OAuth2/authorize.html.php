@@ -13,6 +13,7 @@
 ?>
 <div class="flex items-center justify-center min-h-screen bg-base-200 px-4 py-8">
     <div class="card bg-base-100 shadow-md p-8 w-full max-w-md">
+        <?php $this->insert('../partials/auth_brand'); ?>
 
         <div class="text-center mb-5">
             <?php if (!empty($this->application->logourl)): ?>
@@ -82,14 +83,21 @@
 
         <p class="text-xs text-base-content/70 text-center mt-4">
             <?php if (!empty($this->application->termsurl) || !empty($this->application->privacyurl)): ?>
-                <?php echo htmlspecialchars(t('By allowing you agree to the')); ?>
-                <?php if (!empty($this->application->termsurl)): ?>
-                    <a href="<?php echo htmlspecialchars($this->application->termsurl); ?>" class="underline" target="_blank"><?php echo htmlspecialchars(t('Terms of Service')); ?></a>
-                <?php endif; ?>
-                <?php if (!empty($this->application->termsurl) && !empty($this->application->privacyurl)): ?> and <?php endif; ?>
-                <?php if (!empty($this->application->privacyurl)): ?>
-                    <a href="<?php echo htmlspecialchars($this->application->privacyurl); ?>" class="underline" target="_blank"><?php echo htmlspecialchars(t('Privacy Policy')); ?></a>
-                <?php endif; ?>.
+                <?php
+                // One sentence per case, the links dropped in as %s, so a translation keeps its own word order.
+                $legalLinks = [];
+                if (!empty($this->application->termsurl)) {
+                    $legalLinks[] = '<a href="' . htmlspecialchars($this->application->termsurl, ENT_QUOTES, 'UTF-8') . '" class="underline" target="_blank">'
+                        . htmlspecialchars(t('Terms of Service'), ENT_QUOTES, 'UTF-8') . '</a>';
+                }
+                if (!empty($this->application->privacyurl)) {
+                    $legalLinks[] = '<a href="' . htmlspecialchars($this->application->privacyurl, ENT_QUOTES, 'UTF-8') . '" class="underline" target="_blank">'
+                        . htmlspecialchars(t('Privacy Policy'), ENT_QUOTES, 'UTF-8') . '</a>';
+                }
+                echo count($legalLinks) === 2
+                    ? sprintf(htmlspecialchars(t('By allowing you agree to the %s and %s.'), ENT_QUOTES, 'UTF-8'), $legalLinks[0], $legalLinks[1])
+                    : sprintf(htmlspecialchars(t('By allowing you agree to the %s.'), ENT_QUOTES, 'UTF-8'), $legalLinks[0]);
+                ?>
             <?php else: ?>
                 <?php echo htmlspecialchars(t('By allowing, you grant this application access to your data.')); ?>
             <?php endif; ?>

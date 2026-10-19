@@ -7,10 +7,10 @@
  */
 ?>
 <div class="page-section">
-    <h2><?php echo htmlspecialchars($this->header ?? 'OAuth2'); ?></h2>
+    <h2><?php echo htmlspecialchars($this->header ?? t('OAuth2'), ENT_QUOTES, 'UTF-8'); ?></h2>
     <div role="status" class="alert alert-info">
-        <strong>OAuth2 Server</strong> — This is the default OAuth2 view. A specific template was not found for the requested action.
+        <strong><?php echo htmlspecialchars(t('OAuth2 Server'), ENT_QUOTES, 'UTF-8'); ?></strong> — <?php echo htmlspecialchars(t('This is the default OAuth2 view. A specific template was not found for the requested action.'), ENT_QUOTES, 'UTF-8'); ?>
     </div>
-    <a href="<?php echo adminUrl('Dashboard'); ?>" class="btn">Dashboard</a>
-    <a href="<?php echo sURL; ?>" class="btn" style="margin-left:8px">Home</a>
+    <a href="<?php echo adminUrl('Dashboard'); ?>" class="btn"><?php echo htmlspecialchars(t('Dashboard'), ENT_QUOTES, 'UTF-8'); ?></a>
+    <a href="<?php echo sURL; ?>" class="btn" style="margin-left:8px"><?php echo htmlspecialchars(t('Home'), ENT_QUOTES, 'UTF-8'); ?></a>
 </div>

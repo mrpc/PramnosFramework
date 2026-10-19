@@ -540,7 +540,7 @@ class Account extends Controller
         $this->clearResetToken($userId);
         \Pramnos\Auth\ActivityLog::record($userId, 'password_reset_completed');
 
-        $this->addMessage('Your password has been reset. Please sign in with your new password.');
+        $this->addMessage(t('Your password has been reset. Please sign in with your new password.'));
         $this->redirect(sURL . 'login');
         return null;
     }
@@ -633,8 +633,9 @@ class Account extends Controller
         \Pramnos\Auth\ActivityLog::record($userId, 'account_registered');
 
         if ($this->afterRegistration($userId)) {
-            $this->addMessage(t('Your account has been created. We have sent a link to your email '
-                . 'address — open it to confirm the address, then sign in.'));
+            $this->addMessage(t(
+                'Your account has been created. We have sent a link to your email address — open it to confirm the address, then sign in.'
+            ));
         } else {
             $this->addMessage(t('Your account has been created. Please sign in.'));
         }
@@ -1585,16 +1586,16 @@ class Account extends Controller
 
         if ($this->post('remove') !== '') {
             \Pramnos\User\ProfilePhoto::remove($currentUser);
-            $this->addMessage('Your profile picture has been removed.');
+            $this->addMessage(t('Your profile picture has been removed.'));
         } elseif ($this->post('gravatar') !== '') {
             $error = \Pramnos\User\ProfilePhoto::fromGravatar($currentUser, $this->gravatarFetcher());
             $error === null
-                ? $this->addMessage('Your Gravatar picture is now your profile picture.')
+                ? $this->addMessage(t('Your Gravatar picture is now your profile picture.'))
                 : $this->addError($error);
         } else {
             $error = \Pramnos\User\ProfilePhoto::set($currentUser, (array) ($_FILES['photo'] ?? []));
             $error === null
-                ? $this->addMessage('Your profile picture has been updated.')
+                ? $this->addMessage(t('Your profile picture has been updated.'))
                 : $this->addError($error);
         }
 
@@ -1616,7 +1617,7 @@ class Account extends Controller
         if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
             $session = \Pramnos\Http\Session::getInstance();
             if (!$session->checkToken('post')) {
-                $this->addError('Your session expired. Please try again.');
+                $this->addError(t('Your session expired. Please try again.'));
                 $this->redirect(sURL . $this->routeBase . '/profile');
                 return;
             }
@@ -1627,7 +1628,7 @@ class Account extends Controller
             $phone     = trim((string) ($_POST['phone']     ?? ''));
 
             if ($email === '' || filter_var($email, FILTER_VALIDATE_EMAIL) === false) {
-                $this->addError('Please enter a valid email address.');
+                $this->addError(t('Please enter a valid email address.'));
                 $this->redirect(sURL . $this->routeBase . '/profile');
                 return;
             }
@@ -1653,7 +1654,7 @@ class Account extends Controller
                 );
             }
 
-            $this->addMessage('Your profile has been updated.');
+            $this->addMessage(t('Your profile has been updated.'));
             $this->redirect(sURL . $this->routeBase . '/profile');
             return;
         }
@@ -1747,7 +1748,7 @@ class Account extends Controller
 
         if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
             if (!\Pramnos\Http\Session::getInstance()->checkToken('post')) {
-                $this->addError('Your session expired. Please try again.');
+                $this->addError(t('Your session expired. Please try again.'));
                 $this->redirect(sURL . $this->routeBase . '/exportdata');
                 return null;
             }
@@ -1764,7 +1765,7 @@ class Account extends Controller
                 $this->terminate();
             } catch (\Exception $ex) {
                 \Pramnos\Logs\Logger::log('Error exporting user data: ' . $ex->getMessage());
-                $this->addError('An error occurred while exporting your data. Please try again.');
+                $this->addError(t('An error occurred while exporting your data. Please try again.'));
                 $this->redirect(sURL . $this->routeBase . '/exportdata');
             }
             return null;
@@ -1795,7 +1796,7 @@ class Account extends Controller
 
         if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
             if (!\Pramnos\Http\Session::getInstance()->checkToken('post')) {
-                $this->addError('Your session expired. Please try again.');
+                $this->addError(t('Your session expired. Please try again.'));
                 $this->redirect(sURL . $this->routeBase . '/deleteaccount');
                 return;
             }
@@ -1804,13 +1805,13 @@ class Account extends Controller
             $confirmation = (string) ($_POST['confirmation'] ?? '');
 
             if (!$this->verifyUserPassword((int) $currentUser->userid, $password)) {
-                $this->addError('The password you entered is incorrect.');
+                $this->addError(t('The password you entered is incorrect.'));
                 $this->redirect(sURL . $this->routeBase . '/deleteaccount');
                 return;
             }
 
             if ($confirmation !== 'DELETE') {
-                $this->addError('You must type DELETE in the confirmation field.');
+                $this->addError(t('You must type DELETE in the confirmation field.'));
                 $this->redirect(sURL . $this->routeBase . '/deleteaccount');
                 return;
             }
@@ -1832,12 +1833,12 @@ class Account extends Controller
                 $auth = \Pramnos\Framework\Factory::getAuth();
                 $auth->logout();
 
-                $this->addMessage('Your account has been deleted.');
+                $this->addMessage(t('Your account has been deleted.'));
                 $this->redirect(sURL);
 
             } catch (\Exception $ex) {
                 \Pramnos\Logs\Logger::log('Error deleting account: ' . $ex->getMessage());
-                $this->addError('An error occurred while deleting your account. Please try again.');
+                $this->addError(t('An error occurred while deleting your account. Please try again.'));
                 $this->redirect(sURL . $this->routeBase . '/deleteaccount');
             }
             return;
@@ -1942,7 +1943,7 @@ class Account extends Controller
             // page the account opened could post here — and since the screen also joins and
             // leaves mailing lists, subscribe somebody to marketing they never saw.
             if (!$this->checkCsrf()) {
-                $this->addError('Your privacy settings could not be saved: the form expired. Try again.');
+                $this->addError(t('Your privacy settings could not be saved: the form expired. Try again.'));
                 $this->redirect(sURL . $this->routeBase . '/privacy');
                 return;
             }
@@ -1974,7 +1975,7 @@ class Account extends Controller
                 'notifysignin' => isset($_POST['notifysignin']),
             ]);
 
-            $this->addMessage('Your privacy settings have been saved.');
+            $this->addMessage(t('Your privacy settings have been saved.'));
             $this->redirect(sURL . $this->routeBase . '/privacy');
             return;
         }
@@ -2271,7 +2272,7 @@ class Account extends Controller
                 ->where('sid', $sid)
                 ->update(['logout' => 1]);
             \Pramnos\Auth\ActivityLog::record((int) $currentUser->userid, 'session_revoked');
-            $this->addMessage('The selected session has been signed out.');
+            $this->addMessage(t('The selected session has been signed out.'));
         }
 
         $this->redirect(sURL . $this->routeBase . '/security');
@@ -2293,7 +2294,7 @@ class Account extends Controller
         if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
             $session = \Pramnos\Http\Session::getInstance();
             if (!$session->checkToken('post')) {
-                $this->addError('Your session expired. Please try again.');
+                $this->addError(t('Your session expired. Please try again.'));
                 $this->redirect(sURL . $this->routeBase . '/changepassword');
                 return;
             }
@@ -2325,7 +2326,7 @@ class Account extends Controller
              */
             $history = new \Pramnos\Auth\PasswordHistory();
             if ($history->wasUsedBefore((int) $currentUser->userid, $newPassword)) {
-                $this->addError('You have used that password before. Please choose a different one.');
+                $this->addError(t('You have used that password before. Please choose a different one.'));
                 $this->redirect(sURL . $this->routeBase . '/changepassword');
 
                 return;
