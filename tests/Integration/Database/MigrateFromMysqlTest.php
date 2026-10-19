@@ -337,6 +337,43 @@ class MigrateFromMysqlTest extends TestCase
     }
 
     /**
+     * PostgreSQL keeps 63 bytes of a name. Two foreign keys whose names, with their table's in
+     * front, share their first 63 bytes were cut to one name: the second read as "already exists"
+     * and was never made, and nothing said so (FW-165 §3). Each long name now ends in a hash of the
+     * whole, so both keys — and both indexes under them — are made, and a second run still finds
+     * them there.
+     */
+    public function testLongNamesStayTwoNames(): void
+    {
+        // Arrange — two keys whose names differ only past PostgreSQL's 63 bytes
+        $tester = $this->databases();
+        $this->source->query('CREATE TABLE parents (id INT PRIMARY KEY) ENGINE=InnoDB');
+        $this->source->query('CREATE TABLE children_with_a_rather_long_name (id INT PRIMARY KEY, first_parent INT, second_parent INT,'
+            . ' CONSTRAINT fk_children_point_at_their_parent_through_one FOREIGN KEY (first_parent) REFERENCES parents (id),'
+            . ' CONSTRAINT fk_children_point_at_their_parent_through_two FOREIGN KEY (second_parent) REFERENCES parents (id)) ENGINE=InnoDB');
+        $this->source->query('INSERT INTO parents VALUES (1)');
+        $this->source->query('INSERT INTO children_with_a_rather_long_name VALUES (1, 1, 1)');
+        $only = ['--source' => $this->dsn(), '--tables' => 'parents,children_with_a_rather_long_name'];
+
+        // Act
+        $tester->execute($only);
+        $keys = array_column($this->rows("SELECT conname AS n FROM pg_constraint WHERE contype = 'f' AND conrelid = 'children_with_a_rather_long_name'::regclass ORDER BY conname"), 'n');
+        $indexes = $this->rows("SELECT indexname AS i FROM pg_indexes WHERE tablename = 'children_with_a_rather_long_name' AND indexname NOT LIKE '%pkey'");
+        $tester->execute($only);
+        $again = $tester->getDisplay();
+
+        // Assert
+        $this->assertCount(2, $keys, 'both keys made');
+        $this->assertNotSame($keys[0], $keys[1]);
+        foreach ($keys as $key) {
+            $this->assertLessThanOrEqual(63, strlen($key));
+            $this->assertMatchesRegularExpression('/^children_with_a_rather_long_name_fk_children_point_at__[0-9a-f]{8}$/', $key);
+        }
+        $this->assertCount(2, $indexes, 'and both indexes MySQL made for them');
+        $this->assertStringNotContainsString('already exists', $again);
+    }
+
+    /**
      * MySQL's zero date goes into a nullable column as NULL. Into a column that takes no NULL it
      * refuses the row — unless `--zero-date` names what it becomes, which is then counted. Such a
      * table moves through PHP whatever the transport. A replacement that is not a date is refused

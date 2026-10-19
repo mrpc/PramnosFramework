@@ -1296,11 +1296,11 @@ final class Migrator
                 $skipped[] = (in_array(null, $index['columns'], true) ? 'expression' : $index['kind']) . ' index ' . $name;
                 continue;
             }
-            $statements[] = ['sql' => 'CREATE ' . ($index['unique'] ? 'UNIQUE ' : '') . 'INDEX IF NOT EXISTS ' . $quote(substr($bare . '_' . $name, 0, 63))
+            $statements[] = ['sql' => 'CREATE ' . ($index['unique'] ? 'UNIQUE ' : '') . 'INDEX IF NOT EXISTS ' . $quote(self::identifier($bare . '_' . $name))
                 . ' ON ' . $this->quoted($table) . ' (' . $columns($index['columns']) . ')', 'unchecked' => null];
         }
         foreach ($shape['foreign'] as $name => $key) {
-            $constraint = $quote(substr($bare . '_' . $name, 0, 63));
+            $constraint = $quote(self::identifier($bare . '_' . $name));
             $add        = 'ALTER TABLE ' . $this->quoted($table) . ' ADD CONSTRAINT ' . $constraint . ' FOREIGN KEY (' . $columns($key['columns']) . ')'
                 . ' REFERENCES ' . $this->quoted($targetOf($key['references'])) . ' (' . $columns($key['referenced']) . ')'
                 . ' ON DELETE ' . $key['delete'] . ' ON UPDATE ' . $key['update'];
@@ -1308,6 +1308,16 @@ final class Migrator
         }
 
         return ['statements' => $statements, 'skipped' => $skipped];
+    }
+
+    /**
+     * A name PostgreSQL keeps whole: at most 63 bytes. A longer one is cut and given a hash of the
+     * whole, so two that share their first 63 bytes stay two — cut alone, they would be one name,
+     * and the second index or foreign key would read as "already exists" and never be made.
+     */
+    public static function identifier(string $name): string
+    {
+        return strlen($name) <= 63 ? $name : mb_strcut($name, 0, 54, 'UTF-8') . '_' . substr(md5($name), 0, 8);
     }
 
     /**

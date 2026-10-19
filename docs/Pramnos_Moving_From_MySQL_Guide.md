@@ -75,6 +75,9 @@ unique keys and foreign keys, with their `ON DELETE` / `ON UPDATE` rules:
   the prefix already guaranteed.
 - A `FULLTEXT` or `SPATIAL` index, or one over an expression, has no plain PostgreSQL equivalent.
   The dry run names it, and it is not made.
+- An index or key is named `<table>_<MySQL name>`. PostgreSQL keeps 63 bytes of a name, so a
+  longer one is cut to 54 and ends in `_` and 8 hex characters of a hash of the whole name. Two
+  names that share their first 63 bytes stay two.
 - A foreign key points at wherever the referenced table went: one the migrations made, or one
   made in the same run. The table loads after the tables it points at.
 - A foreign key that the moved rows break is added `NOT VALID`, so it holds for new rows, and the
