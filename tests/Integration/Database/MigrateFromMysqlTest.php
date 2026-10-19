@@ -452,6 +452,50 @@ class MigrateFromMysqlTest extends TestCase
     }
 
     /**
+     * Out of strict mode, MySQL fills a NOT NULL column an insert leaves out with '' or 0, and
+     * PostgreSQL refuses the insert (FW-165 §6). The dry run counts the target's columns that
+     * rely on it, and names the dates, which have no default PostgreSQL could take for MySQL's
+     * zero date; `--implicit-defaults` gives the others MySQL's. With the server strict, nothing
+     * is said: no insert relied on it.
+     */
+    public function testTheDefaultsMysqlFilledInOutOfStrictMode(): void
+    {
+        // Arrange
+        $tester = $this->databases();
+        $this->source->query('CREATE TABLE loose (id INT PRIMARY KEY, title VARCHAR(20) NOT NULL, n INT NOT NULL, flag TINYINT(1) NOT NULL, born DATETIME NOT NULL, note TEXT) ENGINE=InnoDB');
+        $this->target->query('CREATE TABLE loose (id INT PRIMARY KEY, title VARCHAR(20) NOT NULL, n INT NOT NULL, flag BOOLEAN NOT NULL, born TIMESTAMP NOT NULL, note TEXT)');
+        $only = ['--source' => $this->dsn(), '--tables' => 'loose'];
+        $mode = (string) ($this->mysql->query('SELECT @@GLOBAL.sql_mode AS m')->fields['m'] ?? '');
+
+        try {
+            // Act
+            $tester->execute($only + ['--dry-run' => true]);
+            $strict = $tester->getDisplay();
+            $this->mysql->query("SET GLOBAL sql_mode = ''");
+            $tester->execute($only + ['--dry-run' => true]);
+            $loose = $tester->getDisplay();
+            $tester->execute($only + ['--implicit-defaults' => true]);
+            $applied = $tester->getDisplay();
+        } finally {
+            $this->mysql->query("SET GLOBAL sql_mode = '" . $mode . "'");
+        }
+        $defaults = $this->rows("SELECT column_name AS c, column_default AS d FROM information_schema.columns WHERE table_name = 'loose' AND column_name IN ('title', 'n', 'flag', 'born') ORDER BY column_name");
+        $accepted = @pg_query($this->target->getConnectionLink(), "INSERT INTO loose (id, born) VALUES (1, '2026-01-01')");
+        $filled   = $this->rows('SELECT title, n FROM loose WHERE id = 1');
+        $refused  = @pg_query($this->target->getConnectionLink(), 'INSERT INTO loose (id) VALUES (2)');
+
+        // Assert
+        $this->assertStringNotContainsString('strict mode', $strict, 'strict: no insert relied on it');
+        $this->assertStringContainsString('4 NOT NULL column(s) with no default', $loose);
+        $this->assertStringContainsString('--implicit-defaults gives 3 of them that default; the rest — dates — need one chosen in the migration: loose.born', $loose);
+        $this->assertStringContainsString('3 column(s) given the default MySQL filled in', $applied);
+        $this->assertSame([['c' => 'born', 'd' => null], ['c' => 'flag', 'd' => 'false'], ['c' => 'n', 'd' => '0'], ['c' => 'title', 'd' => "''::character varying"]], $defaults);
+        $this->assertNotFalse($accepted, 'an insert that leaves out what MySQL filled in goes in');
+        $this->assertSame([['title' => '', 'n' => 0]], array_map(static fn (array $r): array => ['title' => $r['title'], 'n' => (int) $r['n']], $filled));
+        $this->assertFalse($refused, 'born still needs its own default: the insert that leaves it out is refused');
+    }
+
+    /**
      * A blob that holds text — UTF-8, or JSON — is named by the dry run, with the type the
      * migration would take it as; a blob of real bytes is not. A table made here gets such a
      * column as text with `--blob-as-text`, its values arriving as the text they are (FW-165 §5).

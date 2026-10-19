@@ -46,6 +46,7 @@ class DatabaseMigrateFromMysql extends Command
             ->addOption('batch-size', null, InputOption::VALUE_REQUIRED, 'Rows per INSERT', '5000')
             ->addOption('batch-mb', null, InputOption::VALUE_REQUIRED, 'Most megabytes of values per batch, whatever the row count', '32')
             ->addOption('source-timezone', null, InputOption::VALUE_REQUIRED, 'The zone the source\'s DATETIME values were written in (default: this application\'s)')
+            ->addOption('implicit-defaults', null, InputOption::VALUE_NONE, 'Give the target the defaults MySQL filled in out of strict mode: \'\' for text, 0 for numbers, false for flags')
             ->addOption('blob-as-text', null, InputOption::VALUE_REQUIRED, 'A table made here gets these blob columns as text, not bytea: table.column, comma-separated')
             ->addOption('repair-encoding', null, InputOption::VALUE_REQUIRED, 'Repair double-encoded text (UTF-8 stored through latin1) in these columns, table.column, comma-separated')
             ->addOption('zero-date', null, InputOption::VALUE_REQUIRED, 'What MySQL\'s zero date becomes in a column that takes no NULL, e.g. "1970-01-01 00:00:00" (default: NULL, and the row is refused)')
@@ -129,6 +130,9 @@ class DatabaseMigrateFromMysql extends Command
         $this->reportPlan($output, $plan);
         if ($input->getOption('dry-run')) {
             return Command::SUCCESS;
+        }
+        if ($input->getOption('implicit-defaults')) {
+            $output->writeln($migrator->applyImplicitDefaults($plan) . ' column(s) given the default MySQL filled in.');
         }
 
         if ((string) $input->getOption('transport') === 'fdw') {
@@ -338,6 +342,14 @@ class DatabaseMigrateFromMysql extends Command
                 $output->writeln('  ' . $o['kind'] . ' ' . $o['name'] . ($o['on'] !== null ? ' (on ' . $o['on'] . ')' : '')
                     . ($o['there'] ? ' — the target has one of that name' : ' — <error>the target has none</error>'));
             }
+        }
+        $implicit = $plan['implicit'] ?? ['strict' => true, 'columns' => []];
+        if ($implicit['columns'] !== []) {
+            $sayable = array_filter($implicit['columns'], static fn (array $c): bool => $c['default'] !== null);
+            $output->writeln('<comment>MySQL runs out of strict mode:</comment> ' . count($implicit['columns']) . ' NOT NULL column(s) with no default take an insert that leaves them out there'
+                . ' (as \'\', 0 or a zero date), and refuse it here. --implicit-defaults gives ' . count($sayable) . ' of them that default'
+                . (count($sayable) < count($implicit['columns']) ? '; the rest — dates — need one chosen in the migration: ' . implode(', ', array_map(static fn (array $c): string => $c['table'] . '.' . $c['column'],
+                    array_filter($implicit['columns'], static fn (array $c): bool => $c['default'] === null))) : ''));
         }
         if ($plan['cycles'] !== []) {
             $output->writeln('<comment>These point at each other and load in name order:</comment> ' . implode(', ', $plan['cycles']));

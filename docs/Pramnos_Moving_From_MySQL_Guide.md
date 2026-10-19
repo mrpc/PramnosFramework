@@ -174,6 +174,24 @@ Greek, is left alone. A table with a column to repair moves through PHP, even wi
 `--transport=fdw`. Give `--phase=verify` the same option, so it compares the values as they were
 written.
 
+### What MySQL filled in out of strict mode
+
+A MySQL server running without strict mode, as many production servers do, fills a `NOT NULL`
+column that an insert leaves out with `''` or `0`. PostgreSQL refuses the insert. The application's
+code was never told it relied on this. The dry run reads the server's `sql_mode` and, out of
+strict mode, counts the target's columns that rely on it: `NOT NULL`, no default, and no default
+in MySQL either. Keys are not counted, since the application always gives a key.
+
+```
+MySQL runs out of strict mode: 1809 NOT NULL column(s) with no default take an insert that leaves
+them out there (as '', 0 or a zero date), and refuse it here. --implicit-defaults gives 1650 of
+them that default; the rest — dates — need one chosen in the migration: users.born, …
+```
+
+`--implicit-defaults` gives those columns MySQL's default: `''` for text, `0` for a number,
+`false` for a flag, an empty `bytea`. A date's default in MySQL is the zero date, which PostgreSQL
+has no value for, so it is named for the migration to decide.
+
 ### Text kept in a blob
 
 An old schema often keeps text, or JSON, in a `blob`. Moved as `bytea`, it is bytes the
@@ -285,6 +303,7 @@ refuses rows into them: decompress first.
 | `--batch-mb` | Most megabytes of values per batch, whatever the row count (default 32) |
 | `--source-prefix` | The source tables' prefix, when it is not the application's |
 | `--zero-date` | What MySQL's zero date becomes in a column that takes no NULL (default: NULL, and the row is refused) |
+| `--implicit-defaults` | Give the target the defaults MySQL filled in out of strict mode: `''`, `0`, `false` |
 | `--blob-as-text` | A table made here gets these blob columns as `text`, not `bytea` — `table.column` |
 | `--repair-encoding` | Repair double-encoded text in these columns, `table.column` — see [Text, character sets and double encoding](#text-character-sets-and-double-encoding) |
 | `--source-timezone` | The zone the source's `DATETIME` values were written in (default: the application's) — see [Dates, times and zones](#dates-times-and-zones) |

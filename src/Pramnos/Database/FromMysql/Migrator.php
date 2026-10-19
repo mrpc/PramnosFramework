@@ -270,6 +270,7 @@ final class Migrator
         $offset = intdiv((new \DateTimeImmutable('now', new \DateTimeZone($this->zone)))->getOffset(), 60);
 
         return ['tables' => $tables, 'order' => $sorted['order'], 'cycles' => $sorted['cycles'], 'replica' => $this->replicaAllowed(), 'timeColumn' => $timeColumn, 'objects' => $this->sourceObjects(),
+            'implicit' => $this->implicitDefaults($tables, $sources, $targets),
             'zone' => ['name' => $this->zone, 'offset' => $offset, 'serverOffset' => $this->serverOffset, 'columns' => $wallClock]];
     }
 
@@ -1569,6 +1570,68 @@ final class Migrator
         }
 
         return $found;
+    }
+
+    /**
+     * The columns an application relies on MySQL to fill without saying so: with the server out
+     * of strict mode, an insert that leaves out a `NOT NULL` column with no default gets `''`, `0`
+     * or a zero date there — and is refused here. Each target column that is `NOT NULL` with no
+     * default, whose source column has none either, with the default MySQL would have put
+     * (null where PostgreSQL has none to give: a date's is MySQL's zero date).
+     *
+     * @param array<string, array<string, mixed>> $tables
+     * @param array<string, array<string, mixed>> $sources
+     * @param array<string, array<string, mixed>> $targets
+     * @return array{strict: bool, columns: list<array{table: string, column: string, type: string, default: ?string}>}
+     */
+    private function implicitDefaults(array $tables, array $sources, array $targets): array
+    {
+        $mode   = strtoupper((string) ($this->sourceRows('SELECT @@GLOBAL.sql_mode AS m')[0]['m'] ?? ''));
+        $strict = str_contains($mode, 'STRICT_TRANS_TABLES') || str_contains($mode, 'STRICT_ALL_TABLES');
+        $found  = [];
+        if ($strict) {
+            return ['strict' => true, 'columns' => []];
+        }
+        foreach ($tables as $name => $table) {
+            foreach ($targets[$table['target']]['columns'] ?? [] as $column => $definition) {
+                $source = $sources[$name]['columns'][$column] ?? null;
+                // A key is given by the application, always: a default there would be a value nobody chose.
+                if (!$definition['notnull'] || $definition['default'] || ($definition['generated'] ?? false) || $source === null
+                    || $source['nullable'] || $source['default'] !== null || $source['auto'] || in_array($column, $sources[$name]['primary'], true)) {
+                    continue;
+                }
+                $type    = strtolower((string) $definition['type']);
+                $default = match (true) {
+                    preg_match('/^(smallint|integer|bigint|numeric|real|double precision)/', $type) === 1 => '0',
+                    $type === 'boolean'                                                                  => 'false',
+                    preg_match('/^(text|character|citext)/', $type) === 1                                  => "''",
+                    $type === 'bytea'                                                                    => "''::bytea",
+                    default                                                                              => null,
+                };
+                $found[] = ['table' => (string) $table['target'], 'column' => (string) $column, 'type' => $type, 'default' => $default];
+            }
+        }
+
+        return ['strict' => false, 'columns' => $found];
+    }
+
+    /**
+     * Give the target the defaults MySQL filled in without being asked — those
+     * {@see implicitDefaults()} found and PostgreSQL can say. Returns how many columns were given one.
+     *
+     * @param array<string, mixed> $plan
+     */
+    public function applyImplicitDefaults(array $plan): int
+    {
+        $given = 0;
+        foreach ($plan['implicit']['columns'] ?? [] as $column) {
+            if ($column['default'] !== null && $this->quietly('ALTER TABLE ' . $this->quoted($column['table'])
+                . ' ALTER COLUMN "' . str_replace('"', '""', $column['column']) . '" SET DEFAULT ' . $column['default'])) {
+                $given++;
+            }
+        }
+
+        return $given;
     }
 
     /** Run a statement on the target; whether it succeeded, the error left for pg_last_error(). */
