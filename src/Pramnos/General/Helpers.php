@@ -1249,8 +1249,15 @@ class Helpers
             'description' => ''
         );
         $comma = '';
+        /*
+         * array_key_exists(), not isset(): isset() is false for a property that is there and
+         * null, so every property null after a save was reported as removed — and every one
+         * null before it as added. An application logging those wrote a "data removal" entry
+         * on nearly every save, listing fields nobody had touched, and a field that went from
+         * a value to null was filed there with its old value lost from the changes.
+         */
         foreach ($firstObjectVars as $property=>$value) {
-            if (isset($secondObjectVars[$property])) {
+            if (array_key_exists($property, $secondObjectVars)) {
                 if ($secondObjectVars[$property] != $value) {
                     $diff['changed'][$property]=array(
                         'original' => $value,
@@ -1288,7 +1295,7 @@ class Helpers
             }
         }
         foreach ($secondObjectVars as $property=>$value) {
-            if (!isset($firstObjectVars[$property])) {
+            if (!array_key_exists($property, $firstObjectVars)) {
                 $diff['added'][$property]=$value;
                 if (!is_array($value) && !is_object($value)
                     && !is_resource($value)) {

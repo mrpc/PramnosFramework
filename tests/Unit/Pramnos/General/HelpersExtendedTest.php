@@ -517,6 +517,29 @@ class HelpersExtendedTest extends TestCase
     }
 
     /**
+     * A property that is there and null is there: null on both sides is no change, a value
+     * that became null is a change with its old value kept, and one that was null and now
+     * has a value is a change too — none of them removed or added. Only a property one
+     * object does not have at all is.
+     */
+    public function testObjectDiffTreatsANullPropertyAsPresent(): void
+    {
+        // Arrange
+        $first  = (object) ['profession' => null, 'phone' => '6900000000', 'city' => null, 'role' => 'pro'];
+        $second = (object) ['profession' => null, 'phone' => null, 'city' => 'Athens', 'nickname' => null];
+
+        // Act
+        $diff = Helpers::objectDiff($first, $second);
+
+        // Assert
+        $this->assertSame(['role' => 'pro'], $diff['removed'], 'only what the second object does not have');
+        $this->assertSame(['nickname' => null], $diff['added'], 'and only what the first does not');
+        $this->assertSame(['original' => '6900000000', 'new' => null], $diff['changed']['phone'], 'a value gone to null keeps its old value');
+        $this->assertSame(['original' => null, 'new' => 'Athens'], $diff['changed']['city']);
+        $this->assertArrayNotHasKey('profession', $diff['changed'], 'null to null is no change');
+    }
+
+    /**
      * objectDiff() returns empty added/removed/changed when both objects
      * are identical.
      */

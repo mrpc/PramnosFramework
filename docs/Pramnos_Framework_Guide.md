@@ -1769,6 +1769,26 @@ limit of 5 on `The quick brown fox` returns ten characters, and a single long wo
 back whole and unmarked. Useful when you want at least `$length`; not when the bound is
 the point.
 
+## Comparing two objects: `Helpers::objectDiff()`
+
+```php
+$diff = \Pramnos\General\Helpers::objectDiff($before, $after);
+$diff['changed'];   // ['phone' => ['original' => '69…', 'new' => null], …]
+$diff['removed'];   // properties $after does not have at all
+$diff['added'];     // properties $before did not have at all
+$diff['description'];
+```
+
+The comparison works on public properties, which is the usual input for a model's
+before-and-after on save.
+
+**A property that is there and null is there.** A value that became null is a change, kept
+with its old value under `changed`. So is a null that now has a value. Null on both sides is
+no change. Only a property one object lacks altogether is `removed` or `added`, and on a save,
+where both objects are the same class, that hardly ever happens.
+
+Values are compared loosely (`!=`), so `0`, `''` and `null` count as equal to one another.
+
 ## Reading a user agent
 
 `Pramnos\General\Helpers::getBrowser($agent)` returns the browser, its version, the
