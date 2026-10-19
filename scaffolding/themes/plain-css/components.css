@@ -588,3 +588,22 @@ a.pf-stat-tile:hover { border-color: var(--primary-color, #2563eb); }
 .pf-image-dialog .pf-image-use:disabled { opacity: .6; cursor: progress; }
 .pf-image-dialog .cropper-view-box { outline-color: var(--primary-color, #2563eb); }
 .pf-image-round .cropper-view-box, .pf-image-round .cropper-face { border-radius: 50%; }
+
+/* What's new (Pramnos\Assist\WhatsNew): opened and closed by a checkbox, so it needs no script.
+   Only the announcements scroll; the title and Close stay in view. */
+.pf-whatsnew-toggle { display: none; }
+.pf-whatsnew { display: none; position: fixed; inset: 0; z-index: 1000; align-items: center; justify-content: center; padding: 1rem; }
+.pf-whatsnew-toggle:checked + .pf-whatsnew { display: flex; }
+.pf-whatsnew-backdrop { position: absolute; inset: 0; background: rgba(0, 0, 0, .6); }
+.pf-whatsnew-box { position: relative; display: flex; flex-direction: column; width: min(36rem, 100%); max-height: calc(100vh - 8em); margin: 0; padding: 1.25rem; border-radius: .75rem; background: var(--color-base-100, #fff); color: var(--color-base-content, #111); box-shadow: 0 1rem 3rem rgba(0, 0, 0, .3); }
+.pf-whatsnew-box h2 { margin: 0 0 .75rem; font-size: 1.125rem; font-weight: 600; }
+.pf-whatsnew-body { overflow-y: auto; min-height: 0; }
+.pf-whatsnew-post { margin-bottom: 1rem; }
+.pf-whatsnew-post h3 { margin: 0 0 .25rem; font-size: 1rem; font-weight: 600; }
+.pf-whatsnew-post ul { margin: 0; padding-inline-start: 1.25rem; list-style: disc; font-size: .875rem; }
+.pf-whatsnew-more { padding: 0; border: 0; background: none; color: var(--primary-color, #2563eb); font: inherit; font-size: .875rem; cursor: pointer; }
+.pf-whatsnew-more:hover { text-decoration: underline; }
+.pf-whatsnew-actions { display: flex; justify-content: flex-end; margin-top: 1rem; }
+.pf-whatsnew-close { padding: .375rem 1rem; border: 1px solid var(--primary-color, #2563eb); border-radius: .375rem; background: var(--primary-color, #2563eb); color: #fff; font: inherit; cursor: pointer; }
+.pf-whatsnew-button { display: inline-flex; align-items: center; gap: .375rem; cursor: pointer; }
+@media (max-width: 40rem) { .pf-whatsnew-button span { display: none; } }

@@ -4340,6 +4340,7 @@ PHP;
                     <li class="pf-omnibox-item"><?php echo (new \Pramnos\Html\SearchBox())->render(); ?></li>
                     <?php endif; ?>
                     <?php echo \Pramnos\Llm\Analyst\Analyst::headerButton('<li class="nav-item">', '</li>'); ?>
+                    <?php echo \Pramnos\Assist\WhatsNew::button('<li class="nav-item">', '</li>'); ?>
                     <?php if (!empty($_nav[\Pramnos\Application\NavSection::Admin->value])): ?>
                     <li class="nav-item dropdown">
                         <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">Admin</a>
@@ -4443,6 +4444,7 @@ HTML,
             <div class="pf-omnibox-item"><?php echo (new \Pramnos\Html\SearchBox())->render(); ?></div>
             <?php endif; ?>
             <?php echo \Pramnos\Llm\Analyst\Analyst::headerButton(); ?>
+            <?php echo \Pramnos\Assist\WhatsNew::button('<span class="btn btn-ghost btn-sm">', '</span>'); ?>
 
             <?php
             /**
@@ -4500,6 +4502,7 @@ HTML,
                     <li class="pf-omnibox-item"><?php echo (new \Pramnos\Html\SearchBox())->render(); ?></li>
                     <?php endif; ?>
                     <?php echo \Pramnos\Llm\Analyst\Analyst::headerButton('<li class="nav-item">', '</li>'); ?>
+                    <?php echo \Pramnos\Assist\WhatsNew::button('<li class="nav-item">', '</li>'); ?>
                     <?php if (!empty($_nav[\Pramnos\Application\NavSection::Admin->value])): ?>
                     <li class="nav-admin">
                         <span>Admin</span>
@@ -4693,6 +4696,8 @@ HTML,
         }
 
         return $themeJs
+            // What's new, for whoever has something unseen or lately announced (Assist\WhatsNew).
+            . "    <?php echo \\Pramnos\\Assist\\WhatsNew::window(); ?>\n"
             . "    <?php echo \\Pramnos\\Security\\CookieConsent::tag(sURL); ?>\n"
             // Core Web Vitals from real visitors: prints nothing until app.php sets vitals.sample.
             . "    <?php echo \\Pramnos\\Logs\\ClientVitals::tag(); ?>\n"

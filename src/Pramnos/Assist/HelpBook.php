@@ -72,10 +72,11 @@ final class HelpBook
     }
 
     /**
-     * One page: `slug`, `title`, `section`, `questions`, `updated`, `body` (without front matter),
-     * `framework` (shipped rather than the application's) — or null.
+     * One page: `slug`, `title`, `section`, `questions`, `updated`, `whatsnew` (the lines that
+     * announce it, {@see WhatsNew}), `body` (without front matter), `framework` (shipped rather
+     * than the application's) — or null.
      *
-     * @return array{slug: string, title: string, section: string, questions: list<string>, updated: string, body: string, framework: bool}|null
+     * @return array{slug: string, title: string, section: string, questions: list<string>, updated: string, whatsnew: list<string>, body: string, framework: bool}|null
      */
     public function page(string $slug): ?array
     {
@@ -439,7 +440,7 @@ final class HelpBook
         return $this->pages = $pages;
     }
 
-    /** @return array{slug: string, title: string, section: string, questions: list<string>, updated: string, order: ?int, requires: list<string>, screens: list<string>, body: string, framework: bool} */
+    /** @return array{slug: string, title: string, section: string, questions: list<string>, updated: string, order: ?int, requires: list<string>, screens: list<string>, whatsnew: list<string>, body: string, framework: bool} */
     private static function read(string $file, string $slug, bool $framework): array
     {
         $text   = str_replace(["\r\n", "\r"], "\n", (string) file_get_contents($file));
@@ -475,12 +476,15 @@ final class HelpBook
             'title'     => $title !== '' ? $title : $slug,
             'section'   => is_string($meta['section'] ?? null) ? $meta['section'] : ($framework ? 'Administration' : ''),
             'questions' => is_array($meta['questions'] ?? null) ? array_values($meta['questions']) : [],
-            'updated'   => is_string($meta['updated'] ?? null) ? $meta['updated'] : '',
+            // A changelog post says `date:`, a page `updated:`; either is when it is from.
+            'updated'   => is_string($meta['updated'] ?? null) ? $meta['updated'] : (is_string($meta['date'] ?? null) ? $meta['date'] : ''),
             'order'     => is_string($meta['order'] ?? null) && is_numeric($meta['order']) ? (int) $meta['order'] : null,
             // What the site's gate must allow for the page to exist; every one of them.
             'requires'  => self::names($meta['requires'] ?? []),
             // The screens it is the page of, beside the one it is named after.
             'screens'   => array_values(array_filter(array_map([Help::class, 'slug'], self::names($meta['screens'] ?? [])), static fn (string $s): bool => $s !== '' && !str_contains($s, '/'))),
+            // The lines that announce it in What's new; none for a page that is not announced.
+            'whatsnew'  => self::names($meta['whatsnew'] ?? []),
             'body'      => $body,
             'framework' => $framework,
         ];

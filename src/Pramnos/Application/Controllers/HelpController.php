@@ -14,6 +14,8 @@ use Pramnos\Assist\HelpBook;
  *   - display()  the pages by section, and a search (`?q=`)
  *   - page()     one page (`?p=users/edit`)
  *   - image()    a picture a page shows (`?f=images/refund.png`), to somebody signed in
+ *   - whatsnew() What's new closed — a POST with the session's token: everything announced is
+ *                seen, and back to the page, or on to a post (`more=<slug>`) or the help (`more=news`)
  *
  * For anybody inside the administration area — its floor, not a screen's: help is not a
  * privilege. Under `admin_access = permissions` it is granted like any screen, by `admin.help`.
@@ -26,7 +28,9 @@ class HelpController extends Controller
 
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
-        $this->addAuthAction(['display', 'page', 'image']);
+        $this->addAuthAction(['display', 'page', 'image', 'whatsnew']);
+        // A change to the person's settings: never from a link another site could send.
+        $this->addWriteAction('whatsnew');
         parent::__construct($application);
     }
 
@@ -101,6 +105,30 @@ class HelpController extends Controller
         $view->listUrl = $this->book()->url();
 
         return $view->display('page');
+    }
+
+    /**
+     * What's new closed ({@see \Pramnos\Assist\WhatsNew}): everything announced is seen by this
+     * person, and the browser goes back to the page it was on — a path of this site only — or to
+     * the post whose "More" was pressed, or to the help for the older ones.
+     */
+    public function whatsnew(): mixed
+    {
+        if (!Help::enabled()) {
+            return $this->notHere();
+        }
+        $user = \Pramnos\User\User::getCurrentUser();
+        if ($user instanceof \Pramnos\User\User) {
+            \Pramnos\Assist\WhatsNew::dismiss($user, $this->book());
+        }
+        $more = (string) ($_POST['more'] ?? '');
+        $this->redirect(match (true) {
+            $more === 'news'                                     => $this->book()->url(),
+            $more !== '' && $this->book()->page($more) !== null => $this->book()->url($more),
+            default                                              => \Pramnos\Assist\WhatsNew::back((string) ($_POST['return'] ?? '')),
+        });
+
+        return null;
     }
 
     /** A picture beside the pages — only inside a help directory, only of a picture's type. */

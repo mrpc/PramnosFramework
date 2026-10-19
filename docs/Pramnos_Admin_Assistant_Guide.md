@@ -13,6 +13,7 @@ use_cases:
   - Making the site's help button a small icon, or replacing it with the application's own
   - Putting separate Ask and Help buttons in a theme's header, each opening the panel on its tab
   - Styling the side panel from the theme's stylesheet, to match daisyUI or Bootstrap
+  - Announcing a change to the administrators in a What's new window they close once
 ---
 
 # Administration help and the side panel
@@ -91,7 +92,9 @@ A refund starts from the order's page. See [orders](help:orders).
   under *Administration*.
 - `questions` — what a reader would ask. A search matches them, and the title, three times as
   strongly as the text.
-- `updated` — shown under the page.
+- `updated` — shown under the page. A changelog post may say `date` instead.
+- `whatsnew` — lines that announce the page in [What's new](#whats-new), to every administrator
+  until they close it.
 - `order` — a number that sorts the page within its section, before the title. Pages without one
   come after those with one.
 - `screens` — `[editorial, draft, sources]`: the screens this page is the help of, beside the
@@ -112,6 +115,53 @@ A list can be written on one line, `[a, b]`, or as `- a` lines.
 
 The renderer is `Chat\Markdown`: headings, lists, tables, emphasis, code, links and pictures. It
 escapes everything first, and has no HTML and no nested lists.
+
+### What's new
+
+A page with `whatsnew:` in its front matter is **announced**. Its lines are what a window over
+the administration says, until each person closes it. Usually the page is a changelog post. Most
+posts are not worth interrupting anybody for, and the one that is says so:
+
+```markdown
+---
+title: Invoices in two currencies
+section: Changelog
+date: 2026-10-19
+whatsnew:
+  - An invoice can now be issued in dollars as well as euros.
+  - Reports show both, converted at the day's rate.
+---
+```
+
+- **The window opens by itself, without a script,** while something announced is unseen. It
+  shows the newest three in full, each with *More →* to its page, and counts the rest, with a
+  link to the help. Only the announcements scroll; the title and *Close* stay in view.
+- **Close and More** are a POST with the session's token to `/admin/Help/whatsnew`. Everything
+  announced is then seen by that person, and the browser goes back to the page, a path of this
+  site only, or on to the post.
+- **Seen is per person,** in their user settings (`whatsnew.seen`). Somebody who has never had it
+  starts with everything dated before today seen. A new administrator is not shown the history,
+  but whoever first opens the administration on the day of an announcement still sees it.
+- **The header's button** shows while something was announced in the last fourteen days, and
+  opens the same window with those. Closing it there is only a click.
+- **For** the people of the administration: the help on, and a usertype at the area's floor or
+  above.
+
+A theme written by `init` has both hooks. In a theme of your own:
+
+```php
+<?php echo \Pramnos\Assist\WhatsNew::button('<li>', '</li>'); ?>   <!-- header, nothing when there is nothing -->
+<?php echo \Pramnos\Assist\WhatsNew::window(); ?>                  <!-- footer -->
+```
+
+Each theme's `components.css` styles `pf-whatsnew`. The settings, with their defaults:
+
+```php
+'help' => ['whatsnew' => ['shown' => 3, 'recent_days' => 14, 'min_usertype' => 90]],  // min_usertype: the area's floor unless set
+```
+
+`WhatsNew::announced()`, `unseen($user)`, `recent()` and `dismiss($user)` are there for a
+screen of your own.
 
 ### Search
 
