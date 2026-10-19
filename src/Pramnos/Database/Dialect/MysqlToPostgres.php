@@ -55,7 +55,7 @@ final class MysqlToPostgres
     private const FUNCTIONS = ['IFNULL', 'IF', 'ISNULL', 'LCASE', 'UCASE', 'RAND', 'CURDATE', 'CURTIME', 'UNIX_TIMESTAMP', 'FROM_UNIXTIME', 'DATE_FORMAT', 'DATE_ADD', 'DATE_SUB', 'GROUP_CONCAT'];
 
     /** Words a statement this translates may contain; one of them, or a backtick, or nothing to do. */
-    private const MARKERS = '/`|\bLIMIT\s+[^\s,]+\s*,|\b(?:IF|ISNULL|LCASE|UCASE|DATE_ADD|DATE_SUB)\s*\(|\b(?:IFNULL|RAND|UNIX_TIMESTAMP|FROM_UNIXTIME|CURDATE|CURTIME|DATE_FORMAT|GROUP_CONCAT|IGNORE|DUPLICATE|REPLACE)\b/i';
+    private const MARKERS = '/`|\bLIMIT\s+[^\s,]+\s*,|\b(?:IF|ISNULL|LCASE|UCASE|DATE_ADD|DATE_SUB)\s*\(|\b(?:IFNULL|RAND|UNIX_TIMESTAMP|FROM_UNIXTIME|CURDATE|CURTIME|DATE_FORMAT|GROUP_CONCAT|IGNORE|DUPLICATE|REPLACE|CONFLICT)\b/i';
 
     /** @var array<string, string> Statements translated, by their text */
     private array $cache = [];
@@ -397,7 +397,15 @@ final class MysqlToPostgres
         $ignore = $verb === 'INSERT' && $second !== null && strcasecmp($tokens[$second]['v'], 'IGNORE') === 0;
         $upsert = $this->topLevel($tokens, ['ON', 'DUPLICATE', 'KEY', 'UPDATE']);
         if (!$ignore && $upsert === null && $verb !== 'REPLACE') {
-            return $tokens;
+            // Already PostgreSQL's upsert — written so, or translated and then added to, as code
+            // that appends `, n = n + 1` to a prepared statement does: its bare self-references
+            // are as ambiguous as they would have been in MySQL's.
+            $set = $this->topLevel($tokens, ['DO', 'UPDATE', 'SET']);
+            if ($set === null) {
+                return $tokens;
+            }
+
+            return [...array_slice($tokens, 0, $set[1] + 1), ...$this->qualified(array_slice($tokens, $set[1] + 1), $this->target($tokens, $first)[0])];
         }
         [$table, $columns] = $this->target($tokens, $first);
 
@@ -426,9 +434,23 @@ final class MysqlToPostgres
         $key  = $this->conflictKey($table, $columns, 'ON DUPLICATE KEY UPDATE');
         $head = array_slice($tokens, 0, $upsert[0]);
         $tail = array_slice($tokens, $upsert[1] + 1);
-        // VALUES(c), the value the insert proposed, is EXCLUDED.c; a bare column on the right of
-        // an assignment is the row already there, which MySQL takes it for and PostgreSQL wants
-        // named — `n = n + 1` is `n = t.n + 1`, or it is ambiguous with EXCLUDED's.
+
+        return [...$head, ['t' => 'raw', 'v' => 'ON CONFLICT (' . self::list($key) . ') DO UPDATE SET'], ...$this->qualified($tail, $table)];
+    }
+
+    /**
+     * An upsert's assignments as PostgreSQL takes them. VALUES(c), the value the insert proposed,
+     * is EXCLUDED.c; a bare column on the right of an assignment is the row already there, which
+     * MySQL takes it for and PostgreSQL wants named — `n = n + 1` is `n = t.n + 1`, or it is
+     * ambiguous with EXCLUDED's. A name already qualified, or one that qualifies another
+     * (`t.n`, `EXCLUDED.n`), is left.
+     *
+     * @param list<array{t: string, v: string}> $tail
+     * @return list<array{t: string, v: string}>
+     */
+    private function qualified(array $tail, string $table): array
+    {
+        // ponytail: `INSERT INTO t AS x` is not read — its alias is what the update would have to name.
         $known     = array_map('strtolower', $this->columnsOf !== null ? ($this->columnsOf)($table) : []);
         $existing  = self::ident((string) substr(strrchr('.' . $table, '.'), 1));
         $rewritten = [];
@@ -449,14 +471,14 @@ final class MysqlToPostgres
             $next = self::next($tail, $k);
             $prev = end($rewritten);
             if ($right && $name !== null && in_array(strtolower($name), $known, true)
-                && ($next === null || $tail[$next]['v'] !== '(') && ($prev === false || $prev['v'] !== '.')) {
+                && ($next === null || !in_array($tail[$next]['v'], ['(', '.'], true)) && ($prev === false || $prev['v'] !== '.')) {
                 $rewritten[] = ['t' => 'raw', 'v' => $existing . '.' . self::sql([$token])];
                 continue;
             }
             $rewritten[] = $token;
         }
 
-        return [...$head, ['t' => 'raw', 'v' => 'ON CONFLICT (' . self::list($key) . ') DO UPDATE SET'], ...$rewritten];
+        return $rewritten;
     }
 
     /**

@@ -95,6 +95,29 @@ final class MysqlToPostgresIntegrationTest extends TestCase
             'ignored once, counted up, replaced');
     }
 
+    /**
+     * Code that adds to an upsert after prepareQuery() has translated it — `, n = n + 1` on the
+     * end of what is by then `ON CONFLICT … DO UPDATE SET` — ran into "column reference is
+     * ambiguous" on every call (FW-165 §7). The statement is read again when it runs, and the
+     * bare name is the row already there, as MySQL took it.
+     */
+    public function testAnUpsertAddedToAfterItWasTranslatedRuns(): void
+    {
+        // Arrange
+        $c   = $this->t . '_counters';
+        $sql = $this->db->prepareQuery("INSERT INTO {$c} (id, n, label) VALUES (%d, %d, %s) ON DUPLICATE KEY UPDATE label = VALUES(label)", 3, 1, 'seen');
+
+        // Act — appended after the translation, as the application does
+        $this->db->query($sql . ', n = n + 1');
+        $this->db->query($sql . ', n = n + 1');
+        $this->db->query($sql . ', "n" = "n" + 1');
+        $row = pg_fetch_assoc(pg_query($this->db->getConnectionLink(), "SELECT n, label FROM {$c} WHERE id = 3")) ?: [];
+
+        // Assert — inserted once, counted up twice
+        $this->assertStringContainsString('ON CONFLICT', $sql, 'translated before it was added to');
+        $this->assertSame(['n' => '3', 'label' => 'seen'], $row);
+    }
+
     /** Reads compute what MySQL computed. */
     public function testReadsComputeWhatMysqlComputed(): void
     {

@@ -1360,7 +1360,10 @@ the catalogue. Where two qualify, or none, the statement is refused with
 `Pramnos\Database\Dialect\DialectException`, which says to write `ON CONFLICT (…)` yourself,
 rather than guessed at. A bare column on the right of an update (`n = n + 1`) is the row already
 there, as in MySQL, and is qualified with the table's name, since PostgreSQL would find it
-ambiguous with `EXCLUDED`.
+ambiguous with `EXCLUDED`. The same holds for a statement that is already
+`ON CONFLICT … DO UPDATE SET`: written so, or translated by `prepareQuery()` and then added to
+(`$sql . ', n = n + 1'`). Each run reads it again. An insert with an alias (`INSERT INTO t AS x`)
+is not read for it: name the alias yourself.
 
 **Left alone, on purpose**: what would run on PostgreSQL and mean something else. That is a
 `LIKE` that ignored case under MySQL's collation, a `GROUP BY` that leaves columns out, `"…"`

@@ -87,6 +87,15 @@ class MysqlToPostgresTest extends TestCase
             'a comment untouched'   => ["SELECT a -- IFNULL(b, c)\nFROM `t`", "SELECT a -- IFNULL(b, c)\nFROM \"t\""],
             'PostgreSQL already'    => ['SELECT COALESCE(a, 0) FROM "t" LIMIT 10 OFFSET 20', 'SELECT COALESCE(a, 0) FROM "t" LIMIT 10 OFFSET 20'],
             'replace() the function'=> ["SELECT replace(name, 'a', 'b') FROM t", "SELECT replace(name, 'a', 'b') FROM t"],
+            // FW-165 §7: code that adds to an upsert already translated, or written in PostgreSQL's.
+            'added to after translating' => ['INSERT INTO counters (id, n) VALUES (1, 1) ON CONFLICT (id) DO UPDATE SET label = EXCLUDED.label, n = n + 1',
+                                        'INSERT INTO counters (id, n) VALUES (1, 1) ON CONFLICT (id) DO UPDATE SET label = EXCLUDED.label, n = counters.n + 1'],
+            'added to, quoted'      => ['INSERT INTO "counters" ("id", "n") VALUES (1, 1) ON CONFLICT ("id") DO UPDATE SET "n" = "n" + 1 WHERE "n" < 10',
+                                        'INSERT INTO "counters" ("id", "n") VALUES (1, 1) ON CONFLICT ("id") DO UPDATE SET "n" = counters."n" + 1 WHERE counters."n" < 10'],
+            'already qualified'     => ['INSERT INTO counters (id, n) VALUES (1, 1) ON CONFLICT (id) DO UPDATE SET n = counters.n + EXCLUDED.n',
+                                        'INSERT INTO counters (id, n) VALUES (1, 1) ON CONFLICT (id) DO UPDATE SET n = counters.n + EXCLUDED.n'],
+            'DO NOTHING untouched'  => ['INSERT INTO counters (id, n) VALUES (1, 1) ON CONFLICT (id) DO NOTHING',
+                                        'INSERT INTO counters (id, n) VALUES (1, 1) ON CONFLICT (id) DO NOTHING'],
             'a pattern to_char lacks' => ["SELECT DATE_FORMAT(d, '%U') FROM t", "SELECT DATE_FORMAT(d, '%U') FROM t"],
         ];
     }
