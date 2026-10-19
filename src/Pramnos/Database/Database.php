@@ -1434,7 +1434,10 @@ class Database extends \Pramnos\Framework\Base
         foreach ($this->statements as $key=>$statement) {
             try {
                 if ($this->type == 'postgresql') {
-                    @pg_free_result($statement['statement']);
+                    // A plan adopted from the server has no result of its own to free.
+                    if ($statement['statement'] instanceof \PgSql\Result) {
+                        @pg_free_result($statement['statement']);
+                    }
                 } else {
                     @$statement['statement']->close();
                 }
@@ -1836,14 +1839,36 @@ class Database extends \Pramnos\Framework\Base
                 unset($this->statements[$stmtName]);
             }
 
-            $result = @pg_prepare($connection, $stmtName, $query);
+            /*
+             * Inside a transaction, a plan already on the server is looked for first rather than
+             * collided with: there, «already exists» is not an answer to recover from — the error
+             * itself aborts the transaction, and every recovery after it is refused. A plan this
+             * connection lost track of (an earlier transaction refused its DEALLOCATE) is the
+             * right one: its name is this SQL's hash.
+             */
+            $result = false;
+            if (@pg_transaction_status($connection) === PGSQL_TRANSACTION_INTRANS) {
+                $known = @pg_query_params($connection, 'SELECT 1 FROM pg_prepared_statements WHERE name = $1', [$stmtName]);
+                $result = $known !== false && pg_num_rows($known) > 0;
+            }
+            $result = $result ?: @pg_prepare($connection, $stmtName, $query);
             if (!$result) {
                 // Save the real error before DEALLOCATE overwrites pg_last_error().
                 $prepareError = @pg_last_error($connection);
-                // Plan may already exist in the PostgreSQL session (e.g., left from a prior exception).
-                // Deallocate it and re-prepare so the statement is fresh.
-                @pg_query($connection, 'DEALLOCATE "' . $stmtName . '"');
-                $result = @pg_prepare($connection, $stmtName, $query);
+                if (str_contains((string) $prepareError, 'already exists')) {
+                    /*
+                     * The plan is on the server already, under this very SQL's name — the name is
+                     * the SQL's hash. A plan this connection forgot (its DEALLOCATE refused inside a
+                     * failed transaction) is still the right one: use it. Dropping and re-making it
+                     * failed the same way for as long as the transaction stayed aborted, and the
+                     * connection then answered «already exists» to that statement for good.
+                     */
+                    $result = true;
+                } elseif (@pg_transaction_status($connection) !== PGSQL_TRANSACTION_INERROR) {
+                    // Some other refusal outside a failed transaction: drop whatever is there and try once more.
+                    @pg_query($connection, 'DEALLOCATE "' . $stmtName . '"');
+                    $result = @pg_prepare($connection, $stmtName, $query);
+                }
             }
 
             if ($result) {
@@ -2135,9 +2160,15 @@ class Database extends \Pramnos\Framework\Base
             }
         } finally {
             if ($free) {
-                if ($this->type == 'postgresql') {
+                if ($this->type == 'postgresql' && @pg_transaction_status($connection) === PGSQL_TRANSACTION_INERROR) {
+                    // A failed transaction refuses DEALLOCATE too: the plan stays on the server, so
+                    // it stays known here, and the next prepare of this SQL reuses it.
+                    $free = false;
+                } elseif ($this->type == 'postgresql') {
                     @pg_query($connection, 'DEALLOCATE "' . $statement->id . '"');
                 }
+            }
+            if ($free) {
                 unset($this->statements[$statement->id]);
                 if ($this->type != 'postgresql') {
                     $statement->close();

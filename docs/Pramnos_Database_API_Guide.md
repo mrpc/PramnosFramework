@@ -492,6 +492,16 @@ If you keep a `Database` handle across a long idle period yourself, you need not
 statement after the idle fails, reconnects and is retried. If you hold a raw
 `mysqli`/`PgSql\Connection` from `getConnectionLink()`, you own that problem.
 
+### A statement that failed inside a transaction, on PostgreSQL
+
+A statement that fails inside a transaction aborts it, and an aborted transaction refuses everything
+until it ends, the `DEALLOCATE` that would drop the statement's plan included. The plan then stays
+on the server, so it stays known to the connection, and the next execute of the same SQL reuses
+it. Plans are named after the SQL's hash, so the plan on the server is the right one. Inside a
+transaction, a plan is looked for on the server (`pg_prepared_statements`) before it is prepared:
+there, a collision would abort the transaction itself, and nothing could recover after it. That
+holds whether the transaction was opened with `startTransaction()` or with raw `START TRANSACTION`.
+
 ## A paginated list that groups
 
 `_getPaginated()` takes a `$group` clause, and two shapes of it behave differently in a way worth
