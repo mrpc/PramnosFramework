@@ -163,6 +163,14 @@ class MailFlush extends Command
      */
     protected function deliver(array $row): string
     {
+        // Bounced or blocked since it was queued: it is not sent, and the row says why.
+        $refused = $this->bounced((string) $row['tomail']);
+        if ($refused !== null) {
+            $this->mark((int) $row['id'], Mail::STATUS_FAILED, 'Not sent: ' . $row['tomail'] . ' ' . $refused . '.');
+
+            return 'failed';
+        }
+
         $email = $this->mailer();
         $email->setTo((string) $row['tomail']);
         $email->setSubject((string) $row['subject']);
@@ -224,6 +232,16 @@ class MailFlush extends Command
             }
         } catch (\Throwable $e) {
             \Pramnos\Logs\Logger::log('Sent mail ' . (int) $row['id'] . ' kept its body in the row: ' . $e->getMessage(), 'mail');
+        }
+    }
+
+    /** Why mail must not go to this address, or null — and null when the store cannot say. */
+    protected function bounced(string $address): ?string
+    {
+        try {
+            return \Pramnos\Email\Bounces::refusal($address);
+        } catch (\Throwable) {
+            return null;
         }
     }
 

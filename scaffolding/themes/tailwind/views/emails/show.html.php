@@ -68,6 +68,23 @@ $sentAt  = is_numeric($rawDate) && (int) $rawDate > 0
                     </dd>
                 </div>
             </dl>
+            <?php
+            /* Whether mail still goes to this address ({@see \Pramnos\Email\Bounces}): a bounce or a
+               block stops every message to it, a password reset included. */
+            $bounce = $this->bounce ?? null;
+            if (is_array($bounce)): ?>
+                <form method="post" action="<?php echo htmlspecialchars($bounce['action'], ENT_QUOTES); ?>" class="flex flex-wrap items-center gap-2 mt-4 text-sm">
+                    <input type="hidden" name="_csrf_token" value="<?php echo htmlspecialchars($bounce['csrf'], ENT_QUOTES); ?>">
+                    <?php if ($bounce['refusal'] !== null): ?>
+                        <span class="text-error">Mail to this address is not sent: <?php echo htmlspecialchars($bounce['refusal']); ?>.</span>
+                        <button type="submit" name="op" value="clear" class="btn btn-outline btn-xs">Send to it again</button>
+                    <?php else: ?>
+                        <span class="text-success">Mail to this address is sent.</span>
+                        <input type="text" name="reason" placeholder="Why (optional)" maxlength="255" class="input input-bordered input-xs">
+                        <button type="submit" name="op" value="block" class="btn btn-outline btn-error btn-xs">Stop all mail to it</button>
+                    <?php endif; ?>
+                </form>
+            <?php endif; ?>
         </div>
     </div>
     <?php

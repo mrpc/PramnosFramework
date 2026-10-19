@@ -11,14 +11,14 @@ $mail = $this->mail ?? [];
  * The column names, read from the table rather than guessed — see the note in the tailwind
  * copy of this screen. `mails` has `tomail`, `toname`, `content` and an integer `date`.
  */
-$recipient = (string) ($mail['tomail'] ?? $recipient);
+$recipient = (string) ($mail['tomail'] ?? '');
 $body      = (string) ($mail['content'] ?? $mail['body'] ?? $mail['mailbody'] ?? '');
-$rawDate   = $sentAt;
+$rawDate   = $mail['date'] ?? '';
 $sentAt    = is_numeric($rawDate) && (int) $rawDate > 0
     ? date('j M Y, H:i', (int) $rawDate)
     : (string) $rawDate;
 ?>
-<div class="page-section"max-width:860px">
+<div class="page-section" style="max-width:860px">
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
         <a href="<?php echo adminUrl('Emails'); ?>" class="btn btn-sm btn-outline-secondary">&larr; Back</a>
         <h2 >Email #<?php echo (int)($mail['id'] ?? 0); ?></h2>
@@ -35,6 +35,23 @@ $sentAt    = is_numeric($rawDate) && (int) $rawDate > 0
                 <dt style="font-weight:600;min-width:120px;display:inline-block">Status</dt>
                 <dd ><?php echo (int)($mail['status'] ?? 0) === 1 ? '<span class="badge bg-success">Sent</span>' : '<span class="badge bg-secondary">Pending</span>'; ?></dd>
             </dl>
+            <?php
+            /* Whether mail still goes to this address ({@see \Pramnos\Email\Bounces}): a bounce or a
+               block stops every message to it, a password reset included. */
+            $bounce = $this->bounce ?? null;
+            if (is_array($bounce)): ?>
+                <form method="post" action="<?php echo htmlspecialchars($bounce['action'], ENT_QUOTES); ?>" >
+                    <input type="hidden" name="_csrf_token" value="<?php echo htmlspecialchars($bounce['csrf'], ENT_QUOTES); ?>">
+                    <?php if ($bounce['refusal'] !== null): ?>
+                        <span >Mail to this address is not sent: <?php echo htmlspecialchars($bounce['refusal']); ?>.</span>
+                        <button type="submit" name="op" value="clear" class="btn btn-sm">Send to it again</button>
+                    <?php else: ?>
+                        <span >Mail to this address is sent.</span>
+                        <input type="text" name="reason" placeholder="Why (optional)" maxlength="255" >
+                        <button type="submit" name="op" value="block" class="btn btn-sm">Stop all mail to it</button>
+                    <?php endif; ?>
+                </form>
+            <?php endif; ?>
         </div>
     </div>
     <div class="card" style="border:1px solid #ddd;border-radius:4px;margin-bottom:16px">

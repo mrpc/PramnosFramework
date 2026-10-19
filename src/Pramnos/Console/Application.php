@@ -216,6 +216,7 @@ class Application extends \Symfony\Component\Console\Application
         $this->add(new \Pramnos\Console\Commands\MailPrune());
         // Sent messages' bodies from files into the compressed mail_bodies, once TimescaleDB is there.
         $this->add(new \Pramnos\Console\Commands\MailBodiesToDatabase());
+        $this->add(new \Pramnos\Console\Commands\MailBounces());
         $this->add(new \Pramnos\Console\Commands\LlmPrune());
         $this->add(new \Pramnos\Console\Commands\LlmRoutines());
         // The other half of the same table: `Email::queue()` writes a message there instead of

@@ -49,6 +49,8 @@ class TestableEmailsController extends EmailsController
             public mixed $clearUrl;
             /** Everything knowable about one sent message, for the detail screen. */
             public mixed $report;
+            /** Whether mail still goes to the recipient, and the form that changes it. */
+            public mixed $bounce;
 
             public function display($view = '') {
                 return 'mock html view for ' . $view;
@@ -120,9 +122,14 @@ class EmailsControllerTest extends BaseTestCase
          */
         $db->query('DROP TABLE IF EXISTS ' . $db->schema()->quoteTable('#PREFIX#mails'));
         $this->runMigrations(
-            [\Pramnos\Framework\Migrations\Messaging\CreateMailsTable::class],
+            [
+                \Pramnos\Framework\Migrations\Messaging\CreateMailsTable::class,
+                \Pramnos\Framework\Migrations\Messaging\CreateBouncesTable::class,
+            ],
             $db
         );
+        \Pramnos\Email\Bounces::forget();
+        \Pramnos\Email\Bounces::clear('test@test.com');
 
         // Insert mock data. `date` is a Unix timestamp, and every NOT NULL column is named.
         $db->query('DELETE FROM ' . $db->schema()->quoteTable('#PREFIX#mails'));
@@ -362,6 +369,138 @@ class EmailsControllerTest extends BaseTestCase
         $this->assertSame('mock html view for show', $output);
         $this->assertSame('<p>Kept on disk</p>', $this->controller->lastView->mail['content'], 'the view is handed the body');
         $this->assertSame('<p>Kept on disk</p>', $this->controller->lastView->report->body(), 'and so is the report');
+    }
+
+    /**
+     * The message's page says whether mail still goes to its recipient, and carries the form that
+     * blocks it — posted with the session's token to this message's bounce action.
+     */
+    public function testShowSaysWhetherMailGoesToTheRecipient(): void
+    {
+        // Arrange
+        $this->setMockUser(98);
+        \Pramnos\Framework\Factory::getDocument()->themeObject = new class {
+            public function allowsViewOverrides() { return false; }
+        };
+
+        // Act
+        ob_start();
+        try {
+            $_GET['_option'] = 1;
+            $this->controller->show(1);
+        } finally {
+            ob_end_clean();
+        }
+        $bounce = $this->controller->lastView->bounce;
+
+        // Assert
+        $this->assertIsArray($bounce);
+        $this->assertNull($bounce['refusal'], 'nothing recorded: mail goes');
+        $this->assertStringEndsWith('emails/bounce/1', $bounce['action']);
+        $this->assertSame(\Pramnos\Http\Session::getInstance()->getCsrfToken(), $bounce['csrf']);
+    }
+
+    /**
+     * Posted from the message's page, `block` stops all mail to its recipient with the reason
+     * given, and `clear` lets it go again; each says so and returns to the message.
+     */
+    public function testTheRecipientIsBlockedAndCleared(): void
+    {
+        // Arrange
+        $this->setMockUser(98);
+        $soft = new TestableEmailsControllerSoft(Application::getInstance());
+        $_SERVER['REQUEST_METHOD'] = 'POST';
+        $_GET['_option']           = 1;
+        $_POST                     = ['_csrf_token' => \Pramnos\Http\Session::getInstance()->getCsrfToken(), 'op' => 'block', 'reason' => 'asked by phone'];
+
+        // Act
+        $soft->bounce(1);
+        $blocked = \Pramnos\Email\Bounces::refusal('test@test.com');
+        $_POST['op'] = 'clear';
+        $soft->bounce(1);
+        $cleared = \Pramnos\Email\Bounces::status('test@test.com');
+        $_POST['op'] = 'unknown';
+        $soft->bounce(1);
+
+        // Assert
+        $this->assertStringContainsString('asked by phone', (string) $blocked);
+        $this->assertNull($cleared);
+        $this->assertContains('No mail goes to test@test.com now.', $_SESSION['_messages'] ?? []);
+        $this->assertContains('Mail goes to test@test.com again.', $_SESSION['_messages'] ?? []);
+        $this->assertContains('Nothing was changed for test@test.com.', $_SESSION['_errors'] ?? [], 'an unknown op changes nothing');
+        $this->assertCount(3, array_filter($soft->redirectedTo, static fn (string $url): bool => str_ends_with($url, 'emails/show/1')));
+    }
+
+    /**
+     * Without the session's token, or by GET, nothing is changed; a message that is not there
+     * returns to the list.
+     */
+    public function testABounceChangeNeedsTheTokenAndTheMessage(): void
+    {
+        // Arrange
+        $this->setMockUser(98);
+        $soft = new TestableEmailsControllerSoft(Application::getInstance());
+        $_GET['_option'] = 1;
+        $_SERVER['REQUEST_METHOD'] = 'POST';
+        $_POST = ['_csrf_token' => 'forged', 'op' => 'block'];
+
+        // Act
+        $soft->bounce(1);
+        $_POST['_csrf_token'] = \Pramnos\Http\Session::getInstance()->getCsrfToken();
+        $_GET['_option']      = 999;
+        $soft->bounce(999);
+
+        // Assert
+        $this->assertNull(\Pramnos\Email\Bounces::status('test@test.com'), 'a forged form blocks nobody');
+        $this->assertContains('That form had expired. Please try again.', $_SESSION['_errors'] ?? []);
+        $this->assertContains('That record no longer exists.', $_SESSION['_errors'] ?? []);
+        $this->assertSame(adminUrl('emails'), end($soft->redirectedTo), 'back to the list');
+    }
+
+    /**
+     * Below the administration floor the action changes nothing; with no message id it returns
+     * to the list; and a page shown where there is no bounces table offers no form.
+     */
+    public function testTheBounceActionsEdges(): void
+    {
+        // Arrange
+        $soft = new TestableEmailsControllerSoft(Application::getInstance());
+        $this->setMockUser(1);
+
+        // Act — not an administrator
+        $soft->bounce(1);
+        $refused = $soft->redirectedTo;
+
+        // Act — no id
+        $this->setMockUser(98);
+        $soft->redirectedTo = [];
+        $_SERVER['REQUEST_METHOD'] = 'POST';
+        $_POST = ['_csrf_token' => \Pramnos\Http\Session::getInstance()->getCsrfToken(), 'op' => 'block'];
+        $soft->bounce(0);
+        $noId = $soft->redirectedTo;
+
+        // Act — no table
+        $db = \Pramnos\Framework\Factory::getDatabase();
+        $db->query('DROP TABLE ' . $db->schema()->quoteTable('#PREFIX#bounces'));
+        \Pramnos\Email\Bounces::forget();
+        \Pramnos\Framework\Factory::getDocument()->themeObject = new class {
+            public function allowsViewOverrides() { return false; }
+        };
+        ob_start();
+        try {
+            $_GET['_option'] = 1;
+            $this->controller->show(1);
+        } finally {
+            ob_end_clean();
+            $this->runMigrations([\Pramnos\Framework\Migrations\Messaging\CreateBouncesTable::class], $db);
+            \Pramnos\Email\Bounces::forget();
+        }
+
+        // Assert
+        $this->assertNotEmpty($refused, 'sent away');
+        $this->assertNull(\Pramnos\Email\Bounces::status('test@test.com'), 'and nobody blocked');
+        $this->assertSame([adminUrl('emails')], $noId);
+        $this->assertNull($this->controller->lastView->bounce, 'no table, no form');
     }
 
     public function testShowRedirectsWhenInvalidId(): void

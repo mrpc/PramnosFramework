@@ -19,6 +19,7 @@ use Pramnos\Html\Icon;
  *   - data()      — the rows behind it, as JSON
  *   - show($id)   — HTML preview of email content (body rendered in iframe)
  *   - resend($id) — re-queue a failed email for re-delivery
+ *   - bounce($id) — clear or block the recipient's address ({@see \Pramnos\Email\Bounces})
  *
  * All actions require authentication the administration floor (the `super` role, 98, unless set).
  *
@@ -38,7 +39,7 @@ class EmailsController extends Controller
 
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
-        $this->addAuthAction(['display', 'data', 'show', 'resend']);
+        $this->addAuthAction(['display', 'data', 'show', 'resend', 'bounce']);
         parent::__construct($application);
     }
 
@@ -350,6 +351,12 @@ class EmailsController extends Controller
             $mail,
             $this->trackingFor($mailId)
         );
+        // Whether mail still goes to this address, and the two things an operator does about it.
+        $view->bounce = \Pramnos\Email\Bounces::available() && \Pramnos\Email\Bounces::hash((string) ($mail['tomail'] ?? '')) !== null ? [
+            'refusal' => \Pramnos\Email\Bounces::refusal((string) $mail['tomail']),
+            'action'  => adminUrl('emails/bounce/') . $mailId,
+            'csrf'    => \Pramnos\Http\Session::getInstance()->getCsrfToken(),
+        ] : null;
 
         return $view->display('show');
     }
@@ -383,6 +390,49 @@ class EmailsController extends Controller
 
         $this->addMessage('Queued again.');
         $this->redirect(adminUrl('emails/show/') . $mailId);
+    }
+
+    /**
+     * Clear the recipient's bounces, or stop all mail to it — `op` = `clear` | `block`, posted
+     * from the message's page, with an optional `reason`.
+     */
+    public function bounce(mixed $id = null): void
+    {
+        if ($this->requireMinUserType($this->adminFloor())) {
+            return;
+        }
+
+        $mailId = (int) \Pramnos\Http\Request::staticGetOption();
+        $back   = adminUrl('emails/show/') . $mailId;
+        if (strtoupper((string) ($_SERVER['REQUEST_METHOD'] ?? 'GET')) !== 'POST'
+            || !\Pramnos\Http\Session::getInstance()->verifyCsrfToken((string) ($_POST['_csrf_token'] ?? ''))) {
+            $this->addError('That form had expired. Please try again.');
+            $this->redirect($back);
+            return;
+        }
+
+        $row = $mailId > 0
+            ? \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('#PREFIX#mails')->select(['tomail'])->where('id', $mailId)->first()
+            : null;
+        if (!$row || $row->numRows === 0) {
+            $this->addError('That record no longer exists.');
+            $this->redirect(adminUrl('emails'));
+            return;
+        }
+
+        $address = (string) $row->fields['tomail'];
+        $op      = (string) ($_POST['op'] ?? '');
+        $done    = match ($op) {
+            'clear' => \Pramnos\Email\Bounces::clear($address),
+            'block' => \Pramnos\Email\Bounces::block($address, trim((string) ($_POST['reason'] ?? '')) ?: 'Blocked from the email history'),
+            default => false,
+        };
+        if ($done) {
+            $this->addMessage($op === 'clear' ? 'Mail goes to ' . $address . ' again.' : 'No mail goes to ' . $address . ' now.');
+        } else {
+            $this->addError('Nothing was changed for ' . $address . '.');
+        }
+        $this->redirect($back);
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────

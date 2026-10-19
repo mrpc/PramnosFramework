@@ -41,12 +41,13 @@ The Pramnos Framework includes a comprehensive email system built on top of Symf
 11. [Dark mode](#dark-mode-and-why-the-wrapper-declares-it)
 12. [Accessibility in the message](#accessibility-in-the-message)
 13. [What DNS says](#what-dns-says-and-what-the-application-cannot-see)
-14. [The outbox](#the-outbox)
-15. [Retention](#what-to-keep-of-a-sent-message-and-for-how-long)
-16. [SMTP Configuration](#smtp-configuration)
-17. [Error Handling](#error-handling)
-18. [Best Practices](#best-practices)
-19. [API Reference](#api-reference)
+14. [Bounces, and addresses mail does not go to](#bounces-and-addresses-mail-does-not-go-to)
+15. [The outbox](#the-outbox)
+16. [Retention](#what-to-keep-of-a-sent-message-and-for-how-long)
+17. [SMTP Configuration](#smtp-configuration)
+18. [Error Handling](#error-handling)
+19. [Best Practices](#best-practices)
+20. [API Reference](#api-reference)
 
 ## Overview
 
@@ -1860,6 +1861,81 @@ The logo beside the subject, and the only item here that is worth money.
 
 `mail:dns-check` reports each of these separately, so "we published BIMI and nothing happened" has
 an answer.
+
+## Bounces, and addresses mail does not go to
+
+An address that does not exist, or that its owner asked to be cut off entirely, receives
+nothing — a password reset included. That is the difference from an unsubscribe, which only
+stops mail on a list: sending to a dead mailbox is what a mailbox provider counts against the
+sender, whatever the message was.
+
+```php
+use Pramnos\Email\Bounces;
+
+Bounces::refusal('someone@example.com');   // why mail does not go to it, or null when it does
+Bounces::block('someone@example.com', 'Asked by phone to stop all mail');
+Bounces::clear('someone@example.com');     // its bounces and its block forgotten
+Bounces::record('someone@example.com', soft: false, reason: '550 5.1.1 no such user');
+Bounces::recordReport($rawMessage);         // every failed recipient of a delivery report
+```
+
+`send()` and `queue()` ask before composing. A refused address is a message not sent: `send()`
+returns false, `getLastError()` says why (`Not sent: someone@example.com hard-bounced 1
+time(s), last … (550 5.1.1 no such user).`), and the `mails` row is written as not sent with that
+reason, as an opted-out one is. A message to several addresses goes to the ones it may go to and
+is refused only when none is left. `mail:flush` asks again before sending a queued message, so
+an address that bounced after the message was queued does not receive it.
+
+### When an address is refused
+
+- it was **blocked** by hand;
+- it **hard-bounced** — no such mailbox, no such domain — once;
+- it **soft-bounced** — mailbox full, disabled, the server deferring — 15 times; or
+- it soft-bounced **within the last day**: a full mailbox is given time to empty.
+
+Each rule is the application's to set, and 0 turns one off:
+
+```php
+// app/app.php
+'email' => ['bounces' => ['hard' => 1, 'soft' => 15, 'softWithin' => 86400]],
+```
+
+### Where bounces come from
+
+A **delivery report** (RFC 3464) — the message a mail server sends back — is read for every
+recipient whose action is `failed`. A status `4.x.x` is soft, and so are `5.2.1` (disabled) and
+`5.2.2` (full), the mailboxes that exist; every other permanent failure is hard. A delayed
+delivery records nothing.
+
+```bash
+php bin/pramnos mail:bounces var/inbox            # every .eml in a folder
+php bin/pramnos mail:bounces var/inbox --delete   # … removing each report once recorded
+php bin/pramnos mail:bounces < report.eml         # one message on standard input
+php bin/pramnos mail:bounces --status=someone@example.com
+php bin/pramnos mail:bounces --block=someone@example.com --reason="asked by phone"
+php bin/pramnos mail:bounces --clear=someone@example.com
+```
+
+Standard input makes the command a mail server's delivery target — an alias such as
+`bounces: "|php /srv/site/bin/pramnos mail:bounces"` with the site's `Return-Path` pointing at
+it records each report as it arrives. A folder is for a mailbox fetched to disk. A message in the
+folder that is not a report is left for a person to read.
+
+A server that refuses the address itself while the message is being sent — `5.1.x` in its reply,
+with a single recipient — is recorded as a hard bounce there and then: no report follows such a
+refusal. A refusal for any other reason (`5.7.1 relaying denied`) is the sender's problem, not
+the address's, and records nothing.
+
+### The table, and the screen
+
+`bounces` keeps one row per address, by the sha256 of the lowercased address — the table tells
+someone who has an address whether it bounced, and nothing to someone who has only the table.
+Its layout is the one applications have kept under that name: the migration creates it where it
+is missing and, where an application already has it, keeps its rows and adds `blocked` and
+`reason`. Until the migration has run nothing is refused and nothing written.
+
+A message's page in **Email History** says whether mail goes to its recipient, with **Stop all
+mail to it** (and a reason) or, for a refused one, **Send to it again**.
 
 ## The outbox
 

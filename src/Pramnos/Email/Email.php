@@ -741,6 +741,73 @@ class Email extends \Pramnos\Framework\Base
         return true;
     }
 
+    /**
+     * Leave out the recipients mail must not go to — bounced, or blocked by hand
+     * ({@see Bounces}) — and refuse the message when that is all of them.
+     *
+     * @return bool false when no recipient is left, with the reason in the last error
+     */
+    protected function deliverable(): bool
+    {
+        $addresses = array_values(array_filter(array_map('trim', explode(',', $this->emailToString($this->to)))));
+        $refused   = [];
+        foreach ($addresses as $address) {
+            if (($why = $this->bounced($address)) !== null) {
+                $refused[$address] = $why;
+            }
+        }
+        if ($refused === []) {
+            return true;
+        }
+        if (count($refused) === count($addresses)) {
+            $this->lastError = 'Not sent: ' . implode('; ', array_map(
+                static fn (string $address, string $why): string => $address . ' ' . $why,
+                array_keys($refused),
+                $refused
+            )) . '.';
+
+            return false;
+        }
+        // The others still get it; the audit row names who they were.
+        $this->to = is_array($this->to)
+            ? array_filter($this->to, static fn ($value, $key): bool => !isset($refused[is_string($key) ? $key : (string) $value]), ARRAY_FILTER_USE_BOTH)
+            : implode(', ', array_diff($addresses, array_keys($refused)));
+
+        return true;
+    }
+
+    /**
+     * Why mail must not go to this address, or null. A seam; a store that cannot answer refuses
+     * nothing — a password reset is not held back by a bounce table that is down.
+     */
+    protected function bounced(string $address): ?string
+    {
+        try {
+            return Bounces::refusal($address);
+        } catch (\Throwable $e) {
+            \Pramnos\Logs\Logger::log('Bounces could not be read for a send: ' . $e->getMessage(), 'mail');
+
+            return null;
+        }
+    }
+
+    /**
+     * A server that refused the one recipient's address outright (`5.1.x`: no such mailbox, no
+     * such domain) is a hard bounce, recorded as one — no report will follow it.
+     */
+    protected function recordRefusedAddress(string $error): void
+    {
+        $addresses = array_values(array_filter(array_map('trim', explode(',', $this->emailToString($this->to)))));
+        if (count($addresses) !== 1 || preg_match('/\b5\.1\.\d{1,3}\b/', $error) !== 1) {
+            return;
+        }
+        try {
+            Bounces::record($addresses[0], false, $error);
+        } catch (\Throwable $e) {
+            \Pramnos\Logs\Logger::log('A refused address could not be recorded as a bounce: ' . $e->getMessage(), 'mail');
+        }
+    }
+
     /** Is this address a confirmed subscriber of an opt-in list? A seam, like {@see optedOut()}. */
     protected function subscribed(string $address, string $list): bool
     {
@@ -1018,7 +1085,7 @@ class Email extends \Pramnos\Framework\Base
         // Suppression before composition: an address that asked us to stop is a message not
         // sent, and rendering a body first only wastes the work. This also fills in the
         // unsubscribe link, which the wrapper below reads.
-        if (!$this->applyMailType()) {
+        if (!$this->deliverable() || !$this->applyMailType()) {
             $this->renderedBody     = TemplateValues::fill((string) $this->body, $this->bodyValues ?? []);
             $this->subject          = TemplateValues::fill((string) $this->subject, $this->bodyValues ?? []);
             $this->templateRendered = null;
@@ -1143,6 +1210,7 @@ class Email extends \Pramnos\Framework\Base
         } catch (\Exception $exception) {
             $this->lastError     = $exception->getMessage();
             $this->lastException = $exception;
+            $this->recordRefusedAddress($this->lastError);
 
             return false;
         }
@@ -1178,6 +1246,7 @@ class Email extends \Pramnos\Framework\Base
             $this->lastError = $exception->getMessage();
             $this->lastException = $exception;
             \Pramnos\Logs\Logger::log("Email error: " . $exception->getMessage() . "\n" . \Pramnos\Logs\Trace::of($exception));
+            $this->recordRefusedAddress($this->lastError);
             $sent = false;
         }
 

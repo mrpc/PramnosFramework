@@ -11,9 +11,9 @@ $mail = $this->mail ?? [];
  * The column names, read from the table rather than guessed — see the note in the tailwind
  * copy of this screen. `mails` has `tomail`, `toname`, `content` and an integer `date`.
  */
-$recipient = (string) ($mail['tomail'] ?? $recipient);
+$recipient = (string) ($mail['tomail'] ?? '');
 $body      = (string) ($mail['content'] ?? $mail['body'] ?? $mail['mailbody'] ?? '');
-$rawDate   = $sentAt;
+$rawDate   = $mail['date'] ?? '';
 $sentAt    = is_numeric($rawDate) && (int) $rawDate > 0
     ? date('j M Y, H:i', (int) $rawDate)
     : (string) $rawDate;
@@ -35,6 +35,23 @@ $sentAt    = is_numeric($rawDate) && (int) $rawDate > 0
                 <dt class="col-sm-2">Status</dt>
                 <dd class="col-sm-10"><?php echo (int)($mail['status'] ?? 0) === 1 ? '<span class="badge bg-success">Sent</span>' : '<span class="badge bg-secondary">Pending</span>'; ?></dd>
             </dl>
+            <?php
+            /* Whether mail still goes to this address ({@see \Pramnos\Email\Bounces}): a bounce or a
+               block stops every message to it, a password reset included. */
+            $bounce = $this->bounce ?? null;
+            if (is_array($bounce)): ?>
+                <form method="post" action="<?php echo htmlspecialchars($bounce['action'], ENT_QUOTES); ?>" class="d-flex flex-wrap align-items-center gap-2 mt-3">
+                    <input type="hidden" name="_csrf_token" value="<?php echo htmlspecialchars($bounce['csrf'], ENT_QUOTES); ?>">
+                    <?php if ($bounce['refusal'] !== null): ?>
+                        <span class="text-danger">Mail to this address is not sent: <?php echo htmlspecialchars($bounce['refusal']); ?>.</span>
+                        <button type="submit" name="op" value="clear" class="btn btn-sm btn-outline-secondary">Send to it again</button>
+                    <?php else: ?>
+                        <span class="text-success">Mail to this address is sent.</span>
+                        <input type="text" name="reason" placeholder="Why (optional)" maxlength="255" class="form-control form-control-sm w-auto">
+                        <button type="submit" name="op" value="block" class="btn btn-sm btn-outline-danger">Stop all mail to it</button>
+                    <?php endif; ?>
+                </form>
+            <?php endif; ?>
         </div>
     </div>
     <div class="card">

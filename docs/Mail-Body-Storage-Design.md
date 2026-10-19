@@ -376,11 +376,11 @@ each alone.
 ### Phases
 
 1. **Reading** — `Email\Body::of()`: `content`, or the file `path` names. *Done.*
-2. Deterministic tokens: new methods beside the existing ones.
+2. Deterministic tokens: new methods beside the existing ones. *Done.*
 3. The store, with rebuild — `BodyStore`, as a hypertable or as files (and S3). *Done.*
 4. Template + variables through the framework, with values taken from the user. *Done.*
 5. Bounces and suppression: the table, a check in `send()`, a command reading the bounce mailbox,
-   and a screen.
+   and a screen. *Done* — `Email\Bounces`, `mail:bounces`, the message page in Email History.
 6. GDPR erasure and retention, files and rows alike.
 7. `mails` as a hypertable. The move of an application's files into `mail_bodies` is
    `mail:bodies-to-database`. *Done.*
