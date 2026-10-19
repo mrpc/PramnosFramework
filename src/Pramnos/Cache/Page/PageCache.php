@@ -154,6 +154,14 @@ final class PageCache
             // site whose renders are cheap enough not to need the protection.
             'lockTtl'        => 30,
             'gzip'           => true,
+            // Keep only the gzipped body: about a sixth of the size, for a store that is short of
+            // memory. A client that does not take gzip — a bot, curl — has it unzipped on the way
+            // out. The ETag is the unzipped body's either way.
+            'compressAtRest' => false,
+            // The Redis server, where it is not the cache's: ['host' => …, 'port' => …,
+            // 'database' => …, 'password' => …]. Unset, the `cache` settings' hostname, and
+            // without one the shared Redis connection (REDIS_HOST / REDIS_PORT), as Cache uses.
+            'redis'          => null,
             'etag'           => true,
             // What a hit tells the *browser* — null leaves whatever PHP already put
             // there, which today is not a decision anybody made.
@@ -434,11 +442,12 @@ final class PageCache
         $ttl = $this->ttlFor($request);
         $this->storedTtl = $ttl;
 
+        $gzipBody   = $this->config['gzip'] && function_exists('gzencode') ? gzencode($body, 6) : null;
+        $compressed = (bool) $this->config['compressAtRest'] && is_string($gzipBody);
         $entry = [
-            'body'     => $body,
-            'gzipBody' => $this->config['gzip'] && function_exists('gzencode')
-                ? gzencode($body, 6)
-                : null,
+            'body'       => $compressed ? '' : $body,
+            'compressed' => $compressed,
+            'gzipBody'   => $gzipBody === false ? null : $gzipBody,
             'status'   => $response->getStatusCode(),
             'headers'  => $this->storableHeaders($response),
             'created'  => time(),
@@ -868,7 +877,7 @@ final class PageCache
             );
         }
 
-        $body    = (string) $entry['body'];
+        $body    = self::bodyOf($entry);
         $gzipped = false;
 
         if ($entry['gzipBody'] !== null
@@ -893,6 +902,12 @@ final class PageCache
         }
 
         return $this->decorate($response, $entry, $state, $age, $key);
+    }
+
+    /** A stored entry's body, unzipped where only the gzipped one was kept. */
+    private static function bodyOf(array $entry): string
+    {
+        return !empty($entry['compressed']) ? (string) @gzdecode((string) $entry['gzipBody']) : (string) $entry['body'];
     }
 
     /**
@@ -1402,7 +1417,7 @@ final class PageCache
             return;
         }
 
-        $this->atomicWrite($directory . '/index.html', (string) $entry['body']);
+        $this->atomicWrite($directory . '/index.html', self::bodyOf($entry));
 
         if ($entry['gzipBody'] !== null) {
             $this->atomicWrite($directory . '/index.html.gz', (string) $entry['gzipBody']);
@@ -1590,15 +1605,16 @@ final class PageCache
     private function buildAdapter(string $name): AdapterInterface
     {
         $settings = (array) \Pramnos\Application\Settings::getSetting('cache');
+        // The store holds this cache's keys and nothing else's: with the prefix, clearing it is
+        // clearing them. Without, a Redis adapter's clear() is FLUSHDB — the application's cache,
+        // its rate limiters, everything in the database — and a file adapter's the whole folder.
+        $prefix = (string) $this->config['prefix'];
 
         switch (strtolower($name)) {
             case 'redis':
-                return new \Pramnos\Cache\Adapter\RedisAdapter(
-                    (string) ($settings['hostname'] ?? 'localhost'),
-                    (int) ($settings['port'] ?? 6379),
-                    (int) ($settings['database'] ?? 0),
-                    $settings['password'] ?? null
-                );
+                [$host, $port, $database, $password] = $this->redisServer($settings);
+
+                return new \Pramnos\Cache\Adapter\RedisAdapter($host, $port, $database, $password, $prefix);
             case 'memcached':
                 return new \Pramnos\Cache\Adapter\MemcachedAdapter(
                     (string) ($settings['hostname'] ?? 'localhost'),
@@ -1616,8 +1632,34 @@ final class PageCache
                 return new \Pramnos\Cache\Adapter\FileAdapter(
                     defined('CACHE_PATH')
                         ? CACHE_PATH
-                        : sys_get_temp_dir() . '/pramnos_cache'
+                        : sys_get_temp_dir() . '/pramnos_cache',
+                    $prefix
                 );
+        }
+    }
+
+    /**
+     * The Redis server, in the order {@see \Pramnos\Cache\Cache} finds it: this cache's own
+     * `redis`, the `cache` settings where they name a host, then the shared connection.
+     *
+     * @param array<string, mixed> $settings The `cache` settings
+     * @return array{0: string, 1: int, 2: int, 3: ?string}
+     */
+    private function redisServer(array $settings): array
+    {
+        $own = is_array($this->config['redis'] ?? null) ? $this->config['redis'] : null;
+        if ($own !== null) {
+            return [(string) ($own['host'] ?? 'localhost'), (int) ($own['port'] ?? 6379), (int) ($own['database'] ?? 0), isset($own['password']) ? (string) $own['password'] : null];
+        }
+        if (($settings['hostname'] ?? '') !== '') {
+            return [(string) $settings['hostname'], (int) ($settings['port'] ?? 6379), (int) ($settings['database'] ?? 0), $settings['password'] ?? null];
+        }
+        try {
+            $shared = \Pramnos\Redis\ConnectionManager::getInstance();
+
+            return [$shared->host(), $shared->port(), $shared->database(), $shared->password()];
+        } catch (\Throwable) {
+            return ['localhost', 6379, 0, null];
         }
     }
 }

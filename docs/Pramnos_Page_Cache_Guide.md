@@ -48,6 +48,13 @@ With no `pagecache` block at all the middleware is inert: it looks nothing up an
 stores nothing. Adding it to a pipeline can never, by itself, change what
 visitors see.
 
+**The store is the page cache's alone.** Its adapter is built with the `prefix`, so clearing it
+(`flush()`, `pagecache:purge --all`) removes the pages and nothing else in the same Redis
+database or cache folder. **Redis** is reached as `Cache` reaches it: the page cache's own
+`'redis' => ['host' => …, 'port' => …, 'database' => …, 'password' => …]`, else the `cache`
+settings' hostname, else the shared connection (`REDIS_HOST` / `REDIS_PORT`). On a Docker
+network localhost is nobody, and every request would miss.
+
 **Where the block goes.** `app.php` is read first, then `Settings` — so a row in
 the `settings` table works too, and `app.php` wins if both exist. `app.php` is the
 better place: it is in the repository and reviewable, and reading it costs nothing,
@@ -372,7 +379,10 @@ From the command line:
 ```
 
 A bare path is resolved against the configured site URL, because entries are
-keyed by absolute URL — one installation can answer on several hosts.
+keyed by absolute URL — one installation can answer on several hosts. An application
+that keeps the page cache's configuration in a file of its own names it, so the command
+purges the store the pages are in: `--config=app/config/pagecache.php`, a PHP file that
+returns the array.
 
 `purgeUrl()` removes **every** variant of that address, not only the one matching
 the purging request. An invalidation that cleared one `varyBy` variant would leave
@@ -433,6 +443,10 @@ re-renders. Only sensible if renders are cheap enough not to need protecting.
 - The gzipped copy is built **once at store time**, not per hit, and served to
   clients that accept it. After the render itself this is most of the CPU a page
   cache saves.
+- **`'compressAtRest' => true` keeps only the gzipped copy**, about a sixth of the
+  size: a store short of memory holds six times the pages. A client that does not
+  take gzip (a bot, `curl`) has it unzipped on the way out, and the `ETag` is the
+  unzipped body's either way.
 - **With `gzip` on, `Vary: Accept-Encoding` is always sent** — on the compressed
   and the uncompressed response alike. One URL then has two bodies, and any
   shared cache in front of the application must be told, or it will store one
@@ -629,6 +643,8 @@ Before setting it, be sure of two things, because a CDN is not purgeable from he
 | `staleWhileRevalidate` | `30` | seconds past expiry |
 | `lockTtl` | `30` | `0` disables locking |
 | `gzip` | `true` | |
+| `compressAtRest` | `false` | keep only the gzipped body; unzipped for a client without gzip |
+| `redis` | `null` | `['host', 'port', 'database', 'password']`; unset, the `cache` settings', then the shared connection |
 | `etag` | `true` | |
 | `cacheControl` | `null` | what a hit — and the miss that was just stored — tells the **browser**; null leaves PHP's session limiter alone. `'private, no-cache'` gives the back/forward cache and a 304 on each revalidation, with no shared copy |
 | `debugHeader` | `true` | `X-Pramnos-Cache` and `Age` |

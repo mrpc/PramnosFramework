@@ -23,9 +23,17 @@ use Symfony\Component\Console\Output\OutputInterface;
  *   ./pramnos pagecache:purge /stations/7
  *   ./pramnos pagecache:purge --tag=station:7 --tag=homepage
  *   ./pramnos pagecache:purge --all
+ *   ./pramnos pagecache:purge --all --config=app/config/pagecache.php
+ *
+ * The page cache is configured by the `pagecache` setting, or by `--config`, a PHP file that
+ * returns the array — for an application that keeps it in a file of its own: purging another
+ * store than the one the pages are in purges nothing.
  */
 class PageCachePurge extends Command
 {
+    /** `--config`, or '' for the setting. */
+    private string $configFile = '';
+
     protected function configure(): void
     {
         $this
@@ -33,11 +41,13 @@ class PageCachePurge extends Command
             ->setDescription('Purge cached pages by URL, by tag, or all of them')
             ->addArgument('url', InputArgument::OPTIONAL, 'URL or path to purge, e.g. /stations/7', '')
             ->addOption('tag', null, InputOption::VALUE_IS_ARRAY | InputOption::VALUE_REQUIRED, 'Purge every page carrying this tag (repeatable)')
-            ->addOption('all', null, InputOption::VALUE_NONE, 'Purge every cached page');
+            ->addOption('all', null, InputOption::VALUE_NONE, 'Purge every cached page')
+            ->addOption('config', null, InputOption::VALUE_REQUIRED, 'A PHP file returning the page cache\'s configuration, in place of the pagecache setting');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
+        $this->configFile = (string) ($input->getOption('config') ?? '');
         $url  = (string) $input->getArgument('url');
         $tags = (array) $input->getOption('tag');
         $all  = (bool) $input->getOption('all');
@@ -114,6 +124,15 @@ class PageCachePurge extends Command
      */
     protected function pageCache(): PageCache
     {
+        if ($this->configFile !== '') {
+            $file = str_starts_with($this->configFile, '/') || !defined('ROOT') ? $this->configFile : ROOT . '/' . $this->configFile;
+            if (!is_file($file)) {
+                throw new \RuntimeException('No configuration at ' . $file);
+            }
+            $config = require $file;
+
+            return new PageCache(is_array($config) ? $config : []);
+        }
         $config = class_exists('\Pramnos\Application\Settings')
             ? \Pramnos\Application\Settings::getSetting('pagecache')
             : [];
