@@ -174,6 +174,22 @@ Greek, is left alone. A table with a column to repair moves through PHP, even wi
 `--transport=fdw`. Give `--phase=verify` the same option, so it compares the values as they were
 written.
 
+### Text kept in a blob
+
+An old schema often keeps text, or JSON, in a `blob`. Moved as `bytea`, it is bytes the
+application then has to decode. The dry run reads up to 200 rows of each table's blob columns and
+names those whose values are all text:
+
+```
+doc keeps text in a blob: 200 of 200 sampled value(s) are UTF-8, all of them JSON — jsonb in the
+migration takes them as they are
+```
+
+Make such a column `text` or `jsonb` in the migration, and the values arrive as the text they are.
+For a table the command makes, `--blob-as-text=table.column,…` creates it as `text`. A blob of
+real bytes is not named. Write those through `Pramnos\Database\Binary`; see the
+[Database API guide](Pramnos_Database_API_Guide.md#bytes-binary-and-reading-a-bytea).
+
 ### Comparisons without regard to case
 
 MySQL's `_ci` collations (`utf8mb4_general_ci`, `utf8mb4_0900_ai_ci`, MariaDB's
@@ -269,6 +285,7 @@ refuses rows into them: decompress first.
 | `--batch-mb` | Most megabytes of values per batch, whatever the row count (default 32) |
 | `--source-prefix` | The source tables' prefix, when it is not the application's |
 | `--zero-date` | What MySQL's zero date becomes in a column that takes no NULL (default: NULL, and the row is refused) |
+| `--blob-as-text` | A table made here gets these blob columns as `text`, not `bytea` — `table.column` |
 | `--repair-encoding` | Repair double-encoded text in these columns, `table.column` — see [Text, character sets and double encoding](#text-character-sets-and-double-encoding) |
 | `--source-timezone` | The zone the source's `DATETIME` values were written in (default: the application's) — see [Dates, times and zones](#dates-times-and-zones) |
 | `--keep-constraints` | Check the target's keys as rows arrive |

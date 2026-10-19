@@ -452,6 +452,35 @@ class MigrateFromMysqlTest extends TestCase
     }
 
     /**
+     * A blob that holds text — UTF-8, or JSON — is named by the dry run, with the type the
+     * migration would take it as; a blob of real bytes is not. A table made here gets such a
+     * column as text with `--blob-as-text`, its values arriving as the text they are (FW-165 §5).
+     */
+    public function testTheDryRunNamesTextKeptInABlob(): void
+    {
+        // Arrange
+        $tester = $this->databases();
+        $this->source->query('CREATE TABLE blobby (id INT PRIMARY KEY, doc BLOB, note BLOB, raw BLOB) ENGINE=InnoDB');
+        $this->source->query("INSERT INTO blobby VALUES (1, '{\"a\": 1}', 'Καλημέρα', X'00FF10'), (2, '[1, 2]', 'plain', X'DEADBEEF')");
+        $only = ['--source' => $this->dsn(), '--tables' => 'blobby'];
+
+        // Act
+        $tester->execute($only + ['--dry-run' => true]);
+        $dry = $tester->getDisplay();
+        $tester->execute($only + ['--blob-as-text' => 'blobby.note,blobby.doc']);
+        $types = $this->rows("SELECT column_name AS c, data_type AS t FROM information_schema.columns WHERE table_name = 'blobby' ORDER BY column_name");
+        $notes = array_column($this->rows('SELECT note FROM blobby ORDER BY id'), 'note');
+
+        // Assert
+        $this->assertStringContainsString('doc keeps text in a blob: 2 of 2 sampled value(s) are UTF-8, all of them JSON — jsonb', $dry);
+        $this->assertStringContainsString('note keeps text in a blob: 2 of 2 sampled value(s) are UTF-8 — text', $dry);
+        $this->assertStringContainsString('--blob-as-text=blobby.note makes it text here', $dry);
+        $this->assertStringNotContainsString('raw keeps', $dry, 'real bytes are bytes');
+        $this->assertSame([['c' => 'doc', 't' => 'text'], ['c' => 'id', 't' => 'integer'], ['c' => 'note', 't' => 'text'], ['c' => 'raw', 't' => 'bytea']], $types);
+        $this->assertSame(['Καλημέρα', 'plain'], $notes);
+    }
+
+    /**
      * MySQL's `_ci` collations compare without regard to case and PostgreSQL compares exactly, so
      * an indexed text column — a login looked up by e-mail — changes its answers after the move.
      * The dry run names each: a unique one (now taking `A` beside `a`) and a looked-up one. It does

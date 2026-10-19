@@ -268,34 +268,9 @@ class Result implements \IteratorAggregate
 
                 foreach($this->fields as $key => $value) {
                     // Convert numeric types to their PHP equivalents
-                    if (isset($this->columnTypes[$key]) && !$skipDataFix) {
-                        switch ($this->columnTypes[$key]) {
-                            case 'int4':
-                            case 'int8':
-                            case 'int2':
-                            case 'integer':
-                            case 'bigint':
-                            case 'smallint':
-                                $this->fields[$key] = $value === null ? null : (int)$value;
-                                break;
-                            case 'float4':
-                            case 'float8':
-                            case 'numeric':
-                            case 'decimal':
-                            case 'real':
-                            case 'double precision':
-                                $this->fields[$key] = $value === null ? null : (float)$value;
-                                break;
-                            case 'bool':
-                            case 'boolean':
-                                $this->fields[$key] = $value === 't' ? true : ($value === 'f' ? false : $value);
-                                break;
-                            default:
-                                $this->fields[$key] = $value;
-                        }
-                    } else {
-                        $this->fields[$key] = $value;
-                    }
+                    $this->fields[$key] = isset($this->columnTypes[$key]) && !$skipDataFix
+                        ? self::fromPostgres($value, (string) $this->columnTypes[$key])
+                        : $value;
                 }
             }
             return $this->fields;
@@ -435,27 +410,28 @@ class Result implements \IteratorAggregate
      */
     protected function convertPostgresValue($value, $pgType)
     {
-        switch ($pgType) {
-            case 'int4':
-            case 'int8':
-            case 'int2':
-            case 'integer':
-            case 'bigint':
-            case 'smallint':
-                return (int)$value;
-            case 'float4':
-            case 'float8':
-            case 'numeric':
-            case 'decimal':
-            case 'real':
-            case 'double precision':
-                return (float)$value;
-            case 'bool':
-            case 'boolean':
-                return $value === 't' ? true : ($value === 'f' ? false : $value);
-            default:
-                return $value;
+        return self::fromPostgres($value, (string) $pgType);
+    }
+
+    /**
+     * A value as PostgreSQL returns it, as the PHP type MySQL's driver would have given: an
+     * integer, a float, a boolean — and the bytes of a `bytea`, which PostgreSQL returns as
+     * hex text (`\x00ff…`), so code that read a MySQL `blob` reads the same thing here.
+     * NULL stays NULL.
+     */
+    public static function fromPostgres(mixed $value, string $pgType): mixed
+    {
+        if ($value === null) {
+            return null;
         }
+
+        return match ($pgType) {
+            'int4', 'int8', 'int2', 'integer', 'bigint', 'smallint'                 => (int) $value,
+            'float4', 'float8', 'numeric', 'decimal', 'real', 'double precision'     => (float) $value,
+            'bool', 'boolean'                                                       => $value === 't' ? true : ($value === 'f' ? false : $value),
+            'bytea'                                                                 => pg_unescape_bytea((string) $value),
+            default                                                                 => $value,
+        };
     }
 
     /**

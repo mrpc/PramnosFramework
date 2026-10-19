@@ -2049,8 +2049,9 @@ class Database extends \Pramnos\Framework\Base
                     $stmtName = $stmtData['stmtName'];
                     // pg_execute passes params as strings; PHP false → '' which
                     // PostgreSQL rejects for boolean columns. Convert explicitly.
+                    // Bytes are bound as bytea's escape, not as text PostgreSQL would read as UTF-8.
                     $pgArgs = array_map(
-                        fn($v) => is_bool($v) ? ($v ? 'true' : 'false') : $v,
+                        fn($v) => is_bool($v) ? ($v ? 'true' : 'false') : ($v instanceof Binary ? pg_escape_bytea($connection, $v->bytes) : $v),
                         $arguments
                     );
                     $dbResource = @pg_execute($connection, $stmtName, $pgArgs);
@@ -2096,6 +2097,8 @@ class Database extends \Pramnos\Framework\Base
                         for ($ai = 1; $ai < count($mysqlArgs); $ai++) {
                             if (is_bool($mysqlArgs[$ai])) {
                                 $mysqlArgs[$ai] = (int) $mysqlArgs[$ai];
+                            } elseif ($mysqlArgs[$ai] instanceof Binary) {
+                                $mysqlArgs[$ai] = $mysqlArgs[$ai]->bytes;
                             }
                         }
                         call_user_func_array(
@@ -2203,34 +2206,9 @@ class Database extends \Pramnos\Framework\Base
             }
             if ($resultArray) {
                 foreach($resultArray as $key=>$value) {
-                    if (isset($columnTypes[$key])) {
-                        switch ($columnTypes[$key]) {
-                            case 'int4':
-                            case 'int8':
-                            case 'int2':
-                            case 'integer':
-                            case 'bigint':
-                            case 'smallint':
-                                $obj->fields[$key] = $value === null ? null : (int)$value;
-                                break;
-                            case 'float4':
-                            case 'float8':
-                            case 'numeric':
-                            case 'decimal':
-                            case 'real':
-                            case 'double precision':
-                                $obj->fields[$key] = $value === null ? null : (float)$value;
-                                break;
-                            case 'bool':
-                            case 'boolean':
-                                $obj->fields[$key] = $value === 't' ? true : ($value === 'f' ? false : $value);
-                                break;
-                            default:
-                                $obj->fields[$key] = $value;
-                        }
-                    } else {
-                        $obj->fields[$key] = $value;
-                    }
+                    $obj->fields[$key] = isset($columnTypes[$key])
+                        ? Result::fromPostgres($value, (string) $columnTypes[$key])
+                        : $value;
                 }
                 $obj->eof = false;
             } else {
@@ -3677,34 +3655,9 @@ class Database extends \Pramnos\Framework\Base
             if ($resultArray) {
                 foreach($resultArray as $key => $value) {
                     // Convert numeric types to their PHP equivalents
-                    if (isset($columnTypes[$key]) && !$skipDataFix) {
-                        switch ($columnTypes[$key]) {
-                            case 'int4':
-                            case 'int8':
-                            case 'int2':
-                            case 'integer':
-                            case 'bigint':
-                            case 'smallint':
-                                $obj->fields[$key] = $value === null ? null : (int)$value;
-                                break;
-                            case 'float4':
-                            case 'float8':
-                            case 'numeric':
-                            case 'decimal':
-                            case 'real':
-                            case 'double precision':
-                                $obj->fields[$key] = $value === null ? null : (float)$value;
-                                break;
-                            case 'bool':
-                            case 'boolean':
-                                $obj->fields[$key] = $value === 't' ? true : ($value === 'f' ? false : $value);
-                                break;
-                            default:
-                                $obj->fields[$key] = $value;
-                        }
-                    } else {
-                        $obj->fields[$key] = $value;
-                    }
+                    $obj->fields[$key] = isset($columnTypes[$key]) && !$skipDataFix
+                        ? Result::fromPostgres($value, (string) $columnTypes[$key])
+                        : $value;
                 }
                 $obj->eof = false;
             } else {

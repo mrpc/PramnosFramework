@@ -46,6 +46,7 @@ class DatabaseMigrateFromMysql extends Command
             ->addOption('batch-size', null, InputOption::VALUE_REQUIRED, 'Rows per INSERT', '5000')
             ->addOption('batch-mb', null, InputOption::VALUE_REQUIRED, 'Most megabytes of values per batch, whatever the row count', '32')
             ->addOption('source-timezone', null, InputOption::VALUE_REQUIRED, 'The zone the source\'s DATETIME values were written in (default: this application\'s)')
+            ->addOption('blob-as-text', null, InputOption::VALUE_REQUIRED, 'A table made here gets these blob columns as text, not bytea: table.column, comma-separated')
             ->addOption('repair-encoding', null, InputOption::VALUE_REQUIRED, 'Repair double-encoded text (UTF-8 stored through latin1) in these columns, table.column, comma-separated')
             ->addOption('zero-date', null, InputOption::VALUE_REQUIRED, 'What MySQL\'s zero date becomes in a column that takes no NULL, e.g. "1970-01-01 00:00:00" (default: NULL, and the row is refused)')
             ->addOption('source-prefix', null, InputOption::VALUE_REQUIRED, 'The source tables\' prefix (default: this application\'s)')
@@ -121,6 +122,7 @@ class DatabaseMigrateFromMysql extends Command
             return Command::FAILURE;
         }
         $migrator->batchBytes(max(1, (int) $input->getOption('batch-mb')) * 1024 * 1024);
+        $migrator->blobAsText($list($input->getOption('blob-as-text')));
         $migrator->repairEncoding($list($input->getOption('repair-encoding')));
         $plan     = $migrator->plan($list($input->getOption('tables')), $list($input->getOption('exclude-tables')),
             $input->getOption('time-column') !== null ? (string) $input->getOption('time-column') : null);
@@ -308,6 +310,11 @@ class DatabaseMigrateFromMysql extends Command
                 $column = (string) $plan['timeColumn'];
                 $output->writeln('      <error>' . $column . ' has no index in MySQL that starts with it:</error> every window reads the whole table — '
                     . 'CREATE INDEX ' . $name . '_' . $column . ' ON `' . $name . '` (`' . $column . '`) before the backfill');
+            }
+            foreach ($t['blobs'] ?? [] as $b) {
+                $output->writeln('      <comment>' . $b['column'] . ' keeps text in a blob:</comment> ' . $b['utf8'] . ' of ' . $b['sampled'] . ' sampled value(s) are UTF-8'
+                    . ($b['json'] === $b['sampled'] ? ', all of them JSON — jsonb' : ' — text') . ' in the migration takes them as they are'
+                    . ($t['create'] !== null ? '; --blob-as-text=' . $name . '.' . $b['column'] . ' makes it text here' : ''));
             }
             foreach ($t['caseless'] ?? [] as $c) {
                 $output->writeln('      <comment>' . $c['column'] . ($c['unique'] ? ' is unique' : ' is looked up') . ' without regard to case in MySQL (' . $c['collation'] . '):</comment> '

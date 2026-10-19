@@ -9,6 +9,7 @@ use_cases:
   - Reading a table's columns, types or foreign keys from code
   - Running an application's MySQL-written SQL on PostgreSQL without rewriting it
   - Finding the SQL that would mean something else on PostgreSQL than on MySQL
+  - Writing binary data to a blob or bytea column, and reading it back as bytes
 ---
 
 # Pramnos Database API Guide
@@ -341,6 +342,23 @@ list produces no condition at all.** The names arrive from the query string, so 
 keeps a request parameter out of the statement. A filter that silently does nothing on a joined
 listing is usually the qualified-name mapping — send `title` and the list may hold `posts.title`,
 which the builder maps, but only for a name that is there.
+
+## Bytes: `Binary`, and reading a `bytea`
+
+PostgreSQL takes a bound string as text: bytes that are not UTF-8 are refused, and a backslash is
+read as an escape. At the moment of binding, nothing says the column is `bytea`, so the value
+says it:
+
+```php
+use Pramnos\Database\Binary;
+
+$db->execute('INSERT INTO files (name, body) VALUES (%s, %s)', ...[$name, new Binary($bytes)]);
+$db->queryBuilder()->table('files')->insert(['name' => $name, 'body' => new Binary($bytes)]);
+```
+
+On PostgreSQL it is bound with `pg_escape_bytea()`, and on MySQL as the bytes themselves. Read
+back through `query()`, `execute()` or the builder, a `bytea` is the bytes again, as a MySQL
+`blob` always was. PostgreSQL itself returns hex text (`\x00ff…`), and the result decodes it.
 
 ## Writing a point: `'geometry'` and the coordinate order
 
