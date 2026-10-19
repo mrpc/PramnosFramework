@@ -154,6 +154,24 @@ abstract class Widget
     }
 
     /**
+     * The settings `dashboard:precompute` works this card out with, for each it finds — its
+     * defaults and every saved layout's: those alone, unless the card's data has variants nobody
+     * saves. A card whose market is "as the header shows it", read from a cookie, spreads one
+     * setting into one per market looked at lately, each with the market named, so that each
+     * entry is ready before somebody asks for it.
+     *
+     * There is no person and no request while precomputing: a variant must name everything its
+     * data depends on.
+     *
+     * @param array<string, mixed> $settings As cleaned against {@see options()}
+     * @return list<array<string, mixed>>
+     */
+    public function precomputeSettings(array $settings): array
+    {
+        return [$settings];
+    }
+
+    /**
      * What the data depends on: the card and its settings, without those that only change how it
      * is drawn (`title`, `chart`). Two people's cards with the same key share one entry. A card
      * whose data depends on something else — a market the site is showing — adds it.

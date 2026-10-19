@@ -59,6 +59,24 @@ final class SlowSharedCard extends Widget
     {
         return 'period ' . $data['period'] . ', run ' . $data['run'];
     }
+
+    /** The controllers its figures were worked out with. */
+    public static array $controllers = [];
+
+    /** Whether it spreads a setting into the other period as well, as a card of variants would. */
+    public static bool $spreads = false;
+
+    public function setController(?\Pramnos\Application\Controller $controller): static
+    {
+        self::$controllers[] = $controller;
+
+        return parent::setController($controller);
+    }
+
+    public function precomputeSettings(array $settings): array
+    {
+        return self::$spreads ? [$settings, ['period' => $settings['period'] === '7' ? '30' : '7']] : parent::precomputeSettings($settings);
+    }
 }
 
 /** The dashboard's controller, without an application, with cardFor() reachable. */
@@ -94,8 +112,10 @@ final class SharedWidgetTest extends TestCase
         $cache->caching = true;
         (new \ReflectionProperty(Cache::class, 'adapter'))->setValue($cache, new ArrayAdapter());
         WidgetData::useCache($cache);
-        SlowSharedCard::$computed = 0;
-        SlowSharedCard::$fails    = false;
+        SlowSharedCard::$computed    = 0;
+        SlowSharedCard::$fails       = false;
+        SlowSharedCard::$spreads     = false;
+        SlowSharedCard::$controllers = [];
         WidgetRegistry::reset();
     }
 
@@ -322,6 +342,53 @@ final class SharedWidgetTest extends TestCase
         $this->assertSame('', $noQueue);
         $this->assertStringContainsString('30', $users);
         $this->assertStringContainsString('2.0%', $api);
+    }
+
+    /**
+     * Precomputing is the application's (FW-170): `--app` makes that application current for the
+     * run — its cards, not the console's — and puts the console's back after. Each card is handed
+     * a controller of it, as the dashboard hands its own; and a card's own variants of a setting,
+     * nobody having saved them, are worked out too.
+     */
+    public function testPrecomputingIsTheApplicationsWithItsVariants(): void
+    {
+        // Arrange — the console's application has no cards of its own; another one has
+        $this->application(['framework' => false]);
+        $console = \Pramnos\Application\Application::currentInstance();
+        $other   = new class extends \Pramnos\Application\Application {
+            public function __construct()
+            {
+            }
+        };
+        $other->applicationInfo = ['dashboard' => ['framework' => false, 'widgets' => [SlowSharedCard::class]]];
+        $ref = new \ReflectionProperty(\Pramnos\Application\Application::class, 'appInstances');
+        $ref->setValue(null, $ref->getValue() + ['backoffice' => $other]);
+        SlowSharedCard::$spreads = true;
+        $command = new class extends DashboardPrecompute {
+            protected function savedLayouts(string $area): array
+            {
+                return [];
+            }
+        };
+        $consoleApp = new ConsoleApplication();
+        $consoleApp->add($command);
+        $tester = new CommandTester($consoleApp->find('dashboard:precompute'));
+
+        // Act
+        $without = $tester->execute([]);
+        $plain   = $tester->getDisplay();
+        $with    = $tester->execute(['--app' => 'backoffice']);
+        $display = $tester->getDisplay();
+
+        // Assert
+        $this->assertSame(0, $without);
+        $this->assertStringContainsString('0 card(s) worked out.', $plain, 'the console\'s application has none');
+        $this->assertSame(0, $with);
+        $this->assertStringContainsString('2 card(s) worked out.', $display, 'the default (7) and its variant (30)');
+        $this->assertSame(2, SlowSharedCard::$computed);
+        $this->assertNotEmpty(SlowSharedCard::$controllers);
+        $this->assertContainsOnlyInstancesOf(\Pramnos\Application\Controller::class, SlowSharedCard::$controllers, 'each card has one');
+        $this->assertSame($console, \Pramnos\Application\Application::currentInstance(), 'the console\'s application is current again');
     }
 }
 

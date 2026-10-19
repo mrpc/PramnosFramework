@@ -118,6 +118,17 @@ settings and with every setting saved in the area's layouts. From cron:
 With the cron every five minutes, keep `data_ttl` longer than that, so an entry never expires
 between runs. The command exits `1` when a card could not be worked out, and keeps the others.
 
+- **Whose cards:** those of `--app=<name>`, or of the area's own application where there is one
+  (`app/admin.php` for `--area=admin`), or of the application the console started. A console
+  that boots the site would otherwise find only the framework's cards.
+- **A controller:** each card is handed one of that application's, so a `data()` that builds a
+  model with `$this->controller?->getModel()` has one. There is no person and no request.
+- **Settings nobody saved:** the command works out each card with its defaults and every saved
+  layout's settings. A card whose data has variants that people use without saving them — a
+  market taken from a cookie — spreads them in `precomputeSettings(array $settings): array`,
+  one setting into several, each naming what it depends on. An application can also add whole
+  layouts by overriding the command's `savedLayouts($area)`.
+
 The framework's slow cards are shared: `logs.errors`, `ai.spend`, `messages`, `users.active`,
 `database`, `queue` and `api.performance`.
 
