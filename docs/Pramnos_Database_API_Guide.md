@@ -147,6 +147,10 @@ $result = $db->query($sql);
 PostgreSQL, backticks become double quotes and a configured schema is put in front of
 `#PREFIX#` names.
 
+A PHP `bool` given to `execute()`, the query builder or `selectOne()` is bound as `'1'` or `'0'`
+on PostgreSQL. A `boolean` column reads that as it reads `'true'`, and a `smallint` takes it too,
+which is what a MySQL `tinyint(1)` flag becomes when the table is moved.
+
 ### A literal `%` in the SQL, and `LIKE`
 
 `prepareQuery()` is `sprintf` underneath, so a `%` in the query string is a format directive unless

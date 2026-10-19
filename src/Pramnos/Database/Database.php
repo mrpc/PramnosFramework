@@ -2074,10 +2074,13 @@ class Database extends \Pramnos\Framework\Base
                 if ($this->type == 'postgresql') {
                     $stmtName = $stmtData['stmtName'];
                     // pg_execute passes params as strings; PHP false → '' which
-                    // PostgreSQL rejects for boolean columns. Convert explicitly.
+                    // PostgreSQL rejects for boolean columns. Convert explicitly — to '1'/'0',
+                    // which a boolean reads as well as 'true'/'false' do, and which a smallint
+                    // also takes: a table moved from MySQL keeps its tinyint(1) flags as smallint,
+                    // and 'true' there was "invalid input syntax for type smallint".
                     // Bytes are bound as bytea's escape, not as text PostgreSQL would read as UTF-8.
                     $pgArgs = array_map(
-                        fn($v) => is_bool($v) ? ($v ? 'true' : 'false') : ($v instanceof Binary ? pg_escape_bytea($connection, $v->bytes) : $v),
+                        fn($v) => is_bool($v) ? ($v ? '1' : '0') : ($v instanceof Binary ? pg_escape_bytea($connection, $v->bytes) : $v),
                         $arguments
                     );
                     $dbResource = @pg_execute($connection, $stmtName, $pgArgs);
@@ -4520,7 +4523,8 @@ class Database extends \Pramnos\Framework\Base
                     if (is_null($value)) {
                         $built .= 'NULL';
                     } elseif (is_bool($value)) {
-                        $built .= $value ? 'TRUE' : 'FALSE';
+                        // Quoted, so it is read as the column's type: a boolean or a smallint flag.
+                        $built .= $value ? "'1'" : "'0'";
                     } elseif (is_int($value) || is_float($value)) {
                         $built .= $value;
                     } else {
