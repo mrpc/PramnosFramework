@@ -1340,25 +1340,18 @@ class Init extends Command
                 . "    ],\n";
         }
 
-        // When the auth feature is enabled, register only the auth addon.
+        // No auth or user addon is registered, with the auth feature or without it.
         //
-        //   - UserDatabase (type=auth): a thin delegate over the new
-        //     Auth\Drivers\DatabaseAuthDriver. It is kept because its
-        //     onAuthCheck() re-establishes a "remember me" login from cookies,
-        //     which has no built-in replacement yet.
+        //   - Signing in goes to Auth's built-in DatabaseAuthDriver when no auth addon is
+        //     registered, and "remember me" to Auth::rememberLogin() — a rotating token per
+        //     sign-in (Auth\RememberTokens) — which Auth::authCheck() runs from
+        //     SessionTrackingMiddleware. The UserDatabase addon only delegated to both.
+        //   - The deprecated Addon\User\User (type=user) is not registered either: with no user
+        //     addon, Auth's built-in login/logout lifecycle runs, which is the path that records
+        //     login and logout into the activity log (Auth\ActivityLog).
         //
-        // The deprecated Addon\User\User (type=user) is intentionally NOT
-        // registered: with no user addon, Auth's built-in login/logout
-        // lifecycle (Auth::executeDefaultLogin/Logout) runs instead — it sets
-        // the session, cookies and lastlogin exactly as the addon did, and it
-        // is the path that records login/logout into the activity log
-        // (Auth\ActivityLog). Registering the addon would take the legacy path
-        // and skip that logging.
-        $addonsSection = in_array('auth', $features, true)
-            ? "    'addons' => [\n"
-              . "        ['addon' => 'Pramnos\\\\Addon\\\\Auth\\\\UserDatabase', 'type' => 'auth'],\n"
-              . "    ],\n"
-            : '';
+        // An application that still registers UserDatabase keeps working: it calls the same code.
+        $addonsSection = '';
 
         // HTTP middleware, run explicitly by www/index.php around the dispatch.
         // SessionTrackingMiddleware populates the `sessions` table (active

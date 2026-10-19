@@ -91,6 +91,37 @@ class RememberLoginCharacterizationTest extends TestCase
         $this->assertFalse($otherName['logged'] ?? false, 'another person\'s name with it');
     }
 
+    /**
+     * With no auth addon registered — what a new project scaffolds — `Auth::authCheck()` signs the
+     * person in again from the cookies itself, through `rememberLogin()`; a value that is not
+     * theirs signs nobody in.
+     */
+    #[DataProvider('databases')]
+    public function testWithNoAddonAuthCheckRemembersByItself(string $type, string $host, int $port): void
+    {
+        // Arrange — signed in, then the session is gone; no addon in the way
+        $this->connect($type, $host, $port);
+        $this->assertSame([], \Pramnos\Addon\Addon::getaddons('auth'), 'no auth addon registered');
+        (new Auth())->loginById($this->userId, true);
+        $remembered = (string) $_SESSION['auth'];
+        $username   = $this->username();
+        $_SESSION   = [];
+
+        // Act
+        $this->cookies($username, $remembered);
+        (new Auth())->authCheck();
+        $again = $_SESSION;
+        $_SESSION = [];
+        $this->cookies($username, $remembered);
+        (new Auth())->authCheck();
+        $spent = $_SESSION;
+
+        // Assert
+        $this->assertTrue($again['logged'] ?? false, 'signed in again from the cookies');
+        $this->assertSame($this->userId, (int) ($again['uid'] ?? 0));
+        $this->assertFalse($spent['logged'] ?? false, 'the token was used once: a copy of it signs nobody in');
+    }
+
     /** A password changed since the cookie was set makes it worthless. */
     #[DataProvider('databases')]
     public function testAChangedPasswordEndsTheRememberCookie(string $type, string $host, int $port): void

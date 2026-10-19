@@ -26,11 +26,9 @@ already calls it, and an application in production uses it through its own addon
 
 **Left:**
 
-- New scaffolds still register the `UserDatabase` addon. The comment in `Init` says it is needed
-  for remember-me, which is no longer true. Stop registering it, and keep backward compatibility
-  for applications that still do.
-- Verify the addon-free path, with no auth addon at all, across new requests and browser restarts
-  in a real application.
+- New scaffolds register no auth addon, and a characterization test signs in from the cookies with
+  none registered, on all three databases. What remains is the same in a real application, across
+  new requests and browser restarts.
 
 *Done when:* a new scaffold registers no auth addon, and remember-me works there across browser
 restarts.

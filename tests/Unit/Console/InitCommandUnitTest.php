@@ -2147,13 +2147,12 @@ class InitCommandUnitTest extends TestCase
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * When the 'auth' feature is enabled, app.php must contain BOTH the
-     * UserDatabase addon (password verification) and the User addon (session
-     * management). Missing the User addon causes Auth::triger('Login','user')
-     * to have no handler, so $_SESSION['logged'] is never set and every login
-     * silently redirects back to the homepage.
+     * With the 'auth' feature a new app.php registers no auth or user addon: signing in goes to
+     * the built-in DatabaseAuthDriver, "remember me" to Auth::rememberLogin() through
+     * authCheck(), and the session is set by Auth's built-in lifecycle — the path that records
+     * the activity log. The middleware that runs authCheck() is declared.
      */
-    public function testAuthFeatureScaffoldsAppPhpWithBothAuthAddons(): void
+    public function testAuthFeatureScaffoldsAppPhpWithNoAuthAddon(): void
     {
         // Arrange
         file_put_contents($this->tmpDir . '/composer.json', json_encode(['name' => 'test/app']));
@@ -2185,16 +2184,9 @@ class InitCommandUnitTest extends TestCase
 
         $appConfig = file_get_contents($this->tmpDir . '/app/app.php');
 
-        // UserDatabase handles password verification (+ onAuthCheck remember-me).
-        $this->assertStringContainsString("Pramnos\\\\Addon\\\\Auth\\\\UserDatabase", $appConfig,
-            'app.php must include UserDatabase addon for password verification');
-
-        // UserDatabase must be type=auth
-        $this->assertMatchesRegularExpression(
-            "/'addon'\s*=>\s*'Pramnos\\\\\\\\Addon\\\\\\\\Auth\\\\\\\\UserDatabase'.*'type'\s*=>\s*'auth'/s",
-            $appConfig,
-            'UserDatabase must have type=auth'
-        );
+        // No auth addon: the built-in driver signs in, and rememberLogin() remembers.
+        $this->assertStringNotContainsString("Pramnos\\\\Addon\\\\Auth\\\\UserDatabase", $appConfig,
+            'app.php must not register the UserDatabase addon: the built-in path does what it delegated to');
 
         // The deprecated User addon is intentionally NOT registered any more —
         // Auth's built-in login lifecycle (executeDefaultLogin) sets the session

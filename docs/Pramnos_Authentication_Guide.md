@@ -107,8 +107,9 @@ A token ends in each of these cases:
 
 Signing in again from the cookies, `$auth->rememberLogin()`, uses the token once and issues a new
 one. A copied cookie therefore stops working as soon as the browser it came from returns.
-`authCheck()` calls `rememberLogin()` when no auth addon is registered, and the framework's
-`UserDatabase` addon does the same.
+`authCheck()` calls `rememberLogin()` when no auth addon is registered, so an application needs
+no addon for remember-me, and `init` scaffolds none. The framework's `UserDatabase` addon, where an
+application still registers it, does the same.
 
 **Never print `$_SESSION['auth']` into a page**, not as a JavaScript variable and not in a
 header the page reads. It signs its holder in. An API call from the page authenticates with the
