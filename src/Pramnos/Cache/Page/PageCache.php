@@ -438,6 +438,19 @@ final class PageCache
             return false;
         }
 
+        // A body that prints who this visitor is — the visitor id the session tracking keeps,
+        // or a harmless cookie's value this response sets — answers this visitor. The cookie
+        // itself may go with a stored page (harmlessCookies); its value in the body may not:
+        // stored, every later visitor would report into this one's visit, and the response
+        // that mints a new id is very often a bot's first request.
+        foreach ($this->visitorValues() as $value) {
+            if (str_contains($body, $value)) {
+                $this->private = true;
+
+                return false;
+            }
+        }
+
         $key = $this->keyFor($request);
         $ttl = $this->ttlFor($request);
         $this->storedTtl = $ttl;
@@ -1125,6 +1138,34 @@ final class PageCache
         }
 
         return $names;
+    }
+
+    /**
+     * What identifies this visitor and must not be in a stored body: the session's
+     * `visitorid`, and the value of each harmless cookie this response sets. Values shorter
+     * than eight characters are left out — `lastseen`'s small numbers would match a page by
+     * accident, and an identifier is never that short.
+     *
+     * @return list<string>
+     */
+    private function visitorValues(): array
+    {
+        $values = [(string) ($_SESSION['visitorid'] ?? '')];
+        $harmless = array_map('strtolower', (array) ($this->config['harmlessCookies'] ?? []));
+        foreach ($this->headersSent() as $header) {
+            if (preg_match('/^set-cookie:\s*([^=;]+)=([^;]*)/i', $header, $m) !== 1) {
+                continue;
+            }
+            $name = urldecode(trim($m[1]));
+            if (preg_match('/^[a-f0-9]{10}\[(.+)\]$/', $name, $framework) === 1) {
+                $name = str_rot13($framework[1]);
+            }
+            if (in_array(strtolower($name), $harmless, true)) {
+                $values[] = urldecode(trim($m[2]));
+            }
+        }
+
+        return array_values(array_unique(array_filter($values, static fn (string $v): bool => strlen($v) >= 8)));
     }
 
     /**

@@ -21,6 +21,7 @@ use Pramnos\Http\Response;
  * Response, and not letting one request's runtime state reach the next.
  */
 #[CoversClass(PageCacheMiddleware::class)]
+#[CoversClass(PageCache::class)]
 class PageCacheMiddlewareTest extends TestCase
 {
     /** @var array<string,mixed> */
@@ -165,6 +166,59 @@ class PageCacheMiddlewareTest extends TestCase
         $this->assertSame(1, $afterTracked, 'the second came from the cache');
         $this->assertSame('', (string) $session->getHeaderLine('Cache-Control'), 'a session cookie: not stored');
         $this->assertSame(3, $afterSession, 'so the next request ran the page again');
+    }
+
+    /**
+     * A page that prints who its visitor is is not stored: the visitor id it just minted (the
+     * tracking cookie this response sets), or the one the session keeps. Stored, every later
+     * visitor would report into that one visit — very often a bot's first. The same page
+     * printing nothing about the visitor, with the same tracking cookie, is stored.
+     */
+    public function testAPagePrintingTheVisitorsIdIsNotStored(): void
+    {
+        // Arrange
+        $session = $_SESSION ?? null;
+        $cache   = $this->middleware();
+        $ran     = 0;
+        $printed = '';
+        $page    = function () use (&$ran, &$printed): Response {
+            $ran++;
+
+            return Response::make('<html><script>track("' . $printed . '")</script></html>');
+        };
+
+        try {
+            // Act — a new visitor, its id printed
+            unset($_SESSION['visitorid']);
+            $printed = '0123456789abcdef';
+            PageCache::useQueuedHeaders(['Content-Language: el', 'Set-Cookie: visitorid=0123456789abcdef; path=/']);
+            $cache->handle($this->request('/minted'), $page);
+            $cache->handle($this->request('/minted'), $page);
+            $afterMinted = $ran;
+            // A returning visitor, its session's id printed
+            $_SESSION['visitorid'] = 'fedcba9876543210';
+            $printed = 'fedcba9876543210';
+            PageCache::useQueuedHeaders([]);
+            $cache->handle($this->request('/known'), $page);
+            $cache->handle($this->request('/known'), $page);
+            $afterKnown = $ran;
+            // Nothing about the visitor in the page
+            $printed = 'pageview';
+            PageCache::useQueuedHeaders(['Set-Cookie: visitorid=0123456789abcdef; path=/']);
+            $cache->handle($this->request('/plain'), $page);
+            $cache->handle($this->request('/plain'), $page);
+        } finally {
+            if ($session === null) {
+                unset($_SESSION['visitorid']);
+            } else {
+                $_SESSION = $session;
+            }
+        }
+
+        // Assert
+        $this->assertSame(2, $afterMinted, 'the page with the id it minted was stored');
+        $this->assertSame(4, $afterKnown, 'the page with the session\'s visitor id was stored');
+        $this->assertSame(5, $ran, 'a page printing nothing about the visitor was not stored');
     }
 
     /**

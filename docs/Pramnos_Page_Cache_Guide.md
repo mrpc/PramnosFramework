@@ -113,10 +113,49 @@ A response is **stored** only if the request passed all of them *and*:
 - its body is not empty;
 - its body contains no `privateMarkers` string;
 - its body does not contain this response's **CSP nonce** — see below;
+- its body does not contain the visitor's id — see
+  [Nothing about the visitor in a stored page](#nothing-about-the-visitor-in-a-stored-page);
 - the debug toolbar is not collecting — `skipWhileDebugging`, default `true`.
 
 `Set-Cookie` is refused outright rather than filtered away, because a response
-that is setting a session is per-visitor in its body too.
+that is setting a session is per-visitor in its body too. The tracking cookies are the
+exception (`harmlessCookies`), and their values are looked for in the body instead.
+
+### Nothing about the visitor in a stored page
+
+A stored page is the same bytes for everybody who asks for it until it expires. Anything in
+it that says who the visitor is — an id for a tracker, a visit number, a name — is then the
+first visitor's, handed to all the rest. And the first visitor of a page is often a bot.
+
+The tracking cookies (`harmlessCookies`, `visitorid` and `lastseen` by default) may go with a
+stored page, because a cookie is the browser's own. Their values may not be in its body. So
+`store()` refuses a body that contains the session's `visitorid`, or the value of a harmless
+cookie the same response sets. A page that wants to tell a script who the visitor is cannot be
+shared; let the script read its own cookie instead.
+
+### A HIT records no visit
+
+`PageCacheMiddleware` answers a hit before `SessionTrackingMiddleware` runs, and
+`PageCache::serveEarly()` before the application starts at all. That is what makes a hit fast,
+and it means a visitor who only ever receives cached pages has no `sessions` row. Two ways to
+count them, by what each costs:
+
+- **A beacon from the page**, to an address the cache does not answer. Only `GET` and `HEAD`
+  are cached, so a `POST` always passes through the session tracking, which reads the
+  browser's own `visitorid` cookie or mints one:
+
+  ```js
+  // in the page's script: the browser identifies itself, by cookie
+  navigator.sendBeacon('/visit');
+  ```
+
+  ```php
+  // a route of your own; SessionTrackingMiddleware has done the work by the time it runs
+  $r->post('/visit', static fn () => ['status' => 204]);
+  ```
+
+- **Tracking before the cache**: `SessionTrackingMiddleware` first in the pipeline. Every hit
+  then starts a session and writes its row, which is most of what the cache saved.
 
 ### The debug toolbar stops pages being stored
 
