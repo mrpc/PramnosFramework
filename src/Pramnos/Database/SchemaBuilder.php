@@ -1805,6 +1805,77 @@ class SchemaBuilder
     }
 
     /**
+     * Run a bulk write with the table's compression policy paused, then compress what is due.
+     *
+     * ```php
+     * $schema->withCompressionPaused('mail_bodies', function () use ($rows): void {
+     *     foreach ($rows as $row) { … insert … }
+     * });
+     * ```
+     *
+     * For a migration or an import that writes rows dated in the past. A chunk the policy has
+     * compressed still takes writes, but each costs several times more, and a bulk write into
+     * one measured 129 s for 50,000 rows, against 1.3 s for the same rows into the chunk
+     * uncompressed and compressed once after. A long move would otherwise race the policy:
+     * it compresses a chunk the move is still filling, and the rest of that chunk pays.
+     *
+     * The policy's job is unscheduled for the duration and rescheduled however the callback
+     * ends. On success the policy is then run once, so what has aged past it is compressed
+     * now rather than at its next run. Where there is no TimescaleDB, or no compression policy,
+     * the callback simply runs.
+     *
+     * Unlike {@see DeferredWriteQueue}, nothing waits for a drain: every row is readable the
+     * moment it is written, which a move whose readers follow it — a body the row now points
+     * at — needs.
+     *
+     * @template T
+     * @param  string        $table    Logical name
+     * @param  callable(): T $callback The write
+     * @return T What the callback returns
+     */
+    public function withCompressionPaused(string $table, callable $callback): mixed
+    {
+        $job = $this->compressionJob($table);
+        if ($job === null) {
+            return $callback();
+        }
+        // Raw: TimescaleDB's job API.
+        $this->db->query('SELECT alter_job(' . $job . ', scheduled => false)');
+        try {
+            $result = $callback();
+        } finally {
+            $this->db->query('SELECT alter_job(' . $job . ', scheduled => true)');
+        }
+        // A procedure that commits, so not inside a transaction the caller holds open: then the
+        // policy compresses at its next run instead.
+        if (!$this->db->inTransaction()) {
+            $this->db->query('CALL run_job(' . $job . ')');
+        }
+
+        return $result;
+    }
+
+    /** The id of the table's compression policy job, or null without one. */
+    private function compressionJob(string $table): ?int
+    {
+        if (!$this->capabilities->hasTimescaleDB()) {
+            return null;
+        }
+        [$schema, $name] = $this->splitTable($table);
+        try {
+            $result = $this->db->query($this->db->prepareQuery(
+                "SELECT job_id FROM timescaledb_information.jobs WHERE proc_name = 'policy_compression' AND hypertable_schema = %s AND hypertable_name = %s LIMIT 1",
+                $schema,
+                $name
+            ));
+        } catch (\Throwable) {
+            return null;
+        }
+
+        return $result && $result->numRows > 0 ? (int) $result->fields['job_id'] : null;
+    }
+
+    /**
      * Does a background job already drop this hypertable's old chunks?
      *
      * Same reason as {@see hasCompressionPolicy()}: `add_retention_policy()`

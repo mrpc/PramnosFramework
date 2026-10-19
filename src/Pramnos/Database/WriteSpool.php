@@ -373,9 +373,10 @@ class WriteSpool
      */
     public static function reset(): void
     {
-        static::$driver      = null;
-        static::$directory   = null;
-        static::$maxAttempts = null;
+        static::$driver         = null;
+        static::$directory      = null;
+        static::$maxAttempts    = null;
+        static::$deferredQueues = [];
     }
 
     /**
@@ -1440,7 +1441,40 @@ class WriteSpool
      */
     protected static function persist(string $table, array $row): void
     {
-        static::writeNow($table, static::applyTransformer($table, $row));
+        $row = static::applyTransformer($table, $row);
+
+        // A table declared with deferred writes takes a row dated before its compression
+        // cutoff through the queue, which writes it into the chunk with the rest of that
+        // chunk's backlog, decompressed once — an event an import dates in the past, a reading
+        // that arrives late. Everything newer, and every table that declares nothing, is the
+        // insert it always was.
+        $queue = static::deferredQueue($table);
+        if ($queue !== null) {
+            $time = $row[(string) (HypertableRegistry::spec($table)['time_column'] ?? '')] ?? null;
+            $at   = is_numeric($time) ? (int) $time : (is_string($time) ? strtotime($time) : false);
+            if ($at !== false && $queue->shouldDefer($table, $at)) {
+                $queue->defer($table, $row, $at);
+
+                return;
+            }
+        }
+
+        static::writeNow($table, $row);
+    }
+
+    /** @var array<string, DeferredWriteQueue|null> The queue for each table that has one */
+    protected static array $deferredQueues = [];
+
+    /** The deferred-write queue for a table that declares one; null for the rest. */
+    protected static function deferredQueue(string $table): ?DeferredWriteQueue
+    {
+        if (!array_key_exists($table, static::$deferredQueues)) {
+            static::$deferredQueues[$table] = !empty(HypertableRegistry::spec($table)['deferred_writes'])
+                ? new DeferredWriteQueue(static::database())
+                : null;
+        }
+
+        return static::$deferredQueues[$table];
     }
 
     /**

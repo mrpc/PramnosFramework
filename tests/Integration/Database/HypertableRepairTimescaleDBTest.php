@@ -325,6 +325,57 @@ class HypertableRepairTimescaleDBTest extends TestCase
     }
 
     /**
+     * A bulk write runs with the compression policy unscheduled, and afterwards the policy is
+     * scheduled again and run once, so the chunks that aged past it are compressed now. A
+     * write that throws gets its policy back too, and the exception; a write inside a
+     * transaction leaves compressing to the policy's next run, since its job commits.
+     */
+    public function testABulkWriteRunsWithCompressionPaused(): void
+    {
+        // Arrange — a hypertable whose old chunks are past the policy
+        $this->createPopulatedPlainTable();
+        HypertableRegistry::apply($this->schema, self::TABLE);
+        $scheduled = fn (): bool => in_array($this->db->query(
+            "SELECT scheduled FROM timescaledb_information.jobs WHERE proc_name = 'policy_compression' AND hypertable_name = '" . self::TABLE . "'"
+        )->fields['scheduled'], [true, 't', 1, '1'], true);
+        $compressed = fn (): int => (int) $this->db->query(
+            "SELECT count(*) AS n FROM timescaledb_information.chunks WHERE hypertable_name = '" . self::TABLE . "' AND is_compressed"
+        )->fields['n'];
+
+        // Act
+        $during = null;
+        $answer = $this->schema->withCompressionPaused(self::TABLE, function () use ($scheduled, &$during): string {
+            $during = $scheduled();
+            $this->db->query('INSERT INTO ' . self::TABLE . " (created_at, payload) VALUES (NOW() - INTERVAL '60 days', 'late')");
+
+            return 'done';
+        });
+        $after = [$scheduled(), $compressed()];
+        $error = null;
+        try {
+            $this->schema->withCompressionPaused(self::TABLE, static function (): void {
+                throw new \RuntimeException('the move failed');
+            });
+        } catch (\RuntimeException $e) {
+            $error = $e->getMessage();
+        }
+        $this->db->startTransaction();
+        $inside = $this->schema->withCompressionPaused(self::TABLE, static fn (): int => 7);
+        $this->db->commitTransaction();
+        $plain  = $this->schema->withCompressionPaused('no_such_table', static fn (): string => 'ran');
+
+        // Assert
+        $this->assertFalse($during, 'unscheduled while the write ran');
+        $this->assertSame('done', $answer);
+        $this->assertTrue($after[0], 'scheduled again');
+        $this->assertGreaterThan(0, $after[1], 'and run once: the old chunks are compressed');
+        $this->assertSame('the move failed', $error);
+        $this->assertTrue($scheduled(), 'a failed write gets its policy back');
+        $this->assertSame(7, $inside);
+        $this->assertSame('ran', $plain, 'no policy: the write simply runs');
+    }
+
+    /**
      * Applying twice with an unchanged declaration does nothing the second time.
      *
      * The repair command runs on demand and sometimes on a schedule, so "already

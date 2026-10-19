@@ -2164,6 +2164,11 @@ thousand. Each batch is deleted from the old table and inserted into the new one
 so a row is never in both. Sixty thousand rows a second were measured, and a run stopped part way
 is finished by the next. When nothing is left, `mails_legacy` is dropped.
 
+**Move the bodies first.** Run `mail:bodies-to-database` before `mail:hypertable`. Moving a
+body also updates its `mails` row, and once `mails` is a hypertable an old row sits in a
+compressed chunk, where every update costs many times more. Both commands hold back the
+compression policy of the table they fill while they run, and compress once at the end.
+
 `date` stays a Unix timestamp, so nothing that reads or writes it changes. While the rows move,
 history not yet moved is not in `mails`, and the screens fill from today backwards. Erasure,
 `mail:prune` and a person's copy of their mail read both tables, so none of them misses a

@@ -1,5 +1,6 @@
 ---
 use_cases:
+  - Moving history into a compressed hypertable without paying for every write
   - Declaring a TimescaleDB hypertable
   - Repairing a database whose hypertables were never created
   - Writing late-arriving data into a compressed chunk
@@ -823,6 +824,12 @@ plain insert. That is what lets the same code run on every backend.
 A write that is cleared and then fails anyway — the policy compressed the chunk
 in the second between the two — is queued rather than lost.
 
+Rows written through `WriteSpool` take this route on their own. For a table declared with
+`deferred_writes`, the spool's drain sends a row dated before the cutoff to the queue instead
+of inserting it, and inserts everything newer as before. The change log is the case in point:
+`ChangelogWriter::event(at: …)` from an import lands in its chunk at the next
+`timescale:drain`, with that chunk's whole backlog.
+
 ### Draining
 
 ```
@@ -843,6 +850,37 @@ grouping is the pattern; everything else is bookkeeping.
 
 It asks TimescaleDB only for the chunks that actually have rows waiting, so a
 drain is proportional to the backlog rather than to the table's age.
+
+### A bulk move: pause the policy instead
+
+The queue is for rows that arrive late a few at a time, and it makes them wait for a drain. A
+migration that moves history in at once is better off with nothing deferred and the policy
+held back:
+
+```php
+$schema->withCompressionPaused('mail_bodies', function () use ($rows): void {
+    foreach ($rows as $row) { /* insert */ }
+});
+```
+
+The policy's job is unscheduled for the duration and rescheduled however the callback ends.
+On success the policy is then run once, so whatever has aged past it is compressed straight
+away. Every row is readable the moment it is written, which a move whose readers follow it
+needs: a mail row that points at its body.
+
+What it saves, measured on TimescaleDB 2.26:
+
+| writing 50,000 rows into a 120-day-old range | time |
+|---|---|
+| into the compressed chunk | 129 s |
+| into it decompressed, then compressed once (what the queue and this both do) | 1.3 s |
+| single inserts, compressed chunk against uncompressed | 3.18 ms against 0.52 ms a row |
+
+Without the pause, a long move races the policy: it compresses a chunk the move is still
+filling, and the rest of that chunk pays the first price. `mail:bodies-to-database` and
+`mail:hypertable` run inside it. Inside a transaction the closing run is skipped, because the
+job commits, and the policy compresses at its next run instead. Without TimescaleDB, or without
+a policy, the callback simply runs.
 
 ### When something cannot be written
 

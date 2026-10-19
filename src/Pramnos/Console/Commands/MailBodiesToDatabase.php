@@ -65,36 +65,45 @@ class MailBodiesToDatabase extends Command
         $missing = 0;
         $after   = 0;
         $started = microtime(true);
-        while ($limit === 0 || $moved + $missing < $limit) {
-            $rows = $this->pending($content)->select(['id', 'date', 'path', 'content'])->where('id', '>', $after)
-                ->orderBy('id')->limit($limit === 0 ? $batch : min($batch, $limit - $moved - $missing))->get()->fetchAll();
-            if ($rows === []) {
-                break;
-            }
-            // Read once per batch: the rows of an hour share a file.
-            $files = [];
-            $db->startTransaction();
-            try {
-                foreach ($rows as $row) {
-                    $after = (int) $row['id'];
-                    [$body, $rebuild] = $this->bodyOf($row, $files);
-                    if ($body === null) {
-                        $missing++;
-                        continue;
-                    }
-                    $this->keep($row, $body, $rebuild);
-                    $db->queryBuilder()->table('#PREFIX#mails')->where('id', (int) $row['id'])
-                        ->update(['path' => BodyStore::IN_DATABASE, 'content' => '']);
-                    $moved++;
+        // With mail_bodies' compression paused: a body moved now is dated in the past, and a
+        // chunk compressed while the move still fills it takes each write at many times the cost.
+        $status = $db->schema()->withCompressionPaused('mail_bodies', function () use ($db, $batch, $limit, $content, $output, $started, &$moved, &$missing, &$after): int {
+            while ($limit === 0 || $moved + $missing < $limit) {
+                $rows = $this->pending($content)->select(['id', 'date', 'path', 'content'])->where('id', '>', $after)
+                    ->orderBy('id')->limit($limit === 0 ? $batch : min($batch, $limit - $moved - $missing))->get()->fetchAll();
+                if ($rows === []) {
+                    break;
                 }
-                $db->commitTransaction();
-            } catch (\Throwable $e) {
-                $db->rollbackTransaction();
-                $output->writeln('<error>Stopped at mail ' . $after . ':</error> ' . $e->getMessage() . ' — what was moved before this batch stays moved; run again to go on.');
+                // Read once per batch: the rows of an hour share a file.
+                $files = [];
+                $db->startTransaction();
+                try {
+                    foreach ($rows as $row) {
+                        $after = (int) $row['id'];
+                        [$body, $rebuild] = $this->bodyOf($row, $files);
+                        if ($body === null) {
+                            $missing++;
+                            continue;
+                        }
+                        $this->keep($row, $body, $rebuild);
+                        $db->queryBuilder()->table('#PREFIX#mails')->where('id', (int) $row['id'])
+                            ->update(['path' => BodyStore::IN_DATABASE, 'content' => '']);
+                        $moved++;
+                    }
+                    $db->commitTransaction();
+                } catch (\Throwable $e) {
+                    $db->rollbackTransaction();
+                    $output->writeln('<error>Stopped at mail ' . $after . ':</error> ' . $e->getMessage() . ' — what was moved before this batch stays moved; run again to go on.');
 
-                return Command::FAILURE;
+                    return Command::FAILURE;
+                }
+                $output->writeln(sprintf('%d moved, %d without a body, up to mail %d (%.0f s)', $moved, $missing, $after, microtime(true) - $started));
             }
-            $output->writeln(sprintf('%d moved, %d without a body, up to mail %d (%.0f s)', $moved, $missing, $after, microtime(true) - $started));
+
+            return Command::SUCCESS;
+        });
+        if ($status !== Command::SUCCESS) {
+            return $status;
         }
         $output->writeln(sprintf('<info>%d body/bodies moved into mail_bodies</info>, %d row(s) whose file is not there any more left as they are.', $moved, $missing));
 

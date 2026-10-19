@@ -56,6 +56,8 @@ class WebChangelogWriter extends ChangelogWriter
 #[CoversClass(ChangelogWriter::class)]
 #[CoversClass(ChangelogReader::class)]
 #[CoversClass(\Pramnos\Application\Model::class)]
+#[CoversClass(WriteSpool::class)]
+#[CoversClass(\Pramnos\Database\SchemaBuilder::class)]
 class ChangelogEventsTest extends TestCase
 {
     protected Database $db;
@@ -139,7 +141,8 @@ class ChangelogEventsTest extends TestCase
     public function testAnEventIsWrittenWithoutAModel(): void
     {
         // Arrange
-        $at = 1760000000;
+        // Recent: an older moment goes through the deferred-write queue where a policy compresses.
+        $at = time() - 7200;
 
         // Act
         ChangelogWriter::event(self::ENTITY, 42, 'user.login', ['ip' => '10.0.0.1'], 3, 'Signed in', by: 7, scope: 'org:1', at: $at, source: 'api');
@@ -229,6 +232,49 @@ class ChangelogEventsTest extends TestCase
     }
 
     /**
+     * An event dated before the table's compression cutoff — what an import writes — goes
+     * through the deferred-write queue the table declares, and lands in the table when the
+     * queue drains, with the rest of its chunk's backlog. A recent event is written at once.
+     * Only where TimescaleDB has a compression policy on the table: elsewhere there is no
+     * cutoff and both are written at once.
+     */
+    public function testAnEventDatedBeforeTheCutoffGoesThroughTheQueue(): void
+    {
+        // Arrange
+        \Pramnos\Framework\Testing\Schema::ensure([
+            \Pramnos\Framework\Migrations\Core\CreateDeferredwritesTable::class,
+            \Pramnos\Framework\Migrations\Core\MoveDeferredwritesToPramnos::class,
+        ], $this->db);
+        $timescale = $this->db->capabilities()->hasTimescaleDB();
+        if ($timescale) {
+            \Pramnos\Database\HypertableRegistry::apply($this->db->schema(), ChangelogWriter::EVENTS_TABLE);
+        }
+        $queue = new \Pramnos\Database\DeferredWriteQueue($this->db);
+        $this->db->queryBuilder()->table(\Pramnos\Database\DeferredWriteQueue::TABLE)->where('tablename', ChangelogWriter::EVENTS_TABLE)->delete();
+
+        // Act
+        ChangelogWriter::event(self::ENTITY . '-late', 1, 'legacy.imported', at: time() - 86400 * 200, by: 0);
+        ChangelogWriter::event(self::ENTITY . '-late', 1, 'just.happened', by: 0);
+        $before  = array_column($this->events(self::ENTITY . '-late'), 'event');
+        $waiting = $queue->pending(ChangelogWriter::EVENTS_TABLE);
+        $queue->process(ChangelogWriter::EVENTS_TABLE);
+        $after   = array_column($this->events(self::ENTITY . '-late'), 'event');
+        // A bulk import would rather pause the policy: on MySQL there is none, and it just runs.
+        $paused  = $this->db->schema()->withCompressionPaused(ChangelogWriter::EVENTS_TABLE, static fn (): string => 'written');
+
+        // Assert
+        if ($timescale) {
+            $this->assertSame(['just.happened'], $before, 'the old event waits in the queue');
+            $this->assertSame(1, $waiting);
+        } else {
+            $this->assertSame(['legacy.imported', 'just.happened'], $before, 'no cutoff here: both at once');
+            $this->assertSame(0, $waiting);
+        }
+        $this->assertEqualsCanonicalizing(['legacy.imported', 'just.happened'], $after, 'and once drained, both are in the table');
+        $this->assertSame('written', $paused);
+    }
+
+    /**
      * A listing reads a page with the total the pager needs, filtered by record, event,
      * logtype, who, from where and when, newest first or oldest first; a tenant's events from
      * their own table; and refuses a filter it does not know rather than listing everything.
@@ -236,7 +282,7 @@ class ChangelogEventsTest extends TestCase
     public function testAListingPagesFiltersAndCounts(): void
     {
         // Arrange — 12 events on two records, an hour apart, by two users
-        $start = 1760000000;
+        $start = time() - 86400;
         for ($i = 0; $i < 12; $i++) {
             ChangelogWriter::event(self::ENTITY, $i % 2 === 0 ? 'a' : 'b', $i % 3 === 0 ? 'thing.made' : 'thing.seen', ['n' => $i], $i % 4,
                 by: $i < 6 ? 5 : 6, scope: $i < 3 ? 'org:7' : null, at: $start + $i * 3600, source: $i === 11 ? 'api' : 'web');

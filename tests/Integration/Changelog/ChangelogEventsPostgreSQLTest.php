@@ -10,6 +10,8 @@ use Pramnos\Database\Database;
 /** {@see ChangelogEventsTest} on PostgreSQL, where the changelog tables are hypertables. */
 #[CoversClass(\Pramnos\Changelog\ChangelogWriter::class)]
 #[CoversClass(\Pramnos\Changelog\ChangelogReader::class)]
+#[CoversClass(\Pramnos\Database\WriteSpool::class)]
+#[CoversClass(\Pramnos\Database\SchemaBuilder::class)]
 final class ChangelogEventsPostgreSQLTest extends ChangelogEventsTest
 {
     /** The PostgreSQL container; null skips when it is not reachable. */

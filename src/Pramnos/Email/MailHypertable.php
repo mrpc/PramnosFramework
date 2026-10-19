@@ -167,23 +167,27 @@ final class MailHypertable
         $columns = implode(', ', array_map(fn (string $column): string => $this->quoted($column), $this->columns()));
         $moved   = 0;
 
-        while ($limit === 0 || $moved < $limit) {
-            $size = $limit === 0 ? $batch : min($batch, $limit - $moved);
-            // Raw: a data-modifying CTE, which the query builder cannot express. One statement,
-            // so a row is moved or it is not — never copied twice, never lost.
-            $result = $this->db->query(
-                'WITH moved AS (DELETE FROM ' . $legacy . ' WHERE id IN (SELECT id FROM ' . $legacy . ' ORDER BY id DESC LIMIT ' . max(1, $size) . ') RETURNING ' . $columns . ') '
-                . 'INSERT INTO ' . $table . ' (' . $columns . ') SELECT ' . $columns . ' FROM moved'
-            );
-            $count = $result ? (int) $result->getAffectedRows() : 0;
-            $moved += $count;
-            if ($progress !== null) {
-                $progress($moved, $this->pending());
+        // With the new table's compression paused: the chunk the move is filling must not be
+        // compressed under it, and every chunk is compressed once, when the move is done.
+        $this->db->schema()->withCompressionPaused('#PREFIX#' . $this->table, function () use ($batch, $limit, $progress, $table, $legacy, $columns, &$moved): void {
+            while ($limit === 0 || $moved < $limit) {
+                $size = $limit === 0 ? $batch : min($batch, $limit - $moved);
+                // Raw: a data-modifying CTE, which the query builder cannot express. One statement,
+                // so a row is moved or it is not — never copied twice, never lost.
+                $result = $this->db->query(
+                    'WITH moved AS (DELETE FROM ' . $legacy . ' WHERE id IN (SELECT id FROM ' . $legacy . ' ORDER BY id DESC LIMIT ' . max(1, $size) . ') RETURNING ' . $columns . ') '
+                    . 'INSERT INTO ' . $table . ' (' . $columns . ') SELECT ' . $columns . ' FROM moved'
+                );
+                $count = $result ? (int) $result->getAffectedRows() : 0;
+                $moved += $count;
+                if ($progress !== null) {
+                    $progress($moved, $this->pending());
+                }
+                if ($count < $size) {
+                    break;
+                }
             }
-            if ($count < $size) {
-                break;
-            }
-        }
+        });
         if ($this->pending() === 0) {
             $this->db->query('DROP TABLE ' . $legacy);
         }

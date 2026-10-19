@@ -388,6 +388,12 @@ foreach ($rows as $row) {
 }
 ```
 
+A row dated before the table's compression cutoff goes through the
+[deferred-write queue](Pramnos_Hypertable_Guide.md#writing-late-data-into-a-compressed-table)
+and appears at the next `timescale:drain`, which runs hourly. For a whole history at once,
+write directly inside `$schema->withCompressionPaused('pramnos.changelog_events', …)` instead,
+and every row is there as it is written.
+
 Two cautions for such a command. Unserialize a stored `details` with
 `['allowed_classes' => false]`: an old row must never be able to construct an object. And give
 each logtype an event code once, so the row can be rendered and translated, which stored prose
