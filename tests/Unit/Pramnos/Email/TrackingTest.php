@@ -335,4 +335,38 @@ class TrackingTest extends TestCase
         $this->assertSame($html, Tracking::wrapLinks($html, ''));
         $this->assertSame('https://example.com/x', Tracking::link('', 'https://example.com/x'));
     }
+
+    /**
+     * A link is issued again exactly from its message's send date: the same message, link and
+     * moment give the same token, expiring {@see Tracking::CLICK_TTL} after it — which is what
+     * lets a stored body be given its links back as they were sent. Another moment, another
+     * token. Without a moment, link() and wrapLinks() count from now, as they always did.
+     */
+    public function testALinkIsIssuedAgainExactlyFromItsSendDate(): void
+    {
+        // Arrange
+        $sentAt = time() - 3600;
+        $html   = '<p><a href="https://example.com/a">A</a> <a href="https://example.com/u">Stop</a></p>';
+        $expiry = static fn (string $link): int => (int) \Pramnos\Email\MailAction::verify(urldecode(explode('c=', $link)[1]))['expires'];
+
+        // Act
+        $first   = Tracking::linkSentAt('id-1', 'https://example.com/a', $sentAt);
+        $again   = Tracking::linkSentAt('id-1', 'https://example.com/a', $sentAt);
+        $later   = Tracking::linkSentAt('id-1', 'https://example.com/a', $sentAt + 1);
+        $wrapped = Tracking::wrapLinksSentAt($html, 'id-1', 'https://example.com/u', $sentAt);
+        $now     = Tracking::link('id-1', 'https://example.com/a');
+
+        // Assert
+        $this->assertSame($first, $again, 'the same link, issued again');
+        $this->assertNotSame($first, $later);
+        $this->assertSame($sentAt + Tracking::CLICK_TTL, $expiry($first));
+        $this->assertSame($wrapped, Tracking::wrapLinksSentAt($html, 'id-1', 'https://example.com/u', $sentAt), 'a body, wrapped again');
+        $this->assertStringContainsString(htmlspecialchars($first, ENT_QUOTES), $wrapped);
+        $this->assertStringContainsString('href="https://example.com/u"', $wrapped, 'the unsubscribe left alone');
+        $this->assertEqualsWithDelta(time() + Tracking::CLICK_TTL, $expiry($now), 5, 'without a moment: from now');
+        $this->assertSame(
+            \Pramnos\Email\MailAction::tokenUntil('confirm', ['o' => '1'], 2000000000),
+            \Pramnos\Email\MailAction::tokenUntil('confirm', ['o' => '1'], 2000000000)
+        );
+    }
 }

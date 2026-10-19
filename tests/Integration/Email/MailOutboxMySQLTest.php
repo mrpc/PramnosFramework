@@ -186,13 +186,17 @@ class MailOutboxMySQLTest extends TestCase
         // Arrange
         $this->queueOne('sent@example.com', 'Will go out', '<p>Body</p>');
 
+        $mailer = new FlushSpyMailer(true);
+
         // Act
-        $this->flush(new FlushSpyMailer(true));
+        $this->flush($mailer);
 
         // Assert
         $rows = $this->rows();
         $this->assertCount(1, $rows, 'the worker wrote a second row instead of moving the first');
         $this->assertSame(Mail::STATUS_SENT, (int) $rows[0]['status']);
+        // Sent as of the row's date — what its links count from, and are issued again from.
+        $this->assertSame((int) $rows[0]['date'], $mailer->stamp());
     }
 
     /**
@@ -400,6 +404,12 @@ class FlushSpyMailer extends Email
     public function getLastError()
     {
         return $this->error;
+    }
+
+    /** The moment it was sent as, which its links count from. */
+    public function stamp(): ?int
+    {
+        return $this->sentStamp;
     }
 }
 

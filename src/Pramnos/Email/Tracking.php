@@ -177,13 +177,26 @@ class Tracking
      */
     public static function link(string $trackingId, string $destination): string
     {
+        return self::linkSentAt($trackingId, $destination, time());
+    }
+
+    /** How long a click link works after its message was sent, in seconds. */
+    public const CLICK_TTL = 2592000;
+
+    /**
+     * {@see link()} for a message sent at `$sentAt`: its token expires {@see CLICK_TTL} after that
+     * moment, so the same message, link and moment give the same link — a stored body can be
+     * given its links again exactly as they were sent.
+     */
+    public static function linkSentAt(string $trackingId, string $destination, int $sentAt): string
+    {
         $destination = trim($destination);
 
         if ($trackingId === '' || $destination === '') {
             return $destination;
         }
 
-        $token = MailAction::token('click', ['t' => $trackingId, 'u' => $destination], 2592000);
+        $token = MailAction::tokenUntil('click', ['t' => $trackingId, 'u' => $destination], $sentAt + self::CLICK_TTL);
 
         return self::base() . self::CLICK_PATH . '?c=' . urlencode($token);
     }
@@ -197,13 +210,19 @@ class Tracking
      */
     public static function wrapLinks(string $html, string $trackingId, string $unsubscribeUrl = ''): string
     {
+        return self::wrapLinksSentAt($html, $trackingId, $unsubscribeUrl, time());
+    }
+
+    /** {@see wrapLinks()} for a message sent at `$sentAt`, every link as {@see linkSentAt()} gives it. */
+    public static function wrapLinksSentAt(string $html, string $trackingId, string $unsubscribeUrl, int $sentAt): string
+    {
         if ($trackingId === '' || trim($html) === '') {
             return $html;
         }
 
         return (string) preg_replace_callback(
             '~href="(https?://[^"]+)"~i',
-            static function (array $match) use ($trackingId, $unsubscribeUrl): string {
+            static function (array $match) use ($trackingId, $unsubscribeUrl, $sentAt): string {
                 $url = html_entity_decode($match[1], ENT_QUOTES, 'UTF-8');
 
                 if ($unsubscribeUrl !== '' && str_starts_with($url, $unsubscribeUrl)) {
@@ -215,7 +234,7 @@ class Tracking
                     return $match[0];
                 }
 
-                return 'href="' . htmlspecialchars(self::link($trackingId, $url), ENT_QUOTES) . '"';
+                return 'href="' . htmlspecialchars(self::linkSentAt($trackingId, $url, $sentAt), ENT_QUOTES) . '"';
             },
             $html
         );

@@ -1615,6 +1615,12 @@ is redirected. Left alone: `mailto:`, `tel:`, in-page anchors, and **the unsubsc
 reader unsubscribing is exercising a right, and routing that through a tracker is both distasteful
 and a way to break the one link a mailbox provider tests.
 
+**A click link works for thirty days from the moment the message was sent as**: the `date` its
+`mails` row records, which for a queued message is when it was queued.
+`Tracking::linkSentAt()` and `wrapLinksSentAt()` take that moment, and `MailAction::tokenUntil()`
+an expiry. The same message, link and moment give the same link, so a stored body can be given
+its links again exactly as they were sent. `link()` and `wrapLinks()` count from now.
+
 **The destination lives inside the signed token**, never in the URL. A tracker that reads its
 destination from a query parameter is an open redirect, and an open redirect on a domain that
 sends mail is a phishing kit somebody else gets to use: the link comes from your domain, in a

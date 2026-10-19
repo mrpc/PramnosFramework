@@ -120,7 +120,19 @@ class MailAction
      */
     public static function token(string $action, array $claim = [], ?int $ttl = null): string
     {
-        $expires = time() + ($ttl ?? self::DEFAULT_TTL);
+        return self::tokenUntil($action, $claim, time() + ($ttl ?? self::DEFAULT_TTL));
+    }
+
+    /**
+     * A token that expires at a moment given rather than counted from now — the same action,
+     * claim and moment give the same token, so a message's links can be issued again exactly as
+     * they were sent: from the moment it was sent, not from when it is read.
+     *
+     * @param array<string, scalar> $claim
+     * @param int                   $expires Unix time
+     */
+    public static function tokenUntil(string $action, array $claim, int $expires): string
+    {
         $payload = self::normalise($action) . '|' . $expires . '|' . self::pack($claim);
 
         return self::encode($payload . '|' . self::signature($payload));

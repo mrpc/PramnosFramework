@@ -1081,6 +1081,8 @@ class Email extends \Pramnos\Framework\Base
             return (bool) $this->send();
         }
 
+        // Dated when queued: the worker sends it as of the row's date.
+        $this->sentStamp = null;
         if (!$this->compose()) {
             $this->recordMail(false);
 
@@ -1124,6 +1126,7 @@ class Email extends \Pramnos\Framework\Base
         try {
             $this->lastError     = '';
             $this->lastException = null;
+            $this->sentStamp   ??= time();
 
             return (bool) $this->sendWithSymfonyMailer();
         } catch (\Exception $exception) {
@@ -1146,6 +1149,7 @@ class Email extends \Pramnos\Framework\Base
 
     public function send()
     {
+        $this->sentStamp = time();
         if (!$this->compose()) {
             $this->recordMail(false);
 
@@ -1208,8 +1212,15 @@ class Email extends \Pramnos\Framework\Base
         'cc', 'bcc', 'replyto', 'returnPath', 'attach', 'organization', 'abuse', 'priority',
         'sendReceipt', 'headers', 'unsubscribe', 'unsubscribeMailto', 'unsubscribeList',
         'unsubscribeOneClick', 'trackingId', 'trackingRequested', 'mailType', 'structuredData',
-        'mailId',
+        'mailId', 'sentStamp',
     ];
+
+    /**
+     * The moment this message is sent as, which its `mails` row records as `date`: its click
+     * links expire counted from it, so they can be issued again exactly as they were sent. Set by
+     * send(); for a queued message, the worker hands over the row's.
+     */
+    protected ?int $sentStamp = null;
 
     /**
      * The state the outbox keeps for this message; see {@see OUTBOX_STATE}.
@@ -1265,7 +1276,7 @@ class Email extends \Pramnos\Framework\Base
         }
         try {
             $tomail  = $this->emailToString($this->to);
-            $date    = time();
+            $date    = $this->sentStamp ?? time();
             \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
                 ->table('#PREFIX#mails')
                 ->insert([
@@ -1860,7 +1871,7 @@ class Email extends \Pramnos\Framework\Base
             return $body;
         }
 
-        $body = Tracking::wrapLinks($body, $this->trackingId, (string) $this->unsubscribe);
+        $body = Tracking::wrapLinksSentAt($body, $this->trackingId, (string) $this->unsubscribe, $this->sentStamp ?? time());
 
         /*
          * The pixel last, and inside the body rather than the head.

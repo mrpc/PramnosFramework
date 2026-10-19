@@ -329,6 +329,41 @@ class TrackingRecordingTest extends BaseTestCase
     }
 
     /**
+     * A sent message's links are issued from the moment it was sent as — the same moment its
+     * `mails` row records as `date` — so its stored body can be given them back exactly.
+     */
+    public function testATrackedSendsLinksCountFromItsRowsDate(): void
+    {
+        // Arrange
+        $this->runMigrations([\Pramnos\Framework\Migrations\Messaging\CreateMailsTable::class], $this->db);
+        $mail = new class extends \Pramnos\Email\Email {
+            public string $sent = '';
+
+            protected function sendWithSymfonyMailer()
+            {
+                $this->sent = $this->applyTracking((string) $this->renderedBody());
+
+                return true;
+            }
+        };
+        $mail->to      = 'stamped@example.com';
+        $mail->subject = 'Stamped ' . bin2hex(random_bytes(3));
+        $mail->body    = '<p><a href="https://example.com/offer">Offer</a></p>';
+        $mail->offerUnsubscribe('newsletter', 'stamped@example.com');
+        $mail->enableTracking('id-stamped-' . bin2hex(random_bytes(3)));
+
+        // Act
+        $mail->send();
+        $row = $this->db->queryBuilder()->table('#PREFIX#mails')->where('subject', $mail->subject)->first();
+        preg_match('~\?c=([^"&]+)~', $mail->sent, $token);
+
+        // Assert
+        $this->assertNotEmpty($token, 'a wrapped link was sent');
+        $claim = \Pramnos\Email\MailAction::verify(urldecode(html_entity_decode($token[1])));
+        $this->assertSame((int) $row->fields['date'] + \Pramnos\Email\Tracking::CLICK_TTL, (int) $claim['expires']);
+    }
+
+    /**
      * A transactional message is returned untouched, with no row behind it.
      *
      * The gate, at the level a caller actually sees: not a row with zero opens and not a pixel

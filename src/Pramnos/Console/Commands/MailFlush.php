@@ -186,7 +186,9 @@ class MailFlush extends Command
         // point at. A row queued before the outbox kept this has none, and sends as it did.
         $kept = json_decode((string) ($row['extrainfo'] ?? ''), true);
         if (is_array($kept) && is_array($kept['outbox'] ?? null)) {
-            $email->restoreOutboxState(array_merge($kept['outbox'], ['mailId' => (int) $row['id']]));
+            // Sent as of the row's date, which is what its links are issued from — and what a
+            // stored body is given them again from.
+            $email->restoreOutboxState(array_merge($kept['outbox'], ['mailId' => (int) $row['id'], 'sentStamp' => (int) $row['date']]));
         }
 
         if ($email->sendRendered()) {
