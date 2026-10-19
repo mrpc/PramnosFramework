@@ -34,25 +34,6 @@ addon's `onAuthCheck()`.
 *Done when:* remember-me login persistence is verified across new requests /
 browser restarts in a real application.
 
-## Email
-
-### Where a sent message's body is stored
-
-Under design, written up separately in **[Mail body storage — design](Mail-Body-Storage-Design.md)**.
-
-The short version: `mails.path` is where applications on this framework keep gzipped bodies,
-and the framework neither writes nor reads it — there is no body store in the framework. The
-schema also disagrees with itself: `mails.hash` is described as an MD5 of the content in the
-migration's column comment, while `Email::send()` writes an MD5 of recipient, subject and date.
-
-A first attempt at a body store was backed out whole, because it was written while the design
-was still being argued and carried decisions nobody had agreed to.
-
-**Done requires:** finishing the survey of what installations actually have; deciding whether the
-archived body may stop being byte-identical to what was sent; and settling how deduplication and
-orphan collection work at ten million rows. The design page has the measurements and the traps
-found by prototyping.
-
 ## Search engines
 
 ### hreflang, and a sitemap
