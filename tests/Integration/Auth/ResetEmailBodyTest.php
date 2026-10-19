@@ -169,7 +169,9 @@ class ResetEmailBodyTest extends BaseTestCase
 
         // Act
         $probe->callCompose($this->recipient, 'a-raw-reset-token');
-        $body = (string) ($this->recorded()['content'] ?? '');
+        // The body as sent carries the Gmail action's structured data too, the link in it; what
+        // a reader sees is the rest.
+        $body = (string) preg_replace('~<script type="application/ld\+json">.*?</script>~s', '', \Pramnos\Email\Body::of($this->recorded() ?? []));
 
         // Assert
         $escaped = htmlspecialchars($link, ENT_QUOTES);
@@ -196,7 +198,7 @@ class ResetEmailBodyTest extends BaseTestCase
 
         // Act
         $probe->callCompose($this->recipient, $token);
-        $body = (string) ($this->recorded()['content'] ?? '');
+        $body = \Pramnos\Email\Body::of($this->recorded() ?? []);
 
         // Assert
         $this->assertStringContainsString('token=' . urlencode($token), $body);
@@ -214,7 +216,7 @@ class ResetEmailBodyTest extends BaseTestCase
     {
         // Act
         $this->probe()->callCompose($this->recipient, 'a-raw-reset-token');
-        $body = strtolower((string) ($this->recorded()['content'] ?? ''));
+        $body = strtolower(\Pramnos\Email\Body::of($this->recorded() ?? []));
 
         // Assert
         $this->assertStringContainsString('valid for', $body, 'the mail does not say it expires');
@@ -232,7 +234,7 @@ class ResetEmailBodyTest extends BaseTestCase
     {
         // Act
         $this->probe()->callCompose($this->recipient, 'a-raw-reset-token');
-        $body = strtolower((string) ($this->recorded()['content'] ?? ''));
+        $body = strtolower(\Pramnos\Email\Body::of($this->recorded() ?? []));
 
         // Assert
         $this->assertStringContainsString('did not request', $body);
@@ -259,7 +261,7 @@ class ResetEmailBodyTest extends BaseTestCase
         try {
             // Act
             $this->probe()->callCompose($this->recipient, 'a-raw-reset-token');
-            $body = (string) ($this->recorded()['content'] ?? '');
+            $body = \Pramnos\Email\Body::of($this->recorded() ?? []);
 
             // Assert
             $this->assertStringNotContainsString('<b>Co</b>', $body, 'the brand name broke out');

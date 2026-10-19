@@ -193,6 +193,7 @@ class MailFlush extends Command
 
         if ($email->sendRendered()) {
             $this->mark((int) $row['id'], Mail::STATUS_SENT, '');
+            $this->keepBody($row, $email);
 
             return 'sent';
         }
@@ -206,6 +207,24 @@ class MailFlush extends Command
         }
 
         return 'retry';
+    }
+
+    /**
+     * Move a sent message's body out of the outbox row, to where the body store keeps bodies. A
+     * failure leaves it in the row — sent, with its body where the outbox put it.
+     *
+     * @param array<string, mixed> $row
+     */
+    protected function keepBody(array $row, Email $email): void
+    {
+        try {
+            $columns = $email->keepSentBody((int) $row['id'], (int) $row['date'], (string) $row['tomail']);
+            if ($columns['path'] !== '') {
+                Factory::getDatabase()->queryBuilder()->table('#PREFIX#mails')->where('id', (int) $row['id'])->update($columns);
+            }
+        } catch (\Throwable $e) {
+            \Pramnos\Logs\Logger::log('Sent mail ' . (int) $row['id'] . ' kept its body in the row: ' . $e->getMessage(), 'mail');
+        }
     }
 
     /**

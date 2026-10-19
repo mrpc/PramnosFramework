@@ -1685,13 +1685,53 @@ including `Email::sendMail()`:
 or for one message with `$email->recordToMails = false`. With recording off, `queue()` has no
 outbox row to write and sends at once.
 
-**A body kept in a file.** An application that keeps its own rows often keeps the body on disk:
-`content` left empty, `path` naming a gzipped file relative to the application's root
-(`/var/emails/2026/10/19/09/<md5>.html.gz`). `Pramnos\Email\Body::of($row)` reads either, and
-everything that shows or sends a stored message goes through it: the history screen, its
-report, the outbox worker and the debug panel's sign-in code. `Messaging\Mail::body()` does the
-same for the model. A path is read only from inside the root and only as a body's kind of file
-(`.gz`, `.html`), so a row cannot point it at anything else.
+### Where a sent message's body is kept
+
+A sent message's body is not kept in its `mails` row but in the **body store**
+(`Pramnos\Email\BodyStore`):
+
+```php
+// app/app.php — these are the defaults
+'email' => ['bodies' => [
+    'store' => 'auto',        // 'database', 'files' or 'content'; auto: database where mail_bodies exists
+    'path'  => 'var/emails',  // files: under the application's root, or an absolute folder
+    'disk'  => null,          // files on a storage disk instead, by its name in 'storage' — S3, say
+]],
+```
+
+| Store | Where | The row's `path` |
+|---|---|---|
+| `database` | `mail_bodies`, a compressed hypertable. Its migration creates it only on TimescaleDB | `db:` |
+| `files` | `var/emails/2026/10/19/13/<md5>.body.gz`, one per distinct body and hour | relative to the root, or `disk:<name>:<path>` |
+| `content` | the row's `content`, as before | empty |
+
+`auto` is `database` where the table exists and `files` elsewhere. Measured on real bodies, the
+hypertable keeps them in about a seventeenth of their size. A gzipped file each saves little
+once the filesystem's 4 KB blocks are counted.
+
+**What is kept is the body before what differs per recipient.** The tracking pixel and the
+tracked links are added as the message is sent. The unsubscribe link the framework issues is
+kept as a placeholder naming the list; a link of the application's own is kept as it is. So a
+newsletter to a hundred thousand people is one body. The Gmail actions' structured data is kept
+in the body. `hash` is the md5 of what is kept.
+
+**Reading gives back what was sent.** `Pramnos\Email\Body::of($row)` puts the reader's
+unsubscribe link back, and for a tracked message wraps the links and adds the pixel as of the
+moment it was sent (`Tracking::wrapLinksSentAt()`). The result is the HTML that left, byte for
+byte, as long as the site's address and the signing secret have not changed.
+- **Where it is used:** everything that shows or sends a stored message reads through it — the
+  history screen, its report, the outbox worker, the debug panel's sign-in code — and
+  `Messaging\Mail::body()` does the same for the model.
+- **Bodies an application kept itself:** `content`, or a gzipped `.html.gz` file its `path`
+  names relative to the root, are read as they are.
+- **What a path may read:** a path is read only from inside the root or the store's folder, and
+  only as a body's kind of file (`.gz`, `.html`), so a row cannot point it at anything else.
+
+**A queued message** keeps its body in `content` for the worker, as composed. Once sent, it moves
+to the store.
+
+**A store that cannot be written** keeps the body in `content` and logs why; a body is never lost
+to its store. The application has to be able to write the `files` folder.
 
 ---
 

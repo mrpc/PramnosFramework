@@ -1277,6 +1277,11 @@ class Email extends \Pramnos\Framework\Base
         try {
             $tomail  = $this->emailToString($this->to);
             $date    = $this->sentStamp ?? time();
+            // A queued message keeps its body in the row for the worker, as composed; one that was
+            // sent, or failed, is kept where the body store keeps bodies.
+            $kept    = $status === \Pramnos\Messaging\Mail::STATUS_QUEUED
+                ? ['content' => (string) ($this->renderedBody ?? $this->body), 'path' => '', 'hash' => md5((string) ($this->renderedBody ?? $this->body)), 'kept' => '']
+                : $this->keptBody($date, $tomail);
             \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
                 ->table('#PREFIX#mails')
                 ->insert([
@@ -1286,7 +1291,7 @@ class Email extends \Pramnos\Framework\Base
                     'tomail'     => $tomail,
                     'toname'     => '',
                     'subject'    => (string) $this->subject,
-                    'content'    => (string) ($this->renderedBody ?? $this->body),
+                    'content'    => $kept['content'],
                     'date'       => $date,
                     'module'     => (string) $this->module,
                     'moduleinfo' => substr((string) $this->moduleinfo, 0, 255),
@@ -1299,9 +1304,13 @@ class Email extends \Pramnos\Framework\Base
                         ),
                         default => '',
                     },
-                    'path'       => '',
-                    'hash'       => md5($tomail . '|' . (string) $this->subject . '|' . $date),
+                    'path'       => $kept['path'],
+                    'hash'       => $kept['hash'],
                 ]);
+            $mailId = (int) \Pramnos\Framework\Factory::getDatabase()->getInsertId();
+            if ($kept['path'] === BodyStore::IN_DATABASE) {
+                $this->keepInDatabase($mailId, $date, $kept['kept']);
+            }
 
             /*
              * Tie the tracking row to the audit row, now that the audit row exists.
@@ -1315,7 +1324,7 @@ class Email extends \Pramnos\Framework\Base
                 \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
                     ->table('pramnos.emailtracking')
                     ->where('tracking_id', $this->trackingId)
-                    ->update(['mailid' => (int) \Pramnos\Framework\Factory::getDatabase()->getInsertId()]);
+                    ->update(['mailid' => $mailId]);
             }
         } catch (\Throwable $e) {
             \Pramnos\Logs\Logger::log('Could not record mail in mails table: ' . $e->getMessage());
@@ -1324,6 +1333,71 @@ class Email extends \Pramnos\Framework\Base
         }
 
         return true;
+    }
+
+    /**
+     * The `mails` columns of a sent message's body as the body store keeps it ({@see BodyStore}):
+     * the body before what differs per recipient — with its structured data, which the wrapper
+     * does not add — in a file, in `mail_bodies`, or in `content`. A store that cannot be written
+     * keeps it in `content`: a body is never lost to its store.
+     *
+     * @return array{content: string, path: string, hash: string, kept: string}
+     */
+    protected function keptBody(int $date, string $tomail): array
+    {
+        $rendered = (string) ($this->renderedBody ?? $this->body);
+        $inRow    = ['content' => $rendered, 'path' => '', 'hash' => md5($rendered), 'kept' => ''];
+        try {
+            $mode = BodyStore::mode();
+            if ($mode === BodyStore::CONTENT) {
+                return $inRow;
+            }
+            $kept = BodyStore::prepare($this->embedStructuredData($rendered), $tomail, (string) $this->unsubscribe, (string) $this->unsubscribeList);
+            $path = $mode === BodyStore::DATABASE ? BodyStore::IN_DATABASE : BodyStore::putFile($kept, $date);
+        } catch (\Throwable $e) {
+            \Pramnos\Logs\Logger::log('Mail body kept in its row, the store refused it: ' . $e->getMessage(), 'mail');
+
+            return $inRow;
+        }
+
+        return ['content' => '', 'path' => $path, 'hash' => md5($kept), 'kept' => $kept];
+    }
+
+    /**
+     * Keep a sent message's body in `mail_bodies` for its row; where that fails, put it back in
+     * the row's `content`, so the body is not lost. Whether it is in `mail_bodies`.
+     */
+    protected function keepInDatabase(int $mailId, int $date, string $kept): bool
+    {
+        try {
+            BodyStore::putRow($mailId, $date, $kept);
+
+            return true;
+        } catch (\Throwable $e) {
+            \Pramnos\Logs\Logger::log('Mail body kept in its row, mail_bodies refused it: ' . $e->getMessage(), 'mail');
+            $rendered = (string) ($this->renderedBody ?? $this->body);
+            \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('#PREFIX#mails')->where('id', $mailId)
+                ->update(['content' => $rendered, 'path' => '', 'hash' => md5($rendered)]);
+
+            return false;
+        }
+    }
+
+    /**
+     * Keep the body of a queued message the worker has just sent where the body store keeps
+     * bodies, and answer the row's columns to write — the outbox kept it in `content` until now.
+     *
+     * @return array{content: string, path: string, hash: string}
+     */
+    public function keepSentBody(int $mailId, int $date, string $tomail): array
+    {
+        $kept = $this->keptBody($date, $tomail);
+        if ($kept['path'] === BodyStore::IN_DATABASE && !$this->keepInDatabase($mailId, $date, $kept['kept'])) {
+            // Refused, and put back in the row: the row stays as the outbox left it.
+            return ['content' => '', 'path' => '', 'hash' => ''];
+        }
+
+        return ['content' => $kept['content'], 'path' => $kept['path'], 'hash' => $kept['hash']];
     }
 
     /**

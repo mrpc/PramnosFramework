@@ -240,6 +240,19 @@ class Tracking
         );
     }
 
+    /** The tracking id of the `mails` row `$mailId`, or null for a message that was not tracked. */
+    public static function idForMail(int $mailId): ?string
+    {
+        try {
+            $row = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('pramnos.emailtracking')
+                ->select(['tracking_id'])->where('mailid', $mailId)->first();
+        } catch (\Throwable) {
+            return null;
+        }
+
+        return $row && $row->numRows > 0 && (string) $row->fields['tracking_id'] !== '' ? (string) $row->fields['tracking_id'] : null;
+    }
+
     // ── Recording ────────────────────────────────────────────────────────────
 
     /**
