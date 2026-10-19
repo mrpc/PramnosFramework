@@ -196,6 +196,28 @@ class MailOutboxMySQLTest extends TestCase
     }
 
     /**
+     * A queued message whose body is kept in a file — `content` empty, `path` naming it, as an
+     * application keeps them — leaves with that body, not an empty one.
+     */
+    public function testAQueuedBodyKeptInAFileIsSent(): void
+    {
+        // Arrange
+        $this->queueOne('file@example.com', 'From disk', '<p>Body</p>');
+        $relative = '/var/pf-outbox-' . bin2hex(random_bytes(3)) . '.html.gz';
+        file_put_contents(ROOT . $relative, gzencode('<p>Kept on disk</p>'));
+        $this->db->queryBuilder()->table('#PREFIX#mails')->where('module', $this->tag)->update(['content' => '', 'path' => $relative]);
+        $mailer = new FlushSpyMailer(true);
+
+        // Act
+        $this->flush($mailer);
+        @unlink(ROOT . $relative);
+
+        // Assert
+        $this->assertSame(1, $mailer->attempts);
+        $this->assertSame('<p>Kept on disk</p>', $mailer->body);
+    }
+
+    /**
      * A permanent refusal fails the row immediately, with the reason on it.
      *
      * A 5xx is the server saying «never»: no such mailbox, rejected for policy. Retrying it

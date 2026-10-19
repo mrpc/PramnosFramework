@@ -1679,6 +1679,14 @@ including `Email::sendMail()`:
 or for one message with `$email->recordToMails = false`. With recording off, `queue()` has no
 outbox row to write and sends at once.
 
+**A body kept in a file.** An application that keeps its own rows often keeps the body on disk:
+`content` left empty, `path` naming a gzipped file relative to the application's root
+(`/var/emails/2026/10/19/09/<md5>.html.gz`). `Pramnos\Email\Body::of($row)` reads either, and
+everything that shows or sends a stored message goes through it: the history screen, its
+report, the outbox worker and the debug panel's sign-in code. `Messaging\Mail::body()` does the
+same for the model. A path is read only from inside the root and only as a body's kind of file
+(`.gz`, `.html`), so a row cannot point it at anything else.
+
 ---
 
 ## What DNS says, and what the application cannot see

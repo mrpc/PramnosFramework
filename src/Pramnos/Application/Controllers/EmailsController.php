@@ -333,7 +333,10 @@ class EmailsController extends Controller
         $doc->title = 'Email Preview — ' . htmlspecialchars((string) ($result->fields['subject'] ?? ''), ENT_QUOTES);
 
         $view       = $this->getView('emails');
-        $view->mail = $result->fields;
+        // The body as it was kept: in the row, or in the file its path names.
+        $mail            = (array) $result->fields;
+        $mail['content'] = \Pramnos\Email\Body::of($mail);
+        $view->mail      = $mail;
 
         /*
          * Everything else that is knowable about this message.
@@ -344,7 +347,7 @@ class EmailsController extends Controller
          * unsubscribe link and one that kept it look identical from there.
          */
         $view->report = new \Pramnos\Email\MessageReport(
-            (array) $result->fields,
+            $mail,
             $this->trackingFor($mailId)
         );
 

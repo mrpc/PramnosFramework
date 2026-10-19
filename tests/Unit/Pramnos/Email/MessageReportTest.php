@@ -277,4 +277,34 @@ class MessageReportTest extends TestCase
         // Assert
         $this->assertSame('Please confirm <https://example.com/c>.', $text);
     }
+
+    /**
+     * The report reads a body kept in a file as it reads one in the row — what every check it
+     * makes of the message is made on.
+     */
+    public function testABodyKeptInAFileIsReadToo(): void
+    {
+        // Arrange
+        $relative = '/var/pf-report-' . bin2hex(random_bytes(3)) . '.html.gz';
+        file_put_contents(ROOT . $relative, gzencode('<p>Hi</p><img src="https://example.com/emailpixel?t=abc123" width="1" height="1">'));
+        $report = new MessageReport(['content' => '', 'path' => $relative, 'status' => 1, 'tomail' => 'a@example.com', 'date' => 1000]);
+
+        // Act
+        $body = $report->body();
+        unlink(ROOT . $relative);
+
+        // Assert
+        $this->assertStringContainsString('emailpixel?t=abc123', $body);
+    }
+
+    /** A message handed over as it was composed — `body`, not a stored row — is read as such. */
+    public function testAComposedMessagesBodyIsRead(): void
+    {
+        // Arrange
+        $report = new MessageReport(['body' => '<p>composed</p>', 'status' => 1]);
+
+        // Act + Assert
+        $this->assertSame('<p>composed</p>', $report->body());
+    }
 }
+

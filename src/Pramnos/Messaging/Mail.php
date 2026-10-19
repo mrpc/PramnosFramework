@@ -82,6 +82,15 @@ class Mail extends \Pramnos\Application\Model
     // ── CRUD ─────────────────────────────────────────────────────────────────
 
     /**
+     * The message's body: its content, or the file its path names ({@see \Pramnos\Email\Body}).
+     * Read, never written back: the content stays as the row keeps it.
+     */
+    public function body(): string
+    {
+        return \Pramnos\Email\Body::of(['content' => $this->content ?? '', 'path' => $this->path ?? '']);
+    }
+
+    /**
      * Load a mail record by primary key.
      *
      * @param  int|string $id

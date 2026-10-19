@@ -277,7 +277,7 @@ class AuthCollector implements CollectorInterface
 
         $result = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
             ->table('#PREFIX#mails')
-            ->select(['content', 'date'])
+            ->select(['content', 'path', 'date'])
             ->whereRaw('LOWER(tomail) = ?', [strtolower($email)])
             ->orderBy('date', 'desc')
             ->limit(5)
@@ -291,7 +291,7 @@ class AuthCollector implements CollectorInterface
             // The first standalone six-digit run in the newest mail that has one. Ordered
             // newest-first and capped at five, because a code from last week is worse than
             // no code: somebody would type it.
-            if (preg_match('/\b(\d{6})\b/', (string) ($row['content'] ?? ''), $match) === 1) {
+            if (preg_match('/\b(\d{6})\b/', \Pramnos\Email\Body::of((array) $row), $match) === 1) {
                 return $match[1];
             }
         }

@@ -179,7 +179,7 @@ class MailFlush extends Command
          * second time — a whole HTML document inside another one — and would write a second
          * audit row for a message that already has one.
          */
-        $email->body = (string) $row['content'];
+        $email->body = \Pramnos\Email\Body::of($row);
 
         // And the rest of what it was queued with: copies, reply-to, the attachment, the
         // unsubscribe headers, the thread, tracking. The id is this row's, for tracking to

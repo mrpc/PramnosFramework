@@ -30,6 +30,9 @@ class TestableEmailsController extends EmailsController
     }
 
 
+    /** The view handed out last, to read what the action gave it. */
+    public ?object $lastView = null;
+
     public function &getView($name = '', $type = '', $args = [])
     {
         $view = new class {
@@ -51,6 +54,7 @@ class TestableEmailsController extends EmailsController
                 return 'mock html view for ' . $view;
             }
         };
+        $this->lastView = $view;
         return $view;
     }
 }
@@ -322,6 +326,42 @@ class EmailsControllerTest extends BaseTestCase
         $this->assertNotEmpty($output);
         $this->assertEmpty($this->controller->redirectedTo);
         $this->assertStringContainsString('Email Preview — Subject 1', $doc->title);
+    }
+
+    /**
+     * A message whose body an application kept in a file — `content` empty, `path` naming the
+     * gzipped body relative to the root — is shown with that body, not as "No body content.".
+     */
+    public function testShowReadsABodyKeptInAFile(): void
+    {
+        // Arrange
+        $relative = '/var/pf-emailshow-' . bin2hex(random_bytes(3)) . '.html.gz';
+        file_put_contents(ROOT . $relative, gzencode('<p>Kept on disk</p>'));
+        $db = \Pramnos\Framework\Factory::getDatabase();
+        $db->queryBuilder()->table('#PREFIX#mails')->insert([
+            'id' => 3, 'status' => 1, 'frommail' => 'no-reply@test.com', 'fromname' => 'Test', 'tomail' => 'kept@test.com',
+            'toname' => 'Kept', 'subject' => 'Subject 3', 'content' => '', 'date' => 1672567203, 'module' => 'system',
+            'moduleinfo' => '', 'extrainfo' => '', 'path' => $relative, 'hash' => md5('<p>Kept on disk</p>'),
+        ]);
+        $this->setMockUser(98);
+        \Pramnos\Framework\Factory::getDocument()->themeObject = new class {
+            public function allowsViewOverrides() { return false; }
+        };
+
+        // Act
+        ob_start();
+        try {
+            $_GET['_option'] = 3;
+            $output = (string) $this->controller->show(3);
+        } finally {
+            $output .= (string) ob_get_clean();
+            @unlink(ROOT . $relative);
+        }
+
+        // Assert
+        $this->assertSame('mock html view for show', $output);
+        $this->assertSame('<p>Kept on disk</p>', $this->controller->lastView->mail['content'], 'the view is handed the body');
+        $this->assertSame('<p>Kept on disk</p>', $this->controller->lastView->report->body(), 'and so is the report');
     }
 
     public function testShowRedirectsWhenInvalidId(): void

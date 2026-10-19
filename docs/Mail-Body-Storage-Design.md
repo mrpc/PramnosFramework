@@ -7,8 +7,8 @@ use_cases:
 
 # Mail body storage — design
 
-**Status:** design, open. Nothing here is implemented.
-**Last updated:** 31 August 2026
+**Status:** decided; being implemented in phases (§10).
+**Last updated:** 19 October 2026
 
 An earlier prototype — a `BodyStore` class and a `mail:archive` command — was reverted whole
 (`03e944cc`, `2039c49e`) because it carried decisions that had not been agreed. Neither exists
@@ -321,6 +321,68 @@ because each is easy to write again.
    that are genuinely identical collapse.
 
 ---
+
+## 10. Decisions, and the phases — October 2026
+
+### Measured
+
+On one application's production: `mails` is 35M rows, 13.8 GB of data and 3.2 GB of indexes. Its
+bodies are 34.45 GB in 12.2M gzipped files of about 2.8 KB each, about 4 GB a year. Over 90 days,
+95% of the messages are transactional, and their 1.17M rows have 380k distinct bodies. Bulk mail
+is 2.6% only because that application sends its newsletters elsewhere.
+
+On 8,502 of its real bodies (51.4 MB uncompressed):
+
+| Kept as | Size |
+|---|---:|
+| one gzipped file each, content | 17.1 MB |
+| one gzipped file each, **on disk** (4 KB blocks) | **42.9 MB** |
+| a TimescaleDB hypertable, compressed | 3.0 MB |
+| one zstd archive per day | 0.6 MB |
+
+Per-file gzip saves little on disk, because most of a small file is its block. The bodies are
+mostly the same templates, so compressing many of them together gains far more than compressing
+each alone.
+
+### Decided
+
+- **Bodies on TimescaleDB go into a compressed hypertable** beside `mails`. That is 17×, with no
+  compression code of our own, one store, GDPR as an `UPDATE`, and backups without millions of
+  files. Elsewhere (MySQL, plain PostgreSQL) they stay files, in the layout applications already
+  use. Daily zstd archives stay a later option, for an installation without TimescaleDB that
+  runs short of space.
+- **No hard-link deduplication.** Over 90 days the distinct bodies are as many as the hourly
+  files already written, so dedup across hours buys nothing. In the file store a body's name is
+  the md5 of what it holds, so identical bodies in the same hour share a file for free.
+- **A body is kept before what differs per recipient, and rebuilt to the byte when read:** the
+  tracking pixel, the tracked links and the unsubscribe link. Compression cannot absorb these:
+  the tokens are HMAC signatures, about 4.5 KB of random bytes per recipient for a newsletter of
+  30 links, which is 450 MB for 100,000 recipients even compressed. For that, the click token's
+  expiry is derived from the send date, so it can be issued again identically. That is a new
+  method, because `MailAction` and `Tracking` are not final.
+- **`hash` is the md5 of the body kept**, as applications already write it. The framework's
+  `md5(tomail|subject|date)` was read by nobody.
+- **Template + variables, where the application hands them to the framework** under a new name,
+  since `setTemplate()` is the wrapper's. One template plus a few hundred bytes of JSON per row,
+  instead of a file of at least 4 KB. A body composed before it reaches the framework is kept
+  as it is.
+- **Nothing is added to `Email` under a name an application's subclass already uses.** Two
+  applications extend it with `save`, `load`, `deliver`, `queueMail`, `parse`, `renderTemplate`,
+  `isValidForContact`, `blacklist`, `addBounce`, `clearBounce` and the `$path` / `$hash` /
+  `$content` properties. The new parts are classes of their own.
+- **Bounces adopt the applications' `bounces` table as it is** (`hash` = sha256 of the address,
+  soft and hard counts and times). It is created only where it is missing.
+
+### Phases
+
+1. **Reading** — `Email\Body::of()`: `content`, or the file `path` names. *Done.*
+2. Deterministic tokens: new methods beside the existing ones.
+3. The store, with rebuild — `BodyStore`, as a hypertable or as files (and S3).
+4. Template + variables through the framework, with values taken from the user.
+5. Bounces and suppression: the table, a check in `send()`, a command reading the bounce mailbox,
+   and a screen.
+6. GDPR erasure and retention, files and rows alike.
+7. `mails` as a hypertable, with the move of an application's files into the store.
 
 ## 9. Next steps
 

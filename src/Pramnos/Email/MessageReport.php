@@ -36,7 +36,9 @@ class MessageReport
     /** The rendered body as it was sent. */
     public function body(): string
     {
-        return (string) ($this->mail['content'] ?? $this->mail['body'] ?? '');
+        return isset($this->mail['body']) && ($this->mail['content'] ?? '') === '' && ($this->mail['path'] ?? '') === ''
+            ? (string) $this->mail['body']
+            : Body::of($this->mail);
     }
 
     /**
