@@ -257,7 +257,8 @@ class AccountControllerIntegrationTest extends TestCase
         $mockResult->numRows = 1;
         $mockResult->fields = ['appid' => 5, 'name' => 'App Name'];
         $this->queryBuilderMock->method('first')->willReturn($mockResult);
-        
+        // Two live tokens: they are revoked, and the consent is withdrawn.
+        $this->queryBuilderMock->method('count')->willReturn(2);
         $this->queryBuilderMock->expects($this->once())->method('update')->willReturn(true);
         $this->queryBuilderMock->expects($this->once())->method('delete')->willReturn(true);
 

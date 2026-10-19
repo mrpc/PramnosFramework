@@ -112,7 +112,8 @@ class EndSession
 
         $count = $tokens()->count();
         if ($count > 0) {
-            $tokens()->update(['status' => 0]);
+            // Revoked, as the account screen revokes: kept as status 3 for the audit trail.
+            $tokens()->update(['status' => \Pramnos\Auth\AuthorizedApplications::REVOKED, 'removedate' => time()]);
         }
 
         return $count;

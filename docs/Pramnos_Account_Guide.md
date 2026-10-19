@@ -210,8 +210,11 @@ and the IP/browser it came from. Use it to spot anything you did not do.
 **Security → Authorized Applications.**
 
 If you have granted third-party applications access to your account (via
-"Sign in with …"), they are listed here. **Revoke** removes an application's
-access and invalidates its tokens immediately.
+"Sign in with …", or by connecting an assistant), they are listed here. That includes one you
+approved whose sessions have since expired, because your approval would let it back in without
+asking. **Revoke** removes an application's access, invalidates its tokens immediately, and
+withdraws your approval, so it has to ask again. An application the site has since deactivated
+can be revoked too.
 
 ---
 

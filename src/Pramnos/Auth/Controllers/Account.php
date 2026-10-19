@@ -1693,52 +1693,25 @@ class Account extends Controller
         }
 
         if ($clientId === '') {
-            $this->sendRevokeResponse($isAjax, false, 'client_id is required');
+            $this->sendRevokeResponse($isAjax, false, t('client_id is required'));
             return;
         }
 
         try {
-            $db     = \Pramnos\Framework\Factory::getDatabase();
-            $result = $db->queryBuilder()
-                ->table('#PREFIX#applications')
-                ->select(['appid', 'name'])
-                ->where('apikey', $clientId)
-                ->where('status', 1)
-                ->first();
-
-            if (!$result || $result->numRows == 0) {
-                $this->sendRevokeResponse($isAjax, false, 'Application not found');
+            // Active or not: a deactivated application's refresh tokens are live all the same.
+            $service = new \Pramnos\Auth\AuthorizedApplications();
+            $app     = $service->byClientId($clientId);
+            if ($app === null) {
+                $this->sendRevokeResponse($isAjax, false, t('Application not found'));
                 return;
             }
+            $service->revoke((int) $currentUser->userid, $app['appid']);
 
-            $appId   = (int)    $result->fields['appid'];
-            $appName = (string) $result->fields['name'];
-
-            // Revoke tokens (status 3 = revoked, kept for audit trail)
-            $db->queryBuilder()
-                ->table('#PREFIX#usertokens')
-                ->where('userid', $currentUser->userid)
-                ->where('applicationid', $appId)
-                ->where('status', 1)
-                ->update(['status' => 3, 'removedate' => time()]);
-
-            // Remove consent record if present
-            $db->queryBuilder()
-                ->table('authserver.oauth2_user_consents')
-                ->where('userid', $currentUser->userid)
-                ->where('applicationid', $appId)
-                ->delete();
-
-            \Pramnos\Auth\ActivityLog::record((int) $currentUser->userid, 'application_revoked', [
-                'application_id'   => $appId,
-                'application_name' => $appName,
-            ]);
-
-            $this->sendRevokeResponse($isAjax, true, "Access revoked for {$appName}");
+            $this->sendRevokeResponse($isAjax, true, t('Access revoked for %s', $app['name']));
 
         } catch (\Exception $ex) {
             \Pramnos\Logs\Logger::log('Error revoking application access: ' . $ex->getMessage());
-            $this->sendRevokeResponse($isAjax, false, 'Failed to revoke access');
+            $this->sendRevokeResponse($isAjax, false, t('Failed to revoke access'));
         }
     }
 
@@ -2406,42 +2379,14 @@ class Account extends Controller
     // ── Private — DB helpers ──────────────────────────────────────────────────
 
     /**
-     * Return authorized applications (grouped by app) for a user.
+     * The applications a user has authorized — {@see \Pramnos\Auth\AuthorizedApplications::forUser()}:
+     * a live token or a consent, the consent's date and scopes among the fields.
      *
      * @return array<int, array<string, mixed>>
      */
     protected function getAuthorizedApplications(int $userId): array
     {
-        $db     = \Pramnos\Framework\Factory::getDatabase();
-        $result = $db->queryBuilder()
-            ->table('usertokens ut')
-            ->join('#PREFIX#applications a', 'ut.applicationid', '=', 'a.appid')
-            ->select([
-                'a.appid', 'a.name', 'a.apikey', 'a.description',
-                // The SSO status page links each application, and the view was
-                // documented as receiving `website_url` while the query never
-                // selected it — so every entry rendered without its link.
-                'a.url AS website_url',
-                'MAX(ut.lastused) AS last_used',
-                'COUNT(ut.tokenid) AS token_count',
-            ])
-            ->distinct()
-            ->where('ut.userid', $userId)
-            ->where('ut.status', 1)
-            ->where(function ($q) {
-                $q->where('ut.expires', 0)->orWhere('ut.expires', '>', time());
-            })
-            ->groupBy(['a.appid', 'a.name', 'a.apikey', 'a.description', 'a.url'])
-            ->get();
-
-        $apps = [];
-        if ($result) {
-            while ($result->fetch()) {
-                $apps[] = (array) $result->fields;
-            }
-        }
-
-        return $apps;
+        return (new \Pramnos\Auth\AuthorizedApplications())->forUser($userId);
     }
 
     /**
@@ -3006,6 +2951,15 @@ class Account extends Controller
          *
          * Ending the response is one decision, so it is made in one place, for all four outcomes.
          */
-        $this->redirect(sURL . $this->routeBase . '/applications');
+        $this->redirect($this->applicationsUrl());
+    }
+
+    /**
+     * Where revoking an application returns to: this controller's list. An area that serves the
+     * screen elsewhere — `/admin/…` — names its own.
+     */
+    protected function applicationsUrl(): string
+    {
+        return sURL . $this->routeBase . '/applications';
     }
 }

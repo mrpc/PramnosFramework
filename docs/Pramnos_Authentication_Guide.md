@@ -236,7 +236,7 @@ decided once by `sendRevokeResponse()`:
 | caller | answer |
 |---|---|
 | `X-Requested-With: XMLHttpRequest` | a JSON body, then the response ends |
-| a browser form | a flash message, then a redirect to `<routeBase>/applications` |
+| a browser form | a flash message, then a redirect to `applicationsUrl()`, by default `<routeBase>/applications` |
 
 Worth stating because getting it wrong is invisible from one side. An XHR handed an HTML flash page
 fails at `response.json()` and surfaces as «something went wrong» with no clue that the request was
@@ -247,7 +247,34 @@ as the entire page.
 early returns — «client_id is required», «Application not found» — and every one of them answers
 through `sendRevokeResponse()`, so a browser form gets its redirect on every path rather than a flash
 queued for a page that is never rendered. If you override `sendRevokeResponse()`, it owns ending the
-response.
+response. An area that serves the screen elsewhere (`/admin/…`) overrides `applicationsUrl()`, not
+the whole response. The messages go through `t()`.
+
+### The applications a person has authorized: `AuthorizedApplications`
+
+The listing and the revoking both live in `Pramnos\Auth\AuthorizedApplications`, so the person's
+own screen and an administrator acting on their account do the same thing:
+
+```php
+$apps = new \Pramnos\Auth\AuthorizedApplications();
+
+$apps->forUser($userId);
+// [['appid' => 4, 'name' => 'Assistant', 'apikey' => '…', 'active' => true, 'token_count' => 2,
+//   'last_used' => 1760000000, 'consented_at' => '2026-01-02 03:04:05', 'scope' => 'mcp offline_access', …]]
+
+$apps->revoke($userId, $appId, byUserId: $administratorId);   // how many tokens were revoked
+```
+
+- **Listed: a live token, or a consent.** A consent whose tokens have all expired is still listed,
+  with `token_count` 0. It would approve the next authorization without asking, so it must be
+  visible to be withdrawn. `last_used` is the latest of a token's last use and its creation.
+- **A deactivated application is listed and revocable.** Its `active` is `false`, but its refresh
+  tokens are as live as anybody's. `byClientId()` finds it by client id whatever its status.
+- **Revoking** sets every live token the application holds for the person, access and refresh, to
+  status 3, kept for the audit trail with its `removedate`. It deletes the consent, so the next
+  authorization asks again, and records `application_revoked` in the person's activity. When
+  `byUserId` is somebody else, the record carries `revoked_by`. Status 3 is also what
+  `EndSession` writes when a client signs a person out.
 
 ### `exportdata` is a confirmation on `GET` and the file on `POST`
 
