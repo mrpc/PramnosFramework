@@ -132,6 +132,83 @@ final class Feed
     }
 
     /**
+     * Mark read what is about something now dealt with — a comment answered, a draft
+     * published — without each notification's own row being pressed.
+     *
+     * ```php
+     * // toDatabase(): ['message' => 'A comment is waiting', 'about' => ['comment:42'], …]
+     * Feed::settleAbout(['comment:42']);            // everybody's: the comment was answered
+     * Feed::settleAbout(['comment:42'], $userId);   // one person's: they opened it
+     * ```
+     *
+     * A notification lists what it is about under `about` — one key or several — and is settled
+     * when any of them is. Without it, a feed fills with alerts about things already handled,
+     * and a reader learns to ignore the bell.
+     *
+     * @param list<string> $keys
+     * @param int|null     $userId One person's feed, or everybody's when the thing itself was handled
+     * @return int How many were marked read
+     */
+    public static function settleAbout(array $keys, ?int $userId = null, ?Database $db = null): int
+    {
+        $keys = array_values(array_unique(array_filter(array_map('strval', $keys), static fn (string $k): bool => $k !== '')));
+        if ($keys === []) {
+            return 0;
+        }
+        $db ??= Database::getInstance();
+        // Narrowed by text on every database, then checked as JSON here: the stored `data` is
+        // text on one and jsonb on another, and only the decoded list says what it is about.
+        $query = $db->queryBuilder()->table('#PREFIX#notifications')->select(['id', 'data'])->whereNull('read_at')
+            ->where(static function ($q) use ($keys): void {
+                foreach ($keys as $key) {
+                    $q->orWhere('data', 'LIKE', '%' . self::likeSafe(json_encode($key, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)) . '%');
+                }
+            });
+        if ($userId !== null) {
+            $query->where('notifiable_id', $userId);
+        }
+        $result = $query->get();
+        $ids    = [];
+        while ($result && $result->fetch()) {
+            $data  = json_decode((string) $result->fields['data'], true);
+            $about = is_array($data) ? (array) ($data['about'] ?? []) : [];
+            if (array_intersect(array_map('strval', $about), $keys) !== []) {
+                $ids[] = (string) $result->fields['id'];
+            }
+        }
+        foreach (array_chunk($ids, 500) as $chunk) {
+            $db->queryBuilder()->table('#PREFIX#notifications')->whereIn('id', $chunk)->update(['read_at' => date('Y-m-d H:i:s')]);
+        }
+
+        return count($ids);
+    }
+
+    /**
+     * Throw away notifications read more than `$days` ago; unread ones are never removed — an
+     * alert nobody opened is the one case where age is not a reason to.
+     *
+     * Nothing calls this unless the application says how long to keep them:
+     * `'notifications' => ['keep_read_days' => 180]`, applied daily by `notifications:prune`.
+     *
+     * @return int How many were removed
+     */
+    public static function prune(int $days, ?Database $db = null): int
+    {
+        if ($days < 1) {
+            return 0;
+        }
+        $db ??= Database::getInstance();
+        $before = date('Y-m-d H:i:s', time() - $days * 86400);
+        $query  = $db->queryBuilder()->table('#PREFIX#notifications')->whereNotNull('read_at')->where('read_at', '<', $before);
+        $count  = (int) (clone $query)->count();
+        if ($count > 0) {
+            $query->delete();
+        }
+
+        return $count;
+    }
+
+    /**
      * The groups app.php declares, by name: the notification classes in each.
      *
      * @return array<string, list<string>>

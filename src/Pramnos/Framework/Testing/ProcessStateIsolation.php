@@ -79,6 +79,10 @@ final class ProcessStateIsolation implements Extension, StartedSubscriber
         \Pramnos\Scheduling\FrameworkSchedule::class,
         \Pramnos\Storage\Storage::class,
         \Pramnos\Search\Registry::class,
+        // Whether a table exists, asked once a process: one test class's answer is not another's.
+        \Pramnos\Html\NotificationBell::class,
+        \Pramnos\Email\BodyStore::class,
+        \Pramnos\Email\Bounces::class,
     ];
 
     /** @var array<class-string, array<string, mixed>> Static properties as recorded */

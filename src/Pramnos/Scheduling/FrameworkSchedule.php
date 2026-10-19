@@ -248,6 +248,13 @@ class FrameworkSchedule
                 'description' => 'Apply the mail retention policy, if one is configured',
             ],
 
+            // In-app notifications read long ago. Nothing unless the application sets
+            // `notifications.keep_read_days`; unread ones are never removed.
+            'notifications:prune' => [
+                'cadence'     => [['daily'], ['at', '04:15']],
+                'description' => 'Remove read in-app notifications past the configured age',
+            ],
+
             // The language-model call log: every call, with its prompt and reply, kept ninety
             // days. A no-op without the `llm` feature, which has no table.
             'llm:prune' => [

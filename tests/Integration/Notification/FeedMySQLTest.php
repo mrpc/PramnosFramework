@@ -25,6 +25,9 @@ use Pramnos\Notification\Feed;
  */
 #[CoversClass(Feed::class)]
 #[CoversClass(NotificationsController::class)]
+#[CoversClass(\Pramnos\Notification\FeedApi::class)]
+#[CoversClass(\Pramnos\Html\NotificationBell::class)]
+#[CoversClass(\Pramnos\Console\Commands\NotificationsPrune::class)]
 class FeedMySQLTest extends TestCase
 {
     protected const ME = 990001;
@@ -234,5 +237,173 @@ class FeedMySQLTest extends TestCase
         $this->assertStringContainsString('<ul class="pf-notify-list" data-pf-notifications-list></ul>', $html);
         $this->assertStringContainsString('data-url="' . \sURL . 'Notifications"', \Pramnos\Html\NotificationBell::render(), 'the site\'s /Notifications by default');
     }
-}
 
+    /**
+     * A notification about something now dealt with is settled with it: everybody's when the
+     * thing itself was handled, one person's when they opened it; one about something else, an
+     * already read one, and one that only mentions the key in its text are left as they were.
+     */
+    public function testWhatIsAboutSomethingDealtWithIsSettled(): void
+    {
+        // Arrange
+        $about = static fn (string $id, int $who, array $data, ?string $read = null) => [
+            'id' => $id, 'type' => 'App\\Notifications\\CommentWaiting', 'notifiable_type' => 'App\\User', 'notifiable_id' => $who,
+            'data' => json_encode($data), 'read_at' => $read, 'created_at' => '2026-10-15 11:00:00',
+        ];
+        foreach ([
+            $about('10000000-0000-4000-8000-000000000001', self::ME, ['message' => 'A comment', 'about' => ['comment:42', 'post:7']]),
+            $about('10000000-0000-4000-8000-000000000002', self::SOMEBODY, ['message' => 'A comment', 'about' => 'comment:42']),
+            $about('10000000-0000-4000-8000-000000000003', self::ME, ['message' => 'Another', 'about' => ['comment:43']]),
+            $about('10000000-0000-4000-8000-000000000004', self::ME, ['message' => 'Says "comment:42" but is not about it']),
+            $about('10000000-0000-4000-8000-000000000005', self::ME, ['message' => 'Read', 'about' => ['comment:42']], '2026-10-01 10:00:00'),
+        ] as $row) {
+            $this->db->queryBuilder()->table('notifications')->insert($row);
+        }
+        $read = fn (string $id): bool => $this->db->queryBuilder()->table('notifications')->where('id', $id)->first()->fields['read_at'] !== null;
+
+        // Act
+        $mine     = Feed::settleAbout(['comment:42'], self::ME, $this->db);
+        $everyone = Feed::settleAbout(['comment:42', 'comment:43', ''], null, $this->db);
+        $nothing  = Feed::settleAbout(['', ''], null, $this->db);
+
+        // Assert
+        $this->assertSame(1, $mine, 'only mine, of what is about it');
+        $this->assertSame(2, $everyone, 'then the rest, of anybody');
+        $this->assertSame(0, $nothing);
+        $this->assertTrue($read('10000000-0000-4000-8000-000000000002'));
+        $this->assertTrue($read('10000000-0000-4000-8000-000000000003'));
+        $this->assertFalse($read('10000000-0000-4000-8000-000000000004'), 'a mention in the text is not what it is about');
+    }
+
+    /**
+     * Read notifications past the age are removed and unread ones never are; with no age given
+     * or configured, the command removes nothing and says how to set one.
+     */
+    public function testReadOnesPastTheirAgeArePruned(): void
+    {
+        // Arrange — m2 was read on 1 October; mark m1 read a moment ago
+        $this->db->queryBuilder()->table('notifications')->where('id', '00000000-0000-4000-8000-000000000001')->update(['read_at' => date('Y-m-d H:i:s')]);
+        $command = new \Symfony\Component\Console\Tester\CommandTester(new \Pramnos\Console\Commands\NotificationsPrune());
+
+        // Act
+        $command->execute([]);
+        $unset   = $command->getDisplay();
+        $none    = Feed::prune(0, $this->db);
+        Application::getInstance()->applicationInfo['notifications']['keep_read_days'] = 7;
+        $command->execute([]);
+        $pruned  = $command->getDisplay();
+        $left    = $this->db->queryBuilder()->table('notifications')->whereIn('notifiable_id', [self::ME, self::SOMEBODY])->count();
+        $command->execute(['--days' => '7']);
+
+        // Assert
+        $this->assertStringContainsString('No retention is set', $unset);
+        $this->assertSame(0, $none);
+        $this->assertStringContainsString('1 notification(s) read over 7 days ago removed', $pruned, 'm2 only: m1 was read just now');
+        $this->assertSame(5, $left, 'the unread and the recently read stay');
+        $this->assertStringContainsString('0 notification(s)', $command->getDisplay());
+    }
+
+    /**
+     * The API a SPA reads: the same feed as the endpoint, in the API's envelope, from a JSON
+     * body as a SPA posts one; nobody signed in is refused.
+     */
+    public function testTheApi(): void
+    {
+        // Arrange
+        $api      = new class extends \Pramnos\Notification\FeedApi {
+            /** @var array<string, mixed> A JSON body, as a SPA posts one */
+            public array $body = [];
+
+            protected function input(): array
+            {
+                return $this->body !== [] ? $this->body : parent::input();
+            }
+        };
+        $router   = new \Pramnos\Routing\Router(null);
+        \Pramnos\Notification\FeedApi::routes($router, 'api/notifications/');
+
+        // Act
+        $refused = [$api->list()['status'], $api->count()['status'], $api->read()['status'], $api->readAll()['status']];
+        $me      = new \Pramnos\User\User();
+        $me->userid = self::ME;
+        \Pramnos\Http\RequestIdentity::seal($me, 'test');
+        $_GET    = ['per_page' => '2'];
+        $list    = $api->list();
+        $_GET    = [];
+        $counts  = $api->count();
+        $api->body = ['id' => '00000000-0000-4000-8000-000000000003'];
+        $read    = $api->read();
+        $api->body = [];
+        $_POST   = ['group' => 'system'];
+        $all     = $api->readAll();
+        $_POST   = [];
+        $everything = $api->readAll();
+        $routed  = [];
+        foreach (['/api/notifications' => 'GET', '/api/notifications/count' => 'GET', '/api/notifications/read' => 'POST', '/api/notifications/readall' => 'POST'] as $uri => $method) {
+            $route = $router->getMatchedRoute(\Pramnos\Http\Request::create($uri, $method));
+            $routed[$uri] = $route === null ? null : (($route->action)())['status'];
+        }
+
+        // Assert
+        $this->assertSame([401, 401, 401, 401], $refused, 'nobody signed in: every route refuses');
+        $this->assertSame(['m5', 'm4'], array_map(static fn ($i) => $i['data']['tag'], $list['data']['items']));
+        $this->assertSame(4, $counts['data']['unread']);
+        $this->assertSame(['read' => true, 'unread' => 3], $read['data']);
+        $this->assertSame(['marked' => 1, 'unread' => 2], $all['data']);
+        $this->assertSame(['marked' => 2, 'unread' => 0], $everything['data']);
+        $this->assertSame(['/api/notifications' => 200, '/api/notifications/count' => 200, '/api/notifications/read' => 200, '/api/notifications/readall' => 200], $routed, 'four routes, under the path given');
+    }
+
+    /**
+     * The header's bell: nothing for somebody signed out, the bell between the given markup for
+     * somebody signed in.
+     */
+    public function testTheHeaderButton(): void
+    {
+        // Act
+        $out = \Pramnos\Html\NotificationBell::headerButton('<li>', '</li>');
+        $me  = new \Pramnos\User\User();
+        $me->userid = self::ME;
+        \Pramnos\Http\RequestIdentity::seal($me, 'test');
+        $in  = \Pramnos\Html\NotificationBell::headerButton('<li>', '</li>', ['class' => 'nav-link']);
+
+        // Assert
+        $this->assertSame('', $out);
+        $this->assertStringStartsWith('<li><div class="pf-notify"', $in);
+        $this->assertStringEndsWith('</div></li>', $in);
+        $this->assertStringContainsString('pf-notify-toggle nav-link', $in);
+    }
+
+    /**
+     * Where there is no notifications table: the header draws no bell, a bell drawn anyway counts
+     * nothing rather than failing, and the prune says there is nothing to prune.
+     */
+    public function testWithoutTheTable(): void
+    {
+        // Arrange
+        $me = new \Pramnos\User\User();
+        $me->userid = self::ME;
+        \Pramnos\Http\RequestIdentity::seal($me, 'test');
+        $hasFeed = new \ReflectionProperty(\Pramnos\Html\NotificationBell::class, 'hasFeed');
+        $table   = $this->db->schema()->quoteTable('notifications');
+        $away    = $this->db->schema()->quoteTable('notifications_away');
+        $this->db->query('ALTER TABLE ' . $table . ' RENAME TO ' . ($this->db->type === 'postgresql' ? 'notifications_away' : $away));
+        $hasFeed->setValue(null, null);
+
+        // Act
+        try {
+            $header = \Pramnos\Html\NotificationBell::headerButton('<li>', '</li>');
+            $bell   = \Pramnos\Html\NotificationBell::render();
+            $prune  = new \Symfony\Component\Console\Tester\CommandTester(new \Pramnos\Console\Commands\NotificationsPrune());
+            $prune->execute(['--days' => '30']);
+        } finally {
+            $this->db->query('ALTER TABLE ' . $away . ' RENAME TO ' . ($this->db->type === 'postgresql' ? 'notifications' : $table));
+            $hasFeed->setValue(null, null);
+        }
+
+        // Assert
+        $this->assertSame('', $header);
+        $this->assertStringNotContainsString('data-pf-notifications-count>', str_replace('data-pf-notifications-count hidden>', '', $bell), 'no count drawn');
+        $this->assertStringContainsString('There is no notifications table', $prune->getDisplay());
+    }
+}

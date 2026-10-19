@@ -591,6 +591,43 @@ class InitSpaScaffoldingTest extends TestCase
     }
 
     /**
+     * With the `auth` feature the SPA has the notification bell: the feed's API is routed, and the
+     * shell draws the bell for somebody signed in — the component and its test in every Svelte SPA.
+     */
+    public function testTheNotificationBellReachesTheSpa(): void
+    {
+        // Act
+        $this->runInit(['--app-style' => 'spa', '--spa-stack' => 'svelte', '--features' => 'auth']);
+
+        // Assert
+        $this->assertStringContainsString('\\Pramnos\\Notification\\FeedApi::routes($r);', $this->read('src/Api/routes.php'));
+        $app = $this->read('frontend/App.svelte');
+        $this->assertStringContainsString("import NotificationBell from './components/NotificationBell.svelte';", $app);
+        $this->assertStringContainsString('<NotificationBell />', $app);
+        $this->assertStringContainsString("api.get('/notifications'", $this->read('frontend/components/NotificationBell.svelte'));
+        $this->read('frontend/__tests__/NotificationBell.test.js');
+    }
+
+    /**
+     * The theme's header — one for the site and the administration — draws the bell in every UI
+     * system, beside the What's new button.
+     */
+    public function testEveryThemeHeaderHasTheBell(): void
+    {
+        // Arrange
+        $init   = new \Pramnos\Console\Commands\Init();
+        $header = new \ReflectionMethod($init, 'buildThemeHeader');
+
+        foreach (['bootstrap', 'tailwind', 'plain'] as $ui) {
+            // Act
+            $top = (string) $header->invoke($init, $ui, 'App', ['libraries' => []]);
+
+            // Assert
+            $this->assertStringContainsString('\\Pramnos\\Html\\NotificationBell::headerButton(', $top, $ui . ': the bell');
+        }
+    }
+
+    /**
      * With the `help` feature the SPA can show help: the endpoint is routed, the shell says the
      * feature is on, and the header draws the panel for the screen on show. Without it the shell
      * says off, and the panel — which is in every Svelte SPA — never asks.

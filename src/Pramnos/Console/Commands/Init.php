@@ -84,6 +84,7 @@ class Init extends Command
         'components/Field.svelte'         => 'spa-field.svelte',
         'components/Omnibox.svelte'       => 'spa-omnibox.svelte',
         'components/HelpPanel.svelte'     => 'spa-help-panel.svelte',
+        'components/NotificationBell.svelte' => 'spa-notification-bell.svelte',
         'lib/i18n.svelte.js'              => 'spa-i18n.js',
         'lib/section.js'                  => 'spa-section.js',
         'lib/ui.js'                       => 'spa-ui.js',
@@ -108,6 +109,7 @@ class Init extends Command
         '__tests__/Field.test.js'         => 'spa-field.test.js',
         '__tests__/Omnibox.test.js'       => 'spa-omnibox.test.js',
         '__tests__/HelpPanel.test.js'     => 'spa-help-panel.test.js',
+        '__tests__/NotificationBell.test.js' => 'spa-notification-bell.test.js',
         '__tests__/ui.test.js'            => 'spa-ui.test.js',
         '__tests__/i18n.test.js'          => 'spa-i18n.test.js',
         '__tests__/router.test.js'        => 'spa-router.test.js',
@@ -3607,6 +3609,13 @@ PHP;
             $lines[] = "";
         }
 
+        // The signed-in person's notifications as JSON, for the SPA's bell.
+        if (in_array('auth', $features, true)) {
+            $lines[] = "        // Notifications: GET /notifications, /notifications/count, POST /notifications/read, /readall";
+            $lines[] = "        \\Pramnos\\Notification\\FeedApi::routes(\$r);";
+            $lines[] = "";
+        }
+
         if (in_array('authserver', $features, true)) {
             /*
              * The Model Context Protocol endpoint.
@@ -4341,6 +4350,7 @@ PHP;
                     <?php endif; ?>
                     <?php echo \Pramnos\Llm\Analyst\Analyst::headerButton('<li class="nav-item">', '</li>'); ?>
                     <?php echo \Pramnos\Assist\WhatsNew::button('<li class="nav-item">', '</li>'); ?>
+                    <?php echo \Pramnos\Html\NotificationBell::headerButton('<li class="nav-item">', '</li>', ['class' => 'nav-link']); ?>
                     <?php if (!empty($_nav[\Pramnos\Application\NavSection::Admin->value])): ?>
                     <li class="nav-item dropdown">
                         <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">Admin</a>
@@ -4445,6 +4455,7 @@ HTML,
             <?php endif; ?>
             <?php echo \Pramnos\Llm\Analyst\Analyst::headerButton(); ?>
             <?php echo \Pramnos\Assist\WhatsNew::button('<span class="btn btn-ghost btn-sm">', '</span>'); ?>
+            <?php echo \Pramnos\Html\NotificationBell::headerButton('', '', ['class' => 'btn btn-ghost btn-sm btn-circle']); ?>
 
             <?php
             /**
@@ -4503,6 +4514,7 @@ HTML,
                     <?php endif; ?>
                     <?php echo \Pramnos\Llm\Analyst\Analyst::headerButton('<li class="nav-item">', '</li>'); ?>
                     <?php echo \Pramnos\Assist\WhatsNew::button('<li class="nav-item">', '</li>'); ?>
+                    <?php echo \Pramnos\Html\NotificationBell::headerButton('<li class="nav-item">', '</li>', ['class' => 'nav-link']); ?>
                     <?php if (!empty($_nav[\Pramnos\Application\NavSection::Admin->value])): ?>
                     <li class="nav-admin">
                         <span>Admin</span>

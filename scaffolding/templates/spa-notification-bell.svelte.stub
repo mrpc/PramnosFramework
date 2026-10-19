@@ -1,0 +1,161 @@
+<script>
+    import { api } from '../lib/api.js';
+    import { t } from '../lib/i18n.svelte.js';
+    import { ui } from '../lib/ui.js';
+
+    /**
+     * The notification bell — the SPA's counterpart of `Pramnos\Html\NotificationBell`, over
+     * `Pramnos\Notification\FeedApi` (`GET /notifications`, `POST /notifications/read`,
+     * `/notifications/readall`), drawn with the same `pf-notify-*` classes, so the site, the
+     * administration and the SPA show one bell.
+     *
+     * It loads when it appears, when it is opened, when the tab is brought back — the moment a
+     * person expects it to be current — and every `interval` seconds while the tab is visible;
+     * `interval={0}` for none, where notifications are rare. A `pf:notifications:refresh` event on
+     * the window reloads it at once: a screen that settled some says so.
+     *
+     * Reading is not deleting: a notification stays after it is read, so "what was that thing last
+     * Tuesday" still has an answer.
+     *
+     * @type {{ interval?: number, perPage?: number }}
+     */
+    let { interval = 60, perPage = 10 } = $props();
+
+    let unread  = $state(0);
+    let rows    = $state([]);
+    let open    = $state(false);
+    let loading = $state(false);
+    let root;
+
+    /** The payload out of the API's answer, `{status, data: {…}}`. */
+    function unwrap(found) {
+        return found?.data ?? found ?? {};
+    }
+
+    async function load() {
+        loading = true;
+        try {
+            const page = unwrap(await api.get('/notifications', { per_page: perPage }));
+            unread = page.unread ?? 0;
+            rows   = page.items ?? [];
+        } catch {
+            // Silent: this is the bell, not the work. An error across every screen because a badge
+            // could not be counted is worse than a badge that is briefly wrong.
+        } finally {
+            loading = false;
+        }
+    }
+
+    async function settle(id = null) {
+        try {
+            if (id === null) {
+                await api.post('/notifications/readall', {});
+            } else {
+                await api.post('/notifications/read', { id });
+            }
+            await load();
+        } catch {
+            // As above.
+        }
+    }
+
+    function toggle() {
+        open = !open;
+        if (open) {
+            load();
+        }
+    }
+
+    $effect(() => {
+        load();
+        const wake = () => {
+            if (document.visibilityState === 'visible') {
+                load();
+            }
+        };
+        const outside = (event) => {
+            if (open && root && !root.contains(event.target)) {
+                open = false;
+            }
+        };
+        const escape = (event) => {
+            if (event.key === 'Escape') {
+                open = false;
+            }
+        };
+        const timer = interval > 0
+            ? setInterval(() => { if (document.visibilityState === 'visible') { load(); } }, interval * 1000)
+            : null;
+        document.addEventListener('visibilitychange', wake);
+        document.addEventListener('click', outside);
+        document.addEventListener('keydown', escape);
+        window.addEventListener('pf:notifications:refresh', load);
+
+        return () => {
+            if (timer) {
+                clearInterval(timer);
+            }
+            document.removeEventListener('visibilitychange', wake);
+            document.removeEventListener('click', outside);
+            document.removeEventListener('keydown', escape);
+            window.removeEventListener('pf:notifications:refresh', load);
+        };
+    });
+
+    /** When, in the reader's language: a stored `Y-m-d H:i:s`. */
+    function when(stamp) {
+        const at = stamp ? new Date(String(stamp).replace(' ', 'T')) : null;
+
+        return at && !Number.isNaN(at.getTime())
+            ? at.toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+            : '';
+    }
+</script>
+
+<div class="pf-notify" bind:this={root}>
+    <button
+        type="button"
+        class="pf-notify-toggle {ui('btn.icon')}"
+        aria-haspopup="true"
+        aria-expanded={open}
+        aria-label={unread > 0 ? `${t('Notifications')}, ${unread}` : t('Notifications')}
+        onclick={toggle}
+    >
+        <svg class="pf-notify-icon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" viewBox="0 0 24 24"
+             stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9" /><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
+        </svg>
+        <!-- No badge at nought: a counter that is always there stops being a signal. -->
+        {#if unread > 0}
+            <span class="pf-notify-count">{unread > 99 ? '99+' : unread}</span>
+        {/if}
+    </button>
+
+    {#if open}
+        <div class="pf-notify-panel" role="menu">
+            <div class="pf-notify-head">
+                <strong>{t('Notifications')}</strong>
+                {#if unread > 0}
+                    <button type="button" class="pf-notify-read-all" onclick={() => settle()}>{t('Mark all read')}</button>
+                {/if}
+            </div>
+            {#if loading && rows.length === 0}
+                <div class={ui('center')}><span class={ui('spinner')}></span></div>
+            {:else if rows.length === 0}
+                <p class="pf-notify-empty">{t('No notifications')}</p>
+            {:else}
+                <ul class="pf-notify-list">
+                    {#each rows as row (row.id)}
+                        <li class="pf-notify-item {row.read ? '' : 'is-unread'}">
+                            <a href={row.url ?? '#'} onclick={() => settle(row.id)}>
+                                {#if row.title}<span class="pf-notify-title">{row.title}</span>{/if}
+                                {#if row.message}<span class="pf-notify-message">{row.message}</span>{/if}
+                                <span class="pf-notify-time">{when(row.created_at)}</span>
+                            </a>
+                        </li>
+                    {/each}
+                </ul>
+            {/if}
+        </div>
+    {/if}
+</div>

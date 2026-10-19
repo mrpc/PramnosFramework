@@ -1,5 +1,7 @@
 ---
 use_cases:
+  - Showing a notification bell in a SPA, the site and the administration
+  - Marking notifications read when the thing they are about is dealt with
   - Adding a notification bell to an admin theme
   - Showing a person their notifications, unread count and tabs by group
   - Sending the same message over mail, push and an in-app feed at once
@@ -550,8 +552,9 @@ so the feed query, the badge count and a retention sweep are all covered.
 
 Two things to decide per application, because the framework takes no position:
 
-- **Retention.** Nothing prunes this table. A busy application should delete read rows
-  past some age, or the feed table becomes the largest one in the schema.
+- **Retention.** Say how long a read notification is kept, and `notifications:prune` applies it
+  daily: `'notifications' => ['keep_read_days' => 180]`. Unread ones are never removed. With no
+  number set, nothing is removed. See [Keeping it tidy](#keeping-it-tidy).
 - **Whether a security warning belongs in it at all.** An in-app notification is read by
   whoever is signed in — which, for "your account was signed in to from a new device", is
   the wrong person in exactly the case worth warning about. The framework's own
@@ -675,12 +678,53 @@ the same `data-pf-notifications*` attributes. Each item can be its own too, as a
 `<template data-pf-notifications-item>` inside the bell whose parts carry
 `data-field="title|message|time"` and whose link gets the item's address.
 
+**In the scaffolded header** the bell is already drawn for whoever is signed in. One header serves
+the site and the administration, so the bell is in both:
+
+```php
+<?php echo \Pramnos\Html\NotificationBell::headerButton('<li class="nav-item">', '</li>', ['class' => 'nav-link']); ?>
+```
+
+`headerButton()` draws nothing for somebody signed out, or where there is no `notifications`
+table. A project scaffolded before it adds the line beside the What's new button in
+`header.php`.
+
 **In a server-rendered navigation** the count is a badge, without the bell:
 
 ```php
 new NavItem('user.notifications', 'Notifications', sURL . 'Notifications', NavSection::User,
     requireAuth: true, badge: \Pramnos\Notification\Feed::badge());
 ```
+
+### In a SPA: `NotificationBell.svelte` over `FeedApi`
+
+A Svelte SPA draws the same bell as the server-rendered pages. `NotificationBell.svelte` uses the
+same `pf-notify-*` classes, so the site, the administration and the SPA show one bell. It reads
+the feed through the API:
+
+```php
+// src/Api/routes.php — written by init with the auth feature
+\Pramnos\Notification\FeedApi::routes($r);
+```
+
+| Request | Answer |
+|---|---|
+| `GET /notifications?page=1&per_page=20&unread=1&group=tasks` | `{status, data: {items, total, unread, page, pages}}` |
+| `GET /notifications/count` | `{status, data: {unread, groups}}` |
+| `POST /notifications/read` `{id}` | `{status, data: {read, unread}}` |
+| `POST /notifications/readall` `{group}` | `{status, data: {marked, unread}}` |
+
+These are the same answers `/Notifications` gives a server-rendered page, with the API's
+credentials: a bearer token, or the page's session. Nobody signed in gets 401.
+
+`init` writes the component into every Svelte SPA, and the shell draws it for whoever is signed
+in. The bell loads in four cases:
+- when it appears;
+- when it is opened;
+- when the tab is brought back;
+- every `interval` seconds while the tab is visible, which is 60 by default. `<NotificationBell interval={0} />` turns this off where notifications are rare.
+
+A `pf:notifications:refresh` event on the window reloads it at once.
 
 ## Sending many, and sending later
 
@@ -781,6 +825,41 @@ rather than by inspecting rendered copy; the copy tells you what a catalogue con
 current language tells you the switch happened.
 
 See the [Testing guide](Pramnos_Testing_Guide.md).
+
+## Settling what is about something dealt with
+
+A notification can say what it is about, and is marked read when that thing is dealt with.
+Otherwise a feed fills with alerts about things already handled, and a reader learns to ignore
+the bell.
+
+```php
+public function toDatabase(mixed $notifiable): array
+{
+    return ['message' => 'A comment is waiting', 'url' => '/comments/42', 'about' => ['comment:42']];
+}
+
+// The comment was answered: everybody's notifications about it are read.
+\Pramnos\Notification\Feed::settleAbout(['comment:42']);
+// Somebody opened it: theirs only.
+\Pramnos\Notification\Feed::settleAbout(['comment:42'], $userId);
+```
+
+`about` is one key or a list, and any one of them settles the notification. A notification that
+only mentions a key in its text is not about it. Reading is not deleting: a settled notification
+stays in the feed, read.
+
+## Keeping it tidy
+
+```php
+// app/app.php
+'notifications' => ['keep_read_days' => 180],
+```
+
+`notifications:prune` runs daily from the framework's schedule. It removes notifications read
+more than that many days ago. An unread notification is never removed: one nobody opened is the
+one case where age is not a reason to remove it. Without a number it removes nothing and says how
+to set one. `--days=N` runs it once with another number, and `Feed::prune($days)` does the same
+from code.
 
 ## Related guides
 

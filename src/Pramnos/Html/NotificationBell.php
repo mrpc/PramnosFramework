@@ -29,6 +29,35 @@ namespace Pramnos\Html;
 final class NotificationBell
 {
     /**
+     * The bell for a scaffolded header, between `$before` and `$after` — and nothing for somebody
+     * signed out, or where there is no feed to read: an application without the `notifications`
+     * table.
+     *
+     * ```php
+     * <?php echo \Pramnos\Html\NotificationBell::headerButton('<li class="nav-item">', '</li>'); ?>
+     * ```
+     *
+     * One header serves the site and the administration, so the bell is in both; a SPA draws the
+     * same bell with its `NotificationBell.svelte` over `Notification\FeedApi`.
+     *
+     * @param array<string, mixed> $options As {@see render()}
+     */
+    public static function headerButton(string $before = '', string $after = '', array $options = []): string
+    {
+        try {
+            self::$hasFeed ??= \Pramnos\Framework\Factory::getDatabase()->schema()->hasTable('notifications');
+        } catch (\Throwable) {
+            self::$hasFeed = false;
+        }
+        $bell = self::$hasFeed ? self::render($options) : '';
+
+        return $bell === '' ? '' : $before . $bell . $after;
+    }
+
+    /** @var bool|null Whether this installation has the notifications table, asked once */
+    private static ?bool $hasFeed = null;
+
+    /**
      * @param array{url?: string, interval?: int, channel?: string, groups?: array<string, string>, class?: string, label?: string, empty?: string, readAll?: string} $options
      *  - `url` — the feed's address: `/Notifications` on the site by default
      *  - `interval` — seconds between counts, while the tab is visible (60)

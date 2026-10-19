@@ -20,6 +20,7 @@
     import { screens } from './screens/registry.js';
     import Omnibox from './components/Omnibox.svelte';
     import HelpPanel from './components/HelpPanel.svelte';
+    import NotificationBell from './components/NotificationBell.svelte';
     import { ui } from './lib/ui.js';
 
     const hasAuth = Boolean(window.__PRAMNOS__?.features?.auth);
@@ -271,6 +272,10 @@
                          reach the admin screen: the endpoint is permission-checked, so a
                          box that always 403s is worse than no box. -->
                     <Omnibox />
+                {/if}
+                {#if hasAuth && user}
+                    <!-- The same bell the server-rendered pages draw, over Notification\FeedApi. -->
+                    <NotificationBell />
                 {/if}
                 {#if hasAuth && user}
                     <span class="hidden text-sm opacity-70 sm:inline">{user.username ?? user.email}</span>
