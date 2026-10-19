@@ -525,6 +525,38 @@ class MigrateFromMysqlTest extends TestCase
     }
 
     /**
+     * A `bigint unsigned` becomes a `bigint`, which an identity key and the foreign keys pointing
+     * at it can be — a `numeric(20,0)` could be neither, and the conversion stopped (FW-165 §2).
+     * What a `bigint` cannot hold, the dry run counts, per column, over the whole table; a table
+     * whose values all fit moves as it is.
+     */
+    public function testAnUnsignedBigintBecomesABigintAndWhatItCannotHoldIsCounted(): void
+    {
+        // Arrange — one value past a bigint's range, in a table keyed by a bigint unsigned
+        $tester = $this->databases();
+        $this->source->query('CREATE TABLE wide (id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, counter BIGINT UNSIGNED, small BIGINT UNSIGNED) ENGINE=InnoDB');
+        $this->source->query('INSERT INTO wide (counter, small) VALUES (18446744073709551615, 1), (9223372036854775807, 2), (5, 3)');
+        $only = ['--source' => $this->dsn(), '--tables' => 'wide'];
+
+        // Act
+        $tester->execute($only + ['--dry-run' => true]);
+        $dry = $tester->getDisplay();
+        $this->source->query('DELETE FROM wide WHERE counter > 9223372036854775807');
+        $tester->execute($only);
+        $types  = $this->rows("SELECT column_name AS c, data_type AS t FROM information_schema.columns WHERE table_name = 'wide' ORDER BY column_name");
+        $values = array_column($this->rows('SELECT counter FROM wide ORDER BY id'), 'counter');
+
+        // Assert
+        $this->assertStringContainsString('counter: 1 row(s) above 9223372036854775807', $dry);
+        $this->assertStringContainsString('make the column numeric(20,0) in the migration', $dry);
+        // The largest value a bigint holds is not counted, nor are columns whose values all fit.
+        $this->assertStringNotContainsString('small:', $dry);
+        $this->assertStringNotContainsString('id:', $dry);
+        $this->assertSame([['c' => 'counter', 't' => 'bigint'], ['c' => 'id', 't' => 'bigint'], ['c' => 'small', 't' => 'bigint']], $types);
+        $this->assertSame(['9223372036854775807', '5'], array_map('strval', $values));
+    }
+
+    /**
      * MySQL's `_ci` collations compare without regard to case and PostgreSQL compares exactly, so
      * an indexed text column — a login looked up by e-mail — changes its answers after the move.
      * The dry run names each: a unique one (now taking `A` beside `a`) and a looked-up one. It does

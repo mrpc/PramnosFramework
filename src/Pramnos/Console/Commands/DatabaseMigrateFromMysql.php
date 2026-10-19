@@ -320,6 +320,10 @@ class DatabaseMigrateFromMysql extends Command
                     . ($b['json'] === $b['sampled'] ? ', all of them JSON — jsonb' : ' — text') . ' in the migration takes them as they are'
                     . ($t['create'] !== null ? '; --blob-as-text=' . $name . '.' . $b['column'] . ' makes it text here' : ''));
             }
+            foreach ($t['overflow'] ?? [] as $o) {
+                $output->writeln('      <error>' . $o['column'] . ': ' . $o['rows'] . ' row(s) above 9223372036854775807</error>, more than a bigint holds — '
+                    . 'make the column numeric(20,0) in the migration, or bring the values down first');
+            }
             foreach ($t['caseless'] ?? [] as $c) {
                 $output->writeln('      <comment>' . $c['column'] . ($c['unique'] ? ' is unique' : ' is looked up') . ' without regard to case in MySQL (' . $c['collation'] . '):</comment> '
                     . 'here \'A\' and \'a\' are two values' . ($c['unique'] ? ', both allowed' : '') . ', and = matches one — citext, or lower() in the index and the query, keeps MySQL\'s answer');

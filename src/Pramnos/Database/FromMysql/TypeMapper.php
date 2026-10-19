@@ -22,7 +22,9 @@ final class TypeMapper
     /**
      * The PostgreSQL type for a MySQL column type (`COLUMN_TYPE`, e.g. `int(10) unsigned`).
      *
-     * Unsigned integers move up a size, so their range fits; `tinyint(1)` stays a number, as a
+     * Unsigned integers move up a size, so their range fits — except `bigint unsigned`, which stays
+     * a `bigint`: there is no larger integer, and a `numeric` can be neither an identity column nor
+     * the target of a foreign key to one. The dry run counts the values above its range; `tinyint(1)` stays a number, as a
      * flag with a third state is common; text and blobs become `text` and `bytea`; `enum` and
      * `set` become `text`; anything unknown becomes `text`.
      */
@@ -38,7 +40,7 @@ final class TypeMapper
             'tinyint', 'smallint' => $unsigned && $base === 'smallint' ? 'integer' : 'smallint',
             'mediumint'           => 'integer',
             'int', 'integer'      => $unsigned ? 'bigint' : 'integer',
-            'bigint'              => $unsigned ? 'numeric(20,0)' : 'bigint',
+            'bigint'              => 'bigint',
             'decimal', 'numeric'  => 'numeric' . ($size !== '' ? '(' . $size . ')' : ''),
             'float'               => 'real',
             'double', 'real'      => 'double precision',

@@ -22,7 +22,7 @@ final class TypeMapperTest extends TestCase
         return [
             'int'              => ['int(11)', 'integer'],
             'unsigned int'     => ['int(10) unsigned', 'bigint'],
-            'unsigned bigint'  => ['bigint(20) unsigned', 'numeric(20,0)'],
+            'unsigned bigint'  => ['bigint(20) unsigned', 'bigint'],
             'bigint'           => ['bigint(20)', 'bigint'],
             'tinyint(1)'       => ['tinyint(1)', 'smallint'],
             'unsigned smallint'=> ['smallint(5) unsigned', 'integer'],

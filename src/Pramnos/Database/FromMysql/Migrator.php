@@ -227,6 +227,7 @@ final class Migrator
                 'compressed'  => $create === null && $this->hasCompressedChunks($target),
                 'encoding'    => $this->encodingFindings($name, $shape, $copied),
                 'blobs'       => $this->blobFindings($name, $shape, $copied),
+                'overflow'    => $this->overflowFindings($name, $shape, $copied, $create !== null ? [] : $targetColumns),
                 // Without an index that starts with it, every backfill window is a scan of the table.
                 'timeIndexed' => $timeColumn === null || !isset($shape['columns'][$timeColumn]) ? null
                     : in_array($timeColumn, [$shape['primary'][0] ?? null, ...array_map(static fn (array $i): ?string => $i['columns'][0] ?? null, array_values($shape['indexes']))], true),
@@ -1535,6 +1536,35 @@ final class Migrator
         }
         foreach ($this->sourceRows('SELECT EVENT_NAME AS n FROM information_schema.EVENTS WHERE EVENT_SCHEMA = DATABASE() ORDER BY EVENT_NAME') as $row) {
             $add('event', (string) $row['n'], null);
+        }
+
+        return $found;
+    }
+
+    /**
+     * The `bigint unsigned` values a `bigint` cannot hold: per such column going into one, how
+     * many rows are above 9223372036854775807. Counted over the whole table, not sampled — one
+     * row is enough to stop the move.
+     *
+     * @param array<string, mixed>               $shape
+     * @param list<string>                       $copied
+     * @param array<string, array<string, mixed>> $targetColumns The existing target's, or [] for one to be made
+     * @return list<array{column: string, rows: int}>
+     */
+    private function overflowFindings(string $table, array $shape, array $copied, array $targetColumns): array
+    {
+        $columns = array_values(array_filter($copied, static fn (string $c): bool => preg_match('/^bigint\b.*unsigned/i', (string) $shape['columns'][$c]['type']) === 1
+            && ($targetColumns === [] || ($targetColumns[$c]['type'] ?? '') === 'bigint')));
+        if ($columns === []) {
+            return [];
+        }
+        $counts = $this->sourceRows('SELECT ' . implode(', ', array_map(static fn (int $i, string $c): string => 'SUM(`' . str_replace('`', '``', $c) . '` > 9223372036854775807) AS c' . $i, array_keys($columns), $columns))
+            . ' FROM `' . str_replace('`', '``', $table) . '`')[0] ?? [];
+        $found = [];
+        foreach ($columns as $i => $column) {
+            if ((int) ($counts['c' . $i] ?? 0) > 0) {
+                $found[] = ['column' => $column, 'rows' => (int) $counts['c' . $i]];
+            }
         }
 
         return $found;

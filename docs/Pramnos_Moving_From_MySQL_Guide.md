@@ -87,7 +87,8 @@ unique keys and foreign keys, with their `ON DELETE` / `ON UPDATE` rules:
 
 | MySQL | PostgreSQL |
 |---|---|
-| `int unsigned`, `bigint unsigned` | `bigint`, `numeric(20,0)`: the range fits |
+| `int unsigned` | `bigint`: the range fits |
+| `bigint unsigned` | `bigint`: a `numeric` could be neither an identity column nor a foreign key's target. The dry run counts the rows above its range |
 | `tinyint`, `smallint`, `mediumint`, `int` | `smallint`, `smallint`, `integer`, `integer` |
 | `decimal(p,s)`, `float`, `double` | `numeric(p,s)`, `real`, `double precision` |
 | `datetime`, `timestamp`, `date`, `time`, `year` | `timestamp`, `timestamp`, `date`, `time`, `smallint` |
