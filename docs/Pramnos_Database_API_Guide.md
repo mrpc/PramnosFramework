@@ -1348,6 +1348,26 @@ Each statement is then translated on its way to the server. That covers `query()
 | `INSERT IGNORE …` | `INSERT … ON CONFLICT DO NOTHING` |
 | `… ON DUPLICATE KEY UPDATE n = n + VALUES(n)` | `… ON CONFLICT (key) DO UPDATE SET n = t.n + EXCLUDED.n` |
 | `REPLACE INTO t (…) VALUES …` | `INSERT INTO t (…) VALUES … ON CONFLICT (key) DO UPDATE SET …` |
+| `SHA2(x, 256)` (224, 384, 512; 0 is 256) | `encode(sha256(convert_to((x)::text, 'UTF8')), 'hex')` |
+| `CAST(x AS SIGNED)`, `CAST(x AS UNSIGNED [INTEGER])` | `CAST(x AS bigint)` |
+| `DAY(d)`, `MONTH(d)`, `YEAR(d)` | `EXTRACT(DAY FROM d)::int`, … |
+| `GET_LOCK(name, t)`, `RELEASE_LOCK(name)` | `pg_try_advisory_lock(hashtext(name))`, `pg_advisory_unlock(…)`, as 1 or 0 |
+| `JSON_EXTRACT(doc, '$.a.b[0]')`, `JSON_UNQUOTE(x)` | `((doc)::jsonb #> '{a,b,0}')`, `((x)::jsonb #>> '{}')` |
+| `DELETE a FROM t a JOIN u b ON … WHERE …` | `DELETE FROM t a USING u b WHERE (…) AND (…)` |
+| `SELECT x * 2 AS d … HAVING d < 25` | `… HAVING (x * 2) < 25`, in a subquery too |
+| `SET FOREIGN_KEY_CHECKS = 0` / `1` | `SET session_replication_role = 'replica'` / `'origin'` |
+
+Some of these have limits:
+
+- **`GET_LOCK` does not wait.** The lock is taken at once or not at all, whatever the timeout.
+- **`JSON_EXTRACT` takes one literal path**, without wildcards. Any other is left as written.
+- **`DELETE` through a join** is translated when the first table is the one deleted from and
+  every join is an inner one with `ON`. A `LEFT JOIN` is left as written.
+- **An alias in `HAVING`** is replaced only when given with `AS`, and not when its expression
+  names a column of the same name (`SUM(n) AS n`).
+- **`session_replication_role`** takes a superuser and switches off every trigger, not only the
+  foreign keys. That is what an import or a test needs, and a connection without the right is
+  refused rather than quietly checked.
 
 **Only what means the same in both is translated.** Every construct above is invalid in
 PostgreSQL, so SQL already written for it passes untouched, and a statement that goes through

@@ -28,6 +28,14 @@ namespace Pramnos\Database\Dialect;
  * | `INSERT IGNORE …` | `INSERT … ON CONFLICT DO NOTHING` |
  * | `… ON DUPLICATE KEY UPDATE c = VALUES(c)` | `… ON CONFLICT (key) DO UPDATE SET c = EXCLUDED.c` |
  * | `REPLACE INTO t (…) VALUES …` | `INSERT INTO t (…) VALUES … ON CONFLICT (key) DO UPDATE SET …` |
+ * | `SHA2(x, 256)` | `encode(sha256(convert_to((x)::text, 'UTF8')), 'hex')` |
+ * | `CAST(x AS SIGNED)`, `… AS UNSIGNED` | `CAST(x AS bigint)` |
+ * | `DAY(d)`, `MONTH(d)`, `YEAR(d)` | `EXTRACT(DAY FROM d)::int`, … |
+ * | `GET_LOCK(name, t)`, `RELEASE_LOCK(name)` | advisory locks on `hashtext(name)`, as 1 or 0 |
+ * | `JSON_EXTRACT(doc, '$.a[0]')`, `JSON_UNQUOTE(…)` | `(doc)::jsonb #> '{a,0}'`, `… #>> '{}'` |
+ * | `DELETE a FROM t a JOIN u b ON … WHERE …` | `DELETE FROM t a USING u b WHERE (…) AND (…)` |
+ * | `… HAVING alias > 5` | the aliased expression in its place |
+ * | `SET FOREIGN_KEY_CHECKS = 0` / `1` | `SET session_replication_role = 'replica'` / `'origin'` |
  *
  * What would change meaning silently is not translated — a `LIKE` that ignored case, a `GROUP BY`
  * over columns it does not name, `"…"` as a string — and is the dialect linter's to report. Each
@@ -52,10 +60,11 @@ final class MysqlToPostgres
     ];
 
     /** The functions translated. */
-    private const FUNCTIONS = ['IFNULL', 'IF', 'ISNULL', 'LCASE', 'UCASE', 'RAND', 'CURDATE', 'CURTIME', 'UNIX_TIMESTAMP', 'FROM_UNIXTIME', 'DATE_FORMAT', 'DATE_ADD', 'DATE_SUB', 'GROUP_CONCAT'];
+    private const FUNCTIONS = ['IFNULL', 'IF', 'ISNULL', 'LCASE', 'UCASE', 'RAND', 'CURDATE', 'CURTIME', 'UNIX_TIMESTAMP', 'FROM_UNIXTIME', 'DATE_FORMAT', 'DATE_ADD', 'DATE_SUB', 'GROUP_CONCAT',
+        'SHA2', 'CAST', 'DAY', 'MONTH', 'YEAR', 'GET_LOCK', 'RELEASE_LOCK', 'JSON_EXTRACT', 'JSON_UNQUOTE'];
 
     /** Words a statement this translates may contain; one of them, or a backtick, or nothing to do. */
-    private const MARKERS = '/`|\bLIMIT\s+[^\s,]+\s*,|\b(?:IF|ISNULL|LCASE|UCASE|DATE_ADD|DATE_SUB)\s*\(|\b(?:IFNULL|RAND|UNIX_TIMESTAMP|FROM_UNIXTIME|CURDATE|CURTIME|DATE_FORMAT|GROUP_CONCAT|IGNORE|DUPLICATE|REPLACE|CONFLICT)\b/i';
+    private const MARKERS = '/`|\bLIMIT\s+[^\s,]+\s*,|\b(?:IF|ISNULL|LCASE|UCASE|DATE_ADD|DATE_SUB)\s*\(|\b(?:IFNULL|RAND|UNIX_TIMESTAMP|FROM_UNIXTIME|CURDATE|CURTIME|DATE_FORMAT|GROUP_CONCAT|IGNORE|DUPLICATE|REPLACE|CONFLICT|HAVING|FOREIGN_KEY_CHECKS)\b|\b(?:SHA2|DAY|MONTH|YEAR|GET_LOCK|RELEASE_LOCK|JSON_EXTRACT|JSON_UNQUOTE)\s*\(|\bAS\s+(?:UN)?SIGNED\b|^\s*DELETE\s+(?!FROM\b)/i';
 
     /** @var array<string, string> Statements translated, by their text */
     private array $cache = [];
@@ -82,6 +91,11 @@ final class MysqlToPostgres
         }
         if (isset($this->cache[$sql])) {
             return $this->cache[$sql];
+        }
+        // Foreign keys off for the session: PostgreSQL's way is to act as a replica, which fires
+        // no trigger — the keys' among them. It takes a superuser, as an import usually has.
+        if (preg_match('/^\s*SET\s+(?:SESSION\s+|@@(?:SESSION\.)?)?FOREIGN_KEY_CHECKS\s*=\s*([01])\s*(;?)\s*$/i', $sql, $m) === 1) {
+            return $this->cache[$sql] = "SET session_replication_role = '" . ($m[1] === '0' ? 'replica' : 'origin') . "'" . $m[2];
         }
         // The statement's shape first, while every column is still a token of its own; then the
         // functions, which turn each call into one.
@@ -217,7 +231,12 @@ final class MysqlToPostgres
             // Anything else in parentheses — a subquery, a list, another function — is translated
             // as one run: a comma there may be LIMIT's, not an argument's.
             if ($token['v'] === '(' && ($close = self::closing($tokens, $i)) !== null && $close > $i) {
-                array_push($out, $token, ...$this->functions(array_slice($tokens, $i + 1, $close - $i - 1)));
+                $inner = array_slice($tokens, $i + 1, $close - $i - 1);
+                $lead  = self::next($inner, -1);
+                if ($lead !== null && strcasecmp($inner[$lead]['v'], 'SELECT') === 0) {
+                    $inner = $this->having($inner);
+                }
+                array_push($out, $token, ...$this->functions($inner));
                 $out[] = $tokens[$close];
                 $i = $close;
                 continue;
@@ -262,8 +281,184 @@ final class MysqlToPostgres
             },
             'DATE_FORMAT'    => count($given) === 2 && ($format = self::format($given[1])) !== null ? 'to_char(' . $text($given[0]) . ', ' . $format . ')' : null,
             'GROUP_CONCAT'   => $this->groupConcat($given),
+            'SHA2'           => count($given) === 2 && in_array($bits = $text($given[1]), ['0', '224', '256', '384', '512'], true)
+                ? "encode(sha" . ($bits === '0' ? '256' : $bits) . "(convert_to((" . $text($given[0]) . ")::text, 'UTF8')), 'hex')"
+                : null,
+            'CAST'           => count($given) === 1 && preg_match('/^(.*\S)\s+AS\s+(?:UN)?SIGNED(?:\s+INT(?:EGER)?)?$/is', $text($given[0]), $m) === 1
+                ? 'CAST(' . $m[1] . ' AS bigint)'
+                : null,
+            'DAY', 'MONTH', 'YEAR' => count($given) === 1 ? 'EXTRACT(' . $name . ' FROM ' . $text($given[0]) . ')::int' : null,
+            // ponytail: GET_LOCK's timeout is not waited out — taken now or not at all.
+            'GET_LOCK'       => count($given) === 2 ? '(CASE WHEN pg_try_advisory_lock(hashtext(' . $text($given[0]) . ')) THEN 1 ELSE 0 END)' : null,
+            'RELEASE_LOCK'   => count($given) === 1 ? '(CASE WHEN pg_advisory_unlock(hashtext(' . $text($given[0]) . ')) THEN 1 ELSE 0 END)' : null,
+            'JSON_EXTRACT'   => count($given) === 2 && ($path = self::jsonPath($given[1])) !== null ? '((' . $text($given[0]) . ')::jsonb #> ' . $path . ')' : null,
+            'JSON_UNQUOTE'   => count($given) === 1 ? '((' . $text($given[0]) . ')::jsonb #>> \'{}\')' : null,
             default          => null,
         };
+    }
+
+    /**
+     * A JSON path literal — `'$.a.b[0]'`, `'$."a b"'` — as PostgreSQL's path array, `'{a,b,0}'`.
+     * Null for anything else: a wildcard, a path not a literal.
+     *
+     * @param list<array{t: string, v: string}> $arg
+     */
+    private static function jsonPath(array $arg): ?string
+    {
+        $significant = array_values(array_filter($arg, static fn (array $t): bool => !in_array($t['t'], ['ws', 'comment'], true)));
+        if (count($significant) !== 1 || $significant[0]['t'] !== 'str') {
+            return null;
+        }
+        $path = str_replace("''", "'", substr($significant[0]['v'], 1, -1));
+        if (!str_starts_with($path, '$')) {
+            return null;
+        }
+        $rest = substr($path, 1);
+        preg_match_all('/\G(?:\.([A-Za-z_][\w$]*)|\."([^"]*)"|\[(\d+)\])/', $rest, $parts, PREG_SET_ORDER);
+        if (implode('', array_column($parts, 0)) !== $rest) {
+            return null;
+        }
+        $keys = array_map(static fn (array $p): string => implode('', array_slice($p, 1)), $parts);
+
+        return "'{" . implode(',', array_map(static fn (string $k): string => preg_match('/^\w+$/', $k) === 1 ? $k : '"' . str_replace(['\\', '"', "'"], ['\\\\', '\\"', "''"], $k) . '"', $keys)) . "}'";
+    }
+
+    /**
+     * A `SELECT` whose `HAVING` names an alias of its select list, which MySQL allows and
+     * PostgreSQL does not: the aliased expression in the alias's place — in the statement and in
+     * a subquery. Only an alias given with `AS`.
+     *
+     * @param list<array{t: string, v: string}> $tokens
+     * @return list<array{t: string, v: string}>
+     */
+    private function having(array $tokens): array
+    {
+        $at = [];
+        for ($k = 0, $depth = 0, $count = count($tokens); $k < $count; $k++) {
+            $depth += $tokens[$k]['v'] === '(' ? 1 : ($tokens[$k]['v'] === ')' ? -1 : 0);
+            if ($depth === 0 && $tokens[$k]['t'] === 'word') {
+                $word = strtoupper($tokens[$k]['v']);
+                if (in_array($word, ['SELECT', 'FROM', 'HAVING'], true) && !isset($at[$word])) {
+                    $at[$word] = $k;
+                } elseif (isset($at['HAVING']) && !isset($at['END']) && in_array($word, ['ORDER', 'LIMIT', 'UNION', 'WINDOW', 'FOR'], true)) {
+                    $at['END'] = $k;
+                }
+            }
+        }
+        if (!isset($at['SELECT'], $at['FROM'], $at['HAVING']) || $at['FROM'] < $at['SELECT']) {
+            return $tokens;
+        }
+        $aliases = [];
+        foreach (self::split(array_slice($tokens, $at['SELECT'] + 1, $at['FROM'] - $at['SELECT'] - 1)) as $item) {
+            $words = array_keys(array_filter($item, static fn (array $t): bool => !in_array($t['t'], ['ws', 'comment'], true)));
+            $n     = count($words);
+            if ($n >= 3 && strcasecmp($item[$words[$n - 2]]['v'], 'AS') === 0) {
+                $name = in_array($item[$words[$n - 1]]['t'], ['ident', 'btick'], true) ? self::unquote($item[$words[$n - 1]]['v']) : $item[$words[$n - 1]]['v'];
+                $expression = array_slice($item, $words[0], $words[$n - 3] - $words[0] + 1);
+                // `SUM(n) AS n` is left: which `n` MySQL's HAVING meant is not for this to decide.
+                $same = array_filter($expression, static fn (array $t): bool => strcasecmp(in_array($t['t'], ['ident', 'btick'], true) ? self::unquote($t['v']) : $t['v'], $name) === 0);
+                if ($same === []) {
+                    $aliases[strtolower($name)] = $expression;
+                }
+            }
+        }
+        if ($aliases === []) {
+            return $tokens;
+        }
+        $end = $at['END'] ?? count($tokens);
+        $out = array_slice($tokens, 0, $at['HAVING'] + 1);
+        for ($k = $at['HAVING'] + 1; $k < $end; $k++) {
+            $token = $tokens[$k];
+            $name  = $token['t'] === 'word' ? $token['v'] : (in_array($token['t'], ['ident', 'btick'], true) ? self::unquote($token['v']) : null);
+            $next  = self::next($tokens, $k);
+            $prev  = end($out);
+            if ($name !== null && isset($aliases[strtolower($name)]) && ($prev === false || $prev['v'] !== '.')
+                && ($next === null || !in_array($tokens[$next]['v'], ['(', '.'], true))) {
+                $out = [...$out, ['t' => 'op', 'v' => '('], ...$aliases[strtolower($name)], ['t' => 'op', 'v' => ')']];
+                continue;
+            }
+            $out[] = $token;
+        }
+
+        return [...$out, ...array_slice($tokens, $end)];
+    }
+
+    /**
+     * `DELETE a FROM t a JOIN u b ON … [WHERE …]` — MySQL's delete through a join — as
+     * PostgreSQL's `DELETE FROM t a USING u b WHERE (…) AND (…)`. Only when what is deleted is
+     * the first table and every join is an inner one with `ON`; anything else is left, to fail
+     * where it can be seen.
+     *
+     * @param list<array{t: string, v: string}> $tokens
+     * @return list<array{t: string, v: string}>|null
+     */
+    private function deleteJoin(array $tokens, int $first): ?array
+    {
+        $marks = [];
+        for ($k = $first + 1, $depth = 0, $count = count($tokens); $k < $count; $k++) {
+            $depth += $tokens[$k]['v'] === '(' ? 1 : ($tokens[$k]['v'] === ')' ? -1 : 0);
+            if ($depth === 0 && $tokens[$k]['t'] === 'word') {
+                $marks[] = [strtoupper($tokens[$k]['v']), $k];
+            }
+        }
+        $words = array_column($marks, 0);
+        $from  = array_search('FROM', $words, true);
+        if ($from === false) {
+            return null;
+        }
+        $target = trim(self::sql(array_slice($tokens, $first + 1, $marks[$from][1] - $first - 1)));
+        if ($target === '' || str_contains($target, ',') || array_intersect($words, ['LEFT', 'RIGHT', 'CROSS', 'OUTER', 'NATURAL', 'STRAIGHT_JOIN', 'USING', 'ORDER', 'LIMIT']) !== []) {
+            return null;
+        }
+        // The pieces, by the keywords between them: FROM t a, then JOIN u b ON …, then WHERE.
+        $end    = count($tokens);
+        while ($end > 0 && (in_array($tokens[$end - 1]['t'], ['ws', 'comment'], true) || $tokens[$end - 1]['v'] === ';')) {
+            $end--;
+        }
+        $cuts   = array_values(array_filter($marks, static fn (array $m): bool => in_array($m[0], ['JOIN', 'INNER', 'ON', 'WHERE'], true) && $m[1] > $marks[$from][1]));
+        $piece  = static fn (int $a, int $b): array => array_slice($tokens, $a, $b - $a);
+        $bounds = [...array_column($cuts, 1), $end];
+        $table  = $piece($marks[$from][1] + 1, $bounds[0]);
+        $joined = [];
+        $conds  = [];
+        $where  = null;
+        foreach ($cuts as $c => [$word, $k]) {
+            $body = $piece($k + 1, $bounds[$c + 1]);
+            match ($word) {
+                'JOIN'  => $joined[] = $body,
+                'ON'    => $conds[] = $body,
+                'WHERE' => $where = $body,
+                default => null,
+            };
+        }
+        // What is deleted is the first table, by its name or its alias.
+        $named = array_values(array_filter($table, static fn (array $t): bool => !in_array($t['t'], ['ws', 'comment'], true)));
+        $names = $named === [] ? [] : array_map(static fn (array $t): string => strtolower(in_array($t['t'], ['ident', 'btick'], true) ? self::unquote($t['v']) : $t['v']), [$named[0], end($named)]);
+        $bare  = strtolower(str_starts_with($target, '"') ? self::unquote($target) : $target);
+        if ($joined === [] || count($joined) !== count($conds) || !in_array($bare, $names, true)) {
+            return null;
+        }
+        $raw  = static fn (string $v): array => ['t' => 'raw', 'v' => $v];
+        $trim = static function (array $body): array {
+            while ($body !== [] && in_array($body[0]['t'], ['ws', 'comment'], true)) {
+                array_shift($body);
+            }
+            while ($body !== [] && in_array(end($body)['t'], ['ws', 'comment'], true)) {
+                array_pop($body);
+            }
+
+            return $body;
+        };
+        $out = [...array_slice($tokens, 0, $first), $raw('DELETE FROM '), ...$trim($table), $raw(' USING ')];
+        foreach ($joined as $j => $body) {
+            $out = [...$out, ...($j > 0 ? [$raw(', ')] : []), ...$trim($body)];
+        }
+        $out[] = $raw(' WHERE ');
+        foreach ([...$conds, ...($where !== null ? [$where] : [])] as $c => $body) {
+            $out = [...$out, ...($c > 0 ? [$raw(' AND ')] : []), $raw('('), ...$trim($body), $raw(')')];
+        }
+
+        return [...$out, ...array_slice($tokens, $end)];
     }
 
     /**
@@ -390,6 +585,12 @@ final class MysqlToPostgres
             return $tokens;
         }
         $verb = strtoupper($tokens[$first]['v']);
+        if ($verb === 'SELECT') {
+            return $this->having($tokens);
+        }
+        if ($verb === 'DELETE') {
+            return $this->deleteJoin($tokens, $first) ?? $tokens;
+        }
         if ($verb !== 'INSERT' && $verb !== 'REPLACE') {
             return $tokens;
         }

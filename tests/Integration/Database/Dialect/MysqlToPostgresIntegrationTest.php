@@ -118,6 +118,46 @@ final class MysqlToPostgresIntegrationTest extends TestCase
         $this->assertSame(['n' => '3', 'label' => 'seen'], $row);
     }
 
+    /**
+     * The translations FW-165 §8 measured missing run, and give what MySQL gives: a hash as the
+     * same hex, a cast to a number, the parts of a date, a named lock taken and released, a value
+     * out of a JSON document, a delete through a join, an alias in HAVING, and foreign-key checks
+     * switched off and on.
+     */
+    public function testTheTranslationsMeasuredMissingRun(): void
+    {
+        // Arrange
+        $e = $this->t . '_events';
+        $c = $this->t . '_counters';
+        pg_query($this->db->getConnectionLink(), "INSERT INTO {$c} VALUES (1, 1, 'a'), (2, 1, 'zzz')");
+
+        // Act
+        $hash   = $this->value("SELECT SHA2('abc', 256)");
+        $cast   = $this->value("SELECT CAST('42' AS SIGNED) + 1");
+        $parts  = $this->value("SELECT CONCAT(DAY(made), '/', MONTH(made), '/', YEAR(made)) FROM {$e} WHERE id = 1");
+        $locked = $this->value("SELECT GET_LOCK('pf-dialect-test', 0)");
+        $freed  = $this->value("SELECT RELEASE_LOCK('pf-dialect-test')");
+        $json   = $this->value("SELECT JSON_EXTRACT('{\"a\": {\"b\": [7, 8]}}', '$.a.b[1]')");
+        $text   = $this->value("SELECT JSON_UNQUOTE(JSON_EXTRACT('{\"s\": \"x\"}', '$.s'))");
+        $kinds  = $this->value("SELECT COUNT(*) FROM (SELECT kind, COUNT(*) AS c FROM {$e} GROUP BY kind HAVING c >= 1) x");
+        $this->db->query("SET FOREIGN_KEY_CHECKS = 0");
+        $role   = $this->value('SHOW session_replication_role');
+        $this->db->query("SET FOREIGN_KEY_CHECKS = 1");
+        $this->db->query("DELETE ev FROM `{$e}` ev JOIN {$c} k ON k.label = ev.kind WHERE k.n = 1");
+        $left   = array_column(pg_fetch_all(pg_query($this->db->getConnectionLink(), "SELECT id FROM {$e} ORDER BY id")) ?: [], 'id');
+
+        // Assert
+        $this->assertSame(hash('sha256', 'abc'), $hash);
+        $this->assertSame(43, (int) $cast);
+        $this->assertSame('15/1/2026', $parts);
+        $this->assertSame([1, 1], [(int) $locked, (int) $freed], 'taken, then released');
+        $this->assertSame('8', (string) $json);
+        $this->assertSame('x', $text, 'unquoted');
+        $this->assertSame(3, (int) $kinds, 'a, b and the NULL kind, each once');
+        $this->assertSame('replica', $role, 'foreign keys off for the session');
+        $this->assertSame(['2', '3'], $left, 'the event of kind a, joined to counter a, deleted');
+    }
+
     /** Reads compute what MySQL computed. */
     public function testReadsComputeWhatMysqlComputed(): void
     {
