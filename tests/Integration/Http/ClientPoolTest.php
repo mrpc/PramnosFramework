@@ -287,10 +287,12 @@ class ClientPoolTest extends TestCase
     /**
      * The requests really do overlap.
      *
-     * Four servers that each sleep 400 ms take 1.6 s in sequence. Run together
+     * Four servers that each sleep 1 s take 4 s in sequence. Run together
      * they must finish in well under that — this is the entire point of the
      * method, and a pool that quietly ran them one after another would pass
-     * every other test in this file.
+     * every other test in this file. The margin is wide on purpose: with
+     * 400 ms servers and a 1.2 s ceiling, a loaded machine during the full
+     * suite once took 1.33 s for the concurrent run.
      */
     public function testRequestsRunConcurrently(): void
     {
@@ -298,7 +300,7 @@ class ClientPoolTest extends TestCase
         $urls = [];
         for ($i = 0; $i < 4; $i++) {
             $urls['s' . $i] = $this->serve(static function () use ($i): string {
-                usleep(400_000);
+                usleep(1_000_000);
                 return self::response(200, 'slow' . $i);
             });
         }
@@ -315,9 +317,9 @@ class ClientPoolTest extends TestCase
         foreach ($responses as $key => $response) {
             $this->assertSame(200, $response->status(), "entry {$key}");
         }
-        // … and in nothing like the 1.6 s a sequential loop would need.
-        $this->assertLessThan(1.2, $elapsed,
-            'four 400ms requests run together must not take the sequential time');
+        // … and in nothing like the 4 s a sequential loop would need.
+        $this->assertLessThan(2.5, $elapsed,
+            'four 1s requests run together must not take the sequential time');
     }
 
     /**
