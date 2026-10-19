@@ -89,6 +89,9 @@ $db->queryBuilder()
         'status'   => 1,
     ]);
 $newId = $db->getInsertId();
+// On PostgreSQL this is the id from the inserted table's own serial or identity sequence, not
+// LASTVAL(). TimescaleDB takes a sequence value of its own whenever an insert opens a chunk,
+// and LASTVAL() would answer that one.
 
 // UPDATE and DELETE
 $db->queryBuilder()->table('applications')

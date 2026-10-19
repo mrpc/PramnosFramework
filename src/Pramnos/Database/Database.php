@@ -2696,13 +2696,64 @@ class Database extends \Pramnos\Framework\Base
         if ($this->_dbConnection && $this->type != 'postgresql') {
             return mysqli_insert_id($this->_dbConnection);
         } elseif ($this->type == 'postgresql') {
-            $result = $this->query('SELECT LASTVAL()');
+            /*
+             * The sequence of the table the last INSERT wrote, not LASTVAL().
+             *
+             * LASTVAL() is the session's last sequence of any kind, and TimescaleDB takes one of
+             * its own whenever an insert opens a new chunk — so after an insert into a hypertable
+             * that started a chunk it answered the chunk's number, and the caller tied a body, a
+             * tracking row or a redirect to a row that is not the one it wrote.
+             */
+            $sequence = $this->insertSequence((string) $this->currentQuery);
+            $result   = $this->query($sequence !== null
+                ? "SELECT currval('" . str_replace("'", "''", $sequence) . "') AS lastval"
+                : 'SELECT LASTVAL()');
             if ($result) {
                 return $result->fields['lastval'];
             }
         }
 
         return false;
+    }
+
+    /** @var array<string, array{0: string, 1: string}|null> Each table's id column and its sequence */
+    private array $insertSequences = [];
+
+    /**
+     * The sequence the last INSERT took its id from: that of its table's serial or identity
+     * column. Null for a statement that is not an INSERT, a table with no such column, or an
+     * INSERT that gave the id itself and so took nothing from the sequence — `currval()` would
+     * fail there, and inside a transaction a failed statement aborts it.
+     */
+    private function insertSequence(string $sql): ?string
+    {
+        if (preg_match('/^\s*INSERT\s+INTO\s+((?:"[^"]+"|[\w$]+)(?:\.(?:"[^"]+"|[\w$]+))?)\s*(?:\(([^)]*)\))?/i', $sql, $m) !== 1) {
+            return null;
+        }
+        $table = $m[1];
+        $named = array_map(static fn (string $c): string => strtolower(trim($c, " \t\n\"`")), explode(',', $m[2] ?? ''));
+        if (!array_key_exists($table, $this->insertSequences)) {
+            try {
+                // Raw: catalogue introspection — asked so that it cannot fail, since a failed
+                // statement would abort the caller's transaction: to_regclass() is null for a
+                // table that is not there, and only then is the sequence looked up.
+                $literal = "'" . str_replace("'", "''", $table) . "'";
+                $exists  = $this->query('SELECT to_regclass(' . $literal . ') IS NOT NULL AS found');
+                $result  = !$exists || !in_array($exists->fields['found'], [true, 't', 1, '1'], true) ? null : $this->query(
+                    'SELECT a.attname AS col, pg_get_serial_sequence(' . $literal . ', a.attname) AS seq FROM pg_attribute a'
+                    . ' WHERE a.attrelid = ' . $literal . '::regclass AND a.attnum > 0 AND NOT a.attisdropped'
+                    . ' AND pg_get_serial_sequence(' . $literal . ', a.attname) IS NOT NULL ORDER BY a.attnum LIMIT 1'
+                );
+                $this->insertSequences[$table] = $result && $result->numRows > 0
+                    ? [strtolower((string) $result->fields['col']), (string) $result->fields['seq']]
+                    : null;
+            } catch (\Throwable) {
+                $this->insertSequences[$table] = null;
+            }
+        }
+        $found = $this->insertSequences[$table];
+
+        return $found === null || in_array($found[0], $named, true) ? null : $found[1];
     }
 
     /**

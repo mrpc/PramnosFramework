@@ -52,16 +52,18 @@ final class MailPersonalData
             return [];
         }
         $messages = [];
-        $result   = self::toAddress($db->queryBuilder()->table('#PREFIX#mails'), $email)->orderBy('id')->get();
-        while ($result && ($row = $result->fetch()) !== null) {
-            $messages[] = [
-                'date'    => gmdate('Y-m-d\TH:i:s\Z', (int) $row['date']),
-                'status'  => (int) $row['status'],
-                'from'    => (string) $row['frommail'],
-                'subject' => (string) $row['subject'],
-                'module'  => (string) $row['module'],
-                'body'    => Body::of((array) $row),
-            ];
+        foreach (array_reverse(MailHypertable::tables($db)) as $table) {
+            $result = self::toAddress($db->queryBuilder()->table($table), $email)->orderBy('id')->get();
+            while ($result && ($row = $result->fetch()) !== null) {
+                $messages[] = [
+                    'date'    => gmdate('Y-m-d\TH:i:s\Z', (int) $row['date']),
+                    'status'  => (int) $row['status'],
+                    'from'    => (string) $row['frommail'],
+                    'subject' => (string) $row['subject'],
+                    'module'  => (string) $row['module'],
+                    'body'    => Body::of((array) $row),
+                ];
+            }
         }
 
         return $messages;
@@ -87,25 +89,27 @@ final class MailPersonalData
         $tracking = $db->schema()->hasTable('pramnos.emailtracking');
         $erased   = 0;
 
-        do {
-            // The erased rows no longer match, so each batch is the next one.
-            $rows = $toThem($db->queryBuilder()->table('#PREFIX#mails')->select(['id', 'date', 'path']))
-                ->orderBy('id')->limit(self::BATCH)->get()->fetchAll();
-            if ($rows === []) {
-                break;
-            }
-            $ids = array_map(static fn (array $row): int => (int) $row['id'], $rows);
-            BodyStore::discard($rows);
-            // A write the database refused would match again for ever: said, not looped on.
-            if ($db->queryBuilder()->table('#PREFIX#mails')->whereIn('id', $ids)->update($columns) === false) {
-                throw new \RuntimeException('The mail log could not be erased for an address: ' . $db->getError()['message']);
-            }
-            if ($tracking) {
-                $db->queryBuilder()->table('pramnos.emailtracking')->whereIn('mailid', $ids)
-                    ->update(['recipient' => '', 'subject' => self::SUBJECT]);
-            }
-            $erased += count($rows);
-        } while (count($rows) === self::BATCH);
+        foreach (MailHypertable::tables($db) as $table) {
+            do {
+                // The erased rows no longer match, so each batch is the next one.
+                $rows = $toThem($db->queryBuilder()->table($table)->select(['id', 'date', 'path']))
+                    ->orderBy('id')->limit(self::BATCH)->get()->fetchAll();
+                if ($rows === []) {
+                    break;
+                }
+                $ids = array_map(static fn (array $row): int => (int) $row['id'], $rows);
+                BodyStore::discard($rows);
+                // A write the database refused would match again for ever: said, not looped on.
+                if ($db->queryBuilder()->table($table)->whereIn('id', $ids)->update($columns) === false) {
+                    throw new \RuntimeException('The mail log could not be erased for an address: ' . $db->getError()['message']);
+                }
+                if ($tracking) {
+                    $db->queryBuilder()->table('pramnos.emailtracking')->whereIn('mailid', $ids)
+                        ->update(['recipient' => '', 'subject' => self::SUBJECT]);
+                }
+                $erased += count($rows);
+            } while (count($rows) === self::BATCH);
+        }
         // And a tracking row whose message is not in the log any more.
         if ($tracking) {
             $db->queryBuilder()->table('pramnos.emailtracking')

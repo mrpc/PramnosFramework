@@ -2102,6 +2102,36 @@ the database refuses ends the run with what it did, logged.
 row per recipient per campaign, whose only remaining purpose once the campaign is finished is
 the count on its page — and the count is on the campaign row.
 
+### The mail log as a TimescaleDB hypertable
+
+```bash
+php bin/pramnos mail:hypertable --dry-run     # where the table is, and how much there is to move
+php bin/pramnos mail:hypertable               # convert, then move the rows, newest first
+php bin/pramnos mail:hypertable --no-drain    # convert only; move the rows in a later run
+```
+
+On TimescaleDB, `mails` can become a hypertable: monthly chunks, compressed once they are ninety
+days old, so statistics over a period read only that period. It is a console command rather than a
+migration because it is not cheaply undone, and when to run it is the installation's decision.
+Plain PostgreSQL and MySQL keep their table, and there the body store is what keeps it small.
+
+It runs with the site up. The **conversion** takes milliseconds and touches only the catalogue:
+- `mails` is renamed `mails_legacy`;
+- a new `mails` is made like it, with the same columns, defaults, id sequence and indexes;
+- `date` is widened to `bigint`, so it outlives 2038;
+- the primary key becomes `(id, date)`, as a hypertable needs;
+- the status index becomes `(status, date)`, which is what the outbox reads.
+
+New mail goes to the new table at once. The old rows then **move newest first**, in batches of ten
+thousand. Each batch is deleted from the old table and inserted into the new one in one statement,
+so a row is never in both. Sixty thousand rows a second were measured, and a run stopped part way
+is finished by the next. When nothing is left, `mails_legacy` is dropped.
+
+`date` stays a Unix timestamp, so nothing that reads or writes it changes. While the rows move,
+history not yet moved is not in `mails`, and the screens fill from today backwards. Erasure,
+`mail:prune` and a person's copy of their mail read both tables, so none of them misses a
+message.
+
 ### A person in the mail log: their copy, and their erasure
 
 ```php

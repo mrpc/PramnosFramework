@@ -382,8 +382,20 @@ each alone.
 5. Bounces and suppression: the table, a check in `send()`, a command reading the bounce mailbox,
    and a screen. *Done* — `Email\Bounces`, `mail:bounces`, the message page in Email History.
 6. GDPR erasure and retention, files and rows alike. *Done* — `Email\MailPersonalData`, `BodyStore::discard()`, `Retention` over the store.
-7. `mails` as a hypertable. The move of an application's files into `mail_bodies` is
-   `mail:bodies-to-database`. *Done.*
+7. `mails` as a hypertable. *Done* — `Email\MailHypertable`, `mail:hypertable`. The move of an
+   application's files into `mail_bodies` is `mail:bodies-to-database`. *Done.*
+
+**`date` stays a Unix timestamp**, against §7's "date to `timestamptz`". Every reader and writer
+compares it with `time()`, in the framework and in every application that writes `mails` itself.
+A type change would have broken all of them on PostgreSQL, which refuses `timestamptz >= integer`.
+The partition is the integer, widened to `bigint` for 2038, with `set_integer_now_func` so the
+compression policy can tell its age. §7's trap 5 is met by a function that returns `bigint`, the
+column's type.
+
+**A framework bug found on the way:** `Database::getInsertId()` on PostgreSQL was `LASTVAL()`.
+TimescaleDB takes a sequence value of its own whenever an insert opens a chunk, so the first
+message of each month on a hypertable got the chunk's number as its id, and its body and tracking
+were tied to another row. It now reads the inserted table's own sequence.
 
 ## 9. Next steps
 

@@ -75,12 +75,13 @@ class Retention
             'newest'     => (int) ($row['newest'] ?? 0),
         ];
 
-        if ($stripAfter > 0) {
-            $stats['would_strip'] = self::count(self::older($stripAfter, true));
-        }
-
-        if ($deleteAfter > 0) {
-            $stats['would_delete'] = self::count(self::older($deleteAfter, false));
+        foreach (MailHypertable::tables() as $table) {
+            if ($stripAfter > 0) {
+                $stats['would_strip'] = ($stats['would_strip'] ?? 0) + self::count(self::older($stripAfter, true, $table));
+            }
+            if ($deleteAfter > 0) {
+                $stats['would_delete'] = ($stats['would_delete'] ?? 0) + self::count(self::older($deleteAfter, false, $table));
+            }
         }
 
         return $stats;
@@ -104,7 +105,7 @@ class Retention
             $columns['bodyvars'] = null;
         }
 
-        return self::sweep(self::older($olderThan, true), static fn (\Pramnos\Database\QueryBuilder $rows) => $rows->update($columns));
+        return self::sweep($olderThan, true, static fn (\Pramnos\Database\QueryBuilder $rows) => $rows->update($columns));
     }
 
     /**
@@ -119,7 +120,7 @@ class Retention
             return 0;
         }
 
-        return self::sweep(self::older($olderThan, false), static fn (\Pramnos\Database\QueryBuilder $rows) => $rows->delete());
+        return self::sweep($olderThan, false, static fn (\Pramnos\Database\QueryBuilder $rows) => $rows->delete());
     }
 
     /**
@@ -173,28 +174,33 @@ class Retention
      * scheduled job, and a zero is a number the next run can act on where a fatal is a cron mail
      * nobody reads.
      *
+     * @param int  $olderThan Seconds
+     * @param bool $withBody  Only the rows with a body still kept
      * @param callable(\Pramnos\Database\QueryBuilder): mixed $apply The write; false when refused
      */
-    protected static function sweep(\Pramnos\Database\QueryBuilder $matching, callable $apply): int
+    protected static function sweep(int $olderThan, bool $withBody, callable $apply): int
     {
         $db      = Factory::getDatabase();
         $touched = 0;
-        $after   = 0;
 
         try {
-            do {
-                $rows = (clone $matching)->select(['id', 'date', 'path'])->where('id', '>', $after)
-                    ->orderBy('id')->limit(self::BATCH)->get()->fetchAll();
-                if ($rows === []) {
-                    break;
-                }
-                $after = (int) end($rows)['id'];
-                BodyStore::discard($rows);
-                if ($apply($db->queryBuilder()->table('#PREFIX#mails')->whereIn('id', array_map(static fn (array $row): int => (int) $row['id'], $rows))) === false) {
-                    throw new \RuntimeException($db->getError()['message'] ?: 'the write was refused');
-                }
-                $touched += count($rows);
-            } while (count($rows) === self::BATCH);
+            // While `mails` is being drained into a hypertable, its old rows are in a second table.
+            foreach (MailHypertable::tables($db) as $table) {
+                $after = 0;
+                do {
+                    $rows = self::older($olderThan, $withBody, $table)->select(['id', 'date', 'path'])->where('id', '>', $after)
+                        ->orderBy('id')->limit(self::BATCH)->get()->fetchAll();
+                    if ($rows === []) {
+                        break;
+                    }
+                    $after = (int) end($rows)['id'];
+                    BodyStore::discard($rows);
+                    if ($apply($db->queryBuilder()->table($table)->whereIn('id', array_map(static fn (array $row): int => (int) $row['id'], $rows))) === false) {
+                        throw new \RuntimeException($db->getError()['message'] ?: 'the write was refused');
+                    }
+                    $touched += count($rows);
+                } while (count($rows) === self::BATCH);
+            }
         } catch (\Throwable $exception) {
             \Pramnos\Logs\Logger::log('Mail retention failed: ' . $exception->getMessage(), 'email');
         }
@@ -209,9 +215,9 @@ class Retention
      * older than every cutoff — so without it the first run of a policy quietly takes the rows
      * of every malformed message in the table, including ones written this morning.
      */
-    protected static function older(int $seconds, bool $withBody): \Pramnos\Database\QueryBuilder
+    protected static function older(int $seconds, bool $withBody, string $table = '#PREFIX#mails'): \Pramnos\Database\QueryBuilder
     {
-        $query = Factory::getDatabase()->queryBuilder()->table('#PREFIX#mails')
+        $query = Factory::getDatabase()->queryBuilder()->table($table)
             ->where('date', '>', 0)->where('date', '<', time() - $seconds);
         if ($withBody) {
             $query->where(static function ($q): void {

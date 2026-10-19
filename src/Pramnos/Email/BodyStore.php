@@ -210,13 +210,17 @@ final class BodyStore
                 $files[$path][] = (int) $row['date'];
             }
         }
+        $tables = $files === [] ? [] : MailHypertable::tables($db);
         foreach ($files as $path => $dates) {
             // The rows that share a file were sent in the same hour; a day either side reads the
             // date index and allows for a clock or a time zone.
-            $others = $db->queryBuilder()->table('#PREFIX#mails')->where('path', $path)
-                ->whereBetween('date', [min($dates) - 86400, max($dates) + 86400])
-                ->whereIn('id', $ids, 'and', true)
-                ->count();
+            $others = 0;
+            foreach ($tables as $table) {
+                $others += $db->queryBuilder()->table($table)->where('path', $path)
+                    ->whereBetween('date', [min($dates) - 86400, max($dates) + 86400])
+                    ->whereIn('id', $ids, 'and', true)
+                    ->count();
+            }
             if ($others === 0 && self::removeFile($path)) {
                 $removed++;
             }
