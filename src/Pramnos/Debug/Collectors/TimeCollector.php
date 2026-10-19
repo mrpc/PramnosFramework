@@ -32,15 +32,21 @@ class TimeCollector implements CollectorInterface
         return 'timers';
     }
 
+    /**
+     * Start a named timer. Where it sits on the timeline is the wall clock's; how long it ran is
+     * the monotonic clock's — the wall clock is corrected in steps on a virtual machine, and a
+     * step back measured a timer at minus half a second.
+     */
     public function startTimer(string $name): void
     {
-        $this->timers[$name] = ['start' => microtime(true), 'end' => null];
+        $this->timers[$name] = ['start' => microtime(true), 'end' => null, 'mono' => hrtime(true), 'monoEnd' => null];
     }
 
     public function stopTimer(string $name): void
     {
         if (isset($this->timers[$name])) {
-            $this->timers[$name]['end'] = microtime(true);
+            $this->timers[$name]['end']     = microtime(true);
+            $this->timers[$name]['monoEnd'] = hrtime(true);
         }
     }
 
@@ -105,7 +111,9 @@ class TimeCollector implements CollectorInterface
         $named = [];
         foreach ($this->timers as $name => $t) {
             $end       = $t['end'] ?? $now;
-            $duration  = round(($end - $t['start']) * 1000, 2);
+            $duration  = isset($t['mono'])
+                ? round((($t['monoEnd'] ?? hrtime(true)) - $t['mono']) / 1e6, 2)
+                : round(($end - $t['start']) * 1000, 2);
             $offsetMs  = round(($t['start'] - $this->startTime) * 1000, 2);
             $named[] = [
                 'name'      => $name,

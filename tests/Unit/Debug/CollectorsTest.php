@@ -220,4 +220,29 @@ class CollectorsTest extends TestCase
         $this->assertSame('header.html.php', $data['views'][1]['template']);
         $this->assertTrue($data['views'][1]['from_cache']);
     }
+
+    /**
+     * A named timer's length is the monotonic clock's, not the wall clock's: the wall clock is
+     * corrected in steps on a virtual machine, and a step back made a timer measure minus half a
+     * second. Its place on the timeline still comes from the wall clock.
+     */
+    public function testATimersLengthSurvivesTheWallClockStepping(): void
+    {
+        // Arrange — a timer whose wall-clock start is then stepped a second into the future
+        $time = new \Pramnos\Debug\Collectors\TimeCollector();
+        $time->startTimer('stepped');
+        $timers = new \ReflectionProperty(\Pramnos\Debug\Collectors\TimeCollector::class, 'timers');
+        $value  = $timers->getValue($time);
+        $value['stepped']['start'] += 1.0;
+        $timers->setValue($time, $value);
+        usleep(2000);
+
+        // Act
+        $time->stopTimer('stepped');
+        $named = $time->collect()['named_timers'][0];
+
+        // Assert
+        $this->assertGreaterThan(0, $named['ms'], 'not negative');
+        $this->assertLessThan(500, $named['ms'], 'the time it ran, not the step');
+    }
 }
