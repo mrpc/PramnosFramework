@@ -1,6 +1,7 @@
 ---
 use_cases:
   - Deploying a branch automatically when it is pushed
+  - Deploying without fatals while composer rewrites vendor/
   - Working out why a push did not reach production
   - Securing an endpoint that runs shell commands on the server
   - Choosing what a deploy webhook should answer and when
@@ -115,6 +116,40 @@ with twenty branches should not log an error twenty times a day.
 They run in order in `repoDir`, **stopping at the first non-zero exit**, with
 stdout and stderr captured into the log. Fail-fast is what you want here: there is
 no sense running `migrate` against a checkout that `git reset` did not update.
+
+## A deploy that does not break requests: `onBranchStaged()`
+
+```php
+$handler->onBranchStaged('main', [
+    'php pramnos migrate',
+    'php pramnos cache:clear',
+]);
+```
+
+The sequence above — reset, then `composer install` — rewrites `vendor/` under live
+requests for as long as composer runs. New code meets an old or half-written `vendor/`, so
+every deploy that changes `composer.lock` serves a few seconds of fatals.
+`onBranchStaged()` keeps that work out of the live tree:
+
+1. `git fetch --all`.
+2. The branch is exported (`git archive`) to a stage directory beside the checkout.
+3. The current `vendor/` is copied into it, so composer changes only what the lock changed.
+4. `composer install --no-dev --no-interaction --optimize-autoloader` runs in the stage.
+5. The live tree changes in one command: `git reset --hard`, then `vendor/` replaced by a rename.
+6. The old `vendor/` and the stage are removed, then your commands run in the live tree.
+
+The window in which a request can meet a mismatch shrinks from composer's seconds to the
+reset, which takes well under a second. A composer that fails stops the deploy at step 4 with the live
+tree untouched, because the commands stop at the first failure.
+
+The stage is `.<checkout>-stage` beside the checkout unless you pass one. It must be on the
+same filesystem, so that the rename is a rename and not a copy, and outside the web root.
+Composer runs there without the checkout's untracked files — `.env` among them — so a composer
+script that needs them belongs in your own commands. The composer command is the fourth
+argument, for a server where it is `php /usr/local/bin/composer.phar`.
+
+A full releases-and-symlink deploy closes the remaining window too, at the cost of a docroot
+that moves; this needs no change to the server.
 
 ## Reading the log
 

@@ -111,6 +111,52 @@ class WebhookHandler
     }
 
     /**
+     * Deploy a branch with its dependencies installed beside the live tree, not inside it.
+     *
+     * ```php
+     * $handler->onBranchStaged('main', ['php pramnos migrate', 'php pramnos cache:clear']);
+     * ```
+     *
+     * `git reset` followed by `composer install` rewrites `vendor/` under live requests for
+     * seconds: new code meets an old or half-written `vendor/`, and every deploy that changes
+     * `composer.lock` serves a few seconds of fatals. Here the branch is exported to a stage
+     * directory beside the checkout and `composer install` runs there, on a copy of the current
+     * `vendor/` so it only changes what the lock changed. The live tree is then changed by one
+     * command: `git reset --hard`, and `vendor/` replaced by a rename. A composer that fails stops
+     * the deploy with the live tree untouched.
+     *
+     * The stage must be on the checkout's filesystem, for the rename to be one, and outside the
+     * web root. By default it is `.<checkout>-stage` beside the checkout. Composer runs in it
+     * without the checkout's untracked files — `.env` among them — so a composer script that needs
+     * them belongs in `$after`.
+     *
+     * @param string      $branch   Exact branch name.
+     * @param string[]    $after    The application's own commands, run in the live tree after.
+     * @param string|null $stage    Where the branch is staged; beside the checkout by default.
+     * @param string      $composer The composer command.
+     * @return static Fluent interface.
+     */
+    public function onBranchStaged(string $branch, array $after = [], ?string $stage = null, string $composer = 'composer'): static
+    {
+        $root   = rtrim($this->repoDir, '/');
+        $stage  = escapeshellarg($stage ?? dirname($root) . '/.' . basename($root) . '-stage');
+        $ref    = escapeshellarg('origin/' . $branch);
+
+        return $this->onBranch($branch, [
+            'git fetch --all',
+            // A vendor.old a failed deploy left would take vendor *into* it at the rename.
+            'rm -rf vendor.old ' . $stage . ' && mkdir -p ' . $stage . ' && git archive ' . $ref . ' | tar -x -C ' . $stage,
+            '[ ! -d vendor ] || cp -a vendor ' . $stage . '/vendor',
+            // Autoload paths are relative to vendor/.., so the result is valid once it is moved.
+            'cd ' . $stage . ' && ' . $composer . ' install --no-dev --no-interaction --optimize-autoloader',
+            // Going live, in one command.
+            'git reset --hard ' . $ref . ' && { [ ! -d vendor ] || mv vendor vendor.old; } && mv ' . $stage . '/vendor vendor',
+            'rm -rf vendor.old ' . $stage,
+            ...$after,
+        ]);
+    }
+
+    /**
      * Answer the provider before running the commands, or after.
      *
      * ## Why "before" is the default
