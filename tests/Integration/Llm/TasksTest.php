@@ -456,6 +456,7 @@ class TasksTest extends LlmTestCase
         $migration = new \Pramnos\Framework\Migrations\Llm\ExtendAiRoutinesForTasks($app);
 
         // Act
+        $this->llmSchemaChanged();
         $migration->down();
         $shrunk = $schema->hasColumn('ai_routines', 'kind');
         $migration->up();

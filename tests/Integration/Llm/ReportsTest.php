@@ -218,6 +218,7 @@ class ReportsTest extends LlmTestCase
         \Pramnos\Http\RequestIdentity::seal((object) ['userid' => 7, 'usertype' => 99], 'test');
         $spend = (new \Pramnos\Llm\Analyst\Tools\LlmSpendTool())->execute(['days' => 1]);
         // Before the migration the log cannot say which task: the spend says nothing about tasks
+        $this->llmSchemaChanged();
         $this->migration(\Pramnos\Framework\Migrations\Llm\AddRoutineIdToLlmCalls::class)->down();
         $before = (new \Pramnos\Llm\Analyst\Tools\LlmSpendTool())->execute(['days' => 1]);
         $this->migration(\Pramnos\Framework\Migrations\Llm\AddRoutineIdToLlmCalls::class)->up();
@@ -438,6 +439,7 @@ class ReportsTest extends LlmTestCase
         $migration = $this->migration(\Pramnos\Framework\Migrations\Llm\AddAudienceToAiRoutines::class);
 
         // Act
+        $this->llmSchemaChanged();
         $migration->down();
         $gone    = $schema->hasColumn('ai_routines', 'audience');
         $without = $this->report($this->tasks());

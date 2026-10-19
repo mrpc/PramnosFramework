@@ -51,6 +51,7 @@ class LegacyChatTablesTest extends LlmTestCase
     {
         // Arrange — the application's tables: organization_id NOT NULL, as GlideDay's were
         $this->connectDatabase($type, $host, $port);
+        $this->llmSchemaChanged();
         // What an application's settings give a PostgreSQL connection; the test's has none.
         $this->db->schema = $type === 'postgresql' ? 'public' : '';
         $schema = $this->db->schema();
@@ -82,6 +83,7 @@ class LegacyChatTablesTest extends LlmTestCase
     {
         // Arrange
         $this->connectDatabase($type, $host, $port);
+        $this->llmSchemaChanged();
         // What an application's settings give a PostgreSQL connection; the test's has none.
         $this->db->schema = $type === 'postgresql' ? 'public' : '';
         $schema = $this->db->schema();

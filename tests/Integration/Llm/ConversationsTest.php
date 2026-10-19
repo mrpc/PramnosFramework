@@ -363,6 +363,7 @@ class ConversationsTest extends LlmTestCase
         $this->assertStringStartsWith('…', $hit);
         $this->assertStringEndsWith('…', $hit);
         $this->assertStringContainsString('the needle sits here', $hit);
+        $this->llmSchemaChanged();
         $this->db->schema()->dropTableIfExists('chat_memory');
         $this->assertSame([], (new Memory($scope))->all());
     }

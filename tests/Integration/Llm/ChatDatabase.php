@@ -18,6 +18,17 @@ trait ChatDatabase
 
     private ?Database $previousSingleton = null;
 
+    /**
+     * The databases this class has built the `llm` tables in, and has not changed since.
+     *
+     * Built once a class and database, emptied before each test after that: dropping and
+     * migrating nine tables before every test was a tenth of the whole suite's time. A test that
+     * changes the tables says so with {@see llmSchemaChanged()}, and the next one builds again.
+     *
+     * @var array<string, true>
+     */
+    private static array $llmBuilt = [];
+
     /** The tables the `llm` migrations create, child tables first. */
     private const LLM_TABLES = ['chat_messages', 'chat_conversations', 'chat_memory', 'chat_asks', 'ai_consents', 'ai_task_subscriptions', 'ai_task_runs', 'ai_routines', 'llm_calls'];
 
@@ -56,10 +67,55 @@ trait ChatDatabase
         $singleton               = &Factory::getDatabase();
         $singleton               = $this->db;
 
+        $key = static::class . '|' . $type;
+        if (isset(self::$llmBuilt[$key])) {
+            // Child tables first, as LLM_TABLES lists them, so no foreign key refuses a delete.
+            foreach (self::LLM_TABLES as $table) {
+                $this->db->queryBuilder()->table($table)->delete();
+            }
+
+            return;
+        }
         $this->dropTables();
         foreach ($this->migrations() as $class) {
             $this->migration($class)->up();
         }
+        self::$llmBuilt[$key] = true;
+    }
+
+    /** This test changed the `llm` tables: the next one builds them again. */
+    private function llmSchemaChanged(): void
+    {
+        unset(self::$llmBuilt[static::class . '|' . $this->db->type]);
+    }
+
+    /** The tables go with the class, so none is left for a class that expects none. */
+    public static function tearDownAfterClass(): void
+    {
+        foreach (array_keys(self::$llmBuilt) as $key) {
+            if (!str_starts_with($key, static::class . '|')) {
+                continue;
+            }
+            unset(self::$llmBuilt[$key]);
+            [$type, $host, $port] = self::databases()[substr($key, strlen(static::class) + 1)];
+            $db = new Database();
+            $db->type     = $type;
+            $db->server   = $host;
+            $db->port     = $port;
+            $db->user     = $type === 'mysql' ? 'root' : 'postgres';
+            $db->password = 'secret';
+            $db->database = TEST_DATABASE;
+            try {
+                $db->connect(false);
+                foreach (self::LLM_TABLES as $table) {
+                    $db->schema()->dropTableIfExists($table);
+                }
+                $db->close();
+            } catch (\Throwable) {
+                // Not reachable now: it was when the tables were made, and the next class drops them.
+            }
+        }
+        parent::tearDownAfterClass();
     }
 
     /** @return list<class-string> Every `llm` migration, in order */
@@ -91,9 +147,6 @@ trait ChatDatabase
 
     private function disconnectDatabase(): void
     {
-        if (isset($this->db) && $this->db->connected) {
-            $this->dropTables();
-        }
         if ($this->previousSingleton !== null) {
             $singleton = &Factory::getDatabase();
             $singleton = $this->previousSingleton;

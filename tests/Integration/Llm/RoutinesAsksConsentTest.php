@@ -343,6 +343,7 @@ class RoutinesAsksConsentTest extends LlmTestCase
     {
         // Arrange — the tables as an application had them
         $this->connectDatabase($type, $host, $port);
+        $this->llmSchemaChanged();
         $this->db->schema()->alterTable('chat_conversations', fn ($t) => $t->dropColumn('tags'));
         $this->db->schema()->alterTable('chat_messages', fn ($t) => $t->dropColumn('extra'));
 
@@ -375,6 +376,7 @@ class RoutinesAsksConsentTest extends LlmTestCase
         // Act
         $nothing = $tester->execute([]);
         $said    = $tester->getDisplay();
+        $this->llmSchemaChanged();
         $this->db->schema()->dropTableIfExists('ai_routines');
         $absent = $tester->execute([]);
 
