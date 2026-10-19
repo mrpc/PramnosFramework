@@ -181,6 +181,20 @@ class WebhookService
      */
     public function queuePermissionsChanged(string $subjectType, int $subjectId, array $context = []): int
     {
+        // Who is subscribed is asked first, in one query: with nobody listening — most
+        // installations, and every test — finding the role's holders and their applications
+        // would be work for nothing, and it is done on every grant a role or a team changes.
+        $listening = $this->database->queryBuilder()
+            ->table(self::TABLE_ENDPOINTS)
+            ->select(['webhook_id'])
+            ->where('webhook_type', 'permissions_changed')
+            ->where('is_active', 1)
+            ->limit(1)
+            ->get();
+        if (!$listening || !$listening->fetch()) {
+            return 0;
+        }
+
         $appId = (int) ($context['app_id'] ?? 0);
         $apps  = $appId > 0
             ? [$appId]

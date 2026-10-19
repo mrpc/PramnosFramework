@@ -589,6 +589,8 @@ class MigrationRunner
                     // Cleared per migration, so what this one deferred is attributable to
                     // it rather than to whatever ran before it.
                     \Pramnos\Database\SchemaBuilder::resetDeferredCapabilities();
+                    // A migration may drop a table with SQL of its own: no "it exists" survives it.
+                    \Pramnos\Database\SchemaBuilder::forgetWhatExists();
 
                     $migration->up();
 
@@ -599,6 +601,7 @@ class MigrationRunner
                     // Inside the transaction, so a queued statement is committed with the
                     // rest of the migration's work.
                     $migration->runQueuedQueries();
+                    \Pramnos\Database\SchemaBuilder::forgetWhatExists();
 
                     $elapsed = microtime(true) - $start;
 
@@ -776,9 +779,11 @@ class MigrationRunner
 
             if (isset($map[$slug])) {
                 try {
+                    \Pramnos\Database\SchemaBuilder::forgetWhatExists();
                     $map[$slug]->down();
                     // The same queue, on the way back down.
                     $map[$slug]->runQueuedQueries();
+                    \Pramnos\Database\SchemaBuilder::forgetWhatExists();
                 } catch (\Throwable $e) {
                     $downSucceeded = false;
                     \Pramnos\Logs\Logger::log(

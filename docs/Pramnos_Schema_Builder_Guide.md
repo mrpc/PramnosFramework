@@ -421,6 +421,26 @@ if ($schema->hasColumn('users', 'email')) {
 if ($schema->hasIndex('users', 'idx_users_email')) {
     // index exists
 }
+```
+
+`hasTable()` and `hasColumn()` remember a table or column they **found**, per connection, for
+the life of the process. Code that guards on an optional table can ask on every call and pay
+one catalogue query a process. A missing table is never remembered, so one a migration creates
+is seen at once. The answers are forgotten:
+- by every DDL method of the builder;
+- by any `DROP`, `ALTER` or `RENAME` the same connection runs, hand-written included;
+- by the migration runner, before and after each migration.
+
+What none of those can see is a table dropped by **another** connection or process. A queue
+worker keeps "it exists" until it restarts, which a deploy that drops tables restarts it for
+anyway. Inside one process, after DDL through a second connection:
+
+```php
+\Pramnos\Database\SchemaBuilder::forgetWhatExists();      // every connection
+\Pramnos\Database\SchemaBuilder::forgetWhatExists($db);   // one
+```
+
+```php
 
 $schema->columnLength('usertokens', 'token');   // 255 for a varchar(255); 0 for text, a number, or no answer
 

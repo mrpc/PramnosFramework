@@ -915,6 +915,20 @@ $db->queryBuilder()
 // Second call with same keys does nothing — no exception
 ```
 
+#### `insertMany(array $rows): int`
+
+```php
+$written = $db->queryBuilder()->table('authserver.permissions')->insertMany([
+    ['subject_id' => 7, 'object_type' => 'posts', 'action' => 'read'],
+    ['subject_id' => 7, 'object_type' => 'posts', 'action' => 'write'],
+]);   // 2
+```
+
+One `INSERT … VALUES (…), (…)` for up to 500 rows, and as many statements as it takes beyond
+that. Every row has the first row's columns, in any order; a row with a column missing or extra
+is refused with an `InvalidArgumentException` before anything is written. An `Expression`
+value is inlined, as in `insert()`.
+
 #### `upsert(array $values, array $conflictColumns, array $updateValues = []): Result`
 
 ```php

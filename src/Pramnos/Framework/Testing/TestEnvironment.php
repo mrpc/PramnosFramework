@@ -399,6 +399,7 @@ class TestEnvironment
     protected static function forgetTheDatabaseBefore(): void
     {
         \Pramnos\Application\Application::forgetVerifiedMigrations();
+        \Pramnos\Database\SchemaBuilder::forgetWhatExists();
 
         // Scoped to this connection's prefix: another installation's cache is not touched.
         \Pramnos\Database\Database::getInstance()->cacheflush();

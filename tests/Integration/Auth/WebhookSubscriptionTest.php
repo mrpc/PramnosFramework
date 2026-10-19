@@ -50,6 +50,21 @@ class TestableWebhookController extends \Pramnos\Auth\Controllers\Webhook
     }
 }
 
+/** The webhook service, counting how often it looks for a role's holders. */
+class HolderCountingWebhookService extends WebhookService
+{
+    /** Times holdersOf() was reached. */
+    public int $holderLookups = 0;
+
+    /** Counts, then looks as the service does. */
+    protected function holdersOf(int $roleId): array
+    {
+        $this->holderLookups++;
+
+        return parent::holdersOf($roleId);
+    }
+}
+
 class WebhookSubscriptionTest extends BaseTestCase
 {
     private \Pramnos\Database\Database $db;
@@ -390,6 +405,27 @@ class WebhookSubscriptionTest extends BaseTestCase
             $this->db->queryBuilder()->table('#PREFIX#usertokens')->where('userid', 78)->delete();
             $this->db->queryBuilder()->table('authserver.user_roles')->where('roleid', 31)->delete();
         }
+    }
+
+    /**
+     * With no endpoint subscribed to `permissions_changed`, a role's change queues nothing and
+     * does not look for the role's holders or their applications at all — one query, where a
+     * team's role change used to run the whole lookup for nobody listening.
+     */
+    public function testNobodyListeningSkipsTheHolderLookup(): void
+    {
+        // Arrange — subscribed to something else only
+        $this->subscribe('token_revoked');
+        $service = new HolderCountingWebhookService($this->db);
+
+        // Act
+        $queued = $service->queuePermissionsChanged('role', 31, ['operation' => 'update']);
+        $this->subscribe('permissions_changed');
+        $service->queuePermissionsChanged('role', 31, ['operation' => 'update']);
+
+        // Assert
+        $this->assertSame(0, $queued);
+        $this->assertSame(1, $service->holderLookups, 'looked for holders with nobody listening, or not once somebody was');
     }
 
     /**

@@ -308,6 +308,8 @@ class Permissions extends \Pramnos\Framework\Base
         $database = $this->db();
         $database->startTransaction();
         try {
+            $byResource = [];
+            $rows       = [];
             foreach ($grants as $resource => $privileges) {
                 $actions = array_values(array_unique(array_map(
                     static fn ($privilege): string => $privilege === 'admin' ? '*' : (string) $privilege,
@@ -316,20 +318,9 @@ class Permissions extends \Pramnos\Framework\Base
                 if ($actions === []) {
                     continue;
                 }
-
-                // Replaces rather than accumulates, as allow() does.
-                $database->queryBuilder()->table('authserver.permissions')
-                    ->where('subject_type', $mapped)
-                    ->where('subject_id', (int) $subject)
-                    ->where('object_type', (string) $resource)
-                    ->whereIn('action', $actions)
-                    ->whereNull('object_id')
-                    ->delete();
-
-                // ponytail: one INSERT per row inside the transaction; a multi-row INSERT
-                // needs the builder to learn one, worth it if a profile ever shows these.
+                $byResource[(string) $resource] = $actions;
                 foreach ($actions as $action) {
-                    $database->queryBuilder()->table('authserver.permissions')->insert([
+                    $rows[] = [
                         'subject_type' => $mapped,
                         'subject_id'   => (int) $subject,
                         'object_type'  => (string) $resource,
@@ -338,8 +329,27 @@ class Permissions extends \Pramnos\Framework\Base
                         'grant_type'   => 'allow',
                         'priority'     => 100,
                         'is_active'    => true,
-                    ]);
+                    ];
                 }
+            }
+
+            if ($rows !== []) {
+                // Replaces rather than accumulates, as allow() does: one DELETE for every
+                // resource it touches, and one INSERT for every row — a role of a dozen
+                // modules was two dozen statements each way.
+                $database->queryBuilder()->table('authserver.permissions')
+                    ->where('subject_type', $mapped)
+                    ->where('subject_id', (int) $subject)
+                    ->whereNull('object_id')
+                    ->where(function ($any) use ($byResource) {
+                        foreach ($byResource as $resource => $actions) {
+                            $any->orWhere(function ($one) use ($resource, $actions) {
+                                $one->where('object_type', $resource)->whereIn('action', $actions);
+                            });
+                        }
+                    })
+                    ->delete();
+                $database->queryBuilder()->table('authserver.permissions')->insertMany($rows);
             }
             $database->commitTransaction();
         } catch (\Throwable $exception) {

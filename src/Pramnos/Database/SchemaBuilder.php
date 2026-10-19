@@ -34,6 +34,24 @@ class SchemaBuilder
      */
     private static array $deferredCapabilities = [];
 
+    /**
+     * Tables and columns found to exist, per connection, for the life of the process.
+     *
+     * `hasTable()` and `hasColumn()` are catalogue queries, and code that guards on an optional
+     * table asks the same question on every call: one profile counted 5,195 of them in a single
+     * test class, 11.5% of its time. Only a table that **was found** is remembered. A missing
+     * one is asked again every time, so a migration that creates it is seen at once — no stale
+     * "no" can hide a table. A stale "yes" needs the table dropped behind the builder's back,
+     * so every DDL method here forgets the connection's answers, and so does the migration
+     * runner around each migration ({@see forgetWhatExists()}).
+     *
+     * A WeakMap keyed on the connection: two databases never answer for each other, and a
+     * connection that is let go takes its answers with it.
+     *
+     * @var \WeakMap<Database, array<string, true>>|null
+     */
+    private static ?\WeakMap $found = null;
+
     /** @var Database */
     protected $db;
 
@@ -483,6 +501,7 @@ class SchemaBuilder
      */
     private function forgetCachedSchema(string $table): void
     {
+        self::forgetWhatExists($this->db);
         $this->db->forgetColumns($table);
 
         $resolved = $this->resolveTable($table);
@@ -522,9 +541,18 @@ class SchemaBuilder
     {
         $resolved = $this->resolveTable($table);
         $schema   = $schema ?? $this->resolveSchema();
-        $sql      = $this->getGrammar()->compileHasTable($resolved, $schema);
-        $result   = $this->db->query($sql);
-        return $result && $result->numRows > 0;
+        $key      = $schema . '|' . $resolved;
+        if (isset(self::$found[$this->db][$key])) {
+            return true;
+        }
+        $sql    = $this->getGrammar()->compileHasTable($resolved, $schema);
+        $result = $this->db->query($sql);
+        $exists = $result && $result->numRows > 0;
+        if ($exists) {
+            $this->rememberFound($key);
+        }
+
+        return $exists;
     }
 
     /**
@@ -539,9 +567,42 @@ class SchemaBuilder
     {
         $resolved = $this->resolveTable($table);
         $schema   = $schema ?? $this->resolveSchema();
-        $sql      = $this->getGrammar()->compileHasColumn($resolved, $column, $schema);
-        $result   = $this->db->query($sql);
-        return $result && $result->numRows > 0;
+        $key      = $schema . '|' . $resolved . '|' . $column;
+        if (isset(self::$found[$this->db][$key])) {
+            return true;
+        }
+        $sql    = $this->getGrammar()->compileHasColumn($resolved, $column, $schema);
+        $result = $this->db->query($sql);
+        $exists = $result && $result->numRows > 0;
+        if ($exists) {
+            $this->rememberFound($key);
+        }
+
+        return $exists;
+    }
+
+    /**
+     * Forget which tables and columns were found — on one connection, or on every one.
+     *
+     * Every DDL method of the builder calls it for its connection, and the migration runner
+     * around each migration. Call it after dropping a table with SQL the builder did not run.
+     */
+    public static function forgetWhatExists(?Database $db = null): void
+    {
+        if ($db === null) {
+            self::$found = null;
+        } elseif (self::$found !== null) {
+            unset(self::$found[$db]);
+        }
+    }
+
+    /** Remember that this table or column exists on this connection. */
+    private function rememberFound(string $key): void
+    {
+        self::$found ??= new \WeakMap();
+        $known       = self::$found[$this->db] ?? [];
+        $known[$key] = true;
+        self::$found[$this->db] = $known;
     }
 
     /**

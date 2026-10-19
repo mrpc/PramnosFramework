@@ -3587,6 +3587,10 @@ class Database extends \Pramnos\Framework\Base
         $cachetime = 60, $category = "", $dieOnFatalError = false, $skipDataFix = false)
     {
         $sql = $this->fromMysql(str_replace('#PREFIX#', $this->prefix, $sql));
+        // A table dropped, altered or renamed by hand: what the schema builder found is stale.
+        if (preg_match('/^\s*(?:DROP|ALTER|RENAME)\s/i', $sql) === 1) {
+            SchemaBuilder::forgetWhatExists($this);
+        }
         $cacheData = false;
         $cacheInstance = null;
         // Check if caching is enabled for this query

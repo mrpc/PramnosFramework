@@ -2008,6 +2008,70 @@ class QueryBuilder
     }
 
     /**
+     * Insert several rows, in one statement per 500.
+     *
+     * ```php
+     * $db->queryBuilder()->table('authserver.permissions')->insertMany([
+     *     ['subject_id' => 7, 'action' => 'read'],
+     *     ['subject_id' => 7, 'action' => 'write'],
+     * ]);
+     * ```
+     *
+     * Every row has the first row's columns — a row missing one, or carrying another, is
+     * refused before anything is written, since a multi-row VALUES list has one column list.
+     * The values bind as {@see insert()}'s do; an {@see Expression} is inlined. Chunked so a
+     * long list stays under the drivers' limits on placeholders in a statement.
+     *
+     * @param list<array<string, mixed>> $rows
+     * @return int Rows written
+     * @throws \InvalidArgumentException When a row's columns differ from the first row's
+     */
+    public function insertMany(array $rows): int
+    {
+        $rows = array_values($rows);
+        if ($rows === []) {
+            return 0;
+        }
+        $columns = array_keys($rows[0]);
+        $sorted  = $columns;
+        sort($sorted);
+        foreach ($rows as $i => $row) {
+            $keys = array_keys($row);
+            sort($keys);
+            if ($keys !== $sorted) {
+                throw new \InvalidArgumentException(
+                    'insertMany(): row ' . $i . ' has columns ' . implode(', ', array_keys($row))
+                    . '; every row needs the first row\'s: ' . implode(', ', $columns)
+                );
+            }
+        }
+
+        $written = 0;
+        foreach (array_chunk($rows, 500) as $chunk) {
+            $this->type = 'INSERT';
+            $this->bindings['values'] = [];
+            $tuples = [];
+            foreach ($chunk as $row) {
+                // In the first row's column order, whatever order this row was written in.
+                $ordered = array_map(static fn (string $column) => $row[$column], $columns);
+                $this->addBinding(
+                    array_values(array_filter($ordered, fn ($v) => !($v instanceof Expression))),
+                    'values'
+                );
+                $tuples[] = '(' . implode(', ', array_map(fn ($v) => $this->grammar->getPlaceholder($v), $ordered)) . ')';
+            }
+            $first = $this->grammar->compileInsert($this, array_combine($columns, array_map(static fn (string $c) => $chunk[0][$c], $columns)));
+            // compileInsert() ends in the first tuple (and a RETURNING, which a list does not take).
+            $head = substr($first, 0, (int) strrpos($first, ' VALUES (')) . ' VALUES ';
+            $sql  = str_replace('#PREFIX#', $this->db->prefix, $head . implode(', ', $tuples));
+            $this->db->execute($sql, ...$this->getBindings());
+            $written += count($chunk);
+        }
+
+        return $written;
+    }
+
+    /**
      * Insert a record, silently ignoring duplicate-key conflicts.
      * MySQL: INSERT IGNORE — skips the row on any key violation.
      * PostgreSQL: INSERT ... ON CONFLICT DO NOTHING.

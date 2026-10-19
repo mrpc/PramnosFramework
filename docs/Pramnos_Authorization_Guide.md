@@ -218,7 +218,9 @@ if ($permissions->isAllowed(42, 'articles', 'edit')) {
 
 `allowMany()` grants on the whole of each resource. It writes either every grant or none,
 because a role set up halfway works on some screens and not on others. It flushes the
-permission cache once and queues one `permissions_changed` for the subject. Setting up a new
+permission cache once and queues one `permissions_changed` for the subject. In the
+`authserver` store it is two statements whatever it grants: one `DELETE` for the rows it
+replaces and one multi-row `INSERT`. Setting up a new
 organisation's roles is the case it exists for: per-privilege `allow()` did all of that
 for every privilege. The list form of `allow()` without an element goes through it.
 
