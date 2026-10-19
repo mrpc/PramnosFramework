@@ -751,6 +751,12 @@ checkout's git hash, and the **schema generation** (`MigrationRunner::schemaGene
 in `var/schema-generation`). When either has moved, it asks every daemon to stop after its
 current job and starts them again.
 
+On a new commit it also reloads **itself**, with `pcntl_exec` and the same arguments. That keeps
+its PID and the start time `ps` and systemd show, so "running since last week" does not mean
+the old code. Its log says so: `[git] re-executing the orchestrator to load the new code…`
+followed by a fresh `Starting daemon orchestrator`. Where `pcntl` is not available the log says
+`cannot self-exec`, and only a restart of the service loads new orchestrator code.
+
 The second is for a migration that changes no commit: one run by a request after the deploy
 had already restarted everything, or one run on its own. A worker started before it would
 otherwise keep the old view of the schema — the tables `hasTable()` found, the column lists of
