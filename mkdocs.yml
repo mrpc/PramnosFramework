@@ -103,6 +103,7 @@ nav:
     - Redis: Pramnos_Redis_Guide.md
   - Security & Identity:
     - Authentication: Pramnos_Authentication_Guide.md
+    - Setting up an Auth Server: Pramnos_AuthServer_Setup_Guide.md
     - Authorization: Pramnos_Authorization_Guide.md
     - Security Hardening: Pramnos_Security_Guide.md
     - Cookie Consent: Pramnos_Cookie_Consent_Guide.md
