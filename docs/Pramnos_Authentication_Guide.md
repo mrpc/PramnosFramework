@@ -604,10 +604,32 @@ session path.
   then on.
 - **A session signed in any other way**, for an account with a second factor, is not counted as
   signed in. It becomes a pending login, and the login page shows the second step. The
-  wrong-code limit applies to it as to any other.
+  wrong-code limit applies to it as to any other, and its wrong codes count against the
+  account's lockout under its username, as the form's would. An account already locked out gets
+  no pending login: it waits until the lockout lifts.
 - **An account without a second factor, or a browser it trusts,** is marked and passes.
 - **An administrator signing in as somebody else** settled their own factor, and the account
   they become is not asked for its own.
+
+**Where the person is sent.** A page opened in a browser (a GET asking for HTML, not an XHR or
+a JSON call) is remembered, and the account screens return to it once the second step is done,
+where the request names no `return` of its own. To send the browser straight to the step, name
+it:
+
+```php
+'auth' => ['security' => [
+    'second_factor_everywhere' => true,
+    'second_factor_url'        => 'login',   // or an area's own sign-in page, or a full URL
+]],
+```
+
+Without it, the page simply sees nobody signed in and sends the person to sign in as it would
+anyone. A form post, an API call or a script is never redirected: it is refused, as signed out.
+
+**The application's own login flow.** The gate runs the same `LoginFlow` as the account screens:
+`LoginFlow::make()`, which is the class `'auth' => ['login_flow' => App\Auth\LoginFlow::class]`
+names, or the framework's own. A subclass with its own trusted devices, lockout or factors
+therefore decides what a session owes as well as what the form asks.
 
 Off by default. With it on, a remember-me cookie no longer skips the second factor: "Don't ask
 again on this device" is what skips it. Nothing of this is inside `Auth::auth()`, which stays

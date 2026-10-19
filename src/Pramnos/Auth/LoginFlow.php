@@ -1067,9 +1067,44 @@ class LoginFlow
 
             return false;
         }
-        $this->beginStepUp($userId, false, '', $methods);
+        // Counted against the account's lockout like a login from the form: its wrong codes, and
+        // a lockout already in force, which leaves nothing to complete until it lifts.
+        $identifier = $this->identifierOf($userId);
+        if ($identifier !== '' && !empty($this->lockout()->getLockoutStatus('identifier', $identifier)['locked'])) {
+            return true;
+        }
+        $this->beginStepUp($userId, false, $identifier, $methods);
 
         return true;
+    }
+
+    /**
+     * The lockout identifier of an account signed in some other way: its username, as the form
+     * would have taken it. '' when it cannot be read.
+     */
+    protected function identifierOf(int $userId): string
+    {
+        try {
+            $row = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('#PREFIX#users')
+                ->select(['username'])->where('userid', $userId)->first();
+
+            return $row && $row->numRows > 0 ? $this->lockoutIdentifier((string) $row->fields['username']) : '';
+        } catch (\Throwable) {
+            return '';
+        }
+    }
+
+    /**
+     * The application's login flow: `'auth' => ['login_flow' => App\Auth\LoginFlow::class]`, a
+     * subclass with its own trusted devices, lockout or factors — or this one. The account screens
+     * and {@see SecondFactorGate} both make it here, so neither runs a flow the application replaced.
+     */
+    public static function make(): self
+    {
+        $app   = \Pramnos\Application\Application::currentInstance();
+        $class = is_object($app) ? ($app->applicationInfo['auth']['login_flow'] ?? null) : null;
+
+        return is_string($class) && is_a($class, self::class, true) ? new $class() : new self();
     }
 
     /**

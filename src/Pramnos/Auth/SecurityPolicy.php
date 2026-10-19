@@ -269,6 +269,16 @@ class SecurityPolicy
     }
 
     /**
+     * Where a page opened by a session stopped for its second factor is sent: the second step —
+     * `'auth' => ['security' => ['second_factor_url' => 'login']]`, or an area's own. '' sends it
+     * nowhere: it reads as signed out, and a page that asks for a sign-in reaches the step that way.
+     */
+    public static function secondFactorUrl(): string
+    {
+        return (string) static::value('second_factor_url', '');
+    }
+
+    /**
      * Whether a login lockout that cannot reach its table refuses the sign-in rather than going
      * on without it and logging: `'auth' => ['security' => ['lockout_fails_closed' => true]]`.
      */

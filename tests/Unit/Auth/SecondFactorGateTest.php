@@ -36,19 +36,59 @@ final class GateTestFlow extends LoginFlow
     }
 }
 
+/** An application's own login flow, as `auth.login_flow` names it. */
+final class GateAppFlow extends LoginFlow
+{
+    public function __construct()
+    {
+    }
+}
+
+/** The account screens with the parts a return address is read from opened up. */
+final class GateAccountProbe extends \Pramnos\Auth\Controllers\Account
+{
+    public function __construct()
+    {
+    }
+
+    public function theReturn(): string
+    {
+        return $this->returnUrl();
+    }
+
+    public function theTarget(string $return): string
+    {
+        return $this->postLoginTarget($return);
+    }
+
+    public function theFlow(): LoginFlow
+    {
+        return $this->flow();
+    }
+
+    protected function baseUrl(): string
+    {
+        return 'https://site.example/';
+    }
+}
+
 /**
  * The session-wide gate (FW-164): with `auth.security.second_factor_everywhere` on, a session
  * signed in without its second factor is not counted as signed in, wherever it came from.
  */
 #[CoversClass(SecondFactorGate::class)]
 #[CoversClass(SecurityPolicy::class)]
+#[CoversClass(LoginFlow::class)]
 final class SecondFactorGateTest extends TestCase
 {
     private ?array $saved = null;
 
+    private array $server = [];
+
     protected function setUp(): void
     {
         $_SESSION = ['logged' => true, 'uid' => 7];
+        $this->server = $_SERVER;
         $ref = new \ReflectionProperty(\Pramnos\Application\Application::class, 'appInstances');
         $this->saved = $ref->getValue() ?? [];
     }
@@ -56,18 +96,21 @@ final class SecondFactorGateTest extends TestCase
     protected function tearDown(): void
     {
         $_SESSION = [];
+        $_GET     = [];
+        $_POST    = [];
+        $_SERVER  = $this->server;
         (new \ReflectionProperty(\Pramnos\Application\Application::class, 'appInstances'))->setValue(null, $this->saved);
     }
 
     /** An application with the gate on or off. */
-    private static function gate(bool $on): void
+    private static function gate(bool $on, array $security = [], array $auth = []): void
     {
         $app = new class extends \Pramnos\Application\Application {
             public function __construct()
             {
             }
         };
-        $app->applicationInfo = ['auth' => ['security' => ['second_factor_everywhere' => $on]]];
+        $app->applicationInfo = ['auth' => ['security' => ['second_factor_everywhere' => $on] + $security] + $auth];
         (new \ReflectionProperty(\Pramnos\Application\Application::class, 'appInstances'))->setValue(null, ['default' => $app]);
     }
 
@@ -118,5 +161,120 @@ final class SecondFactorGateTest extends TestCase
         $this->assertTrue($inner, 'inside the decision: let through, not asked again');
         $this->assertSame(1, $flow->asked);
         $this->assertFalse($outer);
+    }
+
+    /**
+     * Where a stopped session is sent (FW-166). A page opened in a browser goes to the step the
+     * application names, and the page is remembered to come back to; with none named it is only
+     * remembered. A form post, an XHR, a JSON call and a script go nowhere — a redirect would
+     * answer them with a page they did not ask for — and nor does the step's own page, or the
+     * browser would be sent round in a circle.
+     */
+    public function testWhereAStoppedSessionIsSent(): void
+    {
+        // Arrange — a browser opening a page
+        $browser = static function (string $uri, array $more = []): void {
+            $_SERVER = ['REQUEST_METHOD' => 'GET', 'REQUEST_URI' => $uri, 'HTTP_ACCEPT' => 'text/html,*/*'] + $more;
+        };
+        $base = defined('sURL') ? sURL : '/';
+
+        // Act + Assert — no step named: remembered, not sent
+        self::gate(true);
+        $browser('/admin/reports?y=2026');
+        $this->assertNull(SecondFactorGate::secondStep());
+        $this->assertSame('/admin/reports?y=2026', $_SESSION[SecondFactorGate::RETURN]);
+
+        // a step named: sent there, a relative one under the site, an absolute one as it is
+        $_SESSION = [];
+        self::gate(true, ['second_factor_url' => 'login']);
+        $this->assertSame($base . 'login', SecondFactorGate::secondStep());
+        $this->assertSame('/admin/reports?y=2026', $_SESSION[SecondFactorGate::RETURN]);
+        self::gate(true, ['second_factor_url' => 'https://auth.example/login']);
+        $this->assertSame('https://auth.example/login', SecondFactorGate::secondStep());
+
+        // the step's own page is not sent to itself, and does not become the return
+        $_SESSION = [];
+        self::gate(true, ['second_factor_url' => 'login']);
+        $browser('/login?x=1');
+        $this->assertNull(SecondFactorGate::secondStep());
+        $this->assertArrayNotHasKey(SecondFactorGate::RETURN, $_SESSION);
+
+        // not a page opened in a browser: nothing
+        foreach ([
+            'a form post' => ['REQUEST_METHOD' => 'POST'],
+            'an XHR'      => ['HTTP_X_REQUESTED_WITH' => 'XMLHttpRequest'],
+            'a JSON call' => ['HTTP_ACCEPT' => 'application/json'],
+        ] as $what => $more) {
+            $browser('/admin/reports');
+            $_SERVER = $more + $_SERVER;
+            $this->assertNull(SecondFactorGate::secondStep(), $what);
+            $this->assertArrayNotHasKey(SecondFactorGate::RETURN, $_SESSION, $what);
+        }
+        $_SERVER = [];
+        $this->assertNull(SecondFactorGate::secondStep(), 'a script');
+    }
+
+    /**
+     * A demoted session remembers its page through the gate itself — in a script no redirect is
+     * sent, and the answer is still "not signed in".
+     */
+    public function testTheGateRemembersThePageItStopped(): void
+    {
+        // Arrange
+        self::gate(true, ['second_factor_url' => 'login']);
+        $_SERVER = ['REQUEST_METHOD' => 'GET', 'REQUEST_URI' => '/admin', 'HTTP_ACCEPT' => 'text/html'];
+
+        // Act
+        $passes = SecondFactorGate::passes(7, new GateTestFlow());
+
+        // Assert
+        $this->assertFalse($passes);
+        $this->assertSame('/admin', $_SESSION[SecondFactorGate::RETURN] ?? null);
+    }
+
+    /**
+     * The account screens take the remembered page as the return where the request names none,
+     * and forget it once the sign-in is finished — a later sign-in from the form must not land on
+     * a page from an abandoned one. A return the request names still wins.
+     */
+    public function testTheAccountScreensReturnToTheRememberedPage(): void
+    {
+        // Arrange
+        $account = new GateAccountProbe();
+        $_SESSION[SecondFactorGate::RETURN] = '/admin/reports';
+
+        // Act
+        $remembered = $account->theReturn();
+        $_GET['return'] = '/account';
+        $named = $account->theReturn();
+        $target = $account->theTarget($remembered);
+
+        // Assert
+        $this->assertSame('/admin/reports', $remembered);
+        $this->assertSame('/account', $named, 'the request\'s own return wins');
+        $this->assertSame('/admin/reports', $target);
+        $this->assertArrayNotHasKey(SecondFactorGate::RETURN, $_SESSION, 'forgotten once used');
+    }
+
+    /**
+     * The flow the gate and the account screens run is the application's (FW-166): a subclass
+     * named by `auth.login_flow`, with its own trusted devices or factors. Anything else — no
+     * application, no setting, a class that is not a login flow — is the framework's own.
+     */
+    public function testTheApplicationsLoginFlowIsTheOneMade(): void
+    {
+        // Arrange + Act + Assert
+        self::gate(true, [], ['login_flow' => GateAppFlow::class]);
+        $this->assertInstanceOf(GateAppFlow::class, LoginFlow::make());
+        $this->assertInstanceOf(GateAppFlow::class, (new GateAccountProbe())->theFlow());
+
+        self::gate(true, [], ['login_flow' => \stdClass::class]);
+        $this->assertSame(LoginFlow::class, LoginFlow::make()::class, 'not a login flow: ignored');
+
+        self::gate(true);
+        $this->assertSame(LoginFlow::class, LoginFlow::make()::class);
+
+        (new \ReflectionProperty(\Pramnos\Application\Application::class, 'appInstances'))->setValue(null, []);
+        $this->assertSame(LoginFlow::class, LoginFlow::make()::class, 'no application');
     }
 }

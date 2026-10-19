@@ -756,7 +756,7 @@ class Account extends Controller
     /** The login orchestrator (lazy default; injectable for tests). */
     protected function flow(): LoginFlow
     {
-        return $this->loginFlow ??= new LoginFlow();
+        return $this->loginFlow ??= LoginFlow::make();
     }
 
     /** The passkey service (lazy default; injectable for tests). */
@@ -856,7 +856,9 @@ class Account extends Controller
 
     protected function returnUrl(): string
     {
-        $return = (string) ($_POST['return'] ?? $_GET['return'] ?? '');
+        // The page a session was on when the second-factor gate stopped it, where nothing else
+        // names one: the person goes back there once the factor is given.
+        $return = (string) ($_POST['return'] ?? $_GET['return'] ?? $_SESSION[\Pramnos\Auth\SecondFactorGate::RETURN] ?? '');
         return $this->sanitizeReturnUrl(trim($return));
     }
 
@@ -966,6 +968,8 @@ class Account extends Controller
     /** Resolve the post-login redirect: the return URL, else the dashboard. */
     protected function postLoginTarget(string $return): string
     {
+        unset($_SESSION[\Pramnos\Auth\SecondFactorGate::RETURN]);
+
         return $return !== '' ? $return : (sURL . $this->routeBase);
     }
 

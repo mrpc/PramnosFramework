@@ -58,6 +58,15 @@ class FlippingLockout extends Loginlockout
     }
 }
 
+/** A flow under which every account owes an authenticator-app code. */
+class OwedFactorLoginFlow extends LoginFlow
+{
+    protected function stepUpMethods(int $userId): array
+    {
+        return ['totp'];
+    }
+}
+
 /**
  * A LoginFlow whose password check always succeeds for a fixed account — lets us
  * drive the successful-login branches (and the step-up completions) against the
@@ -396,5 +405,38 @@ class LoginFlowActivityTest extends BaseTestCase
         $this->assertSame(0, $this->actionCount('login_failed'));
         $total = (int) $this->db->queryBuilder()->table('authserver.user_activity_log')->count();
         $this->assertSame(0, $total, 'an unknown identifier must leave no activity trail');
+    }
+
+    /**
+     * A session the gate stops (FW-166) is counted against the account's lockout like a sign-in
+     * from the form: the pending login carries the account's lockout identifier — its username, as
+     * the form takes it — so its wrong codes lock the account; and an account already locked gets
+     * no pending login at all, only "not yet", until the lockout lifts.
+     */
+    public function testTheSecondFactorOwedElsewhereIsCountedAgainstTheLockout(): void
+    {
+        // Arrange — the username in another case, as somebody might have typed it
+        $this->db->queryBuilder()->table('users')->where('userid', $this->uid)
+            ->update(['username' => strtoupper($this->username)]);
+        $open   = new FlippingLockout();
+        $locked = new FlippingLockout();
+        $locked->locked = true;
+
+        // Act
+        $owedOpen = (new OwedFactorLoginFlow(null, $open))->demandSecondFactor($this->uid);
+        $identifier = $_SESSION['loginflow_pending_identifier'] ?? null;
+        $_SESSION = [];
+        $owedLocked = (new OwedFactorLoginFlow(null, $locked))->demandSecondFactor($this->uid);
+        $pendingWhileLocked = isset($_SESSION['loginflow_pending_userid']);
+        $none = (new OwedFactorLoginFlow(null, $locked))->demandSecondFactor(999999999);
+
+        // Assert
+        $this->assertTrue($owedOpen);
+        $this->assertSame(strtolower($this->username), $identifier, 'the form\'s identifier, lower-cased');
+        $this->assertTrue($owedLocked, 'locked: still owed');
+        $this->assertFalse($pendingWhileLocked, 'but no login to complete');
+        // An account that cannot be read has no identifier: its pending login starts uncounted.
+        $this->assertTrue($none);
+        $this->assertSame('', $_SESSION['loginflow_pending_identifier'] ?? null);
     }
 }
