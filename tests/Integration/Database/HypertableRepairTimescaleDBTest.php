@@ -303,6 +303,28 @@ class HypertableRepairTimescaleDBTest extends TestCase
     }
 
     /**
+     * An installation that decides in app.php to keep a table for ever — `retention => null`
+     * — has the retention policy an earlier run installed removed from the database, and the
+     * chunks it would have dropped stay.
+     */
+    public function testKeepForEverInAppPhpRemovesTheInstalledPolicy(): void
+    {
+        // Arrange — the framework's declaration ran first and installed its policy
+        $this->createPopulatedPlainTable();
+        HypertableRegistry::apply($this->schema, self::TABLE);
+        $this->assertTrue($this->schema->hasRetentionPolicy(self::TABLE));
+
+        // Act
+        HypertableRegistry::loadOverridesFromConfig([self::TABLE => ['retention' => null]]);
+        $done = HypertableRegistry::apply($this->schema, self::TABLE);
+
+        // Assert
+        $this->assertContains('retention policy removed (kept for ever, as app.php declares)', $done);
+        $this->assertFalse($this->schema->hasRetentionPolicy(self::TABLE), 'read back from the catalogue');
+        $this->assertSame([], HypertableRegistry::apply($this->schema, self::TABLE), 'and a second run has nothing to do');
+    }
+
+    /**
      * Applying twice with an unchanged declaration does nothing the second time.
      *
      * The repair command runs on demand and sometimes on a schedule, so "already

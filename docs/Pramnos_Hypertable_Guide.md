@@ -263,6 +263,18 @@ block for its own tables. A key the spec does not recognise is ignored rather th
 passed through — these values end up inside `create_hypertable()` and the policy
 calls, and a typo must not become an unknown option in somebody else's migration.
 
+`'retention' => null` in an override is a decision, **keep for ever**, and
+`timescale:ensure` removes a retention policy an earlier run installed. The framework's own
+null only means that no policy is declared, so it leaves alone a policy somebody added by hand.
+Without this, the first `timescale:ensure` would settle a table's retention for the life of the
+installation:
+
+```php
+'hypertables' => [
+    'pramnos.changelog_events' => ['retention' => null],   // the 2-year default removed
+],
+```
+
 Then apply it:
 
 ```bash

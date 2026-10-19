@@ -38,6 +38,111 @@ class ChangelogWriter implements ListenerInterface
     public const TRACE_TABLE = 'pramnos.changelog_trace';
 
     /**
+     * Record that something happened to a record — without a model in hand.
+     *
+     * ```php
+     * ChangelogWriter::event('user', $userId, 'newsletter.opened', ['list' => 'news']);
+     * ChangelogWriter::event('device', 42, 'device.replaced', ['by' => 43], by: $operatorId);
+     * ChangelogWriter::event('user', $row['userid'], 'user.login', at: (int) $row['date'], by: 0);
+     * ```
+     *
+     * What {@see \Pramnos\Application\Model::logEvent()} writes, for any `(entity, itemid)`:
+     * a user, which is not a model, an organisation with no model of its own, a row of an
+     * application's own log brought over. The same row in `changelog_events`, through the same
+     * spool.
+     *
+     * - `$by` is who did it. Null asks who is signed in; `0` is nobody — a system event, or an
+     *   import that does not know. A console command acting for somebody says who.
+     * - `$at` is when, as a Unix time: now unless an import says otherwise.
+     * - `$scope` is the tenant, as {@see \Pramnos\Application\Model::changeScope()} gives it.
+     * - `$source` is `web`, `api` or `cli`, worked out unless given.
+     *
+     * Requires the `changelog` feature; without it the row has nowhere to go and the call
+     * does nothing. A failure is logged, never thrown: recording that something happened must
+     * not be the reason it fails to.
+     *
+     * @param array<string, mixed> $details Whatever the event carries
+     */
+    public static function event(
+        string $entity,
+        string|int $itemid,
+        string $event,
+        array $details = [],
+        int $logtype = 0,
+        ?string $description = null,
+        ?int $by = null,
+        ?string $scope = null,
+        ?int $at = null,
+        ?string $source = null
+    ): void {
+        try {
+            static::registerEncoders();
+            WriteSpool::append(self::EVENTS_TABLE, [
+                'entity'      => $entity,
+                'itemid'      => (string) $itemid,
+                'event'       => $event,
+                'logtype'     => $logtype,
+                'details'     => $details === [] ? null : $details,
+                'description' => $description,
+                'userid'      => $by === null ? static::currentUserId() : ($by > 0 ? $by : null),
+                'source'      => $source ?? static::currentSource(),
+                // Not date('c'): MariaDB drops an offset, and strict mode refuses the row.
+                'created_at'  => \Pramnos\Database\Instant::local($at ?? time()),
+            ] + ($scope !== null ? ['scope' => $scope] : []));
+        } catch (\Throwable $ex) {
+            \Pramnos\Logs\Logger::logError(
+                'Changelog event "' . $event . '" failed for ' . $entity . ' ' . $itemid . ': ' . $ex->getMessage(),
+                $ex
+            );
+        }
+    }
+
+    /**
+     * Who is signed in, when that is knowable; null anywhere it is not — a worker, a console
+     * command, an anonymous request. Identity is context the log carries when it has it, never
+     * a precondition for writing.
+     */
+    public static function currentUserId(): ?int
+    {
+        try {
+            $user = \Pramnos\User\User::getCurrentUser();
+            if (is_object($user) && isset($user->userid) && (int) $user->userid > 0) {
+                return (int) $user->userid;
+            }
+        } catch (\Throwable) {
+            // Asking who is signed in must never be the reason a write reports a problem.
+        }
+
+        return null;
+    }
+
+    /**
+     * Where this is happening: a browser, an API client, or neither — the first question when
+     * something is writing rows nobody expected.
+     */
+    public static function currentSource(): string
+    {
+        if (static::console()) {
+            return ModelChange::SOURCE_CLI;
+        }
+
+        $uri    = strtolower((string) ($_SERVER['REQUEST_URI'] ?? ''));
+        $script = strtolower((string) ($_SERVER['SCRIPT_NAME'] ?? ''));
+
+        if (str_contains($uri, '/api/') || str_contains($script, 'api.php')) {
+            return ModelChange::SOURCE_API;
+        }
+
+        return ModelChange::SOURCE_WEB;
+    }
+
+    /** Whether this is a console process — a seam, so the web and API answers can be tested. */
+    protected static function console(): bool
+    {
+        return PHP_SAPI === 'cli' || defined('STDIN');
+    }
+
+    /**
      * Register on the change feed. Safe to call repeatedly.
      */
     public static function listen(): void

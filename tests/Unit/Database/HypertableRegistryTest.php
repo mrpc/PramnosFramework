@@ -131,6 +131,7 @@ class FakeHypertableSchema extends SchemaBuilder
     public function removeRetentionPolicy(string $table): bool
     {
         $this->calls[] = ['removeRetentionPolicy', $table];
+        $this->retentionPolicy = false;
 
         return true;
     }
@@ -513,6 +514,44 @@ class HypertableRegistryTest extends TestCase
 
         // Assert
         $this->assertSame(['create', 'compress'], $schema->performed());
+    }
+
+    /**
+     * `retention => null` written in app.php is a decision — keep for ever — and removes a
+     * policy already installed, which the first `timescale:ensure` with the framework's default
+     * would otherwise have decided for the life of the installation. The framework's own null
+     * is only the absence of a declaration and leaves a policy added by hand where it is; a
+     * later override that does not mention retention keeps the decision.
+     */
+    public function testKeepForEverInAppPhpRemovesAnInstalledPolicy(): void
+    {
+        // Arrange
+        $declared = static function (): FakeHypertableSchema {
+            $schema = new FakeHypertableSchema();
+            $schema->isHypertable    = true;
+            $schema->compressionOn   = true;
+            $schema->retentionPolicy = true;
+
+            return $schema;
+        };
+        HypertableRegistry::register('probe', ['time_column' => 'at', 'chunk_interval' => '1 day', 'retention' => '2 years']);
+        HypertableRegistry::register('handmade', ['time_column' => 'at', 'chunk_interval' => '1 day']);
+
+        // Act
+        HypertableRegistry::loadOverridesFromConfig(['probe' => ['retention' => null]]);
+        HypertableRegistry::loadOverridesFromConfig(['probe' => ['chunk_interval' => '7 days']]);
+        $kept    = $declared();
+        $done    = HypertableRegistry::apply($kept, 'probe');
+        $again   = HypertableRegistry::apply($kept, 'probe');
+        $byHand  = $declared();
+        $leftBe  = HypertableRegistry::apply($byHand, 'handmade');
+
+        // Assert
+        $this->assertSame(['removeRetentionPolicy'], $kept->performed(), 'the installed policy goes');
+        $this->assertSame(['retention policy removed (kept for ever, as app.php declares)'], $done);
+        $this->assertSame([], $again, 'once');
+        $this->assertSame([], $leftBe, 'a policy nobody declared away stays');
+        $this->assertTrue($byHand->retentionPolicy);
     }
 
     /**

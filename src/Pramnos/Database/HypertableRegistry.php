@@ -64,7 +64,9 @@ class HypertableRegistry
      *     @type string      $time_column    Column to partition on. Required.
      *     @type string      $chunk_interval Chunk size, e.g. '7 days'. Required.
      *     @type string|null $compress_after When to compress chunks; null = never
-     *     @type string|null $retention      When to drop chunks; null = keep for ever
+     *     @type string|null $retention      When to drop chunks; null = add none. Written as
+     *                                       null in an app.php override it means keep for
+     *                                       ever, and an installed policy is removed
      *     @type string|null $segmentby      Compression segment-by columns
      *     @type string|null $orderby        Compression order-by clause
      *     @type bool        $deferred_writes Whether late rows should be queued
@@ -234,6 +236,10 @@ class HypertableRegistry
                 );
                 $done[] = 'retention policy changed to ' . $spec['retention'];
             }
+        } elseif (!empty($spec['keep_for_ever']) && $schema->hasRetentionPolicy($table)) {
+            $schema->removeRetentionPolicy($table);
+            static::confirm(!$schema->hasRetentionPolicy($table), $table, 'remove the retention policy');
+            $done[] = 'retention policy removed (kept for ever, as app.php declares)';
         }
 
         return $done;
@@ -278,6 +284,13 @@ class HypertableRegistry
             // Only the keys the spec knows about, so a typo in app.php cannot smuggle an
             // unknown option into a create_hypertable() call.
             $known = array_intersect_key($spec, static::specDefaults());
+
+            // `retention => null` written in app.php is a decision — keep for ever — and a
+            // policy already installed is removed for it. The framework's own null is only the
+            // absence of one, and leaves a policy somebody added by hand where it is.
+            if (array_key_exists('retention', $spec)) {
+                $known['keep_for_ever'] = $spec['retention'] === null;
+            }
 
             static::$tables[$table] = $known + $existing;
         }
@@ -454,6 +467,8 @@ class HypertableRegistry
             'conflict'        => null,
             'conflict_update' => null,
             'feature'         => '',
+            // Set by an app.php override of `retention => null`: {@see loadOverridesFromConfig()}.
+            'keep_for_ever'   => false,
         ];
     }
 

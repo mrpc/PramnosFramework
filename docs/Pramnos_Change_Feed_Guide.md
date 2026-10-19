@@ -345,9 +345,53 @@ This is also where events about a **user** go. `userlog` is
 [deprecated](Pramnos_Authentication_Guide.md#userlog-is-deprecated): it records only the
 user a row is about, and this table records the actor and the source as well.
 
-The event is a **machine code**, rendered at read time. A `description` argument
-exists for events no code describes, and should stay the exception: prose stored in
-a row cannot be translated and freezes a wording into history.
+### Without a model, and on behalf of somebody
+
+```php
+use Pramnos\Changelog\ChangelogWriter;
+
+ChangelogWriter::event('user', $userId, 'newsletter.opened', ['list' => 'news']);
+ChangelogWriter::event('organization', 12, 'post.published', ['post_id' => 42], by: $editorId);
+ChangelogWriter::event('device', 42, 'device.expired', by: 0);   // nobody: the system did it
+
+$device->logEventAs($operatorId, 'device.replaced', ['by' => 43]);
+```
+
+`ChangelogWriter::event()` writes the row `logEvent()` writes, for any `(entity, itemid)`:
+- a user, which is not a model;
+- an organisation with no model of its own;
+- a row brought over from an older log.
+
+It goes through the same spool and into the same table.
+
+- **`by`** is who did it. Null asks who is signed in, and `0` is nobody. A console command
+  or an import acting for a person says who. A model does the same with `logEventAs()`,
+  while `logEvent()` keeps recording whoever is signed in.
+- **`at`** is when, as a Unix time. It is now unless an import says otherwise.
+- **`scope`** is the tenant; **`source`** (`web`, `api` or `cli`) is worked out unless
+  given.
+
+A failure is logged and never thrown, as for `logEvent()`: recording that something
+happened must not be the reason it fails to.
+
+### Bringing an application's own log over
+
+An application that kept its own log — a `userlog`, an `itemlog` — moves it with a command of
+its own, because only the application knows what its columns and logtypes meant. The writer
+takes what such a command needs: the moment the row was written (`at:`), who acted where the
+log recorded it (`by:`, `0` for nobody), and a `source` of its own.
+
+```php
+foreach ($rows as $row) {
+    ChangelogWriter::event('user', $row['userid'], self::EVENTS[$row['logtype']] ?? 'user.legacy',
+        $details, (int) $row['logtype'], $row['log'] ?: null, by: 0, at: (int) $row['date'], source: 'import');
+}
+```
+
+Two cautions for such a command. Unserialize a stored `details` with
+`['allowed_classes' => false]`: an old row must never be able to construct an object. And give
+each logtype an event code once, so the row can be rendered and translated, which stored prose
+never can.
 
 ### Reading it back
 
@@ -359,6 +403,28 @@ foreach (ChangelogReader::history('wcm-device', 42) as $row) {
 
 `history()` defaults to **application events only**. The automatic feed is one row
 per save and would bury them; ask for `['events', 'feed']` in a diagnostic view.
+
+For a screen that lists the log, `listing()` gives a page and the total the pager needs:
+
+```php
+$page = ChangelogReader::listing(['entity' => 'user', 'itemid' => 42], limit: 25, offset: 50);
+$page['rows'];    // these 25, newest first
+$page['total'];   // how many match
+
+ChangelogReader::listing(['userid' => 7, 'from' => strtotime('-7 days')]);           // what 7 did
+ChangelogReader::listing(['event' => ['user.login', 'user.logout'], 'source' => 'api']);
+ChangelogReader::listing(['scope' => 'org:12'], order: 'asc');
+```
+
+Every filter is optional, and any combination of them applies at once:
+- `entity`, `itemid`;
+- `origins`, which defaults to events, as `history()` does;
+- `event`, `logtype`, `userid`, `source`;
+- `from` (inclusive) and `to` (exclusive), as Unix times;
+- `scope`.
+
+`itemid`, `event` and `logtype` each take one value or a list. An unknown filter is refused
+rather than ignored, because a typo would otherwise list everything.
 
 Labels are optional and go through i18n first:
 

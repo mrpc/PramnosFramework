@@ -70,6 +70,88 @@ class ChangelogReader
     }
 
     /**
+     * A page of the log, for a screen that lists it: filtered, ordered, and with the total the
+     * pager needs.
+     *
+     * ```php
+     * $page = ChangelogReader::listing(['entity' => 'user', 'itemid' => 42], limit: 25, offset: 50);
+     * $page['rows'];    // these 25, newest first
+     * $page['total'];   // how many match, for the pager
+     *
+     * ChangelogReader::listing(['userid' => 7, 'from' => strtotime('-7 days')]);          // what 7 did
+     * ChangelogReader::listing(['event' => ['user.login', 'user.logout'], 'source' => 'api']);
+     * ChangelogReader::listing(['scope' => 'org:12', 'entity' => 'post'], order: 'asc');
+     * ```
+     *
+     * Filters, each optional and all of them together:
+     *
+     * - `entity`, `itemid` (one or a list) — which records;
+     * - `origins` — `events` (the default, as {@see history()}), `feed`, or both;
+     * - `event`, `logtype` (one or a list), `userid` (who did it), `source` (`web`, `api`, `cli`);
+     * - `from`, `to` — Unix times, from inclusive, to exclusive;
+     * - `scope` — one tenant's events, as {@see eventsInScope()}.
+     *
+     * An unknown filter is refused rather than ignored: a typo would otherwise list everything.
+     *
+     * @param  array<string, mixed> $filters
+     * @param  string               $order   `desc` (newest first) or `asc`
+     * @return array{rows: list<array<string, mixed>>, total: int}
+     * @throws \InvalidArgumentException for a filter this does not know
+     */
+    public static function listing(array $filters = [], int $limit = 50, int $offset = 0, string $order = 'desc'): array
+    {
+        $unknown = array_diff(array_keys($filters), ['entity', 'itemid', 'origins', 'event', 'logtype', 'userid', 'source', 'from', 'to', 'scope']);
+        if ($unknown !== []) {
+            throw new \InvalidArgumentException('ChangelogReader::listing() does not filter by ' . implode(', ', $unknown) . '.');
+        }
+        $database = \Pramnos\Database\Database::getInstance();
+        $origins  = array_values(array_intersect((array) ($filters['origins'] ?? ['events']), ['feed', 'events']));
+        $scoped   = array_key_exists('scope', $filters);
+        if ($origins === [] || ($scoped && !$database->schema()->hasColumn(ChangelogWriter::EVENTS_TABLE, 'scope'))) {
+            return ['rows' => [], 'total' => 0];
+        }
+
+        // A tenant's events are in their own table: the view has no scope column, and the feed
+        // carries none.
+        $query = $database->queryBuilder()->table($scoped
+            ? ChangelogWriter::EVENTS_TABLE
+            : $database->schema()->resolveTableName(self::VIEW));
+        if ($scoped) {
+            $query->where('scope', (string) $filters['scope']);
+        } else {
+            $query->whereIn('origin', $origins);
+        }
+        foreach (['entity' => 'entity', 'itemid' => 'itemid', 'event' => 'event', 'logtype' => 'logtype', 'source' => 'source'] as $key => $column) {
+            if (array_key_exists($key, $filters)) {
+                $values = array_map(static fn ($v): string|int => $key === 'logtype' ? (int) $v : (string) $v, (array) $filters[$key]);
+                $query->whereIn($column, $values);
+            }
+        }
+        if (array_key_exists('userid', $filters)) {
+            $query->where('userid', (int) $filters['userid']);
+        }
+        if (isset($filters['from'])) {
+            $query->where('created_at', '>=', \Pramnos\Database\Instant::at($database, (int) $filters['from']));
+        }
+        if (isset($filters['to'])) {
+            $query->where('created_at', '<', \Pramnos\Database\Instant::at($database, (int) $filters['to']));
+        }
+
+        $total     = (clone $query)->count();
+        $direction = strtolower($order) === 'asc' ? 'ASC' : 'DESC';
+        $result    = $query->orderBy('created_at', $direction)
+            ->orderBy($scoped ? 'eventid' : 'id', $direction)
+            ->limit(max(1, $limit))->offset(max(0, $offset))->get();
+
+        $rows = [];
+        while ($result && $result->fetch()) {
+            $rows[] = static::decode($result->fields);
+        }
+
+        return ['rows' => $rows, 'total' => $total];
+    }
+
+    /**
      * What happened in one tenant, newest first — an organisation's activity log.
      *
      * ```php

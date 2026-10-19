@@ -1953,16 +1953,7 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
      */
     protected function currentChangeUserId()
     {
-        try {
-            $user = \Pramnos\User\User::getCurrentUser();
-            if (is_object($user) && isset($user->userid) && (int) $user->userid > 0) {
-                return (int) $user->userid;
-            }
-        } catch (\Throwable) {
-            // Asking who is signed in must never be the reason a save reports a problem.
-        }
-
-        return null;
+        return \Pramnos\Changelog\ChangelogWriter::currentUserId();
     }
 
     /**
@@ -1975,18 +1966,7 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
      */
     protected function currentChangeSource()
     {
-        if (PHP_SAPI === 'cli' || defined('STDIN')) {
-            return \Pramnos\Event\ModelChange::SOURCE_CLI;
-        }
-
-        $uri    = strtolower((string) ($_SERVER['REQUEST_URI'] ?? ''));
-        $script = strtolower((string) ($_SERVER['SCRIPT_NAME'] ?? ''));
-
-        if (str_contains($uri, '/api/') || str_contains($script, 'api.php')) {
-            return \Pramnos\Event\ModelChange::SOURCE_API;
-        }
-
-        return \Pramnos\Event\ModelChange::SOURCE_WEB;
+        return \Pramnos\Changelog\ChangelogWriter::currentSource();
     }
 
     /**
@@ -2018,33 +1998,55 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
      */
     public function logEvent($event, array $details = array(), $logtype = 0, $description = null)
     {
+        $this->writeEvent($this->currentChangeUserId() ?? 0, (string) $event, $details, (int) $logtype, $description);
+    }
+
+    /**
+     * Record something a diff cannot express, done by somebody other than whoever is signed
+     * in — a console command or an import acting for a user.
+     *
+     * ```php
+     * $device->logEventAs($operatorId, 'device.replaced', ['by' => 43]);
+     * $device->logEventAs(0, 'device.expired');   // nobody: the system did it
+     * ```
+     *
+     * {@see logEvent()} in every other respect.
+     *
+     * @param  int         $userid      Who did it; 0 for nobody
+     * @param  string      $event       Machine code
+     * @param  array       $details     Whatever the event carries
+     * @param  int         $logtype     The application's own categorisation
+     * @param  string|null $description Free text, when no code describes it
+     * @return void
+     */
+    public function logEventAs(int $userid, string $event, array $details = array(), int $logtype = 0, ?string $description = null): void
+    {
+        $this->writeEvent($userid, $event, $details, $logtype, $description);
+    }
+
+    /** The row both write, through {@see \Pramnos\Changelog\ChangelogWriter::event()}. */
+    private function writeEvent(int $userid, string $event, array $details, int $logtype, ?string $description): void
+    {
         try {
-            // `details` is an array; the writer's encoders turn it into JSON on the way.
-            \Pramnos\Changelog\ChangelogWriter::registerEncoders();
-            \Pramnos\Database\WriteSpool::append(
-                \Pramnos\Changelog\ChangelogWriter::EVENTS_TABLE,
-                array(
-                    'entity'      => $this->changeEntity !== ''
-                        ? $this->changeEntity
-                        : $this->modelname,
-                    'itemid'      => (string) ($this->{$this->_primaryKey} ?? ''),
-                    'event'       => $event,
-                    'logtype'     => (int) $logtype,
-                    'details'     => $details === array() ? null : $details,
-                    'description' => $description,
-                    'userid'      => $this->currentChangeUserId(),
-                    'source'      => $this->currentChangeSource(),
-                    'created_at'  => date('c'),
-                ) + (($scope = $this->changeScope()) !== null ? array('scope' => $scope) : array())
-            );
+            $scope = $this->changeScope();
+            $entity = $this->changeEntity !== '' ? $this->changeEntity : (string) $this->modelname;
         } catch (\Throwable $ex) {
-            // Recording that something happened must not be the reason it fails to.
-            \Pramnos\Logs\Logger::logError(
-                'Changelog event "' . $event . '" failed for ' . static::class
-                . ': ' . $ex->getMessage(),
-                $ex
-            );
+            \Pramnos\Logs\Logger::logError('Changelog event "' . $event . '" failed for ' . static::class . ': ' . $ex->getMessage(), $ex);
+
+            return;
         }
+        \Pramnos\Changelog\ChangelogWriter::event(
+            $entity,
+            (string) ($this->{$this->_primaryKey} ?? ''),
+            $event,
+            $details,
+            $logtype,
+            $description,
+            $userid,
+            $scope,
+            null,
+            $this->currentChangeSource()
+        );
     }
 
     /**
