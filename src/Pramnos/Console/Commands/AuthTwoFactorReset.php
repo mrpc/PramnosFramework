@@ -79,6 +79,12 @@ class AuthTwoFactorReset extends Command
                 null,
                 InputOption::VALUE_NONE,
                 'Report what would be cleared and change nothing'
+            )
+            ->addOption(
+                'by',
+                null,
+                InputOption::VALUE_REQUIRED,
+                'The administrator doing it, as a user id, for the audit log'
             );
     }
 
@@ -108,6 +114,12 @@ class AuthTwoFactorReset extends Command
             $done[] = 'passkeys';
         }
 
+        // A browser trusted to skip the second factor would go on skipping the one enrolled next.
+        $trusted = $this->clearTrustedDevices($userId, $dryRun);
+        if ($trusted > 0) {
+            $done[] = $trusted . ' trusted device(s)';
+        }
+
         if ($done === []) {
             $output->writeln(
                 '<comment>Account ' . $userId . ' had nothing enrolled; nothing to clear.</comment>'
@@ -122,10 +134,11 @@ class AuthTwoFactorReset extends Command
         );
 
         if (!$dryRun) {
-            $output->writeln(
-                'They can sign in with a code sent to their email address, and will be asked '
-                . 'to enrol again.'
-            );
+            $this->audit($userId, $input->getOption('by') !== null ? (int) $input->getOption('by') : null, $done);
+            // What the next sign-in asks for, by what this application offers.
+            $output->writeln($this->offersEmailCode()
+                ? 'They can sign in with a code sent to their email address, and will be asked to enrol again.'
+                : 'Their next sign-in asks for the password alone, and they will be asked to enrol again.');
         }
 
         return Command::SUCCESS;
@@ -173,6 +186,36 @@ class AuthTwoFactorReset extends Command
     }
 
     /** @return bool Whether any passkey was removed */
+    /** The reset, in the audit log: whose, by whom when said, and what went. */
+    protected function audit(int $userId, ?int $by, array $cleared): void
+    {
+        \Pramnos\Auth\AuditLog::record('auth.twofactor_reset', $by, $userId, ['cleared' => $cleared, 'via' => 'console']);
+    }
+
+    /** Whether this application signs a person in with a mailed code when they have no other factor. */
+    protected function offersEmailCode(): bool
+    {
+        return \Pramnos\Auth\SecondFactorRegistry::get(\Pramnos\Auth\EmailSecondFactor::METHOD) !== null;
+    }
+
+    /**
+     * Stop trusting the account's browsers. Returns how many were — or, in a dry run, are —
+     * trusted.
+     */
+    protected function clearTrustedDevices(int $userId, bool $dryRun): int
+    {
+        $devices = new \Pramnos\Auth\TrustedDevices();
+        if ($dryRun) {
+            try {
+                return count($devices->forUser($userId));
+            } catch (\Throwable) {
+                return 0;
+            }
+        }
+
+        return $devices->revokeAll($userId);
+    }
+
     protected function clearPasskeys(int $userId, bool $dryRun): bool
     {
         // live-DB boundary; the tests override this

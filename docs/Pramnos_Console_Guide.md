@@ -939,7 +939,7 @@ php bin/pramnos logs:convert /path/to/file.log --no-backup
 |---|---|---|
 | `auth:unlock [identifier]` | Lift a login lockout for a user, identifier or IP | `--scope/-s`, `--list/-l`, `--all` |
 | `auth:twofactor-status [user]` | Show what second factor an account holds, or who holds none | `--missing/-m`, `--from` |
-| `auth:twofactor-reset <user>` | Clear an account's second-factor enrolment so it can enrol again | `--passkeys/-p`, `--dry-run` |
+| `auth:twofactor-reset <user>` | Clear an account's second-factor enrolment and trusted browsers so it can enrol again; audited | `--passkeys/-p`, `--dry-run`, `--by=<userid>` |
 | `auth:twofactor-cleanup` | Delete spent and expired second-factor codes and enrolments | — |
 | `auth:token-cleanup` | Retire session tokens that have been idle | `--days/-d` |
 | `oauth:keys` | Generate the RSA pair OAuth2 / OpenID Connect tokens are signed with, and `encryption.key` once, in `app/keys/`; refuses to replace a pair, since a new key invalidates every token signed with the old; warns when run as root without `--owner` | `--force`, `--owner=<user>` |

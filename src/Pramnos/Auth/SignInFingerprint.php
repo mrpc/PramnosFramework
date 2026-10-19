@@ -140,7 +140,7 @@ class SignInFingerprint
         $labels = array(
             'edge' => 'Edge', 'opera' => 'Opera', 'samsung' => 'Samsung Internet',
             'firefox' => 'Firefox', 'chrome' => 'Chrome', 'safari' => 'Safari',
-            'ios' => 'iPhone or iPad', 'android' => 'Android', 'windows' => 'Windows',
+            'ios' => t('iPhone or iPad'), 'android' => 'Android', 'windows' => 'Windows',
             'mac' => 'Mac', 'chromeos' => 'ChromeOS', 'linux' => 'Linux',
         );
 
@@ -149,16 +149,17 @@ class SignInFingerprint
         $platform = $labels[$parts[1] ?? ''] ?? null;
 
         if ($browser === null && $platform === null) {
-            return 'an unrecognised browser';
+            return t('an unrecognised browser');
         }
         if ($platform === null) {
             return $browser;
         }
         if ($browser === null) {
-            return 'an unrecognised browser on ' . $platform;
+            return t('an unrecognised browser on %s', $platform);
         }
 
-        return $browser . ' on ' . $platform;
+        // Through t(): «Chrome on Windows» is a sentence, and its word order is the language's.
+        return t('%s on %s', $browser, $platform);
     }
 
     /**

@@ -244,4 +244,39 @@ class SignInFingerprintTest extends TestCase
             }
         }
     }
+
+    /**
+     * The description is a sentence, and goes through the translator (FW-164 §4): «Chrome on
+     * Windows» was English in every language's security mail. Product names stay as they are;
+     * the words around them, and their order, are the language's.
+     */
+    public function testTheDescriptionIsTranslated(): void
+    {
+        // Arrange
+        $language = \Pramnos\Framework\Factory::getLanguage();
+        $strings  = new \ReflectionProperty($language, '_strings');
+        $saved    = $strings->getValue($language);
+        $strings->setValue($language, array_merge((array) $saved, [
+            '%s on %s'                    => '%s σε %s',
+            'iPhone or iPad'              => 'iPhone ή iPad',
+            'an unrecognised browser'     => 'άγνωστος φυλλομετρητής',
+            'an unrecognised browser on %s' => 'άγνωστος φυλλομετρητής σε %s',
+        ]));
+
+        try {
+            // Act
+            $known   = \Pramnos\Auth\SignInFingerprint::describe('chrome|windows');
+            $device  = \Pramnos\Auth\SignInFingerprint::describe('safari|ios');
+            $unknown = \Pramnos\Auth\SignInFingerprint::describe('x|y');
+            $partly  = \Pramnos\Auth\SignInFingerprint::describe('x|linux');
+        } finally {
+            $strings->setValue($language, $saved);
+        }
+
+        // Assert
+        $this->assertSame('Chrome σε Windows', $known);
+        $this->assertSame('Safari σε iPhone ή iPad', $device);
+        $this->assertSame('άγνωστος φυλλομετρητής', $unknown);
+        $this->assertSame('άγνωστος φυλλομετρητής σε Linux', $partly);
+    }
 }

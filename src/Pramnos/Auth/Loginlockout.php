@@ -63,52 +63,56 @@ class Loginlockout
      */
     public function recordFailedAttempt(string $scope, string $identifier): void
     {
-        $db       = \Pramnos\Database\Database::getInstance();
-        $now      = time();
-        $nowStr   = $this->formatTimestamp($now);
-        $row      = $this->loadRow($scope, $identifier);
+        try {
+            $db       = \Pramnos\Database\Database::getInstance();
+            $now      = time();
+            $nowStr   = $this->formatTimestamp($now);
+            $row      = $this->loadRow($scope, $identifier);
 
-        // Determine attempt count within the current sliding window
-        $windowStart = $now - $this->windowSeconds();
-        if ($row && !empty($row['lastfailedat'])
-            && strtotime((string) $row['lastfailedat']) >= $windowStart
-        ) {
-            $attempts    = (int) $row['failedattempts'] + 1;
-            $firstFailed = (string) $row['firstfailedat'];
-        } else {
-            $attempts    = 1;
-            $firstFailed = $nowStr;
-        }
+            // Determine attempt count within the current sliding window
+            $windowStart = $now - $this->windowSeconds();
+            if ($row && !empty($row['lastfailedat'])
+                && strtotime((string) $row['lastfailedat']) >= $windowStart
+            ) {
+                $attempts    = (int) $row['failedattempts'] + 1;
+                $firstFailed = (string) $row['firstfailedat'];
+            } else {
+                $attempts    = 1;
+                $firstFailed = $nowStr;
+            }
 
-        $duration     = $this->calculateDuration($attempts);
-        $lockoutUntil = $duration > 0
-            ? $this->formatTimestamp($now + $duration)
-            : null;
+            $duration     = $this->calculateDuration($attempts);
+            $lockoutUntil = $duration > 0
+                ? $this->formatTimestamp($now + $duration)
+                : null;
 
-        if ($row) {
-            $db->queryBuilder()
-                ->table('authserver.loginlockouts')
-                ->where('lockoutid', (int) $row['lockoutid'])
-                ->update([
-                    'failedattempts' => $attempts,
-                    'firstfailedat'  => $firstFailed,
-                    'lastfailedat'   => $nowStr,
-                    'lockoutuntil'   => $lockoutUntil,
-                    'updatedat'      => $nowStr,
-                ]);
-        } else {
-            $db->queryBuilder()
-                ->table('authserver.loginlockouts')
-                ->insert([
-                    'locktype'       => $scope,
-                    'lookupvalue'    => $identifier,
-                    'failedattempts' => $attempts,
-                    'firstfailedat'  => $firstFailed,
-                    'lastfailedat'   => $nowStr,
-                    'lockoutuntil'   => $lockoutUntil,
-                    'createdat'      => $nowStr,
-                    'updatedat'      => $nowStr,
-                ]);
+            if ($row) {
+                $db->queryBuilder()
+                    ->table('authserver.loginlockouts')
+                    ->where('lockoutid', (int) $row['lockoutid'])
+                    ->update([
+                        'failedattempts' => $attempts,
+                        'firstfailedat'  => $firstFailed,
+                        'lastfailedat'   => $nowStr,
+                        'lockoutuntil'   => $lockoutUntil,
+                        'updatedat'      => $nowStr,
+                    ]);
+            } else {
+                $db->queryBuilder()
+                    ->table('authserver.loginlockouts')
+                    ->insert([
+                        'locktype'       => $scope,
+                        'lookupvalue'    => $identifier,
+                        'failedattempts' => $attempts,
+                        'firstfailedat'  => $firstFailed,
+                        'lastfailedat'   => $nowStr,
+                        'lockoutuntil'   => $lockoutUntil,
+                        'createdat'      => $nowStr,
+                        'updatedat'      => $nowStr,
+                    ]);
+            }
+        } catch (\Throwable $e) {
+            $this->unavailable($e);
         }
     }
 
@@ -138,61 +142,65 @@ class Loginlockout
         int $window,
         int $threshold
     ): void {
-        if ($identifier === '' || $window < 1 || $threshold < 1) {
-            return;
-        }
+        try {
+            if ($identifier === '' || $window < 1 || $threshold < 1) {
+                return;
+            }
 
-        $db     = \Pramnos\Database\Database::getInstance();
-        $now    = time();
-        $nowStr = $this->formatTimestamp($now);
-        $row    = $this->loadRow($scope, $identifier);
+            $db     = \Pramnos\Database\Database::getInstance();
+            $now    = time();
+            $nowStr = $this->formatTimestamp($now);
+            $row    = $this->loadRow($scope, $identifier);
 
-        $windowStart = $now - $window;
-        if ($row && !empty($row['lastfailedat'])
-            && strtotime((string) $row['lastfailedat']) >= $windowStart
-        ) {
-            $attempts    = (int) $row['failedattempts'] + 1;
-            $firstFailed = (string) $row['firstfailedat'];
-        } else {
-            $attempts    = 1;
-            $firstFailed = $nowStr;
-        }
+            $windowStart = $now - $window;
+            if ($row && !empty($row['lastfailedat'])
+                && strtotime((string) $row['lastfailedat']) >= $windowStart
+            ) {
+                $attempts    = (int) $row['failedattempts'] + 1;
+                $firstFailed = (string) $row['firstfailedat'];
+            } else {
+                $attempts    = 1;
+                $firstFailed = $nowStr;
+            }
 
-        // Locked for what is left of the window that the *first* failure opened, so a
-        // steady drip of attempts cannot keep extending its own deadline.
-        $lockoutUntil = null;
-        if ($attempts >= $threshold) {
-            $until        = max($now + 1, (int) strtotime($firstFailed) + $window);
-            $lockoutUntil = $this->formatTimestamp($until);
-        }
+            // Locked for what is left of the window that the *first* failure opened, so a
+            // steady drip of attempts cannot keep extending its own deadline.
+            $lockoutUntil = null;
+            if ($attempts >= $threshold) {
+                $until        = max($now + 1, (int) strtotime($firstFailed) + $window);
+                $lockoutUntil = $this->formatTimestamp($until);
+            }
 
-        if ($row) {
+            if ($row) {
+                $db->queryBuilder()
+                    ->table('authserver.loginlockouts')
+                    ->where('lockoutid', (int) $row['lockoutid'])
+                    ->update([
+                        'failedattempts' => $attempts,
+                        'firstfailedat'  => $firstFailed,
+                        'lastfailedat'   => $nowStr,
+                        'lockoutuntil'   => $lockoutUntil,
+                        'updatedat'      => $nowStr,
+                    ]);
+
+                return;
+            }
+
             $db->queryBuilder()
                 ->table('authserver.loginlockouts')
-                ->where('lockoutid', (int) $row['lockoutid'])
-                ->update([
+                ->insert([
+                    'locktype'       => $scope,
+                    'lookupvalue'    => $identifier,
                     'failedattempts' => $attempts,
                     'firstfailedat'  => $firstFailed,
                     'lastfailedat'   => $nowStr,
                     'lockoutuntil'   => $lockoutUntil,
+                    'createdat'      => $nowStr,
                     'updatedat'      => $nowStr,
                 ]);
-
-            return;
+        } catch (\Throwable $e) {
+            $this->unavailable($e);
         }
-
-        $db->queryBuilder()
-            ->table('authserver.loginlockouts')
-            ->insert([
-                'locktype'       => $scope,
-                'lookupvalue'    => $identifier,
-                'failedattempts' => $attempts,
-                'firstfailedat'  => $firstFailed,
-                'lastfailedat'   => $nowStr,
-                'lockoutuntil'   => $lockoutUntil,
-                'createdat'      => $nowStr,
-                'updatedat'      => $nowStr,
-            ]);
     }
 
     /**
@@ -206,22 +214,27 @@ class Loginlockout
      */
     public function getLockoutStatus(string $scope, string $identifier): array
     {
-        $row = $this->loadRow($scope, $identifier);
+        try {
+            $row = $this->loadRow($scope, $identifier);
 
-        if (!$row) {
+            if (!$row) {
+                return ['locked' => false, 'remaining' => 0];
+            }
+
+            $now          = time();
+            $lockoutUntil = !empty($row['lockoutuntil'])
+                ? strtotime((string) $row['lockoutuntil'])
+                : 0;
+
+            if ($lockoutUntil > $now) {
+                return ['locked' => true, 'remaining' => $lockoutUntil - $now];
+            }
+
+            return ['locked' => false, 'remaining' => 0];
+        } catch (\Throwable $e) {
+            $this->unavailable($e);
             return ['locked' => false, 'remaining' => 0];
         }
-
-        $now          = time();
-        $lockoutUntil = !empty($row['lockoutuntil'])
-            ? strtotime((string) $row['lockoutuntil'])
-            : 0;
-
-        if ($lockoutUntil > $now) {
-            return ['locked' => true, 'remaining' => $lockoutUntil - $now];
-        }
-
-        return ['locked' => false, 'remaining' => 0];
     }
 
     /**
@@ -235,15 +248,40 @@ class Loginlockout
      */
     public function clearSuccessfulLoginState(string $scope, string $identifier): void
     {
-        $db = \Pramnos\Database\Database::getInstance();
-        $db->queryBuilder()
-            ->table('authserver.loginlockouts')
-            ->where('locktype', $scope)
-            ->where('lookupvalue', $identifier)
-            ->delete();
+        try {
+            $db = \Pramnos\Database\Database::getInstance();
+            $db->queryBuilder()
+                ->table('authserver.loginlockouts')
+                ->where('locktype', $scope)
+                ->where('lookupvalue', $identifier)
+                ->delete();
+        } catch (\Throwable $e) {
+            $this->unavailable($e);
+        }
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    /**
+     * The lockout's table could not be read or written — not created yet, a database that is
+     * down. By default the login goes on without it, and the failure is logged once per
+     * request: a lockout is a second line against guessing, and refusing every sign-in because
+     * it is missing turns a deployment mistake into an outage for everybody.
+     * `'auth' => ['security' => ['lockout_fails_closed' => true]]` refuses instead.
+     *
+     * @throws \Throwable The failure, when the application asked for it to refuse
+     */
+    protected function unavailable(\Throwable $e): void
+    {
+        if (SecurityPolicy::lockoutFailsClosed()) {
+            throw $e;
+        }
+        static $logged = false;
+        if (!$logged) {
+            $logged = true;
+            \Pramnos\Logs\Logger::log('Login lockout unavailable, sign-ins go on without it: ' . $e->getMessage(), 'auth');
+        }
+    }
 
     /**
      * Load the lockout row for the given scope+identifier, or null if absent.

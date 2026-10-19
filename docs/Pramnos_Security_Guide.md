@@ -457,7 +457,11 @@ Three things make it a wall rather than a trap:
   will stop *before* you set the switch; `auth:twofactor-reset <user>` clears an enrolment so
   somebody who lost their authenticator can enrol again — they sign in with a mailed code and
   meet the wall, which is the whole recovery path and needs no secret read out over a phone.
-  Neither command ever prints a secret, a QR URI or a backup code.
+  It also forgets the account's trusted browsers, since one would go on skipping the factor
+  enrolled next. It writes `auth.twofactor_reset` to the audit log, with the administrator given
+  by `--by=<userid>`. It says what the next sign-in asks for by what the application offers: a
+  mailed code only where there is one. Neither command ever prints a secret, a QR URI or a
+  backup code.
 
 **Password history is compared with the login's own verifier.** A previous password is
 stored exactly as `users.password` stored it and checked with `PasswordHash::verify()` — a
@@ -830,6 +834,12 @@ if (!$auth->auth($username, $password)) {
 The ladder and window come from the `loginlockoutsteps` and `loginlockoutwindowseconds`
 settings — see the
 [Authentication guide](Pramnos_Authentication_Guide.md#login-lockout-brute-force-protection).
+
+**A lockout whose table cannot be reached fails open.** The table may not be migrated yet, or the
+database may be down. Then the status reads "not locked", a failure is not recorded, and the
+problem is logged once per request. A lockout is a second line against guessing, and refusing
+every sign-in because it is missing would turn a deployment mistake into an outage for everybody.
+`'auth' => ['security' => ['lockout_fails_closed' => true]]` makes it refuse instead.
 
 ### Two-Factor Authentication
 

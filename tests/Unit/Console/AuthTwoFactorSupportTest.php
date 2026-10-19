@@ -219,6 +219,29 @@ class AuthTwoFactorSupportTest extends TestCase
     }
 
     /**
+     * The reset also forgets the account's trusted browsers — one would go on skipping the factor
+     * enrolled next — writes the audit log with the administrator named by `--by`, and says what
+     * the next sign-in asks for by what the application offers: a mailed code only where there is
+     * one (FW-164 §3).
+     */
+    public function testResetForgetsTrustedDevicesAuditsAndSaysTheTruth(): void
+    {
+        // Arrange
+        $command          = new ResetProbe();
+        $command->trusted = 2;
+        $command->email   = false;
+
+        // Act
+        $output = $this->execute($command, ['user' => 'admin', '--by' => '7']);
+
+        // Assert
+        $this->assertStringContainsString('2 trusted device(s)', $output);
+        $this->assertSame([[42, 7, ['authenticator enrolment and backup codes', 'the mailed-code factor', '2 trusted device(s)']]], $command->audited);
+        $this->assertStringContainsString('asks for the password alone', $output);
+        $this->assertStringNotContainsString('email', $output);
+    }
+
+    /**
      * Passkeys are only removed when asked for.
      *
      * A passkey is a device the person still has. Clearing it because they lost a *different*
@@ -338,6 +361,35 @@ class ResetProbe extends AuthTwoFactorReset
     public bool $cleared = false;
 
     public bool $holdsNothing = false;
+
+    /** Trusted browsers the account has. */
+    public int $trusted = 0;
+
+    /** Whether the application offers a mailed code. */
+    public bool $email = true;
+
+    /** @var list<array{int, ?int, list<string>}> What was written to the audit log */
+    public array $audited = [];
+
+    /** The trusted browsers, cleared unless rehearsing. */
+    protected function clearTrustedDevices(int $userId, bool $dryRun): int
+    {
+        $this->cleared = $this->cleared || (!$dryRun && $this->trusted > 0);
+
+        return $this->trusted;
+    }
+
+    /** The audit row, kept. */
+    protected function audit(int $userId, ?int $by, array $cleared): void
+    {
+        $this->audited[] = [$userId, $by, $cleared];
+    }
+
+    /** The test's answer. */
+    protected function offersEmailCode(): bool
+    {
+        return $this->email;
+    }
 
     protected function lookup(string $needle, string $field): ?int
     {

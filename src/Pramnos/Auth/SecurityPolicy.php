@@ -268,6 +268,15 @@ class SecurityPolicy
         return (bool) static::value('second_factor_everywhere', false);
     }
 
+    /**
+     * Whether a login lockout that cannot reach its table refuses the sign-in rather than going
+     * on without it and logging: `'auth' => ['security' => ['lockout_fails_closed' => true]]`.
+     */
+    public static function lockoutFailsClosed(): bool
+    {
+        return (bool) static::value('lockout_fails_closed', false);
+    }
+
     protected static function value(string $key, mixed $default): mixed
     {
         $application = \Pramnos\Application\Application::currentInstance();
