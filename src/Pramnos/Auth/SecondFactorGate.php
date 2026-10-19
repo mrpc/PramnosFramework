@@ -23,6 +23,18 @@ final class SecondFactorGate
     /** Session key: the page a session was on when it was stopped, to go back to. */
     public const RETURN = 'loginflow_second_factor_return';
 
+    /**
+     * Session key: the account this session was stopped for, and until when — every page it
+     * opens is sent to the second step while its login waits there.
+     */
+    public const OWED = 'loginflow_second_factor_owed';
+
+    /** Session key: until when the stopped account is locked out, for the step to say so. */
+    public const LOCKED = 'loginflow_second_factor_locked';
+
+    /** How long a stopped session is sent to the step, at most, in seconds. */
+    public const OWED_FOR = 900;
+
     /** Set while the gate decides, so a question it asks about the session does not ask it again. */
     private static bool $deciding = false;
 
@@ -47,13 +59,46 @@ final class SecondFactorGate
         if (!$owed) {
             return true;
         }
-        // No longer signed in: the login waiting for the factor is all this session holds.
-        $_SESSION['logged'] = false;
-        $_SESSION['uid']    = 0;
+        // No longer signed in: the login waiting for the factor is all this session holds — and
+        // remembered, so the next page is sent to the step too, not shown to a guest.
+        $_SESSION['logged']   = false;
+        $_SESSION['uid']      = 0;
+        $_SESSION[self::OWED] = ['user' => $userId, 'until' => time() + self::OWED_FOR];
         \Pramnos\User\User::forgetCurrentUser();
         self::sendToTheSecondStep();
 
         return false;
+    }
+
+    /**
+     * Whether this session was stopped for its second factor and still owes it: while its login
+     * waits for the step, or its account is locked out, every page it opens is sent to the step
+     * again — {@see \Pramnos\Http\Session::staticIsLogged()} asks before anything else, as the
+     * session reads as signed out. Forgotten once the login is finished, abandoned or expired.
+     */
+    public static function stillOwed(): bool
+    {
+        $owed = $_SESSION[self::OWED] ?? null;
+        if ($owed === null) {
+            return false;
+        }
+        $userId  = is_array($owed) ? (int) ($owed['user'] ?? 0) : 0;
+        $waiting = $userId > 1 && SecurityPolicy::secondFactorEverywhere() && (int) ($owed['until'] ?? 0) >= time()
+            && (self::lockedFor() > 0 || LoginFlow::make()->pendingUserId() === $userId);
+        if (!$waiting) {
+            unset($_SESSION[self::OWED], $_SESSION[self::LOCKED]);
+
+            return false;
+        }
+        self::sendToTheSecondStep();
+
+        return true;
+    }
+
+    /** How many more seconds the stopped account is locked out: 0 when it is not. */
+    public static function lockedFor(): int
+    {
+        return max(0, (int) ($_SESSION[self::LOCKED] ?? 0) - time());
     }
 
     /**
@@ -95,9 +140,10 @@ final class SecondFactorGate
         return preg_match('#^https?://#', $step) === 1 ? $step : (defined('sURL') ? sURL : '/') . ltrim($step, '/');
     }
 
-    /** Mark this session's second factor as settled for an account. */
+    /** Mark this session's second factor as settled for an account: nothing is owed any more. */
     public static function settle(int $userId): void
     {
         $_SESSION[self::SESSION] = $userId;
+        unset($_SESSION[self::OWED], $_SESSION[self::LOCKED]);
     }
 }

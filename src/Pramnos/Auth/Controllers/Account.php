@@ -117,6 +117,11 @@ class Account extends Controller
             if (\Pramnos\Auth\SecurityPolicy::secondFactorEverywhere() && $this->flow()->pendingUserId() !== null) {
                 return $this->renderStepUp([]);
             }
+            // Stopped for its second factor while its account is locked out: there is no step to
+            // offer until it lifts, and the form says why.
+            if (($locked = \Pramnos\Auth\SecondFactorGate::lockedFor()) > 0) {
+                return $this->renderLogin(['error' => 'locked', 'lockoutSeconds' => $locked]);
+            }
 
             return $this->renderLogin([]);
         }

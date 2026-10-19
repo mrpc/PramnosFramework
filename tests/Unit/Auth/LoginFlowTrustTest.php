@@ -343,4 +343,37 @@ class TrustingLoginFlow extends TestableLoginFlow
     {
         return $this->push;
     }
+
+    /**
+     * The gate's question keeps the trusted-device promise as the form does (FW-169): a browser
+     * the account trusts owes no second factor — a remembered login there is not asked again —
+     * and the session is settled. A lockout in force is said with its end, for the step to show.
+     */
+    public function testTheGateAsksTheTrustedDevicesAndSaysALockout(): void
+    {
+        // Arrange
+        $this->flow->fakeTwoFactor->enabled = true;
+        $this->flow->devices->trusted       = true;
+        $locked = new class extends TrustingLoginFlow {
+            protected function identifierOf(int $userId): string
+            {
+                return 'alice';
+            }
+        };
+        $locked->fakeTwoFactor->enabled = true;
+        $locked->fakeLockout->status    = ['locked' => true, 'remaining' => 300];
+
+        // Act
+        $trusted  = $this->flow->demandSecondFactor(7);
+        $settled  = $_SESSION[\Pramnos\Auth\SecondFactorGate::SESSION] ?? null;
+        $_SESSION = [];
+        $owed     = $locked->demandSecondFactor(7);
+
+        // Assert
+        $this->assertFalse($trusted, 'a trusted browser owes nothing');
+        $this->assertSame(7, $settled);
+        $this->assertTrue($owed);
+        $this->assertArrayNotHasKey('loginflow_pending_userid', $_SESSION, 'locked: no login to complete');
+        $this->assertEqualsWithDelta(300, \Pramnos\Auth\SecondFactorGate::lockedFor(), 2);
+    }
 }

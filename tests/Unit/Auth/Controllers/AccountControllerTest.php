@@ -98,6 +98,27 @@ class AccountControllerTest extends TestCase
         $this->assertSame('VIEW:login_2fa', $with);
     }
 
+    /**
+     * A session the gate stopped while its account is locked out has no step to complete
+     * (FW-169): the form says the account is locked, and for how long, rather than that the
+     * login expired.
+     */
+    public function testLoginGetSaysTheStoppedAccountIsLocked(): void
+    {
+        // Arrange
+        $this->c->flow->pending = null;
+        $_SESSION[\Pramnos\Auth\SecondFactorGate::LOCKED] = time() + 120;
+
+        // Act
+        $out = $this->c->login();
+        unset($_SESSION[\Pramnos\Auth\SecondFactorGate::LOCKED]);
+
+        // Assert
+        $this->assertSame('VIEW:login', $out);
+        $this->assertSame('locked', $this->c->view->props['error']);
+        $this->assertEqualsWithDelta(120, $this->c->view->props['lockoutSeconds'], 2);
+    }
+
     /** An already-authenticated visitor is bounced to the dashboard, not the form. */
     public function testLoginWhenAlreadyLoggedInRedirects(): void
     {

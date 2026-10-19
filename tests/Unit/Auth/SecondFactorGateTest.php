@@ -277,4 +277,59 @@ final class SecondFactorGateTest extends TestCase
         (new \ReflectionProperty(\Pramnos\Application\Application::class, 'appInstances'))->setValue(null, []);
         $this->assertSame(LoginFlow::class, LoginFlow::make()::class, 'no application');
     }
+
+    /**
+     * A stopped session goes on being sent to the step (FW-169): while its login waits there, or
+     * its account is locked out, every page it opens is owed — each remembered as the page to go
+     * back to — though the session reads as signed out. It is forgotten when the wait is over:
+     * the login finished (settled), abandoned or expired, the lockout over, the switch off.
+     */
+    public function testAStoppedSessionStaysStopped(): void
+    {
+        // Arrange
+        self::gate(true);
+        $browse = static function (string $uri): void {
+            $_SERVER = ['REQUEST_METHOD' => 'GET', 'REQUEST_URI' => $uri, 'HTTP_ACCEPT' => 'text/html'];
+        };
+        $owed = static function (int $user, int $until): void {
+            $_SESSION[SecondFactorGate::OWED] = ['user' => $user, 'until' => $until];
+        };
+
+        // Act + Assert — the gate stops it, its login now waiting for the step, and says so
+        $browse('/admin/Myaccount');
+        $this->assertFalse(SecondFactorGate::passes(7, new GateTestFlow()));
+        $this->assertSame(7, $_SESSION[SecondFactorGate::OWED]['user']);
+        $_SESSION['loginflow_pending_userid'] = 7;
+        $_SESSION['loginflow_pending_time']   = time();
+        $this->assertFalse(\Pramnos\Http\Session::staticIsLogged(), 'signed out');
+
+        // the next page is owed too, and is where it goes back to
+        $browse('/el');
+        $this->assertTrue(SecondFactorGate::stillOwed());
+        $this->assertSame('/el', $_SESSION[SecondFactorGate::RETURN]);
+
+        // locked out, with no login to finish: owed while the lockout lasts
+        $_SESSION = [SecondFactorGate::LOCKED => time() + 60];
+        $owed(7, time() + 600);
+        $this->assertTrue(SecondFactorGate::stillOwed());
+        $this->assertGreaterThan(0, SecondFactorGate::lockedFor());
+
+        // over: abandoned, expired, the switch off, settled
+        $_SESSION = [];
+        $owed(7, time() + 600);
+        $this->assertFalse(SecondFactorGate::stillOwed(), 'no login waiting, no lockout');
+        $this->assertArrayNotHasKey(SecondFactorGate::OWED, $_SESSION);
+        $_SESSION = ['loginflow_pending_userid' => 7, 'loginflow_pending_time' => time()];
+        $owed(7, time() - 1);
+        $this->assertFalse(SecondFactorGate::stillOwed(), 'expired');
+        $owed(7, time() + 600);
+        self::gate(false);
+        $this->assertFalse(SecondFactorGate::stillOwed(), 'the switch off');
+        $this->assertFalse(SecondFactorGate::stillOwed(), 'nothing owed at all');
+        $_SESSION[SecondFactorGate::OWED]   = ['user' => 7, 'until' => time() + 600];
+        $_SESSION[SecondFactorGate::LOCKED] = time() + 60;
+        SecondFactorGate::settle(7);
+        $this->assertArrayNotHasKey(SecondFactorGate::OWED, $_SESSION, 'settled: nothing owed');
+        $this->assertSame(0, SecondFactorGate::lockedFor());
+    }
 }

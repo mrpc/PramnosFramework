@@ -606,8 +606,16 @@ session path.
   signed in. It becomes a pending login, and the login page shows the second step. The
   wrong-code limit applies to it as to any other, and its wrong codes count against the
   account's lockout under its username, as the form's would. An account already locked out gets
-  no pending login: it waits until the lockout lifts.
-- **An account without a second factor, or a browser it trusts,** is marked and passes.
+  no pending login: it waits until the lockout lifts, and the login page says it is locked and
+  for how long (`SecondFactorGate::lockedFor()`).
+- **A stopped session stays stopped.** It reads as signed out, but it is not a guest: while its
+  login waits for the step, or its account is locked out, every page it opens is sent to the
+  step again, at most fifteen minutes. Finishing the login, abandoning it or letting it expire
+  ends that. An application that throws away a guest's session on every request loses the
+  pending login with it, and the person signs in again.
+- **An account without a second factor, or a browser it trusts,** is marked and passes. A
+  remember-me cookie in a browser trusted with "Don't ask again on this device" is therefore not
+  asked again, as the form would not ask.
 - **An administrator signing in as somebody else** settled their own factor, and the account
   they become is not asked for its own.
 

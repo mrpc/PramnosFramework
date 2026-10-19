@@ -325,6 +325,11 @@ class Session extends Base
                 return true;
             }
         }
+        // A session the second-factor gate stopped reads as signed out — and is sent to the step
+        // again, on every page, while it owes it: not left to look like a guest.
+        if (\Pramnos\Auth\SecondFactorGate::stillOwed()) {
+            return false;
+        }
         if (!isset($_SESSION['logged'])
             || !isset($_SESSION['uid']) || $_SESSION['uid'] <= 1) {
             return false;

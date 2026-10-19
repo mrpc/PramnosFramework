@@ -1062,15 +1062,21 @@ class LoginFlow
             return true;
         }
         $methods = $this->stepUpMethods($userId);
-        if ($methods === []) {
+        // No factor, or a browser the account trusts — the promise "don't ask again on this
+        // device" made, as the form keeps it — owes nothing.
+        if ($methods === [] || $this->trustedDevices()->isTrusted($userId)) {
             SecondFactorGate::settle($userId);
 
             return false;
         }
         // Counted against the account's lockout like a login from the form: its wrong codes, and
-        // a lockout already in force, which leaves nothing to complete until it lifts.
+        // a lockout already in force, which leaves nothing to complete until it lifts — the step
+        // says so ({@see SecondFactorGate::lockedFor()}).
         $identifier = $this->identifierOf($userId);
-        if ($identifier !== '' && !empty($this->lockout()->getLockoutStatus('identifier', $identifier)['locked'])) {
+        $status     = $identifier !== '' ? $this->lockout()->getLockoutStatus('identifier', $identifier) : [];
+        if (!empty($status['locked'])) {
+            $_SESSION[SecondFactorGate::LOCKED] = time() + max(1, (int) ($status['remaining'] ?? 0));
+
             return true;
         }
         $this->beginStepUp($userId, false, $identifier, $methods);
