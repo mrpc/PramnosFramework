@@ -8,6 +8,7 @@ use_cases:
   - Sending reads to a replica and writes to a primary
   - Reading a table's columns, types or foreign keys from code
   - Running an application's MySQL-written SQL on PostgreSQL without rewriting it
+  - Finding the SQL that would mean something else on PostgreSQL than on MySQL
 ---
 
 # Pramnos Database API Guide
@@ -1332,6 +1333,38 @@ ambiguous with `EXCLUDED`.
 used as a string, and a comparison of text with a number. They are the dialect linter's to
 report, not the translator's to change. A `DATE_FORMAT` pattern `to_char` cannot express
 (`%U`), or one that is not a literal, is also left as written, to fail where it can be seen.
+
+### `db:dialect-lint`: what would mean something else
+
+```bash
+php bin/pramnos db:dialect-lint                # src and app
+php bin/pramnos db:dialect-lint src/Admin --json
+```
+
+```
+src/Admin/Users.php:88  like  LIKE ignores case on MySQL (a _ci collation) and not on PostgreSQL: ILIKE, or lower() on both sides
+src/Reports/Visits.php:41  group-by  v.name is selected but neither grouped nor aggregated: …
+3 finding(s): 2 like, 1 group-by
+```
+
+It reads the SQL in the code's string literals, whole statements and the fragments a datatable
+passes as its WHERE alike, and names each place by file and line:
+
+| Rule | What it finds | What to do |
+|---|---|---|
+| `like` | `LIKE`, which ignores case on MySQL's `_ci` collations and does not on PostgreSQL | `ILIKE`, or `lower()` on both sides — or nothing, where case should count |
+| `group-by` | a column selected but neither grouped nor aggregated: MySQL returned one of the group's values, PostgreSQL refuses it | `GROUP BY` it, or aggregate it |
+| `double-quoted-string` | `"…"` used as a value: a string to MySQL, a column name to PostgreSQL | single quotes |
+
+A string counts as SQL when it has a statement's shape or a condition's, not when it merely holds
+the word "delete"; markup and an operator's name alone (`'LIKE'`) are not read. A line ending in
+`// dialect-ok` is one somebody has looked at and is not reported again. The command exits `1`
+while anything is found.
+
+A text column compared with a number is not looked for: without the schema it cannot be told from
+a number compared with a number. PostgreSQL refuses it with an error rather than answering
+differently, so the suite run against PostgreSQL finds it. See
+[An application's suite against PostgreSQL](Pramnos_Testing_Guide.md#an-applications-suite-against-postgresql-before-moving-to-it).
 
 Off by default, and only on PostgreSQL. It is a bridge for the move, not a dialect to keep
 writing in: new code goes through the query builder.

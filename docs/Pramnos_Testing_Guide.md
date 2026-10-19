@@ -934,6 +934,7 @@ the two lists. What fails only on PostgreSQL is one of four things:
   `ON CONFLICT (…)` by hand.
 - **SQL the translator leaves alone because it would change meaning**: a `LIKE` that relied on
   MySQL ignoring case, a `GROUP BY` that leaves columns out, `"…"` as a string.
+  `db:dialect-lint` names each with file and line.
 - **A test that assumed MySQL**: an error message, an auto-increment that starts at 1 after a
   truncate, rows in an order nobody asked for.
 
