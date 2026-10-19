@@ -73,6 +73,9 @@ class RoleAssignmentTest extends BaseTestCase
         foreach ([$this->tUserRoles, $this->tMembers, $this->tRoles] as $t) {
             $this->db->query("DELETE FROM `{$t}` WHERE 1=1");
         }
+        // The organisations it wrote into the shared test database, too: left there, they made
+        // a later test that relies on an installation keeping none fail, depending on the order.
+        $this->db->queryBuilder()->table('#PREFIX#organizations')->whereIn('organization_id', [3, 5, 99])->delete();
 
         $dbRef = &\Pramnos\Database\Database::getInstance();
         $dbRef = $this->previousSingleton;
