@@ -9,6 +9,9 @@ use Pramnos\Database\Database;
 
 /** {@see ChangelogEventsTest} on PostgreSQL, where the changelog tables are hypertables. */
 #[CoversClass(\Pramnos\Changelog\ChangelogWriter::class)]
+#[CoversClass(\Pramnos\Changelog\History::class)]
+#[CoversClass(\Pramnos\Changelog\HistoryApi::class)]
+#[CoversClass(\Pramnos\Html\HistoryPanel::class)]
 #[CoversClass(\Pramnos\Changelog\ChangelogReader::class)]
 #[CoversClass(\Pramnos\Database\WriteSpool::class)]
 #[CoversClass(\Pramnos\Database\SchemaBuilder::class)]

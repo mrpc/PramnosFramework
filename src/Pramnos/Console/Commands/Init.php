@@ -85,6 +85,7 @@ class Init extends Command
         'components/Omnibox.svelte'       => 'spa-omnibox.svelte',
         'components/HelpPanel.svelte'     => 'spa-help-panel.svelte',
         'components/NotificationBell.svelte' => 'spa-notification-bell.svelte',
+        'components/HistoryPanel.svelte'  => 'spa-history-panel.svelte',
         'lib/i18n.svelte.js'              => 'spa-i18n.js',
         'lib/section.js'                  => 'spa-section.js',
         'lib/ui.js'                       => 'spa-ui.js',
@@ -110,6 +111,7 @@ class Init extends Command
         '__tests__/Omnibox.test.js'       => 'spa-omnibox.test.js',
         '__tests__/HelpPanel.test.js'     => 'spa-help-panel.test.js',
         '__tests__/NotificationBell.test.js' => 'spa-notification-bell.test.js',
+        '__tests__/HistoryPanel.test.js'  => 'spa-history-panel.test.js',
         '__tests__/ui.test.js'            => 'spa-ui.test.js',
         '__tests__/i18n.test.js'          => 'spa-i18n.test.js',
         '__tests__/router.test.js'        => 'spa-router.test.js',
@@ -3613,6 +3615,13 @@ PHP;
         if (in_array('auth', $features, true)) {
             $lines[] = "        // Notifications: GET /notifications, /notifications/count, POST /notifications/read, /readall";
             $lines[] = "        \\Pramnos\\Notification\\FeedApi::routes(\$r);";
+            $lines[] = "";
+        }
+
+        // A record's history as JSON, for the SPA's HistoryPanel.
+        if (in_array('changelog', $features, true)) {
+            $lines[] = "        // History: GET /history?entity=&itemid=";
+            $lines[] = "        \\Pramnos\\Changelog\\HistoryApi::routes(\$r);";
             $lines[] = "";
         }
 

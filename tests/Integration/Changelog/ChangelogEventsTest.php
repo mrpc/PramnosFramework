@@ -58,6 +58,9 @@ class WebChangelogWriter extends ChangelogWriter
 #[CoversClass(\Pramnos\Application\Model::class)]
 #[CoversClass(WriteSpool::class)]
 #[CoversClass(\Pramnos\Database\SchemaBuilder::class)]
+#[CoversClass(\Pramnos\Changelog\History::class)]
+#[CoversClass(\Pramnos\Changelog\HistoryApi::class)]
+#[CoversClass(\Pramnos\Html\HistoryPanel::class)]
 class ChangelogEventsTest extends TestCase
 {
     protected Database $db;
@@ -107,6 +110,9 @@ class ChangelogEventsTest extends TestCase
             $this->clear();
         }
         WriteSpool::reset();
+        \Pramnos\Changelog\History::allowUsing(null);
+        \Pramnos\Http\RequestIdentity::reset();
+        $_GET = [];
         if ($this->previous !== null) {
             $singleton = &Factory::getDatabase();
             $singleton = $this->previous;
@@ -323,5 +329,136 @@ class ChangelogEventsTest extends TestCase
         $this->assertSame(3, $tenant['total']);
         $this->assertCount(2, $tenant['rows']);
         $this->assertStringContainsString('does not filter by entiti', (string) $refused);
+    }
+
+    /**
+     * A record's history as people read it: newest first, a page at a time, each line with its
+     * sentence, who did it — a name, or nobody for the system — and a save's changed fields when
+     * the saves are asked for.
+     */
+    public function testAHistoryReadsAsPeopleReadIt(): void
+    {
+        // Arrange — three events and a save on one record, oldest first
+        $start = time() - 3600;
+        ChangelogWriter::event(self::ENTITY, 9, 'thing.made', by: 990777, at: $start, source: 'web');
+        ChangelogWriter::event(self::ENTITY, 9, 'thing.seen', by: 0, at: $start + 60);
+        ChangelogWriter::event(self::ENTITY, 9, 'thing.kept', description: 'Kept by hand', by: 990777, at: $start + 120, source: 'api');
+        $this->db->queryBuilder()->table(ChangelogWriter::TABLE)->insert([
+            'entity' => self::ENTITY, 'itemid' => '9', 'op' => 'update', 'changes' => json_encode(['title' => ['old' => 'A', 'new' => 'B']]),
+            'userid' => null, 'source' => 'web', 'created_at' => \Pramnos\Database\Instant::local($start + 180),
+        ]);
+
+        ChangelogWriter::event(self::ENTITY, 10, 'thing.named', by: 1, at: $start);
+        $guest  = $this->db->schema()->hasTable('users')
+            ? $this->db->queryBuilder()->table('users')->select(['username'])->where('userid', 1)->first()
+            : null;
+        $named  = $guest && $guest->numRows > 0 ? (string) $guest->fields['username'] : '#1';
+
+        // Act
+        $who    = \Pramnos\Changelog\History::page(['entity' => self::ENTITY, 'itemid' => 10])['lines'][0]['who'];
+        $first  = \Pramnos\Changelog\History::page(['entity' => self::ENTITY, 'itemid' => 9], 1, 2);
+        $second = \Pramnos\Changelog\History::page(['entity' => self::ENTITY, 'itemid' => 9], 2, 2);
+        $saves  = \Pramnos\Changelog\History::page(['entity' => self::ENTITY, 'itemid' => 9, 'origins' => ['events', 'feed']]);
+
+        // Assert
+        $this->assertSame($named, $who, 'a known account by its name');
+        $this->assertSame(3, $first['total']);
+        $this->assertSame([2, 1, 2], [$first['pages'], $first['page'], $second['page']]);
+        $this->assertSame(['Kept by hand', 'thing.seen'], array_column($first['lines'], 'what'), 'newest first; prose where it was written, the code where not');
+        $this->assertSame(['#990777', null], array_column($first['lines'], 'who'), 'an unknown account by its id, the system as nobody');
+        $this->assertSame(['thing.made'], array_column($second['lines'], 'what'));
+        $this->assertSame('title: A → B', $saves['lines'][0]['what'], 'the save, newest');
+        $this->assertSame([['field' => 'title', 'old' => 'A', 'new' => 'B']], $saves['lines'][0]['changes']);
+    }
+
+    /**
+     * Who may read a history: nobody signed out; an account its own; somebody else's, or anything
+     * wider, only whoever may open the administration — or whom the application's rule allows.
+     */
+    public function testWhoMayReadAHistory(): void
+    {
+        // Arrange
+        $member = new \Pramnos\User\User();
+        $member->userid   = 990321;
+        $member->usertype = 1;
+
+        // Act
+        $nobody   = \Pramnos\Changelog\History::allows(null, ['entity' => 'user', 'itemid' => '990321']);
+        $own      = \Pramnos\Changelog\History::allows($member, ['entity' => 'user', 'itemid' => '990321']);
+        $other    = \Pramnos\Changelog\History::allows($member, ['entity' => 'user', 'itemid' => '990322']);
+        $wider    = \Pramnos\Changelog\History::allows($member, ['entity' => 'user', 'itemid' => '990321', 'userid' => 5]);
+        \Pramnos\Changelog\History::allowUsing(static fn (?object $user, array $filters): bool => ($filters['entity'] ?? '') === 'post');
+        $byRule   = [\Pramnos\Changelog\History::allows($member, ['entity' => 'post']), \Pramnos\Changelog\History::allows($member, ['entity' => 'user', 'itemid' => '990321'])];
+
+        // Assert
+        $this->assertFalse($nobody);
+        $this->assertTrue($own, 'their own account');
+        $this->assertFalse($other, 'not somebody else\'s');
+        $this->assertFalse($wider, 'and not what they did elsewhere');
+        $this->assertSame([true, false], $byRule, 'the application\'s rule, instead of the default');
+    }
+
+    /**
+     * The API a SPA reads: 401 for nobody, 403 for a history that is not theirs, and a page — with
+     * the filters from the query — for one that is.
+     */
+    public function testTheHistoryApi(): void
+    {
+        // Arrange
+        ChangelogWriter::event('user', 990321, 'user.login', by: 990321);
+        ChangelogWriter::event('user', 990321, 'user.logout', by: 990321);
+        $router = new \Pramnos\Routing\Router(null);
+        \Pramnos\Changelog\HistoryApi::routes($router, 'api/history/');
+        $route  = $router->getMatchedRoute(\Pramnos\Http\Request::create('/api/history', 'GET'));
+        $member = new \Pramnos\User\User();
+        $member->userid   = 990321;
+        $member->usertype = 1;
+
+        // Act
+        $nobody = ($route->action)();
+        \Pramnos\Http\RequestIdentity::seal($member, 'test');
+        $_GET   = ['entity' => 'user', 'itemid' => '990322'];
+        $refused = ($route->action)();
+        $_GET   = ['entity' => 'user', 'itemid' => '990321', 'event' => 'user.login,user.logout', 'per_page' => '1', 'order' => 'asc', 'origins' => 'events', 'from' => (string) (time() - 3600)];
+        $page   = ($route->action)();
+        $this->db->queryBuilder()->table(ChangelogWriter::EVENTS_TABLE)->where('entity', 'user')->where('itemid', '990321')->delete();
+
+        // Assert
+        $this->assertSame(401, $nobody['status']);
+        $this->assertSame(403, $refused['status']);
+        $this->assertSame(200, $page['status']);
+        $this->assertSame([2, 2], [$page['data']['total'], $page['data']['pages']]);
+        $this->assertSame('user.login', $page['data']['lines'][0]['what'], 'oldest first, as asked');
+    }
+
+    /**
+     * The panel a server-rendered page draws: nothing for a reader it is not for; for one it is,
+     * the lines with who and when, and links to the other pages that keep the page's query.
+     */
+    public function testTheHistoryPanel(): void
+    {
+        // Arrange
+        for ($i = 0; $i < 3; $i++) {
+            ChangelogWriter::event(self::ENTITY, 77, 'thing.step' . $i, by: 0, at: time() - 600 + $i * 60);
+        }
+        \Pramnos\Changelog\History::allowUsing(static fn (?object $user): bool => $user !== null);
+        $reader = new \Pramnos\User\User();
+        $reader->userid = 990321;
+
+        // Act
+        $hidden = \Pramnos\Html\HistoryPanel::render(self::ENTITY, 77);
+        \Pramnos\Http\RequestIdentity::seal($reader, 'test');
+        $_GET   = ['tab' => 'history', 'history_page' => '2'];
+        $paged  = \Pramnos\Html\HistoryPanel::render(self::ENTITY, 77, ['perPage' => 2, 'changes' => true]);
+        $_GET   = [];
+        $empty  = \Pramnos\Html\HistoryPanel::render(self::ENTITY, 78, ['empty' => 'Nothing yet']);
+
+        // Assert
+        $this->assertSame('', $hidden);
+        $this->assertStringContainsString('<span class="pf-history-what">thing.step0</span>', $paged, 'page 2 holds the oldest');
+        $this->assertStringContainsString('<span class="pf-history-who">System</span>', $paged);
+        $this->assertStringContainsString('href="?tab=history&amp;history_page=1"', $paged, 'newer, keeping the page\'s query');
+        $this->assertStringContainsString('<span>2 / 2</span>', $paged);
+        $this->assertStringContainsString('<p class="pf-history-empty">Nothing yet</p>', $empty);
     }
 }

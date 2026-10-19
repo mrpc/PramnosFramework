@@ -1,0 +1,80 @@
+import { render, screen, fireEvent, waitFor } from '@testing-library/svelte';
+import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
+import HistoryPanel from '../components/HistoryPanel.svelte';
+
+/**
+ * Tests for a record's history.
+ *
+ * Through the real `lib/api.js`, with only `fetch` stubbed, answering as
+ * `Pramnos\Changelog\HistoryApi` answers. What matters: the record's history is asked for, older
+ * pages are appended, and a history that is not the reader's draws nothing rather than an error.
+ */
+
+/** A line as History::page() gives it. */
+const line = (what, who) => ({ at: '2026-10-19 10:00:00', who, what, source: 'web', origin: 'events', changes: [] });
+
+let calls;
+let status;
+
+vi.mock('../lib/i18n.svelte.js', () => ({ t: (s) => s }));
+
+beforeEach(() => {
+    calls  = [];
+    status = 200;
+    vi.stubGlobal('fetch', vi.fn(async (url) => {
+        const address = new URL(url, 'http://localhost');
+        const query   = Object.fromEntries(address.searchParams);
+        calls.push(query);
+        const page = Number(query.page ?? 1);
+        const body = status === 200
+            ? { status: 200, data: { lines: page === 1 ? [line('Published', 'anna'), line('Edited', null)] : [line('Created', 'anna')], total: 3, page, pages: 2 } }
+            : { status, error: 'This history is not yours to read.' };
+
+        return { status, ok: status < 300, json: async () => body };
+    }));
+});
+
+afterEach(() => {
+    vi.unstubAllGlobals();
+});
+
+describe('HistoryPanel', () => {
+    it('asks for the record\'s history and draws who did what', async () => {
+        // Arrange / Act
+        render(HistoryPanel, { entity: 'post', itemid: 42 });
+
+        // Assert
+        expect(await screen.findByText('Published')).toBeTruthy();
+        expect(screen.getByText('anna')).toBeTruthy();
+        expect(screen.getByText('System')).toBeTruthy();
+        expect(calls[0]).toMatchObject({ entity: 'post', itemid: '42', page: '1' });
+        expect(calls[0].origins).toBeUndefined();
+    });
+
+    it('appends the older page, and asks for the saves too when told', async () => {
+        // Arrange
+        render(HistoryPanel, { entity: 'post', itemid: 42, changes: true });
+        await screen.findByText('Published');
+
+        // Act
+        await fireEvent.click(screen.getByText('Older'));
+
+        // Assert
+        expect(await screen.findByText('Created')).toBeTruthy();
+        expect(screen.getByText('Published')).toBeTruthy();
+        expect(calls[1]).toMatchObject({ page: '2', origins: 'events,feed' });
+        await waitFor(() => expect(screen.queryByText('Older')).toBeNull());
+    });
+
+    it('draws nothing for a history that is not the reader\'s', async () => {
+        // Arrange
+        status = 403;
+
+        // Act
+        const { container } = render(HistoryPanel, { entity: 'post', itemid: 42 });
+
+        // Assert
+        await waitFor(() => expect(calls).toHaveLength(1));
+        await waitFor(() => expect(container.querySelector('.pf-history')).toBeNull());
+    });
+});

@@ -14,6 +14,9 @@ use Pramnos\Database\Database;
  */
 #[Group('mariadb')]
 #[CoversClass(\Pramnos\Changelog\ChangelogWriter::class)]
+#[CoversClass(\Pramnos\Changelog\History::class)]
+#[CoversClass(\Pramnos\Changelog\HistoryApi::class)]
+#[CoversClass(\Pramnos\Html\HistoryPanel::class)]
 final class ChangelogEventsMariaDbTest extends ChangelogEventsTest
 {
     /** The MariaDB container; null skips when it is not reachable. */

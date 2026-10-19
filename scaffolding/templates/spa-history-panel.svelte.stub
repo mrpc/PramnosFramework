@@ -1,0 +1,99 @@
+<script>
+    import { api } from '../lib/api.js';
+    import { t } from '../lib/i18n.svelte.js';
+    import { ui } from '../lib/ui.js';
+
+    /**
+     * A record's history — who did what, and when — the SPA's counterpart of
+     * `Pramnos\Html\HistoryPanel`, over `Pramnos\Changelog\HistoryApi` (`GET /history`), drawn with
+     * the same `pf-history-*` classes.
+     *
+     * ```svelte
+     * <HistoryPanel entity="post" itemid={post.id} />
+     * <HistoryPanel entity="post" itemid={post.id} changes />   <!-- every save's fields too -->
+     * ```
+     *
+     * Newest first, `perPage` at a time, and "Older" appends the next page. Nothing at all for
+     * somebody the server will not show it to: a 401 or 403 is the history not being theirs, not
+     * an error to put on the screen.
+     *
+     * @type {{ entity: string, itemid: string|number, changes?: boolean, perPage?: number, title?: string }}
+     */
+    let { entity, itemid, changes = false, perPage = 20, title = 'History' } = $props();
+
+    let lines   = $state([]);
+    let page    = $state(0);
+    let pages   = $state(1);
+    let hidden  = $state(false);
+    let loading = $state(false);
+    let failed  = $state(false);
+
+    async function load(next) {
+        loading = true;
+        try {
+            const query = { entity, itemid, page: next, per_page: perPage };
+            if (changes) {
+                query.origins = 'events,feed';
+            }
+            const found = (await api.get('/history', query))?.data ?? {};
+            lines = next === 1 ? (found.lines ?? []) : [...lines, ...(found.lines ?? [])];
+            page  = found.page ?? next;
+            pages = found.pages ?? 1;
+        } catch (error) {
+            if (error?.status === 401 || error?.status === 403) {
+                hidden = true;
+            } else {
+                failed = true;
+            }
+        } finally {
+            loading = false;
+        }
+    }
+
+    // Again whenever the record changes.
+    $effect(() => {
+        if (entity && itemid !== undefined && itemid !== null && itemid !== '') {
+            hidden = false;
+            failed = false;
+            load(1);
+        }
+    });
+
+    /** When, in the reader's language: a stored timestamp. */
+    function when(stamp) {
+        const at = stamp ? new Date(String(stamp).replace(' ', 'T')) : null;
+
+        return at && !Number.isNaN(at.getTime())
+            ? at.toLocaleString(undefined, { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+            : String(stamp ?? '');
+    }
+</script>
+
+{#if !hidden}
+    <section class="pf-history" aria-label={t(title)}>
+        <h3 class="pf-history-title">{t(title)}</h3>
+        {#if failed}
+            <p class={ui('error.text')} role="alert">{t('The history could not be read.')}</p>
+        {:else if loading && lines.length === 0}
+            <div class={ui('center')}><span class={ui('spinner')}></span></div>
+        {:else if lines.length === 0}
+            <p class="pf-history-empty">{t('Nothing recorded yet.')}</p>
+        {:else}
+            <ol class="pf-history-list">
+                {#each lines as line, index (index)}
+                    <li class="pf-history-line">
+                        <span class="pf-history-what">{line.what}</span>
+                        <span class="pf-history-meta">
+                            <span class="pf-history-who">{line.who ?? t('System')}</span>
+                            · <time class="pf-history-when" datetime={line.at}>{when(line.at)}</time>
+                            {#if line.source}· <span class="pf-history-source">{line.source}</span>{/if}
+                        </span>
+                    </li>
+                {/each}
+            </ol>
+            {#if page < pages}
+                <button type="button" class="pf-history-more" disabled={loading} onclick={() => load(page + 1)}>{t('Older')}</button>
+            {/if}
+        {/if}
+    </section>
+{/if}

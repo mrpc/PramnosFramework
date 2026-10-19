@@ -609,6 +609,21 @@ class InitSpaScaffoldingTest extends TestCase
     }
 
     /**
+     * With the `changelog` feature the SPA can show a record's history: the endpoint is routed,
+     * and the component and its test are in every Svelte SPA, for a screen to place.
+     */
+    public function testTheHistoryPanelReachesTheSpa(): void
+    {
+        // Act
+        $this->runInit(['--app-style' => 'spa', '--spa-stack' => 'svelte', '--features' => 'auth,changelog']);
+
+        // Assert
+        $this->assertStringContainsString('\\Pramnos\\Changelog\\HistoryApi::routes($r);', $this->read('src/Api/routes.php'));
+        $this->assertStringContainsString("api.get('/history'", $this->read('frontend/components/HistoryPanel.svelte'));
+        $this->read('frontend/__tests__/HistoryPanel.test.js');
+    }
+
+    /**
      * The theme's header — one for the site and the administration — draws the bell in every UI
      * system, beside the What's new button.
      */

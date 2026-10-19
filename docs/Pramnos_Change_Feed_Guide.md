@@ -441,6 +441,47 @@ ChangelogRenderer::label('wcm-device', [
 ]);
 ```
 
+### Showing a record's history
+
+A record's "History" tab, drawn the same way in the administration, on the site and in a SPA:
+
+```php
+<?php echo \Pramnos\Html\HistoryPanel::render('post', $post->postid); ?>
+<?php echo \Pramnos\Html\HistoryPanel::render('post', $post->postid, ['changes' => true, 'perPage' => 50]); ?>
+```
+
+```svelte
+<HistoryPanel entity="post" itemid={post.id} />
+```
+
+Each line says what happened, who did it and when: a name, or *System* where nobody was signed
+in. The newest line comes first, and the history is shown a page at a time.
+- By default it shows the events the application recorded. With `changes` it shows every save's
+  fields as well.
+- On a server-rendered page, older pages are links (`?history_page=2`) that keep the page's query,
+  so no script is needed.
+- In a SPA, *Older* appends the next page. `HistoryPanel.svelte` is written into every Svelte SPA.
+  It reads `GET /history?entity=&itemid=` from `Changelog\HistoryApi::routes($r)`, which `init`
+  mounts with the `changelog` feature.
+
+Both use the same `pf-history-*` classes. The data underneath is
+`Changelog\History::page($filters, $page, $perPage)`. It takes the filters of `listing()`, and
+gives each line `at`, `who`, `what`, `source`, `event`, and a save's `changes`.
+
+**Who may read it.** A history names people and what they did, so by default it is shown to two
+kinds of reader:
+- whoever may open the administration;
+- anybody reading their own account's history (`user`, their own id), and nothing wider.
+
+Anybody else gets nothing: the panel draws nothing, and the API answers 403 (401 for somebody
+signed out). An application with other rules says so once:
+
+```php
+\Pramnos\Changelog\History::allowUsing(
+    fn (?object $user, array $filters): bool => $user !== null && Projects::canSee($user, $filters)
+);
+```
+
 ### One tenant's events
 
 A multi-tenant application asks "what happened in this organisation". Have the model

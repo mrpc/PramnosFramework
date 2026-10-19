@@ -607,3 +607,16 @@ a.pf-stat-tile:hover { border-color: var(--primary-color, #2563eb); }
 .pf-whatsnew-close { padding: .375rem 1rem; border: 1px solid var(--primary-color, #2563eb); border-radius: .375rem; background: var(--primary-color, #2563eb); color: #fff; font: inherit; cursor: pointer; }
 .pf-whatsnew-button { display: inline-flex; align-items: center; gap: .375rem; cursor: pointer; }
 @media (max-width: 40rem) { .pf-whatsnew-button span { display: none; } }
+
+/* A record's history: Html\HistoryPanel and HistoryPanel.svelte. */
+.pf-history { margin: 1rem 0; }
+.pf-history-title { font-size: 1rem; font-weight: 600; margin: 0 0 .5rem; }
+.pf-history-list { list-style: none; margin: 0; padding: 0; border-left: 2px solid color-mix(in oklab, currentColor 15%, transparent); }
+.pf-history-line { position: relative; padding: .375rem 0 .375rem .875rem; }
+.pf-history-line::before { content: ""; position: absolute; left: -5px; top: .75rem; width: 8px; height: 8px; border-radius: 999px; background: color-mix(in oklab, currentColor 40%, transparent); }
+.pf-history-what { display: block; overflow-wrap: anywhere; }
+.pf-history-meta { display: block; font-size: .8rem; opacity: .65; }
+.pf-history-who { font-weight: 600; }
+.pf-history-empty { opacity: .7; margin: 0; }
+.pf-history-pager { display: flex; align-items: center; gap: .75rem; margin-top: .5rem; font-size: .875rem; }
+.pf-history-more { background: none; border: 0; color: inherit; text-decoration: underline; cursor: pointer; padding: .25rem 0; }
