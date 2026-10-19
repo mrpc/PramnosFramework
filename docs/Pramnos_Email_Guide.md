@@ -1937,7 +1937,9 @@ php bin/pramnos mail:bounces --imap --limit=50
 ```
 
 The unseen messages are read without being marked. Each delivery report is recorded and marked
-seen. Anything else stays unread, for a person. With `oauth` the refresh token is exchanged for
+seen. Anything else stays unread, for a person — so a bounce mailbox that also receives replies
+needs somebody to read them, or they pile up. `--limit` takes the **newest** unseen messages,
+so a new report is reached however many unread replies are older than it. With `oauth` the refresh token is exchanged for
 an access token (Google's endpoint unless `token_url` says otherwise), and the mailbox is signed
 into with XOAUTH2: Gmail accepts no password from an application, and IMAP needs nothing more.
 Without the block, the settings an application already keeps are read:

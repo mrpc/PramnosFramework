@@ -171,7 +171,34 @@ final class BounceMailboxTest extends TestCase
         $this->assertStringContainsString('AUTHENTICATE XOAUTH2 ', $this->log());
         $this->assertStringNotContainsString('LOGIN', $this->log());
         $this->assertStringContainsString('1 report(s)', $tester->getDisplay());
-        $this->assertNull(Bounces::status('full@bounces.test'), 'the second message waits for the next run');
+        $this->assertNotNull(Bounces::status('full@bounces.test'), 'the newest message is the one read');
+        $this->assertNull(Bounces::refusal('gone@bounces.test'), 'the older one waits for the next run');
+    }
+
+    /**
+     * Behind more unseen replies than the limit, a new report is still read: the limit takes the
+     * newest messages. The replies stay unseen for a person, so the oldest that many would be
+     * the same replies on every run and the report would never be reached.
+     */
+    public function testANewReportBehindABacklogOfRepliesIsRead(): void
+    {
+        // Arrange — three replies nobody has read, then a report
+        $port = $this->serve([
+            '1' => "Subject: Re: one\r\n\r\nThanks\r\n",
+            '2' => "Subject: Re: two\r\n\r\nThanks\r\n",
+            '3' => "Subject: Re: three\r\n\r\nThanks\r\n",
+            '4' => self::report('gone@bounces.test', '5.1.1'),
+        ]);
+        $mailbox = new BounceMailbox(['host' => '127.0.0.1', 'port' => $port, 'encryption' => 'none', 'username' => 'bounces@example.com', 'password' => 'p"ss\\word']);
+
+        // Act
+        $tester = $this->bounces($mailbox, ['--limit' => 3]);
+
+        // Assert
+        $this->assertSame(0, $tester->getStatusCode(), $tester->getDisplay());
+        $this->assertStringContainsString('1 report(s) in 3 unseen message(s)', $tester->getDisplay());
+        $this->assertNotNull(Bounces::refusal('gone@bounces.test'), 'the report behind the replies was read');
+        $this->assertStringNotContainsString('FETCH 1 ', $this->log(), 'the oldest reply was not what the limit took');
     }
 
     /**

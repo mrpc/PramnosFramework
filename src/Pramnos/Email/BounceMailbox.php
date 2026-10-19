@@ -115,7 +115,12 @@ class BounceMailbox
     }
 
     /**
-     * The unseen messages, oldest first, as UIDs.
+     * The unseen messages, oldest first, as UIDs — with a limit, the newest that many.
+     *
+     * The newest, because what is left unseen grows: only reports are marked seen, and a reply a
+     * person still has to read stays unseen. The oldest `$limit` would be the same old replies
+     * on every run once there were more of them than the limit, and a new report behind them
+     * would never be read.
      *
      * @return list<int>
      */
@@ -123,7 +128,7 @@ class BounceMailbox
     {
         $uids = $this->client?->unseen() ?? [];
 
-        return $limit > 0 ? array_slice($uids, 0, $limit) : $uids;
+        return $limit > 0 ? array_slice($uids, -$limit) : $uids;
     }
 
     /** A message, whole, without marking it seen. */
