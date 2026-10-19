@@ -2810,6 +2810,12 @@ class InitCommandUnitTest extends TestCase
         // Must extend the framework Health controller
         $this->assertStringContainsString('extends FrameworkHealth', $health);
         $this->assertStringContainsString('use Pramnos\\Application\\Controllers\\Health as FrameworkHealth', $health);
+
+        // The public status page beside it, extending the framework's
+        $status = (string) file_get_contents($this->tmpDir . '/src/Controllers/Status.php');
+        $this->assertStringContainsString('namespace MinimalApp\\Controllers;', $status);
+        $this->assertStringContainsString('class Status extends FrameworkStatus', $status);
+        $this->assertStringContainsString('use Pramnos\\Application\\Controllers\\Status as FrameworkStatus', $status);
     }
 
     /**

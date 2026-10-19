@@ -8975,7 +8975,8 @@ PHP;
      * Health controller so that /health provides the health dashboard and the
      * GET /health/check JSON endpoint is available to monitoring systems.
      *
-     * Scaffolded in every application regardless of enabled features.
+     * Scaffolded in every application regardless of enabled features, with src/Controllers/Status.php
+     * beside it: the public status page.
      */
     private function scaffoldHealthWiring(string $namespace): void
     {
@@ -9008,6 +9009,33 @@ class Health extends FrameworkHealth
 PHP;
 
         $this->writeFile('src/Controllers/Health.php', $healthController);
+
+        // The public status page beside it: what a footer's "Status" link should reach.
+        $statusController = <<<PHP
+<?php
+
+declare(strict_types=1);
+
+namespace {$namespace}\\Controllers;
+
+use Pramnos\\Application\\Controllers\\Status as FrameworkStatus;
+
+/**
+ * The public status page — delegates to the framework Status controller.
+ *
+ * Routes:
+ *   GET /Status          → display()  the page: the verdict, and each check's by name
+ *   GET /Status/check    → check()    JSON, 200 or 503 — for monitoring
+ *   GET /Status/status   → status()   the verdict flattened
+ *
+ * It never shows a check's message or details: those are on /health, behind a sign-in.
+ */
+class Status extends FrameworkStatus
+{
+}
+PHP;
+
+        $this->writeFile('src/Controllers/Status.php', $statusController);
     }
 
     /**

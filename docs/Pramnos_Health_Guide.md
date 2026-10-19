@@ -127,6 +127,7 @@ GET /health          HTML dashboard          (sign-in required)
 GET /health/check    Full JSON report        (public)
 GET /health/status   Flattened verdict       (public — the safe monitor URL)
 GET /health/phpinfo  phpinfo()               (usertype >= 90)
+GET /Status          Status page for people  (public — verdicts by name only)
 ```
 
 Both JSON endpoints are deliberately public, because a monitor calls them with no
@@ -209,6 +210,17 @@ sets of probes is how they come to disagree.
 Whichever you expose, keep detail out of what you add. If a check's `details`
 would carry a hostname or a fragment of a credential, that is worth a second
 thought even on `/health/check`.
+
+### `/Status` — the page for people
+
+`Pramnos\Application\Controllers\Status` extends the `Health` controller with a public page:
+the overall verdict in words ("Everything is working", "Partly available", …) and each check's
+verdict by name, run when the page loads. It never shows a check's `message` or `details`, to
+anybody — an administrator reads those on `/health`. Its own `check` and `status` actions are the
+inherited JSON endpoints.
+
+`init` scaffolds `src/Controllers/Status.php`, a wrapper the application can extend; the views are
+`status/status.html.php` in each scaffolded theme. It is what a footer's "Status" link points at.
 
 ---
 
