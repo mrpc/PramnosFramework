@@ -1696,6 +1696,10 @@ final class Migrator
         if ($mariadb && preg_match("/^'(.*)'$/s", $default, $m) === 1) {
             return ['default' => str_replace("''", "'", $m[1]), 'expression' => false];
         }
+        // A bit literal, b'1', which MariaDB leaves bare like an expression.
+        if (preg_match("/^b'[01]+'$/i", $default) === 1) {
+            return ['default' => $default, 'expression' => false];
+        }
 
         return ['default' => $default, 'expression' => $mariadb ? !is_numeric($default) : str_contains($extra, 'DEFAULT_GENERATED')];
     }
@@ -1709,7 +1713,7 @@ final class Migrator
     private static function defaultClause(array $column, string $type): string
     {
         $default = $column['default'];
-        if ($default === null || $type === 'boolean' || $type === 'bytea') {
+        if ($default === null) {
             return '';
         }
         if (preg_match('/^current_timestamp(\(\d*\))?$/i', $default) === 1) {
@@ -1718,11 +1722,45 @@ final class Migrator
         if ($column['expression'] || preg_match('/^0000-00-00/', $default) === 1) {
             return '';
         }
+        // Bytes: MySQL reports them as 0x…, MariaDB as a literal with MySQL's escapes (`\0`) — a
+        // binary(n)'s padding included. Dropped, the column takes no default, and an insert that
+        // leaves it out is refused here where MySQL filled it in.
+        if ($type === 'bytea') {
+            $bytes = preg_match('/^0x([0-9a-f]*)$/i', $default, $hex) === 1
+                ? (string) hex2bin(strlen($hex[1]) % 2 === 1 ? '0' . $hex[1] : $hex[1])
+                : self::unescapeMysql($default);
+            // A binary(n) is padded with zero bytes to its length — MySQL 8 reports `''` as `0x`
+            // and pads on insert; PostgreSQL pads nothing.
+            if (preg_match('/^binary\((\d+)\)/i', (string) ($column['type'] ?? ''), $size) === 1) {
+                $bytes = str_pad($bytes, (int) $size[1], "\0");
+            }
+
+            return " DEFAULT '\\x" . bin2hex($bytes) . "'::bytea";
+        }
+        if ($type === 'boolean') {
+            $bit = strtolower(trim($default, "b'"));
+
+            return in_array($bit, ['0', '1'], true) ? ' DEFAULT ' . ($bit === '1' ? 'true' : 'false') : '';
+        }
         if (preg_match('/^(smallint|integer|bigint|numeric|real|double precision)/', $type) === 1) {
             return is_numeric($default) ? ' DEFAULT ' . $default : '';
         }
 
         return " DEFAULT '" . str_replace("'", "''", $default) . "'";
+    }
+
+    /** A MySQL string literal's backslash escapes as the characters they stand for. */
+    private static function unescapeMysql(string $literal): string
+    {
+        return (string) preg_replace_callback('/\\\\(.)/s', static fn (array $m): string => match ($m[1]) {
+            '0'     => "\0",
+            'b'     => "\x08",
+            'n'     => "\n",
+            'r'     => "\r",
+            't'     => "\t",
+            'Z'     => "\x1a",
+            default => $m[1],
+        }, $literal);
     }
 
     /** Whether the target user may load with keys and triggers off. */

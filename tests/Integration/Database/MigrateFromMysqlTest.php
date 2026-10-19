@@ -594,6 +594,31 @@ class MigrateFromMysqlTest extends TestCase
     }
 
     /**
+     * A binary column's default comes with it (FW-172): `binary(8) NOT NULL DEFAULT ''` is eight
+     * zero bytes in MySQL — its padding — reported as `0x…` by MySQL and as an escaped literal by
+     * MariaDB, and was dropped, so an insert that left the column out was refused on PostgreSQL
+     * where MySQL had filled it in. A `bit(1)` default is a boolean's. Each now carries over, and
+     * the insert that relies on them goes in with the same bytes.
+     */
+    public function testBinaryAndBitDefaultsCarryOver(): void
+    {
+        // Arrange
+        $tester = $this->databases();
+        $this->source->query("CREATE TABLE bindefaults (id INT PRIMARY KEY, b BINARY(8) NOT NULL DEFAULT '', v VARBINARY(6) NOT NULL DEFAULT 'a\\'\\\\z', flag BIT(1) NOT NULL DEFAULT b'1', raw BLOB) ENGINE=InnoDB");
+        $this->source->query('INSERT INTO bindefaults (id) VALUES (1)');
+
+        // Act
+        $tester->execute(['--source' => $this->dsn(), '--tables' => 'bindefaults']);
+        $this->target->query('INSERT INTO bindefaults (id) VALUES (2)');
+        $rows = $this->rows("SELECT id, encode(b, 'hex') AS b, encode(v, 'hex') AS v, flag::text AS flag FROM bindefaults ORDER BY id");
+
+        // Assert
+        $expected = ['b' => '0000000000000000', 'v' => bin2hex("a'\\z"), 'flag' => 'true'];
+        $this->assertSame(['id' => 1] + $expected, ['id' => (int) $rows[0]['id']] + array_slice($rows[0], 1), 'moved as MySQL filled it');
+        $this->assertSame(['id' => 2] + $expected, ['id' => (int) $rows[1]['id']] + array_slice($rows[1], 1), 'and filled the same here');
+    }
+
+    /**
      * MySQL's `_ci` collations compare without regard to case and PostgreSQL compares exactly, so
      * an indexed text column — a login looked up by e-mail — changes its answers after the move.
      * The dry run names each: a unique one (now taking `A` beside `a`) and a looked-up one. It does

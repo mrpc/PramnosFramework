@@ -107,7 +107,10 @@ stays plain `text`, since any combination of its words is a value.
 MariaDB stores a `JSON` column as `longtext` with a `json_valid()` check; the check is read and
 the column is created as `jsonb` all the same. Defaults are kept where PostgreSQL can say the same
 thing: the current time (`CURRENT_TIMESTAMP`, or MariaDB's `current_timestamp()`), a number, a
-literal. A zero date and an expression PostgreSQL has no word for are left out.
+literal, bytes and a bit. A `binary(n)` default is the bytes MySQL stores, padded with zero bytes
+to its length (`DEFAULT ''` is eight of them in a `binary(8)`), as `'\x…'::bytea`. A `bit(1)`
+default is `true` or `false`. A zero date and an expression PostgreSQL has no word for are left
+out.
 
 ## How the rows move
 
