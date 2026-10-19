@@ -214,6 +214,8 @@ class Application extends \Symfony\Component\Console\Application
         // `mails` is the table that grows without limit in every installation, because it
         // stores the rendered body — most of the bytes, and the part nobody reads back.
         $this->add(new \Pramnos\Console\Commands\MailPrune());
+        // Sent messages' bodies from files into the compressed mail_bodies, once TimescaleDB is there.
+        $this->add(new \Pramnos\Console\Commands\MailBodiesToDatabase());
         $this->add(new \Pramnos\Console\Commands\LlmPrune());
         $this->add(new \Pramnos\Console\Commands\LlmRoutines());
         // The other half of the same table: `Email::queue()` writes a message there instead of

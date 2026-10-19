@@ -1733,6 +1733,25 @@ to the store.
 **A store that cannot be written** keeps the body in `content` and logs why; a body is never lost
 to its store. The application has to be able to write the `files` folder.
 
+**Moving bodies from files into the database.** An installation that kept its bodies on disk,
+and has TimescaleDB now, moves them into `mail_bodies`:
+
+```bash
+php bin/pramnos mail:bodies-to-database --dry-run          # how many rows there are to move
+php bin/pramnos mail:bodies-to-database                     # a thousand rows a transaction
+php bin/pramnos mail:bodies-to-database --include-content   # bodies kept in mails.content as well
+```
+
+- **What it reads:** each row's body as it is kept — an application's `.html.gz`, the store's
+  `.body.gz`, a file on a storage disk. It then points the row at `mail_bodies` (`path` =
+  `db:`), so the row reads exactly as before.
+- **Stopping and starting:** a row already moved is not read again, so a run that was stopped is
+  finished by the next. A batch the database refuses is rolled back whole, and the run stops,
+  saying at which mail.
+- **A file that is not there any more** is counted, and its row left as it is.
+- **The files are not deleted,** because many rows share one. Once a run finds nothing left to
+  move, the folder is yours to remove.
+
 ---
 
 ## What DNS says, and what the application cannot see

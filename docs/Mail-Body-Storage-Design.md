@@ -382,7 +382,8 @@ each alone.
 5. Bounces and suppression: the table, a check in `send()`, a command reading the bounce mailbox,
    and a screen.
 6. GDPR erasure and retention, files and rows alike.
-7. `mails` as a hypertable, with the move of an application's files into the store.
+7. `mails` as a hypertable. The move of an application's files into `mail_bodies` is
+   `mail:bodies-to-database`. *Done.*
 
 ## 9. Next steps
 

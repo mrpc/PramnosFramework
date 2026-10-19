@@ -64,6 +64,7 @@ class BodyStoreMailFlush extends MailFlush
 #[CoversClass(Body::class)]
 #[CoversClass(Email::class)]
 #[CoversClass(MailFlush::class)]
+#[CoversClass(\Pramnos\Console\Commands\MailBodiesToDatabase::class)]
 class MailBodyStoreTest extends BaseTestCase
 {
     protected \Pramnos\Database\Database $db;
@@ -388,6 +389,20 @@ class MailBodyStoreTest extends BaseTestCase
         $this->assertSame(1, (int) $later['status']);
         $this->assertSame(['<p>Failing</p>', ''], [(string) $failing['content'], (string) $failing['path']]);
         $this->assertSame(1, (int) $failing['status'], 'sent all the same');
+    }
+
+    /** Without `mail_bodies` — here, MySQL — the move says where the table comes from, and fails. */
+    public function testTheMoveNeedsTheTable(): void
+    {
+        // Arrange
+        $tester = new CommandTester(new \Pramnos\Console\Commands\MailBodiesToDatabase());
+
+        // Act
+        $code = $tester->execute([]);
+
+        // Assert
+        $this->assertSame(1, $code);
+        $this->assertStringContainsString('There is no mail_bodies table', $tester->getDisplay());
     }
 }
 
