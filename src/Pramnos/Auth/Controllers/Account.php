@@ -749,7 +749,7 @@ class Account extends Controller
 
         $view             = $this->getView('sso');
         $view->routeBase  = $this->routeBase;
-        $view->header     = 'Single Sign-On';
+        $view->header     = t('Single Sign-On');
         $view->isLoggedIn = $userId !== null;
         $view->user       = $userId !== null ? $this->currentUser() : null;
         $view->activeApps = $userId !== null ? $this->getAuthorizedApplications($userId) : [];
@@ -1498,7 +1498,7 @@ class Account extends Controller
         $view                 = $this->getView('register');
         $view->routeBase      = $this->routeBase;
         $view->brand          = $this->brand();
-        $view->header         = 'Create Account';
+        $view->header         = t('Create Account');
         $view->formData       = [];
         $view->registrationOpen = $this->registrationIsOpen();
         $view->humanCheck       = $this->humanCheckChallenge('register');

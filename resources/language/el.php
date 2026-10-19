@@ -586,4 +586,6 @@ return [
     'opt-in list' => 'λίστα με εγγραφή',
     'or' => 'ή',
     'your phone' => 'το τηλέφωνό σας',
+    'New backup codes generated. Store them in a safe place.' => 'Δημιουργήθηκαν νέοι εφεδρικοί κωδικοί. Φυλάξτε τους σε ασφαλές μέρος.',
+    'Two-factor authentication has been enabled successfully!' => 'Η επαλήθευση σε δύο βήματα ενεργοποιήθηκε!',
 ];

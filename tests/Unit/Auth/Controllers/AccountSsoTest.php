@@ -94,6 +94,42 @@ class AccountSsoTest extends TestCase
         $this->assertNotContains('sso', $this->c->actions_auth);
         $this->assertSame('Single sign-on', $this->c->doc->title);
     }
+
+    /**
+     * The headings the controller hands the sso and registration views are translated: the views
+     * print `$this->header` as given, so an English literal here was English on a Greek site.
+     */
+    public function testTheHeadingsAreTranslated(): void
+    {
+        // Arrange — a language that marks what it translated
+        \Pramnos\Translator\Language::setInstance(new class extends \Pramnos\Translator\Language {
+            /** No catalogue to load. */
+            public function __construct()
+            {
+            }
+
+            /** Every phrase, marked. */
+            public function _($string = '', $args = '')
+            {
+                return '[el] ' . $string;
+            }
+        });
+
+        try {
+            // Act
+            $this->c->sso();
+            $sso = $this->c->view->props['header'];
+            $this->c->open = false;
+            $this->c->register();
+            $register = $this->c->view->props['header'];
+        } finally {
+            \Pramnos\Translator\Language::setInstance(null);
+        }
+
+        // Assert
+        $this->assertSame('[el] Single Sign-On', $sso);
+        $this->assertSame('[el] Create Account', $register);
+    }
 }
 
 /**

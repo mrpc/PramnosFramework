@@ -226,7 +226,7 @@ class TwoFactorAuth extends Controller
 
             if ($newCodes !== false) {
                 $view->newBackupCodes = $newCodes;
-                $view->success        = 'New backup codes generated. Store them in a safe place.';
+                $view->success        = t('New backup codes generated. Store them in a safe place.');
             } else {
                 $view->error = t('Invalid password. Backup codes could not be regenerated.');
             }
@@ -237,7 +237,7 @@ class TwoFactorAuth extends Controller
 
         if ($request->get('setup', '', 'get') === 'complete') {
             $view->setupComplete = true;
-            $view->success       = 'Two-factor authentication has been enabled successfully!';
+            $view->success       = t('Two-factor authentication has been enabled successfully!');
             // The codes the enrolment just stored. This page says "save your
             // backup codes before leaving" and used to show none: they were
             // generated, hashed and dropped, so the account's recovery codes
