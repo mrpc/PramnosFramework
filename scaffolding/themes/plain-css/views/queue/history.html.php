@@ -11,13 +11,10 @@
  * for longer than the queue table does. Wait is how long a task sat before a worker took it.
  */
 $e  = static fn ($value): string => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
-$bc = new \Pramnos\Html\Breadcrumb();
-$bc->addItem(t('Home'), adminUrl());
-$bc->addItem(t('Queue'), adminUrl('Queue'));
-$bc->addItem(t('Statistics'), '');
+$bc = \Pramnos\Html\Breadcrumb::admin([[$e(t('Queue')), adminUrl('Queue')], [$e(t('Statistics')), '']]);
 ?>
 <div class="page-section">
-    <?php echo $bc->render(); ?>
+    <?php echo $bc; ?>
     <h2 style="margin-bottom:16px"><?php echo $e(sprintf(t('Queue statistics — last %d hours'), (int) $this->hours)); ?></h2>
     <?php if (empty($this->history)): ?>
         <p style="color:#666"><?php echo $e(t('Nothing recorded yet. The hourly figures are written when finished tasks are cleaned up.')); ?></p>

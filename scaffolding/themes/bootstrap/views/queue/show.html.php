@@ -11,13 +11,10 @@
  */
 $e  = static fn ($value): string => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
 $id = (int) ($this->task['taskid'] ?? 0);
-$bc = new \Pramnos\Html\Breadcrumb();
-$bc->addItem(t('Home'), adminUrl());
-$bc->addItem(t('Queue'), adminUrl('Queue'));
-$bc->addItem('#' . $id, '');
+$bc = \Pramnos\Html\Breadcrumb::admin([[$e(t('Queue')), adminUrl('Queue')], [$e('#' . $id), '']]);
 ?>
 <div class="container py-4">
-    <?php echo $bc->render(); ?>
+    <?php echo $bc; ?>
     <div class="d-flex flex-wrap align-items-center gap-3 mb-3">
         <a href="<?php echo adminUrl('Queue'); ?>" class="btn btn-sm btn-outline-secondary">&larr; <?php echo $e(t('Back')); ?></a>
         <h2><?php echo $e(sprintf(t('Task #%d'), $id)); ?></h2>

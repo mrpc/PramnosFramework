@@ -123,6 +123,38 @@ final class AdminBreadcrumbTest extends TestCase
     }
 
     /**
+     * No admin screen builds a `Breadcrumb` of its own: one that did would print its trail
+     * beside the shell's whatever the setting said, as the queue's task and statistics pages
+     * did. The account area's partial is the site's, not the administration's.
+     */
+    #[DataProvider('themes')]
+    public function testNoAdminViewBuildsItsOwnTrail(string $theme): void
+    {
+        // Arrange
+        $root  = dirname(__DIR__, 3) . '/scaffolding/themes/' . $theme . '/views';
+        $files = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($root, \FilesystemIterator::SKIP_DOTS));
+        $seen  = 0;
+        $own   = [];
+
+        // Act
+        foreach ($files as $file) {
+            $name = substr((string) $file, strlen($root) + 1);
+            if (!str_ends_with($name, '.php') || $name === 'partials/account_breadcrumb.html.php') {
+                continue;
+            }
+            $source = (string) file_get_contents((string) $file);
+            $seen  += (int) str_contains($source, 'Breadcrumb::admin(');
+            if (str_contains($source, 'new \\Pramnos\\Html\\Breadcrumb')) {
+                $own[] = $name;
+            }
+        }
+
+        // Assert
+        $this->assertGreaterThanOrEqual(3, $seen, 'the sweep found none of the screens that use the helper');
+        $this->assertSame([], $own, 'admin views that draw their own trail: use Breadcrumb::admin()');
+    }
+
+    /**
      * The email preview is sandboxed without `allow-same-origin` or `allow-scripts`, so the page
      * cannot read the frame's document: an `onload` that sized it from `contentDocument` threw a
      * TypeError on every message, and as an inline handler a CSP without `unsafe-inline` blocks

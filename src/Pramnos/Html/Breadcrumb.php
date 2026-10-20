@@ -92,8 +92,8 @@ class Breadcrumb extends \Pramnos\Framework\Base
         }
 
         $trail = new self();
-        $trail->addItem('Home', adminUrl());
-        $trail->addItem('Dashboard', adminUrl('Dashboard'));
+        $trail->addItem(htmlspecialchars(t('Home'), ENT_QUOTES, 'UTF-8'), adminUrl());
+        $trail->addItem(htmlspecialchars(t('Dashboard'), ENT_QUOTES, 'UTF-8'), adminUrl('Dashboard'));
         foreach ($steps as [$label, $url]) {
             $trail->addItem($label, $url);
         }
