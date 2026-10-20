@@ -179,11 +179,11 @@ class BroadcastingServiceProviderTest extends TestCase
     }
 
     /**
-     * register() binds an empty ChannelRegistry, shared across resolutions.
+     * register() binds a ChannelRegistry, shared across resolutions.
      *
-     * Empty is the correct default and worth asserting: a registry with no rules
-     * denies every private and presence channel, so a deployment that enabled the
-     * endpoint before writing any rules is closed rather than open.
+     * Closed by default, and worth asserting: beyond a user's own notifications
+     * channel it denies every private and presence channel, so a deployment that
+     * enabled the endpoint before writing any rules is closed rather than open.
      */
     public function testRegistersASharedEmptyChannelRegistry(): void
     {
@@ -206,6 +206,31 @@ class BroadcastingServiceProviderTest extends TestCase
             $app->container->get('broadcasting.channels'),
             'the registry is shared, so rules registered once are seen everywhere'
         );
+    }
+
+    /**
+     * The registry starts with one rule: a user may join their own notifications channel —
+     * `private-users.{id}`, or the pattern `broadcasting.notifications_channel` names — and not
+     * another user's.
+     */
+    public function testTheRegistryAdmitsAUserToTheirOwnNotificationsChannel(): void
+    {
+        // Arrange
+        $default = $this->makeAppWithFeatures([], []);
+        $custom  = $this->makeAppWithFeatures(['notifications_channel' => 'private-team.{id}.alerts'], []);
+        (new BroadcastingServiceProvider($default))->register();
+        (new BroadcastingServiceProvider($custom))->register();
+        $me = (object) ['userid' => 5];
+
+        // Act
+        $registry = $default->container->get('broadcasting.channels');
+        $team     = $custom->container->get('broadcasting.channels');
+
+        // Assert
+        $this->assertTrue($registry->authorize('private-users.5', $me));
+        $this->assertFalse($registry->authorize('private-users.6', $me));
+        $this->assertTrue($team->authorize('private-team.5.alerts', $me));
+        $this->assertFalse($team->authorize('private-users.5', $me), 'the configured pattern, not the default');
     }
 
     /**

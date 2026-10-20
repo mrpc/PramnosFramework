@@ -62,6 +62,21 @@ final class ChannelRegistry
         return $this;
     }
 
+    /**
+     * A channel each user may join only for themselves: `private-users.{id}` admits the signed-in
+     * user whose id is `{id}`, and nobody else — the rule for the channel a user's notifications
+     * are announced on ({@see \Pramnos\Broadcasting\RealtimeConfig::userChannel()}).
+     *
+     * @param string $channel The channel with its prefix and an `{id}` placeholder.
+     */
+    public function ownUserChannel(string $channel): self
+    {
+        return $this->channel(
+            (string) preg_replace('/^(private|presence)-/', '', $channel),
+            static fn (?object $user, string $id): bool => $user !== null && (string) (int) ($user->userid ?? 0) === $id
+        );
+    }
+
     /** True when some registered pattern matches $channel. */
     public function has(string $channel): bool
     {

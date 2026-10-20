@@ -149,10 +149,10 @@ class BroadcastingServiceProvider extends ServiceProvider
     /**
      * Register the two bindings channel authorization needs.
      *
-     * `broadcasting.channels` is an empty {@see ChannelRegistry} the application
-     * fills in its own provider — a registry with no rules denies every private
-     * and presence channel, which is the right default for a deployment that
-     * enabled the endpoint before writing any.
+     * `broadcasting.channels` is a {@see ChannelRegistry} the application fills in
+     * its own provider. It starts with one rule — a user may join their own
+     * notifications channel, `private-users.{id}` — and denies every other private
+     * and presence channel until the application writes a rule for it.
      *
      * `broadcasting.apps` resolves where app keys come from. It is a singleton so a
      * request performs at most one lookup, and it is built through
@@ -164,8 +164,13 @@ class BroadcastingServiceProvider extends ServiceProvider
     {
         $app = $this->app;
 
-        $app->getContainer()->singleton('broadcasting.channels', static function (): ChannelRegistry {
-            return new ChannelRegistry();
+        $app->getContainer()->singleton('broadcasting.channels', static function () use ($app): ChannelRegistry {
+            // One rule from the start: a user hears their own notifications' channel and no one
+            // else's. An application's own rule for the same pattern, registered later, replaces it.
+            $config = $app->applicationInfo['broadcasting'] ?? [];
+            $channel = (string) (is_array($config) ? ($config['notifications_channel'] ?? '') : '');
+
+            return (new ChannelRegistry())->ownUserChannel($channel !== '' ? $channel : RealtimeConfig::USER_CHANNEL);
         });
 
         $app->getContainer()->singleton('broadcasting.apps', static function () use ($app): AppRegistryInterface {

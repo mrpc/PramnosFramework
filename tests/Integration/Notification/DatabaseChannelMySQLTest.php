@@ -193,6 +193,103 @@ class DatabaseChannelMySQLTest extends TestCase
             'DatabaseChannel must skip when notification has no toDatabase()');
     }
 
+    /**
+     * A written notification is announced on its user's channel — `private-users.{id}`, the
+     * event `notification.created`, the row's id and nothing else — exactly once, so a bell on a
+     * page with a live connection refreshes at once rather than at its next poll.
+     */
+    public function testANotificationIsAnnouncedOnItsUsersChannel(): void
+    {
+        // Arrange
+        $fake    = \Pramnos\Broadcasting\Testing\FakeDriver::swap();
+        $channel = new DatabaseChannel($this->db);
+
+        try {
+            // Act
+            $channel->send(new IntegrationNotifiable(42), new IntegrationDatabaseNotification(['message' => 'Hi']));
+            $recorded = $fake->recorded();
+        } finally {
+            \Pramnos\Broadcasting\Testing\FakeDriver::restore();
+        }
+
+        // Assert
+        $row = $this->db->queryBuilder()->table('#PREFIX#notifications')->where('notifiable_id', 42)->first();
+        $this->assertCount(1, $recorded, 'one announcement for one notification');
+        $this->assertSame('private-users.42', $recorded[0]['channel']);
+        $this->assertSame('notification.created', $recorded[0]['event']);
+        $this->assertSame(['id' => (string) $row->fields['id']], $recorded[0]['payload'], 'the id only: the page re-reads its feed itself');
+    }
+
+    /**
+     * A broadcast that throws costs the announcement only: the notification is written, and the
+     * send does not fail.
+     */
+    public function testAFailingBroadcastLeavesTheRowWritten(): void
+    {
+        // Arrange
+        $previous = \Pramnos\Broadcasting\BroadcastingManager::currentInstance();
+        $manager  = new \Pramnos\Broadcasting\BroadcastingManager();
+        $manager->addDriver(new class implements \Pramnos\Broadcasting\Drivers\DriverInterface {
+            /** Always fails, as a backplane that is down does. */
+            public function broadcast(string $channel, string $event, array $payload): void
+            {
+                throw new \RuntimeException('backplane down');
+            }
+
+            /** Its name. */
+            public function name(): string
+            {
+                return 'down';
+            }
+        })->setDefault('down');
+        \Pramnos\Broadcasting\BroadcastingManager::setInstance($manager);
+
+        try {
+            // Act
+            (new DatabaseChannel($this->db))->send(new IntegrationNotifiable(43), new IntegrationDatabaseNotification(['message' => 'Kept']));
+        } finally {
+            \Pramnos\Broadcasting\BroadcastingManager::setInstance($previous);
+        }
+
+        // Assert
+        $this->assertSame(1, (int) $this->db->queryBuilder()->table('#PREFIX#notifications')->where('notifiable_id', 43)->count());
+    }
+
+    /**
+     * The application's own broadcasting — the `broadcasting` feature's manager in its container
+     * — is the one used, on the channel `broadcasting.notifications_channel` names.
+     */
+    public function testTheApplicationsManagerAndChannelAreUsed(): void
+    {
+        // Arrange — an application with the feature's manager and a channel of its own
+        $fake    = new \Pramnos\Broadcasting\Testing\FakeDriver();
+        $manager = (new \Pramnos\Broadcasting\BroadcastingManager())->addDriver($fake)->setDefault('fake');
+        $stub    = new class extends Application {
+            /** Nothing to boot. */
+            public function __construct()
+            {
+            }
+        };
+        $stub->applicationInfo = ['broadcasting' => ['notifications_channel' => 'private-team.{id}.alerts']];
+        $stub->getContainer()->singleton('broadcasting', static fn () => $manager);
+        $instances = new \ReflectionProperty(Application::class, 'appInstances');
+        $last      = new \ReflectionProperty(Application::class, 'lastUsedApplication');
+        [$savedInstances, $savedLast] = [$instances->getValue(), $last->getValue()];
+        $instances->setValue(null, ['default' => $stub]);
+        $last->setValue(null, null);
+
+        try {
+            // Act
+            (new DatabaseChannel($this->db))->send(new IntegrationNotifiable(44), new IntegrationDatabaseNotification(['message' => 'Team']));
+        } finally {
+            $instances->setValue(null, $savedInstances);
+            $last->setValue(null, $savedLast);
+        }
+
+        // Assert
+        $this->assertSame(['private-team.44.alerts'], array_column($fake->recorded(), 'channel'));
+    }
+
     // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------

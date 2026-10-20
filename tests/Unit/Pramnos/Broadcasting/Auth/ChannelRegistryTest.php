@@ -50,6 +50,26 @@ class ChannelRegistryTest extends TestCase
     }
 
     /**
+     * The notifications channel is each user's own: the signed-in user whose id it names may join
+     * it, another user and nobody signed in may not — a bell must never hear someone else's.
+     */
+    public function testAUserMayJoinOnlyTheirOwnChannel(): void
+    {
+        // Arrange
+        $registry = (new ChannelRegistry())->ownUserChannel('private-users.{id}');
+
+        // Act
+        $own     = $registry->authorize('private-users.7', $this->user(7));
+        $other   = $registry->authorize('private-users.8', $this->user(7));
+        $nobody  = $registry->authorize('private-users.7', null);
+
+        // Assert
+        $this->assertTrue($own);
+        $this->assertFalse($other, 'another user\'s channel');
+        $this->assertFalse($nobody, 'nobody signed in');
+    }
+
+    /**
      * A rule returning false denies, even though the pattern matched.
      */
     public function testDeniesWhenRuleReturnsFalse(): void

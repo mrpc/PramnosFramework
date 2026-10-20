@@ -204,6 +204,9 @@ class Html extends \Pramnos\Document\Document
         // What lets this page's own JavaScript call this application's own API.
         $content .= $this->csrfHeadMarkup();
 
+        // The page's live connection, where the application has one: pf-utils.js connects from it.
+        $content .= $this->realtimeHeadMarkup();
+
         // The next page, fetched before its link is clicked, where the application asks.
         $content .= $this->speculationMarkup();
 

@@ -61,7 +61,9 @@ final class NotificationBell
      * @param array{url?: string, interval?: int, channel?: string, groups?: array<string, string>, class?: string, label?: string, empty?: string, readAll?: string} $options
      *  - `url` — the feed's address: `/Notifications` on the site by default
      *  - `interval` — seconds between counts, while the tab is visible (60)
-     *  - `channel` — a realtime channel whose `notification.created` refreshes it at once
+     *  - `channel` — a realtime channel whose `notification.created` refreshes it at once; by
+     *    default the user's own (`private-users.{id}`) where `broadcasting.transport` is
+     *    `websocket` or `pusher`, none otherwise
      *  - `groups` — tabs: group => label, `''` for all; none by default
      *  - `class` — the bell button's classes
      */
@@ -81,11 +83,19 @@ final class NotificationBell
         }
 
         $url   = (string) ($options['url'] ?? ((defined('sURL') ? \sURL : '/') . 'Notifications'));
+        // The user's own channel, where the page has a live connection to hear it on.
+        if (!isset($options['channel'])) {
+            $realtime = \Pramnos\Application\Application::currentInstance()?->applicationInfo['broadcasting'] ?? null;
+            if (is_array($realtime) && \Pramnos\Broadcasting\RealtimeConfig::forPage($realtime) !== null) {
+                $options['channel'] = \Pramnos\Broadcasting\RealtimeConfig::userChannel($id, $realtime);
+            }
+        }
         $label = self::t((string) ($options['label'] ?? 'Notifications'));
 
         $html = '<div class="pf-notify" data-pf-notifications data-url="' . self::e($url) . '"'
             . ' data-interval="' . (int) ($options['interval'] ?? 60) . '"'
-            . (isset($options['channel']) ? ' data-channel="' . self::e((string) $options['channel']) . '"' : '') . '>'
+            // An empty channel is none: `'channel' => ''` keeps a bell off the realtime connection.
+            . ((string) ($options['channel'] ?? '') !== '' ? ' data-channel="' . self::e((string) $options['channel']) . '"' : '') . '>'
             . '<button type="button" class="pf-notify-toggle ' . self::e((string) ($options['class'] ?? '')) . '"'
             . ' data-pf-notifications-toggle data-label="' . self::e($label) . '" aria-haspopup="true" aria-expanded="false"'
             . ' aria-label="' . self::e($label . ($unread > 0 ? ' (' . $unread . ')' : '')) . '">'

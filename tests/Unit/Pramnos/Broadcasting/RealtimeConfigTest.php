@@ -18,6 +18,38 @@ use Pramnos\Broadcasting\RealtimeConfig;
 #[CoversClass(RealtimeConfig::class)]
 class RealtimeConfigTest extends TestCase
 {
+    /**
+     * What a page's `<meta name="pf-realtime">` carries: nothing for a transport the page's client
+     * does not speak — SSE, or none — and for a socket one forClient() and the signing endpoint,
+     * configured or the site's own `broadcasting/auth`.
+     */
+    public function testForPageIsTheClientConfigAndItsEndpointForASocketOnly(): void
+    {
+        // Act
+        $none     = RealtimeConfig::forPage([]);
+        $sse      = RealtimeConfig::forPage(['transport' => 'sse']);
+        $socket   = RealtimeConfig::forPage(['transport' => 'websocket', 'websocket' => ['app_key' => 'k1'], 'auth_endpoint' => '/rt/auth']);
+        $defaults = RealtimeConfig::forPage(['transport' => 'pusher', 'pusher' => ['app_key' => 'pk']]);
+
+        // Assert
+        $this->assertNull($none);
+        $this->assertNull($sse, 'the bell keeps polling');
+        $this->assertSame('k1', $socket['appKey']);
+        $this->assertSame('/rt/auth', $socket['authEndpoint']);
+        $this->assertStringEndsWith('broadcasting/auth', $defaults['authEndpoint']);
+    }
+
+    /**
+     * A user's notifications channel: `private-users.{id}`, or the configured pattern, with the
+     * id filled in.
+     */
+    public function testTheUserChannelFollowsTheConfiguredPattern(): void
+    {
+        // Assert
+        $this->assertSame('private-users.7', RealtimeConfig::userChannel(7, []));
+        $this->assertSame('private-team.7.alerts', RealtimeConfig::userChannel(7, ['notifications_channel' => 'private-team.{id}.alerts']));
+    }
+
     public function testDefaultsToSse(): void
     {
         $this->assertSame(

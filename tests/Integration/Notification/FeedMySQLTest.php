@@ -239,6 +239,37 @@ class FeedMySQLTest extends TestCase
     }
 
     /**
+     * The bell listens on the user's own channel by default where the page has a live connection
+     * — `private-users.{id}`, or the configured pattern — and on none where the transport is one
+     * the page's client does not speak; a channel the caller gives wins, and an empty one is none.
+     */
+    public function testTheBellListensOnTheUsersOwnChannelWhereThereIsAConnection(): void
+    {
+        // Arrange
+        $me = new \Pramnos\User\User();
+        $me->userid = self::ME;
+        \Pramnos\Http\RequestIdentity::seal($me, 'test');
+        $app = Application::getInstance();
+
+        // Act
+        $app->applicationInfo['broadcasting'] = ['transport' => 'websocket'];
+        $default = \Pramnos\Html\NotificationBell::render();
+        $given   = \Pramnos\Html\NotificationBell::render(['channel' => 'private-mine']);
+        $none    = \Pramnos\Html\NotificationBell::render(['channel' => '']);
+        $app->applicationInfo['broadcasting'] = ['transport' => 'websocket', 'notifications_channel' => 'private-team.{id}'];
+        $team = \Pramnos\Html\NotificationBell::render();
+        $app->applicationInfo['broadcasting'] = ['transport' => 'sse'];
+        $polling = \Pramnos\Html\NotificationBell::render();
+
+        // Assert
+        $this->assertStringContainsString('data-channel="private-users.' . self::ME . '"', $default);
+        $this->assertStringContainsString('data-channel="private-mine"', $given);
+        $this->assertStringContainsString('data-channel="private-team.' . self::ME . '"', $team);
+        $this->assertStringNotContainsString('data-channel', $polling, 'no connection to hear it on');
+        $this->assertStringNotContainsString('data-channel', $none, 'an empty channel keeps the bell off the connection');
+    }
+
+    /**
      * A notification about something now dealt with is settled with it: everybody's when the
      * thing itself was handled, one person's when they opened it; one about something else, an
      * already read one, and one that only mentions the key in its text are left as they were.

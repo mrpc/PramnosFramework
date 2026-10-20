@@ -19,6 +19,7 @@ use_cases:
   - Monitoring a running WebSocket daemon, or telling a throttled client from a quiet one
   - Sending a payload the relay itself must not be able to read
   - Running more than one WebSocket daemon behind a load balancer
+  - Connecting a server-rendered page to the WebSocket server without writing a client
 ---
 
 # Pramnos Realtime Guide (SSE & WebSockets)
@@ -59,6 +60,11 @@ return [
 
         // Client edge the browser should use:
         'transport' => 'sse',        // sse | websocket | pusher
+
+        // Where a user's notifications are announced, and who signs a private channel
+        // for a server-rendered page (both optional):
+        'notifications_channel' => 'private-users.{id}',
+        'auth_endpoint'         => '/broadcasting/auth',
 
         'redis' => [
             'host' => '127.0.0.1', 'port' => 6379,
@@ -674,6 +680,37 @@ protocol optional.
 
 ---
 
+## A server-rendered page's connection
+
+A signed-in page carries `<meta name="pf-realtime">` when `transport` is `websocket` or `pusher`.
+Its content is `RealtimeConfig::forPage()`, which is `forClient()` plus `authEndpoint`.
+`pf-utils.js` reads it and defines `window.pfRealtime`, a Pusher-protocol client with no
+dependency:
+
+```js
+window.pfRealtime.channel('private-order.42').listen('order.shipped', (data) => { /* … */ });
+window.pfRealtime.close();
+```
+
+- **Private and presence channels** are signed by `POST authEndpoint` with
+  `socket_id`/`channel_name`, the page's CSRF token and its session cookie. Then they are
+  subscribed.
+- **The server's ping** is answered. A socket that stays silent for its `activity_timeout` is
+  pinged, and closed if nothing answers within three seconds.
+- **Reconnecting** waits 1 s, then 1.5× longer each time up to 30 s, with jitter so a restarted
+  server is not hit by every tab at once.
+- **After a drop of an established connection**, the first new handshake dispatches
+  `pf:notifications:refresh` on the document, once. Pub/sub keeps nothing for a subscriber that
+  was away, so a page that relies on events re-reads what it shows from that event.
+
+There is no tag for an anonymous page, and none for `sse`. A page that defines its own
+`window.pfRealtime` before `pf-utils.js` loads keeps it.
+
+The notification bell is the built-in user of this connection. Its channel, announcement and rule
+are in the [Notifications Guide](Pramnos_Notifications_Guide.md#arriving-at-once).
+
+---
+
 ## Channel authorization
 
 A `private-` or `presence-` channel is only private because a client must present a
@@ -708,6 +745,10 @@ $channels->channel('room.{room}', function (?object $user, string $room): array|
     ];
 });
 ```
+
+One rule is there from the start: `ownUserChannel()` admits a user to their own
+notifications channel (`notifications_channel`, `private-users.{id}` by default) and to nobody
+else's. The bell needs nothing more.
 
 !!! warning "An unmatched channel is denied"
     A channel no pattern matches is refused. A missing rule is not an open channel —

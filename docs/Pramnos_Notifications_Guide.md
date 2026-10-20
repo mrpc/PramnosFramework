@@ -654,7 +654,7 @@ Nobody signed in gets 401. A write without the token gets 403 and changes nothin
     'url'      => sURL . 'Notifications',          // the default
     'groups'   => ['' => 'For me', 'tasks' => 'Tasks', 'system' => 'System'],
     'interval' => 60,                              // seconds between counts
-    'channel'  => 'users.' . $user->userid,        // optional: realtime
+    'channel'  => 'private-users.' . $user->userid, // the default where there is a socket
     'class'    => 'btn btn-ghost btn-circle',
 ]); ?>
 ```
@@ -670,13 +670,42 @@ shows 0 before the real number. `pf-utils.js` does the rest through the data att
 - **Closing:** outside the bell, or Esc.
 - **Refreshing at once:** a `pf:notifications:refresh` event on the document refreshes it, as does
   a `notification.created` event on `channel` where the page has a realtime connection in
-  `window.pfRealtime` (`PramnosRealtime.connect(…)`). A notification sent with the `broadcast`
-  channel to that channel arrives without waiting for the next count.
+  `window.pfRealtime`. See [Arriving at once](#arriving-at-once).
 
 The scaffolded stylesheets style the `pf-notify-*` hooks. A theme can write its own markup with
 the same `data-pf-notifications*` attributes. Each item can be its own too, as a
 `<template data-pf-notifications-item>` inside the bell whose parts carry
 `data-field="title|message|time"` and whose link gets the item's address.
+
+### Arriving at once
+
+With `broadcasting.transport` set to `websocket` (`broadcast:serve`) or `pusher`, a notification
+reaches an open page the moment it is stored, with nothing written in the application:
+
+1. `DatabaseChannel`, after writing the row, broadcasts `notification.created` with
+   `{"id": "<uuid>"}` on the recipient's channel — `private-users.{id}`, or the pattern in
+   `broadcasting.notifications_channel` (`'private-team.{id}'`).
+2. A signed-in page carries `<meta name="pf-realtime">` with the client's connection settings and
+   the endpoint that signs a private channel (`broadcasting.auth_endpoint`, `broadcasting/auth` by
+   default). `pf-utils.js` connects from it and defines `window.pfRealtime` (see the
+   [Realtime guide](Pramnos_Realtime_Guide.md#a-server-rendered-pages-connection)).
+3. `NotificationBell` listens on that same channel unless `channel` is given, and the default
+   `broadcasting.channels` registry admits a user to their own channel and nobody else's.
+4. The bell re-reads its count through `/Notifications`, with the page's session. Only the id
+   travels over the socket, so nothing private passes through the relay.
+
+The announcement is best effort. With no broadcasting manager nothing is sent; a broadcast that
+fails is logged to the `broadcasting` log and the row stays, so the page finds it at its next
+count. The polling never stops either way: a connection that is down costs at most one interval.
+
+After a dropped connection comes back, `pf-utils.js` dispatches `pf:notifications:refresh` once,
+because pub/sub keeps nothing for a subscriber that was away. A first connection that never
+completed its handshake dispatches nothing, since it had nothing to miss. A SPA bell listens to the
+same event on the window, so it re-reads too.
+
+SSE is not used for this. On PHP-FPM every open event stream holds a worker for as long as the
+tab is open, so a bell on every page would use up the pool. A page whose transport is `sse`, or
+which has none, keeps polling and gets no `data-channel`.
 
 **In the scaffolded header** the bell is already drawn for whoever is signed in. One header serves
 the site and the administration, so the bell is in both:

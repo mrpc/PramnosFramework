@@ -886,6 +886,28 @@ class Document extends \Pramnos\Framework\Base
     }
 
     /**
+     * `<meta name="pf-realtime">` — what `pf-utils.js` connects with, so the notification bell
+     * refreshes the moment a notification arrives ({@see \Pramnos\Broadcasting\RealtimeConfig::forPage()}).
+     *
+     * For a signed-in page only, as the CSRF tag is: the channel it joins is the user's own, and
+     * the endpoint that signs it answers to the session. Nothing where `broadcasting.transport`
+     * is not one the page's client speaks — the bell keeps polling then.
+     *
+     * @return string
+     */
+    protected function realtimeHeadMarkup()
+    {
+        if (session_status() !== PHP_SESSION_ACTIVE || !isset($_SESSION['usertoken'])) {
+            return '';
+        }
+        $config = \Pramnos\Application\Application::currentInstance()?->applicationInfo['broadcasting'] ?? null;
+        $page   = is_array($config) ? \Pramnos\Broadcasting\RealtimeConfig::forPage($config) : null;
+
+        return $page === null ? '' : "\n        " . '<meta name="pf-realtime" content="'
+            . $this->escapeHeadValue((string) json_encode($page, JSON_UNESCAPED_SLASHES)) . '" />';
+    }
+
+    /**
      * The head markup for the canonical link and every structured-data block.
      *
      * @return string

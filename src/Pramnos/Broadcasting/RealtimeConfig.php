@@ -41,6 +41,42 @@ final class RealtimeConfig
         return $primary;
     }
 
+    /** The channel a user's notifications are announced on, unless `notifications_channel` says otherwise. */
+    public const USER_CHANNEL = 'private-users.{id}';
+
+    /**
+     * What `<meta name="pf-realtime">` carries for a page: forClient(), and the endpoint that signs
+     * a private channel. Null unless `broadcasting.transport` is one the page's client speaks —
+     * `websocket` (broadcast:serve) or `pusher` — so a page with none keeps polling.
+     *
+     * @param array<string,mixed> $broadcasting The app.php['broadcasting'] array.
+     * @return array<string,mixed>|null
+     */
+    public static function forPage(array $broadcasting): ?array
+    {
+        if (!in_array($broadcasting['transport'] ?? null, ['websocket', 'pusher'], true)) {
+            return null;
+        }
+        $endpoint = (string) ($broadcasting['auth_endpoint'] ?? '');
+
+        return self::forClient($broadcasting) + [
+            'authEndpoint' => $endpoint !== '' ? $endpoint : \Pramnos\Http\SiteUrl::to('broadcasting/auth'),
+        ];
+    }
+
+    /**
+     * The channel user `$id` hears their notifications on: `broadcasting.notifications_channel`
+     * with `{id}` filled in, `private-users.{id}` by default.
+     *
+     * @param array<string,mixed> $broadcasting The app.php['broadcasting'] array.
+     */
+    public static function userChannel(int $id, array $broadcasting): string
+    {
+        $pattern = (string) ($broadcasting['notifications_channel'] ?? '');
+
+        return str_replace('{id}', (string) $id, $pattern !== '' ? $pattern : self::USER_CHANNEL);
+    }
+
     /** @param array<string,mixed> $sse */
     private static function sse(array $sse): array
     {

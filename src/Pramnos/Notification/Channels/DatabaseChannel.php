@@ -32,6 +32,10 @@ use Pramnos\Notification\NotificationInterface;
  * Silently skips if the notification has no toDatabase() method or the
  * notifiable has no resolvable ID.
  *
+ * After the row is written, and where broadcasting is set up, the notifiable's channel —
+ * `private-users.{id}`, or `broadcasting.notifications_channel` — hears `notification.created`
+ * with the row's id, so a bell on a page with a live connection refreshes at once instead of at
+ * its next poll. Best effort: a broadcast that fails is logged and the row stays.
  */
 class DatabaseChannel implements ChannelInterface
 {
@@ -60,16 +64,58 @@ class DatabaseChannel implements ChannelInterface
 
         $db   = $this->db ?? Database::getInstance();
         $uuid = $this->generateUuid();
-        $type = $db->prepareInput(get_class($notification));
-        $ntType   = $db->prepareInput(get_class($notifiable));
-        $payload  = $db->prepareInput(json_encode($data, JSON_UNESCAPED_UNICODE));
-        $now      = date('Y-m-d H:i:s');
 
-        $db->query(
-            "INSERT INTO #PREFIX#notifications "
-            . "(id, type, notifiable_type, notifiable_id, data, read_at, created_at) "
-            . "VALUES ('{$uuid}', '{$type}', '{$ntType}', " . (int) $notifiableId . ", '{$payload}', NULL, '{$now}')"
-        );
+        $db->queryBuilder()->table('#PREFIX#notifications')->insert([
+            'id'              => $uuid,
+            'type'            => get_class($notification),
+            'notifiable_type' => get_class($notifiable),
+            'notifiable_id'   => (int) $notifiableId,
+            'data'            => json_encode($data, JSON_UNESCAPED_UNICODE),
+            'read_at'         => null,
+            'created_at'      => date('Y-m-d H:i:s'),
+        ]);
+
+        $this->announce((int) $notifiableId, $uuid);
+    }
+
+    /**
+     * Tell the notifiable's channel a notification arrived — only the id: a page re-reads its
+     * feed with its own session, so nothing private travels over the socket.
+     */
+    private function announce(int $notifiableId, string $uuid): void
+    {
+        try {
+            $manager = $this->broadcaster();
+            if ($manager === null) {
+                return;
+            }
+            $config = \Pramnos\Application\Application::currentInstance()?->applicationInfo['broadcasting'] ?? [];
+            $manager->broadcast(
+                \Pramnos\Broadcasting\RealtimeConfig::userChannel($notifiableId, is_array($config) ? $config : []),
+                'notification.created',
+                ['id' => $uuid]
+            );
+        } catch (\Throwable $e) {
+            // The notification is written; a page finds it at its next poll.
+            \Pramnos\Logs\Logger::log('Notification ' . $uuid . ' was not announced: ' . $e->getMessage(), 'broadcasting');
+        }
+    }
+
+    /**
+     * The broadcasting manager, where the application has one: the `broadcasting` feature's, or
+     * one set as the default. Null otherwise — never one built just to announce.
+     */
+    protected function broadcaster(): ?\Pramnos\Broadcasting\BroadcastingManager
+    {
+        $container = \Pramnos\Application\Application::currentInstance()?->getContainer();
+        if ($container !== null && $container->has('broadcasting')) {
+            $manager = $container->get('broadcasting');
+            if ($manager instanceof \Pramnos\Broadcasting\BroadcastingManager) {
+                return $manager;
+            }
+        }
+
+        return \Pramnos\Broadcasting\BroadcastingManager::currentInstance();
     }
 
     // -------------------------------------------------------------------------

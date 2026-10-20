@@ -34,6 +34,9 @@
  *   data-pf-notifications       — the notification bell (see Html\NotificationBell): the
  *                                 count, the list, read and read-all, polled while the tab
  *                                 is visible and refreshed on `pf:notifications:refresh`
+ *   meta[name=pf-realtime]      — the page's live connection (window.pfRealtime): the Pusher
+ *                                 protocol to broadcast:serve or Pusher/Reverb; the bell
+ *                                 listens on it for notification.created
  *   meta[name=pf-client-errors] — where uncaught errors and rejections are reported
  *                                 (see Logs\ClientErrors); window.pfReportError(error)
  *   data-pf-dashboard           — the dashboard each person arranges (DashboardController):
@@ -662,6 +665,160 @@
                 button.removeAttribute('data-pf-countdown');
             }, 1000);
         });
+    })();
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // meta[name=pf-realtime] — window.pfRealtime, the page's live connection
+    //
+    // The tag carries \Pramnos\Broadcasting\RealtimeConfig::forClient() for a `websocket`
+    // (the framework's broadcast:serve) or `pusher` transport, plus `authEndpoint` — printed by
+    // Document for a signed-in page when the application configures one. Without it nothing is
+    // defined, and the bell keeps polling. A page that set window.pfRealtime itself keeps its own.
+    //
+    // The Pusher protocol, directly: the handshake gives a socket id, a private channel is signed by
+    // POST authEndpoint (the session, and the CSRF token as X-CSRF-Token), `pusher:ping` is answered.
+    // A socket silent for the server's `activity_timeout` is pinged and, with no answer in 3 s,
+    // closed — a dead connection can stay OPEN with nothing arriving. A drop reconnects with a
+    // backoff that grows by half each time up to 30 s, jittered so a server restart is not met by
+    // every page in the same second. Pub/sub keeps nothing for a socket that was away, so after a
+    // reconnect that followed a drop of an established connection, one `pf:notifications:refresh`
+    // tells the page to re-read — "you may have missed something", not "something arrived".
+    //
+    //   window.pfRealtime.channel('private-users.5').listen('notification.created', fn)
+    // ══════════════════════════════════════════════════════════════════════════
+    (function () {
+        if (window.pfRealtime || typeof window.WebSocket !== 'function') { return; }
+        var meta = document.querySelector('meta[name="pf-realtime"]');
+        var config = null;
+        try { config = meta ? JSON.parse(meta.getAttribute('content') || '') : null; } catch (e) { config = null; }
+        if (!config || (config.transport !== 'websocket' && config.transport !== 'pusher')) { return; }
+
+        var url = config.url || socketUrl(config);
+        var authEndpoint = config.authEndpoint || '/broadcasting/auth';
+        var channels = {};
+        var socket = null;
+        var socketId = '';
+        var established = false;
+        var missed = false;
+        var closed = false;
+        var attempt = 0;
+        var activity = 120000;
+        var idleTimer = null;
+        var pongTimer = null;
+
+        /** The socket's address from forClient()'s fields: the built-in server, or Pusher/Reverb. */
+        function socketUrl(c) {
+            if (c.transport === 'pusher') {
+                var tls = !!c.forceTLS;
+                return (tls ? 'wss' : 'ws') + '://' + (c.wsHost || ('ws-' + (c.cluster || 'mt1') + '.pusher.com'))
+                    + ':' + (c.wsPort || (tls ? 443 : 80)) + '/app/' + c.key;
+            }
+            var scheme = c.scheme === 'wss' || c.scheme === 'https' ? 'wss' : 'ws';
+            return scheme + '://' + (c.host || window.location.hostname) + ':' + (c.port || 6001) + '/app/' + (c.appKey || '');
+        }
+
+        function send(event, data) {
+            try { socket.send(JSON.stringify({ event: event, data: data })); } catch (e) { /* the close handler deals with it */ }
+        }
+
+        /** Join a channel on the live socket; a private or presence one signed by the endpoint first. */
+        function subscribe(name) {
+            if (!established) { return; }
+            if (name.indexOf('private-') !== 0 && name.indexOf('presence-') !== 0) {
+                send('pusher:subscribe', { channel: name });
+                return;
+            }
+            window.fetch(authEndpoint, {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: pfApiHeaders({ 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' }),
+                body: 'socket_id=' + encodeURIComponent(socketId) + '&channel_name=' + encodeURIComponent(name),
+            }).then(function (r) { return r.ok ? r.json() : null; }).then(function (signed) {
+                if (signed && signed.auth) {
+                    send('pusher:subscribe', { channel: name, auth: signed.auth, channel_data: signed.channel_data });
+                }
+            }).catch(function () { /* refused or offline: the bell still polls */ });
+        }
+
+        function quiet() {
+            window.clearTimeout(idleTimer);
+            window.clearTimeout(pongTimer);
+            idleTimer = pongTimer = null;
+        }
+
+        /** Every frame is proof of life; silence for activity_timeout is asked about, then closed. */
+        function bump() {
+            quiet();
+            idleTimer = window.setTimeout(function () {
+                send('pusher:ping', {});
+                pongTimer = window.setTimeout(function () { try { socket.close(); } catch (e) { /* gone */ } }, 3000);
+            }, activity);
+        }
+
+        function connect() {
+            try {
+                socket = new window.WebSocket(url + (url.indexOf('?') === -1 ? '?' : '&') + 'protocol=7&client=pf-utils&version=1.0');
+            } catch (e) {
+                return;
+            }
+            socket.onmessage = function (message) {
+                var frame;
+                try { frame = JSON.parse(message.data); } catch (e) { return; }
+                bump();
+                var data = frame.data;
+                if (typeof data === 'string') { try { data = JSON.parse(data); } catch (e) { /* a plain string */ } }
+                if (frame.event === 'pusher:connection_established') {
+                    established = true;
+                    attempt = 0;
+                    socketId = String((data && data.socket_id) || '');
+                    var seconds = Number(data && data.activity_timeout);
+                    if (isFinite(seconds) && seconds >= 1) { activity = seconds * 1000; }
+                    bump();
+                    Object.keys(channels).forEach(subscribe);
+                    if (missed) {
+                        missed = false;
+                        document.dispatchEvent(new CustomEvent('pf:notifications:refresh', { bubbles: true }));
+                    }
+                    return;
+                }
+                if (frame.event === 'pusher:ping') { send('pusher:pong', {}); return; }
+                var channel = channels[frame.channel];
+                if (!channel || !frame.event || frame.event.indexOf('pusher') === 0) { return; }
+                (channel[frame.event] || []).forEach(function (fn) { fn(data); });
+            };
+            socket.onclose = function () {
+                quiet();
+                // Only a connection that was established can have missed anything.
+                if (established) { missed = true; }
+                established = false;
+                if (closed) { return; }
+                var base = Math.min(30000, 1000 * Math.pow(1.5, attempt++));
+                window.setTimeout(connect, base / 2 + Math.random() * base / 2);
+            };
+        }
+
+        window.pfRealtime = {
+            transport: config.transport,
+            channel: function (name) {
+                if (!channels[name]) {
+                    channels[name] = {};
+                    subscribe(name);
+                }
+                var listeners = channels[name];
+                return {
+                    listen: function (event, fn) {
+                        (listeners[event] = listeners[event] || []).push(fn);
+                        return this;
+                    },
+                };
+            },
+            close: function () {
+                closed = true;
+                quiet();
+                try { socket.close(); } catch (e) { /* gone */ }
+            },
+        };
+        connect();
     })();
 
     // ══════════════════════════════════════════════════════════════════════════
