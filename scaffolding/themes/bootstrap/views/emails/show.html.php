@@ -20,20 +20,20 @@ $sentAt    = is_numeric($rawDate) && (int) $rawDate > 0
 ?>
 <div class="container py-4" style="max-width:860px">
     <div class="d-flex align-items-center gap-3 mb-3">
-        <a href="<?php echo adminUrl('Emails'); ?>" class="btn btn-sm btn-outline-secondary">&larr; Back</a>
-        <h2 class="mb-0">Email #<?php echo (int)($mail['id'] ?? 0); ?></h2>
+        <a href="<?php echo adminUrl('Emails'); ?>" class="btn btn-sm btn-outline-secondary">&larr; <?php echo htmlspecialchars(t('Back'), ENT_QUOTES, 'UTF-8'); ?></a>
+        <h2 class="mb-0"><?php echo htmlspecialchars(t('Email #%d', (int) ($mail['id'] ?? 0)), ENT_QUOTES, 'UTF-8'); ?></h2>
     </div>
     <div class="card mb-3">
         <div class="card-body">
             <dl class="row mb-0">
-                <dt class="col-sm-2">To</dt>
+                <dt class="col-sm-2"><?php echo htmlspecialchars(t('To'), ENT_QUOTES, 'UTF-8'); ?></dt>
                 <dd class="col-sm-10"><?php echo htmlspecialchars($recipient); ?></dd>
-                <dt class="col-sm-2">Subject</dt>
+                <dt class="col-sm-2"><?php echo htmlspecialchars(t('Subject'), ENT_QUOTES, 'UTF-8'); ?></dt>
                 <dd class="col-sm-10"><?php echo htmlspecialchars($mail['subject'] ?? ''); ?></dd>
-                <dt class="col-sm-2">Date</dt>
+                <dt class="col-sm-2"><?php echo htmlspecialchars(t('Date'), ENT_QUOTES, 'UTF-8'); ?></dt>
                 <dd class="col-sm-10"><?php echo htmlspecialchars($sentAt); ?></dd>
-                <dt class="col-sm-2">Status</dt>
-                <dd class="col-sm-10"><?php echo (int)($mail['status'] ?? 0) === 1 ? '<span class="badge bg-success">Sent</span>' : '<span class="badge bg-secondary">Pending</span>'; ?></dd>
+                <dt class="col-sm-2"><?php echo htmlspecialchars(t('Status'), ENT_QUOTES, 'UTF-8'); ?></dt>
+                <dd class="col-sm-10"><?php echo $this->statusBadge ?? ''; ?></dd>
             </dl>
             <?php
             /* Whether mail still goes to this address ({@see \Pramnos\Email\Bounces}): a bounce or a
@@ -43,12 +43,12 @@ $sentAt    = is_numeric($rawDate) && (int) $rawDate > 0
                 <form method="post" action="<?php echo htmlspecialchars($bounce['action'], ENT_QUOTES); ?>" class="d-flex flex-wrap align-items-center gap-2 mt-3">
                     <input type="hidden" name="_csrf_token" value="<?php echo htmlspecialchars($bounce['csrf'], ENT_QUOTES); ?>">
                     <?php if ($bounce['refusal'] !== null): ?>
-                        <span class="text-danger">Mail to this address is not sent: <?php echo htmlspecialchars($bounce['refusal']); ?>.</span>
-                        <button type="submit" name="op" value="clear" class="btn btn-sm btn-outline-secondary">Send to it again</button>
+                        <span class="text-danger"><?php echo htmlspecialchars(t('Mail to this address is not sent:'), ENT_QUOTES, 'UTF-8'); ?> <?php echo htmlspecialchars($bounce['refusal']); ?>.</span>
+                        <button type="submit" name="op" value="clear" class="btn btn-sm btn-outline-secondary"><?php echo htmlspecialchars(t('Send to it again'), ENT_QUOTES, 'UTF-8'); ?></button>
                     <?php else: ?>
-                        <span class="text-success">Mail to this address is sent.</span>
-                        <input type="text" name="reason" placeholder="Why (optional)" maxlength="255" class="form-control form-control-sm w-auto">
-                        <button type="submit" name="op" value="block" class="btn btn-sm btn-outline-danger">Stop all mail to it</button>
+                        <span class="text-success"><?php echo htmlspecialchars(t('Mail to this address is sent.'), ENT_QUOTES, 'UTF-8'); ?></span>
+                        <input type="text" name="reason" placeholder="<?php echo htmlspecialchars(t('Why (optional)'), ENT_QUOTES, 'UTF-8'); ?>" maxlength="255" class="form-control form-control-sm w-auto">
+                        <button type="submit" name="op" value="block" class="btn btn-sm btn-outline-danger"><?php echo htmlspecialchars(t('Stop all mail to it'), ENT_QUOTES, 'UTF-8'); ?></button>
                     <?php endif; ?>
                 </form>
             <?php endif; ?>

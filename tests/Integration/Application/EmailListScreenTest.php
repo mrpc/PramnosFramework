@@ -262,8 +262,10 @@ class EmailListScreenTest extends BaseTestCase
     /**
      * Each status reads as a word, and only an unsent message offers a resend.
      *
-     * Offering "send again" on a message that already went is how somebody sends it twice, and a
-     * duplicate is the one thing a recipient definitely notices.
+     * Status 0 is a message that **failed** — `Mail::STATUS_FAILED` — and it read "Pending",
+     * which tells an operator to wait for something that will not happen. Offering "send again"
+     * on a message that already went is how somebody sends it twice, and a duplicate is the one
+     * thing a recipient definitely notices. The resend is a form, not a link: it changes data.
      */
     public function testTheStatusReadsAsAWordAndOnlyAnUnsentOneCanBeResent(): void
     {
@@ -278,9 +280,10 @@ class EmailListScreenTest extends BaseTestCase
         $pendingRow = $this->rowFor('pending@example.test');
 
         // Assert — the words.
-        $this->assertStringContainsString('Sent', (string) $sentRow[5]);
-        $this->assertStringContainsString('Queued', (string) $queuedRow[5]);
-        $this->assertStringContainsString('Pending', (string) $pendingRow[5]);
+        $this->assertStringContainsString('>Sent<', (string) $sentRow[5]);
+        $this->assertStringContainsString('>Queued<', (string) $queuedRow[5]);
+        $this->assertStringContainsString('>Failed<', (string) $pendingRow[5], 'a failed message reads as one');
+        $this->assertStringNotContainsString('Pending', (string) $pendingRow[5]);
 
         // …and the actions. The id comes out of the row's own link, so the assertion is that the
         // resend points at *this* message rather than that it matches a number the test carried in.
@@ -304,6 +307,172 @@ class EmailListScreenTest extends BaseTestCase
             'emails/resend/' . $idOf($pendingRow),
             $actions($pendingRow)
         );
+        // A POST form with the session's token: a link anybody can make an administrator follow.
+        $this->assertMatchesRegularExpression('~<form[^>]*method="post"[^>]*action="[^"]*emails/resend/' . $idOf($pendingRow) . '"~i', $actions($pendingRow));
+    }
+
+    /**
+     * A failed message carries why in its badge's title, from whatever wrote `extrainfo` last:
+     * the reason as text, the outbox's JSON (its `last_error`), or an application's serialized
+     * array (its `error`). The reason is the first thing an operator needs and was nowhere on
+     * the list. A sent message's `extrainfo` is not an error and is not shown as one.
+     */
+    public function testAFailedMessageCarriesItsErrorInTheBadgesTitle(): void
+    {
+        // Arrange
+        $this->seedMail('text@example.test', 'Text', 0, null, '550 <mailbox> unknown');
+        $this->seedMail('json@example.test', 'Json', 0, null, '{"outbox":{"attempts":3},"last_error":"Connection refused"}');
+        $this->seedMail('php@example.test', 'Php', 0, null, serialize(['error' => 'Quota exceeded']));
+        $this->seedMail('went@example.test', 'Went', 1, null, 'relayed by mx1');
+
+        // Act
+        $text = (string) $this->rowFor('text@example.test')[5];
+        $json = (string) $this->rowFor('json@example.test')[5];
+        $php  = (string) $this->rowFor('php@example.test')[5];
+        $went = (string) $this->rowFor('went@example.test')[5];
+
+        // Assert — escaped, since the reason comes from a remote server.
+        $this->assertStringContainsString('title="550 &lt;mailbox&gt; unknown"', $text);
+        $this->assertStringContainsString('title="Connection refused"', $json);
+        $this->assertStringContainsString('title="Quota exceeded"', $php);
+        $this->assertStringNotContainsString('title=', $went, 'a sent message showed an error');
+    }
+
+    /**
+     * An application's own statuses and badge are the list's: `statuses()` names a status the
+     * framework does not have, and `statusBadge()` redraws one it does.
+     */
+    public function testAnApplicationsStatusesAndBadgeAreTheLists(): void
+    {
+        // Arrange
+        $this->seedMail('canceled@example.test', 'Canceled', 3);
+        $this->seedMail('drawn@example.test', 'Drawn', 1);
+        $controller = $this->hooked();
+
+        // Act
+        $canceled = $this->rowFor('canceled@example.test', $controller);
+        $drawn    = $this->rowFor('drawn@example.test', $controller);
+
+        // Assert
+        $this->assertStringContainsString('>Canceled<', (string) $canceled[5], 'the application\'s status has no word');
+        $this->assertSame('<b>delivered</b>', (string) $drawn[5], 'the override did not draw the cell');
+    }
+
+    /**
+     * `extraColumns()` adds the application's columns after Status, escaped, and a column's
+     * filter searches it. A name that is not a column name is dropped, because the list builds
+     * its query from them.
+     */
+    public function testAnApplicationsColumnsAreShownEscapedAndSearched(): void
+    {
+        // Arrange
+        $this->seedMail('cols@example.test', 'Columns', 1, null, '', '<b>boss</b>@example.test');
+        $this->seedMail('cols2@example.test', 'Other', 1, null, '', 'quiet@example.test');
+        $controller = $this->hooked();
+
+        // Act — the row, then a search on the new column alone.
+        $row = $this->rowFor('cols@example.test', $controller);
+        $_POST = ['sEcho' => 1, 'iDisplayStart' => 0, 'iDisplayLength' => 10, 'bSearchable_6' => 'true', 'sSearch_6' => '<b>boss</b>@example.test'];
+        $found = $this->rowsFor('', $controller);
+
+        // Assert — id … status, the one valid column, opens, actions.
+        $this->assertCount(9, $row, 'the column with an invalid name was not dropped');
+        $this->assertSame('&lt;b&gt;boss&lt;/b&gt;@example.test', (string) $row[6]);
+        $this->assertCount(1, $found, 'the column\'s filter did not narrow the list');
+        $this->assertStringContainsString('Columns', (string) $found[0][2]);
+    }
+
+    /**
+     * A message that never went is queued again in place, and dated now — so the outbox's
+     * deadline counts from the resend, not from a first attempt days ago, which would expire it
+     * again before it was tried.
+     */
+    public function testAnUnsentMessageIsQueuedAgainInPlaceAndRedated(): void
+    {
+        // Arrange
+        $this->seedMail('again@example.test', 'Again', 0, 1000000000);
+        $id = $this->idOf('again@example.test');
+        $controller = $this->controller();
+        $_GET['_option'] = $id;
+        $before = time();
+
+        // Act
+        $controller->resend();
+
+        // Assert
+        $rows = $this->stored('again@example.test');
+        $this->assertCount(1, $rows, 'a copy was made of a message that never went');
+        $this->assertSame(2, (int) $rows[0]['status']);
+        $this->assertGreaterThanOrEqual($before, (int) $rows[0]['date'], 'the deadline still counts from the first attempt');
+        $this->assertStringEndsWith('emails/show/' . $id, (string) $controller->redirectedTo);
+    }
+
+    /**
+     * A sent message, where the application allows it, is queued as a **new** row with the same
+     * body, names and outbox settings and none of its retries — and the first stays sent: the
+     * history has to say it went twice.
+     */
+    public function testASentMessageTheApplicationAllowsIsQueuedAsACopy(): void
+    {
+        // Arrange
+        $this->seedMail('twice@example.test', 'Twice', 1, 1000000000, '{"outbox":{"cc":["c@example.test"]},"last_error":"x"}');
+        $id = $this->idOf('twice@example.test');
+        $controller = $this->hooked();
+        $_GET['_option'] = $id;
+
+        // Act
+        $controller->resend();
+
+        // Assert
+        $rows = $this->stored('twice@example.test');
+        $this->assertCount(2, $rows);
+        [$first, $copy] = $rows;
+        $this->assertSame(1, (int) $first['status'], 'the record of the first sending changed');
+        $this->assertSame(1000000000, (int) $first['date']);
+        $this->assertSame(2, (int) $copy['status']);
+        $this->assertSame('Body', (string) $copy['content']);
+        $this->assertSame('Probe', (string) $copy['fromname']);
+        $this->assertSame('Twice', (string) $copy['subject']);
+        $this->assertSame(['outbox' => ['cc' => ['c@example.test']]], json_decode((string) $copy['extrainfo'], true));
+        $this->assertStringEndsWith('emails/show/' . $copy['id'], (string) $controller->redirectedTo);
+    }
+
+    /**
+     * Where `mayResend()` says no — a sent message, by default — nothing is queued, whatever
+     * the request: the button is not drawn, and a hand-made request is refused the same way.
+     */
+    public function testAMessageThatMayNotBeResentIsLeftAlone(): void
+    {
+        // Arrange
+        $this->seedMail('once@example.test', 'Once', 1, 1000000000);
+        $id = $this->idOf('once@example.test');
+        $controller = $this->controller();
+        $_GET['_option'] = $id;
+
+        // Act
+        $controller->resend();
+
+        // Assert
+        $rows = $this->stored('once@example.test');
+        $this->assertCount(1, $rows);
+        $this->assertSame(1, (int) $rows[0]['status']);
+        $this->assertSame(1000000000, (int) $rows[0]['date']);
+        $this->assertContains('This email is not sent again.', $_SESSION['_errors'] ?? []);
+    }
+
+    /** A resend of a row that is gone says so, and changes nothing. */
+    public function testAResendOfAMissingRowSaysSo(): void
+    {
+        // Arrange
+        $controller = $this->controller();
+        $_GET['_option'] = 2147483000;
+
+        // Act
+        $controller->resend();
+
+        // Assert
+        $this->assertContains('That record no longer exists.', $_SESSION['_errors'] ?? []);
+        $this->assertStringEndsWith('emails', (string) $controller->redirectedTo);
     }
 
     // ── The gate ──────────────────────────────────────────────────────────────
@@ -324,10 +493,13 @@ class EmailListScreenTest extends BaseTestCase
 
     // ── Fixture ───────────────────────────────────────────────────────────────
 
-    /** The controller with the usertype floor under the test's control. */
+    /** The controller with the usertype floor under the test's control, and its redirect kept. */
     private function controller(bool $refused = false): object
     {
         return new class ($refused, $this->db) extends EmailsController {
+            /** Where the action last sent the browser. */
+            public ?string $redirectedTo = null;
+
             public function __construct(private bool $refused, \Pramnos\Database\Database $db)
             {
                 $app = Application::getInstance();
@@ -339,7 +511,81 @@ class EmailListScreenTest extends BaseTestCase
             {
                 return $this->refused;
             }
+
+            /** Kept rather than followed: a test process does not end. */
+            public function redirect($url = null, $quit = true, $code = '302')
+            {
+                $this->redirectedTo = (string) $url;
+            }
         };
+    }
+
+    /** The controller as an application extends it: every hook this screen has, overridden. */
+    private function hooked(): object
+    {
+        return new class ($this->db) extends EmailsController {
+            /** Where the action last sent the browser. */
+            public ?string $redirectedTo = null;
+
+            public function __construct(\Pramnos\Database\Database $db)
+            {
+                $app = Application::getInstance();
+                $app->database     = $db;
+                $this->application = $app;
+            }
+
+            protected function requireMinUserType($type): bool
+            {
+                return false;
+            }
+
+            /** Kept rather than followed: a test process does not end. */
+            public function redirect($url = null, $quit = true, $code = '302')
+            {
+                $this->redirectedTo = (string) $url;
+            }
+
+            /** A status of the application's own. */
+            protected function statuses(): array
+            {
+                return parent::statuses() + [3 => 'Canceled'];
+            }
+
+            /** A sent message drawn the application's way; the rest as the framework draws them. */
+            protected function statusBadge(int $status, array $row): string
+            {
+                return $status === 1 ? '<b>delivered</b>' : parent::statusBadge($status, $row);
+            }
+
+            /** One real column, and one name that is not a column and has to be dropped. */
+            protected function extraColumns(): array
+            {
+                return ['From' => 'frommail', 'Hostile' => 'frommail; DROP TABLE mails'];
+            }
+
+            /** Everything may go again — "it never arrived". */
+            protected function mayResend(array $row): bool
+            {
+                return true;
+            }
+        };
+    }
+
+    /** The id of the one seeded row for an address. */
+    private function idOf(string $address): int
+    {
+        return (int) $this->stored($address)[0]['id'];
+    }
+
+    /**
+     * The rows stored for an address, oldest first.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function stored(string $address): array
+    {
+        return array_values((array) $this->db->queryBuilder()->table('#PREFIX#mails')
+            ->where('tomail', $address)->orderBy('id')->get()->fetchAll());
     }
 
     /**
@@ -350,12 +596,12 @@ class EmailListScreenTest extends BaseTestCase
      *
      * @return list<array<int, mixed>>
      */
-    private function rowsFor(string $address): array
+    private function rowsFor(string $address, ?object $controller = null): array
     {
         $_GET = $address === '' ? [] : ['tomail' => $address];
         Request::resetInstance();
 
-        $answer  = $this->controller()->data();
+        $answer  = ($controller ?? $this->controller())->data();
         $decoded = json_decode((string) $answer->getBody(), true);
 
         $key  = array_key_exists('data', (array) $decoded) ? 'data' : 'aaData';
@@ -377,9 +623,9 @@ class EmailListScreenTest extends BaseTestCase
      *
      * @return array<int, mixed>
      */
-    private function rowFor(string $address): array
+    private function rowFor(string $address, ?object $controller = null): array
     {
-        $rows = $this->rowsFor($address);
+        $rows = $this->rowsFor($address, $controller);
 
         $this->assertCount(1, $rows, 'the seeded message is not in the list for ' . $address);
 
@@ -398,13 +644,15 @@ class EmailListScreenTest extends BaseTestCase
         string $to,
         string $subject,
         int $status = 1,
-        ?int $when = null
+        ?int $when = null,
+        string $extrainfo = '',
+        string $from = 'no-reply@example.test'
     ): void {
         // Every NOT NULL column named: on PostgreSQL an omitted one with no default is a
         // violation rather than an empty string.
         $this->db->queryBuilder()->table('#PREFIX#mails')->insert([
             'status'     => $status,
-            'frommail'   => 'no-reply@example.test',
+            'frommail'   => $from,
             'fromname'   => 'Probe',
             'tomail'     => $to,
             'toname'     => 'Probe',
@@ -413,7 +661,7 @@ class EmailListScreenTest extends BaseTestCase
             'date'       => $when ?? time(),
             'module'     => self::MODULE,
             'moduleinfo' => '',
-            'extrainfo'  => '',
+            'extrainfo'  => $extrainfo,
             'path'       => '',
             'hash'       => md5($to . $subject . random_int(1, PHP_INT_MAX)),
         ]);

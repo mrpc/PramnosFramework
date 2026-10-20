@@ -4,10 +4,6 @@
  *
  * Variables:
  *   $this->datatable — \Pramnos\Html\Datatable instance (server-side AJAX)
- *
- * Was a hand-rolled table with page links: no sorting, no search, fifty rows at a time
- * over a table that grows with every mail the site sends. "Did the code reach this
- * address" — the question this screen exists for — could only be answered by paging.
  */
 ?>
 <div class="px-4 py-6">
@@ -19,9 +15,9 @@
         <div role="alert" class="alert alert-error mb-4"><?php echo htmlspecialchars($this->error); ?></div>
     <?php endif; ?>
     <div class="flex justify-between items-center mb-4">
-        <h2>Email history</h2>
+        <h2><?php echo htmlspecialchars(t('Email history'), ENT_QUOTES, 'UTF-8'); ?></h2>
         <a href="<?php echo adminUrl('MailTemplates'); ?>" class="btn btn-ghost btn-sm"
-           title="The templates these are rendered from">Mail templates</a>
+           title="<?php echo htmlspecialchars(t('The templates these are rendered from'), ENT_QUOTES, 'UTF-8'); ?>"><?php echo htmlspecialchars(t('Mail templates'), ENT_QUOTES, 'UTF-8'); ?></a>
     </div>
     <?php
     /*
@@ -36,12 +32,12 @@
     <?php if ($scopedTo !== ''): ?>
         <div role="status" class="alert alert-info mb-4 flex flex-wrap items-center gap-3">
             <span>
-                Showing only mail sent to
+                <?php echo htmlspecialchars(t('Showing only mail sent to'), ENT_QUOTES, 'UTF-8'); ?>
                 <strong class="font-mono"><?php echo htmlspecialchars($scopedTo, ENT_QUOTES, 'UTF-8'); ?></strong>.
-                Mail to an address this account used before it was changed is not here.
+                <?php echo htmlspecialchars(t('Mail to an address this account used before it was changed is not here.'), ENT_QUOTES, 'UTF-8'); ?>
             </span>
             <a href="<?php echo htmlspecialchars((string) ($this->clearUrl ?? adminUrl('emails')), ENT_QUOTES, 'UTF-8'); ?>"
-               class="btn btn-ghost btn-xs ms-auto">Show all</a>
+               class="btn btn-ghost btn-xs ms-auto"><?php echo htmlspecialchars(t('Show all'), ENT_QUOTES, 'UTF-8'); ?></a>
         </div>
     <?php endif; ?>
     <?php echo $this->datatable->render(); ?>

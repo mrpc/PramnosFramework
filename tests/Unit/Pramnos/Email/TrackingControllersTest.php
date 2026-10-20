@@ -316,7 +316,8 @@ class TrackingControllersTest extends TestCase
         );
 
         $calls = [];
-        preg_match_all("~addColumn\(\s*'([^']*)'\s*,\s*(true|false)~", $source, $calls, PREG_SET_ORDER);
+        // The label is any expression — `t('Opens')`, an application's `$label` — before the flag.
+        preg_match_all('~addColumn\(\s*(.+?)\s*,\s*(true|false)\s*,~', $source, $calls, PREG_SET_ORDER);
 
         // Assert
         $this->assertNotEmpty($calls, 'the columns are declared with literal arguments');

@@ -51,6 +51,8 @@ class TestableEmailsController extends EmailsController
             public mixed $report;
             /** Whether mail still goes to the recipient, and the form that changes it. */
             public mixed $bounce;
+            /** The message's status, as the same badge the list draws. */
+            public mixed $statusBadge;
 
             public function display($view = '') {
                 return 'mock html view for ' . $view;
@@ -540,6 +542,64 @@ class EmailsControllerTest extends BaseTestCase
                 $_SESSION['_errors'] ?? []
             );
         }
+    }
+
+    /**
+     * The status filter's options are the controller's `statuses()`: an application that adds
+     * a status of its own sees it in the dropdown, under its own word, beside the framework's —
+     * and a column from `extraColumns()` gets a header in its place.
+     */
+    public function testTheStatusFilterOffersTheStatusesTheControllerNames(): void
+    {
+        // Arrange
+        $this->setMockUser(98);
+        $controller = new class (Application::getInstance()) extends TestableEmailsController {
+            /** One status of the application's own. */
+            protected function statuses(): array
+            {
+                return parent::statuses() + [3 => 'Canceled'];
+            }
+
+            /** A column of the application's own, which gets a header of its own. */
+            protected function extraColumns(): array
+            {
+                return ['Sender' => 'frommail'];
+            }
+        };
+
+        // Act
+        $controller->display();
+        $columns = $controller->lastView->datatable->aoColumns;
+        $filter  = (string) $columns['Status']->footer;
+
+        // Assert — the framework's three, with 0 as Failed rather than "Pending", and the fourth.
+        $this->assertStringContainsString('Any status', $filter);
+        $this->assertMatchesRegularExpression('~value="0"[^>]*>Failed<~', $filter);
+        $this->assertMatchesRegularExpression('~value="3"[^>]*>Canceled<~', $filter);
+        $this->assertStringNotContainsString('Pending', $filter);
+        // The application's column sits after Status and before Opens.
+        $this->assertSame(['ID', 'Recipient', 'Subject', 'Module', 'Date', 'Status', 'Sender', 'Opens', 'Actions'], array_keys($columns));
+    }
+
+    /**
+     * The detail screen draws the list's badge: a failed message reads as failed, with the
+     * reason in its title, rather than a hard-coded "Pending".
+     */
+    public function testShowGivesTheViewTheStatusBadge(): void
+    {
+        // Arrange
+        $this->setMockUser(98);
+        \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('#PREFIX#mails')
+            ->where('id', 2)->update(['extrainfo' => 'Mailbox unavailable']);
+        $_GET['_option'] = 2;
+
+        // Act
+        $this->controller->show(2);
+        $badge = (string) $this->controller->lastView->statusBadge;
+
+        // Assert
+        $this->assertStringContainsString('>Failed</span>', $badge);
+        $this->assertStringContainsString('title="Mailbox unavailable"', $badge);
     }
 
     public function testResendUpdatesStatus(): void

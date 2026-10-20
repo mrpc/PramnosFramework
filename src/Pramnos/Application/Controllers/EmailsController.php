@@ -40,6 +40,9 @@ class EmailsController extends Controller
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
         $this->addAuthAction(['display', 'data', 'show', 'resend', 'bounce']);
+        // POST with the session's token: a resend of a sent message queues a new one, and a link
+        // that does that is one anybody can make a signed-in administrator follow.
+        $this->addWriteAction(['resend']);
         parent::__construct($application);
     }
 
@@ -56,7 +59,7 @@ class EmailsController extends Controller
         }
 
         $doc        = \Pramnos\Framework\Factory::getDocument();
-        $doc->title = 'Email History';
+        $doc->title = t('Email History');
 
         /**
          * A DataTable with per-column search, like the other lists.
@@ -84,20 +87,19 @@ class EmailsController extends Controller
         // values are 0, 1 and 2 asks the reader to guess which number means what.
         $statusFilter = new \Pramnos\Html\Select('status_filter');
         $statusFilter->id = 'dt-emails-status';
-        $statusFilter->addOptions([
-            ''  => 'Any status',
-            '1' => 'Sent',
-            '2' => 'Queued',
-            '0' => 'Pending',
-        ]);
+        $options = ['' => t('Any status')];
+        foreach ($this->statuses() as $value => $label) {
+            $options[(string) $value] = $label;
+        }
+        $statusFilter->addOptions($options);
 
-        $dt->addColumn('ID',        true, true, true, 'num-html', '', true, 'left', true)
-           ->addColumn('Recipient', true, true, true, '',         '', true, 'left', true)
-           ->addColumn('Subject',   true, true, true, 'html',     '', true, 'left', true)
-           ->addColumn('Module',    true, true, true, '',         '', true, 'left', true)
-           ->addColumn('Date',      true, true, true, '',         '', true, 'left', false)
+        $dt->addColumn(t('ID'),        true, true, true, 'num-html', '', true, 'left', true)
+           ->addColumn(t('Recipient'), true, true, true, '',         '', true, 'left', true)
+           ->addColumn(t('Subject'),   true, true, true, 'html',     '', true, 'left', true)
+           ->addColumn(t('Module'),    true, true, true, '',         '', true, 'left', true)
+           ->addColumn(t('Date'),      true, true, true, '',         '', true, 'left', false)
            ->addColumn(
-               'Status',
+               t('Status'),
                true,
                true,
                true,
@@ -107,18 +109,19 @@ class EmailsController extends Controller
                'left',
                'dt-emails-status',
                (string) \Pramnos\Http\Request::staticGet('status_filter', '', 'get')
-           )
-           /*
-            * `true` is the second argument, and it is `bVisible`.
-            *
-            * Both of these were `false`, which goes straight into DataTables' column config and
-            * hides the column outright. The Opens column was added and never appeared; the
-            * actions column beside it — the view and resend icons — had been invisible since it
-            * was written. The rest of this framework's screens declare an actions column as
-            * `('Actions', true, false, false, 'html')`: visible, unsortable, unsearchable.
-            */
-           ->addColumn('Opens', true, false, false, 'html', '', true, 'left', false)
-           ->addColumn('Actions', true, false, false, 'html', '', false, 'right', false);
+           );
+        // The application's own columns, after the status: shown and searched as text, escaped.
+        foreach (array_keys($this->applicationColumns()) as $label) {
+            $dt->addColumn((string) $label, true, false, true, 'html', '', true, 'left', true);
+        }
+        /*
+         * `true` is the second argument, and it is `bVisible`: `false` goes straight into
+         * DataTables' column config and hides the column outright. The rest of this framework's
+         * screens declare an actions column as `('Actions', true, false, false, 'html')`:
+         * visible, unsortable, unsearchable.
+         */
+        $dt->addColumn(t('Opens'), true, false, false, 'html', '', true, 'left', false)
+           ->addColumn(t('Actions'), true, false, false, 'html', '', false, 'right', false);
 
         $view            = $this->getView('emails');
         $view->datatable = $dt;
@@ -183,53 +186,167 @@ class EmailsController extends Controller
 
         \Pramnos\Framework\Factory::getDocument('json');
 
+        $extra  = $this->applicationColumns();
+        // `extrainfo` last and never shown: the error a failed badge carries in its title.
+        $fields = array_merge(['id', 'tomail', 'subject', 'module', 'date', 'status'], array_values($extra), ['extrainfo']);
         $result = \Pramnos\Html\Datatable\Datasource::getList(
             'mails',
-            ['id', 'tomail', 'subject', 'module', 'date', 'status'],
+            $fields,
             false,
             $this->addressCondition()
         );
 
         $dataKey = array_key_exists('data', $result) ? 'data' : 'aaData';
         foreach ($result[$dataKey] as &$row) {
-            $id      = (int) $row[0];
-            $status  = (int) $row[5];
+            unset($row['DT_RowId']);
+            $mail    = array_combine($fields, array_slice(array_values($row), 0, count($fields)));
+            $id      = (int) $mail['id'];
+            $status  = (int) $mail['status'];
             $showUrl = adminUrl('emails/show/') . $id;
 
-            $row[0] = '<a href="' . $showUrl . '">' . $id . '</a>';
-            $row[1] = htmlspecialchars((string) $row[1], ENT_QUOTES, 'UTF-8');
-            $row[2] = '<a href="' . $showUrl . '">'
-                . htmlspecialchars((string) $row[2], ENT_QUOTES, 'UTF-8') . '</a>';
-            $row[3] = htmlspecialchars((string) $row[3], ENT_QUOTES, 'UTF-8');
-
-            // The column is a Unix integer. Printed raw it is a number nobody reads, which
-            // is what this screen was doing.
-            $sent   = (int) $row[4];
-            $row[4] = $sent > 0 ? date('Y-m-d H:i', $sent) : '';
-
-            $row[5] = match ($status) {
-                1 => '<span class="pf-state pf-state-on">Sent</span>',
-                2 => '<span class="pf-state">Queued</span>',
-                default => '<span class="pf-state pf-state-off">Pending</span>',
-            };
-
-            $row[] = $this->trackingCell($id);
-
-            $row[] = Icon::link($showUrl, 'view', 'Open this email')
-                . ($status === 1
-                    ? ''
-                    : Icon::link(
+            $cells = [
+                '<a href="' . $showUrl . '">' . $id . '</a>',
+                self::e($mail['tomail']),
+                '<a href="' . $showUrl . '">' . self::e($mail['subject']) . '</a>',
+                self::e($mail['module']),
+                // The column is a Unix integer. Printed raw it is a number nobody reads, which
+                // is what this screen was doing.
+                (int) $mail['date'] > 0 ? date('Y-m-d H:i', (int) $mail['date']) : '',
+                $this->statusBadge($status, $mail),
+            ];
+            foreach ($extra as $column) {
+                $cells[] = self::e($mail[$column] ?? '');
+            }
+            $cells[] = $this->trackingCell($id);
+            $cells[] = Icon::link($showUrl, 'view', t('Open this email'))
+                . ($this->mayResend($mail)
+                    ? Icon::postButton(
                         adminUrl('emails/resend/') . $id,
                         'retry',
-                        'Send this email again',
-                        ['data-confirm' => 'Send this email again?']
-                    ));
-
-            unset($row['DT_RowId']);
+                        t('Send this email again'),
+                        ['data-confirm' => t('Send this email again?')]
+                    )
+                    : '');
+            $row = $cells;
         }
         unset($row);
 
         return \Pramnos\Http\Response::json($result);
+    }
+
+    /**
+     * The statuses a message has, as `[value => label]` — the filter's options and the badges'
+     * words. An application with statuses of its own adds them:
+     *
+     * ```php
+     * protected function statuses(): array
+     * {
+     *     return parent::statuses() + [3 => t('Canceled')];
+     * }
+     * ```
+     *
+     * @return array<int, string>
+     */
+    protected function statuses(): array
+    {
+        return [
+            \Pramnos\Messaging\Mail::STATUS_FAILED => t('Failed'),
+            \Pramnos\Messaging\Mail::STATUS_SENT   => t('Sent'),
+            \Pramnos\Messaging\Mail::STATUS_QUEUED => t('Queued'),
+        ];
+    }
+
+    /**
+     * A row's status, as the badge in its cell. A failed message carries its error in the title.
+     *
+     * @param array<string, mixed> $row The row as read: its columns by name
+     */
+    protected function statusBadge(int $status, array $row): string
+    {
+        $label = $this->statuses()[$status] ?? (string) $status;
+        $class = match ($status) {
+            \Pramnos\Messaging\Mail::STATUS_SENT   => 'pf-state pf-state-on',
+            \Pramnos\Messaging\Mail::STATUS_FAILED => 'pf-state pf-state-off',
+            default                                  => 'pf-state',
+        };
+        $error = $status === \Pramnos\Messaging\Mail::STATUS_FAILED ? $this->errorOf($row) : '';
+
+        return '<span class="' . $class . '"' . ($error !== '' ? ' title="' . self::e($error) . '"' : '') . '>'
+            . self::e($label) . '</span>';
+    }
+
+    /**
+     * Why a message failed, from its `extrainfo` — which holds whatever wrote it last: the
+     * outbox's JSON (its `last_error` after a retry), an application's serialized array (its
+     * `error`), or the reason as text.
+     *
+     * @param array<string, mixed> $row
+     */
+    protected function errorOf(array $row): string
+    {
+        $raw  = trim((string) ($row['extrainfo'] ?? ''));
+        $json = json_decode($raw, true);
+        if (is_array($json)) {
+            return (string) ($json['last_error'] ?? $json['error'] ?? $json['note'] ?? '');
+        }
+        $serialized = str_starts_with($raw, 'a:') ? @unserialize($raw, ['allowed_classes' => false]) : false;
+        if (is_array($serialized)) {
+            return (string) ($serialized['error'] ?? '');
+        }
+
+        return $raw;
+    }
+
+    /**
+     * Columns of the application's own to show in the list, as `[label => column]`.
+     *
+     * Empty here. A wrapper overrides it:
+     *
+     * ```php
+     * protected function extraColumns(): array
+     * {
+     *     return ['From' => 'frommail', 'Sender name' => 'fromname', 'Recipient name' => 'toname'];
+     * }
+     * ```
+     *
+     * Shown and searched as text, escaped; not sortable.
+     *
+     * @return array<string, string>
+     */
+    protected function extraColumns(): array
+    {
+        return [];
+    }
+
+    /**
+     * Whether a message may be sent again. Not one that went — sending it twice is the one thing a
+     * recipient notices — unless an application says otherwise ("it never arrived"); a resend of
+     * a sent message queues a new one and leaves the record of the first.
+     *
+     * @param array<string, mixed> $row
+     */
+    protected function mayResend(array $row): bool
+    {
+        return (int) ($row['status'] ?? -1) !== \Pramnos\Messaging\Mail::STATUS_SENT;
+    }
+
+    /**
+     * {@see extraColumns()} with only names a column can have: the list builds its query from them.
+     *
+     * @return array<string, string>
+     */
+    private function applicationColumns(): array
+    {
+        return array_filter(
+            $this->extraColumns(),
+            static fn ($column): bool => preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', (string) $column) === 1
+        );
+    }
+
+    /** Escaped for HTML. */
+    private static function e(mixed $value): string
+    {
+        return htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
     }
 
     /**
@@ -249,29 +366,31 @@ class EmailsController extends Controller
         $row = $this->trackingFor($mailId);
 
         if ($row === null) {
-            return '<span class="pf-muted" title="This message was not tracked">—</span>';
+            return '<span class="pf-muted" title="' . self::e(t('This message was not tracked')) . '">—</span>';
         }
 
         $parts = [];
 
         if ((int) $row['clicks'] > 0) {
-            $parts[] = '<span class="pf-state pf-state-on" title="Links followed. A click is a '
-                . 'person — no proxy follows a link.">' . (int) $row['clicks'] . ' clicked</span>';
+            $parts[] = '<span class="pf-state pf-state-on" title="'
+                . self::e(t('Links followed. A click is a person — no proxy follows a link.')) . '">'
+                . self::e(t('%d clicked', (int) $row['clicks'])) . '</span>';
         }
 
         if ((int) $row['opens'] > 0) {
-            $parts[] = '<span class="pf-state" title="Fetches that did not come from a known '
-                . 'mailbox proxy">' . (int) $row['opens'] . ' opened</span>';
+            $parts[] = '<span class="pf-state" title="'
+                . self::e(t('Fetches that did not come from a known mailbox proxy')) . '">'
+                . self::e(t('%d opened', (int) $row['opens'])) . '</span>';
         }
 
         if ((int) $row['proxy_opens'] > 0) {
-            $parts[] = '<span class="pf-state pf-state-off" title="Fetched by a mailbox provider '
-                . 'on delivery — Apple Mail Privacy Protection and the like. Not a reader.">'
-                . (int) $row['proxy_opens'] . ' prefetched</span>';
+            $parts[] = '<span class="pf-state pf-state-off" title="'
+                . self::e(t('Fetched by a mailbox provider on delivery — Apple Mail Privacy Protection and the like. Not a reader.')) . '">'
+                . self::e(t('%d prefetched', (int) $row['proxy_opens'])) . '</span>';
         }
 
         return $parts === []
-            ? '<span class="pf-muted" title="Tracked, and nothing has come back">tracked</span>'
+            ? '<span class="pf-muted" title="' . self::e(t('Tracked, and nothing has come back')) . '">' . self::e(t('tracked')) . '</span>'
             : implode(' ', $parts);
     }
 
@@ -313,7 +432,7 @@ class EmailsController extends Controller
 
         $mailId = (int) \Pramnos\Http\Request::staticGetOption();
         if ($mailId <= 0) {
-            $this->addError('The id in that link is not valid.');
+            $this->addError(t('The id in that link is not valid.'));
             $this->redirect(adminUrl('emails'));
             return null;
         }
@@ -325,19 +444,21 @@ class EmailsController extends Controller
             ->first();
 
         if (!$result || $result->numRows === 0) {
-            $this->addError('That record no longer exists.');
+            $this->addError(t('That record no longer exists.'));
             $this->redirect(adminUrl('emails'));
             return null;
         }
 
         $doc        = \Pramnos\Framework\Factory::getDocument();
-        $doc->title = 'Email Preview — ' . htmlspecialchars((string) ($result->fields['subject'] ?? ''), ENT_QUOTES);
+        $doc->title = t('Email Preview — %s', htmlspecialchars((string) ($result->fields['subject'] ?? ''), ENT_QUOTES));
 
         $view       = $this->getView('emails');
         // The body as it was kept: in the row, or in the file its path names.
         $mail            = (array) $result->fields;
         $mail['content'] = \Pramnos\Email\Body::of($mail);
         $view->mail      = $mail;
+        // The same words as the list: a failed message reads as failed, with its error.
+        $view->statusBadge = $this->statusBadge((int) ($mail['status'] ?? 0), $mail);
 
         /*
          * Everything else that is knowable about this message.
@@ -362,9 +483,12 @@ class EmailsController extends Controller
     }
 
     /**
-     * Re-queue a failed email for re-delivery.
-     * Sets status=2 (queued) so the mail sender daemon picks it up again.
-     * Only failed emails (status=0) can be re-queued.
+     * Send a message again — one {@see mayResend()} allows.
+     *
+     * A message that never went is queued again in place, dated now so the outbox's deadline
+     * counts from the resend rather than from the first attempt. One that went — when an
+     * application allows it — is queued as a **new** row, a copy, and the record of the first
+     * stays as it was: the history says it was sent twice.
      */
     public function resend(mixed $id = null): void
     {
@@ -374,22 +498,66 @@ class EmailsController extends Controller
 
         $mailId = (int) \Pramnos\Http\Request::staticGetOption();
         if ($mailId <= 0) {
-            $this->addError('The id in that link is not valid.');
+            $this->addError(t('The id in that link is not valid.'));
             $this->redirect(adminUrl('emails'));
             return;
         }
 
-        $db = \Pramnos\Framework\Factory::getDatabase();
+        $db     = \Pramnos\Framework\Factory::getDatabase();
+        $result = $db->queryBuilder()->table('#PREFIX#mails')->where('id', $mailId)->first();
+        if (!$result || $result->numRows === 0) {
+            $this->addError(t('That record no longer exists.'));
+            $this->redirect(adminUrl('emails'));
+            return;
+        }
+        $row = (array) $result->fields;
 
-        // Only re-queue failed emails (status=0) — sent/queued emails are ignored
-        $db->queryBuilder()
-            ->table('#PREFIX#mails')
-            ->where('id', $mailId)
-            ->where('status', 0)
-            ->update(['status' => 2]);
+        if (!$this->mayResend($row)) {
+            $this->addError(t('This email is not sent again.'));
+            $this->redirect(adminUrl('emails/show/') . $mailId);
+            return;
+        }
 
-        $this->addMessage('Queued again.');
-        $this->redirect(adminUrl('emails/show/') . $mailId);
+        if ((int) $row['status'] !== \Pramnos\Messaging\Mail::STATUS_SENT) {
+            $db->queryBuilder()->table('#PREFIX#mails')->where('id', $mailId)
+                ->update(['status' => \Pramnos\Messaging\Mail::STATUS_QUEUED, 'date' => time()]);
+            $this->addMessage(t('Queued again.'));
+            $this->redirect(adminUrl('emails/show/') . $mailId);
+            return;
+        }
+
+        $this->addMessage(t('Queued again, as a new message.'));
+        $this->redirect(adminUrl('emails/show/') . $this->queueCopy($row));
+    }
+
+    /**
+     * A sent message as a new queued row: every column it has — an application's own included —
+     * with its body read back from wherever it was kept and written into the row, what it was
+     * queued with, and none of its sending.
+     *
+     * @param array<string, mixed> $row
+     * @return int The new row's id
+     */
+    protected function queueCopy(array $row): int
+    {
+        $body  = \Pramnos\Email\Body::of($row);
+        $kept  = json_decode((string) ($row['extrainfo'] ?? ''), true);
+        $copy  = array_diff_key($row, array_flip(['id', 'status', 'date', 'content', 'path', 'hash', 'extrainfo', 'bodyvars']));
+        $copy  = array_filter($copy, static fn ($key): bool => is_string($key), ARRAY_FILTER_USE_KEY);
+        $db    = \Pramnos\Framework\Factory::getDatabase();
+        $db->queryBuilder()->table('#PREFIX#mails')->insert($copy + [
+            'status'    => \Pramnos\Messaging\Mail::STATUS_QUEUED,
+            'date'      => time(),
+            'content'   => $body,
+            'path'      => '',
+            'hash'      => md5($body),
+            // What it was queued with — copies, attachment, headers — and not its retries.
+            'extrainfo' => is_array($kept) && is_array($kept['outbox'] ?? null)
+                ? (string) json_encode(['outbox' => $kept['outbox']], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
+                : '',
+        ]);
+
+        return (int) $db->getInsertId();
     }
 
     /**
@@ -406,7 +574,7 @@ class EmailsController extends Controller
         $back   = adminUrl('emails/show/') . $mailId;
         if (strtoupper((string) ($_SERVER['REQUEST_METHOD'] ?? 'GET')) !== 'POST'
             || !\Pramnos\Http\Session::getInstance()->verifyCsrfToken((string) ($_POST['_csrf_token'] ?? ''))) {
-            $this->addError('That form had expired. Please try again.');
+            $this->addError(t('That form had expired. Please try again.'));
             $this->redirect($back);
             return;
         }
@@ -415,7 +583,7 @@ class EmailsController extends Controller
             ? \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('#PREFIX#mails')->select(['tomail'])->where('id', $mailId)->first()
             : null;
         if (!$row || $row->numRows === 0) {
-            $this->addError('That record no longer exists.');
+            $this->addError(t('That record no longer exists.'));
             $this->redirect(adminUrl('emails'));
             return;
         }
@@ -424,13 +592,13 @@ class EmailsController extends Controller
         $op      = (string) ($_POST['op'] ?? '');
         $done    = match ($op) {
             'clear' => \Pramnos\Email\Bounces::clear($address),
-            'block' => \Pramnos\Email\Bounces::block($address, trim((string) ($_POST['reason'] ?? '')) ?: 'Blocked from the email history'),
+            'block' => \Pramnos\Email\Bounces::block($address, trim((string) ($_POST['reason'] ?? '')) ?: t('Blocked from the email history')),
             default => false,
         };
         if ($done) {
-            $this->addMessage($op === 'clear' ? 'Mail goes to ' . $address . ' again.' : 'No mail goes to ' . $address . ' now.');
+            $this->addMessage($op === 'clear' ? t('Mail goes to %s again.', $address) : t('No mail goes to %s now.', $address));
         } else {
-            $this->addError('Nothing was changed for ' . $address . '.');
+            $this->addError(t('Nothing was changed for %s.', $address));
         }
         $this->redirect($back);
     }

@@ -1,47 +1,38 @@
 <?php
 /**
- * Email log list (plain-CSS theme).
+ * Email history (plain CSS theme).
  *
  * Variables:
- *   $this->mails — iterable rows (id, recipient, subject, date, status)
- *   $this->page  — current page
- *   $this->total — total count
+ *   $this->datatable — \Pramnos\Html\Datatable instance (server-side AJAX, fed by Emails/data)
+ *   $this->scopedTo  — the one address the list is narrowed to, when arrived from an account
+ *   $this->clearUrl  — the list without that narrowing
+ *   $this->success   — optional success flash message
+ *   $this->error     — optional error flash message
  */
-$statusLabel = fn($s) => match((int)$s) {
-    1 => '<span class="badge bg-success">Sent</span>',
-    2 => '<span class="badge bg-warning text-dark">Queued</span>',
-    default => '<span class="badge bg-secondary">Pending</span>',
-};
+$e        = static fn ($value): string => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
+$scopedTo = (string) ($this->scopedTo ?? '');
 ?>
 <div class="page-section">
-    <h2 style="margin-bottom:16px">Email Log</h2>
-    <div class="card" style="border:1px solid #ddd;border-radius:4px;margin-bottom:16px">
-        <div class="card-body" style="padding:16px" style="padding:0">
-            <table style="width:100%;border-collapse:collapse">
-                <thead style="background:#f5f5f5">
-                    <tr><th>ID</th><th>Recipient</th><th>Subject</th><th>Date</th><th>Status</th><th></th></tr>
-                </thead>
-                <tbody>
-                <?php foreach (($this->mails ?? []) as $mail): ?>
-                    <tr>
-                        <td><?php echo (int)$mail['id']; ?></td>
-                        <td><?php echo htmlspecialchars($mail['tomail'] ?? $mail['recipient'] ?? $mail['mailto'] ?? ''); ?></td>
-                        <td><?php echo htmlspecialchars($mail['subject'] ?? ''); ?></td>
-                        <td style="color:#888;font-size:0.8em"><?php echo htmlspecialchars($mail['date'] ?? $mail['maildate'] ?? ''); ?></td>
-                        <td><?php echo $statusLabel($mail['status'] ?? 0); ?></td>
-                        <td style="text-align:right">
-                            <a href="<?php echo adminUrl('Emails' . '/show/' . ((int)$mail['id'])); ?>" class="btn btn-sm btn-outline-secondary">View</a>
-                            <?php if ((int)($mail['status'] ?? 0) === 0): ?>
-                                <a href="<?php echo adminUrl('Emails' . '/resend/' . ((int)$mail['id'])); ?>" class="btn btn-sm btn-outline-primary">Resend</a>
-                            <?php endif; ?>
-                        </td>
-                    </tr>
-                <?php endforeach; ?>
-                <?php if (empty($this->mails)): ?>
-                    <tr><td colspan="6" style="text-align:center;color:#888;padding:24px">No emails found.</td></tr>
-                <?php endif; ?>
-                </tbody>
-            </table>
-        </div>
+    <?php $this->activeNav = 'emails'; $this->insert('../partials/admin_breadcrumb'); ?>
+    <?php if (!empty($this->success)): ?>
+        <div role="status" class="alert alert-success"><?php echo $e($this->success); ?></div>
+    <?php endif; ?>
+    <?php if (!empty($this->error)): ?>
+        <div role="alert" class="alert alert-danger"><?php echo $e($this->error); ?></div>
+    <?php endif; ?>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <h2><?php echo $e(t('Email history')); ?></h2>
+        <a href="<?php echo adminUrl('MailTemplates'); ?>" class="btn btn-sm"
+           title="<?php echo $e(t('The templates these are rendered from')); ?>"><?php echo $e(t('Mail templates')); ?></a>
     </div>
+    <?php // A filtered list looks like a short one: say it is filtered, and give the way out. ?>
+    <?php if ($scopedTo !== ''): ?>
+        <div role="status" class="alert alert-info">
+            <?php echo $e(t('Showing only mail sent to')); ?>
+            <strong><?php echo $e($scopedTo); ?></strong>.
+            <?php echo $e(t('Mail to an address this account used before it was changed is not here.')); ?>
+            <a href="<?php echo $e($this->clearUrl ?? adminUrl('emails')); ?>" class="btn btn-sm"><?php echo $e(t('Show all')); ?></a>
+        </div>
+    <?php endif; ?>
+    <?php echo $this->datatable->render(); ?>
 </div>

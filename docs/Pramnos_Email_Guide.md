@@ -18,6 +18,7 @@ use_cases:
   - Sending from a customer's own address: DKIM for their domain, or through their server
   - Replying in the same thread as the message being answered
   - Stopping the mail log growing without limit
+  - Adding an application's own columns, statuses or resend rule to the email history screen
   - Sending one account a message from the administration area
   - Giving a notification a wrapper, an unsubscribe list, tracking or a Gmail action
 ---
@@ -1673,6 +1674,43 @@ will not let you, but the reasoning is worth carrying into whatever you build be
 module, date, status — with the full body and a resend. Tracked messages show their figures in an
 **Opens** column, with prefetches marked apart. A message that was not tracked shows a dash, which
 is the honest rendering of "nobody measured this".
+
+The status reads **Sent**, **Queued** or **Failed** (`Mail::STATUS_*`), and a failed badge carries
+the reason in its title — read from `extrainfo`: the outbox's `last_error`, an `error` in an
+application's serialized array, or the text itself. **Send this email again** is a `POST` with the
+session's token. A message that never went is queued again in place and dated now, so the
+outbox's deadline counts from the resend; a sent one is not offered at all.
+
+An application shows the screen in its own terms by extending `EmailsController`:
+
+```php
+class Emails extends \Pramnos\Application\Controllers\EmailsController
+{
+    /** The filter's options and the badges' words, as value => label. */
+    protected function statuses(): array
+    {
+        return parent::statuses() + [3 => t('Canceled')];
+    }
+
+    /** Columns of its own after Status — shown escaped, and searchable. */
+    protected function extraColumns(): array
+    {
+        return ['From' => 'frommail', 'Sender name' => 'fromname', 'Recipient name' => 'toname'];
+    }
+
+    /** "It never arrived": a sent message may go again. */
+    protected function mayResend(array $row): bool
+    {
+        return true;
+    }
+}
+```
+
+`statusBadge(int $status, array $row)` draws one status cell, on the list and on the message's
+own page. `extraColumns()` takes column names only — anything else is dropped, because the list
+builds its query from them. A resend `mayResend()` allows for a **sent** message queues a new row,
+a copy with the same body, names and outbox settings, and leaves the first as it was: the history
+says the message went twice, which is what happened.
 
 Every `send()` writes that row, sent or failed. An application that already keeps its own row
 for each message in the same table gets two; it turns the framework's off for every send,
