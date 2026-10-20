@@ -70,7 +70,7 @@ class MailFlush extends Command
             ->addOption('limit', null, InputOption::VALUE_REQUIRED,
                 'How many to send this run. Defaults to ' . self::BATCH . '.')
             ->addOption('deadline', null, InputOption::VALUE_REQUIRED,
-                'Give up on a message older than this, in seconds. '
+                'Give up on a message older than this, in seconds, or `never`. '
                 . 'Defaults to `mail.outbox.deadline` or ' . self::DEADLINE . '.')
             ->addOption('dry-run', null, InputOption::VALUE_NONE,
                 'List what would be sent, and send nothing.');
@@ -92,7 +92,15 @@ class MailFlush extends Command
         }
 
         try {
-            $expired = $dryRun ? 0 : $this->expire($deadline);
+            // Switched off — a development copy, an emergency: nothing is sent and nothing given
+            // up on, so every message is still there, queued, when it is switched back on.
+            if (!$this->sendingEnabled()) {
+                $output->writeln('<comment>Sending is switched off (mail.outbox.enabled); the outbox stays as it is.</comment>');
+
+                return Command::SUCCESS;
+            }
+
+            $expired = $dryRun || $deadline === null ? 0 : $this->expire($deadline);
 
             if ($expired > 0) {
                 $output->writeln(
@@ -100,7 +108,8 @@ class MailFlush extends Command
                 );
             }
 
-            $pending = $this->pending($limit, $deadline);
+            // With no deadline every queued row is due, however old: a window back to the epoch.
+            $pending = $this->pending($limit, $deadline ?? time());
 
             if ($pending === []) {
                 $output->writeln('The outbox is empty.');
@@ -166,9 +175,7 @@ class MailFlush extends Command
         // Bounced or blocked since it was queued: it is not sent, and the row says why.
         $refused = $this->bounced((string) $row['tomail']);
         if ($refused !== null) {
-            $this->mark((int) $row['id'], Mail::STATUS_FAILED, 'Not sent: ' . $row['tomail'] . ' ' . $refused . '.');
-
-            return 'failed';
+            return $this->refuse($row, 'Not sent: ' . $row['tomail'] . ' ' . $refused . '.');
         }
 
         $email = $this->mailer();
@@ -177,6 +184,8 @@ class MailFlush extends Command
 
         if (trim((string) $row['frommail']) !== '') {
             $email->setFrom((string) $row['frommail']);
+        } elseif (($sender = $this->defaultSender()) !== null) {
+            $email->setFrom($sender);
         }
 
         /*
@@ -199,9 +208,16 @@ class MailFlush extends Command
             $email->restoreOutboxState(array_merge($kept['outbox'], ['mailId' => (int) $row['id'], 'sentStamp' => (int) $row['date']]));
         }
 
+        // The application's own reasons not to send — a list of its own, a check of its own.
+        $refused = $this->beforeSend($row, $email);
+        if ($refused !== null) {
+            return $this->refuse($row, $refused);
+        }
+
         if ($email->sendRendered()) {
             $this->mark((int) $row['id'], Mail::STATUS_SENT, '');
             $this->keepBody($row, $email);
+            $this->afterSent($row, $email);
 
             return 'sent';
         }
@@ -209,12 +225,75 @@ class MailFlush extends Command
         $error = $email->getLastError();
 
         if ($this->isPermanent($error)) {
-            $this->mark((int) $row['id'], Mail::STATUS_FAILED, $error);
-
-            return 'failed';
+            return $this->refuse($row, $error);
         }
 
         return 'retry';
+    }
+
+    /** A row failed for good, with its reason, and the application told. */
+    private function refuse(array $row, string $reason): string
+    {
+        $this->mark((int) $row['id'], Mail::STATUS_FAILED, $reason);
+        $this->afterFailed($row, $reason);
+
+        return 'failed';
+    }
+
+    /**
+     * A reason this message must not go, or null to send it — an application's own list or
+     * check, beside the bounces the framework already keeps. The row is failed with the reason.
+     *
+     * @param array<string, mixed> $row
+     */
+    protected function beforeSend(array $row, Email $email): ?string
+    {
+        return null;
+    }
+
+    /**
+     * A message went: an application's own count or log of it.
+     *
+     * @param array<string, mixed> $row
+     */
+    protected function afterSent(array $row, Email $email): void
+    {
+    }
+
+    /**
+     * A message failed for good — refused before sending, bounced, or refused by the server.
+     * Not called for a message left pending to try again.
+     *
+     * @param array<string, mixed> $row
+     */
+    protected function afterFailed(array $row, string $error): void
+    {
+    }
+
+    /**
+     * Whether this run sends at all: `mail.outbox.enabled` in `app.php`, true unless it says
+     * false. An application with a setting of its own for it overrides this.
+     */
+    protected function sendingEnabled(): bool
+    {
+        $enabled = \Pramnos\Application\Application::currentInstance()?->applicationInfo['mail']['outbox']['enabled'] ?? true;
+
+        return $enabled !== false && $enabled !== 0 && $enabled !== '0';
+    }
+
+    /**
+     * Who a message with no sender of its own is from: `mail.outbox.from` in `app.php`, as
+     * `['address' => …, 'name' => …]`, or null for the mailer's own default — `admin_mail`, with
+     * the site's name.
+     *
+     * @return array<string, string>|null `[address => name]`, as Email::setFrom() takes it
+     */
+    protected function defaultSender(): ?array
+    {
+        $from    = (array) (\Pramnos\Application\Application::currentInstance()?->applicationInfo['mail']['outbox']['from'] ?? []);
+        $address = trim((string) ($from['address'] ?? ''));
+
+        return $address === '' ? null : [$address => (string) ($from['name'] ?? '')];
     }
 
     /**
@@ -322,16 +401,21 @@ class MailFlush extends Command
     /**
      * How long a message stays worth retrying.
      */
-    protected function deadline(mixed $option): int
+    protected function deadline(mixed $option): ?int
     {
-        $value = (int) ($option ?? 0);
-
-        if ($value < 1) {
-            $value = (int) (\Pramnos\Application\Application::currentInstance()
-                ?->applicationInfo['mail']['outbox']['deadline'] ?? 0);
+        $configured = \Pramnos\Application\Application::currentInstance()?->applicationInfo['mail']['outbox']['deadline'] ?? null;
+        foreach ([$option, $configured] as $value) {
+            // `never`: a message is not given up on for its age — it waits out a backlog or an
+            // outage of any length, and only the server's refusal fails it.
+            if (is_string($value) && strtolower(trim($value)) === 'never') {
+                return null;
+            }
+            if ((int) $value > 0) {
+                return (int) $value;
+            }
         }
 
-        return $value > 0 ? $value : self::DEADLINE;
+        return self::DEADLINE;
     }
 
     /**

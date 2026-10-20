@@ -2024,6 +2024,52 @@ row with tomorrow's `date`, and `mail:flush` sends it then.
 It is a worker, so unlike `mail:prune` it does its job by default — a dry run is an option, not
 the default.
 
+```php
+// app.php
+'mail' => ['outbox' => [
+    'enabled'  => true,        // false: nothing sent, nothing given up on — the outbox waits
+    'deadline' => 86400,       // seconds a message stays worth retrying, or 'never'
+    'from'     => ['address' => 'team@example.com', 'name' => 'The Team'],  // a row with no sender
+]],
+```
+
+`deadline` `never` (or `--deadline=never`) keeps every message until it goes or the server
+refuses it for good, through a backlog or an outage of any length. Without `from`, a message with
+no sender of its own is from `admin_mail`, with the site's name.
+
+**What an application does around each send** goes in a subclass, registered under the same
+name in its console application, which replaces the framework's:
+
+```php
+final class MailFlush extends \Pramnos\Console\Commands\MailFlush
+{
+    /** A reason not to send — the row is failed with it — or null. */
+    protected function beforeSend(array $row, \Pramnos\Email\Email $email): ?string
+    {
+        return Blocklist::has($row['tomail']) ? 'On the blocklist' : null;
+    }
+
+    /** One message went. */
+    protected function afterSent(array $row, \Pramnos\Email\Email $email): void
+    {
+        DailyStats::count('emails');
+    }
+
+    /** One failed for good: refused here, bounced, or refused by the server — not a retry. */
+    protected function afterFailed(array $row, string $error): void
+    {
+    }
+
+    /** A switch of the application's own, instead of mail.outbox.enabled. */
+    protected function sendingEnabled(): bool
+    {
+        return Settings::getSetting('sendemails') !== 'no';
+    }
+}
+```
+
+How long sent mail is kept is `mail:prune`'s, from `mail.retention` — see below.
+
 ### The two answers that must not be confused
 
 | The server said | Meaning | What happens |

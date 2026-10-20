@@ -53,9 +53,16 @@ class MailOutboxMySQLTest extends TestCase
         $this->tag = 'outbox-test-' . bin2hex(random_bytes(4));
     }
 
+    /** @var array<string, mixed>|null The application instances, before a test set its own */
+    private ?array $savedInstances = null;
+
     protected function tearDown(): void
     {
         $this->db->schema()->dropTableIfExists('mails');
+        if ($this->savedInstances !== null) {
+            (new \ReflectionProperty(\Pramnos\Application\Application::class, 'appInstances'))->setValue(null, $this->savedInstances);
+            $this->savedInstances = null;
+        }
 
         if ($this->previousSingleton !== null) {
             $singleton = &Factory::getDatabase();
@@ -341,6 +348,131 @@ class MailOutboxMySQLTest extends TestCase
         $this->assertSame(1, $mailer->attempts);
     }
 
+    /** An application whose `mail.outbox` is this, as the current one. */
+    private function outboxConfig(array $outbox): void
+    {
+        $stub = new class extends \Pramnos\Application\Application {
+            /** Nothing to boot: only the configuration is read. */
+            public function __construct()
+            {
+            }
+        };
+        $stub->applicationInfo = ['mail' => ['outbox' => $outbox]];
+        $property = new \ReflectionProperty(\Pramnos\Application\Application::class, 'appInstances');
+        $this->savedInstances ??= $property->getValue() ?? [];
+        $property->setValue(null, ['default' => $stub] + $this->savedInstances);
+    }
+
+    /** Queue one, then date it `$ago` seconds back. */
+    private function queueAged(string $to, int $ago): void
+    {
+        $this->queueOne($to, 'Aged', '<p>Body</p>');
+        $this->db->queryBuilder()->table('#PREFIX#mails')->where('tomail', $to)->update(['date' => time() - $ago]);
+    }
+
+    /** Each row's status, by recipient. @return array<string, int> */
+    private function statuses(): array
+    {
+        $rows = $this->rows();
+        $this->assertNotEmpty($rows, 'the sweep found nothing to check');
+        $status = [];
+        foreach ($rows as $row) {
+            $status[$row['tomail']] = (int) $row['status'];
+        }
+
+        return $status;
+    }
+
+    /**
+     * An application's hooks around each send (FW-200): `beforeSend()` refusing fails the row with
+     * its reason, and only the rows that go reach the transport; `afterSent()` is called once per
+     * message sent, `afterFailed()` once per message failed for good — refused, or 5xx — and not
+     * for one left to try again.
+     */
+    public function testTheApplicationsHooksAroundEachSend(): void
+    {
+        // Arrange
+        $this->queueOne('blocked@example.com', 'Refused', '<p>Body</p>');
+        $this->queueOne('fine@example.com', 'Goes', '<p>Body</p>');
+        $command = new HookedMailFlush(new FlushSpyMailer(true));
+
+        // Act
+        (new CommandTester($command))->execute([]);
+        $status = $this->statuses();
+        $reason = (string) $this->db->queryBuilder()->table('#PREFIX#mails')->where('tomail', 'blocked@example.com')->first()->fields['extrainfo'];
+
+        // Assert
+        $this->assertSame(Mail::STATUS_FAILED, $status['blocked@example.com']);
+        $this->assertSame('On the blocklist', $reason);
+        $this->assertSame(Mail::STATUS_SENT, $status['fine@example.com']);
+        $this->assertSame(['fine@example.com'], $command->sent);
+        $this->assertSame(['blocked@example.com' => 'On the blocklist'], $command->failed);
+        $this->assertSame(1, $command->spyAttempts(), 'the refused one reached the transport');
+    }
+
+    /**
+     * Sending switched off (`mail.outbox.enabled` false): nothing is sent and nothing given up on
+     * — an aged row stays queued too, ready when it is switched back on (FW-200).
+     */
+    public function testSwitchedOffNothingIsSentAndNothingFailed(): void
+    {
+        // Arrange
+        $this->outboxConfig(['enabled' => false]);
+        $this->queueAged('waiting@example.com', 60);
+        $this->queueAged('old@example.com', 3 * 86400);
+        $mailer = new FlushSpyMailer(true);
+
+        // Act
+        $tester = $this->flush($mailer);
+
+        // Assert
+        $this->assertSame(['waiting@example.com' => Mail::STATUS_QUEUED, 'old@example.com' => Mail::STATUS_QUEUED], $this->statuses());
+        $this->assertSame(0, $mailer->attempts);
+        $this->assertStringContainsString('switched off', $tester->getDisplay());
+    }
+
+    /**
+     * With the deadline `never` — from the configuration or the option — a row queued three days
+     * ago is sent rather than given up on (FW-200).
+     */
+    public function testWithNoDeadlineAnOldRowIsStillSent(): void
+    {
+        // Arrange
+        $this->outboxConfig(['deadline' => 'never']);
+        $this->queueAged('three-days@example.com', 3 * 86400);
+        $mailer = new FlushSpyMailer(true);
+
+        // Act
+        $this->flush($mailer);
+        $byConfig = $this->statuses();
+        $this->outboxConfig([]);
+        $this->queueAged('also-old@example.com', 3 * 86400);
+        $this->flush($mailer, ['--deadline' => 'never']);
+
+        // Assert
+        $this->assertSame(Mail::STATUS_SENT, $byConfig['three-days@example.com']);
+        $this->assertSame(Mail::STATUS_SENT, $this->statuses()['also-old@example.com'], 'by the option');
+    }
+
+    /**
+     * A row with no sender of its own is sent from `mail.outbox.from`; one with its own keeps it
+     * (FW-200).
+     */
+    public function testARowWithNoSenderIsFromTheConfiguredOne(): void
+    {
+        // Arrange
+        $this->outboxConfig(['from' => ['address' => 'admin@example.com', 'name' => 'The Team']]);
+        $this->queueOne('to@example.com', 'From whom', '<p>Body</p>');
+        $this->db->queryBuilder()->table('#PREFIX#mails')->update(['frommail' => '']);
+        $mailer = new FlushSpyMailer(true);
+
+        // Act
+        $this->flush($mailer);
+
+        // Assert
+        $this->assertSame(['admin@example.com' => 'The Team'], $mailer->from);
+    }
+
     /**
      * A dry run reports and changes nothing.
      *
@@ -439,6 +571,46 @@ class FlushSpyMailer extends Email
     public function stamp(): ?int
     {
         return $this->sentStamp;
+    }
+}
+
+/** `mail:flush` with an application's hooks: a blocklist before, a record after. */
+class HookedMailFlush extends TestableMailFlush
+{
+    /** @var list<string> Recipients sent */
+    public array $sent = [];
+
+    /** @var array<string, string> Recipient => reason, failed for good */
+    public array $failed = [];
+
+    /** @param FlushSpyMailer $mailer The transport */
+    public function __construct(private FlushSpyMailer $mailer)
+    {
+        parent::__construct($mailer);
+    }
+
+    /** How often the transport was asked. */
+    public function spyAttempts(): int
+    {
+        return $this->mailer->attempts;
+    }
+
+    /** The blocklist. */
+    protected function beforeSend(array $row, Email $email): ?string
+    {
+        return str_starts_with((string) $row['tomail'], 'blocked@') ? 'On the blocklist' : null;
+    }
+
+    /** Recorded. */
+    protected function afterSent(array $row, Email $email): void
+    {
+        $this->sent[] = (string) $row['tomail'];
+    }
+
+    /** Recorded. */
+    protected function afterFailed(array $row, string $error): void
+    {
+        $this->failed[(string) $row['tomail']] = $error;
     }
 }
 
