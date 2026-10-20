@@ -2017,6 +2017,10 @@ sends the outbox; otherwise every queued message, the security alerts included, 
 and nothing says it did not go. It moves each row to sent or failed **in place**, so a message
 has one row for its whole life and the history screens need no union.
 
+It sends what is **due**: a row whose `date` is still in the future is mail queued for later, and
+stays pending until its time. So an application that queues a reminder for tomorrow writes the
+row with tomorrow's `date`, and `mail:flush` sends it then.
+
 It is a worker, so unlike `mail:prune` it does its job by default — a dry run is an option, not
 the default.
 

@@ -313,6 +313,35 @@ class MailOutboxMySQLTest extends TestCase
     }
 
     /**
+     * A row dated in the future is mail queued for later: it stays pending until its time, and a
+     * row that is due goes. `mail:flush` sent everything pending at once, so mail an application
+     * queued for tomorrow went today (FW-195).
+     */
+    public function testMailQueuedForLaterWaitsForItsTime(): void
+    {
+        // Arrange — one for an hour from now, one due a minute ago
+        $this->queueOne('later@example.com', 'Later', '<p>Body</p>');
+        $this->queueOne('due@example.com', 'Due', '<p>Body</p>');
+        $this->db->queryBuilder()->table('#PREFIX#mails')->where('tomail', 'later@example.com')->update(['date' => time() + 3600]);
+        $this->db->queryBuilder()->table('#PREFIX#mails')->where('tomail', 'due@example.com')->update(['date' => time() - 60]);
+
+        // Act
+        $mailer = new FlushSpyMailer(true);
+        $this->flush($mailer);
+
+        // Assert
+        $rows = $this->rows();
+        $this->assertCount(2, $rows, 'the sweep found nothing to check');
+        $status = [];
+        foreach ($rows as $row) {
+            $status[$row['tomail']] = (int) $row['status'];
+        }
+        $this->assertSame(Mail::STATUS_QUEUED, $status['later@example.com'], 'mail queued for later was sent now');
+        $this->assertSame(Mail::STATUS_SENT, $status['due@example.com']);
+        $this->assertSame(1, $mailer->attempts);
+    }
+
+    /**
      * A dry run reports and changes nothing.
      *
      * Worth its own test because this command *sends*, and a `--dry-run` that sent anyway would

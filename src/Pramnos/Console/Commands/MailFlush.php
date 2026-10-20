@@ -271,7 +271,8 @@ class MailFlush extends Command
     }
 
     /**
-     * The pending rows worth attempting, oldest first.
+     * The pending rows worth attempting, oldest first: those due — a row dated in the future is
+     * mail an application queued for later, and stays until its time — and not past the deadline.
      *
      * Oldest first because a queue that serves the newest first can starve one message for
      * ever, and the one that has been waiting longest is the one closest to its deadline.
@@ -284,6 +285,7 @@ class MailFlush extends Command
             ->table('#PREFIX#mails')
             ->where('status', Mail::STATUS_QUEUED)
             ->where('date', '>=', time() - $deadline)
+            ->where('date', '<=', time())
             ->orderBy('date', 'asc')
             ->limit($limit)
             ->get();
@@ -305,19 +307,16 @@ class MailFlush extends Command
      */
     protected function expire(int $deadline): int
     {
-        $db = Factory::getDatabase();
-
         // The count comes off the `Result`: `Database` has no `getAffectedRows()`, and asking
         // it for one returns nothing — which reads as "no rows expired" on a run that expired
         // thousands.
-        $result = $db->query(
-            'UPDATE ' . $db->prefix . 'mails SET status = ' . Mail::STATUS_FAILED
-            . ", extrainfo = 'Undeliverable within the outbox deadline'"
-            . ' WHERE status = ' . Mail::STATUS_QUEUED
-            . ' AND date < ' . (time() - $deadline)
-        );
+        $result = Factory::getDatabase()->queryBuilder()
+            ->table('#PREFIX#mails')
+            ->where('status', Mail::STATUS_QUEUED)
+            ->where('date', '<', time() - $deadline)
+            ->update(['status' => Mail::STATUS_FAILED, 'extrainfo' => 'Undeliverable within the outbox deadline']);
 
-        return $result ? (int) $result->getAffectedRows() : 0;
+        return is_object($result) ? (int) $result->getAffectedRows() : 0;
     }
 
     /**
