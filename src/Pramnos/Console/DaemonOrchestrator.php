@@ -1805,10 +1805,19 @@ abstract class DaemonOrchestrator extends CommandBase
         }
     }
 
-    /** One second of the shutdown grace period — a seam, so a test does not wait it out. */
+    /**
+     * One second of the shutdown grace period — a seam, so a test does not wait it out.
+     *
+     * The whole second, however often a signal cuts the wait short: `sleep()` returns early on
+     * one, and a supervisor is sent them — a worker exiting is a SIGCHLD — so thirty bare
+     * sleeps could be a few seconds of grace before the SIGTERM.
+     */
     protected function pauseOneSecond(): void
     {
-        sleep(1);
+        $until = microtime(true) + 1.0;
+        while (($left = $until - microtime(true)) > 0) {
+            usleep((int) ceil($left * 1_000_000));
+        }
     }
 
     /** SIGTERM to a daemon that did not stop in time — a seam, so a test sends nothing. */

@@ -3374,8 +3374,15 @@ class DaemonOrchestratorTest extends TestCase
         $bgPid = (int)trim((string)shell_exec($cmd));
         $this->assertProjectBackgroundProcessStarted($bgPid);
 
-        // Give it a moment to start and acquire the lock
-        usleep(150000);
+        // Wait until it holds the lock — a fixed pause loses the race on a loaded machine.
+        $deadline = microtime(true) + 5.0;
+        do {
+            usleep(20000);
+            $probe = fopen($lockFile, 'r');
+            $held  = !flock($probe, LOCK_SH | LOCK_NB);
+            fclose($probe);
+        } while (!$held && microtime(true) < $deadline);
+        $this->assertTrue($held, 'the background process never took the lock');
 
         $orch = new class($tmpDir) extends DaemonOrchestrator {
             public string $dir;
