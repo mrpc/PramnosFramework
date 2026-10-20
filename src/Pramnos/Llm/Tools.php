@@ -64,21 +64,43 @@ final class Tools
     }
 
     /**
-     * A JSON schema as a provider takes it.
+     * A JSON schema as a provider — or an MCP client — takes it.
      *
-     * An empty `properties` must go out as an object — `[]` encodes as a list, and the provider
-     * refuses the schema — and the top level must say it is an object.
+     * An empty `properties` must go out as an object, at the top and in every nested object
+     * schema: `[]` encodes as a list, and the reader refuses the schema. An MCP client refuses
+     * the whole `tools/list` for one such schema, and shows no tools at all. The top level must
+     * also say it is an object.
      *
      * @param array<string, mixed> $schema
      * @return array<string, mixed>
      */
     public static function schema(array $schema): array
     {
-        if (empty((array) ($schema['properties'] ?? []))) {
-            $schema['properties'] = new \stdClass();
+        $schema['properties'] ??= [];
+
+        return self::objects($schema) + ['type' => 'object'];
+    }
+
+    /**
+     * Every `properties` under this schema node as an object, empty ones included, down through
+     * the properties and the `items` of an array.
+     *
+     * @param array<string, mixed> $node
+     * @return array<string, mixed>
+     */
+    private static function objects(array $node): array
+    {
+        if (array_key_exists('properties', $node)) {
+            $properties         = (array) $node['properties'];
+            $node['properties'] = $properties === []
+                ? new \stdClass()
+                : array_map(static fn ($p) => is_array($p) ? self::objects($p) : $p, $properties);
+        }
+        if (is_array($node['items'] ?? null)) {
+            $node['items'] = self::objects($node['items']);
         }
 
-        return $schema + ['type' => 'object'];
+        return $node;
     }
 
     /** What a tool returned, as the text a model reads. */

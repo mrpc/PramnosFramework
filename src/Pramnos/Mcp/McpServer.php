@@ -313,7 +313,9 @@ class McpServer
             $tools[] = [
                 'name'        => $tool->name(),
                 'description' => $tool->description(),
-                'inputSchema' => $tool->inputSchema(),
+                // An empty `properties` as `{}`, nested ones too: one `[]` and the client drops
+                // every tool in the list, not only this one.
+                'inputSchema' => \Pramnos\Llm\Tools::schema($tool->inputSchema()),
             ];
         }
         return $this->result($id, ['tools' => $tools]);

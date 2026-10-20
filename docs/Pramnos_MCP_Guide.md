@@ -111,6 +111,11 @@ client sends a shape the tool does not read, and nothing on the server logs anyt
 never arrives. The same for a description — an empty one is a tool nobody calls, and a one-word one is a
 tool called for the wrong thing, which is worse because the answer looks like an answer.
 
+A tool with no arguments may return `['type' => 'object', 'properties' => []]`. PHP encodes the
+empty array as `[]`, a list, where the schema needs an object, and an MCP client then refuses the
+whole `tools/list` and shows no tools at all. `tools/list` sends every empty `properties` as `{}`,
+nested ones included, so the shape a tool returns does not have to know about it.
+
 `ToolDiscoveryContractTest` holds every registered tool to it, so a tool added tomorrow is covered the
 day it is registered rather than the day somebody writes a test for it. What it requires:
 

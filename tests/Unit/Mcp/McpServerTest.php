@@ -86,6 +86,34 @@ class McpServerTest extends TestCase
     }
 
     /**
+     * Every empty `properties` in `tools/list` goes out as `{}`, an application's tool's and a
+     * nested one's too — `[]` is a list, and an MCP client refuses the whole list for one of
+     * them and shows no tools. The framework's own tools with no arguments among them.
+     */
+    public function testToolsListNeverSendsPropertiesAsAList(): void
+    {
+        // Arrange — an application's tool, empty at the top and in a nested object and array item
+        $this->server->addTool($this->makeTool('app-tool', 'An application tool', [
+            'type' => 'object',
+            'properties' => [
+                'filter' => ['type' => 'object', 'properties' => []],
+                'rows'   => ['type' => 'array', 'items' => ['type' => 'object', 'properties' => []]],
+            ],
+        ]));
+        $this->server->addTool($this->makeTool('bare-tool', 'No schema to speak of', []));
+        $this->server->addTool(new \Pramnos\Mcp\Tools\StatusTool(\Pramnos\Application\Application::getInstance()));
+        $message = ['jsonrpc' => '2.0', 'id' => 9, 'method' => 'tools/list', 'params' => []];
+
+        // Act
+        $json = (string) json_encode($this->server->dispatch($message));
+
+        // Assert
+        $this->assertStringNotContainsString('"properties":[]', $json);
+        $this->assertSame(4, substr_count($json, '"properties":{}'), 'the nested object, the array item, the bare tool and status');
+        $this->assertStringContainsString('"bare-tool","description":"No schema to speak of","inputSchema":{"properties":{},"type":"object"}', $json);
+    }
+
+    /**
      * tools/list with no tools registered must return an empty tools array.
      */
     public function testToolsListEmptyWhenNoToolsRegistered(): void
