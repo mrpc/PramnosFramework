@@ -839,6 +839,22 @@ class LocalBroadcastServer
     }
 
     /**
+     * The Redis key prefix the publisher put in front of each channel, taken off again on
+     * delivery: `app:private-users.42` reaches the browser subscribed to `private-users.42`.
+     *
+     * Applies where no router is installed — a router receives the channel as Redis named it,
+     * and strips what it wants itself. A channel without the prefix is delivered as it is.
+     * Call before run().
+     */
+    public function useIngestPrefix(string $prefix): void
+    {
+        $this->ingestPrefix = $prefix;
+    }
+
+    /** @var string Taken off an ingested channel before delivery; see useIngestPrefix() */
+    private string $ingestPrefix = '';
+
+    /**
      * Install a router that maps each ingested Redis message to zero or more WS
      * deliveries — e.g. strip the key prefix for public channels and fan a direct
      * message out to per-recipient private channels so no client ever receives
@@ -1375,7 +1391,11 @@ class LocalBroadcastServer
                     );
                 }
             } else {
-                $this->broadcastExcept($msg['channel'], $event, $payload, $except);
+                $channel = $msg['channel'];
+                if ($this->ingestPrefix !== '' && str_starts_with($channel, $this->ingestPrefix)) {
+                    $channel = substr($channel, strlen($this->ingestPrefix));
+                }
+                $this->broadcastExcept($channel, $event, $payload, $except);
             }
         }
     }

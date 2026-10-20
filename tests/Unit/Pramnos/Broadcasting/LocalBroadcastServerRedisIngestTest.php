@@ -245,4 +245,44 @@ class LocalBroadcastServerRedisIngestTest extends TestCase
         // Assert
         $this->assertNull($seenId);
     }
+
+    /**
+     * The Redis key prefix is taken off before delivery, so a page subscribed to
+     * `private-users.42` receives what was published on `app:private-users.42`.
+     *
+     * The publisher writes prefix + channel; a browser knows only the channel. Delivered on the
+     * key as Redis named it, a notification reached nobody.
+     */
+    public function testTheIngestPrefixIsTakenOffBeforeDelivery(): void
+    {
+        // Arrange — a pattern subscription and a client on the unprefixed channel
+        $redisPair = stream_socket_pair(STREAM_PF_UNIX, STREAM_SOCK_STREAM, STREAM_IPPROTO_IP);
+        $wsPair    = stream_socket_pair(STREAM_PF_UNIX, STREAM_SOCK_STREAM, STREAM_IPPROTO_IP);
+        foreach ([$redisPair[0], $redisPair[1], $wsPair[0], $wsPair[1]] as $s) {
+            stream_set_blocking($s, false);
+        }
+        $ingest = new RedisSubscriberSocket(['host' => 'x'], ['app:private-users.*'], fn () => $redisPair[0]);
+        $ingest->connect();
+        $server = new LocalBroadcastServer();
+        $server->useRedisIngest($ingest);
+        $server->useIngestPrefix('app:');
+        (new \ReflectionProperty($server, 'clients'))->setValue($server, [
+            1 => ['socket' => $wsPair[1], 'state' => 'connected', 'buffer' => '', 'channels' => ['private-users.42'], 'socketId' => '1.2', 'pingAt' => time() + 30],
+        ]);
+        (new \ReflectionProperty($server, 'subscriptions'))->setValue($server, ['private-users.42' => [1 => 1]]);
+        $envelope = (string) json_encode(['event' => 'notification.created', 'payload' => ['id' => 'abc']]);
+        fwrite($redisPair[1], $this->resp(['pmessage', 'app:private-users.*', 'app:private-users.42', $envelope]));
+
+        // Act
+        (new \ReflectionMethod($server, 'drainRedisIngest'))->invoke($server);
+
+        // Assert — delivered, and named by the channel the page knows
+        $frame = (string) fread($wsPair[0], 8192);
+        $this->assertStringContainsString('notification.created', $frame);
+        $this->assertStringContainsString('"channel":"private-users.42"', $frame);
+
+        foreach ([$redisPair[0], $redisPair[1], $wsPair[0], $wsPair[1]] as $s) {
+            @fclose($s);
+        }
+    }
 }

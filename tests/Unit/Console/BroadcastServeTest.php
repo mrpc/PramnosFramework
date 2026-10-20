@@ -84,10 +84,11 @@ class BroadcastServeTest extends TestCase
      * runs fully (covering all execute() lines) without opening a real TCP socket.
      *
      * @param bool $throwOnRun When true, the stub's run() throws RuntimeException.
+     * @param LocalBroadcastServer|null $server A mock with expectations of its own, instead of a plain one.
      */
-    private function buildCommand(bool $throwOnRun = false): BroadcastServe
+    private function buildCommand(bool $throwOnRun = false, ?LocalBroadcastServer $server = null): BroadcastServe
     {
-        $serverStub = $this->createMock(LocalBroadcastServer::class);
+        $serverStub = $server ?? $this->createMock(LocalBroadcastServer::class);
 
         if ($throwOnRun) {
             $serverStub->method('run')
@@ -101,6 +102,8 @@ class BroadcastServeTest extends TestCase
             private LocalBroadcastServer $injectedServer;
             /** @var string Forced log-file path (used by testExecuteShows* tests) */
             public string $forcedLogFile = '';
+            /** @var string The app key createServer() was given */
+            public string $appKey = '';
 
             public function __construct(LocalBroadcastServer $server)
             {
@@ -113,6 +116,8 @@ class BroadcastServeTest extends TestCase
              */
             protected function createServer(string $appKey, ?string $logFile): LocalBroadcastServer
             {
+                $this->appKey = $appKey;
+
                 return $this->injectedServer;
             }
 
@@ -163,8 +168,11 @@ class BroadcastServeTest extends TestCase
     }
 
     /**
-     * The default value for --host must be '0.0.0.0' (listen on all interfaces)
-     * and for --port must be '6001' (Pusher standard port).
+     * --host, --port, --app-key and --channels have no default of their own.
+     *
+     * An option's default is indistinguishable from an option given, so a default there would
+     * always win over app.php — and the orchestrator, which passes no options, could never start
+     * a daemon configured any other way.
      */
     public function testConfigureDefaultValues(): void
     {
@@ -172,16 +180,164 @@ class BroadcastServeTest extends TestCase
         $app = new SymfonyApp();
         $cmd = new BroadcastServe();
         $app->add($cmd);
-        $registered = $app->find('broadcast:serve');
-        $def        = $registered->getDefinition();
 
-        // Assert — defaults
-        $this->assertSame('0.0.0.0',     $def->getOption('host')->getDefault(),
-            'Default --host must be 0.0.0.0');
-        $this->assertSame('6001',        $def->getOption('port')->getDefault(),
-            'Default --port must be 6001');
-        $this->assertSame('pramnos-local', $def->getOption('app-key')->getDefault(),
-            'Default --app-key must be pramnos-local');
+        // Act
+        $def = $app->find('broadcast:serve')->getDefinition();
+
+        // Assert — "not given" stays detectable
+        foreach (['host', 'port', 'app-key', 'channels'] as $option) {
+            $this->assertNull($def->getOption($option)->getDefault(), '--' . $option);
+        }
+    }
+
+    /**
+     * With neither options nor config the server binds loopback, port 6001, key pramnos-local.
+     *
+     * Loopback because a reverse proxy sits in front: a daemon on 0.0.0.0 is reachable around
+     * the proxy, its TLS and its limits.
+     */
+    public function testWithoutOptionsOrConfigTheServerListensOnLoopback(): void
+    {
+        // Arrange
+        $server = $this->createMock(LocalBroadcastServer::class);
+        $server->expects($this->once())->method('run')->with('127.0.0.1', 6001);
+        $cmd = $this->buildCommand(false, $server);
+
+        // Act
+        $tester = new CommandTester($cmd);
+        $tester->execute([]);
+
+        // Assert
+        $this->assertSame('pramnos-local', $cmd->appKey);
+        $this->assertStringContainsString('ws://127.0.0.1:6001', $tester->getDisplay());
+    }
+
+    /**
+     * Host, port, app key and ingest come from `broadcasting.websocket.*` and
+     * `broadcasting.ingest` when no option is given — what the orchestrator relies on.
+     */
+    public function testConfigSuppliesHostPortAppKeyAndIngest(): void
+    {
+        // Arrange
+        $this->installApplicationWithFeatures([
+            'default'   => 'redis',
+            'redis'     => ['prefix' => 'app:'],
+            'ingest'    => ['chat.updates'],
+            'websocket' => ['listen_host' => '10.0.0.5', 'listen_port' => 7100, 'app_key' => 'cfg-key'],
+        ], ['broadcasting']);
+        $server = $this->createMock(LocalBroadcastServer::class);
+        $server->expects($this->once())->method('run')->with('10.0.0.5', 7100);
+        $server->expects($this->once())->method('useIngestPrefix')->with('app:');
+        $cmd = $this->buildCommand(false, $server);
+
+        // Act
+        $tester = new CommandTester($cmd);
+        $tester->execute([]);
+
+        // Assert — the configured ingest and every user's notifications channel
+        $display = $tester->getDisplay();
+        $this->assertSame('cfg-key', $cmd->appKey);
+        $this->assertStringContainsString('app:chat.updates, app:private-users.*', $display);
+        $this->assertStringContainsString('via SUBSCRIBE (backplane: redis)', $display);
+    }
+
+    /**
+     * Every option wins over its config key, the ingest included.
+     */
+    public function testOptionsOverrideConfig(): void
+    {
+        // Arrange
+        $this->installApplicationWithFeatures([
+            'default'   => 'redis',
+            'redis'     => ['prefix' => 'app:'],
+            'ingest'    => 'chat.updates',
+            'websocket' => ['listen_host' => '10.0.0.5', 'listen_port' => 7100, 'app_key' => 'cfg-key'],
+        ], ['broadcasting']);
+        $server = $this->createMock(LocalBroadcastServer::class);
+        $server->expects($this->once())->method('run')->with('0.0.0.0', 7200);
+        $cmd = $this->buildCommand(false, $server);
+
+        // Act
+        $tester = new CommandTester($cmd);
+        $tester->execute(['--host' => '0.0.0.0', '--port' => '7200', '--app-key' => 'opt-key', '--channels' => 'other']);
+
+        // Assert
+        $display = $tester->getDisplay();
+        $this->assertSame('opt-key', $cmd->appKey);
+        $this->assertStringContainsString('app:other', $display);
+        $this->assertStringNotContainsString('app:chat.updates', $display, 'the option replaces broadcasting.ingest');
+    }
+
+    /**
+     * The notifications pattern follows `broadcasting.notifications_channel`, `{id}` → `*`,
+     * and is not listed twice when the ingest names it already.
+     */
+    public function testTheNotificationsPatternFollowsTheConfiguredChannel(): void
+    {
+        // Arrange
+        $this->installApplicationWithFeatures([
+            'default'               => 'redis',
+            'notifications_channel' => 'private-inbox.{id}',
+            'ingest'                => 'private-inbox.*',
+        ], ['broadcasting']);
+        $cmd = $this->buildCommand();
+
+        // Act
+        $tester = new CommandTester($cmd);
+        $tester->execute([]);
+
+        // Assert — one entry, and no trace of the default channel
+        $display = $tester->getDisplay();
+        $this->assertStringContainsString('Redis ingest: private-inbox.* via', $display);
+        $this->assertStringNotContainsString('private-users', $display);
+    }
+
+    /**
+     * On the stream backplane the ingest reads the key RedisStreamDriver writes
+     * (prefix + `stream:` + channel), and says notifications are not ingested.
+     *
+     * A stream is read by its exact key and each user has one, so no pattern reaches them;
+     * saying so at startup beats a bell that only updates on its poll with nothing to explain why.
+     */
+    public function testTheStreamBackplaneReadsTheDriversKeysAndSaysNotificationsAreNotIngested(): void
+    {
+        // Arrange
+        $this->installApplicationWithFeatures(
+            ['default' => 'redis-stream', 'redis' => ['prefix' => 'app:']],
+            ['broadcasting']
+        );
+        $server = $this->createMock(LocalBroadcastServer::class);
+        $server->expects($this->once())->method('useIngestPrefix')->with('app:stream:');
+        $cmd = $this->buildCommand(false, $server);
+
+        // Act
+        $tester = new CommandTester($cmd);
+        $tester->execute(['--channels' => 'chat.updates']);
+
+        // Assert
+        $display = $tester->getDisplay();
+        $this->assertStringContainsString('Redis ingest: app:stream:chat.updates via', $display);
+        $this->assertStringContainsString('Notifications: not ingested', $display);
+        $this->assertStringNotContainsString('private-users', $display);
+    }
+
+    /**
+     * A backplane that is not Redis opens no Redis connection: nothing publishes there.
+     */
+    public function testALogBackplaneIngestsNothing(): void
+    {
+        // Arrange
+        $this->installApplicationWithFeatures(['default' => 'log'], ['broadcasting']);
+        $server = $this->createMock(LocalBroadcastServer::class);
+        $server->expects($this->never())->method('useRedisIngest');
+        $cmd = $this->buildCommand(false, $server);
+
+        // Act
+        $tester = new CommandTester($cmd);
+        $tester->execute([]);
+
+        // Assert
+        $this->assertStringNotContainsString('Redis ingest', $tester->getDisplay());
     }
 
     // =========================================================================

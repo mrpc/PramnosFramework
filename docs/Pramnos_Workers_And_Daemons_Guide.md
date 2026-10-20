@@ -1324,9 +1324,13 @@ event into a frame in a browser; without it every subscription is a perfectly
 healthy socket that never receives anything — the publish succeeded, the channel
 exists, the client connected, and nothing anywhere says what is missing.
 
+The supervised entry passes no options: the daemon binds, keys and ingests from
+`broadcasting.websocket.listen_host` / `listen_port` / `app_key` and `broadcasting.ingest`,
+loopback port 6001 by default, and adds every user's notifications channel on its own — see
+[Configuration](Pramnos_Realtime_Guide.md#configuration) in the Realtime Guide.
+
 An application that declares its own entry keeps it, recognised by the
-`broadcast:serve` token or by the command line, so passing `--channels`, a
-certificate or a different port works as before. To take it over entirely:
+`broadcast:serve` token or by the command line. To take it over entirely:
 
 ```php
 protected function includeBroadcastServer(): bool

@@ -424,16 +424,76 @@ RFC 6455 + the Pusher wire protocol, so `pusher-js` / `pramnos-echo.js` clients
 connect unchanged. Run it as a daemon:
 
 ```bash
-# Tail the LogDriver file (simplest):
-php ./bin/pramnos broadcast:serve --port=6001
-
-# Or consume Redis directly (non-blocking, no file hop) and enforce auth:
-php ./bin/pramnos broadcast:serve --port=6001 --channels="chat.updates,presence-room"
+php ./bin/pramnos broadcast:serve            # everything from app.php
+php ./bin/pramnos broadcast:serve --port=6002 --channels="chat.updates,presence-room"
 ```
 
-With `--channels`, the server opens a **non-blocking** RESP socket to Redis and
-joins it to its own `stream_select` loop — no blocking client, no fork. Channels
-are prefixed from `broadcasting.redis.prefix`.
+### Configuration
+
+The daemon reads `broadcasting` in `app.php`; an option overrides its key. The orchestrator
+starts it with no options, so app.php is where a supervised daemon is configured.
+
+```php
+'broadcasting' => [
+    'default'   => 'redis',
+    'transport' => 'websocket',
+    'redis'     => ['host' => '127.0.0.1', 'port' => 6379, 'prefix' => 'app:'],
+    'ingest'    => ['chat.updates', 'presence-room'],   // or 'chat.updates,presence-room'
+    'websocket' => [
+        'listen_host' => '127.0.0.1',   // --host     bind address
+        'listen_port' => 6001,          // --port
+        'app_key'     => 'my-app',      // --app-key  shared with the browser
+        'host'        => 'example.com', // what the browser connects to
+        'port'        => 443,
+        'scheme'      => 'wss',
+    ],
+],
+```
+
+| Setting | Option | Default |
+| --- | --- | --- |
+| `websocket.listen_host` | `--host` | `127.0.0.1` |
+| `websocket.listen_port` | `--port` | `6001` |
+| `websocket.app_key` | `--app-key` | `pramnos-local` |
+| `ingest` | `--channels` | none |
+
+`websocket.host` / `port` / `scheme` are the address the **browser** reaches — usually a
+reverse proxy that terminates TLS — and are never the bind address. The daemon binds
+**loopback** by default because the proxy sits in front of it: on `0.0.0.0` it would also be
+reachable around the proxy, its certificate and its limits. To listen publicly — no proxy, or a
+proxy on another host — say so:
+
+```php
+'websocket' => ['listen_host' => '0.0.0.0'],   // or --host=0.0.0.0
+```
+
+### The Redis ingest
+
+With a `redis` or `redis-stream` backplane, the server opens a **non-blocking** RESP socket to
+Redis and joins it to its own `stream_select` loop — no blocking client, no fork. It reads the
+channels in `ingest` / `--channels`, each under the key the driver writes
+(`broadcasting.redis.prefix` + channel; with `redis-stream`, prefix + `stream:` + channel), and
+takes that prefix off again on delivery: a browser subscribes to `chat.updates`, not
+`app:chat.updates`.
+
+An entry containing `*` is a pattern, read with `PSUBSCRIBE` — `orders.*` reaches every
+`orders.{id}` without listing them.
+
+**Notifications join on their own.** With the `redis` backplane the daemon adds every user's
+notifications channel as one pattern — `broadcasting.notifications_channel` with `{id}` as `*`,
+`private-users.*` by default — so `notification.created` reaches the user's open page without
+the ingest naming anybody. The banner shows it:
+
+```
+Redis ingest: app:chat.updates, app:private-users.* via SUBSCRIBE (backplane: redis)
+```
+
+With `redis-stream` it cannot: a stream is read by its exact key, there is no pattern read,
+and each user's notifications are a stream of their own. The daemon says so at startup, and
+the bell updates on its poll. Use the `redis` backplane for notifications on open pages.
+
+A router installed with `useIngestRouter()` receives the channel as Redis named it, prefix
+included, and maps it itself.
 
 ### The ingest has to match the driver
 
@@ -468,7 +528,7 @@ $server->useRedisIngest(new RedisStreamSocket(
     `XREAD` for `redis-stream`, `SUBSCRIBE` for `redis` — and its banner names both:
 
     ```
-    Redis ingest: app:chat.updates via XREAD (backplane: redis-stream)
+    Redis ingest: app:stream:chat.updates via XREAD (backplane: redis-stream)
     ```
 
     So an installation using the stream driver for SSE replay can use the shipped
@@ -1140,7 +1200,7 @@ reaches B. Neither failure says anything — the counts are simply wrong.
 $ php bin/pramnos broadcast:serve
   Cluster: node 4f2a9c1b7e03, gossip on app:__pramnos_cluster every 30s
            presence is eventually consistent; member webhooks are per-node
-  Redis ingest: app:chat.updates, app:__pramnos_cluster
+  Redis ingest: app:chat.updates, app:private-users.*, app:__pramnos_cluster via SUBSCRIBE (backplane: redis)
 ```
 
 ### How it works, and why in two mechanisms

@@ -579,6 +579,9 @@ abstract class DaemonOrchestrator extends CommandBase
      * `broadcast:serve` wires the orchestrator's cooperative stop itself, so the health
      * checks and the graceful-restart protocol apply to it unchanged.
      *
+     * Started with no options: the daemon reads its bind address, port, app key and ingest
+     * from `broadcasting.websocket.*` and `broadcasting.ingest`.
+     *
      * @return array<string, mixed>
      */
     protected function broadcastServerProcess(): array

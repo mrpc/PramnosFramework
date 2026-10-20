@@ -20,6 +20,7 @@ use Pramnos\Broadcasting\Webhooks\QueueWebhookDispatcher;
 use Pramnos\Broadcasting\Webhooks\WebhookSigner;
 use Pramnos\Broadcasting\Auth\PusherAuthorizer;
 use Pramnos\Broadcasting\LocalBroadcastServer;
+use Pramnos\Broadcasting\RealtimeConfig;
 use Pramnos\Broadcasting\RedisSubscriberSocket;
 use Pramnos\Console\CommandBase;
 
@@ -48,8 +49,8 @@ use Pramnos\Console\CommandBase;
  * ## Usage
  *
  * ```bash
- * php ./bin/pramnos broadcast:serve
- * php ./bin/pramnos broadcast:serve --port=6001 --host=127.0.0.1
+ * php ./bin/pramnos broadcast:serve                       # everything from app.php
+ * php ./bin/pramnos broadcast:serve --port=6001 --host=0.0.0.0
  * php ./bin/pramnos broadcast:serve --log-file=/tmp/pramnos-broadcast.jsonl
  * php ./bin/pramnos broadcast:serve --verbose   # shows connections/messages
  * ```
@@ -85,8 +86,8 @@ class BroadcastServe extends CommandBase
         $this
             ->setName('broadcast:serve')
             ->setDescription('Start the WebSocket broadcasting server (Pusher-compatible, no Ratchet required)')
-            ->addOption('host', null, InputOption::VALUE_REQUIRED, 'Bind address', '0.0.0.0')
-            ->addOption('port', 'p', InputOption::VALUE_REQUIRED, 'Listen port', '6001')
+            ->addOption('host', null, InputOption::VALUE_REQUIRED, 'Bind address (broadcasting.websocket.listen_host, else 127.0.0.1)')
+            ->addOption('port', 'p', InputOption::VALUE_REQUIRED, 'Listen port (broadcasting.websocket.listen_port, else 6001)')
             ->addOption(
                 'log-file',
                 null,
@@ -98,24 +99,27 @@ class BroadcastServe extends CommandBase
                 'app-key',
                 null,
                 InputOption::VALUE_REQUIRED,
-                'Pusher app key expected in the WebSocket URL',
-                'pramnos-local'
+                'Pusher app key expected in the WebSocket URL (broadcasting.websocket.app_key, else pramnos-local)'
             )
             ->addOption(
                 'channels',
                 null,
                 InputOption::VALUE_REQUIRED,
-                'Comma-separated Redis channels to ingest (enables the non-blocking Redis pub/sub source instead of, or in addition to, the log-file tail)',
-                ''
+                'Comma-separated Redis channels to ingest, `*` for a pattern (broadcasting.ingest); the notifications channel joins on its own'
             );
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
-        $host    = (string) ($input->getOption('host') ?? '0.0.0.0');
-        $port    = (int)    ($input->getOption('port') ?? 6001);
-        $appKey  = (string) ($input->getOption('app-key') ?? 'pramnos-local');
-        $logFile = (string) ($input->getOption('log-file') ?? '');
+        // app.php first, an option over it: the orchestrator starts this daemon with no options
+        // at all. The bind address is not `websocket.host` — that is what the browser reaches,
+        // usually a proxy in front — and it stays on loopback unless somebody says otherwise.
+        $config    = $this->broadcastingConfig();
+        $websocket = is_array($config['websocket'] ?? null) ? $config['websocket'] : [];
+        $host      = (string) ($input->getOption('host') ?? $websocket['listen_host'] ?? '127.0.0.1');
+        $port      = (int)    ($input->getOption('port') ?? $websocket['listen_port'] ?? 6001);
+        $appKey    = (string) ($input->getOption('app-key') ?? $websocket['app_key'] ?? 'pramnos-local');
+        $logFile   = (string) ($input->getOption('log-file') ?? '');
 
         // Resolve log-file default from app config if not provided explicitly
         if ($logFile === '') {
@@ -141,7 +145,6 @@ class BroadcastServe extends CommandBase
         // Production wiring from app.php['broadcasting'] config: enforce app-key +
         // private/presence signatures when a Pusher secret is configured, and feed
         // the server straight from Redis pub/sub when channels are requested.
-        $config = $this->broadcastingConfig();
 
         $secret   = (string) ($config['pusher']['app_secret'] ?? '');
         $features = $this->applicationFeatures();
@@ -261,14 +264,11 @@ class BroadcastServe extends CommandBase
             $output->writeln('  Client events: <comment>disabled</comment>');
         }
 
+        $ingest   = $input->getOption('channels') ?? $config['ingest'] ?? [];
         $channels = array_values(array_filter(array_map(
             'trim',
-            explode(',', (string) ($input->getOption('channels') ?? ''))
+            is_array($ingest) ? array_map('strval', $ingest) : explode(',', (string) $ingest)
         )));
-
-        $redisConfig = is_array($config['redis'] ?? null) ? $config['redis'] : [];
-        $prefix      = (string) ($redisConfig['prefix'] ?? '');
-        $prefixed    = array_map(static fn (string $c): string => $prefix . $c, $channels);
 
         // **The ingest follows the driver, rather than being chosen independently of
         // it.** This is the pairing rule the docs state twice, applied here instead of
@@ -279,6 +279,30 @@ class BroadcastServe extends CommandBase
         // at all, and one consumer wrote its own daemon for exactly that reason.
         $backplane = (string) ($config['default'] ?? 'null');
         $usesStream = $backplane === 'redis-stream';
+
+        // The key each driver writes: RedisDriver publishes on prefix + channel,
+        // RedisStreamDriver appends to prefix + `stream:` + channel. The same string is taken
+        // off again on delivery, so a browser subscribes to the channel's own name.
+        $redisConfig = is_array($config['redis'] ?? null) ? $config['redis'] : [];
+        $prefix      = (string) ($redisConfig['prefix'] ?? '') . ($usesStream ? 'stream:' : '');
+        $prefixed    = array_map(static fn (string $c): string => $prefix . $c, $channels);
+
+        // Every user's notifications channel, as one pattern: `private-users.{id}` is
+        // `private-users.*`, so a notification reaches the open page without anybody listing
+        // users. Pub/sub only — a stream is read by its exact key, and there is one per user.
+        $notifications = str_replace('{id}', '*', (string) ($config['notifications_channel'] ?? '') ?: RealtimeConfig::USER_CHANNEL);
+        if ($backplane === 'redis' && !in_array($prefix . $notifications, $prefixed, true)) {
+            $prefixed[] = $prefix . $notifications;
+        } elseif ($usesStream) {
+            $output->writeln(
+                '  Notifications: <comment>not ingested — a stream cannot be read by pattern, '
+                . 'and each user has a stream of their own</comment>'
+            );
+            $output->writeln(
+                '                 <comment>Use broadcasting.default = redis for notifications '
+                . 'on open pages; their next poll finds them meanwhile.</comment>'
+            );
+        }
 
         // The pairing rule above settles *which* Redis primitive to read with. It cannot
         // help when the application publishes somewhere else entirely — a `log`, `pusher`
@@ -342,6 +366,7 @@ class BroadcastServe extends CommandBase
         }
 
         if ($prefixed !== []) {
+            $this->wsServer->useIngestPrefix($prefix);
             $this->wsServer->useRedisIngest($usesStream
                 ? new RedisStreamSocket($redisConfig, $prefixed)
                 : new RedisSubscriberSocket($redisConfig, $prefixed));

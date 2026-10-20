@@ -956,7 +956,7 @@ php bin/pramnos logs:convert /path/to/file.log --no-backup
 | `push:setup` / `push:vapid-generate` | Set up web push (migration, keys, service worker, browser script, library) / generate the VAPID key pair | `--apply`, `--no-install` / `--force` |
 | `audit:prune` | Delete audit-log rows past the retention (`audit.retention_days` in app.php: days, or days per event such as `['admin.page' => 180, '*' => 730]`); deletes nothing until one is set | `--days` |
 | `llm:prune` / `llm:routines` | Drop language-model call log rows older than the kept window / ask the scheduled questions that are due | `--days` / — |
-| `broadcast:serve` | WebSocket broadcasting server (Pusher-compatible) | `--host` (default `0.0.0.0`), `--port/-p` (default `6001`), `--log-file`, `--app-key`, `--channels` |
+| `broadcast:serve` | WebSocket broadcasting server (Pusher-compatible) | `--host`, `--port/-p`, `--app-key`, `--channels` (defaults from `broadcasting.websocket.listen_host`/`listen_port`/`app_key` and `broadcasting.ingest`, else `127.0.0.1`, `6001`, `pramnos-local`), `--log-file` |
 
 **Diagnostics and tooling**
 

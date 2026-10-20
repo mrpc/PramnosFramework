@@ -73,8 +73,15 @@ class RedisSubscriberSocket implements RedisIngestInterface
         if ($this->database > 0) {
             $this->sendCommand(['SELECT', (string) $this->database]);
         }
-        if ($this->channels !== []) {
-            $this->sendCommand(array_merge(['SUBSCRIBE'], $this->channels));
+        // A name with `*` is a pattern — `app:private-users.*` reaches every user's channel,
+        // which no list of exact names can. drain() already reads the pmessage it answers with.
+        $patterns = array_values(array_filter($this->channels, static fn (string $c): bool => str_contains($c, '*')));
+        $exact    = array_values(array_diff($this->channels, $patterns));
+        if ($exact !== []) {
+            $this->sendCommand(array_merge(['SUBSCRIBE'], $exact));
+        }
+        if ($patterns !== []) {
+            $this->sendCommand(array_merge(['PSUBSCRIBE'], $patterns));
         }
     }
 

@@ -117,4 +117,40 @@ class RedisSubscriberSocketTest extends TestCase
         $messages = $sub->drain();
         $this->assertSame(['one', 'two'], array_column($messages, 'message'));
     }
+
+    /**
+     * A channel with `*` is subscribed with PSUBSCRIBE, the rest with SUBSCRIBE.
+     *
+     * SUBSCRIBE takes `*` literally: `app:private-users.*` as an exact name is a channel nobody
+     * publishes to, so every user's notification would be lost without an error.
+     */
+    public function testAPatternIsPsubscribedAndAnExactNameSubscribed(): void
+    {
+        // Arrange
+        $this->subscriber(['chat:updates', 'app:private-users.*']);
+
+        // Act
+        $sent = (string) fread($this->pair[1], 8192);
+
+        // Assert — each primitive carries only its own names
+        $this->assertSame(
+            $this->resp(['SUBSCRIBE', 'chat:updates']) . $this->resp(['PSUBSCRIBE', 'app:private-users.*']),
+            $sent
+        );
+    }
+
+    /**
+     * Only patterns: no SUBSCRIBE with an empty list, which Redis answers with an error.
+     */
+    public function testOnlyPatternsSendNoSubscribe(): void
+    {
+        // Arrange
+        $this->subscriber(['app:private-users.*']);
+
+        // Act
+        $sent = (string) fread($this->pair[1], 8192);
+
+        // Assert
+        $this->assertSame($this->resp(['PSUBSCRIBE', 'app:private-users.*']), $sent);
+    }
 }
