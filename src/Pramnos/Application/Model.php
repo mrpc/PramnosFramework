@@ -798,11 +798,19 @@ class Model extends \Pramnos\Framework\Base implements \Pramnos\Application\ApiL
             
             // Use specific cache key that includes the primary key value
             $specificCacheKey = $this->_generateSpecificCacheKey($primaryKey);
-            $result = $database->queryBuilder()
+            $query  = $database->queryBuilder()
                 ->from($this->getFullTableName())
                 ->where($this->_primaryKey, $primaryKey)
-                ->limit(1)
-                ->get(false, 600, $specificCacheKey);
+                ->limit(1);
+            $result = $query->get(false, 600, $specificCacheKey);
+            // PostgreSQL answers a failed prepare with false where MySQL throws: a table that is
+            // not there was read as "no such row", behind a warning about `numRows` on false.
+            if (!$result instanceof \Pramnos\Database\Result) {
+                throw new \Pramnos\Database\QueryException(
+                    (string) ($database->error_text ?? '') !== '' ? (string) $database->error_text : 'The row could not be loaded.',
+                    $query->toSql()
+                );
+            }
             if ($result->numRows != 0) {
                 // Reset initial data array
                 $this->_initialData = array();

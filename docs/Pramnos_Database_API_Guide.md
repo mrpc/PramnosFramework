@@ -718,7 +718,9 @@ by driver — know which one you are on:
 | `execute($sql, ...)` on **MySQL** | **Throws** `mysqli_sql_exception` | PHP 8.1+ `mysqli` defaults to `MYSQLI_REPORT_STRICT`; callers catching `\Exception` see it. |
 
 So on PostgreSQL a failed `execute()` returns `false` and code that does not check the
-return value proceeds as if a write succeeded. To make those failures loud — and to get
+return value proceeds as if a write succeeded. `Model::_load()` checks it: a load that fails
+throws a `QueryException` on PostgreSQL as it throws `mysqli_sql_exception` on MySQL, rather than
+looking like a row that is not there. To make those failures loud — and to get
 a single, driver-independent exception type on **both** drivers — opt into strict mode:
 
 ```php
