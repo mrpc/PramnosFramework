@@ -2030,11 +2030,21 @@ the default.
     'enabled'  => true,        // false: nothing sent, nothing given up on — the outbox waits
     'deadline' => 86400,       // seconds a message stays worth retrying, or 'never'
     'from'     => ['address' => 'team@example.com', 'name' => 'The Team'],  // a row with no sender
+    'backoff'  => ['base' => 60, 'max' => 3600],  // seconds before a retry; false: every run
 ]],
 ```
 
 `deadline` `never` (or `--deadline=never`) keeps every message until it goes or the server
-refuses it for good, through a backlog or an outage of any length. Without `from`, a message with
+refuses it for good, through a backlog or an outage of any length.
+
+A message the server refuses **for now** is not tried on every run: after its n-th such refusal
+it waits `base · 2^(n−1)` seconds, at most `max` — a minute, two, four, up to an hour. The count
+and the time are kept in the row's `extrainfo`, beside what it was queued with.
+
+A message queued with names — `setTo(['person@example.com' => 'A Person'])` — keeps them in
+`toname` / `fromname`, and goes out as `"A Person" <person@example.com>`. The names of several
+recipients in one message are not kept: the row joins their addresses with commas, which a name
+may hold too. Without `from`, a message with
 no sender of its own is from `admin_mail`, with the site's name.
 
 **What an application does around each send** goes in a subclass, registered under the same

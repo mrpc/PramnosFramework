@@ -474,6 +474,88 @@ class MailOutboxMySQLTest extends TestCase
     }
 
     /**
+     * A message queued with names goes out with them: the names are kept in `fromname` /
+     * `toname`, and the worker puts them back — it went out as a bare address (FW-202).
+     */
+    public function testAQueuedMessageKeepsItsNames(): void
+    {
+        // Arrange
+        $email = $this->mail('', 'Named', '<p>Body</p>');
+        $email->setTo(['person@example.com' => 'A Person']);
+        $email->setFrom(['info@example.com' => 'The Shop']);
+        $email->queue();
+        $row    = $this->rows()[0];
+        $mailer = new FlushSpyMailer(true);
+
+        // Act
+        $this->flush($mailer);
+
+        // Assert
+        $this->assertSame('A Person', $row['toname']);
+        $this->assertSame('The Shop', $row['fromname']);
+        $this->assertSame(['person@example.com' => 'A Person'], $mailer->to);
+        $this->assertSame(['info@example.com' => 'The Shop'], $mailer->from);
+    }
+
+    /**
+     * A message the server keeps refusing for now is not tried on every run: after its n-th
+     * transient failure it waits `base · 2^(n−1)` seconds, and is tried again once that is past
+     * (FW-202). Every run used to try it — 1,440 times a day.
+     */
+    public function testATransientFailureWaitsBeforeTheNextAttempt(): void
+    {
+        // Arrange
+        $this->queueOne('busy@example.com', 'Busy', '<p>Body</p>');
+        $mailer = new FlushSpyMailer(false, '451 4.3.0 try again later');
+
+        // Act — two runs: the first fails for now, the second comes before its time
+        $this->flush($mailer);
+        $info    = json_decode((string) $this->rows()[0]['extrainfo'], true);
+        $retryAt = (int) $info['retry_at'];
+        $this->flush($mailer);
+        $attemptsWhileWaiting = $mailer->attempts;
+        // Its time comes
+        $info['retry_at'] = time() - 1;
+        $this->db->queryBuilder()->table('#PREFIX#mails')->where('tomail', 'busy@example.com')->update(['extrainfo' => json_encode($info)]);
+        $this->flush($mailer);
+
+        // Assert
+        $this->assertSame(1, $info['attempts']);
+        $this->assertGreaterThan(time(), $retryAt + 1, 'no wait was set');
+        $this->assertLessThanOrEqual(time() + 60, $retryAt, 'the first wait is the base, a minute');
+        $this->assertIsArray($info['outbox'] ?? null, 'what it was queued with was lost');
+        $this->assertSame(1, $attemptsWhileWaiting, 'tried again before its time');
+        $this->assertSame(2, $mailer->attempts, 'not tried again once its time had come');
+        $this->assertSame(2, json_decode((string) $this->rows()[0]['extrainfo'], true)['attempts']);
+        $this->assertSame(Mail::STATUS_QUEUED, (int) $this->rows()[0]['status']);
+    }
+
+    /**
+     * With `mail.outbox.backoff` false every run tries again, as it did; and a row whose
+     * `extrainfo` is not the outbox's JSON keeps that text as a note.
+     */
+    public function testTheBackoffCanBeSwitchedOff(): void
+    {
+        // Arrange
+        $this->outboxConfig(['backoff' => false]);
+        $this->queueOne('busy@example.com', 'Busy', '<p>Body</p>');
+        $mailer = new FlushSpyMailer(false, '451 try again later');
+
+        // Act
+        $this->flush($mailer);
+        $this->flush($mailer);
+        $this->outboxConfig(['backoff' => ['base' => 30, 'max' => 45]]);
+        $this->db->queryBuilder()->table('#PREFIX#mails')->where('tomail', 'busy@example.com')->update(['extrainfo' => 'an old note']);
+        $this->flush($mailer);
+        $info = json_decode((string) $this->rows()[0]['extrainfo'], true);
+
+        // Assert
+        $this->assertSame(3, $mailer->attempts, 'switched off, every run tries');
+        $this->assertSame('an old note', $info['note']);
+        $this->assertLessThanOrEqual(time() + 30, $info['retry_at'], 'the configured base');
+    }
+
+    /**
      * A dry run reports and changes nothing.
      *
      * Worth its own test because this command *sends*, and a `--dry-run` that sent anyway would

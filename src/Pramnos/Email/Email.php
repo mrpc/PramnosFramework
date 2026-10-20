@@ -1392,9 +1392,9 @@ class Email extends \Pramnos\Framework\Base
                 ->insert([
                     'status'     => $status,
                     'frommail'   => $this->emailToString($this->from),
-                    'fromname'   => '',
+                    'fromname'   => $this->nameOf($this->from),
                     'tomail'     => $tomail,
-                    'toname'     => '',
+                    'toname'     => $this->nameOf($this->to),
                     'subject'    => (string) $this->subject,
                     'content'    => $kept['content'],
                     'date'       => $date,
@@ -1508,6 +1508,24 @@ class Email extends \Pramnos\Framework\Base
         }
 
         return ['content' => $kept['content'], 'path' => $kept['path'], 'hash' => $kept['hash']];
+    }
+
+    /**
+     * The name of a to/from value that is one address with a name — `['info@x' => 'X']` — or an
+     * empty string: a plain address has none, and the names of several addresses cannot be
+     * told apart again once `tomail` joins them with commas a name may hold too.
+     *
+     * Kept in `fromname` / `toname`, so a queued message goes out as `"X" <info@x>`, as it would
+     * have gone at once, and not as a bare address.
+     */
+    protected function nameOf($value): string
+    {
+        if (!is_array($value) || count($value) !== 1) {
+            return '';
+        }
+        $key = array_key_first($value);
+
+        return is_string($key) ? mb_substr(trim((string) $value[$key]), 0, 255) : '';
     }
 
     /**

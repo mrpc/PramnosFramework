@@ -179,11 +179,11 @@ class MailFlush extends Command
         }
 
         $email = $this->mailer();
-        $email->setTo((string) $row['tomail']);
+        $email->setTo(self::withName((string) $row['tomail'], (string) ($row['toname'] ?? '')));
         $email->setSubject((string) $row['subject']);
 
         if (trim((string) $row['frommail']) !== '') {
-            $email->setFrom((string) $row['frommail']);
+            $email->setFrom(self::withName((string) $row['frommail'], (string) ($row['fromname'] ?? '')));
         } elseif (($sender = $this->defaultSender()) !== null) {
             $email->setFrom($sender);
         }
@@ -228,7 +228,83 @@ class MailFlush extends Command
             return $this->refuse($row, $error);
         }
 
+        $this->backOff($row, $error);
+
         return 'retry';
+    }
+
+    /**
+     * A transient failure: the row is not tried again before `base · 2^(n−1)` seconds, at most
+     * `max`, after its n-th. Kept in the row's `extrainfo`, beside the outbox state, so the
+     * table needs no column of its own — it may be a compressed hypertable.
+     *
+     * Without it a message the server keeps refusing for now was tried every minute until the
+     * deadline: 1,440 attempts a day, and with the server down every queued message opened a
+     * connection on every run.
+     *
+     * @param array<string, mixed> $row
+     */
+    protected function backOff(array $row, string $error): void
+    {
+        $policy = $this->retryPolicy();
+        if ($policy === null) {
+            return;
+        }
+        $info     = $this->extraInfo($row);
+        $attempts = (int) ($info['attempts'] ?? 0) + 1;
+        $info['attempts'] = $attempts;
+        $info['retry_at'] = time() + min($policy['max'], $policy['base'] * 2 ** min($attempts - 1, 20));
+        $info['last_error'] = mb_substr($error, 0, 500);
+
+        Factory::getDatabase()->queryBuilder()
+            ->table('#PREFIX#mails')
+            ->where('id', (int) $row['id'])
+            ->update(['extrainfo' => (string) json_encode($info, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE)]);
+    }
+
+    /**
+     * The pacing of retries: `mail.outbox.backoff` as `['base' => seconds, 'max' => seconds]`,
+     * 60 and 3600 unless it says otherwise, or null when it is `false` — every run tries again.
+     *
+     * @return array{base: int, max: int}|null
+     */
+    protected function retryPolicy(): ?array
+    {
+        $config = \Pramnos\Application\Application::currentInstance()?->applicationInfo['mail']['outbox']['backoff'] ?? [];
+        if ($config === false) {
+            return null;
+        }
+        $config = (array) $config;
+
+        return ['base' => max(1, (int) ($config['base'] ?? 60)), 'max' => max(1, (int) ($config['max'] ?? 3600))];
+    }
+
+    /**
+     * A row's `extrainfo` as the array the outbox writes — what a queued message was queued
+     * with, and its retries — or, for a row that holds something else, that text kept as `note`.
+     *
+     * @param array<string, mixed> $row
+     * @return array<string, mixed>
+     */
+    private function extraInfo(array $row): array
+    {
+        $raw  = (string) ($row['extrainfo'] ?? '');
+        $info = json_decode($raw, true);
+
+        return is_array($info) ? $info : ($raw === '' ? [] : ['note' => $raw]);
+    }
+
+    /**
+     * An address with the name the row kept for it — `[address => name]`, as Email takes it — or
+     * the address alone: no name, or several addresses, whose names the row does not keep.
+     *
+     * @return string|array<string, string>
+     */
+    private static function withName(string $address, string $name): string|array
+    {
+        $address = trim($address);
+
+        return trim($name) === '' || str_contains($address, ',') ? $address : [$address => trim($name)];
     }
 
     /** A row failed for good, with its reason, and the application told. */
@@ -360,18 +436,26 @@ class MailFlush extends Command
      */
     protected function pending(int $limit, int $deadline): array
     {
+        // ponytail: a row waiting out its backoff is skipped in PHP — the time is in the JSON of
+        // `extrainfo`, which no SQL here reads on both engines — so a window of up to five
+        // batches is read for one batch due. Past that many rows backing off ahead of it, a due
+        // row waits until they come round (an hour at most); a column for it is the upgrade.
         $result = Factory::getDatabase()->queryBuilder()
             ->table('#PREFIX#mails')
             ->where('status', Mail::STATUS_QUEUED)
             ->where('date', '>=', time() - $deadline)
             ->where('date', '<=', time())
             ->orderBy('date', 'asc')
-            ->limit($limit)
+            ->limit(max($limit, min($limit * 5, 1000)))
             ->get();
 
         $rows = [];
+        $now  = time();
 
-        while ($result && ($row = $result->fetch()) !== null) {
+        while ($result && count($rows) < $limit && ($row = $result->fetch()) !== null) {
+            if ((int) ($this->extraInfo($row)['retry_at'] ?? 0) > $now) {
+                continue;
+            }
             $rows[] = $row;
         }
 
