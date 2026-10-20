@@ -103,6 +103,8 @@ class CleanupQueue extends Command
         if ($input->getOption('include-warning')) {
             $statuses[] = 'warning';
         }
+        // An administrator's "do not run this" is as finished as a run.
+        $statuses[] = 'stopped';
 
         $output->writeln('<info>Purging tasks with status: ' . implode(', ', $statuses) . '</info>');
         $output->writeln('<info>Removing tasks completed more than ' . $hours . ' hours ago</info>');

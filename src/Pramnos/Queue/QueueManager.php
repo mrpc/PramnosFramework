@@ -114,7 +114,8 @@ class QueueManager
                 ->table($this->getQueueTableName())
                 ->select(['taskid'])
                 ->where('task_hash', $taskHash)
-                ->whereIn('status', ['completed', 'failed'], 'and', true)
+                // Finished, or stopped by an administrator: neither stands in the way of a new one.
+                ->whereIn('status', ['completed', 'failed', 'stopped'], 'and', true)
                 ->first();
             if ($existing && !empty($existing->fields)) {
                 return null;

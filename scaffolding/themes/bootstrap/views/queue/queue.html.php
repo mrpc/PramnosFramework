@@ -3,78 +3,28 @@
  * Queue jobs list (Bootstrap theme).
  *
  * Variables:
- *   $this->jobs  — iterable rows
- *   $this->page  — current page
- *   $this->total — total count
+ *   $this->datatable — \Pramnos\Html\Datatable, fed by Queue/data (server-side)
+ *   $this->statuses  — the statuses a task can be in
+ *
+ * A DataTable over a table of tens of thousands of rows: the status filter, search over the
+ * type, the error and the payload, the page size and the sorting are the server's. Clear takes
+ * the status to clear here, since the list's filter lives in the table, not in the URL.
  */
-$statusBadge = fn($s) => match($s) {
-    'pending'    => '<span class="badge bg-secondary">Pending</span>',
-    'processing' => '<span class="badge bg-primary">Processing</span>',
-    'completed'  => '<span class="badge bg-success">Completed</span>',
-    'failed'     => '<span class="badge bg-danger">Failed</span>',
-    'deleted'    => '<span class="badge bg-light text-dark">Deleted</span>',
-    default      => '<span class="badge bg-light text-dark">' . htmlspecialchars($s) . '</span>',
-};
-$filterStatus = htmlspecialchars($_GET['status'] ?? '');
+$clearable = ['failed', 'completed', 'stopped', 'deleted'];
 ?>
 <div class="container-fluid py-4">
-    <div class="d-flex justify-content-between align-items-center mb-3">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
         <h2 class="mb-0">Queue</h2>
-        <div class="d-flex gap-2">
-            <a href="<?php echo adminUrl('Queue/stats'); ?>" class="btn btn-sm btn-outline-info">Stats</a>
-            <form method="post" action="<?php echo adminUrl('Queue/retryall'); ?>" style="display:inline;margin:0"><?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?><button type="submit" class="btn btn-sm btn-outline-warning" data-confirm="Retry all failed jobs?">Retry All Failed</button></form>
-        </div>
-    </div>
-    <div class="card mb-3">
-        <div class="card-body py-2">
-            <form method="get" class="d-flex gap-2 align-items-center">
-                <select name="status" class="form-select form-select-sm" style="max-width:160px">
-                    <option value="">All statuses</option>
-                    <?php foreach (['pending','processing','completed','failed','deleted'] as $st): ?>
-                        <option value="<?php echo $st; ?>" <?php echo $filterStatus === $st ? 'selected' : ''; ?>><?php echo ucfirst($st); ?></option>
-                    <?php endforeach; ?>
+        <div class="d-flex flex-wrap align-items-center gap-2">
+            <a href="<?php echo adminUrl('Queue/stats'); ?>" class="btn btn-sm btn-outline-primary">Stats</a>
+            <form method="post" action="<?php echo adminUrl('Queue/retryall'); ?>" class="d-inline m-0"><?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?><button type="submit" class="btn btn-sm btn-outline-warning" data-confirm="Retry all failed jobs?">Retry all failed</button></form>
+            <form method="post" action="<?php echo adminUrl('Queue/clear'); ?>" class="d-flex align-items-center gap-1 m-0"><?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
+                <select name="status" class="form-select form-select-sm" aria-label="Status to clear">
+                    <?php foreach ($clearable as $status): ?><option value="<?php echo $status; ?>"><?php echo ucfirst($status); ?></option><?php endforeach; ?>
                 </select>
-                <button class="btn btn-sm btn-outline-secondary">Filter</button>
+                <button type="submit" class="btn btn-sm btn-outline-danger" data-confirm="Clear every job in that status?">Clear</button>
             </form>
-            <?php if ($filterStatus === 'failed' || $filterStatus === 'completed' || $filterStatus === 'deleted'): ?>
-                    <form method="post" action="<?php echo adminUrl('Queue/clear'); ?>" style="display:inline;margin:0"><?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?><input type="hidden" name="status" value="<?php echo htmlspecialchars((string) $filterStatus, ENT_QUOTES); ?>"><button type="submit" class="btn btn-sm btn-outline-danger" data-confirm="Clear all <?php echo $filterStatus; ?> jobs?">Clear</button></form>
-                <?php endif; ?>
         </div>
     </div>
-    <div class="card">
-        <div class="card-body p-0">
-            <table class="table table-hover mb-0">
-                <thead class="table-light">
-                    <tr><th>ID</th><th>Type</th><th>Status</th><th>Attempts</th><th>Created</th><th>Next Run</th><th></th></tr>
-                </thead>
-                <tbody>
-                <?php foreach (($this->jobs ?? []) as $job): ?>
-                    <tr>
-                        <td><?php echo (int)$job['taskid']; ?></td>
-                        <td><?php echo htmlspecialchars($job['type'] ?? $job['classname'] ?? ''); ?>
-                            <?php if (($job['error'] ?? '') !== ''): ?>
-                                <div class="small text-danger mt-1" title="<?php echo htmlspecialchars((string) $job['error']); ?>">
-                                    <?php echo htmlspecialchars(mb_strimwidth((string) $job['error'], 0, 160, '…')); ?>
-                                </div>
-                            <?php endif; ?>
-                        </td>
-                        <td><?php echo $statusBadge($job['status'] ?? ''); ?></td>
-                        <td><?php echo (int)($job['attempts'] ?? 0); ?></td>
-                        <td class="text-muted small"><?php echo htmlspecialchars($job['createdat'] ?? ''); ?></td>
-                        <td class="text-muted small"><?php echo htmlspecialchars($job['nextrun'] ?? ''); ?></td>
-                        <td class="text-end">
-                            <?php if (($job['status'] ?? '') === 'failed'): ?>
-                                <form method="post" action="<?php echo adminUrl('Queue' . '/retry/' . ((int)$job['taskid'])); ?>" style="display:inline;margin:0"><?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?><button type="submit" class="btn btn-sm btn-outline-warning">Retry</button></form>
-                            <?php endif; ?>
-                            <form method="post" action="<?php echo adminUrl('Queue' . '/delete/' . ((int)$job['taskid'])); ?>" style="display:inline;margin:0"><?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?><button type="submit" class="btn btn-sm btn-outline-danger" data-confirm="Delete job?">Delete</button></form>
-                        </td>
-                    </tr>
-                <?php endforeach; ?>
-                <?php if (empty($this->jobs)): ?>
-                    <tr><td colspan="7" class="text-center text-muted py-4">No jobs found.</td></tr>
-                <?php endif; ?>
-                </tbody>
-            </table>
-        </div>
-    </div>
+    <?php echo $this->datatable->render(); ?>
 </div>

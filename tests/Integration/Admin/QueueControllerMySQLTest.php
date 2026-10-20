@@ -35,6 +35,42 @@ class TestableQueueController extends QueueController
 }
 
 /**
+ * A wrapper as an application writes one: a column of its own in the list, and the view the
+ * screen builds kept for the test to read.
+ */
+class WrappedQueueController extends TestableQueueController
+{
+    /** The view display() filled. */
+    public ?object $view = null;
+
+    /** The application's own column. */
+    protected function extraColumns(): array
+    {
+        return ['Sent by' => 'note'];
+    }
+
+    /** A view that keeps what it is given and renders nothing. */
+    public function &getView($name = '', $type = '', $args = array())
+    {
+        $this->view = new class {
+            /** The table the screen built. */
+            public ?object $datatable = null;
+
+            /** The statuses it offers. */
+            public array $statuses = [];
+
+            /** Nothing to render in a test. */
+            public function display(): string
+            {
+                return 'rendered';
+            }
+        };
+
+        return $this->view;
+    }
+}
+
+/**
  * Integration tests for QueueController against a live MySQL 8.0 database.
  *
  * These tests verify that the controller's database operations — soft-delete,
@@ -300,6 +336,109 @@ class QueueControllerMySQLTest extends BaseTestCase
             "clear() must refuse status='pending' — pending jobs are protected");
 
         unset($_POST['status']);
+    }
+
+    // -------------------------------------------------------------------------
+    // stop() / duplicate() / display() / data()
+    // -------------------------------------------------------------------------
+
+    /**
+     * stop() turns a pending or a processing task into `stopped`, its lock cleared and its time
+     * of completion set for the retention purge — and leaves a finished task alone. On
+     * PostgreSQL this is also the proof that the status constraint accepts `stopped`.
+     */
+    public function testStopStopsAPendingOrProcessingTaskOnly(): void
+    {
+        // Arrange
+        $ids = [];
+        foreach (['pending', 'processing', 'completed'] as $status) {
+            $this->db->queryBuilder()->table('queueitems')->insert(['type' => 'job', 'payload' => '{}', 'status' => $status, 'lockedby' => 'host:1']);
+            $ids[$status] = (int) $this->db->queryBuilder()->table('queueitems')->select(['taskid'])->where('status', $status)->first()->fields['taskid'];
+        }
+
+        // Act
+        foreach ($ids as $id) {
+            $_GET['_option'] = $id;
+            $this->ctrl->stop($id);
+        }
+
+        // Assert
+        $rows = [];
+        foreach ($this->db->queryBuilder()->table('queueitems')->select(['taskid', 'status', 'lockedby', 'completedat'])->getAll() as $row) {
+            $rows[(int) $row['taskid']] = $row;
+        }
+        $this->assertSame('stopped', $rows[$ids['pending']]['status']);
+        $this->assertSame('stopped', $rows[$ids['processing']]['status']);
+        $this->assertNull($rows[$ids['processing']]['lockedby'], 'the lock was kept');
+        $this->assertNotNull($rows[$ids['pending']]['completedat'], 'the retention purge would never see it');
+        $this->assertSame('completed', $rows[$ids['completed']]['status'], 'a finished task was stopped');
+    }
+
+    /**
+     * duplicate() queues a new pending copy — the type, payload, priority and attempts allowed,
+     * no attempts made, no lock, no error — and leaves the original as it was; an id with no
+     * task queues nothing.
+     */
+    public function testDuplicateQueuesAPendingCopy(): void
+    {
+        // Arrange
+        $this->db->queryBuilder()->table('queueitems')->insert([
+            'type' => 'report', 'payload' => '{"n":7}', 'status' => 'failed', 'priority' => 3,
+            'attempts' => 3, 'maxattempts' => 5, 'error' => 'boom', 'lockedby' => 'host:1',
+        ]);
+        $original = (int) $this->db->queryBuilder()->table('queueitems')->select(['taskid'])->first()->fields['taskid'];
+
+        // Act
+        $_GET['_option'] = $original;
+        $this->ctrl->duplicate($original);
+        $_GET['_option'] = $original + 1000;
+        $this->ctrl->duplicate($original + 1000);
+
+        // Assert
+        $rows = $this->db->queryBuilder()->table('queueitems')->orderBy('taskid')->getAll();
+        $this->assertCount(2, $rows, 'one copy, and nothing for a task that is not there');
+        $copy = $rows[1];
+        $this->assertSame(['report', 'pending', 3, 0, 5], [$copy['type'], $copy['status'], (int) $copy['priority'], (int) $copy['attempts'], (int) $copy['maxattempts']]);
+        $this->assertSame(['n' => 7], json_decode((string) $copy['payload'], true));
+        $this->assertNull($copy['error']);
+        $this->assertNull($copy['lockedby']);
+        $this->assertSame('failed', $rows[0]['status'], 'the original was changed');
+    }
+
+    /**
+     * The list is a DataTable fed by data(): a wrapper's own column is a column of the table and
+     * a cell of every row; every value is escaped; a task carries the actions its status allows.
+     */
+    public function testTheListShowsAnApplicationsColumnEscaped(): void
+    {
+        // Arrange — a column of the application's own, and a type that would be markup
+        $this->db->query('ALTER TABLE ' . ($this->db->type === 'postgresql' ? '"queueitems"' : '`queueitems`') . ' ADD note VARCHAR(50)');
+        $this->db->queryBuilder()->table('queueitems')->insert(['type' => '<b>x</b>', 'payload' => '{}', 'status' => 'pending', 'note' => 'anna@example.com', 'error' => str_repeat('e', 200)]);
+        $ctrl  = new WrappedQueueController($this->app);
+        $_POST = ['sEcho' => 1, 'iDisplayStart' => 0, 'iDisplayLength' => 10];
+        \Pramnos\Http\Request::resetInstance();
+
+        try {
+            // Act
+            $page = $ctrl->display();
+            $data = json_decode($ctrl->data()->getBody(), true);
+        } finally {
+            $_POST = [];
+            \Pramnos\Http\Request::resetInstance();
+        }
+
+        // Assert
+        $this->assertSame('rendered', $page);
+        $this->assertArrayHasKey('Sent by', $ctrl->view->datatable->aoColumns, 'the application column is not in the table');
+        $row = ($data['aaData'] ?? $data['data'])[0];
+        $this->assertSame('&lt;b&gt;x&lt;/b&gt;', $row[1], 'the type was not escaped');
+        $this->assertStringContainsString('pf-state', $row[2]);
+        $this->assertSame('0 / 3', $row[3]);
+        $this->assertStringContainsString('…', $row[5], 'a long error is shortened, its whole text in the title');
+        $this->assertSame('', $row[6], 'the payload is searched, never shown');
+        $this->assertSame('anna@example.com', $row[7]);
+        $this->assertStringContainsString('queue/stop/', $row[8]);
+        $this->assertStringNotContainsString('queue/retry/', $row[8], 'a pending task offered a retry');
     }
 
     // -------------------------------------------------------------------------

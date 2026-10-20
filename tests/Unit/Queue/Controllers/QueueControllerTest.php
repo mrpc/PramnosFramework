@@ -140,7 +140,7 @@ class QueueControllerTest extends BaseTestCase
         $authActions = $prop->getValue($ctrl);
 
         // Assert
-        foreach (['display', 'retry', 'retryall', 'delete', 'clear', 'stats'] as $action) {
+        foreach (['display', 'data', 'retry', 'retryall', 'delete', 'clear', 'stats', 'stop', 'duplicate'] as $action) {
             $this->assertContains(
                 $action, $authActions,
                 "QueueController::$action() must be registered via addAuthAction()"
@@ -171,7 +171,7 @@ class QueueControllerTest extends BaseTestCase
         $ctrl = new QueueController(null);
 
         // Assert
-        foreach (['display', 'retry', 'retryall', 'delete', 'clear', 'stats'] as $action) {
+        foreach (['display', 'data', 'retry', 'retryall', 'delete', 'clear', 'stats', 'stop', 'duplicate'] as $action) {
             $this->assertTrue(method_exists($ctrl, $action));
         }
     }
@@ -179,58 +179,6 @@ class QueueControllerTest extends BaseTestCase
     // =========================================================================
     // 2. Action behaviour with mocked QueryBuilder
     // =========================================================================
-
-    /**
-     * display() must not throw and must call the QueryBuilder fluent chain.
-     * Covers lines 50-79 in QueueController::display().
-     *
-     * The getView() call inside display() will fail without a full app stack,
-     * so we verify that execution reaches at least as far as the QB chain by
-     * asserting that the mock's getAll() is invoked.
-     */
-    public function testDisplayBuildsQueryWithoutFilters(): void
-    {
-        // Arrange — no GET filters
-        $_GET = [];
-
-        // Assert — getAll() is invoked once by the display() fluent chain
-        $this->qbMock->expects($this->atLeastOnce())
-            ->method('getAll')
-            ->willReturn([]);
-
-        // Act — display() will run the QB chain then fail trying to render the view.
-        // We catch any view-related exception so the QB assertion is checked.
-        try {
-            $this->ctrl->display();
-        } catch (\Throwable $e) {
-            // View rendering may fail in unit test context — that is acceptable.
-        }
-    }
-
-    /**
-     * display() applies WHERE clauses when ?status and ?type GET params are set.
-     * Covers lines 67-71 of QueueController::display() — the filter branches.
-     *
-     * We count how many times where() is called; with two filters it must be
-     * called at least twice.
-     */
-    public function testDisplayAppliesStatusAndTypeFilters(): void
-    {
-        // Arrange — two GET filters
-        $_GET = ['status' => 'failed', 'type' => 'email'];
-
-        // Assert — where() must be called for both filters
-        $this->qbMock->expects($this->atLeast(2))
-            ->method('where')
-            ->willReturnSelf();
-
-        // Act
-        try {
-            $this->ctrl->display();
-        } catch (\Throwable $e) {
-            // View rendering may fail — acceptable
-        }
-    }
 
     /**
      * retry() with id=0 must redirect to the error URL immediately.
@@ -251,6 +199,48 @@ class QueueControllerTest extends BaseTestCase
             $_SESSION['_errors'] ?? [],
             'retry(0) must redirect with error=invalid_id'
         );
+    }
+
+    /**
+     * stop() and duplicate() with no valid id write nothing and say why — the same guard retry()
+     * has.
+     */
+    public function testStopAndDuplicateWithNoIdWriteNothing(): void
+    {
+        // Arrange
+        $this->qbMock->expects($this->never())->method('update');
+        $this->qbMock->expects($this->never())->method('insert');
+
+        // Act
+        $this->ctrl->stop(0);
+        $stopError = $_SESSION['_errors'] ?? [];
+        $this->ctrl->duplicate(0);
+
+        // Assert
+        $this->assertContains('The id in that link is not valid.', $stopError);
+        $this->assertContains('There is no such task.', $_SESSION['_errors'] ?? []);
+    }
+
+    /**
+     * Every status gets its badge, and each its actions: retry only for a failed task, stop only
+     * for one not yet finished, duplicate for any, delete for any not already deleted.
+     */
+    public function testEachStatusGetsItsBadgeAndActions(): void
+    {
+        // Arrange
+        $badge   = new \ReflectionMethod($this->ctrl, 'statusBadge');
+        $actions = new \ReflectionMethod($this->ctrl, 'actions');
+
+        // Act + Assert
+        $this->assertStringContainsString('pf-state-on', $badge->invoke($this->ctrl, 'completed'));
+        $this->assertStringContainsString('pf-state-off', $badge->invoke($this->ctrl, 'stopped'));
+        $this->assertSame('<span class="pf-state">Pending</span>', $badge->invoke($this->ctrl, 'pending'));
+        $failed  = $actions->invoke($this->ctrl, 7, 'failed');
+        $deleted = $actions->invoke($this->ctrl, 7, 'deleted');
+        $this->assertStringContainsString('queue/retry/7', $failed);
+        $this->assertStringNotContainsString('queue/stop/7', $failed, 'a finished task offered a stop');
+        $this->assertStringContainsString('queue/duplicate/7', $deleted);
+        $this->assertStringNotContainsString('queue/delete/7', $deleted, 'a deleted task offered a delete');
     }
 
     /**
@@ -617,6 +607,9 @@ class QueueControllerTest extends BaseTestCase
         // Act — call all actions; each must return early after the auth redirect
         try { $deniedCtrl->display(); } catch (\Throwable $e) { }
         $deniedCtrl->retry(1);
+        $deniedCtrl->data();
+        $deniedCtrl->stop(1);
+        $deniedCtrl->duplicate(1);
         $deniedCtrl->retryall();
         $deniedCtrl->delete(1);
         $_POST['status'] = 'failed';

@@ -88,6 +88,39 @@ class QueueControllerPostgreSQLTest extends QueueControllerMySQLTest
         );
     }
 
+    /**
+     * The migration that teaches PostgreSQL `stopped` runs a second time without harm; down()
+     * turns stopped tasks into deleted ones and the constraint refuses `stopped` again; up()
+     * brings it back. The type the create migration made learns the value too.
+     */
+    public function testTheStoppedStatusMigrationRunsTwiceAndGoesBack(): void
+    {
+        // Arrange
+        $migration = new \Pramnos\Framework\Migrations\Queue\AddStoppedToQueueitemsStatus($this->makeApp());
+        $insert    = fn (): mixed => $this->db->queryBuilder()->table('queueitems')->insert(['type' => 'job', 'payload' => '{}', 'status' => 'stopped']);
+
+        // Act
+        $migration->up();
+        $insert();
+        $migration->down();
+        $afterDown = $this->db->queryBuilder()->table('queueitems')->select(['status'])->first()->fields['status'];
+        try {
+            $insert();
+            $refused = false;
+        } catch (\Throwable) {
+            $refused = true;
+        }
+        $migration->up();
+        $insert();
+        $type = $this->db->query("SELECT COUNT(*) AS n FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid WHERE t.typname = 'queue_status' AND e.enumlabel = 'stopped'");
+
+        // Assert
+        $this->assertSame('deleted', $afterDown, 'down() left a status its constraint refuses');
+        $this->assertTrue($refused, 'down() left `stopped` allowed');
+        $this->assertSame(2, (int) $this->db->queryBuilder()->table('queueitems')->count());
+        $this->assertSame(1, (int) $type->fields['n'], 'the queue_status type did not learn `stopped`');
+    }
+
     protected function dropQueueTable(): void
     {
         $this->db->query('DROP TABLE IF EXISTS "queueitems" CASCADE');

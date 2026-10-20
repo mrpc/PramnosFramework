@@ -9544,6 +9544,13 @@ use Pramnos\\Queue\\Controllers\\QueueController as FrameworkQueueController;
  * Delegates all actions to the framework QueueController.
  * Override \$requiredUserType here if this application's admin hierarchy
  * uses a different threshold for queue management.
+ *
+ * Columns of the queue table's own to show in the list, as [label => column]:
+ *
+ *     protected function extraColumns(): array
+ *     {
+ *         return ['Sent by' => 'meta_data'];
+ *     }
  */
 class Queue extends FrameworkQueueController
 {

@@ -114,6 +114,35 @@ Other `QueueManager` methods: `addMany()` and the batch methods ([below](#spread
 `activeTaskTypes()`, `history()` and `purgeOldTasks()`. Running and supervising workers is
 covered in [Workers & Daemons](Pramnos_Workers_And_Daemons_Guide.md).
 
+### The queue screen
+
+The administration's **Queue** (`src/Admin/Controllers/Queue.php`, the framework's
+`QueueController`) is a DataTable fed by `Queue/data`: a status filter under the Status column,
+search over the type, the error and the payload, a page size, and sorting by id, type and status,
+the indexed columns. A table of tens of thousands of tasks is read a page at a time.
+
+Each row carries what its status allows: **retry** a failed task, **stop** a pending or processing
+one, **duplicate** any (a new pending copy: same type, payload, priority and attempts allowed, and
+the application's columns below), **delete** one not already deleted. All four are `POST`s with the
+form token. A stopped task has status `stopped`: no worker claims it, a worker already running it
+finishes that run, `addTask(unique: true)` does not count it, and `queue:cleanup` removes it with
+the completed ones. Above the table, **Retry all failed** and **Clear** (failed, completed, stopped
+or deleted tasks, marked deleted).
+
+Columns of the application's own appear in the list when the wrapper names them, as
+`[label => column]`. They are shown escaped and searched, and not sorted, since the framework
+knows no index on them:
+
+```php
+final class Queue extends \Pramnos\Queue\Controllers\QueueController
+{
+    protected function extraColumns(): array
+    {
+        return ['Sent by' => 'meta_data'];
+    }
+}
+```
+
 ---
 
 ## The delayed-queue capability

@@ -150,6 +150,8 @@ class CleanupQueueCommandTest extends TestCase
             'First purge call must include "completed"');
         $this->assertContains('failed', $statusesCall1,
             'First purge call must include "failed" when --no-include-failed is not set');
+        $this->assertContains('stopped', $statusesCall1,
+            'A task an administrator stopped is purged with the finished ones');
         $this->assertSame(24, $hoursCall1,
             'First purge call must use the default 24-hour threshold');
 
