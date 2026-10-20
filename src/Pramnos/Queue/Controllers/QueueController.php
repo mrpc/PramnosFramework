@@ -129,9 +129,9 @@ class QueueController extends Controller
            ->addColumn(t('Status'),         true,  true,  true,  'html', $statusFilter->render(), true, 'left', 'dt-queue-status')
            ->addColumn(t('Priority'),       true,  false, false, 'html', '', true, 'left', false)
            ->addColumn(t('Attempts'),       true,  false, false, 'html', '', true, 'left', false)
-           ->addColumn(t('Created'),        true,  false, false, 'html', '', true, 'left', false)
-           ->addColumn(t('Started'),        true,  false, false, 'html', '', true, 'left', false)
-           ->addColumn(t('Completed'),      true,  false, false, 'html', '', true, 'left', false)
+           ->addColumn(t('Created at'),     true,  false, false, 'html', '', true, 'left', false)
+           ->addColumn(t('Started at'),     true,  false, false, 'html', '', true, 'left', false)
+           ->addColumn(t('Completed at'),   true,  false, false, 'html', '', true, 'left', false)
            ->addColumn(t('Execution time'), true,  false, false, 'html', '', true, 'left', false)
            ->addColumn(t('Error'),          true,  false, true,  'html', '', true, 'left', true)
            // Searched, never shown: what a task was given is how a person finds one.
@@ -394,11 +394,11 @@ class QueueController extends Controller
             t('Type')           => $task['type'] ?? null,
             t('Priority')       => $task['priority'] ?? null,
             t('Attempts')       => (int) ($task['attempts'] ?? 0) . ' / ' . (int) ($task['maxattempts'] ?? 0),
-            t('Created')        => $task['createdat'] ?? null,
-            t('Updated')        => $task['updatedat'] ?? null,
+            t('Created at')     => $task['createdat'] ?? null,
+            t('Updated at')     => $task['updatedat'] ?? null,
             t('Available from') => $task['availableat'] ?? null,
-            t('Started')        => $task['startedat'] ?? null,
-            t('Completed')      => $task['completedat'] ?? null,
+            t('Started at')     => $task['startedat'] ?? null,
+            t('Completed at')   => $task['completedat'] ?? null,
             t('Execution time') => $seconds($task['execution_time'] ?? null),
             t('CPU time')       => $seconds($task['cpu_time'] ?? null),
             t('Locked by')      => $task['lockedby'] ?? null,

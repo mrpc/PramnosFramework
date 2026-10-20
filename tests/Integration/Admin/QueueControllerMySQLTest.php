@@ -512,7 +512,10 @@ class QueueControllerMySQLTest extends BaseTestCase
         $this->assertSame('report', $view->fields['Type']);
         $this->assertSame('boom', $view->fields['Error']);
         $this->assertSame('host:1', $view->fields['Locked by']);
-        $this->assertArrayNotHasKey('Started', $view->fields, 'a field with no value is listed empty');
+        $this->assertArrayNotHasKey('Started at', $view->fields, 'a field with no value is listed empty');
+        // A time is labelled as one — "Created at", not "Created" — so an application's own
+        // dictionary entry for the bare word (a status, a state) does not relabel the column.
+        $this->assertArrayHasKey('Created at', $view->fields);
         $this->assertSame('a@example.com', $view->payload['to']);
         $this->assertSame(json_encode(['n' => 7], JSON_PRETTY_PRINT), $view->payload['inner'], 'a JSON string in the payload was not decoded');
         $this->assertSame(json_encode([1, 2], JSON_PRETTY_PRINT), $view->payload['list']);
