@@ -55,6 +55,9 @@ class Account extends Controller
     /** Session key holding the in-flight passkey step-up challenge. */
     protected const S_STEPUP_CHALLENGE = 'account_stepup_passkey_challenge';
 
+    /** Session key holding the address the change-password page returns to. */
+    public const PASSWORD_RETURN_SESSION_KEY = 'account_password_change_return';
+
     /** The login orchestrator (seam so tests can inject a double). */
     private ?LoginFlow $loginFlow = null;
 
@@ -2293,12 +2296,22 @@ class Account extends Controller
     public function changepassword()
     {
         $currentUser = \Pramnos\User\User::getCurrentUser();
+        $clientId    = $this->passwordChangeClientId();
+        $returnUrl   = $this->passwordChangeReturnUrl($clientId);
+        // Back to the form, still carrying the address it returns to and whose it is.
+        $back = sURL . $this->routeBase . '/changepassword';
+        if ($returnUrl !== '') {
+            $back .= '?' . http_build_query(array_filter(
+                ['returnUrl' => $returnUrl, 'client_id' => $clientId],
+                static fn ($value) => $value !== ''
+            ), '', '&', PHP_QUERY_RFC3986);
+        }
 
         if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
             $session = \Pramnos\Http\Session::getInstance();
             if (!$session->checkToken('post')) {
                 $this->addError(t('Your session expired. Please try again.'));
-                $this->redirect(sURL . $this->routeBase . '/changepassword');
+                $this->redirect($back);
                 return;
             }
 
@@ -2308,14 +2321,14 @@ class Account extends Controller
 
             if (!$this->verifyUserPassword((int) $currentUser->userid, $currentPassword)) {
                 $this->addError($this->passwordErrorMessage('wrong_password'));
-                $this->redirect(sURL . $this->routeBase . '/changepassword');
+                $this->redirect($back);
                 return;
             }
 
             $policyError = $this->validatePasswordPolicy($newPassword, $confirmPassword);
             if ($policyError !== null) {
                 $this->addError($this->passwordErrorMessage($policyError));
-                $this->redirect(sURL . $this->routeBase . '/changepassword');
+                $this->redirect($back);
                 return;
             }
 
@@ -2330,7 +2343,7 @@ class Account extends Controller
             $history = new \Pramnos\Auth\PasswordHistory();
             if ($history->wasUsedBefore((int) $currentUser->userid, $newPassword)) {
                 $this->addError(t('You have used that password before. Please choose a different one.'));
-                $this->redirect(sURL . $this->routeBase . '/changepassword');
+                $this->redirect($back);
 
                 return;
             }
@@ -2380,6 +2393,14 @@ class Account extends Controller
                 \Pramnos\Auth\SecurityChangeNotifier::PASSWORD
             );
 
+            \Pramnos\Http\Session::getInstance()->remove(self::PASSWORD_RETURN_SESSION_KEY);
+            if ($returnUrl !== '') {
+                // Back to the client that sent the user here; a message would wait on this
+                // server for a page they are not going to see next.
+                $this->redirect($returnUrl);
+                return;
+            }
+
             $this->addMessage($endedOthers > 0
                 ? 'Your password has been updated, and your other sessions have been signed out.'
                 : 'Your password has been updated successfully.');
@@ -2387,12 +2408,173 @@ class Account extends Controller
             return;
         }
 
+        $session = \Pramnos\Http\Session::getInstance();
+        if ($returnUrl !== '') {
+            // Kept in the session as well, so a form that posts only its fields — every copy
+            // an application made of the view before it carried the address — still returns.
+            $session->set(self::PASSWORD_RETURN_SESSION_KEY, ['url' => $returnUrl, 'client_id' => $clientId]);
+            $this->allowPasswordReturnFormAction($returnUrl);
+        } else {
+            $session->remove(self::PASSWORD_RETURN_SESSION_KEY);
+        }
+
         $doc        = \Pramnos\Framework\Factory::getDocument();
         $doc->title = t('Change Password');
 
         $view = $this->getView('OAuth2');
         $view->routeBase = $this->routeBase;
+        $view->returnUrl = $returnUrl;
         return $view->display('change_password');
+    }
+
+
+    /**
+     * The `client_id` (an application's apikey) that came with `returnUrl`, or ''.
+     *
+     * Read like the address: from the request, and on a POST from the session.
+     */
+    protected function passwordChangeClientId(): string
+    {
+        $clientId = (string) ($_POST['client_id'] ?? $_GET['client_id'] ?? '');
+        if ($clientId === '' && ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && !isset($_POST['returnUrl'])) {
+            $clientId = (string) ($_SESSION[self::PASSWORD_RETURN_SESSION_KEY]['client_id'] ?? '');
+        }
+
+        return trim($clientId);
+    }
+
+    /**
+     * Where the change-password page returns after a change: `returnUrl`, if an active
+     * application declares its origin, or ''.
+     *
+     * The addresses an application declares on its edit screen are the allowlist — its URL,
+     * its callbacks and its CORS origins ({@see declaredReturnAddresses()}). With a
+     * `client_id`, only that application's count. An origin nobody declared is ignored and
+     * the page returns where it always did. **Where nothing is declared at all** — the named
+     * application, or every active one — any `http(s)` address is accepted; a `client_id`
+     * that names no active application accepts none, or a made-up one would unlock them all.
+     *
+     * Read from the request, and on a POST from the session the form page stored it in. Only
+     * `http` and `https` are ever accepted — the redirect has a `<script>` fallback, so a
+     * `javascript:` address must never reach it — and nothing with control characters or
+     * whitespace, which browsers strip in ways a parser does not.
+     */
+    protected function passwordChangeReturnUrl(string $clientId = ''): string
+    {
+        $candidate = (string) ($_POST['returnUrl'] ?? $_GET['returnUrl'] ?? '');
+        if ($candidate === '' && ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
+            $candidate = (string) ($_SESSION[self::PASSWORD_RETURN_SESSION_KEY]['url'] ?? '');
+        }
+        $candidate = trim($candidate);
+        if ($candidate === '' || preg_match('/[\x00-\x20\x7f]/', $candidate) === 1) {
+            return '';
+        }
+
+        $target = self::originOf($candidate);
+        if ($target === null) {
+            return '';
+        }
+
+        $declaredAddresses = $this->declaredReturnAddresses($clientId);
+        if ($declaredAddresses === null) {
+            return '';
+        }
+        if ($declaredAddresses === []) {
+            return $candidate;
+        }
+
+        foreach ($declaredAddresses as $declared) {
+            $allowed = self::originOf($declared);
+            if ($allowed !== null
+                && $allowed['scheme'] === $target['scheme']
+                && $allowed['host'] === $target['host']
+                && ($allowed['port'] === null || $allowed['port'] === $target['effectivePort'])
+            ) {
+                return $candidate;
+            }
+        }
+
+        return '';
+    }
+
+    /**
+     * Every address the active applications declare — or, with a `client_id`, that one
+     * application: `url`, each callback and each CORS origin.
+     *
+     * @return list<string>|null Null when the `client_id` names no active application
+     */
+    protected function declaredReturnAddresses(string $clientId): ?array
+    {
+        $query = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
+            ->table('#PREFIX#applications')
+            ->select(['appid', 'url', 'callback'])
+            ->where('status', 1);
+        if ($clientId !== '') {
+            $query->where('apikey', $clientId);
+        }
+
+        $addresses = [];
+        $found     = false;
+        $result    = $query->get();
+        // ponytail: one settings read per active application; fine for the handful an auth
+        // server has, pass client_id where there are many
+        while ($result && $result->fetch()) {
+            $found       = true;
+            $addresses[] = (string) ($result->fields['url'] ?? '');
+            $callback    = $result->fields['callback'] ?? null;
+            foreach (\Pramnos\Auth\Application::parseRedirectUris($callback === null ? null : (string) $callback) as $uri) {
+                $addresses[] = $uri;
+            }
+            foreach (\Pramnos\Auth\ApplicationSettings::for((int) $result->fields['appid'])['cors_origins'] as $origin) {
+                $addresses[] = (string) $origin;
+            }
+        }
+
+        if ($clientId !== '' && !$found) {
+            return null;
+        }
+
+        return array_values(array_filter($addresses, static fn ($address) => $address !== ''));
+    }
+
+    /**
+     * The scheme, host and port of an `http(s)` URL, or null for anything else.
+     *
+     * `port` is the one written, if any; `effectivePort` fills in the scheme's default, so a
+     * declared `https://host:443` admits `https://host/…`.
+     *
+     * @return array{scheme: string, host: string, port: ?int, effectivePort: int}|null
+     */
+    private static function originOf(string $url): ?array
+    {
+        $parts  = parse_url($url);
+        $scheme = strtolower((string) ($parts['scheme'] ?? ''));
+        $host   = strtolower((string) ($parts['host'] ?? ''));
+        if (($scheme !== 'http' && $scheme !== 'https') || $host === '') {
+            return null;
+        }
+        $port = isset($parts['port']) ? (int) $parts['port'] : null;
+
+        return [
+            'scheme'        => $scheme,
+            'host'          => $host,
+            'port'          => $port,
+            'effectivePort' => $port ?? ($scheme === 'https' ? 443 : 80),
+        ];
+    }
+
+    /**
+     * Let the change-password form's submission end at the client it returns to.
+     *
+     * `form-action` applies to every redirect a submission goes through, so the 302 after the
+     * POST is cancelled under `form-action 'self'` — silently, with the change already made.
+     */
+    protected function allowPasswordReturnFormAction(string $returnUrl): void
+    {
+        $source = \Pramnos\Application\Application::cspSourceForUri($returnUrl);
+        if ($source !== '' && $this->application instanceof \Pramnos\Application\Application) {
+            $this->application->allowCspSource('form-action', $source);
+        }
     }
 
     // ── Private — DB helpers ──────────────────────────────────────────────────

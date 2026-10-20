@@ -491,12 +491,25 @@ class User extends \Pramnos\Framework\Base implements
     }
 
     /**
-     * Sets the password of this user
+     * Sets the password of this user, and records when it changed
+     *
+     * Only a change is recorded, in `passwordchangedate` (a userdetails field, written by
+     * `save()`): an account that already has a password and is given a different one. A first
+     * password — a new account, or the one an administrator sets on an account that had none —
+     * records nothing, so a client that asks for a change on first sign-in can see it has not
+     * happened yet. Setting the same password again records nothing either.
+     *
+     * Every way the framework writes a password comes through here: the change and reset
+     * pages, the admin user form, `pramnos user:password`.
+     *
      * @param string $password
      */
     public function setPassword($password = '')
     {
         if ($this->userid > 1) {
+            if ($this->isAChangeOfPassword((string) $password)) {
+                $this->passwordchangedate = time();
+            }
             // The scheme lives in PasswordHash, not here: this method used to compose the
             // peppered input itself, which is why the pepper's 72-byte problem could not
             // be fixed in one place. See PasswordHash::make().
@@ -508,6 +521,66 @@ class User extends \Pramnos\Framework\Base implements
             $this->password = md5($password);
             $this->_pendingPlainPassword = $password;
         }
+    }
+
+    /**
+     * Does this password replace a different one the account already has?
+     *
+     * Compared with `PasswordHash::verify()` rather than `verifyPassword()`, which would also
+     * upgrade the stored hash as a side effect. MD5 is allowed because this only compares:
+     * the placeholder `save()` rehashes on a new account is the same password, not a change.
+     */
+    private function isAChangeOfPassword(string $password): bool
+    {
+        if (!is_string($this->password) || $this->password === '') {
+            return false;
+        }
+
+        return \Pramnos\Auth\PasswordHash::verify(
+            $password,
+            $this->password,
+            (int) $this->userid,
+            true
+        ) === null;
+    }
+
+    /**
+     * When the user last changed their password, as a Unix timestamp, or null if they never have
+     *
+     * Read from `passwordchangedate`, which {@see setPassword()} keeps. An account whose
+     * password changed before that field was kept has the change only in the activity log
+     * (`password_changed`, written by the change-password page), so the newest such entry
+     * answers instead.
+     */
+    public function getPasswordChangeDate(): ?int
+    {
+        if (!empty($this->otherinfo['passwordchangedate'])) {
+            return (int) $this->otherinfo['passwordchangedate'];
+        }
+        if ($this->userid < 2) {
+            return null;
+        }
+
+        try {
+            $database = \Pramnos\Framework\Factory::getDatabase();
+            if (!$database->schema()->hasTable('authserver.user_activity_log')) {
+                return null;
+            }
+            $logged = $database->queryBuilder()
+                ->table('authserver.user_activity_log')
+                ->where('userid', (int) $this->userid)
+                ->where('action', 'password_changed')
+                ->orderBy('created_at', 'desc')
+                ->value('created_at');
+        } catch (\Throwable $exception) {
+            \Pramnos\Logs\Logger::logError('Cannot read the last password change', $exception);
+
+            return null;
+        }
+
+        $timestamp = is_string($logged) ? strtotime($logged) : false;
+
+        return $timestamp === false ? null : $timestamp;
     }
 
     /**

@@ -118,18 +118,26 @@ class Me extends Controller
      *
      * Override in a subclass to add or remove fields for your application.
      *
+     * `password_changed_at` is when the user last changed their password, as ISO 8601, or null
+     * if they never have — a password set on a new account does not count. A client that
+     * requires a change on first sign-in sends the user to the change-password page while it
+     * is null.
+     *
      * @return array<string, mixed>
      */
     protected function publicProfile(User $user): array
     {
+        $changed = $user->getPasswordChangeDate();
+
         return [
-            'id'        => (int) $user->userid,
-            'username'  => $user->username,
-            'email'     => $user->email,
-            'usertype'  => (int) $user->usertype,
-            'language'  => $user->language,
-            'avatarurl' => $user->avatarurl,
-            'active'    => (int) $user->active,
+            'id'                  => (int) $user->userid,
+            'username'            => $user->username,
+            'email'               => $user->email,
+            'usertype'            => (int) $user->usertype,
+            'language'            => $user->language,
+            'avatarurl'           => $user->avatarurl,
+            'active'              => (int) $user->active,
+            'password_changed_at' => $changed === null ? null : date('c', $changed),
         ];
     }
 }

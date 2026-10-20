@@ -50,6 +50,46 @@ class MeControllerTest extends TestCase
         $this->assertArrayNotHasKey('password', $body['data']);
     }
 
+    /**
+     * `password_changed_at` is the last change as ISO 8601.
+     *
+     * A client that requires a change on first sign-in reads this field, so it has to be a
+     * date the client can parse, not the stored Unix timestamp.
+     */
+    public function testDisplayCarriesThePasswordChangeAsIso8601(): void
+    {
+        // Arrange
+        $user = $this->user(5, 'alice', 'alice@example.com');
+        $user->passwordChangedAt = 1760000000;
+        $this->c->stub = $user;
+
+        // Act
+        $body = json_decode($this->c->display()->getBody(), true);
+
+        // Assert — the same instant, in the format date('c') writes
+        $this->assertSame(date('c', 1760000000), $body['data']['password_changed_at']);
+        $this->assertSame(1760000000, strtotime($body['data']['password_changed_at']));
+    }
+
+    /**
+     * A user who never changed their password gets an explicit null.
+     *
+     * Present and null, not absent: "has not changed it" is the answer the client acts on, and
+     * a missing key would read the same as a server too old to say.
+     */
+    public function testDisplayCarriesNullWhenThePasswordNeverChanged(): void
+    {
+        // Arrange
+        $this->c->stub = $this->user(5, 'alice', 'alice@example.com');
+
+        // Act
+        $body = json_decode($this->c->display()->getBody(), true);
+
+        // Assert
+        $this->assertArrayHasKey('password_changed_at', $body['data']);
+        $this->assertNull($body['data']['password_changed_at']);
+    }
+
     /** With no authenticated user, display() returns 401 not_authenticated. */
     public function testDisplayReturns401WhenAnonymous(): void
     {
@@ -170,6 +210,13 @@ class StubMeUser extends User
     public function __construct()
     {
         // Skip the parent constructor: no DB load in a unit test.
+    }
+
+    public ?int $passwordChangedAt = null;
+
+    public function getPasswordChangeDate(): ?int
+    {
+        return $this->passwordChangedAt;
     }
 
     public function getAllTokens()

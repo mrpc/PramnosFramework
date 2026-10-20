@@ -4,6 +4,7 @@ use_cases:
   - Understanding what the built-in 2FA, passkey and session UI offers
   - Handling a GDPR data export or account deletion request
   - Letting users set a profile picture, or copying one from a sign-in provider
+  - Making a client application require a password change on a user's first sign-in
 ---
 
 # Account & Security — End-User Guide
@@ -145,6 +146,59 @@ Enter your current password, then your new one twice. The new password must:
 
 The form checks these rules as you type. On success your password is updated and
 a `password_changed` entry is added to your activity log.
+
+### Requiring a change on first sign-in
+
+A client application can make users change the password they were given before it lets
+them in. It needs two things from the server.
+
+**When the password last changed.** `GET /me` carries `password_changed_at`: ISO 8601, or
+`null` if the user has never changed their password. `User::getPasswordChangeDate()` returns
+the same thing as a Unix timestamp. Only a *change* counts. `User::setPassword()` dates it
+when an account that already has a password is given a different one. A first password
+(a new account, or the one an administrator sets on an account that had none) is not
+dated, and neither is setting the same password again. Every way the framework writes a
+password goes through `setPassword()`: this page, the reset page, the admin user form and
+`pramnos user:password`. An administrator or operator who sets a *different* password on an
+existing account therefore counts as a change. The date is kept in the `passwordchangedate`
+userdetails field. For a change made before that field was kept, the newest
+`password_changed` entry in the activity log answers instead.
+
+**A way back.** The change-password page takes `returnUrl`, and optionally `client_id` (the
+application's apikey), and sends the user there after a successful change:
+
+```
+https://auth.example/Account/changepassword?returnUrl=https%3A%2F%2Fclient.example%2Fwelcome&client_id=<apikey>
+```
+
+The allowed addresses are the ones the applications themselves declare on their edit
+screen. There is no separate list to keep in step:
+
+- each active application's (`status = 1`) **URL**,
+- every entry of its **callbacks** (commas or whitespace between them),
+- every **CORS origin** in its settings.
+
+With a `client_id`, only that application's addresses count. An address that no application
+declares is ignored, and the page returns to the security screen as usual.
+
+**Where nothing is declared, any `http(s)` address is accepted.** That applies to the
+application a `client_id` names, or, without one, to every active application. Declaring an
+address is what narrows it. A `client_id` that names no active application accepts nothing;
+otherwise a made-up one would unlock every address.
+
+- Scheme and host must match a declared address exactly. The port must match only when
+  the declared address names one, so a declared `http://localhost` admits any local port.
+- Only `http` and `https` are ever accepted.
+- The address and `client_id` survive a failed attempt: the error redirect back to the
+  form carries both. They also survive the sign-in detour, because the login page returns
+  to the full URL.
+- The form page adds the address's origin to its CSP `form-action`. Without that, Chrome
+  silently cancels the cross-origin redirect after the POST.
+- The form page keeps both in the session, so a copy of the view made before it carried
+  them still returns. The view also receives the address as `$this->returnUrl`.
+
+The client's flow is then: read `/me`; while `password_changed_at` is `null`, send the user
+to `changepassword?returnUrl=<back to the client>`; on return, read `/me` again.
 
 ---
 
