@@ -17,6 +17,13 @@ namespace Pramnos\Queue;
  *   $worker->registerTaskHandler('send_email', SendEmailTask::class);
  *   $worker->registerTaskHandler('import_csv', ImportCsvTask::class);
  *
+ * Or once, in `app.php`, for every worker — `queue:process` included, with no subclass:
+ *
+ *   'queue' => ['handlers' => ['send_email' => SendEmailTask::class]],
+ *
+ * A worker claims only the task types it can run, so a type nobody here handles stays pending
+ * for the worker that does.
+ *
  *   while (true) {
  *       $info = $worker->processNextTask();
  *       if (!$info) { sleep(5); }
@@ -90,6 +97,10 @@ class Worker
         ?int $startFromTimestamp = null,
         bool $reverseOrder = false
     ): array|false {
+        // No types asked for: the types this worker can run, not every type. A task it has no
+        // handler for was claimed, failed, and an attempt of the worker that could run it spent.
+        $taskTypes ??= $this->handledTaskTypes();
+
         $task = $this->queueManager->getNextTask(
             $taskTypes,
             300,
@@ -318,7 +329,47 @@ class Worker
      */
     protected function getTaskHandler(string $taskType): ?string
     {
-        return $this->taskHandlers[$taskType] ?? self::FRAMEWORK_HANDLERS[$taskType] ?? null;
+        return $this->taskHandlers[$taskType]
+            ?? $this->configuredHandlers()[$taskType]
+            ?? self::FRAMEWORK_HANDLERS[$taskType]
+            ?? null;
+    }
+
+    /**
+     * The handlers `app.php` names under `queue.handlers`, type => class.
+     *
+     * Read by every worker, so an application wires its task types once rather than in a
+     * subclass of `ProcessQueue` — which the orchestrator's queue pools do not run, since they
+     * start `queue:process` by the framework's name. A handler registered in code wins over one
+     * configured, and a configured one over the framework's own.
+     *
+     * @return array<string, string>
+     */
+    protected function configuredHandlers(): array
+    {
+        // The worker's own application first: a worker is given its controller, and the
+        // application current in this process need not be the one it was built for.
+        $app      = $this->controller->application ?? \Pramnos\Application\Application::currentInstance();
+        $handlers = is_object($app) ? ($app->applicationInfo['queue']['handlers'] ?? []) : [];
+
+        return is_array($handlers)
+            ? array_filter($handlers, static fn ($class, $type): bool => is_string($type) && is_string($class) && $class !== '', ARRAY_FILTER_USE_BOTH)
+            : [];
+    }
+
+    /**
+     * The task types this worker claims when it is not told which: every type it has a
+     * handler for — registered, configured, or the framework's own.
+     *
+     * A worker that resolves its handlers some other way — by naming convention, overriding
+     * {@see getTaskHandler()} — overrides this as well, with its types, or with null to claim
+     * every type as it did before.
+     *
+     * @return list<string>|null
+     */
+    protected function handledTaskTypes(): ?array
+    {
+        return array_keys($this->taskHandlers + $this->configuredHandlers() + self::FRAMEWORK_HANDLERS);
     }
 
     /**

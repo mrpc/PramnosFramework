@@ -110,18 +110,22 @@ class QueueManager
         $taskHash = $this->generateTaskHash($taskType, $data);
 
         if ($unique) {
-            $queueModel = $this->createQueueItemModel();
-            $existing   = $queueModel->getList(
-                "WHERE task_hash = '"
-                    . $this->controller->application->database->prepareInput($taskHash)
-                    . "' AND status NOT IN ('completed', 'failed')"
-            );
-            if (!empty($existing)) {
+            $existing = $this->controller->application->database->queryBuilder()
+                ->table($this->getQueueTableName())
+                ->select(['taskid'])
+                ->where('task_hash', $taskHash)
+                ->whereIn('status', ['completed', 'failed'], 'and', true)
+                ->first();
+            if ($existing && !empty($existing->fields)) {
                 return null;
             }
         }
 
-        $item              = $this->createQueueItemModel();
+        $item = $this->createQueueItemModel();
+        // The application's columns first, so the framework's below are the ones kept.
+        foreach ($this->extraColumns($taskType, $data) as $column => $value) {
+            $item->$column = $value;
+        }
         $item->type        = $taskType;
         $item->payload     = json_encode($data);
         $item->status      = 'pending';
@@ -351,6 +355,7 @@ class QueueManager
         $database->startTransaction();
         try {
             foreach ($rows as [$payload, $hash]) {
+                // The framework's columns win over an application's of the same name.
                 $database->queryBuilder()->table($this->getQueueTableName())->insert([
                     'type'        => $taskType,
                     'payload'     => (string) json_encode($payload),
@@ -362,7 +367,7 @@ class QueueManager
                     'batchid'     => $batchId,
                     'batchname'   => $batch === '' ? null : $batch,
                     'createdat'   => $now,
-                ]);
+                ] + $this->extraColumns($taskType, $payload));
                 $ids[] = (int) $database->getInsertId();
             }
             $database->commitTransaction();
@@ -372,6 +377,30 @@ class QueueManager
         }
 
         return $ids;
+    }
+
+    /**
+     * Columns of the application's own a queued task is written with, beside the framework's —
+     * for `addTask()` and `addMany()` alike.
+     *
+     * ```php
+     * final class AppQueueManager extends QueueManager
+     * {
+     *     protected function extraColumns(string $taskType, mixed $payload): array
+     *     {
+     *         return ['meta_data' => json_encode(['source' => 'web'])];
+     *     }
+     * }
+     * ```
+     *
+     * The application's queue table has to have them; a worker uses this manager through
+     * {@see Worker::createQueueManager()}. A column of the framework's of the same name is kept.
+     *
+     * @return array<string, mixed> column => value
+     */
+    protected function extraColumns(string $taskType, mixed $payload): array
+    {
+        return [];
     }
 
     /**

@@ -67,23 +67,46 @@ class SendEmailTask extends \Pramnos\Queue\AbstractTask
 ```
 
 `TaskInterface` also declares `validate()` and `handleFailure()`; `AbstractTask` provides
-both. Handlers are registered on the worker. The `queue:process` command builds its worker
-in `createWorker()`, so an application subclasses it:
+both. Handlers are named once, in `app.php`, for every worker:
 
 ```php
-class ProcessQueue extends \Pramnos\Console\Commands\ProcessQueue
+// app/app.php
+'queue' => ['handlers' => [
+    'send_email' => \App\Tasks\SendEmailTask::class,
+    'rsvp'       => \App\Tasks\RsvpTask::class,
+]],
+```
+
+`queue:process` reads them with no subclass, which is what the orchestrator's queue pools need:
+they start `queue:process` by the framework's name. A worker can also be given a handler in code,
+`$worker->registerTaskHandler('send_email', SendEmailTask::class)`, in `ProcessQueue::createWorker()`
+for example. The order is: a handler registered in code, then one named in `app.php`, then the
+framework's own task types (`Worker::FRAMEWORK_HANDLERS`), which need no registration.
+
+**A worker takes only the task types it can run.** Not told which (`queue:process` without
+`--type`), it claims every type it has a handler for and no other. A task of a type this worker
+cannot run stays pending, attempts untouched, for the worker that can. `--type` narrows that list
+further. A worker whose handlers are found some other way — by naming convention, in an
+overridden `getTaskHandler()` — overrides `handledTaskTypes()` too: with its types, or with `null`
+to claim every type.
+
+### Columns of the application's own
+
+A queue table with columns of its own — a `meta_data`, a tenant — has them filled for every task,
+from `addTask()` and `addMany()` alike, by a manager that names them:
+
+```php
+final class AppQueueManager extends \Pramnos\Queue\QueueManager
 {
-    protected function createWorker($controller, ?string $workerId): \Pramnos\Queue\Worker
+    protected function extraColumns(string $taskType, mixed $payload): array
     {
-        $w = parent::createWorker($controller, $workerId);
-        $w->registerTaskHandler('send_email', SendEmailTask::class);
-        return $w;
+        return ['meta_data' => json_encode(['source' => 'web'])];
     }
 }
 ```
 
-The framework's own task types (`Worker::FRAMEWORK_HANDLERS`) need no registration; an
-application registering the same type wins.
+A worker uses it through `Worker::createQueueManager()`. A column of the framework's with the same
+name is written as the framework writes it.
 
 Other `QueueManager` methods: `addMany()` and the batch methods ([below](#spreading-a-pass-over-the-worker-pool-addmany)),
 `getNextTask()`, `markTaskAsCompleted()` / `markTaskAsWarning()` / `markTaskAsFailed()`,

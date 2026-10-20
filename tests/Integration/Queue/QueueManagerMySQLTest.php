@@ -184,6 +184,34 @@ class QueueManagerMySQLTest extends TestCase
     }
 
     /**
+     * What counts as a duplicate for `addTask(unique: true)`: an identical task not yet
+     * finished — `processing` or `warning` as much as `pending` — and not one that completed or
+     * failed, which may be queued again.
+     */
+    public function testAddTaskUniqueIgnoresFinishedDuplicatesOnly(): void
+    {
+        // Arrange — one identical task in each state
+        $payloads = [];
+        foreach (['completed', 'failed', 'processing', 'warning'] as $status) {
+            $id = $this->manager->addTask('dedupe_' . $status, ['same' => true]);
+            $this->db->queryBuilder()->table('queueitems')->where('taskid', $id)->update(['status' => $status]);
+            $payloads[$status] = 'dedupe_' . $status;
+        }
+
+        // Act
+        $again = [];
+        foreach ($payloads as $status => $type) {
+            $again[$status] = $this->manager->addTask($type, ['same' => true], unique: true);
+        }
+
+        // Assert
+        $this->assertNotNull($again['completed'], 'a completed duplicate blocked a new task');
+        $this->assertNotNull($again['failed'], 'a failed duplicate blocked a new task');
+        $this->assertNull($again['processing'], 'a running duplicate did not block');
+        $this->assertNull($again['warning'], 'a duplicate finished with a warning did not block, as it always had');
+    }
+
+    /**
      * addTask() with $unique=false allows duplicate type+payload combinations,
      * which is the default (fire-and-forget tasks).
      */
@@ -1854,6 +1882,94 @@ class QueueManagerMySQLTest extends TestCase
         $this->assertSame(1, $this->manager->purgeOldTasks(24));
         $this->assertSame(array(), $this->manager->history());
     }
+    // -------------------------------------------------------------------------
+    // Which tasks a worker takes, and from where it learns its handlers
+    // -------------------------------------------------------------------------
+
+    /**
+     * A handler named in `app.php` under `queue.handlers` runs with no subclass and nothing
+     * registered in code — what `queue:process`, started by the orchestrator's pools by the
+     * framework's name, needs to run an application's task types.
+     */
+    public function testAHandlerFromTheApplicationsConfigurationRuns(): void
+    {
+        // Arrange
+        $this->app->applicationInfo = ['queue' => ['handlers' => ['rsvp' => BusyProbeTask::class, 7 => 'not a type']]];
+        $this->manager->addTask('rsvp', ['guest' => 1]);
+        $worker = new \Pramnos\Queue\Worker($this->controller, 'config-worker');
+
+        try {
+            // Act
+            $info = $worker->processNextTask(['rsvp']);
+        } finally {
+            $this->app->applicationInfo = [];
+        }
+
+        // Assert
+        $this->assertIsArray($info, 'the configured type was not claimed');
+        $this->assertSame('completed', $info['status'], (string) ($info['message'] ?? ''));
+    }
+
+    /**
+     * A worker not told which types takes only those it can run: a task of a type it has no
+     * handler for stays pending, attempts untouched, for the worker that has one. It used to be
+     * claimed and failed with "No handler registered", an attempt of another worker's task spent.
+     */
+    public function testAWorkerWithoutTypesLeavesTheTypesItCannotRun(): void
+    {
+        // Arrange
+        $foreign = $this->manager->addTask('handled_elsewhere', ['n' => 1], 1);
+        $this->manager->addTask('effort', ['n' => 2], 5);
+        $worker = new \Pramnos\Queue\Worker($this->controller, 'typed-worker');
+        $worker->registerTaskHandler('effort', BusyProbeTask::class);
+
+        // Act
+        $first  = $worker->processNextTask();
+        $second = $worker->processNextTask();
+
+        // Assert
+        $this->assertIsArray($first);
+        $this->assertSame('effort', $first['type'], 'the higher-priority foreign task was taken');
+        $this->assertFalse($second, 'a task of a type it cannot run was claimed');
+        $row = $this->db->queryBuilder()->table('queueitems')->where('taskid', $foreign)->first();
+        $this->assertSame('pending', (string) $row->fields['status']);
+        $this->assertSame(0, (int) $row->fields['attempts'], 'an attempt was spent on it');
+    }
+
+    /**
+     * An application's own columns go in with every task, from `addTask()` and `addMany()`
+     * alike, through a manager that names them; a column of the framework's of the same name is
+     * kept as the framework writes it.
+     */
+    public function testAnApplicationsOwnColumnsAreWrittenWithEachTask(): void
+    {
+        // Arrange — the application's extra column, and a manager that fills it
+        $this->schemaChanged();
+        $this->db->schema()->alterTable('queueitems', fn ($t) => $t->string('meta_data', 100)->nullable());
+        QueueManager::forgetSchemaCache();
+        \Pramnos\Application\Model::$columnCache = [];
+        $manager = new class ($this->controller) extends QueueManager {
+            /** The task's type in meta_data, and an attempt at the framework's own type. */
+            protected function extraColumns(string $taskType, mixed $payload): array
+            {
+                return ['meta_data' => 'from:' . $taskType, 'type' => 'overwritten'];
+            }
+        };
+
+        // Act
+        $one   = $manager->addTask('single', ['n' => 1]);
+        $batch = $manager->addMany('many', [['n' => 2], ['n' => 3]]);
+
+        // Assert
+        $rows = $this->db->queryBuilder()->table('queueitems')->select(['taskid', 'type', 'meta_data'])->orderBy('taskid')->getAll();
+        $this->assertSame(
+            [['single', 'from:single'], ['many', 'from:many'], ['many', 'from:many']],
+            array_map(static fn (array $r): array => [$r['type'], $r['meta_data']], $rows)
+        );
+        $this->assertSame($one, (int) $rows[0]['taskid']);
+        $this->assertSame(2, $batch->queued());
+    }
+
     // -------------------------------------------------------------------------
     // addMany(): a pass spread over the worker pool
     // -------------------------------------------------------------------------

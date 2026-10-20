@@ -521,66 +521,6 @@ class QueueManagerTest extends TestCase
         $this->assertSame(42, $id);
     }
 
-    /**
-     * addTask() must return null when $unique=true and a non-terminal task with
-     * the same type+payload hash already exists — preventing duplicate work.
-     */
-    public function testAddTaskReturnsNullWhenDuplicateExists(): void
-    {
-        // Arrange — getList() returns a non-empty result (duplicate found)
-        $manager = new class($this->controller) extends QueueManager {
-            protected function createQueueItemModel(): QueueItem
-            {
-                return new class($this->controller) extends QueueItem {
-                    public function __construct($c) {}
-                    public function getList($where = '', $order = '', $key = null): array
-                    {
-                        return [new \stdClass()]; // existing pending task
-                    }
-                    public function save($a = false, $d = false): static { return $this; }
-                };
-            }
-        };
-
-        // Act
-        $id = $manager->addTask('import_csv', ['file' => 'data.csv'], unique: true);
-
-        // Assert — duplicate detected → null (no new task created)
-        $this->assertNull($id);
-    }
-
-    /**
-     * addTask() with $unique=true must create the task when no duplicate exists.
-     * The getList() check passes (empty result), then the item is saved normally.
-     */
-    public function testAddTaskCreatesTaskWhenUniqueAndNoDuplicate(): void
-    {
-        // Arrange — getList() returns [] (no duplicate); save() simulates insert
-        $manager = new class($this->controller) extends QueueManager {
-            protected function createQueueItemModel(): QueueItem
-            {
-                return new class($this->controller) extends QueueItem {
-                    public function __construct($c) {}
-                    public function getList($where = '', $order = '', $key = null): array
-                    {
-                        return []; // no existing task
-                    }
-                    public function save($a = false, $d = false): static
-                    {
-                        $this->taskid = 7;
-                        return $this;
-                    }
-                };
-            }
-        };
-
-        // Act
-        $id = $manager->addTask('import_csv', ['file' => 'data.csv'], unique: true);
-
-        // Assert — no duplicate → task created and ID returned
-        $this->assertSame(7, $id);
-    }
-
     // ── retryTask() success path ───────────────────────────────────────────────
 
     /**
