@@ -1954,6 +1954,10 @@ Some markup has no neutral form, because the framework ships no component for it
   not exist there. plain-css styles a minimal Bootstrap-compatible subset (`card`, `btn-*`,
   `table`, `alert`, `badge`, `dropdown-menu`, `form-control`) so the framework's own Bootstrap-flavoured
   screens stay legible. It is not full Bootstrap.
+- **A daisyUI alert is a grid.** Each child of `.alert` gets a column of its own — meant for an
+  icon beside its message — so `<strong>Title</strong> text <p>more</p>` is three narrow columns,
+  the text breaking word by word. An alert holding text with elements carries `block` (or
+  `flex-col`); `TailwindAlertLayoutTest` fails on one that does not.
 - **JavaScript behaviour.** Dropdowns, modals and collapses depend on the system's own script and
   its `data-*` attribute names.
 

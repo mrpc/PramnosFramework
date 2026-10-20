@@ -32,7 +32,7 @@ $this->activeNav   = 'twofactor_backup';
         </div>
     <?php endif; ?>
     <?php if (!empty($this->setupComplete)): ?>
-        <div role="status" class="alert alert-info mb-4">
+        <div role="status" class="alert alert-info mb-4 block">
             <strong><?php echo htmlspecialchars(t('Setup complete!'), ENT_QUOTES, 'UTF-8'); ?></strong> <?php echo htmlspecialchars(t('Save your backup codes before leaving this page.'), ENT_QUOTES, 'UTF-8'); ?>
         </div>
     <?php endif; ?>

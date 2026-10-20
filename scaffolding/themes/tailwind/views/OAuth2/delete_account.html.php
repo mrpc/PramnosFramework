@@ -32,7 +32,7 @@ $this->activeNav = 'deleteaccount';
                 </div>
                 <div class="p-6">
 
-                    <div role="status" class="alert alert-warning mb-6 text-sm">
+                    <div role="status" class="alert alert-warning mb-6 text-sm block">
                         <strong><?php echo htmlspecialchars(t('Warning — this action is permanent.'), ENT_QUOTES, 'UTF-8'); ?></strong><br>
                         <?php echo htmlspecialchars(t('All your personal data, authorized applications, activity history, and account information will be permanently deleted and cannot be recovered.'), ENT_QUOTES, 'UTF-8'); ?>
                     </div>

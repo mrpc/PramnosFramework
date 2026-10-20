@@ -45,7 +45,7 @@ $poolFields = [
     $heartbeat    = is_array($orchestrator) ? $orchestrator['heartbeat_age_seconds'] : null;
     ?>
     <?php if (!$supervising): ?>
-        <div role="status" class="alert alert-warning mb-4">
+        <div role="status" class="alert alert-warning mb-4 block">
             <strong>The orchestrator is not running.</strong>
             The controls below are read by the supervisor on its next cycle, so until it runs
             nothing changes. Stop still takes effect, because a daemon checks its own stop file.
@@ -55,7 +55,7 @@ $poolFields = [
             </p>
         </div>
     <?php elseif ($heartbeat !== null && $heartbeat > 120): ?>
-        <div role="status" class="alert alert-warning mb-4">
+        <div role="status" class="alert alert-warning mb-4 block">
             <strong>The orchestrator has not cycled for <?php echo (int) $heartbeat; ?>s</strong>
             (pid <?php echo (int) ($orchestrator['pid'] ?? 0); ?>). A live process with a
             stale heartbeat is stuck rather than healthy.

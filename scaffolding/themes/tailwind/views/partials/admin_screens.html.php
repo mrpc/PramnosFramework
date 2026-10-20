@@ -17,7 +17,7 @@ $_forUser = ($_as['subject'] ?? '') === 'user';
     <div class="px-5 py-3 bg-base-200 border-b border-base-300 font-semibold text-sm">Administration screens</div>
     <div class="p-5">
         <?php if (empty($_as['permissionsMode'])): ?>
-            <div role="status" class="alert alert-info text-sm mb-4">
+            <div role="status" class="alert alert-info text-sm mb-4 block">
                 Screens are opened by usertype on this installation (<code>admin_access = usertype</code>), so
                 these decisions take effect only once it is set to <code>mixed</code> or <code>permissions</code>.
             </div>

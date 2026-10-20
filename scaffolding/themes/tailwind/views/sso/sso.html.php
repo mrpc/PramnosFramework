@@ -14,7 +14,7 @@
     <h2 class="text-2xl font-semibold mb-6"><?php echo htmlspecialchars($this->header ?? t('Single Sign-On'), ENT_QUOTES, 'UTF-8'); ?></h2>
 
     <?php if ($this->isLoggedIn ?? false): ?>
-        <div role="status" class="alert alert-success mb-5">
+        <div role="status" class="alert alert-success mb-5 block">
             <strong>&#10003; <?php echo htmlspecialchars(t('Signed In'), ENT_QUOTES, 'UTF-8'); ?></strong> — <?php echo sprintf(
                 htmlspecialchars(t('Signed in as %s (%s)'), ENT_QUOTES, 'UTF-8'),
                 '<strong>' . htmlspecialchars($this->user->username ?? '', ENT_QUOTES, 'UTF-8') . '</strong>',
@@ -41,7 +41,7 @@
             <a href="<?php echo sURL; ?>login/logout" class="btn btn-outline btn-error"><?php echo htmlspecialchars(t('Sign Out'), ENT_QUOTES, 'UTF-8'); ?></a>
         </div>
     <?php else: ?>
-        <div class="alert mb-5">
+        <div class="alert mb-5 block">
             <strong>&#10007; <?php echo htmlspecialchars(t('Not Signed In'), ENT_QUOTES, 'UTF-8'); ?></strong> — <?php echo htmlspecialchars(t('You are not currently signed in to any application.'), ENT_QUOTES, 'UTF-8'); ?>
         </div>
         <div class="flex gap-3">
