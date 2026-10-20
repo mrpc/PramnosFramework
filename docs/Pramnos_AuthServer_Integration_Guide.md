@@ -794,7 +794,12 @@ as well, because a client with nothing registered has no registration to check.
     migration: PostgreSQL refuses to alter a column two framework views select from
     (*«cannot alter type of a column used by a view or rule»*), so widening means dropping
     and rebuilding those views. The migration drops them with `CASCADE` and re-runs the
-    views migration, so their definitions stay in one place. Until you run it, the admin
+    views migration, so their definitions stay in one place. A `usage_statistics` that is
+    still the installation's own **materialized** view is dropped for the ALTER and
+    recreated from its own definition and indexes, not replaced with the live view: its
+    refresh function and job keep working, and adopting the live view stays your decision
+    (drop the relation with its refresh function and job, then re-run
+    `create_applications_views`). Until you run it, the admin
     screen refuses an overflow with a message naming the ceiling rather than letting the
     driver truncate.
 

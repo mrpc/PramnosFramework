@@ -81,6 +81,8 @@ class WidenApplicationsCallbackTest extends TestCase
         $this->db->query('DROP VIEW IF EXISTS applications.wcb_probe_view CASCADE');
         $this->db->query('DROP VIEW IF EXISTS applications.wcb_probe_view_on_view CASCADE');
         $this->db->query('DROP TABLE IF EXISTS public.wcb_applications CASCADE');
+        $this->db->query('DROP MATERIALIZED VIEW IF EXISTS applications.usage_statistics CASCADE');
+        $this->db->query('DROP VIEW IF EXISTS applications.usage_statistics CASCADE');
     }
 
     /**
@@ -269,6 +271,69 @@ class WidenApplicationsCallbackTest extends TestCase
         try {
             // Act & Assert
             $this->assertTrue($this->narrowCheck()->invoke($migration));
+        } finally {
+            $this->db->query('DROP TABLE IF EXISTS public.applications CASCADE');
+        }
+    }
+
+    /**
+     * A legacy materialized `usage_statistics` survives the widening, indexes and all.
+     *
+     * An installation that still caches it carries a refresh function and a scheduled job
+     * pointed at the name. `DROP VIEW` on it fails (`"usage_statistics" is not a view`),
+     * which stopped the whole migration run; replacing it with the live view would leave
+     * the job refreshing a relation that is no longer materialized. So it is dropped for
+     * the ALTER and recreated from its own definition, and giving up the cache stays the
+     * application's decision.
+     */
+    public function testALegacyMaterializedUsageStatisticsIsRecreatedAfterTheAlter(): void
+    {
+        // Arrange — the legacy shape: a narrow column, a matview selecting it, an index
+        // on the matview and a view defined over it
+        $migration = $this->migration();
+        $this->db->query('DROP TABLE IF EXISTS public.applications CASCADE');
+        $this->db->query(
+            'CREATE TABLE public.applications (appid bigserial PRIMARY KEY, callback varchar(255))'
+        );
+        $this->db->query(
+            "INSERT INTO public.applications (callback) VALUES ('https://app.example/cb')"
+        );
+        $this->db->query(
+            'CREATE MATERIALIZED VIEW applications.usage_statistics AS
+                 SELECT appid, callback FROM public.applications'
+        );
+        $this->db->query(
+            'CREATE UNIQUE INDEX wcb_usage_statistics_appid ON applications.usage_statistics (appid)'
+        );
+        $this->db->query(
+            'CREATE VIEW applications.wcb_over_matview AS SELECT appid FROM applications.usage_statistics'
+        );
+
+        try {
+            // Act — the migration's own steps around the ALTER
+            $restore = (new \ReflectionMethod($migration, 'dropDependentViews'))->invoke($migration);
+            $this->db->query('ALTER TABLE public.applications ALTER COLUMN callback TYPE text');
+            foreach ($restore as $statement) {
+                $this->db->query($statement);
+            }
+
+            // Assert
+            $this->assertSame(
+                'm',
+                $this->db->schema()->getRelationKind('applications.usage_statistics'),
+                'the materialization must come back as one, not as the live view'
+            );
+            $index = $this->db->query(
+                "SELECT COUNT(*) AS cnt FROM pg_indexes
+                  WHERE schemaname = 'applications' AND indexname = 'wcb_usage_statistics_appid'"
+            );
+            $this->assertSame(1, (int) $index->fields['cnt'], 'its index must be recreated');
+            $rows = $this->db->query('SELECT callback FROM applications.usage_statistics');
+            // Populated again: the view held data before, so it is created WITH DATA.
+            $this->assertSame('https://app.example/cb', $rows->fields['callback']);
+            // The view over it went with the CASCADE; CreateApplicationsViews owns putting
+            // the framework's ones back.
+            $this->assertFalse($this->viewExists('wcb_over_matview'));
         } finally {
             $this->db->query('DROP TABLE IF EXISTS public.applications CASCADE');
         }

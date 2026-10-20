@@ -143,11 +143,15 @@ class WidenApplicationsCallback extends Migration
 
     private function widenPostgreSQL(): void
     {
-        foreach (self::DEPENDENT_VIEWS as $view) {
-            $this->DB()->query('DROP VIEW IF EXISTS ' . $view . ' CASCADE');
-        }
+        $restore = $this->dropDependentViews();
 
         $this->DB()->query('ALTER TABLE applications ALTER COLUMN callback TYPE text');
+
+        // Before the re-run, so `CreateApplicationsViews` finds the materialization in
+        // place and leaves it alone, exactly as it would have without this migration.
+        foreach ($restore as $statement) {
+            $this->DB()->query($statement);
+        }
 
         \Pramnos\Logs\Logger::log(
             'applications.callback widened to text; rebuilding the applications views',
@@ -158,6 +162,78 @@ class WidenApplicationsCallback extends Migration
         (new \Pramnos\Framework\Migrations\Applications\CreateApplicationsViews(
             $this->application
         ))->up();
+    }
+
+    /**
+     * Drops the views that block the ALTER, and returns what puts back the ones it does not own.
+     *
+     * A plain view is the framework's and comes back from the re-run. A materialized view
+     * under the same name is not: a legacy installation may still carry its own cached
+     * `usage_statistics`, with a refresh function and a scheduled job pointed at it, and
+     * `CreateApplicationsViews` deliberately leaves that alone. It selects `callback` too,
+     * so it has to go for the ALTER — `DROP VIEW` on it is an error, `"…" is not a view`.
+     *
+     * It is therefore recreated from its own definition, indexes included, rather than
+     * replaced with the live view: that would leave the job refreshing a relation that is
+     * no longer materialized, and the decision to give up the cache is the application's.
+     *
+     * @return list<string> Statements that recreate the materialized views, in order
+     */
+    private function dropDependentViews(): array
+    {
+        $schema  = $this->DB()->schema();
+        $restore = [];
+
+        foreach (self::DEPENDENT_VIEWS as $view) {
+            if ($schema->getRelationKind($view) === 'm') {
+                $restore = array_merge($restore, $this->materializedViewDefinition($view));
+                $this->DB()->query('DROP MATERIALIZED VIEW ' . $view . ' CASCADE');
+
+                continue;
+            }
+
+            $this->DB()->query('DROP VIEW IF EXISTS ' . $view . ' CASCADE');
+        }
+
+        return $restore;
+    }
+
+    /**
+     * The statements that recreate one materialized view as it stands.
+     *
+     * Raw catalogue reads: `pg_matviews` and `pg_indexes` are introspection the query
+     * builder does not express. Grants on the view are not carried over.
+     *
+     * @return list<string>
+     */
+    private function materializedViewDefinition(string $view): array
+    {
+        [$schemaName, $name] = explode('.', $view, 2);
+
+        $result = $this->DB()->query($this->DB()->prepareQuery(
+            'SELECT definition, ispopulated FROM pg_matviews
+              WHERE schemaname = %s AND matviewname = %s',
+            $schemaName,
+            $name
+        ));
+        $definition = rtrim(trim((string) $result->fields['definition']), ';');
+        $populated  = in_array($result->fields['ispopulated'], [true, 't', 1, '1'], true);
+
+        $statements = [
+            'CREATE MATERIALIZED VIEW ' . $view . ' AS ' . $definition
+            . ($populated ? ' WITH DATA' : ' WITH NO DATA'),
+        ];
+
+        $indexes = $this->DB()->query($this->DB()->prepareQuery(
+            'SELECT indexdef FROM pg_indexes WHERE schemaname = %s AND tablename = %s',
+            $schemaName,
+            $name
+        ));
+        while ($indexes->fetch()) {
+            $statements[] = (string) $indexes->fields['indexdef'];
+        }
+
+        return $statements;
     }
 
     private function widenMySQL(): void
