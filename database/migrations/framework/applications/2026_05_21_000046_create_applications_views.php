@@ -15,7 +15,7 @@ use Pramnos\Database\DatabaseCapabilities;
  *   rate_limit_status          — real-time rate-limit state per app
  *   slow_api_calls             — calls with avg_response_time > 5 000ms
  *   ip_violations              — IPs that violate ip_lock_enabled rules
- *   oauth2_active_tokens       — active OAuth token counts by app
+ *   oauth2_active_tokens_summary — active OAuth token counts by app
  *   oauth2_webhook_status      — per-endpoint delivery stats (sent/failed/pending)
  *   top_applications           — apps ranked by total request volume
  *   usage_statistics           — live multi-CTE: token activity, OAuth grants, webhook health, activity_level
@@ -155,26 +155,8 @@ class CreateApplicationsViews extends Migration
             GROUP BY st.appid, st.country_code
         ");
 
-        // oauth2_active_tokens — active OAuth token summary by app
-        $this->DB()->query("DROP VIEW IF EXISTS {$this->application->database->schema()->quoteTable('applications.oauth2_active_tokens')} CASCADE");
-        $this->DB()->query("
-            CREATE VIEW {$this->application->database->schema()->quoteTable('applications.oauth2_active_tokens')} AS
-            SELECT
-                a.appid,
-                COUNT(ut.tokenid) FILTER (WHERE ut.status = 1 AND ut.expires > EXTRACT(EPOCH FROM NOW()))
-                                                                AS token_count,
-                COUNT(ut.tokenid) FILTER (WHERE ut.expires <= EXTRACT(EPOCH FROM NOW()))
-                                                                AS expired_count,
-                COUNT(ut.tokenid) FILTER (WHERE ut.status <> 1) AS revoked_count,
-                ROUND(
-                    AVG((ut.expires - EXTRACT(EPOCH FROM NOW())) / 86400.0) FILTER (
-                        WHERE ut.status = 1 AND ut.expires > EXTRACT(EPOCH FROM NOW())
-                    )::NUMERIC, 2
-                )                                               AS avg_expiry_days
-            FROM {$this->application->database->schema()->quoteTable('applications')} a
-            LEFT JOIN {$this->application->database->schema()->quoteTable('usertokens')} ut ON ut.applicationid = a.appid
-            GROUP BY a.appid
-        ");
+        // oauth2_active_tokens_summary — active OAuth token summary by app
+        $this->createActiveTokensSummary();
 
         // oauth2_webhook_status — per-endpoint delivery statistics
         $this->DB()->query("DROP VIEW IF EXISTS applications.oauth2_webhook_status CASCADE");
@@ -379,6 +361,38 @@ class CreateApplicationsViews extends Migration
      * and is replaced as before — so the framework never stops being able to update
      * what it created.
      */
+    /**
+     * `applications.oauth2_active_tokens_summary` on PostgreSQL: live, expired and revoked token counts per app.
+     *
+     * `_summary`, as on MySQL, because `applications.oauth2_active_tokens` is the per-token view
+     * `create_oauth2_application_grants_table` owns. Public so
+     * `rename_oauth2_active_tokens_summary` can create it on an installation where this summary
+     * held the per-token view's name, without re-running this whole migration — which would
+     * drop and rebuild the continuous aggregates and lose what they had materialized.
+     */
+    public function createActiveTokensSummary(): void
+    {
+        $this->DB()->query("DROP VIEW IF EXISTS {$this->application->database->schema()->quoteTable('applications.oauth2_active_tokens_summary')} CASCADE");
+        $this->DB()->query("
+            CREATE VIEW {$this->application->database->schema()->quoteTable('applications.oauth2_active_tokens_summary')} AS
+            SELECT
+                a.appid,
+                COUNT(ut.tokenid) FILTER (WHERE ut.status = 1 AND ut.expires > EXTRACT(EPOCH FROM NOW()))
+                                                                AS token_count,
+                COUNT(ut.tokenid) FILTER (WHERE ut.expires <= EXTRACT(EPOCH FROM NOW()))
+                                                                AS expired_count,
+                COUNT(ut.tokenid) FILTER (WHERE ut.status <> 1) AS revoked_count,
+                ROUND(
+                    AVG((ut.expires - EXTRACT(EPOCH FROM NOW())) / 86400.0) FILTER (
+                        WHERE ut.status = 1 AND ut.expires > EXTRACT(EPOCH FROM NOW())
+                    )::NUMERIC, 2
+                )                                               AS avg_expiry_days
+            FROM {$this->application->database->schema()->quoteTable('applications')} a
+            LEFT JOIN {$this->application->database->schema()->quoteTable('usertokens')} ut ON ut.applicationid = a.appid
+            GROUP BY a.appid
+        ");
+    }
+
     private function createUsageStatisticsView(\Pramnos\Database\SchemaBuilder $schema): void
     {
         $kind = $schema->getRelationKind('applications.usage_statistics');
@@ -859,7 +873,7 @@ class CreateApplicationsViews extends Migration
             }
             $this->DB()->query("DROP VIEW IF EXISTS applications.top_applications");
             $this->DB()->query("DROP VIEW IF EXISTS applications.oauth2_webhook_status");
-            $this->DB()->query("DROP VIEW IF EXISTS {$this->application->database->schema()->quoteTable('applications.oauth2_active_tokens')}");
+            $this->DB()->query("DROP VIEW IF EXISTS {$this->application->database->schema()->quoteTable('applications.oauth2_active_tokens_summary')}");
             $this->DB()->query("DROP VIEW IF EXISTS applications.ip_violations");
             $this->DB()->query("DROP VIEW IF EXISTS applications.slow_api_calls");
             $this->DB()->query("DROP VIEW IF EXISTS applications.rate_limit_status");

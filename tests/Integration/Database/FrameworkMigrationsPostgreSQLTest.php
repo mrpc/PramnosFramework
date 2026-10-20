@@ -2847,7 +2847,7 @@ class FrameworkMigrationsPostgreSQLTest extends TestCase
         // Assert — regular views exist in information_schema.views
         $regularViews = [
             'api_performance_summary', 'application_health', 'rate_limit_status',
-            'slow_api_calls', 'ip_violations', 'oauth2_active_tokens',
+            'slow_api_calls', 'ip_violations', 'oauth2_active_tokens_summary',
             'oauth2_webhook_status', 'top_applications',
             'usage_statistics',
         ];
@@ -3023,7 +3023,7 @@ class FrameworkMigrationsPostgreSQLTest extends TestCase
         // Assert — it got past usage_statistics and created everything else
         foreach ([
             'api_performance_summary', 'application_health', 'rate_limit_status',
-            'slow_api_calls', 'ip_violations', 'oauth2_active_tokens',
+            'slow_api_calls', 'ip_violations', 'oauth2_active_tokens_summary',
             'oauth2_webhook_status', 'top_applications',
         ] as $view) {
             $this->assertGreaterThan(

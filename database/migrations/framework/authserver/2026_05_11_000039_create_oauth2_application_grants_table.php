@@ -95,11 +95,9 @@ class CreateOauth2ApplicationGrantsTable extends Migration
         $apps        = $schema->quoteTable('applications');
         $grants      = $schema->quoteTable('applications.oauth2_application_grants');
         $tokens      = $schema->quoteTable('usertokens');
-        $users       = $schema->quoteTable('users');
         $allowed     = $pg
             ? 'array_agg(ag.grant_type ORDER BY ag.grant_type) FILTER (WHERE ag.is_enabled = TRUE)'
             : "GROUP_CONCAT(CASE WHEN ag.is_enabled = 1 THEN ag.grant_type END ORDER BY ag.grant_type SEPARATOR ',')";
-        $now         = $pg ? 'EXTRACT(EPOCH FROM NOW())' : 'UNIX_TIMESTAMP()';
 
         if ($pg) {
             // PostgreSQL's OR REPLACE refuses a view whose columns change name or order, and a
@@ -129,26 +127,7 @@ class CreateOauth2ApplicationGrantsTable extends Migration
             WHERE a.accesstype = 1
             GROUP BY a.appid, a.name, a.apikey, a.scope, a.callback, a.accesstype");
 
-        $schema->createOrReplaceView('applications.oauth2_active_tokens', "SELECT
-                ut.tokenid,
-                ut.userid,
-                ut.tokentype,
-                ut.token,
-                ut.created,
-                ut.expires,
-                ut.lastused,
-                ut.scope,
-                ut.ipaddress,
-                a.name   AS client_name,
-                a.apikey AS client_id,
-                u.username,
-                u.email
-            FROM {$tokens} ut
-            JOIN {$apps} a ON ut.applicationid = a.appid
-            LEFT JOIN {$users} u ON ut.userid = u.userid
-            WHERE ut.status = 1
-              AND ut.expires > {$now}
-              AND ut.tokentype IN ('access_token', 'refresh_token', 'auth_code')");
+        $this->createActiveTokensView($schema);
 
         if (!$pg) {
             return;
@@ -181,6 +160,43 @@ END;
 
         $db->query("COMMENT ON FUNCTION authserver.cleanup_expired_oauth2_tokens() IS
             'Deletes OAuth2 tokens (access/refresh/auth_code) expired for more than 7 days'");
+    }
+
+    /**
+     * `applications.oauth2_active_tokens`: one row per live token, with its client and owner.
+     *
+     * Public so `rename_oauth2_active_tokens_summary` can put it back on an installation where
+     * the per-application summary held the name, without a second copy of the definition.
+     * On PostgreSQL the caller drops any older shape first; OR REPLACE cannot rename columns.
+     */
+    public function createActiveTokensView($schema): void
+    {
+        $pg     = $schema->getCapabilities()->isPostgreSQL();
+        $apps   = $schema->quoteTable('applications');
+        $tokens = $schema->quoteTable('usertokens');
+        $users  = $schema->quoteTable('users');
+        $now    = $pg ? 'EXTRACT(EPOCH FROM NOW())' : 'UNIX_TIMESTAMP()';
+
+        $schema->createOrReplaceView('applications.oauth2_active_tokens', "SELECT
+                ut.tokenid,
+                ut.userid,
+                ut.tokentype,
+                ut.token,
+                ut.created,
+                ut.expires,
+                ut.lastused,
+                ut.scope,
+                ut.ipaddress,
+                a.name   AS client_name,
+                a.apikey AS client_id,
+                u.username,
+                u.email
+            FROM {$tokens} ut
+            JOIN {$apps} a ON ut.applicationid = a.appid
+            LEFT JOIN {$users} u ON ut.userid = u.userid
+            WHERE ut.status = 1
+              AND ut.expires > {$now}
+              AND ut.tokentype IN ('access_token', 'refresh_token', 'auth_code')");
     }
 
     public function down(): void

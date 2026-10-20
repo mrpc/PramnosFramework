@@ -803,6 +803,14 @@ as well, because a client with nothing registered has no registration to check.
     screen refuses an overflow with a message naming the ceiling rather than letting the
     driver truncate.
 
+!!! note "Active tokens: one view per token, one summary per application"
+    `applications.oauth2_active_tokens` has one row per live token (access, refresh or auth
+    code), with its client (`client_name`, `client_id`) and owner (`username`, `email`). Use it
+    for audits and revocation lookups. `applications.oauth2_active_tokens_summary` has one row
+    per application: `token_count`, `expired_count`, `revoked_count` and `avg_expiry_days`.
+    On MySQL the prefix applies as usual: `{prefix}applications_oauth2_active_tokens` and
+    `{prefix}applications_oauth2_active_tokens_summary`.
+
 #### Two ways to stop `form-action` cancelling an SSO login
 
 Both work; they differ in who names the origin and how narrowly.
