@@ -171,6 +171,8 @@ final class MysqlToPostgresIntegrationTest extends TestCase
         $this->assertSame(1, (int) $this->value("SELECT COUNT(*) FROM {$e} WHERE made < FROM_UNIXTIME(UNIX_TIMESTAMP())  AND id = 1"));
         $this->assertTrue((int) $this->value('SELECT UNIX_TIMESTAMP()') > 1760000000);
         $this->assertSame('a', $this->value("SELECT kind FROM {$e} WHERE kind REGEXP '^A$'"), 'REGEXP, case-insensitive as under _ci');
+        $this->assertNull($this->value("SELECT CONCAT(kind, ':', id) FROM {$e} WHERE id = 3"), 'CONCAT with a NULL is NULL, as in MySQL');
+        $this->assertSame('a:1', $this->value("SELECT CONCAT(kind, ':', id) FROM {$e} WHERE id = 1"), 'a number joins as text');
         $this->assertSame(1, (int) $this->value("SELECT COUNT(*) FROM {$e} WHERE kind NOT REGEXP 'a'"), 'NOT REGEXP: b; the NULL kind matches neither');
     }
 

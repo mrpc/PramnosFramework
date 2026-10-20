@@ -72,6 +72,8 @@ class MysqlToPostgresTest extends TestCase
             'REPLACE, only the key' => ['REPLACE INTO counters (id) VALUES (1)', 'INSERT INTO counters (id) VALUES (1) ON CONFLICT (id) DO NOTHING'],
             'IGNORE and DUPLICATE'  => ['INSERT IGNORE INTO counters (id, n) VALUES (1, 1) ON DUPLICATE KEY UPDATE n = 2', 'INSERT INTO counters (id, n) VALUES (1, 1) ON CONFLICT (id) DO UPDATE SET n = 2'],
             'a literal %'           => ["SELECT DATE_FORMAT(d, '%d%%') FROM t", "SELECT to_char(d, 'DD\"%\"') FROM t"],
+            'CONCAT, NULL if any is' => ["SELECT CONCAT(a, ' ', 3) FROM t", "SELECT ((a)::text || (' ')::text || (3)::text) FROM t"],
+            'CONCAT_WS untouched'   => ["SELECT CONCAT_WS(',', a, b) FROM t", "SELECT CONCAT_WS(',', a, b) FROM t"],
             'REGEXP and RLIKE'      => ["SELECT 1 FROM t WHERE a REGEXP 'x|y' OR b rlike '^z'", "SELECT 1 FROM t WHERE a ~* 'x|y' OR b ~* '^z'"],
             'NOT REGEXP'            => ["SELECT 1 FROM t WHERE a NOT  REGEXP 'x'", "SELECT 1 FROM t WHERE a !~* 'x'"],
             'REGEXP_SUBSTR as is'   => ["SELECT REGEXP_SUBSTR(s, 'p') FROM t WHERE a REGEXP 'q'", "SELECT REGEXP_SUBSTR(s, 'p') FROM t WHERE a ~* 'q'"],

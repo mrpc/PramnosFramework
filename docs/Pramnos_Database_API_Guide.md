@@ -1358,6 +1358,7 @@ Each statement is then translated on its way to the server. That covers `query()
 | `DATE_FORMAT(d, '%d/%m/%Y')` | `to_char(d, 'DD"/"MM"/"YYYY')` |
 | `DATE_ADD(d, INTERVAL 7 DAY)`, `DATE_SUB(…)` | `(d + (7) * INTERVAL '1 day')`, `(d - …)` |
 | `GROUP_CONCAT([DISTINCT] x [ORDER BY …] [SEPARATOR s])` | `string_agg([DISTINCT] (x)::text, s [ORDER BY …])` |
+| `CONCAT(a, b, …)` | `((a)::text \|\| (b)::text \|\| …)` — NULL when any argument is, as in MySQL; PostgreSQL's own `concat()` would skip it. `CONCAT_WS` is left as it is: both skip a NULL |
 | `INSERT IGNORE …` | `INSERT … ON CONFLICT DO NOTHING` |
 | `… ON DUPLICATE KEY UPDATE n = n + VALUES(n)` | `… ON CONFLICT (key) DO UPDATE SET n = t.n + EXCLUDED.n` |
 | `REPLACE INTO t (…) VALUES …` | `INSERT INTO t (…) VALUES … ON CONFLICT (key) DO UPDATE SET …` |

@@ -25,6 +25,7 @@ namespace Pramnos\Database\Dialect;
  * | `CURDATE()`, `CURTIME()` | `CURRENT_DATE`, `LOCALTIME` |
  * | `DATE_FORMAT(d, '%Y-%m-%d')` | `to_char(d, 'YYYY-MM-DD')` |
  * | `GROUP_CONCAT([DISTINCT] x [ORDER BY …] [SEPARATOR s])` | `string_agg([DISTINCT] (x)::text, s [ORDER BY …])` |
+ * | `CONCAT(a, b, …)` | `((a)::text || (b)::text || …)` — NULL when any is, as in MySQL |
  * | `INSERT IGNORE …` | `INSERT … ON CONFLICT DO NOTHING` |
  * | `… ON DUPLICATE KEY UPDATE c = VALUES(c)` | `… ON CONFLICT (key) DO UPDATE SET c = EXCLUDED.c` |
  * | `REPLACE INTO t (…) VALUES …` | `INSERT INTO t (…) VALUES … ON CONFLICT (key) DO UPDATE SET …` |
@@ -61,11 +62,11 @@ final class MysqlToPostgres
     ];
 
     /** The functions translated. */
-    private const FUNCTIONS = ['IFNULL', 'IF', 'ISNULL', 'LCASE', 'UCASE', 'RAND', 'CURDATE', 'CURTIME', 'UNIX_TIMESTAMP', 'FROM_UNIXTIME', 'DATE_FORMAT', 'DATE_ADD', 'DATE_SUB', 'GROUP_CONCAT',
+    private const FUNCTIONS = ['IFNULL', 'IF', 'ISNULL', 'LCASE', 'UCASE', 'RAND', 'CURDATE', 'CURTIME', 'UNIX_TIMESTAMP', 'FROM_UNIXTIME', 'DATE_FORMAT', 'DATE_ADD', 'DATE_SUB', 'GROUP_CONCAT', 'CONCAT',
         'SHA2', 'CAST', 'DAY', 'MONTH', 'YEAR', 'GET_LOCK', 'RELEASE_LOCK', 'JSON_EXTRACT', 'JSON_UNQUOTE'];
 
     /** Words a statement this translates may contain; one of them, or a backtick, or nothing to do. */
-    private const MARKERS = '/`|\bLIMIT\s+[^\s,]+\s*,|\b(?:IF|ISNULL|LCASE|UCASE|DATE_ADD|DATE_SUB)\s*\(|\b(?:IFNULL|RAND|UNIX_TIMESTAMP|FROM_UNIXTIME|CURDATE|CURTIME|DATE_FORMAT|GROUP_CONCAT|IGNORE|DUPLICATE|REPLACE|CONFLICT|HAVING|FOREIGN_KEY_CHECKS|REGEXP|RLIKE)\b|\b(?:SHA2|DAY|MONTH|YEAR|GET_LOCK|RELEASE_LOCK|JSON_EXTRACT|JSON_UNQUOTE)\s*\(|\bAS\s+(?:UN)?SIGNED\b|^\s*DELETE\s+(?!FROM\b)/i';
+    private const MARKERS = '/`|\bLIMIT\s+[^\s,]+\s*,|\b(?:IF|ISNULL|LCASE|UCASE|DATE_ADD|DATE_SUB)\s*\(|\b(?:IFNULL|RAND|UNIX_TIMESTAMP|FROM_UNIXTIME|CURDATE|CURTIME|DATE_FORMAT|GROUP_CONCAT|IGNORE|DUPLICATE|REPLACE|CONFLICT|HAVING|FOREIGN_KEY_CHECKS|REGEXP|RLIKE)\b|\b(?:CONCAT|SHA2|DAY|MONTH|YEAR|GET_LOCK|RELEASE_LOCK|JSON_EXTRACT|JSON_UNQUOTE)\s*\(|\bAS\s+(?:UN)?SIGNED\b|^\s*DELETE\s+(?!FROM\b)/i';
 
     /** @var array<string, string> Statements translated, by their text */
     private array $cache = [];
@@ -306,6 +307,10 @@ final class MysqlToPostgres
             },
             'DATE_FORMAT'    => count($given) === 2 && ($format = $this->format($given[1])) !== null ? 'to_char(' . $text($given[0]) . ', ' . $format . ')' : null,
             'GROUP_CONCAT'   => $this->groupConcat($given),
+            // MySQL's is NULL when any argument is; PostgreSQL's concat() skips a NULL, so a
+            // value MySQL left empty came back filled. `||` keeps MySQL's answer, and each
+            // argument as text, as MySQL's CONCAT turns a number into one.
+            'CONCAT'         => $given === [] ? null : '(' . implode(' || ', array_map(static fn (array $arg): string => '(' . $text($arg) . ')::text', $given)) . ')',
             'SHA2'           => count($given) === 2 && in_array($bits = $text($given[1]), ['0', '224', '256', '384', '512'], true)
                 ? "encode(sha" . ($bits === '0' ? '256' : $bits) . "(convert_to((" . $text($given[0]) . ")::text, 'UTF8')), 'hex')"
                 : null,
