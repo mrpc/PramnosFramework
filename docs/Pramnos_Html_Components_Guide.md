@@ -972,14 +972,18 @@ The global search sends **one** term, and each column decides whether it applies
 
 | `format` | Applies when | How |
 | --- | --- | --- |
-| `email` | the term is a valid address | `LIKE`, with the column's wildcards |
+| `email` | the term is a valid address | `whereLike()`, with the column's wildcards |
 | `phone` | it looks like a phone number (10–14 chars of digits, spaces, dashes, `+`) | `LIKE` |
 | `numeric` / `number` / `int` | it is numeric, and within `min`/`max` **by value** | `=` |
 | `date` | — | not searched; `formatdetails` is the output format |
-| anything else | unless `ignoreOnOthertypes` and the term is a number or an address; and within `min`/`max` **by length** | `LIKE`, with the column's wildcards |
+| anything else | unless `ignoreOnOthertypes` and the term is a number or an address; and within `min`/`max` **by length** | `whereLike()`, with the column's wildcards |
 
 A column that declines contributes no clause, and if every column declines, nothing is
-filtered.
+filtered. A column's own filter (`sSearch_<n>`) is a `whereLike()` too.
+
+Text is matched ignoring case and accents on every database, so `μαρια` finds `Μαρία` on
+PostgreSQL as it does under MySQL's `_ci` collations — see `whereLike()` in the Query Builder
+Guide.
 
 Each of those is a real cost avoided rather than a nicety:
 

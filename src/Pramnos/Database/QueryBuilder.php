@@ -435,6 +435,46 @@ class QueryBuilder
     }
 
     /**
+     * A `LIKE` that ignores case and accents on every database: `'%μαρια%'` finds `Μαρία`.
+     *
+     * ```php
+     * $db->queryBuilder()->table('#PREFIX#users')->whereLike('lastname', '%' . $term . '%')->get();
+     * ```
+     *
+     * MySQL already matches so under the `_ci` collations its text columns are in, and gets a
+     * plain `LIKE`. PostgreSQL's `LIKE` tells both apart, so there the column and the pattern are
+     * folded alike — upper case to lower, an accent to its bare letter, `ς` to `σ`, for Greek and
+     * Latin — before they are compared. `where($column, 'LIKE', …)` is still the comparison as the
+     * database makes it.
+     *
+     * @param string $column
+     * @param string $pattern With its own `%` and `_`
+     * @param string $boolean
+     * @return $this
+     */
+    public function whereLike($column, string $pattern, $boolean = 'and')
+    {
+        $type  = 'Like';
+        $value = $pattern;
+        $this->wheres[] = compact('type', 'column', 'value', 'boolean');
+        $this->addBinding($pattern, 'where');
+
+        return $this;
+    }
+
+    /**
+     * {@see whereLike()}, joined with `OR`.
+     *
+     * @param string $column
+     * @param string $pattern
+     * @return $this
+     */
+    public function orWhereLike($column, string $pattern)
+    {
+        return $this->whereLike($column, $pattern, 'or');
+    }
+
+    /**
      * Add a "where not null" clause.
      *
      * @param string $column

@@ -89,6 +89,15 @@ abstract class Grammar implements GrammarInterface
             : $column;
     }
 
+    /**
+     * `whereLike()`'s comparison: a `LIKE` that ignores case and accents. MySQL's `_ci`
+     * collations already do; a dialect whose `LIKE` does not overrides this.
+     */
+    protected function compileLikeIgnoringCase(string $column, string $placeholder): string
+    {
+        return $column . ' LIKE ' . $placeholder;
+    }
+
     /** A name quoted only when it is a reserved word. */
     protected function quoteIfReserved(string $name): string
     {
@@ -339,6 +348,10 @@ abstract class Grammar implements GrammarInterface
 
                 case 'Null':
                     $part .= $this->quoteIfCaseSensitive($where['column']) . ' IS NULL';
+                    break;
+
+                case 'Like':
+                    $part .= $this->compileLikeIgnoringCase($this->quoteIfCaseSensitive($where['column']), $this->getPlaceholder($where['value']));
                     break;
 
                 case 'NotNull':

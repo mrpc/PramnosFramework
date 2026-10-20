@@ -40,6 +40,27 @@ class PostgreSQLGrammar extends Grammar
         return $column;
     }
 
+    /**
+     * Letters folded for {@see compileLikeIgnoringCase()}: Greek and Latin capitals to small
+     * ones, accented and diaeresis forms to the bare letter, final sigma to sigma — `translate()`
+     * maps each character of the first to the one at its place in the second.
+     */
+    private const FOLD_FROM = 'ΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΣΤΥΦΧΨΩΆΈΉΊΌΎΏΪΫάέήίόύώϊϋΐΰςABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    private const FOLD_TO   = 'αβγδεζηθικλμνξοπρστυφχψωαεηιουωιυαεηιουωιυιυσabcdefghijklmnopqrstuvwxyz';
+
+    /**
+     * PostgreSQL's `LIKE` tells case and accents apart, where MySQL's `_ci` collations do not:
+     * the column and the pattern are folded alike, in SQL, before they are compared. `ILIKE`
+     * would leave accents apart, and `lower()` follows the database's locale — under `C` it
+     * leaves Greek as it is.
+     */
+    protected function compileLikeIgnoringCase(string $column, string $placeholder): string
+    {
+        $fold = static fn (string $value): string => "translate({$value}, '" . self::FOLD_FROM . "', '" . self::FOLD_TO . "')";
+
+        return $fold($column . '::text') . ' LIKE ' . $fold($placeholder);
+    }
+
     protected function compileLock(QueryBuilder $qb): string
     {
         return match ($qb->getLock()) {

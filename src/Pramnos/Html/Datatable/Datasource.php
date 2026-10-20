@@ -459,7 +459,7 @@ class Datasource extends Base
                             // and costs a scan.
                             $email = \Pramnos\Validation\Validator::checkEmail($searchTerm);
                             if ($email !== false) {
-                                $clauses[] = [$column, 'LIKE', $start . $email . $end];
+                                $clauses[] = [$column, 'like', $start . $email . $end];
                             }
                             break;
 
@@ -490,7 +490,7 @@ class Datasource extends Base
                                         && \Pramnos\Validation\Validator::checkEmail($searchTerm) === false))
                                 && ($min === null || strlen($searchTerm) >= $min)
                                 && ($max === null || strlen($searchTerm) <= $max)) {
-                                $clauses[] = [$column, 'LIKE', $start . $searchTerm . $end];
+                                $clauses[] = [$column, 'like', $start . $searchTerm . $end];
                             }
                             break;
                     }
@@ -500,7 +500,13 @@ class Datasource extends Base
                     $isFiltered = true;
                     $qb->where(function ($query) use ($clauses) {
                         foreach ($clauses as [$column, $operator, $value]) {
-                            $query->orWhere($column, $operator, $value);
+                            // Text as MySQL's `_ci` collations compare it — case and accents
+                            // aside — on PostgreSQL too: `μαρια` finds `Μαρία` on every database.
+                            if ($operator === 'like') {
+                                $query->orWhereLike($column, $value);
+                            } else {
+                                $query->orWhere($column, $operator, $value);
+                            }
                         }
                     });
                 }
@@ -520,7 +526,7 @@ class Datasource extends Base
                 
                 $column = strpos($field, '.') === false ? "a.`$field`" : $field;
                 $isFiltered = true;
-                $qb->where($column, 'LIKE', $startWildcard . $colSearch . $endWildcard);
+                $qb->whereLike($column, $startWildcard . $colSearch . $endWildcard);
             }
         }
 
