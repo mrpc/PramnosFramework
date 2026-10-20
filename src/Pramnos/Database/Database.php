@@ -1336,9 +1336,10 @@ class Database extends \Pramnos\Framework\Base
      *   → UPDATE t SET col=val WHERE ctid IN (SELECT ctid FROM t WHERE cond LIMIT N)
      *
      * Called after backtick→double-quote conversion, so table names are already
-     * in PostgreSQL double-quote form when this runs.
+     * in PostgreSQL double-quote form when this runs. A `LIMIT %d` that prepareQuery() could
+     * not read yet is a number by the time query() runs the statement, and is rewritten there.
      *
-     * @internal Used only by the PostgreSQL paths in prepare() / prepareQuery().
+     * @internal Used by the PostgreSQL paths in query(), prepare() and prepareQuery().
      */
     private function pgRewriteDmlLimit(string $sql): string
     {
@@ -3638,6 +3639,11 @@ class Database extends \Pramnos\Framework\Base
         $cachetime = 60, $category = "", $dieOnFatalError = false, $skipDataFix = false)
     {
         $sql = $this->fromMysql(str_replace('#PREFIX#', $this->prefix, $sql));
+        // `DELETE … LIMIT n` and `UPDATE … LIMIT n` are MySQL's: prepare() and prepareQuery()
+        // rewrote them for PostgreSQL, a statement given to query() went through as written.
+        if ($this->type === 'postgresql') {
+            $sql = $this->pgRewriteDmlLimit($sql);
+        }
         // A table dropped, altered or renamed by hand: what the schema builder found is stale.
         if (preg_match('/^\s*(?:DROP|ALTER|RENAME)\s/i', $sql) === 1) {
             SchemaBuilder::forgetWhatExists($this);

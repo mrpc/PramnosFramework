@@ -1352,6 +1352,7 @@ Each statement is then translated on its way to the server. That covers `query()
 | `IFNULL(a, b)`, `IF(c, a, b)`, `ISNULL(x)` | `COALESCE(a, b)`, `CASE WHEN c THEN a ELSE b END`, `((x) IS NULL)` |
 | `LCASE(x)`, `UCASE(x)`, `RAND()` | `lower(x)`, `upper(x)`, `random()` |
 | `LIMIT 20, 10` | `LIMIT 10 OFFSET 20` |
+| `DELETE FROM t WHERE … [ORDER BY …] LIMIT n`, `UPDATE t SET … WHERE … LIMIT n` | `… WHERE ctid IN (SELECT ctid FROM t WHERE … LIMIT n)` — through `query()`, `prepare()` and `prepareQuery()`, with or without the translation |
 | `UNIX_TIMESTAMP()`, `UNIX_TIMESTAMP(x)` | `EXTRACT(EPOCH FROM …)::bigint` |
 | `FROM_UNIXTIME(x)`, `FROM_UNIXTIME(x, fmt)` | `to_timestamp(x)`, `to_char(to_timestamp(x), …)` |
 | `CURDATE()`, `CURTIME()` | `CURRENT_DATE`, `LOCALTIME` |

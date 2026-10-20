@@ -218,6 +218,34 @@ final class MysqlToPostgresIntegrationTest extends TestCase
     }
 
     /**
+     * `DELETE … LIMIT n` and `UPDATE … LIMIT n` — MySQL's, refused by PostgreSQL — touch n of the
+     * matching rows, given straight to `query()` and through `prepareQuery()` with the limit still
+     * a placeholder (FW-189).
+     */
+    public function testADeleteOrUpdateWithALimitTouchesThatMany(): void
+    {
+        // Arrange — three rows alike
+        $d = $this->t . '_dupes';
+        pg_query($this->db->getConnectionLink(), "CREATE TABLE {$d} (a INT, b INT)");
+        pg_query($this->db->getConnectionLink(), "INSERT INTO {$d} VALUES (1, 0), (1, 0), (1, 0)");
+
+        try {
+            // Act
+            $this->db->query("UPDATE `{$d}` SET `b` = 2 WHERE `a` = 1 LIMIT 1");
+            $updated = (int) $this->value("SELECT COUNT(*) FROM {$d} WHERE b = 2");
+            $this->db->query("DELETE FROM `{$d}` WHERE `a` = 1 LIMIT 1");
+            $this->db->query($this->db->prepareQuery("DELETE FROM `{$d}` WHERE `a` = %d LIMIT %d", 1, 1));
+            $left = (int) $this->value("SELECT COUNT(*) FROM {$d}");
+        } finally {
+            pg_query($this->db->getConnectionLink(), "DROP TABLE IF EXISTS {$d}");
+        }
+
+        // Assert
+        $this->assertSame(1, $updated, 'the UPDATE changed more, or fewer, than its limit');
+        $this->assertSame(1, $left, 'each DELETE removed one of three');
+    }
+
+    /**
      * The query builder's raw fragments — how the admin DataTables pass their WHERE — are
      * translated too.
      */
