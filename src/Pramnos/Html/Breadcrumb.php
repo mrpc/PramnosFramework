@@ -71,6 +71,36 @@ class Breadcrumb extends \Pramnos\Framework\Base
     }
 
     /**
+     * The administration's trail — Home, Dashboard, then `$steps` — for a framework admin screen.
+     *
+     * Drawn here, in the page, unless the application's own shell draws one:
+     * `'admin' => ['breadcrumb' => 'theme']` in `app.php` hands each step to
+     * `Application::addbreadcrumb()` instead — the label as text, `'#'` for the current page —
+     * and draws nothing, so the page has one trail, the shell's. Home and Dashboard are not
+     * handed over: the shell has its own root.
+     *
+     * @param list<array{0: string, 1: string}> $steps [label as HTML, url — '' for the current page]
+     */
+    public static function admin(array $steps): string
+    {
+        $app = \Pramnos\Application\Application::currentInstance();
+        if ($app !== null && ($app->applicationInfo['admin']['breadcrumb'] ?? '') === 'theme') {
+            foreach ($steps as [$label, $url]) {
+                $app->addbreadcrumb(html_entity_decode(strip_tags($label), ENT_QUOTES, 'UTF-8'), $url !== '' ? $url : '#');
+            }
+            return '';
+        }
+
+        $trail = new self();
+        $trail->addItem('Home', adminUrl());
+        $trail->addItem('Dashboard', adminUrl('Dashboard'));
+        foreach ($steps as [$label, $url]) {
+            $trail->addItem($label, $url);
+        }
+        return $trail->render();
+    }
+
+    /**
      * Seeds the class names from the project's configuration.
      *
      * Done here rather than as a property default because this object is constructed in eight

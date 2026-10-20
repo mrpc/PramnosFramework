@@ -131,10 +131,10 @@ $sentAt  = is_numeric($rawDate) && (int) $rawDate > 0
             <?php if ($body !== ''): ?>
                 <?php /* Sandboxed: the body is whatever was queued, and this screen is inside
                          the administration area. `allow-same-origin` is deliberately absent, so
-                         the frame cannot reach this page's DOM or cookies. */ ?>
+                         the frame cannot reach this page's DOM or cookies — nor this page the
+                         frame's, so its height is fixed and the reader drags it taller. */ ?>
                 <iframe sandbox srcdoc="<?php echo htmlspecialchars($body, ENT_QUOTES, 'UTF-8'); ?>"
-                    style="width:100%;border:none;min-height:600px"
-                    onload="this.style.height=this.contentDocument.body.scrollHeight+'px'"></iframe>
+                    style="width:100%;border:none;height:600px;resize:vertical;overflow:auto"></iframe>
             <?php else: ?>
                 <p class="text-base-content/70">No body content.</p>
             <?php endif; ?>

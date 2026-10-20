@@ -1230,6 +1230,19 @@ those views insert are found beside the view that inserts them:
 So an admin theme writes no views and no partials. To change a screen, publish it with
 `pramnos project:publish-views` and edit the copy under `src/Admin/Views/`.
 
+**A shell that draws its own breadcrumb** says so, and the screens stop drawing theirs:
+
+```php
+// app/app.php
+'admin' => ['prefix' => 'admin', 'breadcrumb' => 'theme'],
+```
+
+`partials/admin_breadcrumb` then prints nothing and hands each step past Home and Dashboard to
+`Application::addbreadcrumb()` — the label as text, `'#'` for the current page — for the theme to
+draw where it draws the rest. Without it the screen draws the whole trail itself, which is what a
+scaffolded theme, with no breadcrumb of its own, needs. Both go through
+`Html\Breadcrumb::admin($steps)`.
+
 **The theme provides the page around them** — and the screens are written in a CSS vocabulary
 the theme has to load.
 

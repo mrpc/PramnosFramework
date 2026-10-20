@@ -59,7 +59,7 @@ $sentAt    = is_numeric($rawDate) && (int) $rawDate > 0
         <div class="card-body">
             <?php if ($body !== ''): ?>
                 <iframe sandbox srcdoc="<?php echo htmlspecialchars($body, ENT_QUOTES, 'UTF-8'); ?>"
-                    style="width:100%;border:none;min-height:400px" onload="this.style.height=this.contentDocument.body.scrollHeight+'px'"></iframe>
+                    style="width:100%;border:none;height:400px;resize:vertical;overflow:auto"></iframe>
             <?php else: ?>
                 <p class="text-muted">No body content.</p>
             <?php endif; ?>

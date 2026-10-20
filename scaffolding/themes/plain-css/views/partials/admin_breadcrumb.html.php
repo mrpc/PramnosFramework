@@ -123,10 +123,5 @@ $trails = [
     'tokenactions_show' => [['Users', $usersUrl], ['Token Actions', $taUrl], ['#' . $actionId, '']],
 ];
 
-$bc = new \Pramnos\Html\Breadcrumb();
-$bc->addItem('Home', adminUrl());
-$bc->addItem('Dashboard', adminUrl('Dashboard'));
-foreach ($trails[$active] ?? [] as $crumb) {
-    $bc->addItem($crumb[0], $crumb[1]);
-}
-echo $bc->render();
+// Here, or in the application's own shell: `'admin' => ['breadcrumb' => 'theme']`.
+echo \Pramnos\Html\Breadcrumb::admin($trails[$active] ?? []);
