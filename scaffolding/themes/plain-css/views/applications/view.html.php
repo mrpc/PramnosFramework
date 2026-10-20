@@ -337,11 +337,16 @@ $accessTypeLabel = function (int $t): string {
                                     <?php echo (int) ($ev['failed'] ?? 0); ?> failed
                                 </td>
                                 <td style="padding:8px;text-align:right;white-space:nowrap">
+                                    <form method="post" style="display:inline" action="<?php echo adminUrl('applications/webhooksecret/' . $hookId); ?>">
+                                        <?php echo $csrf; ?>
+                                        <input type="hidden" name="appid" value="<?php echo $appId; ?>">
+                                        <button type="submit" class="btn btn-sm btn-outline-secondary">Show secret</button>
+                                    </form>
                                     <form method="post" style="display:inline" action="<?php echo adminUrl('applications/webhookrotate/' . $hookId); ?>">
                                         <?php echo $csrf; ?>
                                         <input type="hidden" name="appid" value="<?php echo $appId; ?>">
                                         <button type="submit" class="btn btn-sm btn-outline-warning"
-                                                data-confirm="Issue a new signing secret? The current one stops verifying immediately.">New secret</button>
+                                                data-confirm="Issue a new signing secret? The current one stops verifying immediately.">Regenerate</button>
                                     </form>
                                     <form method="post" style="display:inline" action="<?php echo adminUrl('applications/webhookdelete/' . $hookId); ?>">
                                         <?php echo $csrf; ?>
@@ -369,6 +374,9 @@ $accessTypeLabel = function (int $t): string {
                     <label style="display:block;margin-bottom:8px;font-size:14px">Endpoint URL
                         <input type="url" name="endpoint_url" class="form-control font-mono"
                                placeholder="https://app.internal/hooks" pattern="<?php echo $httpsOnly ? 'https://.*' : 'https?://.*'; ?>" required>
+                    </label>
+                    <label style="display:block;margin-bottom:8px;font-size:14px">Signing secret
+                        <input type="text" name="secret" class="form-control font-mono" autocomplete="off" placeholder="Leave empty to generate one">
                     </label>
                     <p style="font-size:13px;color:#6b7280">
                         An address entered here is delivered to as written, including one on a

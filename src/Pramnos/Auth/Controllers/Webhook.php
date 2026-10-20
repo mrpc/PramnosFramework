@@ -347,10 +347,10 @@ class Webhook extends Controller
         return null;
     }
 
-    /** A signing secret. 32 bytes, hex, from the CSPRNG. */
+    /** A signing secret — {@see WebhookService::generateSecret()}. */
     protected function generateSecret(): string
     {
-        return bin2hex(random_bytes(32));
+        return WebhookService::generateSecret();
     }
 
     /** Insert or replace this application's endpoint for one event type. */

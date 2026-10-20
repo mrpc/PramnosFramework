@@ -21,7 +21,8 @@ use Pramnos\Html\Icon;
  *   - tokens($id)    — list active tokens for an application
  *   - rotate($id)    — regenerate the client secret (apisecret)
  *   - webhook()            — POST: add or replace an endpoint for one event type
- *   - webhookrotate($id)   — POST: a new signing secret for one endpoint
+ *   - webhookrotate($id)   — POST: regenerate one endpoint's signing secret
+ *   - webhooksecret($id)   — POST: show one endpoint's signing secret
  *   - webhookdelete($id)   — POST: remove one endpoint
  *
  * All actions require authentication the administration floor (the `super` role, 98, unless set) (admin).
@@ -44,10 +45,10 @@ class ApplicationsController extends Controller
     {
         $this->addAuthAction([
             'display', 'data', 'view', 'edit', 'save', 'delete', 'tokens', 'rotate',
-            'webhook', 'webhookrotate', 'webhookdelete',
+            'webhook', 'webhookrotate', 'webhooksecret', 'webhookdelete',
         ]);
         // POST with the session's token, or refused before the action runs: see Controller::exec().
-        $this->addWriteAction(['save', 'delete', 'rotate', 'webhook', 'webhookrotate', 'webhookdelete']);
+        $this->addWriteAction(['save', 'delete', 'rotate', 'webhook', 'webhookrotate', 'webhooksecret', 'webhookdelete']);
         parent::__construct($application);
     }
 
@@ -506,7 +507,11 @@ class ApplicationsController extends Controller
             return;
         }
 
-        $secret = bin2hex(random_bytes(32));
+        // One the administrator typed is kept; an empty field gets a generated one.
+        $secret = trim((string) ($_POST['secret'] ?? ''));
+        if ($secret === '') {
+            $secret = \Pramnos\Auth\WebhookService::generateSecret();
+        }
         $this->webhookService()->saveEndpoint(
             $appId,
             $url,
@@ -517,7 +522,7 @@ class ApplicationsController extends Controller
 
         $this->addMessage(
             'Saved. The signing secret for ' . $type . ' is ' . $secret . ' — give it to the '
-            . 'receiving application now; it is stored encrypted and cannot be shown again.'
+            . 'receiving application. It is stored encrypted; "Show secret" displays it again.'
         );
         $this->redirect($back);
     }
@@ -551,8 +556,57 @@ class ApplicationsController extends Controller
 
         $this->addMessage(
             'The new signing secret is ' . $secret . ' — the old one no longer verifies. '
-            . 'Give it to the receiving application now; it cannot be shown again.'
+            . 'Give it to the receiving application.'
         );
+        $this->redirect($back);
+    }
+
+    /**
+     * Show one endpoint's signing secret — POST from the application's page.
+     *
+     * The receiver needs it to verify `X-Webhook-Signature`, and it may have been lost since
+     * it was issued. A POST with the session's token, so a link cannot reveal it, and an
+     * activity-log entry, so who looked at it is on record.
+     */
+    public function webhooksecret(mixed $id = null): void
+    {
+        if ($this->requireMinUserType($this->adminFloor())) {
+            return;
+        }
+
+        $appId     = (int) ($_POST['appid'] ?? 0);
+        $webhookId = (int) \Pramnos\Http\Request::staticGetOption();
+        $back      = adminUrl('applications/view/') . $appId;
+
+        if (!$this->validWebhookPost()) {
+            $this->redirect($back);
+            return;
+        }
+
+        try {
+            $secret = $this->webhookService()->endpointSecret($appId, $webhookId);
+        } catch (\Throwable $exception) {
+            \Pramnos\Logs\Logger::logError('Cannot read a webhook signing secret', $exception);
+            $this->addError('The secret cannot be decrypted with this installation\'s key. Issue a new one.');
+            $this->redirect($back);
+            return;
+        }
+        if ($secret === null) {
+            $this->addError('That endpoint no longer exists.');
+            $this->redirect($back);
+            return;
+        }
+
+        $viewer = \Pramnos\User\User::getCurrentUser();
+        \Pramnos\Auth\ActivityLog::record(
+            (int) ($viewer->userid ?? 0),
+            'webhook_secret_revealed',
+            ['application_id' => $appId, 'webhook_id' => $webhookId]
+        );
+
+        $this->addMessage($secret === ''
+            ? 'This endpoint has no signing secret, so its deliveries prove nothing. Issue a new one.'
+            : 'The signing secret for this endpoint is ' . $secret . '.');
         $this->redirect($back);
     }
 

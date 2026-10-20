@@ -531,6 +531,10 @@ class WebhookService
      * list only the framework's, and it keeps what that constraint was for: a typo does not become
      * an endpoint that never fires.
      *
+     * An empty secret is replaced with a generated one: a delivery signed with an empty HMAC
+     * key proves nothing, and the receiver could not tell. Read it back with
+     * {@see endpointSecret()}.
+     *
      * @param string $secret       The plain signing secret; stored encrypted when APP_KEY is set
      * @param string $registeredBy {@see REGISTERED_BY_CLIENT} or {@see REGISTERED_BY_ADMIN}
      * @throws \InvalidArgumentException When the type is not a known event type
@@ -546,6 +550,10 @@ class WebhookService
             throw new \InvalidArgumentException(
                 "Unknown webhook event type '{$type}'. Known: " . implode(', ', WebhookEvents::names())
             );
+        }
+
+        if ($secret === '') {
+            $secret = self::generateSecret();
         }
 
         $fields = [
@@ -647,8 +655,8 @@ class WebhookService
     /**
      * Give one of an application's endpoints a new signing secret, and return it.
      *
-     * Null when the application has no such endpoint. The value returned is the only
-     * readable copy: it is stored encrypted and never displayed again.
+     * Null when the application has no such endpoint. Stored encrypted;
+     * {@see endpointSecret()} reads it back.
      */
     public function rotateEndpointSecret(int $appId, int $webhookId): ?string
     {
@@ -656,7 +664,7 @@ class WebhookService
             return null;
         }
 
-        $secret = bin2hex(random_bytes(32));
+        $secret = self::generateSecret();
 
         $this->database->queryBuilder()
             ->table(self::TABLE_ENDPOINTS)
@@ -668,6 +676,45 @@ class WebhookService
             ]);
 
         return $secret;
+    }
+
+    /**
+     * One endpoint's signing secret, readable — what the receiver needs to verify
+     * `X-Webhook-Signature`.
+     *
+     * Decrypted the way a delivery reads it, so a row written before encryption, or without
+     * APP_KEY, comes back as stored. Null when the application has no such endpoint.
+     *
+     * @throws \RuntimeException When the stored secret is encrypted and cannot be decrypted
+     */
+    public function endpointSecret(int $appId, int $webhookId): ?string
+    {
+        if ($webhookId <= 0) {
+            return null;
+        }
+
+        $row = $this->database->queryBuilder()
+            ->table(self::TABLE_ENDPOINTS)
+            ->select(['secret_key'])
+            ->where('webhook_id', $webhookId)
+            ->where('appid', $appId)
+            ->first();
+        if (!$row || $row->numRows === 0) {
+            return null;
+        }
+
+        return \Pramnos\Security\Encrypter::maybeDecrypt((string) ($row->fields['secret_key'] ?? ''));
+    }
+
+    /**
+     * A new signing secret: `whsec_` and 32 bytes from the CSPRNG, as hex.
+     *
+     * The prefix says what the value is wherever it ends up pasted — a receiver's settings, a
+     * vault, a support message — and a scanner can recognise it.
+     */
+    public static function generateSecret(): string
+    {
+        return 'whsec_' . bin2hex(random_bytes(32));
     }
 
     /** Whether this endpoint exists and belongs to this application. */

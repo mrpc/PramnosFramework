@@ -75,8 +75,8 @@ class ApplicationWebhooksCardTest extends TestCase
     }
 
     /**
-     * Each row carries its own new-secret and remove forms, each with the token and the
-     * application's id, and the add form lists every event type.
+     * Each row carries its own show-secret, new-secret and remove forms, each with the token
+     * and the application's id, and the add form lists every event type.
      */
     #[DataProvider('themes')]
     public function testTheCardPostsEachActionWithTheToken(string $theme): void
@@ -86,13 +86,13 @@ class ApplicationWebhooksCardTest extends TestCase
 
         // Assert
         $this->assertStringContainsString('id="webhooks"', $html);
-        foreach (['webhookrotate/11', 'webhookrotate/12', 'webhookdelete/11', 'webhookdelete/12'] as $action) {
+        foreach (['webhooksecret/11', 'webhooksecret/12', 'webhookrotate/11', 'webhookrotate/12', 'webhookdelete/11', 'webhookdelete/12'] as $action) {
             $this->assertStringContainsString($action . '"', $html, "no form for $action");
         }
         $this->assertStringContainsString('applications/webhook"', $html, 'no add form');
-        // Two per row plus the add form.
-        $this->assertSame(5, substr_count($html, 'name="_csrf_token"'), 'a form without its token');
-        $this->assertSame(5, substr_count($html, 'name="appid" value="7"'));
+        // Three per row plus the add form.
+        $this->assertSame(7, substr_count($html, 'name="_csrf_token"'), 'a form without its token');
+        $this->assertSame(7, substr_count($html, 'name="appid" value="7"'));
         foreach (WebhookService::EVENT_TYPES as $type) {
             $this->assertStringContainsString('<option value="' . $type . '"', $html);
         }
@@ -143,6 +143,7 @@ class ApplicationWebhooksCardTest extends TestCase
         $this->assertStringContainsString('/Webhook/register', $html);
         $this->assertStringContainsString('applications/webhook"', $html);
         $this->assertStringNotContainsString('webhookrotate', $html);
+        $this->assertStringNotContainsString('webhooksecret', $html);
     }
 
     /**

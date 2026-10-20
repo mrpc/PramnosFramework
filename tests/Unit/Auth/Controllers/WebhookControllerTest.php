@@ -319,7 +319,7 @@ class WebhookControllerTest extends TestCase
         $body = json_decode($controller->register()->getBody(), true);
 
         // Assert
-        $this->assertMatchesRegularExpression('/^[0-9a-f]{64}$/', $body['secret']);
+        $this->assertMatchesRegularExpression('/^whsec_[0-9a-f]{64}$/', $body['secret']);
         $this->assertSame($body['secret'], $controller->stored[0]['secret'],
             'the secret returned must be the secret stored');
     }

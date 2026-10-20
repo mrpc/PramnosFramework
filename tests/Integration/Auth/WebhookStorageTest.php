@@ -627,13 +627,51 @@ class WebhookStorageTest extends BaseTestCase
         // Assert
         $this->assertNull($refused, 'another application rotated this secret');
         $this->assertIsString($issued);
-        $this->assertSame(64, strlen((string) $issued));
+        $this->assertMatchesRegularExpression('/^whsec_[0-9a-f]{64}$/', (string) $issued);
         $this->assertSame(
             $issued,
             \Pramnos\Security\Encrypter::maybeDecrypt($this->storedSecret()),
             'the stored secret is not the one issued'
         );
         $this->assertNull($this->service()->rotateEndpointSecret($this->appId, 0), 'no id, no rotation');
+    }
+
+    /**
+     * The stored secret reads back as issued, and only for the endpoint's own application.
+     *
+     * Stored encrypted, so it is the decryption that is being tested: the value an
+     * administrator is shown must be the key the deliveries are signed with.
+     */
+    public function testTheSecretReadsBackForItsOwnerOnly(): void
+    {
+        // Arrange
+        $this->service()->saveEndpoint($this->appId, 'https://example.com/a', 'token_revoked', 'the-original');
+        $id = $this->firstEndpointId();
+
+        // Act
+        $mine   = $this->service()->endpointSecret($this->appId, $id);
+        $theirs = $this->service()->endpointSecret($this->otherAppId, $id);
+
+        // Assert
+        $this->assertSame('the-original', $mine);
+        $this->assertNull($theirs, "another application read this endpoint's secret");
+        $this->assertNull($this->service()->endpointSecret($this->appId, 0), 'no id, no secret');
+    }
+
+    /**
+     * An endpoint saved with an empty secret gets a generated one.
+     *
+     * A delivery signed with an empty HMAC key proves nothing, and the receiver cannot tell
+     * that from a real signature.
+     */
+    public function testAnEmptySecretIsReplacedWithAGeneratedOne(): void
+    {
+        // Act
+        $this->service()->saveEndpoint($this->appId, 'https://example.com/a', 'token_revoked', '');
+
+        // Assert
+        $secret = $this->service()->endpointSecret($this->appId, $this->firstEndpointId());
+        $this->assertMatchesRegularExpression('/^whsec_[0-9a-f]{64}$/', (string) $secret, 'the endpoint was stored without a usable secret');
     }
 
     /**

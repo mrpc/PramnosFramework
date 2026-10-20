@@ -1355,7 +1355,7 @@ endpoint_url=https://your-app.example.com/hooks/auth
 {
   "webhook_type": "token_revoked",
   "endpoint_url": "https://your-app.example.com/hooks/auth",
-  "secret": "…64 hex characters…",
+  "secret": "whsec_…64 hex characters…",
   "signature": "X-Webhook-Signature: sha256=HMAC-SHA256(secret, body)"
 }
 ```
@@ -1527,10 +1527,24 @@ type, the URL, who set it (**Application** or **Administrator**), and how its de
 gone (sent, pending, failed). From the same card an administrator can:
 
 - **add an endpoint** for an event type, which replaces one already there. It is approved as
-  entered and recorded as the administrator's; the signing secret is shown once, in the
-  confirmation, and must be handed to the receiving application;
-- **issue a new secret** for one endpoint — the old one stops verifying at once;
+  entered and recorded as the administrator's. A signing secret typed into the form is kept
+  as typed (for a receiver that already has one configured). An empty field gets a
+  generated one. The confirmation shows the secret, which must be handed to the receiving
+  application;
+- **show the secret** of one endpoint, when the receiver has lost it. This is a POST with
+  the session's token, so a link cannot reveal it, and it writes a `webhook_secret_revealed`
+  activity-log entry for the administrator. The secret is stored encrypted and decrypted for
+  display; a row stored in plain text before encryption shows as stored;
+- **regenerate** one endpoint's secret: the new one is shown, and the old one stops
+  verifying at once;
 - **remove** one.
+
+A generated secret is `whsec_` followed by 64 hex characters (`WebhookService::generateSecret()`),
+whether it comes from this screen, from regenerating, or from `/Webhook/register`. An endpoint
+never has an empty secret: `WebhookService::saveEndpoint()` generates one when it is given
+`''`, because a delivery signed with an empty HMAC key proves nothing. An existing endpoint
+stored with an empty secret gets one the next time it is saved.
+`WebhookService::endpointSecret($appId, $webhookId)` reads a secret back.
 
 An application that later registers the same event type through the API replaces the
 administrator's entry, and the address becomes the application's again — checked like any

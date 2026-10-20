@@ -390,11 +390,16 @@ $accessTypeLabel = function (int $t): string {
                                     · <span class="<?php echo !empty($ev['failed']) ? 'text-error' : ''; ?>"><?php echo (int) ($ev['failed'] ?? 0); ?> failed</span>
                                 </td>
                                 <td class="text-right whitespace-nowrap">
+                                    <form method="post" class="inline" action="<?php echo adminUrl('applications/webhooksecret/' . $hookId); ?>">
+                                        <?php echo $csrf; ?>
+                                        <input type="hidden" name="appid" value="<?php echo $appId; ?>">
+                                        <button type="submit" class="btn btn-outline btn-xs">Show secret</button>
+                                    </form>
                                     <form method="post" class="inline" action="<?php echo adminUrl('applications/webhookrotate/' . $hookId); ?>">
                                         <?php echo $csrf; ?>
                                         <input type="hidden" name="appid" value="<?php echo $appId; ?>">
                                         <button type="submit" class="btn btn-outline btn-warning btn-xs"
-                                                data-confirm="Issue a new signing secret? The current one stops verifying immediately.">New secret</button>
+                                                data-confirm="Issue a new signing secret? The current one stops verifying immediately.">Regenerate</button>
                                     </form>
                                     <form method="post" class="inline" action="<?php echo adminUrl('applications/webhookdelete/' . $hookId); ?>">
                                         <?php echo $csrf; ?>
@@ -427,6 +432,11 @@ $accessTypeLabel = function (int $t): string {
                             <legend class="fieldset-legend">Endpoint URL</legend>
                             <input type="url" name="endpoint_url" class="input input-sm w-full font-mono"
                                    placeholder="https://app.internal/hooks" pattern="<?php echo $httpsOnly ? 'https://.*' : 'https?://.*'; ?>" required>
+                        </fieldset>
+                        <fieldset class="fieldset md:col-span-2">
+                            <legend class="fieldset-legend">Signing secret</legend>
+                            <input type="text" name="secret" class="input input-sm w-full font-mono" autocomplete="off"
+                                   placeholder="Leave empty to generate one">
                         </fieldset>
                     </div>
                     <p class="text-xs text-base-content/60 mt-2">

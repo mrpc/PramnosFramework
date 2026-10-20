@@ -51,6 +51,19 @@ class RecordingWebhookService extends WebhookService
         $this->asked[] = [$appId, $webhookId];
         return $this->deleteAnswer;
     }
+
+    /** @var string|null|\Throwable What endpointSecret() answers, or throws */
+    public mixed $secretAnswer = 'the-stored-secret';
+
+    public function endpointSecret(int $appId, int $webhookId): ?string
+    {
+        $this->asked[] = [$appId, $webhookId];
+        if ($this->secretAnswer instanceof \Throwable) {
+            throw $this->secretAnswer;
+        }
+
+        return $this->secretAnswer;
+    }
 }
 
 /**
@@ -173,10 +186,29 @@ class ApplicationsWebhookActionsTest extends TestCase
         $this->assertSame(7, $saved[0]['appId']);
         $this->assertSame('https://10.8.0.5/hooks', $saved[0]['url']);
         $this->assertSame(WebhookService::REGISTERED_BY_ADMIN, $saved[0]['registeredBy']);
-        $this->assertSame(64, strlen($saved[0]['secret']));
+        // Generated, because the secret field was left empty
+        $this->assertMatchesRegularExpression('/^whsec_[0-9a-f]{64}$/', $saved[0]['secret']);
         $this->assertStringContainsString($saved[0]['secret'], $this->controller->messages[0] ?? '');
         $this->assertSame([], $this->controller->errors);
         $this->assertStringEndsWith('applications/view/7', (string) $this->controller->redirectedTo);
+    }
+
+    /**
+     * A secret the administrator typed is kept as typed.
+     *
+     * The receiver may already be configured with a secret; the administrator enters that one
+     * rather than having to reconfigure the receiver with a generated value.
+     */
+    public function testASecretTheAdministratorTypedIsKept(): void
+    {
+        // Arrange
+        $_POST += ['endpoint_url' => 'https://10.8.0.5/hooks', 'webhook_type' => 'token_revoked', 'secret' => '  agreed-secret  '];
+
+        // Act
+        $this->controller->webhook();
+
+        // Assert — trimmed, otherwise exactly what was typed
+        $this->assertSame('agreed-secret', $this->controller->service->saved[0]['secret'] ?? null);
     }
 
     /**
@@ -349,6 +381,102 @@ class ApplicationsWebhookActionsTest extends TestCase
 
         // Assert
         $this->assertSame(['That endpoint no longer exists.'], $this->controller->errors);
+        $this->assertSame([], $this->controller->messages);
+    }
+
+    /**
+     * The stored secret is shown, asked for by application and endpoint.
+     *
+     * The receiver needs it to verify `X-Webhook-Signature`, and a secret lost after it was
+     * issued could otherwise only be replaced, which breaks the receiver until it is updated.
+     */
+    public function testShowingTheSecretShowsIt(): void
+    {
+        // Arrange
+        $_GET['_option'] = '3';
+
+        // Act
+        $this->controller->webhooksecret();
+
+        // Assert
+        $this->assertSame([[7, 3]], $this->controller->service->asked);
+        $this->assertStringContainsString('the-stored-secret', $this->controller->messages[0] ?? '');
+    }
+
+    /**
+     * An endpoint with no secret is shown as such, with what to do about it.
+     *
+     * A delivery signed with an empty key proves nothing, and an empty message would read as
+     * a display fault.
+     */
+    public function testAnEmptySecretSaysItProvesNothing(): void
+    {
+        // Arrange
+        $_GET['_option'] = '3';
+        $this->controller->service->secretAnswer = '';
+
+        // Act
+        $this->controller->webhooksecret();
+
+        // Assert
+        $this->assertStringContainsString('no signing secret', $this->controller->messages[0] ?? '');
+    }
+
+    /** Showing the secret of an endpoint the application does not have says so. */
+    public function testShowingAMissingEndpointsSecretSaysSo(): void
+    {
+        // Arrange
+        $_GET['_option'] = '3';
+        $this->controller->service->secretAnswer = null;
+
+        // Act
+        $this->controller->webhooksecret();
+
+        // Assert
+        $this->assertSame(['That endpoint no longer exists.'], $this->controller->errors);
+        $this->assertSame([], $this->controller->messages);
+    }
+
+    /**
+     * A secret this installation's key cannot decrypt is an error, not a crash.
+     *
+     * After APP_KEY changes, the stored value is unreadable; the administrator is told to issue
+     * a new one rather than shown a stack trace.
+     */
+    public function testAnUndecryptableSecretIsReported(): void
+    {
+        // Arrange
+        $_GET['_option'] = '3';
+        $this->controller->service->secretAnswer = new \RuntimeException('bad key');
+
+        // Act
+        $this->controller->webhooksecret();
+
+        // Assert
+        $this->assertStringContainsString('cannot be decrypted', $this->controller->errors[0] ?? '');
+        $this->assertSame([], $this->controller->messages);
+    }
+
+    /**
+     * Neither a GET nor a user below the floor sees the secret.
+     *
+     * A link must not reveal it (it would sit in logs and referrers), and only an
+     * administrator may.
+     */
+    public function testAGetOrAUserBelowTheFloorSeesNothing(): void
+    {
+        // Arrange
+        $_GET['_option'] = '3';
+        $_SERVER['REQUEST_METHOD'] = 'GET';
+
+        // Act
+        $this->controller->webhooksecret();
+        $_SERVER['REQUEST_METHOD'] = 'POST';
+        $this->controller->belowTheFloor = true;
+        $this->controller->webhooksecret();
+
+        // Assert
+        $this->assertSame([], $this->controller->service->asked);
         $this->assertSame([], $this->controller->messages);
     }
 
