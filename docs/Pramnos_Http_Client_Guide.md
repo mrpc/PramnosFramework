@@ -70,7 +70,8 @@ An absolute URL passed to `make()` overrides the base URL.
 ### Bodies
 
 ```php
-// JSON — sets Content-Type: application/json
+// JSON — sets Content-Type: application/json. Data that cannot be encoded (invalid UTF-8)
+// throws InvalidArgumentException here, rather than sending an empty body.
 Client::post($url)->json(['name' => 'Alice'])->send();
 
 // URL-encoded form

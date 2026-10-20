@@ -246,12 +246,23 @@ class Client
      * Set the request body as JSON.
      * Sets Content-Type: application/json automatically.
      *
+     * Data that cannot be encoded — invalid UTF-8, most often — throws here. It was cast to an
+     * empty string, and the request went out as `application/json` with no body: the remote API
+     * answered "no payload supplied", and the cause, a byte broken somewhere upstream, was in no
+     * message anywhere.
+     *
      * @param array<mixed>|object $data
+     * @throws \InvalidArgumentException When the data cannot be encoded as JSON
      */
     public function json(array|object $data): static
     {
+        try {
+            $encoded = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+        } catch (\JsonException $e) {
+            throw new \InvalidArgumentException('The request body could not be encoded as JSON: ' . $e->getMessage(), 0, $e);
+        }
         $this->parts       = [];
-        $this->body        = (string) json_encode($data, JSON_UNESCAPED_UNICODE);
+        $this->body        = $encoded;
         $this->contentType = 'application/json';
         return $this;
     }

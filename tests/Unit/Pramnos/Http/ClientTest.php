@@ -278,6 +278,36 @@ class ClientTest extends TestCase
     }
 
     /**
+     * Data json() cannot encode — invalid UTF-8 here, half of a Greek letter — throws, and no
+     * request goes out. It was cast to an empty body sent as application/json, and the remote
+     * API's "no payload supplied" was all anybody saw of it.
+     */
+    public function testJsonThatCannotBeEncodedThrowsAndSendsNothing(): void
+    {
+        // Arrange
+        $sent = 0;
+        Client::fake(['*' => function () use (&$sent): ClientResponse {
+            $sent++;
+
+            return ClientResponse::make([], 201);
+        }]);
+
+        // Act
+        try {
+            Client::post('https://api.example.com/items')->json(['summary' => "broken \xCF"])->send();
+            $thrown = null;
+        } catch (\InvalidArgumentException $e) {
+            $thrown = $e;
+        }
+
+        // Assert
+        $this->assertNotNull($thrown, 'an unencodable body went out');
+        $this->assertStringContainsString('UTF-8', $thrown->getMessage());
+        $this->assertInstanceOf(\JsonException::class, $thrown->getPrevious());
+        $this->assertSame(0, $sent, 'a request was sent with an empty body');
+    }
+
+    /**
      * form() encodes the data as application/x-www-form-urlencoded.
      */
     public function testFormBodyIsUrlEncoded(): void
