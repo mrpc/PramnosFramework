@@ -16,15 +16,19 @@ use Pramnos\Application\Controller;
  * Status values: 'pending', 'processing', 'completed', 'warning', 'failed', 'stopped', 'deleted'.
  *
  * Actions:
- *   - display()    — a DataTable of jobs, fed by data(): status filter, search, page size
+ *   - display()    — the queue's state per status and per type, and a DataTable of jobs fed by
+ *                    data(): status and type filters, search, page size
  *   - data()       — JSON rows for that table
+ *   - show($id)    — one task: every field, its payload key by key, what can be done with it
+ *   - history()    — the hourly roll-up per task type, over the last two days
  *   - retry($id)   — re-schedule a single failed job (reset to pending, increment attempts)
  *   - stop($id)    — stop a pending or processing job (status='stopped', lock cleared)
  *   - duplicate($id) — queue a new pending copy of a job
  *   - retryall()   — bulk retry all failed jobs
  *   - delete($id)  — mark a job as deleted (status='deleted')
  *   - clear()      — bulk-delete jobs by status (POST: status filter required)
- *   - stats()      — JSON: counts by status, throughput, avg processing time
+ *   - stats()      — JSON: counts by status and average processing time, for a monitor; no
+ *                    page links to it
  *
  * All actions require authentication the administration floor (the `super` role, 98, unless set).
  *
@@ -44,7 +48,7 @@ class QueueController extends Controller
 
     public function __construct(?\Pramnos\Application\Application $application = null)
     {
-        $this->addAuthAction(['display', 'data', 'retry', 'retryall', 'delete', 'clear', 'stats', 'stop', 'duplicate']);
+        $this->addAuthAction(['display', 'data', 'show', 'history', 'retry', 'retryall', 'delete', 'clear', 'stats', 'stop', 'duplicate']);
         // POST with the session's token, or refused before the action runs: see Controller::exec().
         $this->addWriteAction(['retry', 'retryall', 'delete', 'clear', 'stop', 'duplicate']);
         parent::__construct($application);
@@ -79,10 +83,23 @@ class QueueController extends Controller
         return [];
     }
 
+    /** How far back the per-type rates on the list page look, in seconds. */
+    protected const RATE_WINDOW = 600;
+
+    /** How far back the statistics page reads the hourly roll-up, in hours. */
+    protected const HISTORY_HOURS = 48;
+
     /**
-     * The jobs, as a DataTable fed by {@see data()}: a status filter, search over the type, the
-     * error and the payload, a page size, and sorting by id, type and status — the indexed
-     * columns, on a table that runs to tens of thousands of rows.
+     * The queue at a glance, then its tasks.
+     *
+     * Above the table: how many tasks are in each status, counted on this request — the page is
+     * opened to watch a queue drain — and, per task type, whether it is keeping up. Per type and
+     * not one total: a draining type and a growing one add up to a figure that describes
+     * neither.
+     *
+     * The table is a DataTable fed by {@see data()}: status and type filters, search over the
+     * type, the error and the payload, a page size, and sorting by id, type and status — the
+     * indexed columns, on a table that runs to tens of thousands of rows.
      */
     public function display(): mixed
     {
@@ -91,34 +108,45 @@ class QueueController extends Controller
         }
 
         $doc        = \Pramnos\Framework\Factory::getDocument();
-        $doc->title = 'Queue';
+        $doc->title = t('Queue');
 
         $dt = new \Pramnos\Html\Datatable('dt-queue');
         $dt->source           = adminUrl('queue/data');
         $dt->bootstrap        = false;
         $dt->footerTextSearch = true;
 
-        // Enumerated, so a dropdown rather than a text box under the column.
+        // Enumerated, so dropdowns rather than text boxes under the columns.
         $statusFilter     = new \Pramnos\Html\Select('status_filter');
         $statusFilter->id = 'dt-queue-status';
-        $statusFilter->addOptions(['' => 'Any status'] + array_combine(self::STATUSES, array_map('ucfirst', self::STATUSES)));
+        $statusFilter->addOptions(['' => t('Any status')] + $this->statusLabels());
+        $types            = $this->taskTypes();
+        $typeFilter       = new \Pramnos\Html\Select('type_filter');
+        $typeFilter->id   = 'dt-queue-type';
+        $typeFilter->addOptions(['' => t('Any type')] + ($types === [] ? [] : array_combine($types, $types)));
 
-        $dt->addColumn('ID',       true, true,  false, 'num-html', '', true, 'left', false)
-           ->addColumn('Type',     true, true,  true,  'html',     '', true, 'left', true)
-           ->addColumn('Status',   true, true,  true,  'html', $statusFilter->render(), true, 'left', 'dt-queue-status')
-           ->addColumn('Attempts', true, false, false, 'html',     '', true, 'left', false)
-           ->addColumn('Created',  true, false, false, 'html',     '', true, 'left', false)
-           ->addColumn('Error',    true, false, true,  'html',     '', true, 'left', true)
+        $dt->addColumn(t('ID'),             true,  true,  false, 'num-html', '', true, 'left', false)
+           ->addColumn(t('Type'),           true,  true,  true,  'html', $typeFilter->render(), true, 'left', 'dt-queue-type')
+           ->addColumn(t('Status'),         true,  true,  true,  'html', $statusFilter->render(), true, 'left', 'dt-queue-status')
+           ->addColumn(t('Priority'),       true,  false, false, 'html', '', true, 'left', false)
+           ->addColumn(t('Attempts'),       true,  false, false, 'html', '', true, 'left', false)
+           ->addColumn(t('Created'),        true,  false, false, 'html', '', true, 'left', false)
+           ->addColumn(t('Started'),        true,  false, false, 'html', '', true, 'left', false)
+           ->addColumn(t('Completed'),      true,  false, false, 'html', '', true, 'left', false)
+           ->addColumn(t('Execution time'), true,  false, false, 'html', '', true, 'left', false)
+           ->addColumn(t('Error'),          true,  false, true,  'html', '', true, 'left', true)
            // Searched, never shown: what a task was given is how a person finds one.
-           ->addColumn('Payload',  false, false, true, 'html',     '', false, 'left', false);
+           ->addColumn(t('Payload'),        false, false, true,  'html', '', false, 'left', false);
         foreach (array_keys($this->extraColumns()) as $label) {
             $dt->addColumn((string) $label, true, false, true, 'html', '', true, 'left', true);
         }
-        $dt->addColumn('Actions', true, false, false, 'html', '', false, 'right', false);
+        $dt->addColumn(t('Actions'), true, false, false, 'html', '', false, 'right', false);
 
-        $view            = $this->getView('queue');
-        $view->datatable = $dt;
-        $view->statuses  = self::STATUSES;
+        $view             = $this->getView('queue');
+        $view->datatable  = $dt;
+        $view->statuses   = $this->statusLabels();
+        $view->counts     = $this->statusCounts();
+        $view->byType     = $this->ratesByType();
+        $view->rateWindow = static::RATE_WINDOW;
 
         return $view->display();
     }
@@ -142,33 +170,271 @@ class QueueController extends Controller
             $this->extraColumns(),
             static fn ($column): bool => preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', (string) $column) === 1
         ));
-        $fields = array_merge(['taskid', 'type', 'status', 'attempts', 'createdat', 'error', 'payload'], $extra, ['maxattempts']);
+        $fields = array_merge(
+            ['taskid', 'type', 'status', 'priority', 'attempts', 'createdat', 'startedat', 'completedat', 'execution_time', 'error', 'payload'],
+            $extra,
+            ['maxattempts']
+        );
         $result = \Pramnos\Html\Datatable\Datasource::getList('queueitems', $fields, false);
         $e      = static fn ($value): string => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
+        $last   = count($fields) - 1;
 
         $dataKey = array_key_exists('data', $result) ? 'data' : 'aaData';
         foreach ($result[$dataKey] as &$row) {
             $id     = (int) $row[0];
             $status = (string) $row[2];
-            $error  = (string) $row[5];
+            $error  = (string) $row[9];
 
-            $row[0] = (string) $id;
+            // The id opens the task: what it was given, its error in full, its lock.
+            $row[0] = '<a href="' . $e(adminUrl('queue/show/') . $id) . '">' . $id . '</a>';
             $row[1] = $e($row[1]);
             $row[2] = $this->statusBadge($status);
-            $row[3] = (int) $row[3] . ' / ' . (int) $row[count($fields) - 1];
-            $row[4] = $e($row[4]);
-            $row[5] = $error === '' ? '' : '<span title="' . $e($error) . '">' . $e(mb_strimwidth($error, 0, 160, '…')) . '</span>';
-            $row[6] = '';
-            foreach (array_keys($extra) as $i) {
-                $row[7 + $i] = $e($row[7 + $i]);
+            $row[3] = (string) (int) $row[3];
+            $row[4] = (int) $row[4] . ' / ' . (int) $row[$last];
+            foreach ([5, 6, 7] as $i) {
+                $row[$i] = $e($row[$i]);
             }
-            $row[count($fields) - 1] = $this->actions($id, $status);
+            $row[8]  = (string) $row[8] === '' ? '' : round((float) $row[8], 3) . ' s';
+            $row[9]  = $error === '' ? '' : '<span title="' . $e($error) . '">' . $e(mb_strimwidth($error, 0, 160, '…')) . '</span>';
+            $row[10] = '';
+            foreach (array_keys($extra) as $i) {
+                $row[11 + $i] = $e($row[11 + $i]);
+            }
+            $row[$last] = $this->actions($id, $status);
 
             unset($row['DT_RowId']);
         }
         unset($row);
 
         return \Pramnos\Http\Response::json($result);
+    }
+
+    /**
+     * One task: every field it has, its payload key by key, and what can be done with it.
+     */
+    public function show(mixed $id = null): mixed
+    {
+        if ($this->requireMinUserType($this->adminFloor())) {
+            return null;
+        }
+
+        $taskId = (int) \Pramnos\Http\Request::staticGetOption();
+        $result = $taskId > 0
+            ? \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('#PREFIX#queueitems')->where('taskid', $taskId)->first()
+            : null;
+        if (!$result || empty($result->fields)) {
+            $this->addError(t('There is no such task.'));
+            $this->redirect(adminUrl('queue'));
+
+            return null;
+        }
+        $task = (array) $result->fields;
+
+        $doc        = \Pramnos\Framework\Factory::getDocument();
+        $doc->title = sprintf(t('Task #%d'), $taskId);
+
+        $view          = $this->getView('queue');
+        $view->task    = $task;
+        $view->fields  = $this->taskFields($task);
+        $view->payload = $this->payloadEntries((string) ($task['payload'] ?? ''));
+        $view->status  = $this->statusBadge((string) ($task['status'] ?? ''));
+        $view->actions = $this->actions($taskId, (string) ($task['status'] ?? ''));
+
+        return $view->display('show');
+    }
+
+    /**
+     * What the queue has been doing: the hourly roll-up per task type over the last two days,
+     * from {@see \Pramnos\Queue\QueueManager::history()} — kept when the tasks themselves are
+     * purged, so it answers for longer than the table does.
+     *
+     * Its own page, not a block on the list: the list is opened to watch a queue drain and is
+     * counted on every refresh, and this is a different question asked far less often.
+     */
+    public function history(): mixed
+    {
+        if ($this->requireMinUserType($this->adminFloor())) {
+            return null;
+        }
+
+        $doc        = \Pramnos\Framework\Factory::getDocument();
+        $doc->title = t('Queue statistics');
+
+        $view          = $this->getView('queue');
+        $view->hours   = static::HISTORY_HOURS;
+        $view->history = $this->queueManager()->history(static::HISTORY_HOURS);
+
+        return $view->display('history');
+    }
+
+    /** The framework's queue manager over this screen's connection. */
+    protected function queueManager(): \Pramnos\Queue\QueueManager
+    {
+        return new \Pramnos\Queue\QueueManager($this);
+    }
+
+    /**
+     * Each status's name in the reader's language, by status.
+     *
+     * @return array<string, string>
+     */
+    protected function statusLabels(): array
+    {
+        return [
+            'pending'    => t('Pending'),
+            'processing' => t('Processing'),
+            'completed'  => t('Completed'),
+            'warning'    => t('Warning'),
+            'failed'     => t('Failed'),
+            'stopped'    => t('Stopped'),
+            'deleted'    => t('Deleted'),
+        ];
+    }
+
+    /**
+     * How many tasks are in each status, and in all — one grouped count, on this request.
+     *
+     * @return array<string, int>
+     */
+    protected function statusCounts(): array
+    {
+        $qb     = \Pramnos\Framework\Factory::getDatabase()->queryBuilder();
+        $counts = array_fill_keys(self::STATUSES, 0);
+        foreach ($qb->table('#PREFIX#queueitems')->select(['status', $qb->raw('COUNT(*) AS n')])->groupBy('status')->getAll() as $row) {
+            $counts[(string) $row['status']] = (int) $row['n'];
+        }
+        $counts['total'] = array_sum($counts);
+
+        return $counts;
+    }
+
+    /**
+     * The task types the filter offers: those the queue carries, and those with a handler.
+     *
+     * The table's first, from {@see \Pramnos\Queue\QueueManager::activeTaskTypes()}: a type with
+     * tasks and no handler is the one somebody needs to find, and a directory of handlers
+     * cannot list it.
+     *
+     * @return list<string>
+     */
+    protected function taskTypes(): array
+    {
+        $manager = $this->queueManager();
+        $types   = array_unique(array_merge($manager->activeTaskTypes(0), $manager->getTaskTypes()));
+        sort($types);
+
+        return array_values($types);
+    }
+
+    /**
+     * Per task type with anything to report — pending, running, or arrived in the window —
+     * whether it is keeping up: running now, pending, done and net a minute, and when it clears.
+     *
+     * `health` is `draining` (a completion time can be given), `keeping_up` (arrivals match
+     * completions and the backlog is under a minute of the type's own output), or `behind`
+     * (work is waiting that the type is not clearing — the one worth reading).
+     *
+     * @return list<array<string, mixed>>
+     */
+    protected function ratesByType(): array
+    {
+        $manager = $this->queueManager();
+        $waiting = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()
+            ->table('#PREFIX#queueitems')->whereIn('status', ['pending', 'processing'])->groupBy('type')->pluck('type');
+        $types   = array_unique(array_merge($waiting, $manager->activeTaskTypes(static::RATE_WINDOW)));
+        sort($types);
+
+        $rows = [];
+        foreach ($types as $type) {
+            $rate      = $manager->throughput(static::RATE_WINDOW, (string) $type);
+            $minutes   = $rate['window'] / 60;
+            $perMinute = $rate['completions'] / $minutes;
+            $health    = match (true) {
+                $rate['pending'] > 0 && (int) $rate['clears_in'] > 0 => 'draining',
+                $rate['net'] >= 0 && $rate['pending'] <= $perMinute  => 'keeping_up',
+                default                                              => 'behind',
+            };
+            $rows[] = [
+                'type'           => (string) $type,
+                'running'        => $rate['processing'],
+                'pending'        => $rate['pending'],
+                'per_minute'     => round($perMinute, 1),
+                'net_per_minute' => round($rate['net'] / $minutes, 1),
+                'clears_in'      => $health === 'draining' ? $this->duration((int) $rate['clears_in']) : null,
+                'health'         => $health,
+            ];
+        }
+
+        return $rows;
+    }
+
+    /** Seconds as a short duration: `45s`, `12m`, `3h 10m`, `2d 4h`. */
+    protected function duration(int $seconds): string
+    {
+        return match (true) {
+            $seconds < 60    => $seconds . 's',
+            $seconds < 3600  => intdiv($seconds, 60) . 'm',
+            $seconds < 86400 => intdiv($seconds, 3600) . 'h ' . intdiv($seconds % 3600, 60) . 'm',
+            default          => intdiv($seconds, 86400) . 'd ' . intdiv($seconds % 86400, 3600) . 'h',
+        };
+    }
+
+    /**
+     * A task's fields as the detail page lists them, `[label => text]`, each only where the
+     * table has the column and the task a value — `batchid`, `availableat`, `cpu_time` came with
+     * later migrations — and the application's own columns after them.
+     *
+     * @param array<string, mixed> $task
+     * @return array<string, string>
+     */
+    protected function taskFields(array $task): array
+    {
+        $seconds = static fn ($value): ?string => $value === null || $value === '' ? null : round((float) $value, 3) . ' s';
+        $fields  = [
+            t('Type')           => $task['type'] ?? null,
+            t('Priority')       => $task['priority'] ?? null,
+            t('Attempts')       => (int) ($task['attempts'] ?? 0) . ' / ' . (int) ($task['maxattempts'] ?? 0),
+            t('Created')        => $task['createdat'] ?? null,
+            t('Updated')        => $task['updatedat'] ?? null,
+            t('Available from') => $task['availableat'] ?? null,
+            t('Started')        => $task['startedat'] ?? null,
+            t('Completed')      => $task['completedat'] ?? null,
+            t('Execution time') => $seconds($task['execution_time'] ?? null),
+            t('CPU time')       => $seconds($task['cpu_time'] ?? null),
+            t('Locked by')      => $task['lockedby'] ?? null,
+            t('Lock expires')   => $task['lockexpires'] ?? null,
+            t('Batch')          => trim(($task['batchname'] ?? '') . ' ' . ($task['batchid'] ?? '')),
+            t('Task hash')      => $task['task_hash'] ?? null,
+            t('Error')          => $task['error'] ?? null,
+            t('Result')         => $task['success_message'] ?? null,
+        ];
+        foreach ($this->extraColumns() as $label => $column) {
+            $fields[(string) $label] = $task[$column] ?? null;
+        }
+
+        return array_map('strval', array_filter($fields, static fn ($value): bool => $value !== null && $value !== ''));
+    }
+
+    /**
+     * The payload as the detail page shows it: key by key, each value as readable JSON — a value
+     * that is itself JSON text decoded first — or the text as it is when it is not JSON.
+     *
+     * @return array<string, string> `[key => text]`; one entry under `''` for a payload that is not an object
+     */
+    protected function payloadEntries(string $payload): array
+    {
+        $json    = static fn ($value): string => (string) json_encode($value, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        $decoded = json_decode($payload, true);
+        if (!is_array($decoded)) {
+            return ['' => $payload];
+        }
+        $entries = [];
+        foreach ($decoded as $key => $value) {
+            $inner = is_string($value) ? json_decode($value, true) : null;
+            $entries[(string) $key] = is_array($inner) ? $json($inner) : (is_string($value) ? $value : $json($value));
+        }
+
+        return $entries;
     }
 
     /** A status as a badge. */
@@ -180,7 +446,7 @@ class QueueController extends Controller
             default => 'pf-state',
         };
 
-        return '<span class="' . $class . '">' . htmlspecialchars(ucfirst($status), ENT_QUOTES, 'UTF-8') . '</span>';
+        return '<span class="' . $class . '">' . htmlspecialchars($this->statusLabels()[$status] ?? ucfirst($status), ENT_QUOTES, 'UTF-8') . '</span>';
     }
 
     /** What can be done with a task in this status, as POST buttons carrying the token. */
@@ -189,14 +455,14 @@ class QueueController extends Controller
         $url  = static fn (string $action): string => adminUrl('queue/' . $action . '/') . $id;
         $html = '';
         if ($status === 'failed') {
-            $html .= \Pramnos\Html\Icon::postButton($url('retry'), 'retry', 'Run this task again');
+            $html .= \Pramnos\Html\Icon::postButton($url('retry'), 'retry', t('Run this task again'));
         }
         if ($status === 'pending' || $status === 'processing') {
-            $html .= \Pramnos\Html\Icon::postButton($url('stop'), 'deactivate', 'Stop this task', ['data-confirm' => 'Stop this task? A worker running it finishes the run in hand.']);
+            $html .= \Pramnos\Html\Icon::postButton($url('stop'), 'deactivate', t('Stop this task'), ['data-confirm' => t('Stop this task? A worker running it finishes the run in hand.')]);
         }
-        $html .= \Pramnos\Html\Icon::postButton($url('duplicate'), 'duplicate', 'Queue a copy of this task', ['data-confirm' => 'Queue a copy of this task?']);
+        $html .= \Pramnos\Html\Icon::postButton($url('duplicate'), 'duplicate', t('Queue a copy of this task'), ['data-confirm' => t('Queue a copy of this task?')]);
         if ($status !== 'deleted') {
-            $html .= \Pramnos\Html\Icon::postButton($url('delete'), 'delete', 'Delete this task', ['data-confirm' => 'Delete this task?']);
+            $html .= \Pramnos\Html\Icon::postButton($url('delete'), 'delete', t('Delete this task'), ['data-confirm' => t('Delete this task?')]);
         }
 
         return $html;
@@ -215,7 +481,7 @@ class QueueController extends Controller
 
         $taskId = (int) \Pramnos\Http\Request::staticGetOption();
         if ($taskId <= 0) {
-            $this->addError('The id in that link is not valid.');
+            $this->addError(t('The id in that link is not valid.'));
             $this->redirect(sURL . 'queue');
             return;
         }
@@ -233,7 +499,7 @@ class QueueController extends Controller
                 'completedat' => date('Y-m-d H:i:s'),
             ]);
 
-        $this->addMessage('Stopped.');
+        $this->addMessage(t('Stopped.'));
         $this->redirect(sURL . 'queue');
     }
 
@@ -254,7 +520,7 @@ class QueueController extends Controller
             ? $db->queryBuilder()->table('#PREFIX#queueitems')->select($copy)->where('taskid', $taskId)->first()
             : null;
         if (!$task || empty($task->fields)) {
-            $this->addError('There is no such task.');
+            $this->addError(t('There is no such task.'));
             $this->redirect(sURL . 'queue');
             return;
         }
@@ -263,7 +529,7 @@ class QueueController extends Controller
             ['status' => 'pending', 'attempts' => 0] + array_intersect_key((array) $task->fields, array_flip($copy))
         );
 
-        $this->addMessage('A copy has been queued.');
+        $this->addMessage(t('A copy has been queued.'));
         $this->redirect(sURL . 'queue');
     }
 
@@ -280,7 +546,7 @@ class QueueController extends Controller
 
         $taskId = (int) \Pramnos\Http\Request::staticGetOption();
         if ($taskId <= 0) {
-            $this->addError('The id in that link is not valid.');
+            $this->addError(t('The id in that link is not valid.'));
             $this->redirect(sURL . 'queue');
             return;
         }
@@ -297,7 +563,7 @@ class QueueController extends Controller
                 'lockexpires' => null,
             ]);
 
-        $this->addMessage('Queued again.');
+        $this->addMessage(t('Queued again.'));
         $this->redirect(sURL . 'queue');
     }
 
@@ -322,7 +588,7 @@ class QueueController extends Controller
                 'lockexpires' => null,
             ]);
 
-        $this->addMessage('Every failed job has been queued again.');
+        $this->addMessage(t('Every failed job has been queued again.'));
         $this->redirect(sURL . 'queue');
     }
 
@@ -338,7 +604,7 @@ class QueueController extends Controller
 
         $taskId = (int) \Pramnos\Http\Request::staticGetOption();
         if ($taskId <= 0) {
-            $this->addError('The id in that link is not valid.');
+            $this->addError(t('The id in that link is not valid.'));
             $this->redirect(sURL . 'queue');
             return;
         }
@@ -349,7 +615,7 @@ class QueueController extends Controller
             ->where('taskid', $taskId)
             ->update(['status' => 'deleted']);
 
-        $this->addMessage('Deleted.');
+        $this->addMessage(t('Deleted.'));
         $this->redirect(sURL . 'queue');
     }
 
@@ -368,7 +634,7 @@ class QueueController extends Controller
         $allowed      = ['failed', 'completed', 'stopped', 'deleted'];
 
         if (!in_array($targetStatus, $allowed, true)) {
-            $this->addError('That is not a status this queue uses.');
+            $this->addError(t('That is not a status this queue uses.'));
             $this->redirect(sURL . 'queue');
             return;
         }
@@ -379,7 +645,7 @@ class QueueController extends Controller
             ->where('status', $targetStatus)
             ->update(['status' => 'deleted']);
 
-        $this->addMessage('Cleared.');
+        $this->addMessage(t('Cleared.'));
         $this->redirect(sURL . 'queue');
     }
 

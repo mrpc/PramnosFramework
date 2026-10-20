@@ -117,17 +117,42 @@ covered in [Workers & Daemons](Pramnos_Workers_And_Daemons_Guide.md).
 ### The queue screen
 
 The administration's **Queue** (`src/Admin/Controllers/Queue.php`, the framework's
-`QueueController`) is a DataTable fed by `Queue/data`: a status filter under the Status column,
-search over the type, the error and the payload, a page size, and sorting by id, type and status,
-the indexed columns. A table of tens of thousands of tasks is read a page at a time.
+`QueueController`) opens on the queue's state, then its tasks:
 
-Each row carries what its status allows: **retry** a failed task, **stop** a pending or processing
-one, **duplicate** any (a new pending copy: same type, payload, priority and attempts allowed, and
-the application's columns below), **delete** one not already deleted. All four are `POST`s with the
-form token. A stopped task has status `stopped`: no worker claims it, a worker already running it
-finishes that run, `addTask(unique: true)` does not count it, and `queue:cleanup` removes it with
-the completed ones. Above the table, **Retry all failed** and **Clear** (failed, completed, stopped
-or deleted tasks, marked deleted).
+- **A count per status** — pending, processing, completed (with its share of all tasks), warning,
+  failed, stopped, deleted — and the total, counted on each request.
+- **Per task type, whether it is keeping up**, over the last ten minutes: running now, pending,
+  completions a minute, net a minute, and when the backlog clears. A type is *keeping up* when
+  arrivals match completions and the backlog is under a minute of its own output; *growing — needs
+  workers* is the row worth reading, and it is drawn in the error colour. The figures come from
+  `QueueManager::throughput()`, the same numbers `queue:health` prints.
+- **The tasks**, a DataTable fed by `Queue/data`: status and type filters under their columns,
+  search over the type, the error and the payload, a page size, and sorting by id, type and status,
+  the indexed columns. Priority, attempts, created, started, completed and execution time are
+  columns too. A table of tens of thousands of tasks is read a page at a time.
+
+The id opens **the task** (`Queue/show/<id>`): every field it has a value for — lock, batch, task
+hash, CPU time, the error and the result in full, the application's columns — and its payload key
+by key, each value as readable JSON, a value that is itself JSON text decoded first.
+
+**Statistics — last 48 hours** (`Queue/history`) is the hourly roll-up per task type from
+`QueueManager::history()`: tasks, failed, retried, execution mean and max, CPU mean, wait mean and
+max. It reads `queuestats`, which `queue:cleanup` fills as it removes finished tasks, so it answers
+for longer than the table keeps them. `Queue/stats` stays as JSON for a monitor; no page links to
+it.
+
+Each row, and the task page, carries what its status allows: **retry** a failed task, **stop** a
+pending or processing one, **duplicate** any (a new pending copy: same type, payload, priority and
+attempts allowed, and the application's columns below), **delete** one not already deleted. All
+four are `POST`s with the form token. A stopped task has status `stopped`: no worker claims it, a
+worker already running it finishes that run, `addTask(unique: true)` does not count it, and
+`queue:cleanup` removes it with the completed ones. Above the table, **Retry all failed** and
+**Clear** (failed, completed, stopped or deleted tasks, marked deleted).
+
+There is no form to create or edit a task: duplicate re-runs one, and a payload edited from the
+browser is a write path into whatever the handler does with it.
+
+Every label goes through `t()`, and the framework's Greek catalogue carries them.
 
 Columns of the application's own appear in the list when the wrapper names them, as
 `[label => column]`. They are shown escaped and searched, and not sorted, since the framework

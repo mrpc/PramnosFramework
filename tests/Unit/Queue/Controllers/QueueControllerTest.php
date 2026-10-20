@@ -140,7 +140,7 @@ class QueueControllerTest extends BaseTestCase
         $authActions = $prop->getValue($ctrl);
 
         // Assert
-        foreach (['display', 'data', 'retry', 'retryall', 'delete', 'clear', 'stats', 'stop', 'duplicate'] as $action) {
+        foreach (['display', 'data', 'show', 'history', 'retry', 'retryall', 'delete', 'clear', 'stats', 'stop', 'duplicate'] as $action) {
             $this->assertContains(
                 $action, $authActions,
                 "QueueController::$action() must be registered via addAuthAction()"
@@ -171,7 +171,7 @@ class QueueControllerTest extends BaseTestCase
         $ctrl = new QueueController(null);
 
         // Assert
-        foreach (['display', 'data', 'retry', 'retryall', 'delete', 'clear', 'stats', 'stop', 'duplicate'] as $action) {
+        foreach (['display', 'data', 'show', 'history', 'retry', 'retryall', 'delete', 'clear', 'stats', 'stop', 'duplicate'] as $action) {
             $this->assertTrue(method_exists($ctrl, $action));
         }
     }
@@ -610,6 +610,8 @@ class QueueControllerTest extends BaseTestCase
         $deniedCtrl->data();
         $deniedCtrl->stop(1);
         $deniedCtrl->duplicate(1);
+        $this->assertNull($deniedCtrl->show(1), 'a denied reader was shown a task');
+        $this->assertNull($deniedCtrl->history(), 'a denied reader was shown the statistics');
         $deniedCtrl->retryall();
         $deniedCtrl->delete(1);
         $_POST['status'] = 'failed';
@@ -622,5 +624,43 @@ class QueueControllerTest extends BaseTestCase
         // Assert — a redirect was issued for each call
         $this->assertNotNull($deniedCtrl->lastRedirect,
             'An auth-denied action must issue a redirect');
+    }
+
+    /**
+     * The task page's helpers on their edges: a backlog's clearing time reads as a short duration
+     * at every scale, and a payload that is not a JSON object is shown as it is rather than lost.
+     */
+    public function testDurationAndANonJsonPayload(): void
+    {
+        // Arrange
+        $ctrl = new QueueController(null);
+        $call = static fn (string $method, mixed $arg): mixed => (new \ReflectionMethod($ctrl, $method))->invoke($ctrl, $arg);
+
+        // Act
+        $durations = array_map(static fn (int $s): string => $call('duration', $s), [45, 720, 11400, 187200]);
+        $payload   = $call('payloadEntries', 'not json');
+
+        // Assert
+        $this->assertSame(['45s', '12m', '3h 10m', '2d 4h'], $durations);
+        $this->assertSame(['' => 'not json'], $payload, 'a payload that is not an object was lost');
+    }
+
+    /**
+     * show() with no id in the link asks nothing of the database and goes back to the list
+     * with an error.
+     */
+    public function testShowWithNoIdGoesBackToTheList(): void
+    {
+        // Arrange
+        $_GET['_option'] = 0;
+
+        // Act
+        $page = $this->ctrl->show(0);
+        unset($_GET['_option']);
+
+        // Assert
+        $this->assertNull($page);
+        $this->assertNotNull($this->ctrl->lastRedirect);
+        $this->assertContains('There is no such task.', $_SESSION['_errors'] ?? []);
     }
 }

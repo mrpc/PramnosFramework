@@ -52,16 +52,21 @@ class WrappedQueueController extends TestableQueueController
     /** A view that keeps what it is given and renders nothing. */
     public function &getView($name = '', $type = '', $args = array())
     {
-        $this->view = new class {
+        $this->view = new #[\AllowDynamicProperties] class {
             /** The table the screen built. */
             public ?object $datatable = null;
 
             /** The statuses it offers. */
             public array $statuses = [];
 
+            /** Which template was asked for, so a test can tell the pages apart. */
+            public string $template = '';
+
             /** Nothing to render in a test. */
-            public function display(): string
+            public function display(string $template = ''): string
             {
+                $this->template = $template;
+
                 return 'rendered';
             }
         };
@@ -431,14 +436,185 @@ class QueueControllerMySQLTest extends BaseTestCase
         $this->assertSame('rendered', $page);
         $this->assertArrayHasKey('Sent by', $ctrl->view->datatable->aoColumns, 'the application column is not in the table');
         $row = ($data['aaData'] ?? $data['data'])[0];
+        $this->assertStringContainsString('queue/show/', $row[0], 'the id does not open the task');
         $this->assertSame('&lt;b&gt;x&lt;/b&gt;', $row[1], 'the type was not escaped');
         $this->assertStringContainsString('pf-state', $row[2]);
-        $this->assertSame('0 / 3', $row[3]);
-        $this->assertStringContainsString('…', $row[5], 'a long error is shortened, its whole text in the title');
-        $this->assertSame('', $row[6], 'the payload is searched, never shown');
-        $this->assertSame('anna@example.com', $row[7]);
-        $this->assertStringContainsString('queue/stop/', $row[8]);
-        $this->assertStringNotContainsString('queue/retry/', $row[8], 'a pending task offered a retry');
+        $this->assertSame('10', $row[3], 'the default priority');
+        $this->assertSame('0 / 3', $row[4]);
+        $this->assertStringContainsString('…', $row[9], 'a long error is shortened, its whole text in the title');
+        $this->assertSame('', $row[10], 'the payload is searched, never shown');
+        $this->assertSame('anna@example.com', $row[11]);
+        $this->assertStringContainsString('queue/stop/', $row[12]);
+        $this->assertStringNotContainsString('queue/retry/', $row[12], 'a pending task offered a retry');
+        // The state above the table: one count per status, and the type that has work waiting.
+        $this->assertSame(1, $ctrl->view->counts['pending']);
+        $this->assertSame(1, $ctrl->view->counts['total']);
+        $this->assertSame(['<b>x</b>'], array_column($ctrl->view->byType, 'type'));
+        $this->assertSame('behind', $ctrl->view->byType[0]['health'], 'a pending task with nothing completing is not keeping up');
+    }
+
+    /**
+     * The type filter under the Type column narrows the rows to that type — the filter is the
+     * reason the column is searchable, and its dropdown offers the types the table carries.
+     */
+    public function testTheTypeFilterNarrowsTheList(): void
+    {
+        // Arrange — the wrapper's column, which the table needs to have
+        $this->db->query('ALTER TABLE ' . ($this->db->type === 'postgresql' ? '"queueitems"' : '`queueitems`') . ' ADD note VARCHAR(50)');
+        foreach (['mail', 'mail', 'report'] as $type) {
+            $this->db->queryBuilder()->table('queueitems')->insert(['type' => $type, 'payload' => '{}', 'status' => 'pending']);
+        }
+        $ctrl  = new WrappedQueueController($this->app);
+        $_POST = ['sEcho' => 1, 'iDisplayStart' => 0, 'iDisplayLength' => 10, 'sSearch_1' => 'report', 'bSearchable_1' => 'true'];
+        \Pramnos\Http\Request::resetInstance();
+
+        try {
+            // Act
+            $ctrl->display();
+            $data = json_decode($ctrl->data()->getBody(), true);
+        } finally {
+            $_POST = [];
+            \Pramnos\Http\Request::resetInstance();
+        }
+
+        // Assert
+        $rows = $data['aaData'] ?? $data['data'];
+        $this->assertSame(['report'], array_column($rows, 1), 'the filter did not narrow the rows to the type');
+        $this->assertStringContainsString('value="mail"', $ctrl->view->datatable->render(), 'the dropdown does not offer a type the table carries');
+    }
+
+    /**
+     * show($id) gives the detail page every field the task has a value for, its payload key by
+     * key with a JSON string inside it decoded, and the actions its status allows; an id with no
+     * task goes back to the list with an error instead of an empty page.
+     */
+    public function testShowListsATasksFieldsAndPayload(): void
+    {
+        // Arrange
+        $this->db->queryBuilder()->table('queueitems')->insert([
+            'type' => 'report', 'status' => 'failed', 'error' => 'boom', 'lockedby' => 'host:1',
+            'payload' => json_encode(['to' => 'a@example.com', 'inner' => '{"n":7}', 'list' => [1, 2]]),
+        ]);
+        $id   = (int) $this->db->queryBuilder()->table('queueitems')->select(['taskid'])->first()->fields['taskid'];
+        $ctrl = new WrappedQueueController($this->app);
+
+        // Act
+        $_GET['_option'] = $id;
+        $page            = $ctrl->show($id);
+        $view            = $ctrl->view;
+        $_GET['_option'] = $id + 1000;
+        $missing         = $ctrl->show($id + 1000);
+        unset($_GET['_option']);
+
+        // Assert
+        $this->assertSame('rendered', $page);
+        $this->assertSame('show', $view->template);
+        $this->assertSame('report', $view->fields['Type']);
+        $this->assertSame('boom', $view->fields['Error']);
+        $this->assertSame('host:1', $view->fields['Locked by']);
+        $this->assertArrayNotHasKey('Started', $view->fields, 'a field with no value is listed empty');
+        $this->assertSame('a@example.com', $view->payload['to']);
+        $this->assertSame(json_encode(['n' => 7], JSON_PRETTY_PRINT), $view->payload['inner'], 'a JSON string in the payload was not decoded');
+        $this->assertSame(json_encode([1, 2], JSON_PRETTY_PRINT), $view->payload['list']);
+        $this->assertStringContainsString('queue/retry/', $view->actions, 'a failed task is not offered a retry');
+        $this->assertNull($missing, 'an id with no task rendered a page');
+    }
+
+    /**
+     * history() reads the hourly roll-up the cleanup keeps — the statistics page answers from
+     * `queuestats`, not from the live rows a purge has already removed.
+     */
+    public function testHistoryShowsTheHourlyRollUp(): void
+    {
+        // Arrange
+        $stats = $this->db->queryBuilder()->table('queuestats');
+        $stats->where('type', 'qc_history')->delete();
+        $this->db->queryBuilder()->table('queuestats')->insert([
+            'type' => 'qc_history', 'bucket' => date('Y-m-d H:00:00'), 'tasks' => 4, 'failed' => 1,
+            'sum_exec' => 2, 'max_exec' => 1, 'sum_wait' => 8, 'max_wait' => 3,
+        ]);
+        $ctrl = new WrappedQueueController($this->app);
+
+        try {
+            // Act
+            $page = $ctrl->history();
+        } finally {
+            $this->db->queryBuilder()->table('queuestats')->where('type', 'qc_history')->delete();
+        }
+
+        // Assert
+        $this->assertSame('rendered', $page);
+        $this->assertSame('history', $ctrl->view->template);
+        $this->assertSame(48, $ctrl->view->hours);
+        $row = array_values(array_filter($ctrl->view->history, static fn (array $r): bool => $r['type'] === 'qc_history'))[0] ?? null;
+        $this->assertNotNull($row, 'the roll-up row is not on the page');
+        $this->assertSame([4, 1, 0.5, 2.0], [$row['tasks'], $row['failed'], $row['exec_mean'], $row['wait_mean']]);
+    }
+
+    /**
+     * The three themes' queue pages render what the controller hands them — the counts, the
+     * per-type table, the fields, the payload and the hourly roll-up — escaped, and none of them
+     * links to the raw JSON of `stats()`, which is for a monitor, not a person.
+     */
+    public function testEveryThemeRendersTheQueuePages(): void
+    {
+        // Arrange
+        $root   = ROOT . '/scaffolding/themes';
+        $themes = glob($root . '/*/views/queue', GLOB_ONLYDIR) ?: [];
+        $this->assertNotEmpty($themes);
+        $view = static fn (array $vars): object => new #[\AllowDynamicProperties] class ($vars) {
+            /** @param array<string, mixed> $vars What the controller hands the view */
+            public function __construct(array $vars)
+            {
+                foreach ($vars as $name => $value) {
+                    $this->{$name} = $value;
+                }
+            }
+        };
+        $list = $view([
+            'datatable'  => new \Pramnos\Html\Datatable('dt-queue'),
+            'statuses'   => ['pending' => 'Pending', 'completed' => 'Completed', 'failed' => 'Failed'],
+            'counts'     => ['pending' => 3, 'completed' => 6, 'total' => 9],
+            'byType'     => [['type' => '<i>mail</i>', 'running' => 1, 'pending' => 3, 'per_minute' => 0.5, 'net_per_minute' => 1.5, 'clears_in' => null, 'health' => 'behind']],
+            'rateWindow' => 600,
+        ]);
+        $show = $view([
+            'task' => ['taskid' => 7], 'fields' => ['Error' => '<b>boom</b>'], 'payload' => ['to' => '<x>'],
+            'status' => '<span class="s">failed</span>', 'actions' => '',
+        ]);
+        $history = $view(['hours' => 48, 'history' => [[
+            'bucket' => '2026-01-01 10:00:00', 'type' => '<i>mail</i>', 'tasks' => 4, 'failed' => 1, 'retried' => 0,
+            'exec_mean' => 0.5, 'exec_max' => 1.0, 'cpu_mean' => null, 'wait_mean' => 2.0, 'wait_max' => 3.0,
+        ]]]);
+        $render = static function (object $view, string $file): string {
+            ob_start();
+            (function () use ($file): void {
+                include $file;
+            })->call($view);
+
+            return (string) ob_get_clean();
+        };
+
+        foreach ($themes as $dir) {
+            // Act
+            $pages = [
+                'queue'   => $render($list, $dir . '/queue.html.php'),
+                'show'    => $render($show, $dir . '/show.html.php'),
+                'history' => $render($history, $dir . '/history.html.php'),
+            ];
+
+            // Assert
+            $theme = basename(dirname($dir, 2));
+            $this->assertStringContainsString('data-field="counts"', $pages['queue'], $theme);
+            $this->assertStringContainsString('&lt;i&gt;mail&lt;/i&gt;', $pages['queue'], $theme . ': a type in the per-type table was not escaped');
+            $this->assertStringContainsString('66.7%', $pages['queue'], $theme . ': the completed share is missing');
+            $this->assertStringContainsString('Queue/history', $pages['queue'], $theme . ': the statistics page is not linked');
+            $this->assertStringNotContainsString('Queue/stats', implode('', $pages), $theme . ': a page links to the raw JSON');
+            $this->assertStringContainsString('&lt;b&gt;boom&lt;/b&gt;', $pages['show'], $theme);
+            $this->assertStringContainsString('&lt;x&gt;', $pages['show'], $theme . ': the payload was not escaped');
+            $this->assertStringContainsString('data-field="history"', $pages['history'], $theme);
+            $this->assertStringContainsString('&lt;i&gt;mail&lt;/i&gt;', $pages['history'], $theme);
+        }
     }
 
     // -------------------------------------------------------------------------
