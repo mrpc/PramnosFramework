@@ -1313,6 +1313,10 @@ Two saves, in that order: `setPassword()` keys the hash with the account's id, s
 written before the id exists is one no login can match. Assigning `$user->password` directly
 stores whatever string you give it.
 
+`save()` writes `active` as the object holds it, on every database: `0` and `1`, or an
+application's own states (`2`, `3`, `5`…), into the framework's `smallint`. A PostgreSQL schema
+that declared it `boolean` gets a boolean, and one without the column is left alone.
+
 ### Loading Users
 
 ```php

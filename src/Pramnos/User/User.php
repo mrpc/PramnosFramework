@@ -687,11 +687,12 @@ class User extends \Pramnos\Framework\Base implements
                 'type' => 'integer'
             )
         );
-        if ($database->type !=  'postgresql'){
+        $activeType = $this->activeColumnType($database);
+        if ($activeType !== null) {
             $itemdata[] = array(
                 'fieldName' => 'active',
                 'value' => $this->active,
-                'type' => 'integer'
+                'type' => $activeType
             );
         }
 
@@ -1960,6 +1961,29 @@ class User extends \Pramnos\Framework\Base implements
             ->update(['status' => 2]);
         $database->cacheflush('usertokens');
         return true;
+    }
+
+    /**
+     * How `active` is written, by the column's type rather than by the database: `integer` for
+     * the framework's `tinyint`/`smallint` and an application's own states (0, 1, 2, 3, 5…),
+     * `boolean` where an older PostgreSQL schema declared it so. Null where PostgreSQL has no
+     * such column, which is left out of the save as it always was.
+     *
+     * It was left out of every save on PostgreSQL, so a user saved inactive was stored with the
+     * column's default and an existing one kept its old state — a deactivation through `save()`
+     * lost without a word.
+     */
+    protected function activeColumnType(\Pramnos\Database\Database $database): ?string
+    {
+        if ($database->type !== 'postgresql') {
+            return 'integer';
+        }
+        $type = strtolower((string) ($database->schema()->columnDetails('#PREFIX#users')['active']['type'] ?? ''));
+        if ($type === '') {
+            return null;
+        }
+
+        return str_starts_with($type, 'bool') ? 'boolean' : 'integer';
     }
 
     /**

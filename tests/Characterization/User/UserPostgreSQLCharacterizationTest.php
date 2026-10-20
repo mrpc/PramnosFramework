@@ -62,6 +62,75 @@ class UserPostgreSQLCharacterizationTest extends TestCase
     }
 
     /**
+     * `save()` writes `active` as the object holds it — a new user saved inactive is inactive,
+     * and an existing one given another state (an application's 2, 3, 5) keeps that state. On
+     * PostgreSQL the column was left out of the save, so the default or the old value won.
+     */
+    public function testSaveWritesActiveAsTheObjectHoldsIt(): void
+    {
+        // Arrange
+        $username = 'active_char_' . bin2hex(random_bytes(4));
+        $user = new User();
+        $user->username = $username;
+        $user->email    = $username . '@example.com';
+        $user->setPassword('secret123');
+        $user->active   = 0;
+        $stored = fn (): int => (int) $this->db->queryBuilder()->table('#PREFIX#users')
+            ->select(['active'])->where('userid', (int) $user->userid)->first()->fields['active'];
+
+        try {
+            // Act — a new user, inactive
+            $user->save();
+            $asCreated = $stored();
+            // An existing user, given an application's own state
+            $loaded = new User((int) $user->userid);
+            $loaded->active = 2;
+            $loaded->save();
+            $asChanged = $stored();
+        } finally {
+            $this->db->queryBuilder()->table('#PREFIX#users')->where('userid', (int) $user->userid)->delete();
+        }
+
+        // Assert
+        $this->assertSame(0, $asCreated, 'a user saved inactive was stored active');
+        $this->assertSame(2, $asChanged, 'an existing user lost the state it was saved with');
+    }
+
+    /**
+     * The type `active` is written as follows the column, not the database: `boolean` where an
+     * older schema declared it boolean, `integer` for a smallint, and nothing where there is no
+     * such column — left out of the save, as it always was there.
+     */
+    public function testActiveIsWrittenByTheColumnsType(): void
+    {
+        // Arrange — two users tables under prefixes of their own
+        $link   = $this->db->getConnectionLink();
+        $prefix = $this->db->prefix;
+        pg_query($link, 'DROP TABLE IF EXISTS pfbool_users, pfnone_users');
+        pg_query($link, 'CREATE TABLE pfbool_users (userid INT, active BOOLEAN)');
+        pg_query($link, 'CREATE TABLE pfnone_users (userid INT)');
+        $type = new \ReflectionMethod(User::class, 'activeColumnType');
+
+        try {
+            // Act
+            $this->db->prefix = 'pfbool_';
+            $boolean = $type->invoke(new User(), $this->db);
+            $this->db->prefix = 'pfnone_';
+            $none = $type->invoke(new User(), $this->db);
+            $this->db->prefix = $prefix;
+            $small = $type->invoke(new User(), $this->db);
+        } finally {
+            $this->db->prefix = $prefix;
+            pg_query($link, 'DROP TABLE IF EXISTS pfbool_users, pfnone_users');
+        }
+
+        // Assert
+        $this->assertSame('boolean', $boolean);
+        $this->assertNull($none);
+        $this->assertSame('integer', $small, 'the framework\'s own column is a smallint');
+    }
+
+    /**
      * Full user lifecycle must work on PostgreSQL: create, load, update
      * dynamic otherinfo fields, activate, deactivate, delete.
      *

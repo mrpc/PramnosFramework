@@ -42,6 +42,41 @@ class UserCharacterizationTest extends TestCase
     }
 
     /**
+     * `save()` writes `active` as the object holds it — a new user saved inactive is inactive,
+     * and an existing one given another state (an application's 2, 3, 5) keeps that state. On
+     * PostgreSQL the column was left out of the save, so the default or the old value won.
+     */
+    public function testSaveWritesActiveAsTheObjectHoldsIt(): void
+    {
+        // Arrange
+        $username = 'active_char_' . bin2hex(random_bytes(4));
+        $user = new User();
+        $user->username = $username;
+        $user->email    = $username . '@example.com';
+        $user->setPassword('secret123');
+        $user->active   = 0;
+        $stored = fn (): int => (int) $this->db->queryBuilder()->table('#PREFIX#users')
+            ->select(['active'])->where('userid', (int) $user->userid)->first()->fields['active'];
+
+        try {
+            // Act — a new user, inactive
+            $user->save();
+            $asCreated = $stored();
+            // An existing user, given an application's own state
+            $loaded = new User((int) $user->userid);
+            $loaded->active = 2;
+            $loaded->save();
+            $asChanged = $stored();
+        } finally {
+            $this->db->queryBuilder()->table('#PREFIX#users')->where('userid', (int) $user->userid)->delete();
+        }
+
+        // Assert
+        $this->assertSame(0, $asCreated, 'a user saved inactive was stored active');
+        $this->assertSame(2, $asChanged, 'an existing user lost the state it was saved with');
+    }
+
+    /**
      * Ensures full user lifecycle behavior remains stable (create/load/update/
      * activate/deactivate/delete) including dynamic otherinfo fields.
      */
