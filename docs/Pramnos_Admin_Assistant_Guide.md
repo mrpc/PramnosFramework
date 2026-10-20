@@ -65,7 +65,19 @@ when the application has neither `users/edit.md` nor `users.md`.
 
 The framework ships a page for each of its own screens in `resources/help/`. A page of the same
 name in `app/help/` replaces it. `'help' => ['paths' => [...]]` in `app/app.php` searches other
-directories instead of `app/help`; the framework's are always searched last.
+directories instead of `app/help`; the framework's are searched last.
+
+**Leaving the framework's pages out.** An application that documents its own screens may not
+want the framework's pages at all. `/Help` lists and searches every page it has, so the pages
+for screens the application does not use (queue, tokens, roles, the assistant) read as
+features its operators have. `'help' => ['framework' => false]` leaves `resources/help/` out:
+only the application's directories are searched, and every page in them is the application's.
+Left unset, the framework's pages are included.
+
+```php
+// app/app.php
+'help' => ['framework' => false],
+```
 
 ### Front matter
 

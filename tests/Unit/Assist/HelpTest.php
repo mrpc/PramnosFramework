@@ -218,4 +218,62 @@ class HelpTest extends TestCase
         $this->assertSame('Users', $users['title']);
         $this->assertSame('', Help::screen(), 'no application screen in this test');
     }
+
+    /**
+     * `help.framework` false leaves the framework's pages out, and the application's are its own.
+     *
+     * An application that documents its own screens must not list, or answer from, pages for
+     * screens and features it does not have — its operators read them as features they have.
+     * And with the framework's directory gone, the last one searched is the application's, so
+     * it must not be taken for the framework's.
+     */
+    public function testTheFrameworksPagesCanBeLeftOut(): void
+    {
+        // Arrange
+        $app  = \Pramnos\Application\Application::getInstance();
+        $info = $app->applicationInfo;
+        Help::useDirectories(null);
+
+        try {
+            // Act
+            $app->applicationInfo['help'] = ['paths' => [$this->own], 'framework' => false];
+            Help::forget();
+            $directories = Help::directories();
+            $queue       = Help::page('queue');
+            $users       = Help::page('users');
+            $slugs       = array_column(Help::admin()->all(), 'slug');
+        } finally {
+            $app->applicationInfo = $info;
+            Help::forget();
+        }
+
+        // Assert
+        $this->assertSame([$this->own], $directories);
+        $this->assertNull($queue, 'a framework page was still found');
+        $this->assertFalse($users['framework'] ?? true, "the application's own page was taken for the framework's");
+        $this->assertNotContains('queue', $slugs);
+    }
+
+    /** Left unset, the framework's pages come after the application's, as they always have. */
+    public function testByDefaultTheFrameworksPagesAreIncluded(): void
+    {
+        // Arrange
+        $app  = \Pramnos\Application\Application::getInstance();
+        $info = $app->applicationInfo;
+        Help::useDirectories(null);
+
+        try {
+            // Act
+            $app->applicationInfo['help'] = ['paths' => [$this->own]];
+            Help::forget();
+            $directories = Help::directories();
+        } finally {
+            $app->applicationInfo = $info;
+            Help::forget();
+        }
+
+        // Assert
+        $this->assertSame([$this->own, Help::frameworkDirectory()], $directories);
+        $this->assertTrue(Help::includesFramework());
+    }
 }

@@ -18,7 +18,9 @@ namespace Pramnos\Assist;
  * screen (see {@see Page}), so the side panel finds it on its own. The framework ships one for each
  * of its screens under `resources/help/`, and a page of the same name in `app/help/` replaces it.
  * `'help' => ['paths' => [...]]` in `app/app.php` searches other directories instead of
- * `app/help`.
+ * `app/help`, and `'help' => ['framework' => false]` leaves the framework's pages out: an
+ * application that documents its own screens then lists and searches only those, not pages
+ * for screens and features it does not have.
  *
  * Optional front matter says what the file cannot:
  *
@@ -101,7 +103,9 @@ final class Help
     {
         if (!isset(self::$books[HelpBook::ADMIN])) {
             $directories = self::directories();
-            self::$books[HelpBook::ADMIN] = new HelpBook(HelpBook::ADMIN, $directories, $directories === [] ? null : end($directories));
+            // Without the framework's pages, the last directory is the application's own.
+            $framework   = $directories === [] || !self::includesFramework() ? null : end($directories);
+            self::$books[HelpBook::ADMIN] = new HelpBook(HelpBook::ADMIN, $directories, $framework);
         }
 
         return self::$books[HelpBook::ADMIN];
@@ -257,7 +261,7 @@ final class Help
 
     /**
      * Where the pages are, first match wins: the application's — `'help' => ['paths' => …]` or
-     * `app/help` — then the framework's.
+     * `app/help` — then the framework's, unless `'help' => ['framework' => false]`.
      *
      * @return list<string>
      */
@@ -271,7 +275,15 @@ final class Help
         $paths = is_object($app) ? ($app->applicationInfo['help']['paths'] ?? null) : null;
         $own   = is_array($paths) ? array_map('strval', $paths) : (defined('ROOT') ? [ROOT . '/app/help'] : []);
 
-        return [...$own, self::frameworkDirectory()];
+        return self::includesFramework() ? [...$own, self::frameworkDirectory()] : $own;
+    }
+
+    /** Whether the framework's own pages are part of the administration's help — they are, unless `help.framework` is false. */
+    public static function includesFramework(): bool
+    {
+        $app = \Pramnos\Application\Application::currentInstance();
+
+        return !is_object($app) || ($app->applicationInfo['help']['framework'] ?? true) !== false;
     }
 
     /** @param list<string>|null $directories Where to look, in order; null for the defaults */
