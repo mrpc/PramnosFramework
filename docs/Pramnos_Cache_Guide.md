@@ -160,6 +160,11 @@ for `database_readonly_dsn`, which needs an `APP_KEY` before it can be set at al
 
 ### What redis keeps, and why nothing scans
 
+The prefix is used as a key's name holds it: without `_`, which separates a name's parts, and
+without anything outside letters, digits, `.` and `-`. So `myapp:` is `myapp`, and the SQL
+cache's per-connection part, `postgresql…:5432…`, loses its colon. Saving, reading and clearing
+all start from that one form.
+
 Three keys per installation prefix, and none of them is found by looking:
 
 | key | what it is | bounded by |

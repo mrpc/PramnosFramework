@@ -745,7 +745,7 @@ class Cache extends \Pramnos\Framework\Base
             return;
         }
 
-        $this->prefix = str_replace('_', '', (string) $this->prefix);
+        $this->normalizePrefix();
         $this->adapter->setPrefix($this->prefix);
         $this->adapter->setCategory((string) $this->category);
     }
@@ -1114,7 +1114,7 @@ class Cache extends \Pramnos\Framework\Base
         $prefix = '';
         $category = '';
         if ($this->prefix != ''){
-            $this->prefix = str_replace("_", "", $this->prefix);
+            $this->normalizePrefix();
             $prefix = $this->_sanitizeName($this->prefix . '_');
         }
         if ($this->category != ''){
@@ -1241,6 +1241,18 @@ class Cache extends \Pramnos\Framework\Base
      * @param string $name
      * @return string
      */
+    /**
+     * The prefix as every key's name and every clear use it: no `_`, which separates the parts of
+     * a name, and nothing a name cannot hold. Done in one place, because it was done in two —
+     * a key stored under the sanitized prefix and a clear scanning for the raw one. The `:` of a
+     * connection's `server:5432` was dropped from every key and kept in the scan, which matched
+     * nothing: every flush of a connection with a port flushed nothing.
+     */
+    private function normalizePrefix(): void
+    {
+        $this->prefix = str_replace('_', '', (string) $this->_sanitizeName((string) $this->prefix));
+    }
+
     protected function _sanitizeName($name)
     {
         return preg_replace(
