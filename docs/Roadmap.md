@@ -84,6 +84,27 @@ content compete for the same question and neither is more authoritative than the
 *Done when:* the two pages answer different questions, and the `use_cases:` of
 each say which.
 
+## Test suite
+
+### A dashboard test that sometimes skips itself
+
+`DashboardLayoutsMySQLTest::testUntrackedMailShowsNoOpenRate` asserts that the dashboard shows
+no open rate when no mail this week was tracked. It reads the shared test database for that, and
+when it finds tracked rows from the last eight days it marks itself skipped rather than fail. In
+one full run it did; in the next it did not. Run folder by folder, nothing before it leaves a
+tracking row behind that can be seen from outside — so the rows are most likely written, and
+seen, inside one connection of the full run, by a class that cleans them up only later.
+
+A skip is not a failure, and that is the trouble: when it happens, the test checks nothing.
+
+- Find the class that leaves the rows — log the count, and the `list` and recipient domain of
+  the rows, at the moment the test skips.
+- Make that class remove its own rows in `tearDown()`, as the mail body store tests do.
+- Make the dashboard test own its data — tracking rows of its own, dated before the week — rather
+  than depend on what the database happens to hold.
+
+*Done when:* the test cannot skip for rows another test wrote.
+
 ---
 
 _Have a request or found a gap? Open an issue on
