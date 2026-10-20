@@ -37,7 +37,7 @@ final class TypeMapperTest extends TestCase
             'date'             => ['date', 'date'],
             'time'             => ['time', 'time'],
             'year'             => ['year(4)', 'smallint'],
-            'char'             => ['char(2)', 'char(2)'],
+            'char, as a varchar' => ['char(2)', 'varchar(2)'],
             'varchar'          => ['varchar(100)', 'varchar(100)'],
             'longtext'         => ['longtext', 'text'],
             'enum'             => ["enum('a','b')", 'text'],

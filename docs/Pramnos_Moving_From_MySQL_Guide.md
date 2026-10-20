@@ -95,7 +95,7 @@ unique keys and foreign keys, with their `ON DELETE` / `ON UPDATE` rules:
 | `tinyint`, `smallint`, `mediumint`, `int` | `smallint`, `smallint`, `integer`, `integer` |
 | `decimal(p,s)`, `float`, `double` | `numeric(p,s)`, `real`, `double precision` |
 | `datetime`, `timestamp`, `date`, `time`, `year` | `timestamp`, `timestamp`, `date`, `time`, `smallint` |
-| `char`, `varchar` | the same, with its length |
+| `char(n)`, `varchar(n)` | `varchar(n)` — PostgreSQL's `char` pads what it reads back with spaces, MySQL's does not, and PHP would see `'gr '` where it had `'gr'` |
 | `text` kinds, `enum`, `set` | `text` |
 | `blob` kinds, `binary`, `varbinary` | `bytea` |
 | `json`, `bit(1)` | `jsonb`, `boolean` |

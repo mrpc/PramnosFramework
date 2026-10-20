@@ -25,7 +25,8 @@ final class TypeMapper
      * Unsigned integers move up a size, so their range fits — except `bigint unsigned`, which stays
      * a `bigint`: there is no larger integer, and a `numeric` can be neither an identity column nor
      * the target of a foreign key to one. The dry run counts the values above its range; `tinyint(1)` stays a number, as a
-     * flag with a third state is common; text and blobs become `text` and `bytea`; `enum` and
+     * flag with a third state is common; a `char(n)` becomes a `varchar(n)`, since PostgreSQL's
+     * `char` pads what it reads back and MySQL's does not; text and blobs become `text` and `bytea`; `enum` and
      * `set` become `text`; anything unknown becomes `text`.
      */
     public static function toPostgres(string $mysqlType): string
@@ -49,7 +50,9 @@ final class TypeMapper
             'datetime', 'timestamp' => 'timestamp',
             'time'                => 'time',
             'year'                => 'smallint',
-            'char'                => 'char(' . ($size !== '' ? $size : '1') . ')',
+            // A varchar, not PostgreSQL's char: MySQL drops a CHAR's trailing spaces when it
+            // reads one, PostgreSQL hands them back, and PHP sees 'gr ' where it had 'gr'.
+            'char'                => 'varchar(' . ($size !== '' ? $size : '1') . ')',
             'varchar'             => 'varchar(' . ($size !== '' ? $size : '255') . ')',
             'tinytext', 'text', 'mediumtext', 'longtext', 'enum', 'set' => 'text',
             'binary', 'varbinary', 'tinyblob', 'blob', 'mediumblob', 'longblob' => 'bytea',

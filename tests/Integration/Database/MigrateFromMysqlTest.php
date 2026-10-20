@@ -594,6 +594,29 @@ class MigrateFromMysqlTest extends TestCase
     }
 
     /**
+     * A `char(n)` arrives as a `varchar(n)` and reads back as MySQL gave it: PostgreSQL's own
+     * `char` pads with spaces what it reads, so `'gr'` came back `'gr '` — equal inside
+     * PostgreSQL, a different string to PHP's `===`, an array key and JSON (FW-188).
+     */
+    public function testACharArrivesAsAVarcharWithoutPadding(): void
+    {
+        // Arrange
+        $tester = $this->databases();
+        $this->source->query("CREATE TABLE padded (id INT PRIMARY KEY, country CHAR(3) NOT NULL DEFAULT 'gr', kind CHAR(20)) ENGINE=InnoDB");
+        $this->source->query("INSERT INTO padded VALUES (1, 'gr', 'profileValidation')");
+
+        // Act
+        $tester->execute(['--source' => $this->dsn(), '--tables' => 'padded']);
+        $types = $this->rows("SELECT column_name AS c, data_type AS t, character_maximum_length AS n FROM information_schema.columns WHERE table_name = 'padded' AND column_name IN ('country', 'kind') ORDER BY column_name");
+        $row   = $this->rows('SELECT country, kind FROM padded WHERE id = 1')[0];
+
+        // Assert
+        $this->assertSame([['c' => 'country', 't' => 'character varying', 'n' => 3], ['c' => 'kind', 't' => 'character varying', 'n' => 20]], array_map(static fn (array $r): array => ['c' => $r['c'], 't' => $r['t'], 'n' => (int) $r['n']], $types));
+        $this->assertSame('gr', $row['country'], 'padded to the column\'s width');
+        $this->assertSame('profileValidation', $row['kind']);
+    }
+
+    /**
      * A binary column's default comes with it (FW-172): `binary(8) NOT NULL DEFAULT ''` is eight
      * zero bytes in MySQL — its padding — reported as `0x…` by MySQL and as an escaped literal by
      * MariaDB, and was dropped, so an insert that left the column out was refused on PostgreSQL
