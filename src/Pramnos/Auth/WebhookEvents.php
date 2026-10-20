@@ -119,14 +119,14 @@ final class WebhookEvents
     public static function builtIn(): array
     {
         return [
-            'user_deauthorized'    => ['title' => 'A user removed this application', 'payload' => []],
-            'token_revoked'        => ['title' => 'A token was revoked', 'payload' => []],
-            'gdpr_request'         => ['title' => 'A user asked for their data or its erasure', 'payload' => []],
-            'user_profile_changed' => ['title' => 'A user changed their profile', 'payload' => []],
+            'user_deauthorized'    => ['title' => 'A user removed this application', 'payload' => ['event_type', 'user_id', 'application_id', 'tokens_revoked', 'revoked_by']],
+            'token_revoked'        => ['title' => 'A token was revoked', 'payload' => ['event_type', 'user_id', 'token_id', 'token_type', 'application_id']],
+            'gdpr_request'         => ['title' => 'A user asked for their data or its erasure', 'payload' => ['event_type', 'user_id', 'request_type', 'requested_by', 'request_id']],
+            'user_profile_changed' => ['title' => 'A user changed their profile', 'payload' => ['event_type', 'user_id', 'changed', 'changed_by']],
             'device_authorized'    => ['title' => 'A user approved a device sign-in', 'payload' => ['user_code', 'client_id', 'scope']],
-            'device_deauthorized'  => ['title' => 'A device was signed out', 'payload' => []],
-            'account_deleted'      => ['title' => 'An account was deleted', 'payload' => []],
-            'scope_changed'        => ['title' => 'The scopes granted to this application changed', 'payload' => []],
+            'device_deauthorized'  => ['title' => 'A device was signed out', 'payload' => ['user_code', 'client_id', 'reason']],
+            'account_deleted'      => ['title' => 'An account was deleted', 'payload' => ['event_type', 'user_id', 'email', 'deleted_at']],
+            'scope_changed'        => ['title' => 'The scopes granted to this application changed', 'payload' => ['event_type', 'user_id', 'application_id', 'scope', 'previous_scope', 'scopes_added']],
             'permissions_changed'  => ['title' => 'What a user or a role may do changed', 'payload' => ['subject_type', 'subject_id']],
         ];
     }

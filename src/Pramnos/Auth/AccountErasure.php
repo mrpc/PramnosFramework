@@ -81,6 +81,21 @@ class AccountErasure
             }
         }
 
+        // Asked before the tokens and consents it is read from are deleted below.
+        $webhooks     = new WebhookService($this->database);
+        $notifyApps   = [];
+        $deletedEmail = '';
+        try {
+            if ($webhooks->isSubscribed('account_deleted')) {
+                $notifyApps = $webhooks->applicationsOfUser($userId);
+                $row = $this->database->queryBuilder()->table('#PREFIX#users')
+                    ->select(['email'])->where('userid', $userId)->first();
+                $deletedEmail = $row && $row->numRows > 0 ? (string) $row->fields['email'] : '';
+            }
+        } catch (\Throwable $exception) {
+            \Pramnos\Logs\Logger::logError('account_deleted: the applications to tell could not be read', $exception);
+        }
+
         $schema  = $this->database->schema();
         $skipped = [];
 
@@ -131,6 +146,19 @@ class AccountErasure
         $this->database->queryBuilder()->table('#PREFIX#users')->where('userid', $userId)->delete();
         // A role or a membership just went: answers cached about this user are stale.
         $this->database->cacheflush('permissions');
+
+        // After the erase, so an application that acts on it finds the account gone; the
+        // user is named in the body only, because the row the column points at no longer exists.
+        if ($notifyApps !== []) {
+            try {
+                $webhooks->queueUserEvent('account_deleted', $userId, [
+                    'email'      => $deletedEmail,
+                    'deleted_at' => date('c'),
+                ], $notifyApps, false);
+            } catch (\Throwable $exception) {
+                \Pramnos\Logs\Logger::logError('account_deleted could not be queued', $exception);
+            }
+        }
     }
 
     /**

@@ -164,6 +164,10 @@ class GdprControllerIntegrationTest extends TestCase
         $this->dbMock = $this->createMock(TestDatabase::class);
         $this->dbMock->method('queryBuilder')->willReturn($this->queryBuilderMock);
         $this->dbMock->method('prepareQuery')->willReturn('mock_query');
+        // The webhook service asks whether its tables exist before it asks who subscribes.
+        $schemaMock = $this->createMock(\Pramnos\Database\SchemaBuilder::class);
+        $schemaMock->method('hasTable')->willReturn(true);
+        $this->dbMock->method('schema')->willReturn($schemaMock);
 
         // Inject Database via reference
         $dbRef = $this->dbMock;

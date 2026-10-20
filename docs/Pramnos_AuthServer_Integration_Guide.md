@@ -1386,17 +1386,37 @@ Event types: `user_deauthorized`, `token_revoked`, `gdpr_request`,
 `scope_changed`, `permissions_changed` — plus any the server application registered as its own
 (below).
 
-`device_authorized` (payload `user_code`, `client_id`, `scope`) and a refused device sign-in
-(`device_deauthorized`, `reason: user_denied`) go only to the application that started the device
-flow, and never carry the `device_code`: with it, anybody could collect the tokens the user just
-approved.
+What fires each one, who receives it, and the body it carries. The body is JSON, signed as
+it is sent:
+
+| Type | Fired by | Sent to | Body |
+|---|---|---|---|
+| `user_deauthorized` | the user removing the application from their account (`AuthorizedApplications::revoke()`) | that application | `event_type`, `user_id`, `application_id`, `tokens_revoked`, `revoked_by` |
+| `token_revoked` | revoking one live token (`User::deleteToken()`, used by `DELETE /me/tokens/{id}`) | the token's application | `event_type`, `user_id`, `token_id`, `token_type`, `application_id` |
+| | an administrator signing a user out of everything (`POST /gdpr/deauthorizeAll`) | the user's applications | `event_type`, `user_id`, `reason`, `revoked_count`, `revoked_by` |
+| `gdpr_request` | a data export from the account page | the user's applications | `event_type`, `user_id`, `request_type: export`, `requested_by` |
+| | a request through `POST /gdpr/request` | the user's applications | `event_type`, `user_id`, `request_id`, `request_type`, `requested_by` |
+| `user_profile_changed` | the user saving their profile with a changed field | the user's applications | `event_type`, `user_id`, `changed` (field names, no values), `changed_by` |
+| | `POST /gdpr/notifyChange` | the user's applications | `event_type`, `user_id`, `changes`, `changed_by` |
+| `account_deleted` | the account being erased (`AccountErasure::erase()`), after the erase | the applications the user had | `event_type`, `user_id`, `email`, `deleted_at` |
+| `scope_changed` | the user granting an application scopes beyond its earlier consent | that application | `event_type`, `user_id`, `application_id`, `scope`, `previous_scope`, `scopes_added` |
+| `device_authorized` | the user approving a device sign-in | the application that started the device flow | `user_code`, `client_id`, `scope` |
+| `device_deauthorized` | the user refusing a device sign-in | the application that started the device flow | `user_code`, `client_id`, `reason: user_denied` |
+| `permissions_changed` | any write of a grant or a role assignment | the applications of the people affected | `subject_type`, `subject_id`, plus `operation` and context |
+
+"The user's applications" means the ones the user holds an unexpired token for or has
+consented to (`WebhookService::userEvent()`); an application the user never used is told
+nothing about them. `account_deleted` names the user in the body only, because the event row's
+`user_id` column points at the account that was just removed. A consent never shrinks by itself:
+it ends by being revoked, which is `user_deauthorized`. The device events never carry the
+`device_code`: with it, anybody could collect the tokens the user just approved.
 `GET /Webhook/list` returns the full set as `supported_types`. One endpoint per type per
 application.
 
 `POST /Webhook/test` queues an event for **the endpoint you named and no other**.
-That matters because a real event does the opposite: `token_revoked` concerns
-every application holding a token for that user, so the queue fans it out to
-every endpoint subscribed to the type. A test ping is not a real event — it is
+That matters because a real event does the opposite: `token_revoked` from an
+administrator's sign-out concerns every application holding a token for that user, so it goes
+to each of their endpoints subscribed to the type. A test ping is not a real event — it is
 traffic you asked to have sent — so it stops at your own URL. If you need the
 fan-out behaviour from your own code, call `queueEvent()` without the last
 argument:

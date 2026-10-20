@@ -184,14 +184,7 @@ class WebhookService
         // Who is subscribed is asked first, in one query: with nobody listening — most
         // installations, and every test — finding the role's holders and their applications
         // would be work for nothing, and it is done on every grant a role or a team changes.
-        $listening = $this->database->queryBuilder()
-            ->table(self::TABLE_ENDPOINTS)
-            ->select(['webhook_id'])
-            ->where('webhook_type', 'permissions_changed')
-            ->where('is_active', 1)
-            ->limit(1)
-            ->get();
-        if (!$listening || !$listening->fetch()) {
+        if (!$this->isSubscribed('permissions_changed')) {
             return 0;
         }
 
@@ -206,6 +199,100 @@ class WebhookService
             ['subject_type' => $subjectType, 'subject_id' => $subjectId] + $context,
             $apps
         );
+    }
+
+    /**
+     * Tell the applications a user has used that something happened to that user.
+     *
+     * The emitter behind `user_deauthorized`, `token_revoked`, `gdpr_request`,
+     * `user_profile_changed`, `account_deleted` and `scope_changed`. Only the applications it
+     * concerns hear it: `$appIds`, or every application the user holds an unexpired token for
+     * or has consented to. An application the user never used is not told about them. The body
+     * always carries `event_type` and `user_id`, then the event's own fields.
+     *
+     * Best-effort, like {@see permissionsChanged()}: a missing webhook table or a failed insert
+     * never breaks the change it reports.
+     *
+     * @param list<int>|null       $appIds   The applications concerned; null for the user's own
+     * @param bool                 $userRow  False when the account row is being removed: the
+     *                                       `user_id` column is a foreign key, so the user is
+     *                                       named in the body only
+     * @return int Events queued
+     */
+    public static function userEvent(
+        string $eventType,
+        int $userId,
+        array $payload,
+        ?array $appIds = null,
+        bool $userRow = true
+    ): int {
+        try {
+            return (new self(\Pramnos\Framework\Factory::getDatabase()))
+                ->queueUserEvent($eventType, $userId, $payload, $appIds, $userRow);
+        } catch (\Throwable $exception) {
+            \Pramnos\Logs\Logger::logError('A ' . $eventType . ' webhook could not be queued', $exception);
+
+            return 0;
+        }
+    }
+
+    /**
+     * {@see userEvent()} on this connection, and not best-effort.
+     *
+     * @param list<int>|null $appIds
+     * @return int Events queued
+     */
+    public function queueUserEvent(
+        string $eventType,
+        int $userId,
+        array $payload,
+        ?array $appIds = null,
+        bool $userRow = true
+    ): int {
+        if (!$this->isSubscribed($eventType)) {
+            return 0;
+        }
+
+        return $this->queueEventForApplications(
+            $eventType,
+            $userRow ? $userId : null,
+            ['event_type' => $eventType, 'user_id' => $userId] + $payload,
+            $appIds ?? $this->applicationsOf([$userId])
+        );
+    }
+
+    /**
+     * The applications a user holds an unexpired token for or has consented to — the ones
+     * {@see userEvent()} tells by default.
+     *
+     * Public for a caller that has to ask before the answer disappears: an erasure deletes the
+     * tokens and the consents it would be read from.
+     *
+     * @return list<int>
+     */
+    public function applicationsOfUser(int $userId): array
+    {
+        return $this->applicationsOf([$userId]);
+    }
+
+    /** Whether any active endpoint subscribes to this event type. */
+    public function isSubscribed(string $eventType): bool
+    {
+        // An installation without the webhook tables has nobody subscribed, and asking must
+        // not log an error on every erase or revocation it runs.
+        if (!$this->database->schema()->hasTable(self::TABLE_ENDPOINTS)) {
+            return false;
+        }
+
+        $listening = $this->database->queryBuilder()
+            ->table(self::TABLE_ENDPOINTS)
+            ->select(['webhook_id'])
+            ->where('webhook_type', $eventType)
+            ->where('is_active', 1)
+            ->limit(1)
+            ->get();
+
+        return $listening && (bool) $listening->fetch();
     }
 
     /**

@@ -18,7 +18,7 @@ use Pramnos\Application\Controller;
  *   - status          — query status of a GDPR request
  *   - listRequests    — paginated list of GDPR requests
  *   - deauthorizeAll  — revoke all OAuth2 tokens for a user
- *   - notifyChange    — queue a profile-changed webhook event
+ *   - notifyChange    — queue a user_profile_changed webhook event
  *
  * Webhook events are queued via WebhookService::queueEvent() so that
  * registered application endpoints receive notifications asynchronously.
@@ -101,9 +101,10 @@ class Gdpr extends Controller
             $db        = \Pramnos\Framework\Factory::getDatabase();
             $requestId = $this->insertGdprRequest($db, $targetUserId, $requestType, (int) $userId);
 
-            // Notify registered endpoints asynchronously
-            $this->webhookService->queueEvent(
-                'gdpr_request_created',
+            // To the applications the user has used — under the catalogue's name, which is the
+            // one an endpoint can subscribe to.
+            $this->webhookService->queueUserEvent(
+                'gdpr_request',
                 $targetUserId,
                 ['request_id' => $requestId, 'request_type' => $requestType, 'requested_by' => $userId]
             );
@@ -278,14 +279,17 @@ class Gdpr extends Controller
         try {
             $db  = \Pramnos\Framework\Factory::getDatabase();
 
+            // Read before the tokens go: the applications held a token are the ones to tell.
+            $applications = $this->webhookService->applicationsOfUser($targetUserId);
+
             // Revoke all active tokens for the target user
             $revokedCount = $this->revokeUserTokens($db, $targetUserId);
 
-            // Queue a webhook event for each distinct application
-            $this->webhookService->queueEvent(
+            $this->webhookService->queueUserEvent(
                 'token_revoked',
                 $targetUserId,
-                ['reason' => $reason, 'revoked_count' => $revokedCount, 'revoked_by' => $userId]
+                ['reason' => $reason, 'revoked_count' => $revokedCount, 'revoked_by' => $userId],
+                $applications
             );
 
             echo json_encode([
@@ -302,7 +306,7 @@ class Gdpr extends Controller
     }
 
     /**
-     * Notify registered endpoints that the user's profile has changed.
+     * Notify the applications the user has used that their profile has changed (`user_profile_changed`).
      * POST /gdpr/notifyChange
      *
      * Body: { "changes": ["email", "name", ...], "user_id": <int> (admin only) }
@@ -333,8 +337,8 @@ class Gdpr extends Controller
         }
 
         try {
-            $this->webhookService->queueEvent(
-                'profile_changed',
+            $this->webhookService->queueUserEvent(
+                'user_profile_changed',
                 $targetUserId,
                 ['changes' => $changes, 'changed_by' => $userId]
             );

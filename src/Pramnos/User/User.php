@@ -1823,6 +1823,10 @@ class User extends \Pramnos\Framework\Base implements
     {
         $database = \Pramnos\Framework\Factory::getDatabase();
         $now = time();
+        // Read before the update: which application the token was for, and whether it was live.
+        $token = $database->queryBuilder()->table('#PREFIX#usertokens')
+            ->select(['applicationid', 'tokentype', 'status'])
+            ->where('tokenid', $tokenid)->where('userid', $this->userid)->first();
         if ($database->type == 'postgresql') {
             // PostgreSQL: no parentToken cascade — update only the exact token
             $database->queryBuilder()
@@ -1842,6 +1846,16 @@ class User extends \Pramnos\Framework\Base implements
                 ->update(['status' => 2, 'removedate' => $now]);
         }
         $database->cacheflush('usertokens');
+
+        $appId = $token && $token->numRows > 0 ? (int) ($token->fields['applicationid'] ?? 0) : 0;
+        if ($appId > 0 && (int) $token->fields['status'] === 1) {
+            \Pramnos\Auth\WebhookService::userEvent('token_revoked', (int) $this->userid, [
+                'token_id'       => (int) $tokenid,
+                'token_type'     => (string) ($token->fields['tokentype'] ?? ''),
+                'application_id' => $appId,
+            ], [$appId]);
+        }
+
         return $this;
     }
 

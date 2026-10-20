@@ -142,6 +142,17 @@ final class AuthorizedApplications
             'tokens_revoked'   => $count,
         ] + ($byUserId !== null && $byUserId !== $userId ? ['revoked_by' => $byUserId] : []));
 
+        // To that application only: the others still hold their access.
+        try {
+            (new WebhookService($db))->queueUserEvent('user_deauthorized', $userId, [
+                'application_id' => $appId,
+                'tokens_revoked' => $count,
+                'revoked_by'     => $byUserId ?? $userId,
+            ], [$appId]);
+        } catch (\Throwable $exception) {
+            \Pramnos\Logs\Logger::logError('user_deauthorized could not be queued', $exception);
+        }
+
         return $count;
     }
 

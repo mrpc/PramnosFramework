@@ -213,9 +213,11 @@ class Device extends Controller
                 'authorized_at' => time(),
             ]);
 
+        // No user: the device was refused before anyone was signed in on it. NULL, not 0 —
+        // the column is a foreign key, and 0 failed the insert wherever an endpoint subscribed.
         $this->webhookService->queueEventForApplications(
             'device_deauthorized',
-            0,
+            null,
             [
                 'user_code' => $deviceAuth['user_code'],
                 'client_id' => $deviceAuth['client_id'],

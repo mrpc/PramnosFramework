@@ -1643,6 +1643,12 @@ class Account extends Controller
             // its address used to be, and that address is the only place a warning can
             // reach the real owner when this change was not theirs.
             $previousEmail = (string) ($currentUser->email ?? '');
+            $submitted     = ['firstname' => $firstname, 'lastname' => $lastname, 'email' => $email, 'phone' => $phone];
+            $changed       = array_keys(array_filter(
+                $submitted,
+                static fn ($value, $field) => (string) ($currentUser->$field ?? '') !== $value,
+                ARRAY_FILTER_USE_BOTH
+            ));
 
             $currentUser->firstname = $firstname;
             $currentUser->lastname  = $lastname;
@@ -1658,6 +1664,14 @@ class Account extends Controller
                     '',
                     $previousEmail
                 );
+            }
+
+            // The fields, not their values: an application that wants them reads /me.
+            if ($changed !== []) {
+                \Pramnos\Auth\WebhookService::userEvent('user_profile_changed', (int) $currentUser->userid, [
+                    'changed'    => $changed,
+                    'changed_by' => (int) $currentUser->userid,
+                ]);
             }
 
             $this->addMessage(t('Your profile has been updated.'));
@@ -1762,6 +1776,10 @@ class Account extends Controller
             try {
                 $data = $this->buildExportData((int) $currentUser->userid);
                 \Pramnos\Auth\ActivityLog::record((int) $currentUser->userid, 'data_export_requested');
+                \Pramnos\Auth\WebhookService::userEvent('gdpr_request', (int) $currentUser->userid, [
+                    'request_type' => 'export',
+                    'requested_by' => (int) $currentUser->userid,
+                ]);
 
                 header('Content-Type: application/json');
                 header('Content-Disposition: attachment; filename="user_data_export_' . date('Y-m-d') . '.json"');

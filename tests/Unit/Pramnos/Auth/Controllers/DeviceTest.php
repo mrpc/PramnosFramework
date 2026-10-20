@@ -818,7 +818,7 @@ class DeviceTest extends TestCase
             ->getMock();
         $webhookMock->expects($this->once())
             ->method('queueEventForApplications')
-            ->with('device_deauthorized', 0, $this->anything(), $this->anything());
+            ->with('device_deauthorized', null, $this->anything(), $this->anything());
         (new \ReflectionProperty(Device::class, 'webhookService'))
             ->setValue($this->device, $webhookMock);
 
@@ -1073,7 +1073,7 @@ class DeviceTest extends TestCase
         $webhookMock->expects($this->once())
             ->method('queueEventForApplications')
             // To the device's own application only, and never with the device_code in it.
-            ->with('device_deauthorized', 0, $this->callback(static fn (array $p): bool => !isset($p['device_code'])), [0]);
+            ->with('device_deauthorized', null, $this->callback(static fn (array $p): bool => !isset($p['device_code'])), [0]);
 
         $rfWebhook = new \ReflectionProperty(Device::class, 'webhookService');
         $rfWebhook->setValue($this->device, $webhookMock);

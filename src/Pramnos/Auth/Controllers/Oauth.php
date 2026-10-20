@@ -2036,6 +2036,20 @@ class Oauth extends Controller
                 ->where('userid', $userId)
                 ->where('applicationid', $appId)
                 ->update(['scope' => $merged, 'updated_at' => date('Y-m-d H:i:s')]);
+
+            // A consent only grows here; it shrinks by being revoked (`user_deauthorized`).
+            $added = array_values(array_diff(
+                \Pramnos\User\Token::parseScopes($merged),
+                \Pramnos\User\Token::parseScopes($existing)
+            ));
+            if ($added !== []) {
+                \Pramnos\Auth\WebhookService::userEvent('scope_changed', $userId, [
+                    'application_id' => $appId,
+                    'scope'          => $merged,
+                    'previous_scope' => $existing,
+                    'scopes_added'   => $added,
+                ], [$appId]);
+            }
         } else {
             $db->queryBuilder()
                 ->table('authserver.oauth2_user_consents')
