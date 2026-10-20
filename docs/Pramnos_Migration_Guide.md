@@ -968,7 +968,18 @@ exists — failing on its own schedule, far from the deploy that caused it. Skip
 so in the log. A plain view is the framework's own and is replaced as usual, so the
 framework never loses the ability to update what it created.
 
-**2. Cast, do not assume a column's type.** The same logical column can be `VARCHAR` on
+When the materialization is in the way — it selects a column an `ALTER` has to change —
+drop it and recreate it from its own definition (`pg_matviews.definition`, plus its
+`pg_indexes`) after the `ALTER`, rather than replacing it.
+`widen_applications_callback` does this for a legacy `applications.usage_statistics`.
+
+**2. Do not rely on `CREATE OR REPLACE VIEW` on PostgreSQL.** It refuses a view whose
+columns change name or order (*"cannot change name of view column"*), and an older
+database may hold an earlier shape under the same name. Drop the view first —
+`DROP VIEW IF EXISTS … CASCADE`, after the kind check above — then create it. MySQL's
+`OR REPLACE` takes any shape.
+
+**3. Cast, do not assume a column's type.** The same logical column can be `VARCHAR` on
 one installation and something narrower on another, when the application created the
 table first and picked a type that validates its contents. Pick an expression defined
 for both:
@@ -978,7 +989,7 @@ for both:
 SPLIT_PART(ip_address::text, '.', 1)
 ```
 
-**3. Prefer the builder method that already guards.** `createContinuousAggregate()`
+**4. Prefer the builder method that already guards.** `createContinuousAggregate()`
 returns quietly when the aggregate exists, and `hasIndex()` / `hasTable()` /
 `hasColumn()` / `hasView()` exist so a guard can be asked rather than inferred from a
 caught driver error.

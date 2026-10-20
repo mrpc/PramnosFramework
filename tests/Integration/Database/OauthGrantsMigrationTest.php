@@ -190,4 +190,63 @@ class OauthGrantsMigrationTest extends TestCase
             $admin->close();
         }
     }
+
+    /**
+     * A legacy view of another shape under the same name is replaced, not refused.
+     *
+     * A database built from an older dump holds `oauth2_active_tokens` as a per-application
+     * aggregate whose first column is `appid`. PostgreSQL's `CREATE OR REPLACE VIEW` cannot
+     * rename a view column, so the migration stopped the whole run with "cannot change name
+     * of view column". It now drops both views first; MySQL's OR REPLACE has no such limit.
+     */
+    #[DataProvider('installations')]
+    public function testALegacyViewOfAnotherShapeIsReplaced(string $type, string $host, int $port, string $user, string $prefix): void
+    {
+        if ($type !== 'postgresql') {
+            $this->markTestSkipped('MySQL replaces a view of any shape');
+        }
+
+        // Arrange — the older per-application aggregate, under the name the migration owns
+        $admin = self::connection($type, $host, $port, $user, TEST_DATABASE, $prefix);
+        try {
+            if (!$admin->connect(false)) {
+                $this->markTestSkipped($host . ' not reachable');
+            }
+        } catch (\Throwable $e) {
+            $this->markTestSkipped($host . ' not reachable: ' . $e->getMessage());
+        }
+        $admin->query('DROP DATABASE IF EXISTS ' . self::PROBE);
+        $admin->query('CREATE DATABASE ' . self::PROBE);
+        $db = self::connection($type, $host, $port, $user, self::PROBE, $prefix);
+        $db->connect(false);
+        $this->previous = Factory::getDatabase();
+        $singleton      = &Factory::getDatabase();
+        $singleton      = $db;
+
+        try {
+            Schema::ensure([
+                \Pramnos\Framework\Migrations\AuthServer\CreateAuthserverSchema::class,
+                \Pramnos\Framework\Migrations\AuthServer\CreateApplicationsSchema::class,
+                \Pramnos\Framework\Migrations\Auth\CreateUsersTable::class,
+                \Pramnos\Framework\Migrations\Auth\CreateUsertokensTable::class,
+                \Pramnos\Framework\Migrations\AuthServer\CreateApplicationsTable::class,
+            ], $db);
+            $schema = $db->schema();
+            $db->query('CREATE VIEW ' . $schema->quoteTable('applications.oauth2_active_tokens')
+                . ' AS SELECT applicationid AS appid, COUNT(*) AS token_count FROM '
+                . $schema->quoteTable('usertokens') . ' GROUP BY applicationid');
+
+            // Act
+            Schema::ensure([CreateOauth2ApplicationGrantsTable::class], $db);
+
+            // Assert — the legacy aggregate has no tokenid, so selecting it proves the view
+            // was replaced; through quoteTable(), so the name resolves as it does in use
+            $db->query('SELECT tokenid, client_id FROM ' . $schema->quoteTable('applications.oauth2_active_tokens') . ' LIMIT 0');
+            $this->assertTrue(true, 'the legacy aggregate must be replaced by the token view');
+        } finally {
+            $db->close();
+            $admin->query('DROP DATABASE IF EXISTS ' . self::PROBE);
+            $admin->close();
+        }
+    }
 }

@@ -101,6 +101,20 @@ class CreateOauth2ApplicationGrantsTable extends Migration
             : "GROUP_CONCAT(CASE WHEN ag.is_enabled = 1 THEN ag.grant_type END ORDER BY ag.grant_type SEPARATOR ',')";
         $now         = $pg ? 'EXTRACT(EPOCH FROM NOW())' : 'UNIX_TIMESTAMP()';
 
+        if ($pg) {
+            // PostgreSQL's OR REPLACE refuses a view whose columns change name or order, and a
+            // legacy database may hold an older shape under either name — `oauth2_active_tokens`
+            // as a per-application aggregate starting with `appid` — which stopped the run with
+            // "cannot change name of view column". Dropped first, as `create_applications_views`
+            // does; CASCADE because a legacy view may sit on top, and that migration (later in
+            // the run) recreates every framework view that does. Raw: `dropView()` has no CASCADE.
+            foreach (['applications.oauth2_active_tokens', 'applications.oauth2_application_permissions'] as $view) {
+                $this->application->database->query(
+                    'DROP VIEW IF EXISTS ' . $schema->quoteTable($view) . ' CASCADE'
+                );
+            }
+        }
+
         $schema->createOrReplaceView('applications.oauth2_application_permissions', "SELECT
                 a.appid,
                 a.name         AS client_name,
