@@ -499,7 +499,6 @@ use Pramnos\Console\DaemonOrchestrator;
 
 final class MyDaemons extends DaemonOrchestrator
 {
-    protected function getJobName(): string        { return 'daemon_orchestrator'; }
     protected function getDashboardTitle(): string { return ' MY DAEMONS '; }
     protected function getEntryPoint(): string     { return ROOT . '/console'; }
 
@@ -520,6 +519,16 @@ final class MyDaemons extends DaemonOrchestrator
     }
 }
 ```
+
+Three methods to write: `buildDesiredProcesses()`, `getDashboardTitle()` and `getEntryPoint()`.
+`getJobName()`, which names the orchestrator's lock under `var/`, is `daemon_orchestrator`
+unless a subclass says otherwise.
+
+**On SIGTERM or SIGINT it stops its daemons before it exits.** Each is asked to stop after its
+current task — the stop sentinel a restart uses — and given `STOP_GRACE_SECONDS` (30); one still
+running then gets SIGTERM, which a `CommandBase` worker answers by finishing its task. So
+stopping the service, or `Ctrl-C` on `daemons:start`, leaves no worker behind and kills none
+mid-task.
 
 ### Sizing the pool — `BurstPolicy`
 
@@ -1050,7 +1059,9 @@ ExecStart=/usr/bin/php /srv/app/console daemons:start
 # leaving the supervisor gone with every other service up and healthy beside it.
 Restart=always
 RestartSec=5
-# It supervises children; let systemd clean up the whole tree.
+# SIGTERM to the orchestrator alone: it asks every daemon to stop after its current task, waits
+# up to STOP_GRACE_SECONDS (30) for them, and only then exits. systemd SIGKILLs what is left
+# after TimeoutStopSec, so keep that above the grace period.
 KillMode=mixed
 TimeoutStopSec=60
 StandardOutput=journal

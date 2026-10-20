@@ -672,6 +672,18 @@ abstract class DaemonOrchestrator extends CommandBase
      */
     abstract protected function getEntryPoint(): string;
 
+    /**
+     * The orchestrator's own job name — its lock and log under `var/`.
+     *
+     * `CommandBase` declares it abstract, and the class doc names three methods to implement, so
+     * a subclass that implemented exactly those failed at load with "contains 1 abstract method".
+     * The name the scaffolded `Daemons` command has always given.
+     */
+    protected function getJobName(): string
+    {
+        return 'daemon_orchestrator';
+    }
+
     // ── Overrideable hooks ────────────────────────────────────────────────────
 
     /**
@@ -944,6 +956,10 @@ abstract class DaemonOrchestrator extends CommandBase
                 sleep(1);
             }
         } while ($this->shouldContinue);
+
+        if ($this->stoppedBySignal && !$dryRun) {
+            $this->stopManagedProcesses($output);
+        }
 
         $output->writeln('<info>Daemon orchestrator exited.</info>');
         if ($interactive) {
@@ -1753,6 +1769,53 @@ abstract class DaemonOrchestrator extends CommandBase
         }
     }
 
+    /** Whether the loop ended on SIGTERM or SIGINT, rather than on --once. */
+    protected bool $stoppedBySignal = false;
+
+    /**
+     * Stop every managed daemon before the orchestrator itself exits on a signal.
+     *
+     * The orchestrator used to leave on SIGTERM and take nothing with it. Under the documented
+     * systemd unit (`KillMode=mixed`) systemd signals only the main process and SIGKILLs the rest
+     * once it has gone, so a worker in the middle of a task was killed mid-task; run by hand, the
+     * workers outlived it. Here each one is asked to stop after its current task — the stop
+     * sentinel a restart uses — and given `STOP_GRACE_SECONDS`. One still running then gets
+     * SIGTERM, which a `CommandBase` worker also answers by finishing its task.
+     */
+    protected function stopManagedProcesses(OutputInterface $output): void
+    {
+        $this->requestStopAll($output);
+        $pids = array_filter(array_map(static fn (array $item): int => (int) ($item['pid'] ?? 0), $this->loadState()));
+
+        for ($waited = 0; ; $waited++) {
+            $this->reapExitedChildren();
+            $pids = array_filter($pids, fn (int $pid): bool => $this->isProcessRunning($pid));
+            if ($pids === [] || $waited >= static::STOP_GRACE_SECONDS) {
+                break;
+            }
+            $this->pauseOneSecond();
+        }
+
+        foreach ($pids as $pid) {
+            $this->signalProcess($pid);
+            $output->writeln('<error>[stop-timeout]</error> pid=' . $pid . ' — still running after ' . static::STOP_GRACE_SECONDS . 's, sent SIGTERM');
+        }
+    }
+
+    /** One second of the shutdown grace period — a seam, so a test does not wait it out. */
+    protected function pauseOneSecond(): void
+    {
+        sleep(1);
+    }
+
+    /** SIGTERM to a daemon that did not stop in time — a seam, so a test sends nothing. */
+    protected function signalProcess(int $pid): void
+    {
+        if (function_exists('posix_kill')) {
+            @posix_kill($pid, defined('SIGTERM') ? \SIGTERM : 15);
+        }
+    }
+
     /**
      * Replace this orchestrator process with a fresh one (same PID) so a git
      * redeploy loads the new code — most importantly any newly-declared workers
@@ -2005,11 +2068,13 @@ abstract class DaemonOrchestrator extends CommandBase
         }
         pcntl_signal(SIGINT, function () use ($output) {
             $output->writeln('<comment>Received SIGINT, stopping orchestrator loop.</comment>');
-            $this->shouldContinue = false;
+            $this->shouldContinue    = false;
+            $this->stoppedBySignal   = true;
         });
         pcntl_signal(SIGTERM, function () use ($output) {
             $output->writeln('<comment>Received SIGTERM, stopping orchestrator loop.</comment>');
-            $this->shouldContinue = false;
+            $this->shouldContinue    = false;
+            $this->stoppedBySignal   = true;
         });
         declare(ticks = 1);
     }

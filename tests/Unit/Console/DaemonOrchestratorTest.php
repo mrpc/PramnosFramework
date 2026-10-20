@@ -3216,6 +3216,107 @@ class DaemonOrchestratorTest extends TestCase
     }
 
     /**
+     * On SIGTERM the orchestrator stops its daemons before it exits: each is asked to stop after
+     * its current task, given STOP_GRACE_SECONDS, and only one still running then gets SIGTERM.
+     * It used to exit alone, and under systemd's KillMode=mixed the daemons were then SIGKILLed
+     * mid-task (FW-198).
+     */
+    public function testOnSigtermItStopsItsDaemonsBeforeExiting(): void
+    {
+        // Arrange — two daemons running, the signal received
+        $tmpDir = sys_get_temp_dir() . '/pramnos_orch_sigterm_' . bin2hex(random_bytes(4));
+        mkdir($tmpDir . '/var/logs', 0777, true);
+        $orch = new TestableDaemonOrchestratorShutdown($tmpDir);
+        $orch->desiredProcesses = [];
+        $orch->processRunning   = [101 => true, 102 => true];
+        $orch->publicSaveState([
+            ['id' => 'a', 'pid' => 101, 'lockFile' => $tmpDir . '/var/a.lock'],
+            ['id' => 'b', 'pid' => 102, 'lockFile' => $tmpDir . '/var/b.lock'],
+        ]);
+        $orch->receiveSignal();
+        $app = new \Symfony\Component\Console\Application();
+        $app->add($orch);
+        $output = new \Symfony\Component\Console\Output\BufferedOutput();
+
+        // Act
+        $orch->publicExecute(new ArrayInput([], $orch->getDefinition()), $output);
+
+        // Assert
+        $this->assertFileExists($tmpDir . '/var/a.lock.stop', 'a was not asked to stop');
+        $this->assertFileExists($tmpDir . '/var/b.lock.stop', 'b was not asked to stop');
+        $this->assertSame([102], $orch->signalled, 'only the one still running after the grace gets SIGTERM');
+        $this->assertSame(30, $orch->pauses, 'the whole grace period was given to the one that would not stop');
+        $this->assertStringContainsString('pid=102', $output->fetch());
+
+        $this->rmdirRecursive($tmpDir);
+    }
+
+    /**
+     * The two seams the shutdown stands on, for real: a second of grace is a second, and the
+     * SIGTERM reaches the process — a `sleep` child here, which the signal ends.
+     */
+    public function testTheShutdownSeamsWaitAndSignalForReal(): void
+    {
+        if (!function_exists('posix_kill') || !function_exists('proc_open')) {
+            $this->markTestSkipped('No posix or proc_open here.');
+        }
+        // Arrange
+        $orch    = new TestableDaemonOrchestrator(sys_get_temp_dir());
+        $pause   = new \ReflectionMethod($orch, 'pauseOneSecond');
+        $signal  = new \ReflectionMethod($orch, 'signalProcess');
+        $process = proc_open(['sleep', '30'], [], $pipes);
+        $pid     = (int) proc_get_status($process)['pid'];
+
+        // Act
+        $started = microtime(true);
+        $pause->invoke($orch);
+        $waited = microtime(true) - $started;
+        $signal->invoke($orch, $pid);
+        $exit = proc_close($process);
+
+        // Assert
+        $this->assertGreaterThanOrEqual(0.9, $waited, 'a second of grace was not a second');
+        $this->assertNotSame(0, $exit, 'the child was not stopped by the signal');
+    }
+
+    /**
+     * A subclass that implements the three methods the class names — and not getJobName(),
+     * which CommandBase declares — loads, and has the scaffolded orchestrator's job name (FW-197).
+     */
+    public function testASubclassOfTheThreeDocumentedMethodsLoads(): void
+    {
+        // Act
+        $orch = new class extends DaemonOrchestrator {
+            /** None. */
+            protected function buildDesiredProcesses(): array
+            {
+                return [];
+            }
+
+            /** A title. */
+            protected function getDashboardTitle(): string
+            {
+                return 'T';
+            }
+
+            /** An entry point. */
+            protected function getEntryPoint(): string
+            {
+                return '/bin/app';
+            }
+
+            /** The protected name, reachable. */
+            public function jobName(): string
+            {
+                return $this->getJobName();
+            }
+        };
+
+        // Assert
+        $this->assertSame('daemon_orchestrator', $orch->jobName());
+    }
+
+    /**
      * execute() should run deduplication and print [dedup] messages in non-interactive mode.
      */
     public function testExecutePrintsDeduplicateMessagesInNonInteractiveMode(): void
@@ -3980,6 +4081,41 @@ class TestableDaemonOrchestratorSchemaCheck extends TestableDaemonOrchestrator
         }
 
         return 'hash1';
+    }
+}
+
+/**
+ * The shutdown on a signal, with its clock and its signals recorded: pid 101 stops on its own
+ * after two seconds of grace, pid 102 never does.
+ */
+class TestableDaemonOrchestratorShutdown extends TestableDaemonOrchestrator
+{
+    /** Seconds of grace waited. */
+    public int $pauses = 0;
+
+    /** Pids sent SIGTERM. */
+    public array $signalled = [];
+
+    /** One second passes; after two, pid 101 has stopped. */
+    protected function pauseOneSecond(): void
+    {
+        $this->pauses++;
+        if ($this->pauses === 2) {
+            $this->processRunning[101] = false;
+        }
+    }
+
+    /** Recorded rather than sent. */
+    protected function signalProcess(int $pid): void
+    {
+        $this->signalled[] = $pid;
+    }
+
+    /** As if SIGTERM had arrived. */
+    public function receiveSignal(): void
+    {
+        $this->stoppedBySignal = true;
+        $this->setShouldContinue(false);
     }
 }
 
