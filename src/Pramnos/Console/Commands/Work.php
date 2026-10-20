@@ -196,6 +196,8 @@ class Work extends CommandBase
     protected function runDuePass(OutputInterface $output): int
     {
         $due = Scheduler::getDue(new \DateTime());
+        // The console a task marked inProcess() runs through: this one.
+        \Pramnos\Scheduling\ScheduledTask::useConsole($this->getApplication());
 
         if ($due === []) {
             return 0;

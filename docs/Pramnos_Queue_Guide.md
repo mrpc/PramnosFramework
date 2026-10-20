@@ -480,6 +480,14 @@ into one bucket, so storing p95 would mean either a wrong number or a second pas
 that no longer exist. `max` and the derived mean are enough to find a burst — it shows in
 both.
 
+How long finished tasks are kept is `queue.retention_hours` in `app.php`, 24 when unset. The
+framework's daily `queue:cleanup` uses it, so an installation that keeps a month sets it once
+rather than replacing the scheduled task; `--hours` given on the command line still wins.
+
+```php
+'queue' => ['retention_hours' => 720],
+```
+
 **Statuses are broken out**, and the framework's own retention is why: `queue:cleanup` keeps
 warnings for `$hours * 10`, which can make `warning` the *dominant* population of the
 table. A roll-up that counted only "tasks" could describe the small half.

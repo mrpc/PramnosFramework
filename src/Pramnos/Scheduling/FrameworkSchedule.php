@@ -52,6 +52,13 @@ class FrameworkSchedule
     protected static array $disabled = [];
 
     /**
+     * Commands the application has asked to run inside the scheduler's process.
+     *
+     * @var array<string, true>
+     */
+    protected static array $inProcess = [];
+
+    /**
      * Whether the framework's tasks have been registered this process.
      *
      * @var bool
@@ -70,6 +77,28 @@ class FrameworkSchedule
     public static function disable(string $command): void
     {
         static::$disabled[$command] = true;
+    }
+
+    /**
+     * Run these framework commands inside the scheduler's process ({@see ScheduledTask::inProcess()}).
+     *
+     * ```php
+     * // app/schedule.php
+     * FrameworkSchedule::inProcess('spool:drain', 'mail:flush', 'llm:routines');
+     * ```
+     *
+     * Not the default: in process a command's static state, memory and any fatal error are the
+     * scheduler's too, and the framework cannot vouch for that on every installation. An
+     * application that has watched its every-minute tasks run cleanly saves a PHP boot per run.
+     *
+     * @param string ...$commands The command names, e.g. `spool:drain`
+     * @return void
+     */
+    public static function inProcess(string ...$commands): void
+    {
+        foreach ($commands as $command) {
+            static::$inProcess[$command] = true;
+        }
     }
 
     /**
@@ -121,6 +150,7 @@ class FrameworkSchedule
     public static function reset(): void
     {
         static::$disabled   = [];
+        static::$inProcess  = [];
         static::$registered = false;
     }
 
@@ -153,6 +183,9 @@ class FrameworkSchedule
             // drain that overlaps itself does the same work twice and, for the
             // ones that decompress a chunk, does it expensively.
             $task->withoutOverlapping();
+            if (isset(static::$inProcess[$command])) {
+                $task->inProcess();
+            }
 
             // The cadence is a list of calls, because it is a fluent chain:
             // `daily()` sets the expression and `at()` then adjusts its time.

@@ -925,7 +925,7 @@ php bin/pramnos logs:convert /path/to/file.log --no-backup
 |---|---|---|
 | `work` | Run the framework and application schedule continuously | `--once`, `--interval/-i`, `--max-runtime` |
 | `queue:process` | Process queued tasks (one pass, or as a daemon) | `--daemon/-d`, `--runtime/-r`, `--sleep/-s`, `--limit/-l`, `--batch/-b`, `--type/-t`, `--worker-id/-w`, `--force/-f` |
-| `queue:cleanup` | Delete old completed tasks from the queue table | `--hours`, `--[no-]include-failed`, `--include-warning`, `--limit`, `--[no-]reclaim`, `--reclaim-grace` |
+| `queue:cleanup` | Delete old completed tasks from the queue table | `--hours` (default `queue.retention_hours`, else 24), `--[no-]include-failed`, `--include-warning`, `--limit`, `--[no-]reclaim`, `--reclaim-grace` |
 | `queue:reclaim` | Requeue or fail tasks abandoned by a worker that died holding them | `--grace`, `--type`, `--dry-run` |
 | `queue:health` | Report arrivals against completions; exits 1 when the queue is losing | `--window`, `--type`, `--per-type`, `--history`, `--json` |
 | `service:policy-engine` | Run all due framework policies (retention, aggregate refresh, …) | `--list/-l`, `--pretend` |

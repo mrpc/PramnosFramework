@@ -48,6 +48,12 @@ class ScheduledTask
      */
     private ?string $lastOutput = null;
 
+    /** When true, a `command` task runs inside the scheduler's process. {@see inProcess()} */
+    private bool $inProcess = false;
+
+    /** The console in-process tasks run through, set by the command running the schedule. */
+    private static ?\Symfony\Component\Console\Application $console = null;
+
     /** Human-readable description shown in schedule:list. */
     private string $description = '';
 
@@ -302,6 +308,39 @@ class ScheduledTask
     }
 
     /**
+     * Run this command inside the scheduler's process instead of starting PHP for it.
+     *
+     * ```php
+     * Scheduler::command('spool:drain')->everyMinute()->inProcess();
+     * ```
+     *
+     * A command task otherwise starts a PHP process each time it is due — for an every-minute
+     * task that is 1,440 boots a day, each a fraction of a second and tens of megabytes. In
+     * process it is the console's own command, run with the same exit status and output.
+     *
+     * Opt-in, because the command then shares the scheduler's process for as long as `work`
+     * runs: what it caches statically stays, a fatal error or an `exit()` in it ends the
+     * scheduler, and memory it keeps is kept. Fine for a short, well-behaved command; not for
+     * one that loads half the application. Where no console is known — a task run outside
+     * `work` and `schedule:run` — it starts a process as before.
+     */
+    public function inProcess(): static
+    {
+        $this->inProcess = true;
+
+        return $this;
+    }
+
+    /**
+     * The console in-process tasks run through. `work` and `schedule:run` set their own; null
+     * forgets it, and in-process tasks start a process again.
+     */
+    public static function useConsole(?\Symfony\Component\Console\Application $console): void
+    {
+        self::$console = $console;
+    }
+
+    /**
      * Executes the task.
      *
      * @return bool True if the task ran; false if it was skipped because a
@@ -422,8 +461,9 @@ class ScheduledTask
         }
 
         if ($this->type === 'command') {
-            $command = $this->consoleBinary() . ' ' . escapeshellcmd((string) $this->handler);
-            $status  = $this->runShellCommand($command);
+            $inProcess = $this->inProcess && self::$console !== null;
+            $command   = $inProcess ? (string) $this->handler . ' (in process)' : $this->consoleBinary() . ' ' . escapeshellcmd((string) $this->handler);
+            $status    = $inProcess ? $this->runInConsole((string) $this->handler) : $this->runShellCommand($command);
 
             // A command that could not run is a task that did not happen, and
             // the callers already know how to report a throw — `schedule:run`
@@ -491,6 +531,34 @@ class ScheduledTask
         }
 
         return 'php pramnos';
+    }
+
+    /**
+     * Run a console command in this process, show its output, and keep the tail of it — what
+     * {@see runShellCommand()} does for a child process, with the console's own command.
+     *
+     * The command line goes through `StringInput`, so arguments and options read as they would
+     * from a shell. Anything it throws is its failure, reported as status 1 with the message as
+     * its output, so one task cannot stop the scheduler's loop.
+     *
+     * @param  string $commandLine The command and its arguments, e.g. `queue:cleanup --hours=48`
+     * @return int Exit status, 0 on success
+     */
+    protected function runInConsole(string $commandLine): int
+    {
+        $output = new \Symfony\Component\Console\Output\BufferedOutput();
+        try {
+            $input  = new \Symfony\Component\Console\Input\StringInput($commandLine);
+            $status = self::$console->find((string) $input->getFirstArgument())->run($input, $output);
+        } catch (\Throwable $e) {
+            $output->writeln($e->getMessage());
+            $status = 1;
+        }
+        $text = $output->fetch();
+        echo $text;
+        $this->lastOutput = substr($text, -self::OUTPUT_TAIL);
+
+        return $status;
     }
 
     /**

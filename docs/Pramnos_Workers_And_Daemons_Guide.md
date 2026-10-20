@@ -381,6 +381,26 @@ The application's file is loaded **before** the framework registers, which is
 what makes `disable()` usable at all. An application that disables these takes
 on running them itself.
 
+### Running a command task in process
+
+```php
+Scheduler::command('reports:refresh')->everyMinute()->inProcess();
+
+// app/schedule.php — the framework's own every-minute tasks
+FrameworkSchedule::inProcess('spool:drain', 'mail:flush', 'llm:routines');
+```
+
+A `command` task starts a PHP process each time it is due: 1,440 a day for an every-minute
+task, each a fraction of a second and tens of megabytes. `inProcess()` runs the command through
+the console that `work` or `schedule:run` is itself, with the same exit status and output; a
+command that throws is a failed task, reported like a failed process.
+
+It is opt-in, and the framework's own tasks start a process unless named. In process, the
+command shares the scheduler's process for as long as `work` runs: what it caches statically
+stays, memory it keeps is kept, and a fatal error or an `exit()` in it ends the scheduler with
+it. Fine for a short, well-behaved command; not for one that loads half the application. Where
+no console is known, outside `work` and `schedule:run`, the task starts a process as before.
+
 ---
 
 ## 1d. The write spool — rows written out of the request path

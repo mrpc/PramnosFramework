@@ -256,6 +256,49 @@ class CleanupQueueCommandTest extends TestCase
      *
      * @param array<int, int> $purgeReturns  Values returned by successive purgeOldTasks() calls.
      */
+    /**
+     * Without `--hours`, the threshold is `queue.retention_hours` from app.php — what the daily
+     * scheduled cleanup uses — and 24 when none is set; `--hours` still wins over both.
+     */
+    public function testTheRetentionComesFromAppConfigUnlessHoursIsGiven(): void
+    {
+        // Arrange — an application whose app.php keeps queue items for thirty days
+        $instances = new \ReflectionProperty(\Pramnos\Application\Application::class, 'appInstances');
+        $lastUsed  = new \ReflectionProperty(\Pramnos\Application\Application::class, 'lastUsedApplication');
+        $saved     = [$instances->getValue(), $lastUsed->getValue()];
+        $app = new class extends \Pramnos\Application\Application {
+            /** No configuration to read: only applicationInfo is wanted. */
+            public function __construct()
+            {
+            }
+        };
+        $threshold = function (array $options): int {
+            $command = $this->createTestableCommand();
+            $command->runExecute(new ArrayInput($options, $command->getDefinition()), new BufferedOutput());
+
+            return $command->purgeCallArgs[0][1];
+        };
+
+        try {
+            // Act
+            $instances->setValue(null, ['default' => $app]);
+            $lastUsed->setValue(null, null);
+            $app->applicationInfo = ['queue' => ['retention_hours' => 720]];
+            $configured = $threshold([]);
+            $given      = $threshold(['--hours' => 6]);
+            $app->applicationInfo = [];
+            $unset      = $threshold([]);
+        } finally {
+            $instances->setValue(null, $saved[0]);
+            $lastUsed->setValue(null, $saved[1]);
+        }
+
+        // Assert
+        $this->assertSame(720, $configured, 'app.php\'s retention was not used');
+        $this->assertSame(6, $given, '--hours did not win over the configured retention');
+        $this->assertSame(24, $unset, 'with nothing configured the default is 24 hours');
+    }
+
     private function createTestableCommand(array $purgeReturns = [0, 0]): TestableCleanupQueue
     {
         $command = new TestableCleanupQueue($purgeReturns);

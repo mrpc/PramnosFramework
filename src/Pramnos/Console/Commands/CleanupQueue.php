@@ -31,8 +31,7 @@ class CleanupQueue extends Command
                 'hours',
                 null,
                 InputOption::VALUE_OPTIONAL,
-                'Remove completed/failed tasks older than this many hours',
-                24
+                'Remove completed/failed tasks older than this many hours (default: queue.retention_hours in app.php, else 24)'
             )
             ->addOption(
                 'include-failed',
@@ -70,6 +69,19 @@ class CleanupQueue extends Command
             );
     }
 
+    /**
+     * How long finished tasks are kept when `--hours` is not given: `'queue' => ['retention_hours'
+     * => 720]` in app.php, else 24. What the daily scheduled cleanup uses, so an installation sets
+     * its retention once rather than disabling the framework's task to run its own.
+     */
+    protected function configuredHours(): int
+    {
+        $app   = \Pramnos\Application\Application::currentInstance();
+        $hours = is_object($app) ? (int) ($app->applicationInfo['queue']['retention_hours'] ?? 0) : 0;
+
+        return $hours > 0 ? $hours : 24;
+    }
+
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         /** @var \Pramnos\Console\Application $consoleApp */
@@ -81,7 +93,7 @@ class CleanupQueue extends Command
         $controller   = \Pramnos\Queue\QueueManager::controllerOrPlain($application, $this->getControllerName());
         $queueManager = $this->createQueueManager($controller);
 
-        $hours   = (int)$input->getOption('hours');
+        $hours   = $input->getOption('hours') !== null ? (int) $input->getOption('hours') : $this->configuredHours();
         $limit   = (int)$input->getOption('limit');
         $statuses = ['completed'];
 

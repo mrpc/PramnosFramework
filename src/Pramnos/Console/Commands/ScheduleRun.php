@@ -50,6 +50,8 @@ class ScheduleRun extends Command
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         Scheduler::loadDefinitions($this->scheduleFile);
+        // The console a task marked inProcess() runs through: this one.
+        \Pramnos\Scheduling\ScheduledTask::useConsole($this->getApplication());
         $now  = new \DateTime();
         $due  = Scheduler::getDue($now);
         $errors = 0;
