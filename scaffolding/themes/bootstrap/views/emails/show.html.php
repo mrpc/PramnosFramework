@@ -28,6 +28,11 @@ $sentAt    = is_numeric($rawDate) && (int) $rawDate > 0
             <dl class="row mb-0">
                 <dt class="col-sm-2"><?php echo htmlspecialchars(t('To'), ENT_QUOTES, 'UTF-8'); ?></dt>
                 <dd class="col-sm-10"><?php echo htmlspecialchars($recipient); ?></dd>
+                <?php if (!empty($this->origin)): $o = $this->origin; ?>
+                <dt class="col-sm-2"><?php echo htmlspecialchars(t('Sent by'), ENT_QUOTES, 'UTF-8'); ?></dt>
+                <dd class="col-sm-10" data-field="origin"><?php $what = htmlspecialchars(t('rule %s, version %s, step %s', (string) ($o['name'] ?? '#' . $o['rule']), (string) $o['version'], $o['step']), ENT_QUOTES, 'UTF-8');
+                    echo $o['url'] !== null ? '<a href="' . htmlspecialchars($o['url'], ENT_QUOTES, 'UTF-8') . '">' . $what . '</a>' : $what; ?></dd>
+                <?php endif; ?>
                 <dt class="col-sm-2"><?php echo htmlspecialchars(t('Subject'), ENT_QUOTES, 'UTF-8'); ?></dt>
                 <dd class="col-sm-10"><?php echo htmlspecialchars($mail['subject'] ?? ''); ?></dd>
                 <dt class="col-sm-2"><?php echo htmlspecialchars(t('Date'), ENT_QUOTES, 'UTF-8'); ?></dt>

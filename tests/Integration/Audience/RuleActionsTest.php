@@ -219,4 +219,31 @@ class RuleActionsTest extends TestCase
         $this->assertNull($whole);
         $this->assertSame([], $this->db->queryBuilder()->table('rule_log')->getAll());
     }
+
+    /**
+     * A message's origin read back from the Email Log: the rule by name with a link to its page
+     * while it is there, by id once it is gone; anything else is not an origin. Every theme's
+     * message page shows it.
+     */
+    #[DataProvider('databases')]
+    public function testAnOriginIsReadBackForTheEmailLog(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->boot($type, $host, $port, $user);
+        $rule = \Pramnos\Audience\Rules\Rules::create('Welcome', ['trigger' => ['type' => 'once'], 'steps' => []], 2);
+
+        // Act
+        $known   = Context::parse('rule:' . $rule . ':v2:mail:run99');
+        $gone    = Context::parse('rule:424242:v1:mail:run1');
+        $nothing = Context::parse('massmessage:5');
+
+        // Assert
+        $this->assertSame(['rule' => $rule, 'version' => 2, 'step' => 'mail', 'run' => 99, 'name' => 'Welcome', 'url' => adminUrl('Rules/view/') . $rule], $known);
+        $this->assertSame([null, null], [$gone['name'], $gone['url']]);
+        $this->assertNull($nothing);
+        foreach (['tailwind', 'bootstrap', 'plain-css'] as $theme) {
+            $view = (string) file_get_contents(ROOT . '/scaffolding/themes/' . $theme . '/views/emails/show.html.php');
+            $this->assertStringContainsString('data-field="origin"', $view, $theme);
+        }
+    }
 }

@@ -540,7 +540,9 @@ would have been.
 
 Every action knows where it comes from (`Context`): `origin()` is `rule:4:v3:mail:run812`, which an
 email keeps in `mails.module = 'rule'` / `moduleinfo` — how a branch finds the message it asks
-about, and how the Email Log shows which rule sent what. `toArray()` adds the trigger and its
+about, and how the Email Log's message page says *Sent by rule …, version …, step …*, linked to
+the rule (`Context::parse()` reads an origin back). A site message keeps it in its `origin`; an
+application's SMS or push action passes `$context->origin()` or `toArray()` to its provider. `toArray()` adds the trigger and its
 causation ids, the variant and the consent list.
 
 A saved change is a new version (`rule_versions`); runs finish on the version they started on.

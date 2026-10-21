@@ -1257,4 +1257,6 @@ return [
     'entries into the segment' => 'τις εισόδους στο segment',
     'departures from the segment' => 'τις εξόδους από το segment',
     'who matches now' => 'όσους ταιριάζουν τώρα',
+    'Sent by' => 'Στάλθηκε από',
+    'rule %s, version %s, step %s' => 'τον κανόνα %s, έκδοση %s, βήμα %s',
 ];

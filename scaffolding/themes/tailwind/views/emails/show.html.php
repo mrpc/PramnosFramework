@@ -48,6 +48,13 @@ $sentAt  = is_numeric($rawDate) && (int) $rawDate > 0
                      rows, and the header pushed the message itself below the fold before the
                      message had lost any width at all. */ ?>
             <dl class="grid gap-x-6 gap-y-3 sm:grid-cols-2 text-sm">
+                <?php if (!empty($this->origin)): $o = $this->origin; ?>
+                <div class="sm:col-span-2" data-field="origin">
+                    <dt class="font-semibold text-base-content/60 text-xs uppercase tracking-wide"><?php echo htmlspecialchars(t('Sent by'), ENT_QUOTES, 'UTF-8'); ?></dt>
+                    <dd><?php $what = htmlspecialchars(t('rule %s, version %s, step %s', (string) ($o['name'] ?? '#' . $o['rule']), (string) $o['version'], $o['step']), ENT_QUOTES, 'UTF-8');
+                        echo $o['url'] !== null ? '<a href="' . htmlspecialchars($o['url'], ENT_QUOTES, 'UTF-8') . '">' . $what . '</a>' : $what; ?></dd>
+                </div>
+                <?php endif; ?>
                 <div class="sm:col-span-2">
                     <dt class="font-semibold text-base-content/60 text-xs uppercase tracking-wide"><?php echo htmlspecialchars(t('Subject'), ENT_QUOTES, 'UTF-8'); ?></dt>
                     <dd class="break-words"><?php echo htmlspecialchars($mail['subject'] ?? ''); ?></dd>

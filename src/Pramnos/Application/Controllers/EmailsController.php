@@ -532,6 +532,8 @@ class EmailsController extends Controller
         $view->mail      = $mail;
         // The same words as the list: a failed message reads as failed, with its error.
         $view->statusBadge = $this->statusBadge((int) ($mail['status'] ?? 0), $mail);
+        // Which rule sent it, at which step of which version, where a rule did.
+        $view->origin = ($mail['module'] ?? '') === 'rule' ? \Pramnos\Audience\Rules\Context::parse((string) ($mail['moduleinfo'] ?? '')) : null;
         // "← Back" goes where the reader came from — an account's page, a filtered list — when
         // that was a page of this site and not this one; the list otherwise.
         $view->backUrl = $this->backUrl();

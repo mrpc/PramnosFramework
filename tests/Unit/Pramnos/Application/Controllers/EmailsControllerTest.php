@@ -55,6 +55,8 @@ class TestableEmailsController extends EmailsController
             public mixed $bounce;
             /** The message's status, as the same badge the list draws. */
             public mixed $statusBadge;
+            /** Which rule sent it, where one did. */
+            public mixed $origin;
             /** Where "← Back" goes. */
             public mixed $backUrl;
 

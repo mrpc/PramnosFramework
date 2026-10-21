@@ -53,6 +53,27 @@ final class Context
     }
 
     /**
+     * An origin read back — what an Email Log row's `moduleinfo` says — or null when it is not one,
+     * with the rule's name and the address of its page where the rule is still there.
+     *
+     * @return array{rule: int, version: int, step: string, run: int, name: ?string, url: ?string}|null
+     */
+    public static function parse(string $origin): ?array
+    {
+        if (preg_match('/^rule:(\d+):v(\d+):([A-Za-z0-9_.-]+):run(\d+)$/', $origin, $m) !== 1) {
+            return null;
+        }
+        try {
+            $rule = \Pramnos\Audience\Installed::has('rules') ? Rules::get((int) $m[1]) : null;
+        } catch (\Throwable) {
+            $rule = null;
+        }
+
+        return ['rule' => (int) $m[1], 'version' => (int) $m[2], 'step' => $m[3], 'run' => (int) $m[4],
+            'name' => $rule['name'] ?? null, 'url' => $rule === null ? null : adminUrl('Rules/view/') . $m[1]];
+    }
+
+    /**
      * Everything about the origin, for a webhook or a provider's metadata.
      *
      * @return array<string, mixed>
