@@ -9,7 +9,9 @@
 # macOS run falsely report "already in progress". The lock is released via an
 # EXIT trap; if a run is hard-killed before the trap fires, the next run detects
 # the stale PID (recorded in the lock dir) and clears it automatically.
-nobrowser=false
+# The coverage report opens in a browser only when asked (--browser): runs made by tools and
+# scripts are most of them, and a tab per run is noise. --nobrowser is kept as the default it now is.
+browser=false
 coverage=false
 nocoverage=false
 testdox=false
@@ -19,8 +21,10 @@ parallel=0
 mariadb=false
 passthrough=()
 for arg in "$@"; do
-    if [[ "$arg" == "--nobrowser" ]]; then
-        nobrowser=true
+    if [[ "$arg" == "--browser" ]]; then
+        browser=true
+    elif [[ "$arg" == "--nobrowser" ]]; then
+        browser=false
     elif [[ "$arg" == "--coverage" ]]; then
         coverage=true
     elif [[ "$arg" == "--nocoverage" || "$arg" == "--no-coverage" ]]; then
@@ -361,8 +365,8 @@ else
     phpunit_status=$?
 fi
 
-# Open coverage report if generated and not suppressed
-if [[ "$coverage" == true && "$nobrowser" == false && -f ./coverage/index.html ]]; then
+# Open the coverage report, when it was generated and asked for (--browser)
+if [[ "$coverage" == true && "$browser" == true && -f ./coverage/index.html ]]; then
     if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" || "$OSTYPE" == "linux-gnu"* && "$(uname -r)" == *"Microsoft"* || -n "$WSL_DISTRO_NAME" ]]; then
         win_path=$(wslpath -w "$(pwd)")
         explorer.exe "$win_path\coverage\index.html"

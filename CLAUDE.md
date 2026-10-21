@@ -34,6 +34,7 @@ Before modifying any of `Auth`, `User`, `Logs`, `Adjacencylist`, `Migration`, en
 ./dockertest --nocoverage                     # full suite — the default way to run it
 ./dockertest --nocoverage --filter TestName   # single test / class
 ./dockertest --coverage                       # only when the coverage number is the point
+./dockertest --coverage --browser             # ...and open the HTML report (off by default)
 ./dockertest --testdox                        # human-readable output
 ```
 
