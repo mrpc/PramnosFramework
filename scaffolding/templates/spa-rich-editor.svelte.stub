@@ -1,0 +1,49 @@
+<script>
+    /**
+     * A rich text editor — the framework's, the same core the server-rendered pages use.
+     *
+     * The core is lib/rich-editor/ (the framework's, refreshed by `project:resync`); this
+     * component is yours: change the props, the layout around it, what you pass in.
+     *
+     *   <RichEditor value={article.body} onchange={(html) => (article.body = html)}
+     *               upload={(file) => api.upload(file).then((r) => r.url)}
+     *               findLinks={(text) => api.get('/search', { q: text })}
+     *               plugins={[mentions]} />
+     *
+     * @param {string}   value     The HTML to start from
+     * @param {Function} onchange  `(html) => void`, on every change
+     * @param {Function} [upload]  `(File) => Promise<string|null>` — a picture's address once stored
+     * @param {Function} [findLinks] `(text) => Promise<{title, url}[]>` — pages to link to
+     * @param {Array}    [plugins] `{ name, extensions(tiptap), buttons, setup(ui) }` — see the Rich Text Editor guide
+     * @param {object|false} [embeds] `{ providers, preview }`, or false for no previews
+     * @param {object}   [labels]  The controls' words
+     * @param {boolean}  [readonly]
+     * @param {import('svelte').Snippet} [header] What sits above the text — a title
+     */
+    import { onDestroy, onMount } from 'svelte';
+    import { createRichEditor } from '../lib/rich-editor/core.js';
+    import '../lib/rich-editor/rich-editor.css';
+
+    let { value = '', onchange = () => {}, upload = null, findLinks = null, plugins = [], embeds = {}, labels = {}, readonly = false, header = null } = $props();
+
+    let host;
+    let instance = $state(null);
+
+    onMount(() => {
+        instance = createRichEditor(host, { content: value, onChange: (html) => onchange(html), upload, findLinks, plugins, embeds, labels, readonly });
+    });
+
+    $effect(() => {
+        instance?.setReadonly(readonly);
+    });
+
+    onDestroy(() => instance?.destroy());
+
+    /** The TipTap editor, for a screen that drives it — inserting a picture of its own, say. */
+    export function editor() {
+        return instance?.editor ?? null;
+    }
+</script>
+
+{#if header}{@render header()}{/if}
+<div bind:this={host}></div>

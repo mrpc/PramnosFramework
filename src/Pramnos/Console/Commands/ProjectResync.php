@@ -78,7 +78,8 @@ class ProjectResync extends Command
             ->addOption('debug-panel', null, InputOption::VALUE_NONE, 'Only sync the framework-owned SPA modules (lib/debug.js, lib/webauthn.js)')
             ->addOption('css', null, InputOption::VALUE_NONE, 'Only sync the theme\'s components.css (the framework components\' styles); kept when the project changed it, unless --overwrite')
             ->addOption('pwa', null, InputOption::VALUE_NONE, 'Only sync the PWA files: icons (never overwritten) and manifest.json (merged)')
-            ->addOption('spa-components', null, InputOption::VALUE_NONE, 'Only sync the shared Svelte components (DataTable, Pagination, ConfirmDialog, Field, i18n — and Chat, Scheduled, AiConsent with the llm feature) and their tests');
+            ->addOption('spa-components', null, InputOption::VALUE_NONE, 'Only sync the shared Svelte components (DataTable, Pagination, ConfirmDialog, Field, i18n — and Chat, Scheduled, AiConsent with the llm feature) and their tests')
+            ->addOption('rich-editor', null, InputOption::VALUE_NONE, 'Add the rich text editor to a Svelte SPA: lib/rich-editor/ (refreshed by every resync after), components/RichEditor.svelte, and the TipTap packages in package.json');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -125,7 +126,8 @@ class ProjectResync extends Command
         // newer version.
         $onlyPwa   = (bool) $input->getOption('pwa');
         $onlyCss   = (bool) $input->getOption('css');
-        $allGroups = !$onlyJs && !$onlyScr && !$onlyPanel && !$onlyComponents && !$onlyPwa && !$onlyCss;
+        $onlyRich  = (bool) $input->getOption('rich-editor');
+        $allGroups = !$onlyJs && !$onlyScr && !$onlyPanel && !$onlyComponents && !$onlyPwa && !$onlyCss && !$onlyRich;
         $doJs      = $onlyJs || $allGroups;
         $doScripts = $onlyScr || $allGroups;
         $doPanel     = $onlyPanel || $allGroups;
@@ -137,6 +139,11 @@ class ProjectResync extends Command
         $files = $this->collectFiles($scaffoldingDir, $doJs, $doScripts);
         if ($doPanel) {
             $files = array_merge($files, $this->collectPanelFiles($scaffoldingDir, $base));
+        }
+        // The rich editor's core with the debug panel's group — framework-owned, refreshed —
+        // once a project has taken it; --rich-editor is how a project takes it.
+        if ($doPanel || $onlyRich) {
+            $files = array_merge($files, $this->collectRichEditorFiles($scaffoldingDir, $base, $onlyRich));
         }
         if ($doPwa) {
             $files = array_merge($files, $this->collectPwaFiles($scaffoldingDir, $base));
@@ -177,9 +184,9 @@ class ProjectResync extends Command
 
         foreach ($files as $file) {
             $action = ($file['protect'] ?? false)
-                ? $this->applyProjectFile($base, $file['dest'], $file['content'], $dryRun, $copyAll || isset($needed[$file['dest']]), $overwrite, $output)
+                ? $this->applyProjectFile($base, $file['dest'], $file['content'], $dryRun, $copyAll || isset($needed[$file['dest']]) || ($file['create'] ?? false), $overwrite, $output)
                 : $this->applyFile(
-                    $base, $file['dest'], $file['content'], $file['exec'], $dryRun, $copyAll,
+                    $base, $file['dest'], $file['content'], $file['exec'], $dryRun, $copyAll || ($file['create'] ?? false),
                     $output, $file['onlyIfMissing'] ?? false
                 );
             $tally[$action]++;
@@ -538,6 +545,64 @@ class ProjectResync extends Command
             // @codeCoverageIgnoreStart
             return $files;
             // @codeCoverageIgnoreEnd
+        }
+
+        return $files;
+    }
+
+    /**
+     * The rich text editor for a Svelte SPA: the core the server-rendered editor is built from,
+     * its stylesheet, and — when asked for — the component and the packages.
+     *
+     * The core (`lib/rich-editor/core.js`, `extensions.js`) and `rich-editor.css` are the
+     * framework's, refreshed by every resync once the project declares `@tiptap/core`: one editor
+     * for server pages and SPA screens, so a fix lands in both. The stylesheet is
+     * `MessageEditor::RICH_CSS`, the same rules the server pages print.
+     *
+     * `--rich-editor` (`$asked`) is how a project takes it: the files are created, the component
+     * `components/RichEditor.svelte` is written — the project's once it exists, kept when changed
+     * — and the TipTap packages are added to package.json, leaving a version the project chose.
+     *
+     * @return list<array{content: string, dest: string, exec: bool, protect?: bool, create?: bool}>
+     */
+    private function collectRichEditorFiles(string $scaffoldingDir, string $base, bool $asked): array
+    {
+        $sourceDir = $this->spaSourceDir($base);
+        $config    = $this->appConfig($base);
+        if ($sourceDir === '' || (string) ($config['spa_stack'] ?? '') !== 'svelte') {
+            return [];
+        }
+
+        $pkg = is_file($base . '/package.json') ? json_decode((string) file_get_contents($base . '/package.json'), true) : [];
+        $pkg = is_array($pkg) ? $pkg : [];
+        $has = isset($pkg['dependencies']['@tiptap/core']) || isset($pkg['devDependencies']['@tiptap/core']);
+        if (!$asked && !$has) {
+            return [];
+        }
+
+        $core  = dirname($scaffoldingDir) . '/resources/js/rich-editor/';
+        $files = [];
+        foreach (['core.js', 'extensions.js'] as $name) {
+            if (is_file($core . $name)) {
+                $files[] = ['content' => (string) file_get_contents($core . $name), 'dest' => $sourceDir . 'lib/rich-editor/' . $name, 'exec' => false, 'create' => $asked];
+            }
+        }
+        $files[] = ['content' => \Pramnos\Html\MessageEditor::RICH_CSS . "\n", 'dest' => $sourceDir . 'lib/rich-editor/rich-editor.css', 'exec' => false, 'create' => $asked];
+
+        if ($asked) {
+            $stub = $scaffoldingDir . '/templates/spa-rich-editor.svelte.stub';
+            if (is_file($stub)) {
+                $files[] = ['content' => (string) file_get_contents($stub), 'dest' => $sourceDir . 'components/RichEditor.svelte', 'exec' => false, 'protect' => true, 'create' => true];
+            }
+            $dev = $pkg['devDependencies'] ?? [];
+            foreach (Init::SPA_RICH_EDITOR_PACKAGES as $name => $version) {
+                if (!isset($pkg['dependencies'][$name])) {
+                    $dev[$name] ??= $version;
+                }
+            }
+            ksort($dev);
+            $pkg['devDependencies'] = $dev;
+            $files[] = ['content' => json_encode($pkg, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n", 'dest' => 'package.json', 'exec' => false, 'create' => true];
         }
 
         return $files;

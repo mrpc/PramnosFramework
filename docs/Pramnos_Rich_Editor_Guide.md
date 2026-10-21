@@ -5,6 +5,7 @@ use_cases:
   - Adding a site's own button, mark or block to the editor with a plugin
   - Previewing embeds of a provider of the site's own (a podcast, a map) in the editor
   - Turning the rich editor off for a text-only channel such as push
+  - Using the same editor in a Svelte SPA screen
 ---
 
 # Rich Text Editor
@@ -105,6 +106,32 @@ pfRichEditor.embeds.add({
 
 `match` answers `{ src, label, video }` for an address it embeds — `src` is drawn in a frame, a
 provider without one is shown by name — or `null`.
+
+## In a Svelte SPA
+
+The same core, imported rather than bundled:
+
+```bash
+php myapp.php project:resync --rich-editor && npm install
+```
+
+That writes `lib/rich-editor/core.js`, `extensions.js` and `rich-editor.css` — the framework's,
+refreshed by every `project:resync` after — and `components/RichEditor.svelte`, which is the
+project's: change it as you like, it is kept. The TipTap packages are added to `package.json`,
+leaving a version the project already chose.
+
+```svelte
+<RichEditor value={article.body} onchange={(html) => (article.body = html)}
+            upload={(file) => api.upload(file).then((r) => r.url)}
+            findLinks={(text) => api.get('/search', { q: text })}
+            plugins={[mentions]} embeds={{ providers: [podcast, ...embedProviders] }}>
+    {#snippet header()}<input class="title" bind:value={article.title}>{/snippet}
+</RichEditor>
+```
+
+Plugins are the same objects as on a server page; in a SPA a plugin may import from `@tiptap/*`
+directly, or use the `tiptap` toolkit `lib/rich-editor/core.js` exports. `embedProviders` is
+exported too, to extend rather than replace.
 
 ## Building it
 

@@ -536,6 +536,7 @@ php bin/pramnos project:resync --debug-panel  # only the framework-owned SPA mod
 php bin/pramnos project:resync --css          # only the theme's components.css
 php bin/pramnos project:resync --pwa          # only the PWA icons (never overwritten) and manifest.json (merged)
 php bin/pramnos project:resync --spa-components  # only the shared Svelte components and their tests
+php bin/pramnos project:resync --rich-editor     # add the rich text editor to a Svelte SPA
 ```
 
 **By default it only refreshes what is already there.** A file the project never had is
@@ -568,6 +569,7 @@ The groups:
 | `--css` | `www/assets/css/components.css`, the framework components' styles, from the theme `scaffold_theme` names. Kept when the project changed it (or when it predates the record `init` now keeps), unless `--overwrite` |
 | `--pwa` | The PWA icons (added when missing, never overwritten) and `manifest.json` (merged) |
 | `--spa-components` | The shared Svelte components and their tests — see [The shared components](#the-shared-components). Not part of a plain `project:resync` |
+| `--rich-editor` | Adds the rich text editor to a Svelte SPA: `lib/rich-editor/` (the framework's core and stylesheet), `components/RichEditor.svelte` (the project's), and the TipTap packages in `package.json`. From then on a plain `project:resync` refreshes `lib/rich-editor/` — see the [Rich Text Editor guide](Pramnos_Rich_Editor_Guide.md#in-a-svelte-spa) |
 
 `--overwrite` replaces shared components and `components.css` where the project changed them,
 or where the framework has no record of writing them; without it they are reported `kept`.
