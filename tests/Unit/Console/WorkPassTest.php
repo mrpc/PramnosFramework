@@ -229,4 +229,113 @@ class WorkPassTest extends TestCase
         $this->assertStringContainsString('ms)', $output->fetch());
         $this->assertStringContainsString('ran: quick in', $worker->logged[0] ?? '');
     }
+
+    /**
+     * A worker whose clock is set by the test, for the passes below.
+     */
+    private function clocked(): object
+    {
+        return new class extends Work {
+            public string $at = '2026-10-21 03:19:59';
+
+            public function __construct()
+            {
+                parent::__construct('work');
+            }
+
+            /** One pass at `$at`. */
+            public function passAt(string $at): int
+            {
+                $this->at = $at;
+
+                return $this->runDuePass(new BufferedOutput());
+            }
+
+            protected function clock(): \DateTimeImmutable
+            {
+                return new \DateTimeImmutable($this->at);
+            }
+
+            protected function log(string $message, array $context = []): void
+            {
+            }
+        };
+    }
+
+    /**
+     * A minute between two passes is still asked about.
+     *
+     * The production case: a pass at 03:19:59 ran a nine-second mail flush, the worker slept
+     * sixty seconds after it ended, and the next pass was at 03:21:09 — 03:20 was never asked
+     * about, and the payments due at :20 did not run. The second pass asks about 03:20 and
+     * 03:21 both.
+     */
+    public function testAMinuteBetweenTwoPassesIsNotSkipped(): void
+    {
+        // Arrange
+        $ran = 0;
+        Scheduler::call(static function () use (&$ran): void {
+            $ran++;
+        })->cron('20 * * * *');
+        $worker = $this->clocked();
+
+        // Act
+        $worker->passAt('2026-10-21 03:19:59');
+        $before = $ran;
+        $worker->passAt('2026-10-21 03:21:09');
+
+        // Assert
+        $this->assertSame(0, $before, 'the task ran a minute early');
+        $this->assertSame(1, $ran, 'the 03:20 run was skipped');
+    }
+
+    /**
+     * A task due in several of the minutes a pass catches up on runs once, and a second pass
+     * inside the same minute runs nothing again.
+     */
+    public function testCaughtUpMinutesRunATaskOnceAndNoMinuteTwice(): void
+    {
+        // Arrange
+        $ran = 0;
+        Scheduler::call(static function () use (&$ran): void {
+            $ran++;
+        })->everyMinute();
+        $worker = $this->clocked();
+
+        // Act
+        $worker->passAt('2026-10-21 03:19:05');
+        $worker->passAt('2026-10-21 03:23:10'); // 03:20 to 03:23: four minutes, one run
+        $worker->passAt('2026-10-21 03:23:40'); // 03:23 again: nothing new
+
+        // Assert
+        $this->assertSame(2, $ran);
+    }
+
+    /**
+     * The first pass does not look back, and a long gap is caught up only
+     * `CATCH_UP_MINUTES` deep — a worker stopped for an hour does not replay the hour.
+     */
+    public function testTheFirstPassDoesNotLookBackAndALongGapIsCapped(): void
+    {
+        // Arrange — one task at :20, another at :50
+        $at20 = 0;
+        $at50 = 0;
+        Scheduler::call(static function () use (&$at20): void {
+            $at20++;
+        })->cron('20 * * * *');
+        Scheduler::call(static function () use (&$at50): void {
+            $at50++;
+        })->cron('50 * * * *');
+        $worker = $this->clocked();
+
+        // Act
+        $worker->passAt('2026-10-21 03:21:00'); // first: 03:21 only, not 03:20
+        $first = $at20;
+        $worker->passAt('2026-10-21 04:30:00'); // gap of 69 minutes: 04:16 to 04:30 asked
+
+        // Assert
+        $this->assertSame(0, $first, 'the first pass reached back for a minute it never owned');
+        $this->assertSame(1, $at20, '04:20 is inside the window and was not run');
+        $this->assertSame(0, $at50, '03:50 is outside the window and was replayed');
+    }
 }

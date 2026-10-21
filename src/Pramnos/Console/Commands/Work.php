@@ -83,6 +83,12 @@ class Work extends CommandBase
     /** @var int How long to sleep between checks, in seconds */
     protected int $interval = 60;
 
+    /** How many minutes back a pass looks for ones the previous pass did not reach. */
+    public const CATCH_UP_MINUTES = 15;
+
+    /** @var int|null The last minute a pass asked about, as a timestamp at its :00; null before the first */
+    private ?int $lastMinute = null;
+
     /** @var string|null Schedule definition file; overridable for tests */
     public ?string $scheduleFile = null;
 
@@ -207,7 +213,7 @@ class Work extends CommandBase
      */
     protected function runDuePass(OutputInterface $output): int
     {
-        $due = Scheduler::getDue(new \DateTime());
+        $due = $this->dueSinceLastPass();
         // The console a task marked inProcess() runs through: this one.
         \Pramnos\Scheduling\ScheduledTask::useConsole($this->getApplication());
 
@@ -246,16 +252,58 @@ class Work extends CommandBase
     }
 
     /**
+     * The tasks due in any minute since the last pass asked — each once.
+     *
+     * Every minute, not the current one alone. A pass that runs a nine-second task starts
+     * the next one sixty seconds after it *ended*, so the clock walks: passes at 03:19:59
+     * and 03:21:09 never ask about 03:20, and a task on `5,20,35,50` silently does not run —
+     * a weekly one landing on a skipped minute waits a week. So a pass asks about each
+     * minute after the last one it asked about, up to now, at most
+     * {@see CATCH_UP_MINUTES} back: a worker that was stopped for an hour does not replay
+     * the hour. A minute already asked about is not asked again, so a second pass inside one
+     * minute runs nothing twice. A task due in several of the minutes runs once.
+     *
+     * @return list<\Pramnos\Scheduling\ScheduledTask>
+     */
+    protected function dueSinceLastPass(): array
+    {
+        $now     = $this->clock();
+        $current = $now->getTimestamp() - $now->getTimestamp() % 60;
+        $first   = $this->lastMinute === null
+            ? $current
+            : max($this->lastMinute + 60, $current - (self::CATCH_UP_MINUTES - 1) * 60);
+        $this->lastMinute = max($this->lastMinute ?? $current, $current);
+
+        $due = [];
+        for ($minute = $first; $minute <= $current; $minute += 60) {
+            foreach (Scheduler::getDue($now->setTimestamp($minute)) as $task) {
+                $due[spl_object_id($task)] = $task;
+            }
+        }
+
+        return array_values($due);
+    }
+
+    /** The time a pass asks about — a seam, so a test can set the clock. */
+    protected function clock(): \DateTimeImmutable
+    {
+        return new \DateTimeImmutable();
+    }
+
+    /**
      * Sleep until the next check, waking early if asked to stop.
      *
      * A plain `sleep($interval)` would make a SIGTERM take up to a minute to be
-     * noticed, which turns every deploy into a wait.
+     * noticed, which turns every deploy into a wait. It wakes at the start of the next
+     * minute, sooner than the interval, so a pass is not a minute after the last one
+     * *ended* — though {@see dueSinceLastPass()} catches a minute it missed anyway.
      *
      * @return void
      */
     protected function sleepUnlessStopping(): void
     {
-        for ($slept = 0; $slept < $this->interval; $slept++) {
+        $seconds = min($this->interval, 60 - time() % 60);
+        for ($slept = 0; $slept < $seconds; $slept++) {
             if ($this->shouldStop()) {
                 return;
             }

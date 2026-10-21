@@ -202,6 +202,15 @@ php pramnos work --max-runtime=3600 # exit hourly for a supervisor to restart
 `work` holds a single-instance lock and stops cooperatively, so a SIGTERM
 during a task lets that task finish.
 
+**No minute is skipped.** A pass runs its tasks one after another, so a slow one
+pushes the next pass along — passes at 03:19:59 and 03:21:09 would never look at
+03:20. Each pass therefore asks about every minute since the last one it asked
+about, up to now, and runs a task due in any of them once; it then sleeps to the
+start of the next minute. It looks back at most `Work::CATCH_UP_MINUTES` (15), so
+a worker that was stopped for an hour does not replay the hour, and the first pass
+looks at the current minute only. A minute already asked about is never asked
+again, so `--interval=30` does not run an every-minute task twice.
+
 !!! warning "`schedule:list` shows what is registered, and whether a `work` process runs it"
     **Listing reads definitions. Running needs a process.** A schedule can list every
     framework job as due while nothing executes any of them — no `work` process and no
