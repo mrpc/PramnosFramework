@@ -216,6 +216,23 @@ test('the block toolbar is there only when asked for, over the text while it has
     assert.ok(withPlugin, 'a plugin\'s block button is not on the block toolbar');
 });
 
+test('a field inside its label gets its editor after the label, never inside it', () => {
+    // Arrange — the common `<label>Text <textarea></label>`, with no `for`
+    const ui = page();
+    const label = ui.window.document.createElement('label');
+    label.textContent = 'Email body ';
+    const field = ui.window.document.createElement('textarea');
+    label.append(field);
+    ui.window.document.body.append(label);
+
+    // Act
+    const made = ui.window.pfRichEditor.enhance(field);
+
+    // Assert — a browser sends a click in a label to its first labelable element: a button
+    assert.equal(label.contains(made.element), false, 'the toolbar is inside the label: a click into the text presses its first button');
+    assert.ok(label.nextElementSibling.contains(made.element), 'the editor is not after the label');
+});
+
 test('the shipped file is built from the sources as they are', async () => {
     // Arrange
     const { sourceStamp } = await import('../../resources/js/rich-editor/build.mjs');

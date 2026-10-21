@@ -36,6 +36,15 @@
 
     var editors = new WeakMap();
 
+    /** A label's own words, without the field it may hold. */
+    function labelWords(label) {
+        var copy = label.cloneNode(true);
+        Array.prototype.forEach.call(copy.querySelectorAll('textarea, input, select'), function (field) {
+            field.parentNode.removeChild(field);
+        });
+        return copy.textContent.trim();
+    }
+
     function enhance(textarea) {
         if (!textarea || textarea.getAttribute('data-pf-editor-ready') === '1') {
             return;
@@ -47,7 +56,12 @@
         var area = document.createElement('div');
         var source = false;
         var required = textarea.hasAttribute('required');
-        var label = textarea.id ? document.querySelector('label[for="' + textarea.id + '"]') : null;
+        // A field written as `<label>Text <textarea></label>` has no `for`, and the editor must not
+        // be drawn inside that label: a browser sends every click in a label to its first
+        // labelable element — the toolbar's first button — so a click into the text to type
+        // toggled bold.
+        var enclosing = textarea.closest ? textarea.closest('label') : null;
+        var label = (textarea.id ? document.querySelector('label[for="' + textarea.id + '"]') : null) || enclosing;
 
         wrap.className = 'pf-editor';
         bar.className = 'pf-editor-toolbar';
@@ -59,7 +73,7 @@
         area.contentEditable = 'true';
         area.setAttribute('role', 'textbox');
         area.setAttribute('aria-multiline', 'true');
-        area.setAttribute('aria-label', label ? label.textContent.trim() : 'Message');
+        area.setAttribute('aria-label', label ? labelWords(label) : 'Message');
         area.style.cssText = 'min-height:' + (Number(textarea.getAttribute('rows') || 8) * 1.5) + 'em;'
             + 'border:1px solid #ccc;border-radius:4px;padding:8px;overflow:auto;background:#fff;color:#111';
         area.innerHTML = textarea.value;
@@ -166,7 +180,17 @@
             });
         }
 
-        textarea.parentNode.insertBefore(wrap, textarea);
+        if (enclosing) {
+            // After the label, with the field: the label keeps its words, and a click on them
+            // puts the cursor in the text.
+            enclosing.parentNode.insertBefore(wrap, enclosing.nextSibling);
+            enclosing.addEventListener('click', function (event) {
+                event.preventDefault();
+                (source ? textarea : area).focus();
+            });
+        } else {
+            textarea.parentNode.insertBefore(wrap, textarea);
+        }
         wrap.appendChild(bar);
         wrap.appendChild(area);
         wrap.appendChild(textarea);

@@ -536,7 +536,9 @@ one account always uses the framework's own.
 | `tinymce` | TinyMCE, loaded from `src` and initialised with `license_key`. Where it comes from and under which licence are the application's decisions; a CDN source must be allowed by the CSP's `script-src`. |
 | `none` | The textarea, as markup. |
 
-A form marks its field and prints the scripts:
+A form marks its field and prints the scripts. The field may sit inside its `<label>`: the editor
+is drawn after the label, never inside it, and a click on the label's words puts the cursor in the
+text.
 
 ```php
 <textarea name="body" data-pf-editor="<?php echo \Pramnos\Html\MessageEditor::mode(); ?>"></textarea>

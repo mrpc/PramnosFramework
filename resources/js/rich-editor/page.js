@@ -84,7 +84,10 @@ function enhance(field) {
     labels = Object.assign({}, defaults.labels || {}, labels);
     const named = (field.getAttribute('data-pf-rich-plugins') || '').split(',').map((s) => s.trim());
     const host = document.createElement('div');
-    field.insertAdjacentElement('afterend', host);
+    // Never inside a `<label>` the field sits in: a browser sends every click in a label to its
+    // first labelable element — a toolbar button — so a click into the text would press it.
+    const enclosing = field.closest('label');
+    (enclosing || field).insertAdjacentElement('afterend', host);
     field.hidden = true;
 
     const upload = field.getAttribute('data-pf-rich-upload') || defaults.upload || '';
@@ -107,11 +110,9 @@ function enhance(field) {
         },
     });
     // The label that named the textarea names the text now.
-    if (field.id) {
-        const label = document.querySelector('label[for="' + field.id + '"]');
-        if (label) {
-            label.addEventListener('click', (event) => { event.preventDefault(); instance.editor.commands.focus(); });
-        }
+    const label = (field.id ? document.querySelector('label[for="' + field.id + '"]') : null) || enclosing;
+    if (label) {
+        label.addEventListener('click', (event) => { event.preventDefault(); instance.editor.commands.focus(); });
     }
     editors.set(field, instance);
 
