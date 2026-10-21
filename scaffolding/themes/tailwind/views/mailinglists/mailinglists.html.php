@@ -52,7 +52,7 @@ $here    = '<input type="hidden" name="list" value="' . $e($list) . '"><input ty
         <?php endforeach; ?>
     </div>
 
-    <form method="get" action="<?php echo adminUrl('MailingLists'); ?>" class="flex flex-wrap gap-2 items-center mb-3">
+    <form method="get" data-pf-tool="find_list_subscribers" data-pf-tool-description="Find the addresses on the mailing list this page shows, by words in the address and by their state (subscribed, unsubscribed, bounced…)." action="<?php echo adminUrl('MailingLists'); ?>" class="flex flex-wrap gap-2 items-center mb-3">
         <input type="hidden" name="list" value="<?php echo $e($list); ?>">
         <input type="search" name="q" value="<?php echo $e($search); ?>" placeholder="Search addresses" class="input input-sm" style="max-width:260px">
         <select name="status" class="input input-sm" style="max-width:200px">

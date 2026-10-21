@@ -96,7 +96,11 @@ class Scheduler extends Controller
             return;
         }
 
-        $task = $this->find((string) \Pramnos\Http\Request::staticGetOption());
+        // The task's key in the address, as the list's buttons send it — or as a `task` field,
+        // as the page's one tool for an AI agent (data-pf-tool="run_scheduled_task") sends it.
+        $key  = (string) \Pramnos\Http\Request::staticGetOption();
+        $key  = $key !== '' ? $key : (string) (new \Pramnos\Http\Request())->get('task', '', 'post');
+        $task = $this->find($key);
         if ($task === null) {
             $this->addError(t('That task is not in the schedule.'));
         } elseif (!RunLog::request($task, $this->who())) {

@@ -159,6 +159,39 @@ final class SchedulerScreenTest extends TestCase
     }
 
     /**
+     * The page's tool for an AI agent sends the task as a `task` field, not in the address:
+     * the same request is left, and the list's view offers the tool with every task to pick.
+     */
+    #[DataProvider('databases')]
+    public function testRunNowTakesTheTaskAsAField(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connect($type, $host, $port);
+        $task = (new ScheduledTask('payments:collect', 'command'))->cron('20 * * * *');
+        $controller = $this->controller([$task]);
+        $this->signIn();
+        $_GET['_option'] = '';
+        $_POST['task'] = $task->key();
+        \Pramnos\Http\Request::resetInstance();
+
+        // Act
+        try {
+            $controller->runnow();
+        } catch (\RuntimeException $e) {
+            // the redirect back to the list
+        }
+        $rows = RunLog::table()->getAll();
+        unset($_POST['task']);
+        $view = (string) file_get_contents(dirname(__DIR__, 3) . '/scaffolding/themes/tailwind/views/scheduler/scheduler.html.php');
+
+        // Assert
+        $this->assertCount(1, $rows, 'the field was not read');
+        $this->assertSame($task->key(), $rows[0]['task']);
+        $this->assertStringContainsString('data-pf-tool="run_scheduled_task"', $view);
+        $this->assertStringContainsString('<select name="task" required', $view);
+    }
+
+    /**
      * A task's page lists its runs newest first with their output escaped; asked for as a
      * fragment, the page is that and no theme. The dashboard card counts the failed run.
      */

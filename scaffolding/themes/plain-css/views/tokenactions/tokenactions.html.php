@@ -20,7 +20,7 @@ $this->activeNav = 'tokenactions';
     </div>
     <div class="card" style="border:1px solid #ddd;border-radius:4px;margin-bottom:16px">
         <div class="card-body py-2">
-            <form method="get" style="display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end">
+            <form method="get" data-pf-tool="list_token_actions" data-pf-tool-description="List the requests made with API tokens — which endpoint, when, with what HTTP status — optionally for one token, one user or one status." style="display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end">
                 <div style="flex:none">
                     <input type="number" name="token_id" style="padding:4px 8px;border:1px solid #ccc;border-radius:4px" placeholder="Token ID" value="<?php echo (int)($_GET['token_id'] ?? 0) ?: ''; ?>">
                 </div>

@@ -13,7 +13,7 @@ $this->activeNav = 'tokens';
     <?php $this->insert('../partials/admin_breadcrumb'); ?>
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
         <h2 >OAuth2 Tokens</h2>
-        <form method="get" style="display:flex;gap:8px">
+        <form method="get" data-pf-tool="list_api_tokens" data-pf-tool-description="List the API tokens issued, optionally only those of one user or one application." style="display:flex;gap:8px">
             <input type="number" name="user_id" style="padding:4px 8px;border:1px solid #ccc;border-radius:4px" placeholder="User ID" value="<?php echo (int)($_GET['user_id'] ?? 0) ?: ''; ?>">
             <input type="number" name="app_id" style="padding:4px 8px;border:1px solid #ccc;border-radius:4px" placeholder="App ID" value="<?php echo (int)($_GET['app_id'] ?? 0) ?: ''; ?>">
             <button class="btn btn-sm btn-outline-secondary">Filter</button>

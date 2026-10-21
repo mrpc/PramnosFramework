@@ -19,7 +19,7 @@
     </div>
     <div class="card bg-base-100 border border-base-300 shadow-xs mb-4">
         <div class="px-4 py-2">
-            <form method="get" class="flex flex-wrap gap-2 items-end">
+            <form method="get" data-pf-tool="list_token_actions" data-pf-tool-description="List the requests made with API tokens — which endpoint, when, with what HTTP status — optionally for one token, one user or one status." class="flex flex-wrap gap-2 items-end">
                 <div >
                     <input type="number" name="token_id" class="input input-sm" placeholder="Token ID" value="<?php echo (int)($_GET['token_id'] ?? 0) ?: ''; ?>">
                 </div>

@@ -119,3 +119,37 @@ test('a call redraws the bar, and the list says who made it and what came back',
     assert.match(html, /42 ms/);
     assert.match(html, /"text": "Moved"/);
 });
+
+/**
+ * The toolbar's own data as tools for an agent: offered through pfTools once the page has
+ * loaded, read-only, and answering with the requests, one request's collected data, and the
+ * browser's errors.
+ */
+test('the toolbar offers its data as read-only tools, through pfTools once the page has loaded', async () => {
+    // Arrange — pf-utils.js runs after the toolbar: pfTools appears, then the page loads
+    const offered = [];
+    const loaded = toolbar(null);
+    loaded.sandbox.window.pfTools = { register: (tool) => offered.push(tool), list: () => [], calls: () => [] };
+
+    // Act
+    (loaded.sandbox.__listeners.load || []).forEach((fn) => fn({}));
+    (loaded.sandbox.__listeners.load || []).forEach((fn) => fn({}));   // a second load offers nothing again
+    const byName = Object.fromEntries(offered.map((t) => [t.name, t]));
+    const requests = await byName.debug_requests.execute({});
+    const one = await byName.debug_request.execute({ index: 0, sections: ['request'] });
+    let missing = null;
+    try {
+        await byName.debug_request.execute({ index: 99 });
+    } catch (e) {
+        missing = e.message;
+    }
+
+    // Assert
+    assert.deepEqual(offered.map((t) => t.name), ['debug_requests', 'debug_request', 'debug_client_errors']);
+    assert.ok(offered.every((t) => t.annotations.readOnlyHint && !t.annotations.consequentialHint), 'a debug tool is not read-only');
+    assert.equal(requests.requests[0].path, '/admin/Invoices');
+    assert.equal(requests.requests[0].status, 200);
+    assert.equal(one.request.path, '/admin/Invoices');
+    assert.deepEqual(Object.keys(one.data), ['request'], 'sections did not narrow what came back');
+    assert.match(missing, /No captured request 99/);
+});

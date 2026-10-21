@@ -257,6 +257,10 @@ WebMCP at all. A form tool really sends its form. Below, every call — made by 
 the panel — with how long it took and what went in and came out. The tab says whether this
 browser offers the tools to an agent.
 
+The toolbar is one of those pages: it offers `debug_requests`, `debug_request` and
+`debug_client_errors`, read-only, so an agent in the browser can read the requests it captured —
+SQL, timings, logs, exceptions, masked as the tabs mask them — and the browser's errors.
+
 ---
 
 ## The response could not carry its own detail

@@ -1073,7 +1073,8 @@
             var data = pairsOf(form);
             var init = { method: method, credentials: 'same-origin', headers: { 'X-Pf-Fragment': '1' }, signal: signal };
             if (method === 'GET') {
-                action += data === '' ? '' : (action.indexOf('?') === -1 ? '?' : '&') + data;
+                // As a browser does: the fields replace the address's query.
+                action = action.split('#')[0].split('?')[0] + (data === '' ? '' : '?' + data);
             } else {
                 init.headers['Content-Type'] = 'application/x-www-form-urlencoded';
                 init.body = data;
@@ -1183,8 +1184,40 @@
             });
         }
 
-        /** Offer every marked form in `root` not offered yet. */
+        /**
+         * The page's search box (data-pf-omnibox, Html\SearchBox) as a tool: the same endpoint,
+         * answering with the matches by kind — what an agent asks first, "find X".
+         */
+        function searchTool(box) {
+            var url = box.getAttribute('data-pf-omnibox-url') || '';
+            return {
+                name: 'site_search',
+                description: 'Search this application for records of every kind it indexes — people, orders, pages — by words in them. Answers with the matches by kind, each with a title, a line about it, and its address.',
+                inputSchema: { type: 'object', properties: { q: { type: 'string', description: 'The words to look for' } }, required: ['q'] },
+                annotations: { readOnlyHint: true, consequentialHint: false },
+                execute: function (input, options) {
+                    return window.fetch(url + (url.indexOf('?') === -1 ? '?' : '&') + 'q=' + encodeURIComponent(String((input && input.q) || '')), {
+                        credentials: 'same-origin',
+                        headers: pfApiHeaders({ Accept: 'application/json' }),
+                        signal: options && options.signal,
+                    }).then(function (response) {
+                        if (!response.ok) { throw new Error('The search answered ' + response.status); }
+                        return response.json();
+                    }).then(function (payload) {
+                        return { groups: ((payload && payload.groups) || []).map(function (group) {
+                            return { kind: group.label, total: group.total, results: (group.results || []).map(function (row) {
+                                return { title: row.title, about: row.subtitle || '', url: row.url || null };
+                            }) };
+                        }) };
+                    });
+                },
+            };
+        }
+
+        /** Offer every marked form in `root` not offered yet, and the page's search box. */
         function scan(root) {
+            var box = (root || document).querySelector('[data-pf-omnibox][data-pf-omnibox-url]');
+            if (box && !tools.site_search) { register(searchTool(box), 'search'); }
             Array.prototype.forEach.call((root || document).querySelectorAll('form[data-pf-tool]'), function (form) {
                 var name = form.getAttribute('data-pf-tool');
                 if (name && (!tools[name] || tools[name].form !== form)) {

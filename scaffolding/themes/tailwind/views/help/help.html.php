@@ -26,7 +26,7 @@ $list = static function (array $pages) use ($e, $link, $c): void {
 ?>
 <div class="<?php echo $c['wrap']; ?>">
     <h1 class="<?php echo $c['h1']; ?>"><?php echo $e(t('Help')); ?></h1>
-    <form method="get" action="<?php echo $e($this->listUrl); ?>" role="search" class="<?php echo $c['card']; ?>" style="display:flex;gap:8px;align-items:center">
+    <form method="get" data-pf-tool="search_help" data-pf-tool-description="Search this application's help pages for how to do something. Answers with the matching pages." action="<?php echo $e($this->listUrl); ?>" role="search" class="<?php echo $c['card']; ?>" style="display:flex;gap:8px;align-items:center">
         <label for="help-q" class="pf-sr-only"><?php echo $e(t('Search the help')); ?></label>
         <input id="help-q" type="search" name="q" value="<?php echo $e($this->query); ?>" class="<?php echo $c['input']; ?>" style="flex:1" placeholder="<?php echo $e(t('What do you want to do?')); ?>">
         <button type="submit" class="<?php echo $c['btn']; ?>"><?php echo $e(t('Search')); ?></button>

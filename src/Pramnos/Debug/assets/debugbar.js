@@ -3110,6 +3110,103 @@
             + '<th>Result</th></tr></thead><tbody>' + rows + '</tbody></table>';
     }
 
+    /**
+     * The toolbar's own data as tools for an AI agent in the browser (WebMCP): the requests it
+     * captured, one request's collector data, and the errors the browser raised — read-only,
+     * the same data the tabs draw, masked as they mask it. An agent asked "why is this page
+     * slow" reads the SQL and the timings instead of guessing.
+     *
+     * Through window.pfTools where pf-utils.js is on the page, so they are listed and run like
+     * the page's own; straight to the browser's model context where it is not (a SPA).
+     */
+    var DEBUG_TOOLS_TEXT = 20000;
+
+    function debugTools() {
+        /** One request, as the requests list shows it. */
+        function summary(entry, index) {
+            return { index: index, kind: entry.kind, method: entry.method, path: entry.path, status: entry.status,
+                at: entry.at instanceof Date ? entry.at.toISOString() : entry.at, ms: entry.ms === null ? serverMs(entry) : entry.ms,
+                queries: entry.payload ? queryCount(entry) : null };
+        }
+        /** A value the size an agent can read: masked, and cut where it is too long. */
+        function bounded(value) {
+            var text = JSON.stringify(mask(value));
+            return text && text.length > DEBUG_TOOLS_TEXT
+                ? { truncated: true, json: text.slice(0, DEBUG_TOOLS_TEXT) }
+                : JSON.parse(text || 'null');
+        }
+        var debugging = { readOnlyHint: true, consequentialHint: false, debugging: true };
+
+        return [
+            {
+                name: 'debug_requests',
+                description: 'List the requests the debug toolbar captured on this page, newest first: method, path, HTTP status, time in ms and how many SQL queries each ran. Use an index with debug_request to read one.',
+                inputSchema: { type: 'object', properties: {} },
+                annotations: debugging,
+                execute: function () {
+                    return { requests: entries.map(summary).reverse(), selected: selected };
+                },
+            },
+            {
+                name: 'debug_request',
+                description: 'Read what the server collected for one captured request: the route, timings, SQL queries with their durations, log lines, exceptions, views, authorization checks and session — the debug toolbar\'s tabs. Sensitive values are masked.',
+                inputSchema: { type: 'object', properties: {
+                    index: { type: 'number', description: 'The request, as debug_requests numbers it; the page\'s own request when left out' },
+                    sections: { type: 'array', items: { type: 'string', enum: TABS.map(function (t) { return t.key; }) },
+                        description: 'Only these tabs; all of them when left out' },
+                } },
+                annotations: debugging,
+                execute: function (input) {
+                    var index = input && typeof input.index === 'number' ? input.index : selected;
+                    var entry = entries[index];
+                    if (!entry) { throw new Error('No captured request ' + index + '; debug_requests lists them.'); }
+                    var wanted = input && Array.isArray(input.sections) && input.sections.length ? input.sections : null;
+                    var data = {};
+                    Object.keys(entry.payload || {}).forEach(function (key) {
+                        if (!wanted || wanted.indexOf(key) !== -1) { data[key] = entry.payload[key]; }
+                    });
+                    return { request: summary(entry, index), data: bounded(data) };
+                },
+            },
+            {
+                name: 'debug_client_errors',
+                description: 'List the JavaScript errors and unhandled promise rejections the browser raised on this page, with their stacks and the request each happened during.',
+                inputSchema: { type: 'object', properties: {} },
+                annotations: debugging,
+                execute: function () {
+                    return { errors: bounded(clientErrors.map(function (e) {
+                        return { kind: e.kind, message: e.message, stack: e.stack, times: e.times,
+                            at: e.at instanceof Date ? e.at.toISOString() : e.at, during: e.during ? e.during.path || null : null };
+                    })) };
+                },
+            },
+        ];
+    }
+
+    var debugToolsOffered = false;
+
+    /** Offer the toolbar's tools once: through pfTools, else straight to the browser. */
+    function offerDebugTools() {
+        if (debugToolsOffered) { return; }
+        try {
+            var api = window.pfTools;
+            var context = document.modelContext || (window.navigator && window.navigator.modelContext);
+            if (api && typeof api.register === 'function') {
+                debugTools().forEach(function (tool) { api.register(tool); });
+            } else if (context && typeof context.registerTool === 'function') {
+                debugTools().forEach(function (tool) {
+                    var offered = context.registerTool(tool);
+                    if (offered && typeof offered.catch === 'function') { offered.catch(function () { /* refused */ }); }
+                });
+            } else {
+                return;
+            }
+            debugToolsOffered = true;
+        } catch (e) {
+            /* an agent's tools are never worth the page */
+        }
+    }
+
     function renderPlayground() {
         if (pg.loading) {
             return '<p class="pdb-muted">Reading the OpenAPI document…</p>';
@@ -4064,6 +4161,11 @@
             // thing worth catching is often the error that stopped the
             // application from ever making a request.
             watchForErrors();
+
+            // The toolbar's own data as tools for an agent: now if pf-utils.js has run, else
+            // once the page has loaded and it has.
+            offerDebugTools();
+            window.addEventListener('load', offerDebugTools);
 
             // The page's WebMCP tools: a call — an agent's or the panel's — and the list
             // changing redraw the bar, keeping what was typed into the tools' inputs.

@@ -90,4 +90,19 @@ $bc = \Pramnos\Html\Breadcrumb::admin([[$e(t('Scheduler')), '']]);
             </tbody>
         </table>
     </div>
+    <?php
+    /*
+     * The page's one tool for an AI agent in the browser (WebMCP, pf-utils.js): run a task by
+     * picking it, rather than a tool per row. Not drawn; the buttons above are for people.
+     */
+    if (!empty($this->tasks) && !empty($this->history)): ?>
+    <form method="post" action="<?php echo $e(adminUrl('Scheduler/runnow')); ?>" hidden data-pf-tool="run_scheduled_task" data-pf-tool-description="Run one of the scheduled tasks once, now. Nothing runs in this request: the scheduler's next pass takes it, within a minute. The task changes whatever it changes when it runs on its own.">
+        <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
+        <select name="task" required data-pf-tool-param="The task to run">
+            <?php foreach ($this->tasks as $row): ?>
+                <option value="<?php echo $e($row['key']); ?>"><?php echo $e($row['label']); ?></option>
+            <?php endforeach; ?>
+        </select>
+    </form>
+    <?php endif; ?>
 </div>

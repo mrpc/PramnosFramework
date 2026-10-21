@@ -19,7 +19,7 @@
     </div>
     <div class="card mb-3">
         <div class="card-body py-2">
-            <form method="get" class="row g-2 align-items-end">
+            <form method="get" data-pf-tool="list_token_actions" data-pf-tool-description="List the requests made with API tokens — which endpoint, when, with what HTTP status — optionally for one token, one user or one status." class="row g-2 align-items-end">
                 <div class="col-auto">
                     <input type="number" name="token_id" class="form-control form-control-sm" placeholder="Token ID" value="<?php echo (int)($_GET['token_id'] ?? 0) ?: ''; ?>">
                 </div>

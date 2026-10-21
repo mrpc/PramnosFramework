@@ -1633,6 +1633,21 @@ that visitor's session — `document.modelContext.registerTool()`, a W3C Communi
 - **A tool written in script**: `pfTools.register({ name, description, inputSchema, execute })`,
   where `execute(input)` returns anything JSON can hold. `pfTools.unregister(name)` withdraws one.
 
+**What the framework offers on its own.** Without a line of an application's code, a signed-in
+administrator's browser can offer:
+
+| Tool | Where | What it does |
+|---|---|---|
+| `site_search` | any page with the search box (`Html\SearchBox`) | the omnibox's search, every kind it indexes, with each match's address |
+| `search_help` | Help | the help pages for a task |
+| `list_api_tokens`, `list_token_actions` | Tokens, Token actions | the issued tokens and the requests made with them, filtered |
+| `find_list_subscribers` | a mailing list | its addresses, by words and state |
+| `run_scheduled_task` | Scheduler | one scheduled task, run on the next pass — consequential |
+| `debug_requests`, `debug_request`, `debug_client_errors` | wherever the debug toolbar is | the requests it captured, one request's SQL, timings, logs and exceptions (masked as the tabs mask them), and the browser's errors — read-only |
+
+The debug toolbar's three let an agent answer "why is this page slow" or "what failed just now"
+from the same data the toolbar draws, instead of guessing.
+
 `window.pfTools` is there whether or not the browser has WebMCP — `supported` says which —
 with `list()`, `call(name, input)` and `calls()`, and every call dispatches `pf:tool:call`.
 That is what the debug toolbar's **Tools** tab reads: the page's tools, a Run for each, and the
