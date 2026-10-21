@@ -5,6 +5,7 @@ use_cases:
   - Counting, sampling or paging through the people a filter matches
   - Explaining why one person is or is not in an audience
   - Leaving staff or deleted accounts out of every audience
+  - Keeping a named audience up to date and reacting when somebody enters or leaves it
 ---
 
 # Audience Guide
@@ -140,6 +141,9 @@ have, or a value of the wrong shape (`filter.1.0: between needs two values.`) is
 a filter that loads always compiles. Values are cast to what they compare with — numbers from a
 form arrive as strings.
 
+Every answer reads with `getAllOrFail()`, so a query that fails — a side table named wrong in
+`->from()` — throws `QueryException` on both databases instead of coming back as nobody.
+
 Pages of ids are a keyset on `userid`, so the thousandth page costs what the first did — a full
 recomputation walks an audience of any size with `ids()` and the last id of each page.
 
@@ -159,3 +163,44 @@ $filter->explain(1234);
 `actual` is the value the person has — a list for a one-to-many. A group's `ok` combines its
 conditions as the query does, and `inScope` says whether the person is an audience member at all:
 a staff account can satisfy every condition and still be out.
+
+## Segments
+
+A segment is a filter with a name, kept worked out: `segment_members` holds who is in it, one row
+per stay (`entered_at`, `left_at` — NULL while it lasts), so a person who leaves and comes back
+has two rows and "who entered this week" is a range over one column.
+
+```php
+use Pramnos\Audience\Segments;
+
+$id = Segments::create('Dormant professionals', $filter, owner: $adminId, description: 'For the win-back series');
+Segments::update($id, ['filter' => $newFilter]);   // applies at the next recomputation
+
+Segments::recompute($id);              // ['entered' => 12, 'left' => 3, 'members' => 840]
+Segments::recomputeAll();              // every segment, each after the ones its filter names
+Segments::recomputePerson($userid);    // one person, against every segment, now
+
+Segments::of($userid);                 // the person card: [['id', 'name', 'since'], …]
+Segments::movement($id, days: 7);      // the library: ['entered' => 31, 'left' => 9]
+Segments::isMember($id, $userid);
+```
+
+- **Kept up to date twice over.** The framework schedules `segments:recompute` hourly, which
+  catches what time alone changes ("last sign-in more than 30 days ago"). For changes a person
+  makes, `Segments::refreshOn('user.saved', 'profile.updated')` puts a queued listener on those
+  events: the person is recomputed in the worker, and a burst of events about one person within a
+  minute is one recomputation. The event's first argument names the person — an id, or an object
+  with `personId()`.
+- **Every change is an event.** `segment.entered` (`SegmentEntered`) and `segment.left`
+  (`SegmentLeft`), dispatched as classes with `segmentId`, `personId` and `at`, so a queued listener
+  receives them again in the worker. **Except the first recomputation**, which records who is in
+  without announcing them: they did not just arrive, and a rule that greets new members must not
+  greet everybody the moment a segment is made. Until then, a one-person recomputation skips the
+  segment.
+- **Segments of segments.** A condition can be `{"segment": 4, "op": "in"}` or `"not_in"`: in the
+  segment now. A full run computes a segment after the ones it names; a filter that would name
+  its own segment, directly or through others, is refused when saved.
+- **In use is not deleted.** `Segments::delete()` refuses while another segment's filter names it,
+  or while something an application reports through `Segments::usage('rules', fn (int $id) =>
+  [...names...])` does; the refusal lists what. Deleting takes the history with it.
+

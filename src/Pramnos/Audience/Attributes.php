@@ -22,8 +22,11 @@ use Pramnos\Database\QueryBuilder;
  */
 final class Attributes
 {
-    /** A person is one row of this table. */
+    /** A person is one row of this table, and its columns are qualified with this name. */
     public const TABLE = 'users';
+
+    /** The table as a query names it: prefixed, under {@see TABLE}. */
+    public const FROM = '#PREFIX#users AS users';
 
     /** ...identified by this column; every person id in the audience tables is one of these. */
     public const KEY = 'userid';
@@ -114,7 +117,7 @@ final class Attributes
             // Odd means the address is verified, both where `validated` is 1 and where an
             // application keeps it as a bitmask with the email bit first.
             Attribute::expression('validated', 'users.validated % 2', Attribute::BOOLEAN)->label(t('Email verified'))->group($account),
-            Attribute::many('groups', 'userstogroups', 'groupid')->label(t('Groups'))->group($account)
+            Attribute::many('groups', '#PREFIX#userstogroups AS userstogroups', 'groupid')->label(t('Groups'))->group($account)
                 ->values(self::groupNames(...)),
         ];
 
@@ -135,7 +138,7 @@ final class Attributes
     {
         try {
             $rows = \Pramnos\Database\Database::getInstance()->queryBuilder()
-                ->table('usergroups')->select(['groupid', 'name'])->orderBy('name')->getAll();
+                ->table('#PREFIX#usergroups')->select(['groupid', 'name'])->orderBy('name')->getAll();
         } catch (\Throwable) {
             return [];
         }

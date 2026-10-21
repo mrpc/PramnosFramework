@@ -11,19 +11,13 @@ use Pramnos\Audience\Attribute;
 use Pramnos\Audience\Attributes;
 use Pramnos\Audience\Comparison;
 use Pramnos\Audience\Filter;
-use Pramnos\Database\Database;
-use Pramnos\Database\QueryBuilder;
-use Pramnos\Framework\Factory;
-use Pramnos\Framework\Migrations\Auth\CreateUsersTable;
-use Pramnos\Framework\Migrations\UserGroups;
 
 /**
  * A filter, compiled to the query builder and run against real tables on MySQL and PostgreSQL:
  * every operator selects the people it names, side tables are joined or asked with EXISTS, and
  * explain() agrees with the query.
  *
- * Four accounts: anna (a parent, no profile), bob and cara (professionals with a profile row and
- * interests), and dan, staff, whom the scope leaves out of every answer.
+ * The four accounts are {@see AudienceProbe}'s.
  */
 #[CoversClass(Filter::class)]
 #[CoversClass(Comparison::class)]
@@ -31,30 +25,7 @@ use Pramnos\Framework\Migrations\UserGroups;
 #[CoversClass(Attribute::class)]
 class FilterTest extends TestCase
 {
-    use \Pramnos\Tests\Support\ReusesProbeDatabase;
-
-    private const PROBE = 'pramnos_audience_probe';
-
-    private ?Database $admin = null;
-
-    private ?Database $db = null;
-
-    private ?Database $previous = null;
-
-    /** @var array<string, int> Ids by username */
-    private array $ids = [];
-
-    /** @var array<string, int> Group ids by name */
-    private array $groups = [];
-
-    /** @return array<string, array{string, string, int, string}> */
-    public static function databases(): array
-    {
-        return [
-            'mysql'      => ['mysql', 'db', 3306, 'root'],
-            'postgresql' => ['postgresql', 'timescaledb', 5432, 'postgres'],
-        ];
-    }
+    use AudienceProbe;
 
     /**
      * Each condition with the people it must select, on each backend.
@@ -90,6 +61,7 @@ class FilterTest extends TestCase
             'date before'              => [['attribute' => 'regdate', 'op' => 'before', 'value' => '2026-01-16'], ['anna']],
             'date between whole days'  => [['attribute' => 'regdate', 'op' => 'between', 'value' => ['2026-01-15', '2026-02-01']], ['anna', 'bob']],
             'datetime after'           => [['attribute' => 'joined', 'op' => 'after', 'value' => '2026-03-01'], ['cara']],
+            'date compared as a day'   => [['attribute' => 'joinedday', 'op' => 'after', 'value' => '2026-03-01'], ['cara']],
             'datetime more than days'  => [['attribute' => 'joined', 'op' => 'more_than_days_ago', 'value' => 1], ['bob', 'cara']],
             'expression true'          => [['attribute' => 'validated', 'op' => 'true'], ['anna', 'bob']],
             'expression false'         => [['attribute' => 'validated', 'op' => 'false'], ['cara']],
@@ -106,112 +78,6 @@ class FilterTest extends TestCase
                 yield "{$db}: {$name}" => [...$connection, $condition, $expected];
             }
         }
-    }
-
-    private function boot(string $type, string $host, int $port, string $user): void
-    {
-        if (!defined('LOG_PATH')) {
-            define('LOG_PATH', ROOT . \DS . 'var');
-        }
-        $make = static function (string $name) use ($type, $host, $port, $user): Database {
-            $db           = new Database();
-            $db->type     = $type;
-            $db->server   = $host;
-            $db->port     = $port;
-            $db->user     = $user;
-            $db->password = 'secret';
-            $db->database = $name;
-
-            return $db;
-        };
-        $this->admin = $make(TEST_DATABASE);
-        try {
-            if (!$this->admin->connect(false)) {
-                $this->markTestSkipped($host . ' not reachable');
-            }
-        } catch (\Throwable $e) {
-            $this->markTestSkipped($host . ' not reachable: ' . $e->getMessage());
-        }
-        $this->db = $this->openProbe($this->admin, self::PROBE, $make, [
-            CreateUsersTable::class,
-            UserGroups\CreateUsergroupsTables::class,
-        ]);
-        $schema = $this->db->schema();
-        if (!$schema->hasTable('audtest_profiles')) {
-            $schema->createTable('audtest_profiles', function ($table): void {
-                $table->bigInteger('userid')->primary();
-                $table->integer('pillar');
-                $table->string('city', 50)->default('');
-                $table->dateTime('joined')->nullable();
-            });
-            $schema->createTable('audtest_interests', function ($table): void {
-                $table->bigInteger('userid');
-                $table->integer('interestid');
-                $table->primary(['userid', 'interestid']);
-            });
-        }
-        $this->previous = Factory::getDatabase();
-        $singleton      = &Factory::getDatabase();
-        $singleton      = $this->db;
-
-        $this->seed();
-    }
-
-    protected function tearDown(): void
-    {
-        Attributes::reset();
-        if ($this->previous !== null) {
-            $singleton = &Factory::getDatabase();
-            $singleton = $this->previous;
-        }
-        $this->db?->close();
-        $this->admin?->close();
-    }
-
-    /** The four accounts, their side rows, and the application's attributes over them. */
-    private function seed(): void
-    {
-        $day = static fn (string $d): int => (new \DateTimeImmutable($d . ' 12:00:00'))->getTimestamp();
-        foreach ([
-            'anna' => ['usertype' => 1, 'language' => 'el', 'lastlogin' => time() - 40 * 86400, 'regdate' => $day('2026-01-15'), 'validated' => 1, 'active' => 1],
-            'bob'  => ['usertype' => 2, 'language' => 'en', 'lastlogin' => time() - 5 * 86400, 'regdate' => $day('2026-02-01'), 'validated' => 3, 'active' => 1],
-            'cara' => ['usertype' => 2, 'language' => 'el', 'lastlogin' => 0, 'regdate' => $day('2026-03-01'), 'validated' => 0, 'active' => 0],
-            'dan'  => ['usertype' => 97, 'language' => 'el', 'lastlogin' => time(), 'regdate' => $day('2026-01-01'), 'validated' => 1, 'active' => 1],
-        ] as $name => $row) {
-            $this->db->queryBuilder()->table('users')->insert($row + ['username' => $name, 'email' => $name . '@example.com', 'firstname' => ucfirst($name)]);
-            $this->ids[$name] = (int) $this->db->queryBuilder()->table('users')->where('username', $name)->first()->fields['userid'];
-        }
-        $profiles = $this->db->queryBuilder()->table('audtest_profiles');
-        $profiles->insert(['userid' => $this->ids['bob'], 'pillar' => 3, 'city' => 'Athens', 'joined' => '2026-02-01 10:00:00']);
-        $this->db->queryBuilder()->table('audtest_profiles')
-            ->insert(['userid' => $this->ids['cara'], 'pillar' => 1, 'city' => 'Thessaloniki', 'joined' => '2026-03-02 10:00:00']);
-        foreach ([['bob', 1], ['bob', 2], ['cara', 2]] as [$name, $interest]) {
-            $this->db->queryBuilder()->table('audtest_interests')->insert(['userid' => $this->ids[$name], 'interestid' => $interest]);
-        }
-        foreach (['Volunteers', 'Press'] as $group) {
-            $this->db->queryBuilder()->table('usergroups')->insert(['name' => $group]);
-            $this->groups[$group] = (int) $this->db->queryBuilder()->table('usergroups')->where('name', $group)->first()->fields['groupid'];
-        }
-        foreach ([['anna', 'Volunteers'], ['bob', 'Volunteers'], ['bob', 'Press']] as [$name, $group]) {
-            $this->db->queryBuilder()->table('userstogroups')->insert(['userid' => $this->ids[$name], 'groupid' => $this->groups[$group]]);
-        }
-
-        Attributes::scope(static fn (QueryBuilder $q) => $q->where('users.usertype', '<', 97));
-        Attributes::define(Attribute::column('pillar', 'pillar', Attribute::NUMBER)->from('audtest_profiles'));
-        Attributes::define(Attribute::column('city', 'city', Attribute::TEXT)->from('audtest_profiles'));
-        Attributes::define(Attribute::column('joined', 'joined', Attribute::DATE)->from('audtest_profiles')->storedAs('datetime'));
-        Attributes::define(Attribute::many('interests', 'audtest_interests', 'interestid')->values([1 => 'Music', 2 => 'Sport']));
-        Attributes::define(Attribute::expression('level', 'CASE WHEN users.usertype > 1 THEN 2 ELSE 1 END', Attribute::NUMBER));
-        Attributes::define(Attribute::expression('initial', ['mysql' => 'LOWER(LEFT(users.username, 1))', 'postgresql' => 'LOWER(SUBSTR(users.username, 1, 1))'], Attribute::TEXT));
-    }
-
-    /** @param list<int> $ids  @return list<string> */
-    private function names(array $ids): array
-    {
-        $names = array_keys(array_intersect($this->ids, $ids));
-        sort($names);
-
-        return $names;
     }
 
     /**

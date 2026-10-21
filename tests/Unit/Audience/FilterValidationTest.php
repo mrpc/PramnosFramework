@@ -49,6 +49,9 @@ class FilterValidationTest extends TestCase
             'negative days'          => [['attribute' => 'lastlogin', 'op' => 'less_than_days_ago', 'value' => -1], 'filter.0: days are a whole number, zero or more.'],
             'fractional days'        => [['attribute' => 'lastlogin', 'op' => 'less_than_days_ago', 'value' => 1.5], 'filter.0: days are a whole number, zero or more.'],
             'not a condition'        => ['usertype', 'filter.0: not a condition.'],
+            'segment not an id'      => [['segment' => 'vip', 'op' => 'in'], 'filter.0: a segment is named by its id.'],
+            'segment zero'           => [['segment' => 0, 'op' => 'in'], 'filter.0: a segment is named by its id.'],
+            'segment operator'       => [['segment' => 3, 'op' => 'is'], 'filter.0: a segment condition is in or not_in.'],
         ];
     }
 
@@ -67,6 +70,31 @@ class FilterValidationTest extends TestCase
         Filter::fromArray(['conditions' => [$condition]], new Database());
 
         // Assert — the expectation above.
+    }
+
+    /**
+     * A segment condition is kept as an id and in / not_in — "in" when the operator is left out —
+     * and segmentsIn() finds every segment a filter names, nested ones included, once each.
+     */
+    public function testSegmentConditionsAreFoundWhereverTheyNest(): void
+    {
+        // Arrange
+        $filter = Filter::fromArray(['conditions' => [
+            ['segment' => '4'],
+            ['match' => 'any', 'conditions' => [
+                ['segment' => 9, 'op' => 'not_in'],
+                ['segment' => 4, 'op' => 'in'],
+                ['attribute' => 'language', 'op' => 'is', 'value' => 'el'],
+            ]],
+        ]], new Database());
+
+        // Act
+        $named = Filter::segmentsIn($filter->toArray());
+
+        // Assert
+        $this->assertSame(['segment' => 4, 'op' => 'in'], $filter->toArray()['conditions'][0]);
+        $this->assertSame([4, 9], $named);
+        $this->assertSame([], Filter::segmentsIn([]));
     }
 
     /** A group's match is all or any; anything else is refused at the group's path. */

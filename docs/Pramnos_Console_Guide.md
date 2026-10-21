@@ -42,6 +42,7 @@ Commands are grouped by a `namespace:` prefix that reflects what they act on:
 | `mail:` | Deliverability, the outbox, and the mail log's size | `mail:dns-check`, `mail:flush`, `mail:prune` |
 | `llm:` | The language-model call log ([guide](Pramnos_LLM_Guide.md)) | `llm:prune` |
 | `audit:` | The operators' audit trail ([guide](Pramnos_Authentication_Guide.md#the-audit-trail-what-operators-did)) | `audit:prune` |
+| `segments:` | Audiences kept up to date ([guide](Pramnos_Audience_Guide.md#segments)) | `segments:recompute` |
 | `schedule:` | Task scheduler | `schedule:run`, `schedule:list` |
 | `spa:` | Front-end dev server and build (SPA projects) | `spa:dev`, `spa:build` |
 | `scaffold:` | Add a whole feature to an **existing** project | `scaffold:spa` |
@@ -957,6 +958,7 @@ php bin/pramnos logs:convert /path/to/file.log --no-backup
 | `mail:flush` / `mail:prune` / `mail:dns-check [domain]` | Send the mail queued in the outbox / strip old bodies and remove old rows by policy / check SPF, DKIM, DMARC and BIMI on the sending domain | `--limit`, `--deadline`, `--dry-run` / `--strip-after`, `--delete-after`, `--recipients-after`, `--apply` |
 | `push:setup` / `push:vapid-generate` | Set up web push (migration, keys, service worker, browser script, library) / generate the VAPID key pair | `--apply`, `--no-install` / `--force` |
 | `audit:prune` | Delete audit-log rows past the retention (`audit.retention_days` in app.php: days, or days per event such as `['admin.page' => 180, '*' => 730]`); deletes nothing until one is set | `--days` |
+| `segments:recompute` | Work segments out again — who entered, who left — each after the segments its filter names; scheduled hourly by the framework | `--segment=<id>` |
 | `llm:prune` / `llm:routines` | Drop language-model call log rows older than the kept window / ask the scheduled questions that are due | `--days` / — |
 | `broadcast:serve` | WebSocket broadcasting server (Pusher-compatible) | `--host`, `--port/-p`, `--app-key`, `--channels` (defaults from `broadcasting.websocket.listen_host`/`listen_port`/`app_key` and `broadcasting.ingest`, else `127.0.0.1`, `6001`, `pramnos-local`), `--log-file` |
 

@@ -240,6 +240,14 @@ class FrameworkSchedule
             ],
 
             // Finished and abandoned queue items.
+            // Segments worked out again, so a rule that waits for "entered the segment" hears
+            // about the people a change in the code or a passing date moved in. Nothing to do
+            // where no segment is defined.
+            'segments:recompute' => [
+                'cadence'     => [['hourly']],
+                'description' => 'Work segments out again: who entered and who left',
+            ],
+
             'queue:cleanup' => [
                 'cadence'     => [['daily'], ['at', '03:10']],
                 'description' => 'Remove completed and expired queue items',

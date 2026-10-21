@@ -78,7 +78,7 @@ final class Filter
     /** How many people match now. */
     public function count(): int
     {
-        $rows = $this->query()->select([new Expression('COUNT(DISTINCT users.userid) AS n')])->getAll();
+        $rows = $this->query()->select([new Expression('COUNT(DISTINCT users.userid) AS n')])->getAllOrFail();
 
         return (int) ($rows[0]['n'] ?? 0);
     }
@@ -92,7 +92,7 @@ final class Filter
     {
         $rows = $this->query()->distinct()
             ->select(['users.userid', 'users.username', 'users.firstname', 'users.lastname', 'users.email'])
-            ->orderBy('users.userid', 'desc')->limit(max(1, $limit))->getAll();
+            ->orderBy('users.userid', 'desc')->limit(max(1, $limit))->getAllOrFail();
 
         return array_map(static fn (array $row): array => [
             'userid'    => (int) $row['userid'],
@@ -113,7 +113,7 @@ final class Filter
     {
         $rows = $this->query()->distinct()->select(['users.userid'])
             ->where('users.userid', '>', $after)
-            ->orderBy('users.userid', 'asc')->limit(max(1, $limit))->getAll();
+            ->orderBy('users.userid', 'asc')->limit(max(1, $limit))->getAllOrFail();
 
         return array_map(static fn (array $row): int => (int) $row['userid'], $rows);
     }
@@ -121,7 +121,7 @@ final class Filter
     /** Whether one person matches. */
     public function matches(int $personId): bool
     {
-        return $this->query()->select(['users.userid'])->where('users.userid', $personId)->limit(1)->getAll() !== [];
+        return $this->query()->select(['users.userid'])->where('users.userid', $personId)->limit(1)->getAllOrFail() !== [];
     }
 
     /**
@@ -135,15 +135,15 @@ final class Filter
         $query     = $this->query();
         $driver    = $this->database->type;
         if ($attribute->type() === Attribute::MANY) {
-            $table  = (string) $attribute->table();
-            $column = $table . '.' . $attribute->valueColumn();
-            $query->join($table, $table . '.' . $attribute->foreignKey(), '=', 'users.userid');
+            $alias  = (string) $attribute->alias();
+            $column = $alias . '.' . $attribute->valueColumn();
+            $query->join((string) $attribute->table(), $alias . '.' . $attribute->foreignKey(), '=', 'users.userid');
         } else {
             $column = $attribute->sql($driver);
             $this->joinFor($query, [$attribute]);
         }
         $rows   = $query->select([new Expression($column . ' AS v'), new Expression('COUNT(DISTINCT users.userid) AS n')])
-            ->groupByRaw($column)->orderByRaw('n DESC')->limit(max(1, $limit))->getAll();
+            ->groupByRaw($column)->orderByRaw('n DESC')->limit(max(1, $limit))->getAllOrFail();
         $labels = $attribute->valueLabels();
 
         return array_map(static fn (array $row): array => [
@@ -161,8 +161,8 @@ final class Filter
      */
     public function explain(int $personId): array
     {
-        $inScope = Attributes::applyScope($this->database->queryBuilder()->table(Attributes::TABLE))
-            ->select(['users.userid'])->where('users.userid', $personId)->limit(1)->getAll() !== [];
+        $inScope = Attributes::applyScope($this->database->queryBuilder()->table(Attributes::FROM))
+            ->select(['users.userid'])->where('users.userid', $personId)->limit(1)->getAllOrFail() !== [];
         $tree    = $this->explainGroup($this->tree, $personId);
 
         return ['ok' => $inScope && $tree['ok'], 'inScope' => $inScope] + $tree;
@@ -174,7 +174,7 @@ final class Filter
      */
     public function query(): QueryBuilder
     {
-        $query = Attributes::applyScope($this->database->queryBuilder()->table(Attributes::TABLE));
+        $query = Attributes::applyScope($this->database->queryBuilder()->table(Attributes::FROM));
         $this->joinFor($query, self::attributesIn($this->tree));
         $this->applyGroup($query, $this->tree);
 
@@ -193,12 +193,33 @@ final class Filter
         foreach ($group['conditions'] as $condition) {
             if (isset($condition['conditions'])) {
                 array_push($found, ...self::attributesIn($condition));
-            } else {
+            } elseif (isset($condition['attribute'])) {
                 $found[] = self::attribute($condition['attribute'], 'filter');
             }
         }
 
         return $found;
+    }
+
+    /**
+     * The segments a filter asks about, nested groups included — what a segment's recomputation
+     * must come after, and what may not be deleted while this filter is kept.
+     *
+     * @param  array<string, mixed> $group A checked filter, {@see toArray()}
+     * @return list<int>
+     */
+    public static function segmentsIn(array $group): array
+    {
+        $found = [];
+        foreach ($group['conditions'] ?? [] as $condition) {
+            if (isset($condition['conditions'])) {
+                array_push($found, ...self::segmentsIn($condition));
+            } elseif (isset($condition['segment'])) {
+                $found[] = (int) $condition['segment'];
+            }
+        }
+
+        return array_values(array_unique($found));
     }
 
     /**
@@ -215,7 +236,7 @@ final class Filter
                 continue;
             }
             $joined[$table] = true;
-            $query->leftJoin($table, $table . '.' . $attribute->foreignKey(), '=', 'users.userid');
+            $query->leftJoin($table, $attribute->alias() . '.' . $attribute->foreignKey(), '=', 'users.userid');
         }
     }
 
@@ -231,6 +252,8 @@ final class Filter
                 $each = $i === 0 ? 'and' : $joiner;
                 if (isset($condition['conditions'])) {
                     $this->applyGroup($nested, $condition, $each);
+                } elseif (isset($condition['segment'])) {
+                    $nested->whereExists(self::inSegment((int) $condition['segment']), $each, $condition['op'] === 'not_in');
                 } else {
                     $this->applyCondition($nested, $condition, $each);
                 }
@@ -284,6 +307,17 @@ final class Filter
         }, null, null, $boolean);
     }
 
+    /** The sub-query "this person is in the segment now". */
+    private static function inSegment(int $segment): \Closure
+    {
+        return static function (QueryBuilder $sub) use ($segment): void {
+            $sub->table('#PREFIX#segment_members AS segment_members')->select([new Expression('1')])
+                ->whereRaw('segment_members.userid = users.userid')
+                ->where('segment_members.segmentid', $segment)
+                ->whereNull('segment_members.left_at');
+        };
+    }
+
     /**
      * A one-to-many condition, as EXISTS so nobody is counted twice.
      *
@@ -291,13 +325,13 @@ final class Filter
      */
     private function applyMany(QueryBuilder $query, Attribute $attribute, string $op, array $values, string $boolean): void
     {
-        $table  = (string) $attribute->table();
-        $exists = function (array $values) use ($attribute, $table): \Closure {
-            return function (QueryBuilder $sub) use ($attribute, $table, $values): void {
-                $sub->table($table)->select([new Expression('1')])
-                    ->whereRaw($table . '.' . $attribute->foreignKey() . ' = users.userid');
+        $exists = function (array $values) use ($attribute): \Closure {
+            return function (QueryBuilder $sub) use ($attribute, $values): void {
+                $alias = (string) $attribute->alias();
+                $sub->table((string) $attribute->table())->select([new Expression('1')])
+                    ->whereRaw($alias . '.' . $attribute->foreignKey() . ' = users.userid');
                 if ($values !== []) {
-                    $sub->whereIn($table . '.' . $attribute->valueColumn(), $values);
+                    $sub->whereIn($alias . '.' . $attribute->valueColumn(), $values);
                 }
             };
         };
@@ -323,9 +357,11 @@ final class Filter
     {
         $items = [];
         foreach ($group['conditions'] as $condition) {
-            $items[] = isset($condition['conditions'])
-                ? $this->explainGroup($condition, $personId)
-                : $this->explainCondition($condition, $personId);
+            $items[] = match (true) {
+                isset($condition['conditions']) => $this->explainGroup($condition, $personId),
+                isset($condition['segment'])    => $this->explainSegment($condition, $personId),
+                default                         => $this->explainCondition($condition, $personId),
+            };
         }
         $oks = array_column($items, 'ok');
         $ok  = $items === [] || ($group['match'] === 'any' ? in_array(true, $oks, true) : !in_array(false, $oks, true));
@@ -341,14 +377,32 @@ final class Filter
     {
         $attribute = self::attribute($condition['attribute'], 'filter');
         $single    = new self(['match' => 'all', 'conditions' => [$condition]], $this->database);
-        $query     = $this->database->queryBuilder()->table(Attributes::TABLE)->where('users.userid', $personId);
+        $query     = $this->database->queryBuilder()->table(Attributes::FROM)->where('users.userid', $personId);
         $single->joinFor($query, [$attribute]);
         $single->applyGroup($query, $single->tree);
 
         return $condition + [
             'label'  => $attribute->labelText(),
             'actual' => $this->valueOf($attribute, $personId),
-            'ok'     => $query->select(['users.userid'])->limit(1)->getAll() !== [],
+            'ok'     => $query->select(['users.userid'])->limit(1)->getAllOrFail() !== [],
+        ];
+    }
+
+    /**
+     * @param  array{segment: int, op: string} $condition
+     * @return array<string, mixed>
+     */
+    private function explainSegment(array $condition, int $personId): array
+    {
+        $member = $this->database->queryBuilder()->table(Attributes::FROM)->where('users.userid', $personId)
+            ->whereExists(self::inSegment($condition['segment']))->select(['users.userid'])->limit(1)->getAllOrFail() !== [];
+        $named  = $this->database->queryBuilder()->table('#PREFIX#segments')->select(['name'])
+            ->where('segmentid', $condition['segment'])->limit(1)->getAllOrFail();
+
+        return $condition + [
+            'label'  => (string) ($named[0]['name'] ?? '#' . $condition['segment']),
+            'actual' => $member,
+            'ok'     => $member === ($condition['op'] === 'in'),
         ];
     }
 
@@ -356,16 +410,16 @@ final class Filter
     private function valueOf(Attribute $attribute, int $personId): mixed
     {
         if ($attribute->type() === Attribute::MANY) {
-            $table = (string) $attribute->table();
-            $rows  = $this->database->queryBuilder()->table($table)
-                ->select([$table . '.' . $attribute->valueColumn() . ' AS v'])
-                ->where($table . '.' . $attribute->foreignKey(), $personId)->getAll();
+            $alias = (string) $attribute->alias();
+            $rows  = $this->database->queryBuilder()->table((string) $attribute->table())
+                ->select([$alias . '.' . $attribute->valueColumn() . ' AS v'])
+                ->where($alias . '.' . $attribute->foreignKey(), $personId)->getAllOrFail();
 
             return array_map(static fn (array $row): mixed => $row['v'], $rows);
         }
-        $query = $this->database->queryBuilder()->table(Attributes::TABLE)->where('users.userid', $personId);
+        $query = $this->database->queryBuilder()->table(Attributes::FROM)->where('users.userid', $personId);
         $this->joinFor($query, [$attribute]);
-        $rows = $query->select([new Expression($attribute->sql($this->database->type) . ' AS v')])->limit(1)->getAll();
+        $rows = $query->select([new Expression($attribute->sql($this->database->type) . ' AS v')])->limit(1)->getAllOrFail();
 
         return $rows[0]['v'] ?? null;
     }
@@ -390,9 +444,11 @@ final class Filter
             if (!is_array($condition)) {
                 throw new \InvalidArgumentException("{$path}.{$i}: not a condition.");
             }
-            $conditions[] = isset($condition['conditions'])
-                ? self::group($condition, "{$path}.{$i}", $depth + 1)
-                : self::condition($condition, "{$path}.{$i}");
+            $conditions[] = match (true) {
+                isset($condition['conditions']) => self::group($condition, "{$path}.{$i}", $depth + 1),
+                isset($condition['segment'])    => self::segmentCondition($condition, "{$path}.{$i}"),
+                default                         => self::condition($condition, "{$path}.{$i}"),
+            };
         }
 
         return ['match' => $match, 'conditions' => $conditions];
@@ -441,6 +497,26 @@ final class Filter
         };
 
         return ['attribute' => $key, 'op' => $op, 'value' => $value];
+    }
+
+    /**
+     * "In the segment" or "not in it".
+     *
+     * @param  array<string, mixed> $condition
+     * @return array{segment: int, op: string}
+     */
+    private static function segmentCondition(array $condition, string $path): array
+    {
+        $segment = $condition['segment'];
+        $op      = (string) ($condition['op'] ?? 'in');
+        if (!is_numeric($segment) || (int) $segment < 1) {
+            throw new \InvalidArgumentException("{$path}: a segment is named by its id.");
+        }
+        if ($op !== 'in' && $op !== 'not_in') {
+            throw new \InvalidArgumentException("{$path}: a segment condition is in or not_in.");
+        }
+
+        return ['segment' => (int) $segment, 'op' => $op];
     }
 
     /** The attribute under a key, or a refusal naming where it was asked for. */

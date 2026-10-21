@@ -193,6 +193,20 @@ final class Attribute
         return $this->table;
     }
 
+    /**
+     * The name a side table's columns are qualified with: its alias when it was given as
+     * `'#PREFIX#professionals AS professionals'`, else its name.
+     */
+    public function alias(): ?string
+    {
+        if ($this->table === null) {
+            return null;
+        }
+        $parts = preg_split('/\s+/', trim($this->table)) ?: [];
+
+        return (string) end($parts);
+    }
+
     /** The side table's column that holds users.userid. */
     public function foreignKey(): string
     {
@@ -230,7 +244,7 @@ final class Attribute
             return '(' . $sql . ')';
         }
 
-        return ($this->table ?? Attributes::TABLE) . '.' . $this->source;
+        return ($this->alias() ?? Attributes::TABLE) . '.' . $this->source;
     }
 
     /** @return list<string> */
