@@ -99,7 +99,7 @@ for (const mode of ['none', 'builtin', 'rich']) {
     });
 }
 
-test('a field goes in at the cursor of whichever field had the focus last — the token, never filled; the menu stays open', () => {
+test('a field goes in at the cursor of whichever field had the focus last — the token, never filled; a choice or Escape closes the menu', () => {
     // Arrange
     const ui = page();
     const menu = ui.$('details.pf-composer-menu');
@@ -120,8 +120,9 @@ test('a field goes in at the cursor of whichever field had the focus last — th
     assert.equal(button.textContent, 'First name');
     assert.equal(ui.subject.value, 'Hello {firstname}!');
     assert.equal(ui.body.value, 'Dear {firstname},');
-    // Several details go in one after another: the dropdown stays open until its toggle or Escape.
-    assert.equal(menu.open, true, 'the dropdown closed after a choice');
+    assert.equal(menu.open, false, 'the dropdown stayed open after a choice');
+    // Escape closes it too.
+    menu.open = true;
     ui.window.document.dispatchEvent(new ui.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     assert.equal(menu.open, false, 'Escape did not close the dropdown');
 });
@@ -265,4 +266,45 @@ test('the saved messages\' list is hidden while there are none, and shown after 
     assert.equal(ui.$('[data-pf-composer-save]').hidden, false, '"Save this message" must stay visible');
     assert.equal(picker.hidden, false, 'the list did not appear after the first save');
     assert.equal(picker.value, '1', 'the new message is not the one chosen');
+});
+
+/**
+ * A message saved from one person's form must not keep that person's details: the values put in
+ * from the menu — or filled into a saved message for this recipient — go back to their tokens
+ * when it is saved, and only in text, never in the markup; the form itself keeps the values.
+ */
+test('saving puts the tokens back for the values the menu or a filled saved message put in', async () => {
+    // Arrange — a form for Cathy, with a saved message that greets by token
+    const ui = page({
+        routes: {
+            '/saved': { canShare: false, messages: [{ id: 3, name: 'Welcome', subject: 'Hi {firstname}', body: '<p>Welcome, {firstname}</p>', shared: true, mine: false, canForget: false }] },
+            '/save': { saved: 4 },
+        },
+        fields: [{ token: '{firstname}', label: 'First name', value: 'Cathy' }, { token: '{credits}', label: 'Credits', value: '1' }],
+    });
+    await settle();
+    const picker = ui.$('[data-pf-composer-saved]');
+
+    // Act — load it, then add the credits from the menu, then save
+    picker.value = '3';
+    picker.dispatchEvent(new ui.window.Event('change'));
+    const loaded = { subject: ui.subject.value, body: ui.body.value };
+    ui.body.dispatchEvent(new ui.window.FocusEvent('focusin', { bubbles: true }));
+    ui.body.value = '<p style="width:1px">Welcome, Cathy. Credits: </p>';
+    ui.body.setSelectionRange(ui.body.value.length - 4, ui.body.value.length - 4);
+    ui.$('[data-pf-composer-fields] button[data-token="{credits}"]').click();
+    ui.$('[data-pf-composer-save]').click();
+    ui.$('[data-pf-composer-name]').value = 'Welcome again';
+    ui.$('[data-pf-composer-save-go]').click();
+    await settle();
+
+    // Assert
+    assert.deepEqual(loaded, { subject: 'Hi Cathy', body: '<p>Welcome, Cathy</p>' }, 'the saved message was not filled for this recipient');
+    const sent = ui.sent.filter((c) => String(c.url).indexOf('/save') !== -1 && c.init.method === 'POST')[0];
+    const posted = new URLSearchParams(sent.init.body);
+    assert.equal(posted.get('subject'), 'Hi {firstname}');
+    // The value in the markup (width:1px) stays; the value in the text goes back to its token.
+    assert.equal(posted.get('body'), '<p style="width:1px">Welcome, {firstname}. Credits: {credits}</p>');
+    // The form still reads as it is sent: the values, not the tokens.
+    assert.equal(ui.subject.value, 'Hi Cathy');
 });

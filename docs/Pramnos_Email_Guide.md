@@ -578,8 +578,8 @@ It works with whichever editor the body is in — builtin, rich, TinyMCE or none
   written.
 - **Fields.** `data-pf-editor-fields` — `[{"token": "{firstname}", "label": "First name"}]` —
   becomes one "Recipient details ▾" dropdown (Greek «Στοιχεία ▾»; the key is specific so an application's own "Fields" translation does not rename it); a choice goes in at the cursor of whichever of the subject and
-  the body had the focus last, and the dropdown stays open for the next until its own toggle or
-  Escape closes it. An entry with a `value` inserts the value instead of the token: a
+  the body had the focus last, and the dropdown closes — as on its own toggle or Escape. An entry
+  with a `value` inserts the value instead of the token: a
   message to one person reads "Cathy", not a placeholder. `MessageComposer::fieldsJson($fields,
   $values)` builds the list — `fieldsJson(null, MessageComposer::valuesFor($user))` gives the
   framework's own fields with one account's values, which is what "Message one user" passes; the
@@ -587,6 +587,12 @@ It works with whichever editor the body is in — builtin, rich, TinyMCE or none
   `{firstname}`, `{lastname}`, `{full_name}`, `{username}` and `{email}` when they send, for each
   recipient (`MessageComposer::fill()` with `valuesFor($user)`); an application with its own
   fields fills its own.
+  A value put in from the menu is remembered with its token, and **saving puts the token back**:
+  "Γεια σου Cathy" is saved as "Γεια σου {firstname}", so the saved message greets each reader
+  by their own name. Loading a saved message into a one-person form fills its tokens with that
+  recipient's values, remembered the same way. What is sent is the text as it reads. Matching is
+  by value, in text and never inside markup — the same word typed by hand next to one put in from
+  the menu goes back to the token too.
 - **Write with AI**, where a language model is configured, opens a panel under the toolbar: what
   the message should say — or nothing, to improve what is written — and the model answers a
   subject and a body, keeping every placeholder, in `data-pf-composer-language` when the form

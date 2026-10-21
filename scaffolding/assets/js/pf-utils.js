@@ -1029,6 +1029,35 @@
             try { words = JSON.parse(bar ? bar.getAttribute('data-pf-composer-words') : '{}') || {}; } catch (e) { words = {}; }
             var fields = [];
             try { fields = JSON.parse(box.getAttribute('data-pf-editor-fields') || '[]') || []; } catch (e) { fields = []; }
+            // The values this form put in for their tokens — from the menu, or filling a saved
+            // message — so that saving puts the tokens back: a message saved from one person's form
+            // greets the next reader by their own name, not by this one's.
+            var placed = {};
+            function filled(token) {
+                var f = fields.filter(function (x) { return x.token === token && x.value != null && String(x.value) !== ''; })[0];
+                return f ? String(f.value) : null;
+            }
+            /** Every placed value back to its token — in text, never inside a tag's markup. */
+            function tokensBack(text) {
+                // ponytail: matched by value, so the same words typed by hand around a placed one go
+                // back too; marks in the markup would tell them apart, and no editor keeps them alike.
+                var values = Object.keys(placed).sort(function (a, b) { return b.length - a.length; });
+                if (!values.length) { return text; }
+                var escape = function (v) { return v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); };
+                var any = new RegExp('(^|[^\\p{L}\\p{N}])(' + values.map(escape).join('|') + ')(?=[^\\p{L}\\p{N}]|$)', 'gu');
+                return String(text).split(/(<[^>]*>)/).map(function (part, i) {
+                    return i % 2 ? part : part.replace(any, function (m, lead, value) { return lead + placed[value]; });
+                }).join('');
+            }
+            /** A saved message's tokens filled with this form's values, each remembered. */
+            function valuesIn(text) {
+                return String(text || '').replace(/\{[A-Za-z_][A-Za-z0-9_]*\}/g, function (token) {
+                    var value = filled(token);
+                    if (value === null) { return token; }
+                    placed[value] = token;
+                    return value;
+                });
+            }
             var lastFocus = 'body';
             box.addEventListener('focusin', function (e) {
                 if (subject && e.target === subject) { lastFocus = 'subject'; } else if (e.target !== subject && !(e.target.closest && e.target.closest('.pf-composer-toolbar'))) { lastFocus = 'body'; }
@@ -1052,14 +1081,15 @@
                 var menu = holder.closest('details');
                 if (menu) {
                     menu.querySelector('summary').addEventListener('mousedown', function (e) { e.preventDefault(); });
-                    // Open until its own toggle or Escape: several details go in one after another,
-                    // and a <details> does not close on a click elsewhere.
+                    // Closed by a choice, its own toggle, or Escape; a <details> does not close on a
+                    // click elsewhere.
                     document.addEventListener('keydown', function (e) {
                         if (e.key === 'Escape' && menu.open) { menu.open = false; }
                     });
                 }
                 fields.forEach(function (f) {
                     var text = f.value != null ? String(f.value) : f.token;
+                    if (text !== f.token && text !== '') { placed[text] = f.token; }
                     var b = document.createElement('button');
                     b.type = 'button';
                     b.className = 'pf-composer-field';
@@ -1077,6 +1107,7 @@
                         } else {
                             body.insert(text);
                         }
+                        if (menu) { menu.open = false; }
                     });
                     holder.appendChild(b);
                 });
@@ -1115,8 +1146,8 @@
                     var m = chosen();
                     if (forgetButton) { forgetButton.hidden = !(m && m.canForget); delete forgetButton.dataset.armed; }
                     if (!m) { return; }
-                    if (subject) { subject.value = m.subject; }
-                    body.set(m.body);
+                    if (subject) { subject.value = valuesIn(m.subject); }
+                    body.set(valuesIn(m.body));
                 });
             }
             var savePanel = panel('save');
@@ -1135,7 +1166,7 @@
                     var name = nameField.value.trim();
                     if (!name) { say(words.name || 'A name is needed.'); nameField.focus(); return; }
                     var shared = canShare && sharedBox && sharedBox.checked;
-                    post(url + '/save', { name: name, subject: subject ? subject.value : '', body: body.get(), scope: scope, shared: shared ? '1' : '0' })
+                    post(url + '/save', { name: name, subject: subject ? tokensBack(subject.value) : '', body: tokensBack(body.get()), scope: scope, shared: shared ? '1' : '0' })
                         .then(function (d) {
                             if (!d || d.error) { say((d && d.error) || words.failed); return; }
                             open(savePanel, false);
