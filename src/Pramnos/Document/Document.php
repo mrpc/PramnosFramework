@@ -897,7 +897,11 @@ class Document extends \Pramnos\Framework\Base
      */
     protected function realtimeHeadMarkup()
     {
-        if (session_status() !== PHP_SESSION_ACTIVE || !isset($_SESSION['usertoken'])) {
+        // Signed in by the framework's login (a token) or by an application's own, which sets
+        // `uid`/`logged` and no token: the same test `getCurrentUser()` and so
+        // `/broadcasting/auth` make, so every page that can be authorised gets the connection.
+        if (session_status() !== PHP_SESSION_ACTIVE
+            || (!isset($_SESSION['usertoken']) && !\Pramnos\Http\Session::staticIsLogged())) {
             return '';
         }
         $config = \Pramnos\Application\Application::currentInstance()?->applicationInfo['broadcasting'] ?? null;

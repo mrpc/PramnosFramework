@@ -35,13 +35,13 @@ class RealtimeMetaReachesTheHeadTest extends TestCase
         if (session_status() === PHP_SESSION_NONE) {
             session_start();
         }
-        unset($_SESSION['usertoken'], $_SESSION['csrf_token']);
+        unset($_SESSION['usertoken'], $_SESSION['csrf_token'], $_SESSION['logged'], $_SESSION['uid']);
     }
 
     protected function tearDown(): void
     {
         Document::_setContent('');
-        unset($_SESSION['usertoken'], $_SESSION['csrf_token']);
+        unset($_SESSION['usertoken'], $_SESSION['csrf_token'], $_SESSION['logged'], $_SESSION['uid']);
         if ($this->savedInstances !== null) {
             (new \ReflectionProperty(Application::class, 'appInstances'))->setValue(null, $this->savedInstances);
         }
@@ -92,6 +92,25 @@ class RealtimeMetaReachesTheHeadTest extends TestCase
         $this->assertSame('websocket', $config['transport'] ?? null, 'the tag pf-utils.js reads must be on the page');
         $this->assertSame('rt.test', $config['host']);
         $this->assertSame('/broadcasting/auth', $config['authEndpoint']);
+    }
+
+    /**
+     * An application whose login is its own sets `uid` and `logged` and no token; its signed-in
+     * pages carry the connection too. Gated on the token alone, no admin who signed in with a
+     * password got it, and the bell never went live.
+     */
+    public function testASessionSignedInWithoutATokenCarriesTheConnection(): void
+    {
+        // Arrange
+        $this->broadcasting(['transport' => 'websocket', 'websocket' => ['host' => 'rt.test', 'app_key' => 'k1']]);
+        $_SESSION['logged'] = true;
+        $_SESSION['uid']    = 42;
+
+        // Act
+        $output = (new Html())->render();
+
+        // Assert
+        $this->assertStringContainsString('<meta name="pf-realtime"', $output);
     }
 
     /**
