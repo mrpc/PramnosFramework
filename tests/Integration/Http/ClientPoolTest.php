@@ -317,8 +317,9 @@ class ClientPoolTest extends TestCase
         foreach ($responses as $key => $response) {
             $this->assertSame(200, $response->status(), "entry {$key}");
         }
-        // … and in nothing like the 4 s a sequential loop would need.
-        $this->assertLessThan(2.5, $elapsed,
+        // … and in less than the 4 s a sequential loop cannot go under. Not tighter: on a loaded
+        // machine starting four servers and their processes measured 2.9 s.
+        $this->assertLessThan(3.5, $elapsed,
             'four 1s requests run together must not take the sequential time');
     }
 
