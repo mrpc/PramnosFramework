@@ -3,11 +3,17 @@
   "private": true,
   "description": "Lint and test tooling for the JavaScript assets the framework ships.",
   "scripts": {
-    "lint": "eslint src tests/js",
-    "lint:fix": "eslint src tests/js --fix",
-    "test": "node --test tests/js/*.test.js"
+    "lint": "eslint src tests/js resources/js/rich-editor",
+    "lint:fix": "eslint src tests/js resources/js/rich-editor --fix",
+    "test": "node --test tests/js/*.test.js",
+    "build:editor": "node resources/js/rich-editor/build.mjs"
   },
   "devDependencies": {
-    "eslint": "^9.15.0"
+    "@tiptap/core": "^3.32.0",
+    "@tiptap/pm": "^3.32.0",
+    "@tiptap/starter-kit": "^3.32.0",
+    "esbuild": "^0.25.12",
+    "eslint": "^9.15.0",
+    "jsdom": "^26.1.0"
   }
 }

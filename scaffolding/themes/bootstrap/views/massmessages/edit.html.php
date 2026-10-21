@@ -495,6 +495,7 @@ if ($optInLists !== []): ?>
     function channel() {
         var plain = type.value === push;
         if (window.PfEditor) { window.PfEditor.plain(body, plain); }
+        if (window.pfRichEditor) { window.pfRichEditor.plain(body, plain); }
         var tiny = window.tinymce ? window.tinymce.get('message') : null;
         if (tiny) { plain ? tiny.hide() : tiny.show(); }
     }

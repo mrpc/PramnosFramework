@@ -86,6 +86,33 @@ class MessageEditorTest extends TestCase
     }
 
     /**
+     * `rich` is a mode of its own: the bundled editor, its styles, and the application's defaults
+     * — the controls' words through t(), and the upload and link-search addresses from app.php,
+     * escaped for the inline script.
+     */
+    public function testTheRichEditorPrintsItsBundleAndTheApplicationsDefaults(): void
+    {
+        // Arrange
+        $this->withConfig(['editor' => 'rich', 'rich' => ['upload' => '/admin/Media/upload', 'links' => '/admin/search?x=</script>']]);
+
+        // Act
+        $mode    = MessageEditor::mode();
+        $scripts = MessageEditor::scripts(MessageEditor::RICH);
+        preg_match('/window\.pfRichEditorDefaults = (\{.*?\});<\/script>/', $scripts, $m);
+        $defaults = json_decode($m[1] ?? 'null', true);
+
+        // Assert
+        $this->assertSame(MessageEditor::RICH, $mode);
+        $this->assertStringContainsString('assets/js/pf-rich-editor.js', $scripts);
+        $this->assertStringContainsString('.pf-rich-text h2{font-size:1.5em', $scripts);
+        $this->assertSame('/admin/Media/upload', $defaults['upload'] ?? null);
+        $this->assertSame('/admin/search?x=</script>', $defaults['links'] ?? null);
+        $this->assertStringNotContainsString('x=</script>', $scripts, 'the address can close the script it is printed in');
+        $this->assertSame('Bold', $defaults['labels']['bold'] ?? null);
+        $this->assertFileExists(dirname(__DIR__, 3) . '/scaffolding/assets/js/pf-rich-editor.js');
+    }
+
+    /**
      * The forms mark their field and print the scripts, and the one-account form is always builtin.
      */
     public function testTheFormsUseIt(): void
@@ -102,6 +129,7 @@ class MessageEditorTest extends TestCase
             $this->assertStringContainsString('data-pf-editor="<?php echo $e(\Pramnos\Html\MessageEditor::mode()); ?>"', $compose, $theme);
             $this->assertStringContainsString('MessageEditor::scripts(\Pramnos\Html\MessageEditor::mode())', $compose, $theme);
             $this->assertStringContainsString('window.PfEditor.plain(body, plain)', $compose, $theme . ': push is written plain');
+            $this->assertStringContainsString('window.pfRichEditor.plain(body, plain)', $compose, $theme . ': push is written plain in the rich editor too');
             $this->assertStringContainsString('data-pf-editor="builtin"', $notify, $theme);
             $this->assertStringContainsString('MessageEditor::scripts(\Pramnos\Html\MessageEditor::BUILTIN)', $notify, $theme);
         }

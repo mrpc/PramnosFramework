@@ -159,4 +159,33 @@ export default [
             }],
         },
     },
+
+    {
+        // The rich editor's sources: ES modules for the browser, bundled by `npm run build:editor`
+        // and imported by a SPA's wrapper. Its build script runs under Node.
+        files: ['resources/js/rich-editor/**/*.js', 'resources/js/rich-editor/**/*.mjs'],
+        languageOptions: {
+            ecmaVersion: 2022,
+            sourceType: 'module',
+            globals: {
+                window: 'readonly',
+                document: 'readonly',
+                self: 'readonly',
+                Event: 'readonly',
+                FormData: 'readonly',
+                HTMLElement: 'readonly',
+                HTMLInputElement: 'readonly',
+                Element: 'readonly',
+                process: 'readonly',
+                console: 'readonly',
+            },
+        },
+        rules: {
+            'no-redeclare': 'error',
+            'no-undef': 'error',
+            'no-dupe-keys': 'error',
+            'no-unreachable': 'error',
+            'no-unused-vars': ['error', { args: 'none', caughtErrors: 'none', varsIgnorePattern: '^_' }],
+        },
+    },
 ];

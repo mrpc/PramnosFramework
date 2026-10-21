@@ -516,7 +516,11 @@ one account always uses the framework's own.
 ```php
 // app/app.php
 'messaging' => [
-    'editor'  => 'builtin',   // builtin (default) | tinymce | none
+    'editor'  => 'builtin',   // builtin (default) | rich | tinymce | none
+    'rich'    => [            // only for 'rich'; both optional
+        'upload' => adminUrl('Media/upload'),   // pictures POSTed here as `file`; answers {"url": …}
+        'links'  => adminUrl('search'),         // the link panel searches here (?q=)
+    ],
     'tinymce' => [            // only for 'tinymce'
         'src'         => sURL . 'assets/vendor/tinymce/7.2.0/tinymce.min.js',  // default: the jsDelivr CDN
         'license_key' => 'gpl',                                              // TinyMCE's requirement
@@ -527,6 +531,7 @@ one account always uses the framework's own.
 | Mode | What it is |
 | --- | --- |
 | `builtin` | `www/assets/js/pf-editor.js`: bold, italic, two heading levels, lists, a link, an image by its `https` address, clear formatting, and the HTML itself. Pasting inserts text, not the pasted page's styles — the commonest reason a message looks broken in Outlook. No dependency, nothing a Content-Security-Policy has to allow. |
+| `rich` | `www/assets/js/pf-rich-editor.js`, TipTap bundled: pictures with alt text and captions, uploaded by drop, paste or choice, a link panel that searches the site, blocks moved with Alt+↑/↓, embeds, and plugins of the site's own. No CDN, MIT licensed. See the [Rich Text Editor guide](Pramnos_Rich_Editor_Guide.md). |
 | `tinymce` | TinyMCE, loaded from `src` and initialised with `license_key`. Where it comes from and under which licence are the application's decisions; a CDN source must be allowed by the CSP's `script-src`. |
 | `none` | The textarea, as markup. |
 
