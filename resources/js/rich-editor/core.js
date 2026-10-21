@@ -105,6 +105,9 @@ function builtinButtons(l, ui) {
  * @param {Array}    [options.plugins]  Plugins, as above
  * @param {object|false} [options.embeds] `{ providers, preview }` for the embed previews; false for none
  * @param {object}   [options.labels]   Replacements for LABELS
+ * @param {HTMLElement} [options.header] What sits in the text's column above the text, under the
+ *                                    toolbar — a title field, as a page of an article has one. Moved
+ *                                    into the editor, and out again with destroy()
  * @param {boolean}  [options.blockToolbar] A small toolbar floating over the block at the cursor —
  *                                    move it, make it a paragraph or a heading, bold, italic, link;
  *                                    a plugin's button with `block: true` is on it too. Off by default
@@ -240,6 +243,14 @@ export function createRichEditor(host, options = {}) {
         },
     });
     ui.editor = editor;
+
+    // The title, in the text's column: under the toolbar, above the text.
+    const header = options.header || null;
+    const headerHome = header ? { parent: header.parentNode, next: header.nextSibling } : null;
+    if (header) {
+        header.classList.add('pf-rich-header');
+        area.insertBefore(header, editor.view.dom);
+    }
 
     file.addEventListener('change', () => {
         const chosen = file.files && file.files[0];
@@ -468,6 +479,10 @@ export function createRichEditor(host, options = {}) {
         setReadonly,
         destroy() {
             teardowns.forEach((undo) => undo());
+            // The header back where it came from, for whoever owns it to remove.
+            if (header && headerHome && headerHome.parent) {
+                headerHome.parent.insertBefore(header, headerHome.next && headerHome.next.parentNode === headerHome.parent ? headerHome.next : null);
+            }
             editor.destroy();
             wrap.remove();
         },

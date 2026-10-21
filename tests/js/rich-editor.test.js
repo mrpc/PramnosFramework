@@ -233,6 +233,27 @@ test('a field inside its label gets its editor after the label, never inside it'
     assert.ok(label.nextElementSibling.contains(made.element), 'the editor is not after the label');
 });
 
+test('a header goes into the text\'s column, under the toolbar, and back out with destroy()', () => {
+    // Arrange — the title field the page has, named by the textarea
+    const ui = page();
+    const title = ui.window.document.createElement('input');
+    title.id = 'title';
+    ui.window.document.body.append(title);
+    const field = ui.window.document.createElement('textarea');
+    field.setAttribute('data-pf-rich-header', '#title');
+    ui.window.document.body.append(field);
+
+    // Act
+    const made = ui.window.pfRichEditor.enhance(field);
+    const area = made.element.querySelector('.pf-rich-area');
+    const inColumn = title.parentNode === area && title.nextElementSibling === made.editor.view.dom;
+    made.destroy();
+
+    // Assert
+    assert.equal(inColumn, true, 'the title is not between the toolbar and the text');
+    assert.equal(title.parentNode, ui.window.document.body, 'destroy() took the page\'s title with it');
+});
+
 test('the shipped file is built from the sources as they are', async () => {
     // Arrange
     const { sourceStamp } = await import('../../resources/js/rich-editor/build.mjs');

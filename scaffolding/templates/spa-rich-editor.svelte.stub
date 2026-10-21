@@ -19,7 +19,7 @@
      * @param {object}   [labels]  The controls' words
      * @param {boolean}  [readonly]
      * @param {boolean}  [blockToolbar] A toolbar floating over the block at the cursor
-     * @param {import('svelte').Snippet} [header] What sits above the text — a title
+     * @param {import('svelte').Snippet} [header] What sits in the text's column, under the toolbar — a title
      */
     import { onDestroy, onMount } from 'svelte';
     import { createRichEditor } from '../lib/rich-editor/core.js';
@@ -28,10 +28,12 @@
     let { value = '', onchange = () => {}, upload = null, findLinks = null, plugins = [], embeds = {}, labels = {}, readonly = false, blockToolbar = false, header = null } = $props();
 
     let host;
+    let top;
     let instance = $state(null);
 
     onMount(() => {
-        instance = createRichEditor(host, { content: value, onChange: (html) => onchange(html), upload, findLinks, plugins, embeds, labels, readonly, blockToolbar });
+        // The header goes into the text's column, under the toolbar — the editor moves it there.
+        instance = createRichEditor(host, { content: value, onChange: (html) => onchange(html), upload, findLinks, plugins, embeds, labels, readonly, blockToolbar, header: header ? top : null });
     });
 
     $effect(() => {
@@ -46,5 +48,8 @@
     }
 </script>
 
-{#if header}{@render header()}{/if}
-<div bind:this={host}></div>
+<!-- One root, so the header the editor moves inside it is removed with it. -->
+<div class="pf-rich-host">
+    <div bind:this={top}>{#if header}{@render header()}{/if}</div>
+    <div bind:this={host}></div>
+</div>

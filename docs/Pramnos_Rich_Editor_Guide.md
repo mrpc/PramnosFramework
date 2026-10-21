@@ -64,6 +64,7 @@ defaults — the controls' words through `t()`, and the `upload` and `links` add
 | `data-pf-rich-plugins="embeds,mentions"` | only these plugins; every one registered without it. `embeds` is named like a plugin, so a field can leave previews out |
 | `data-pf-rich-labels='{"bold":"Έντονα"}'` | the controls' words |
 | `data-pf-rich-block-toolbar="1"` | the block toolbar for this field (`"0"`: none), whatever the application's default |
+| `data-pf-rich-header="#title"` | an element of the page moved into the text's column — under the toolbar, above the text — as an article's title sits; `header` in `create()` |
 | `readonly` / `disabled` | the text shown, not editable |
 
 ```js
@@ -127,8 +128,10 @@ php myapp.php project:resync --rich-editor && npm install
 
 That writes `lib/rich-editor/core.js`, `extensions.js` and `rich-editor.css` — the framework's,
 refreshed by every `project:resync` after — and `components/RichEditor.svelte`, which is the
-project's: change it as you like, it is kept. The TipTap packages are added to `package.json`,
-leaving a version the project already chose.
+project's: change it as you like, it is kept. The TipTap packages are added to `package.json`
+beside the ones the project already has — in `dependencies` if it keeps them there, else in
+`devDependencies` — leaving a version the project already chose. The `header` snippet sits in the
+text's column, under the toolbar.
 
 ```svelte
 <RichEditor value={article.body} onchange={(html) => (article.body = html)}

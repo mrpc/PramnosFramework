@@ -594,14 +594,18 @@ class ProjectResync extends Command
             if (is_file($stub)) {
                 $files[] = ['content' => (string) file_get_contents($stub), 'dest' => $sourceDir . 'components/RichEditor.svelte', 'exec' => false, 'protect' => true, 'create' => true];
             }
-            $dev = $pkg['devDependencies'] ?? [];
+            // Beside the project's other TipTap packages — in `dependencies` when it keeps them there —
+            // else in `devDependencies`, where the framework's other SPA packages go.
+            $tiptapIn = static fn (string $list): bool => array_filter(array_keys((array) ($pkg[$list] ?? [])), static fn ($n): bool => str_starts_with((string) $n, '@tiptap/')) !== [];
+            $list = $tiptapIn('dependencies') ? 'dependencies' : 'devDependencies';
+            $into = (array) ($pkg[$list] ?? []);
             foreach (Init::SPA_RICH_EDITOR_PACKAGES as $name => $version) {
-                if (!isset($pkg['dependencies'][$name])) {
-                    $dev[$name] ??= $version;
+                if (!isset($pkg['dependencies'][$name]) && !isset($pkg['devDependencies'][$name])) {
+                    $into[$name] = $version;
                 }
             }
-            ksort($dev);
-            $pkg['devDependencies'] = $dev;
+            ksort($into);
+            $pkg[$list] = $into;
             $files[] = ['content' => json_encode($pkg, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n", 'dest' => 'package.json', 'exec' => false, 'create' => true];
         }
 

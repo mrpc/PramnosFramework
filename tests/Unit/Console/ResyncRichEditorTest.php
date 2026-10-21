@@ -91,6 +91,22 @@ final class ResyncRichEditorTest extends TestCase
     }
 
     /**
+     * The packages go beside the project's other TipTap packages: in `dependencies` when it keeps
+     * them there.
+     */
+    public function testThePackagesGoWhereTheProjectKeepsTipTap(): void
+    {
+        // Act
+        $this->resync(self::svelte(), ['--rich-editor' => true], ['dependencies' => ['@tiptap/core' => '^3.31.3'], 'devDependencies' => ['vite' => '^6']]);
+        $pkg = json_decode((string) file_get_contents($this->base . '/package.json'), true);
+
+        // Assert
+        $this->assertSame('^3.32.0', $pkg['dependencies']['@tiptap/pm'] ?? null, 'put apart from the project\'s own TipTap');
+        $this->assertSame('^3.31.3', $pkg['dependencies']['@tiptap/core']);
+        $this->assertArrayNotHasKey('@tiptap/pm', $pkg['devDependencies']);
+    }
+
+    /**
      * Once taken, a plain resync refreshes the core — and leaves a component the project changed.
      */
     public function testAPlainResyncRefreshesTheCoreAndKeepsTheComponent(): void
