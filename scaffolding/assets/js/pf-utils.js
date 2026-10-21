@@ -1050,7 +1050,14 @@
             var holder = box.querySelector('[data-pf-composer-fields]');
             if (holder) {
                 var menu = holder.closest('details');
-                if (menu) { menu.querySelector('summary').addEventListener('mousedown', function (e) { e.preventDefault(); }); }
+                if (menu) {
+                    menu.querySelector('summary').addEventListener('mousedown', function (e) { e.preventDefault(); });
+                    // Open until its own toggle or Escape: several details go in one after another,
+                    // and a <details> does not close on a click elsewhere.
+                    document.addEventListener('keydown', function (e) {
+                        if (e.key === 'Escape' && menu.open) { menu.open = false; }
+                    });
+                }
                 fields.forEach(function (f) {
                     var text = f.value != null ? String(f.value) : f.token;
                     var b = document.createElement('button');
@@ -1070,7 +1077,6 @@
                         } else {
                             body.insert(text);
                         }
-                        if (menu) { menu.open = false; }
                     });
                     holder.appendChild(b);
                 });

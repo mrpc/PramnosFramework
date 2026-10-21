@@ -99,7 +99,7 @@ for (const mode of ['none', 'builtin', 'rich']) {
     });
 }
 
-test('a field goes in at the cursor of whichever field had the focus last — the token, never filled', () => {
+test('a field goes in at the cursor of whichever field had the focus last — the token, never filled; the menu stays open', () => {
     // Arrange
     const ui = page();
     const menu = ui.$('details.pf-composer-menu');
@@ -120,7 +120,10 @@ test('a field goes in at the cursor of whichever field had the focus last — th
     assert.equal(button.textContent, 'First name');
     assert.equal(ui.subject.value, 'Hello {firstname}!');
     assert.equal(ui.body.value, 'Dear {firstname},');
-    assert.equal(menu.open, false, 'the dropdown stays open after a choice');
+    // Several details go in one after another: the dropdown stays open until its toggle or Escape.
+    assert.equal(menu.open, true, 'the dropdown closed after a choice');
+    ui.window.document.dispatchEvent(new ui.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    assert.equal(menu.open, false, 'Escape did not close the dropdown');
 });
 
 test('a field with a value — a message to one person — inserts the value, not the token', () => {
