@@ -974,8 +974,9 @@
     // body `[data-pf-composer-body]`, in whichever editor it has — rich, TinyMCE, builtin or
     // none, all reached through one adapter. Saved messages fill the subject and the body; a
     // placeholder goes in at the cursor of whichever of the two had the focus last, never filled
-    // here; "Write with AI" asks the server; "With my signature" adds the signature to the body
-    // when the form is sent, once.
+    // here — a field with a `value` (a message to one person) inserts the value instead; "Write
+    // with AI" and "Save this message" open panels under the toolbar, never a browser dialog;
+    // "With my signature" adds the signature to the body when the form is sent, once.
     // ══════════════════════════════════════════════════════════════════════════
     (function () {
         /** The body, whatever editor it is in: get, set, insert at the cursor. */
@@ -1033,26 +1034,43 @@
                 if (subject && e.target === subject) { lastFocus = 'subject'; } else if (e.target !== subject && !(e.target.closest && e.target.closest('.pf-composer-toolbar'))) { lastFocus = 'body'; }
             });
 
-            // ── Placeholders: a button each; pressing one keeps the cursor where it was ──
+            var status = box.querySelector('[data-pf-composer-status]');
+            function say(text) { if (status) { status.textContent = text || ''; } }
+            function panel(name) { return box.querySelector('[data-pf-composer-' + name + '-panel]'); }
+            function open(p, on) {
+                Array.prototype.forEach.call(box.querySelectorAll('.pf-composer-panel'), function (x) { x.hidden = true; });
+                if (p) { p.hidden = !on; }
+            }
+            Array.prototype.forEach.call(box.querySelectorAll('[data-pf-composer-cancel]'), function (b) {
+                b.addEventListener('click', function () { open(b.closest('.pf-composer-panel'), false); });
+            });
+
+            // ── The fields: a dropdown (or a row); the value where one is given, the token otherwise;
+            //    pressing one keeps the cursor where it was ──
             var holder = box.querySelector('[data-pf-composer-fields]');
             if (holder) {
+                var menu = holder.closest('details');
+                if (menu) { menu.querySelector('summary').addEventListener('mousedown', function (e) { e.preventDefault(); }); }
                 fields.forEach(function (f) {
+                    var text = f.value != null ? String(f.value) : f.token;
                     var b = document.createElement('button');
                     b.type = 'button';
-                    b.className = 'pf-composer-button pf-composer-field';
+                    b.className = 'pf-composer-field';
+                    if (menu) { b.setAttribute('role', 'menuitem'); }
                     b.textContent = f.label || f.token;
-                    b.title = f.token;
+                    b.title = text;
                     b.setAttribute('data-token', f.token);
                     b.addEventListener('mousedown', function (e) { e.preventDefault(); });
                     b.addEventListener('click', function () {
                         if (lastFocus === 'subject' && subject) {
                             var start = subject.selectionStart == null ? subject.value.length : subject.selectionStart;
                             var end = subject.selectionEnd == null ? start : subject.selectionEnd;
-                            subject.value = subject.value.slice(0, start) + f.token + subject.value.slice(end);
-                            subject.selectionStart = subject.selectionEnd = start + f.token.length;
+                            subject.value = subject.value.slice(0, start) + text + subject.value.slice(end);
+                            subject.selectionStart = subject.selectionEnd = start + text.length;
                         } else {
-                            body.insert(f.token);
+                            body.insert(text);
                         }
+                        if (menu) { menu.open = false; }
                     });
                     holder.appendChild(b);
                 });
@@ -1070,6 +1088,10 @@
                     .then(function (d) {
                         saved = (d && d.messages) || [];
                         canShare = !!(d && d.canShare);
+                        var sharedLabel = box.querySelector('[data-pf-composer-shared-label]');
+                        if (sharedLabel) { sharedLabel.hidden = !canShare; }
+                        // Nothing to choose from: no list, only "Save this message".
+                        picker.hidden = saved.length === 0;
                         while (picker.options.length > 1) { picker.remove(1); }
                         saved.forEach(function (m) {
                             var o = document.createElement('option');
@@ -1080,37 +1102,57 @@
                     }).catch(function () { /* the form works without them */ });
             }
             function chosen() {
-                return saved.filter(function (m) { return String(m.id) === picker.value; })[0] || null;
+                return picker ? saved.filter(function (m) { return String(m.id) === picker.value; })[0] || null : null;
             }
             if (picker) {
                 picker.addEventListener('change', function () {
                     var m = chosen();
-                    if (forgetButton) { forgetButton.hidden = !(m && m.canForget); }
+                    if (forgetButton) { forgetButton.hidden = !(m && m.canForget); delete forgetButton.dataset.armed; }
                     if (!m) { return; }
                     if (subject) { subject.value = m.subject; }
                     body.set(m.body);
                 });
             }
+            var savePanel = panel('save');
             var saveButton = box.querySelector('[data-pf-composer-save]');
-            if (saveButton) {
+            if (saveButton && savePanel) {
+                var nameField = savePanel.querySelector('[data-pf-composer-name]');
+                var sharedBox = savePanel.querySelector('[data-pf-composer-shared]');
                 saveButton.addEventListener('click', function () {
                     var current = chosen();
-                    var name = window.prompt(words.name || 'Name', current ? current.name : (subject ? subject.value : ''));
-                    if (!name) { return; }
-                    var shared = canShare && window.confirm(words.share || 'Share it with everybody?');
+                    nameField.value = current ? current.name : (subject ? subject.value : '');
+                    if (sharedBox) { sharedBox.checked = !!(current && current.shared); }
+                    open(savePanel, savePanel.hidden);
+                    if (!savePanel.hidden) { nameField.focus(); }
+                });
+                savePanel.querySelector('[data-pf-composer-save-go]').addEventListener('click', function () {
+                    var name = nameField.value.trim();
+                    if (!name) { say(words.name || 'A name is needed.'); nameField.focus(); return; }
+                    var shared = canShare && sharedBox && sharedBox.checked;
                     post(url + '/save', { name: name, subject: subject ? subject.value : '', body: body.get(), scope: scope, shared: shared ? '1' : '0' })
                         .then(function (d) {
-                            if (d && d.error) { window.alert(d.error); return; }
+                            if (!d || d.error) { say((d && d.error) || words.failed); return; }
+                            open(savePanel, false);
+                            say(words.saved || 'Saved.');
                             return load().then(function () { picker.value = String(d.saved); });
                         });
                 });
             }
             if (forgetButton) {
+                // Twice to forget: the first press asks, in the button's own words.
+                var forgetLabel = forgetButton.textContent;
                 forgetButton.addEventListener('click', function () {
                     var m = chosen();
-                    if (!m || !window.confirm(words.forget || 'Forget this saved message?')) { return; }
+                    if (!m) { return; }
+                    if (!forgetButton.dataset.armed) {
+                        forgetButton.dataset.armed = '1';
+                        forgetButton.textContent = words.forget || 'Click again to forget it';
+                        return;
+                    }
+                    delete forgetButton.dataset.armed;
+                    forgetButton.textContent = forgetLabel;
                     post(url + '/forget', { id: String(m.id) }).then(function (d) {
-                        if (d && d.error) { window.alert(d.error); return; }
+                        if (!d || d.error) { say((d && d.error) || words.failed); return; }
                         forgetButton.hidden = true;
                         return load();
                     });
@@ -1118,25 +1160,46 @@
             }
             load();
 
-            // ── Write with AI: from an instruction, or the text improved ──
+            // ── Write with AI: an instruction, or nothing to improve what is written; Undo puts
+            //    back the subject and the body it replaced ──
+            var writePanel = panel('write');
             var writeButton = box.querySelector('[data-pf-composer-write]');
-            if (writeButton) {
+            if (writeButton && writePanel) {
+                var instruction = writePanel.querySelector('[data-pf-composer-instruction]');
+                var go = writePanel.querySelector('[data-pf-composer-write-go]');
+                var undo = writePanel.querySelector('[data-pf-composer-undo]');
+                var before = null;
+                var label = function () { go.textContent = instruction.value.trim() ? (words.write || 'Write') : (words.improve || 'Improve'); };
+                instruction.addEventListener('input', label);
                 writeButton.addEventListener('click', function () {
-                    var instruction = window.prompt(words.instruction || 'What should the message say?', '');
-                    if (instruction === null) { return; }
-                    var label = writeButton.textContent;
-                    writeButton.disabled = true;
-                    writeButton.textContent = words.writing || '…';
+                    open(writePanel, writePanel.hidden);
+                    if (!writePanel.hidden) { label(); instruction.focus(); }
+                });
+                go.addEventListener('click', function () {
+                    go.disabled = true;
+                    writePanel.setAttribute('aria-busy', 'true');
+                    go.textContent = words.writing || '…';
+                    say('');
+                    var was = { subject: subject ? subject.value : '', body: body.get() };
                     post(url + '/write', {
-                        instruction: instruction, subject: subject ? subject.value : '', body: body.get(),
+                        instruction: instruction.value.trim(), subject: was.subject, body: was.body,
                         language: box.getAttribute('data-pf-composer-language') || '',
                         fields: JSON.stringify(fields.map(function (f) { return f.token; })),
                     }).then(function (d) {
-                        if (!d || d.error) { window.alert((d && d.error) || words.failed || 'That did not work.'); return; }
+                        if (!d || d.error) { say((d && d.error) || words.failed); return; }
+                        before = was;
                         if (subject && d.subject) { subject.value = d.subject; }
                         if (d.body) { body.set(d.body); }
-                    }).catch(function () { window.alert(words.failed || 'That did not work.'); })
-                        .then(function () { writeButton.disabled = false; writeButton.textContent = label; });
+                        undo.hidden = false;
+                    }).catch(function () { say(words.failed || 'That did not work.'); })
+                        .then(function () { go.disabled = false; writePanel.removeAttribute('aria-busy'); label(); });
+                });
+                undo.addEventListener('click', function () {
+                    if (!before) { return; }
+                    if (subject) { subject.value = before.subject; }
+                    body.set(before.body);
+                    before = null;
+                    undo.hidden = true;
                 });
             }
 

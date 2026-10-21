@@ -48,7 +48,7 @@ $labels = [
             <span class="font-medium"><?php echo $e($name !== '' ? $name : ($u['username'] ?? '')); ?></span>
             <span class="pf-muted">&lt;<?php echo $e($u['email'] ?? ''); ?>&gt;</span>
         </div>
-        <form method="post" action="<?php echo adminUrl('users/sendnotification/' . $uid); ?>" data-pf-composer data-pf-composer-url="<?php echo $e(adminUrl('Composer')); ?>" data-pf-composer-scope="user-message" data-pf-editor-fields='<?php echo \Pramnos\Html\MessageComposer::fieldsJson(); ?>' class="p-5">
+        <form method="post" action="<?php echo adminUrl('users/sendnotification/' . $uid); ?>" data-pf-composer data-pf-composer-url="<?php echo $e(adminUrl('Composer')); ?>" data-pf-composer-scope="user-message" data-pf-editor-fields='<?php echo \Pramnos\Html\MessageComposer::fieldsJson(null, \Pramnos\Html\MessageComposer::valuesFor($u)); ?>' class="p-5">
             <?php echo \Pramnos\Http\Middleware\CsrfMiddleware::tokenField(); ?>
 
             <fieldset class="mb-5">

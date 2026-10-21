@@ -47,27 +47,48 @@ final class MessageComposer
     }
 
     /**
-     * Placeholders as the composer reads them: `[{token, label}]`, labels through `t()`.
+     * The fields as the composer reads them: `[{token, label}]`, labels through `t()`, and a
+     * `value` where `$values` has one — a message to one person, where the menu inserts "Cathy"
+     * rather than `{firstname}`.
      *
      * @param array<string, string>|null $fields token => label; the account's by default
+     * @param array<string, string>      $values token => value, e.g. {@see valuesFor()}
+     * @return list<array{token: string, label: string, value?: string}>
      */
-    public static function fieldsJson(?array $fields = null): string
+    public static function fields(?array $fields = null, array $values = []): array
     {
         $list = [];
         foreach ($fields ?? self::userFields() as $token => $label) {
-            $list[] = ['token' => (string) $token, 'label' => self::t((string) $label)];
+            $entry = ['token' => (string) $token, 'label' => self::t((string) $label)];
+            if (array_key_exists($token, $values)) {
+                $entry['value'] = (string) $values[$token];
+            }
+            $list[] = $entry;
         }
 
-        return (string) json_encode($list, JSON_UNESCAPED_UNICODE | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_TAG | JSON_HEX_AMP);
+        return $list;
     }
 
     /**
-     * An account's values for {@see userFields()}.
+     * {@see fields()} as JSON, safe in a single-quoted `data-pf-editor-fields` attribute.
      *
+     * @param array<string, string>|null $fields token => label; the account's by default
+     * @param array<string, string>      $values token => value
+     */
+    public static function fieldsJson(?array $fields = null, array $values = []): string
+    {
+        return (string) json_encode(self::fields($fields, $values), JSON_UNESCAPED_UNICODE | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_TAG | JSON_HEX_AMP);
+    }
+
+    /**
+     * An account's values for {@see userFields()} — a `User`, or its row as an array.
+     *
+     * @param object|array<string, mixed> $user
      * @return array<string, string>
      */
-    public static function valuesFor(object $user): array
+    public static function valuesFor(object|array $user): array
     {
+        $user  = (object) $user;
         $first = trim((string) ($user->firstname ?? ''));
         $last  = trim((string) ($user->lastname ?? ''));
 
@@ -131,29 +152,61 @@ final class MessageComposer
     }
 
     /**
-     * The toolbar: saved messages, placeholders, AI, signature. Markup only; `pf-utils.js` wires
-     * it inside the `data-pf-composer` container.
+     * The toolbar: saved messages, the fields, AI, signature — with the inline panels for saving
+     * and for writing. Markup only; `pf-utils.js` wires it inside the `data-pf-composer`
+     * container. Each part carries a `pf-composer-*` hook and the project's theme's button and
+     * field classes.
      *
-     * @param array{saved?: bool, ai?: bool|null, signature?: bool} $options Each part on by
-     *        default; `ai` null asks {@see canWrite()}
+     * @param array{saved?: bool, ai?: bool|null, signature?: bool, fields?: string} $options Each
+     *        part on by default; `ai` null asks {@see canWrite()}; `fields` `menu` (one "Fields"
+     *        dropdown) or `buttons` (a row, one per field)
      */
     public static function toolbar(array $options = []): string
     {
         $e     = static fn (string $v): string => htmlspecialchars($v, ENT_QUOTES, 'UTF-8');
+        $c     = self::classes();
+        $btn   = static fn (string $attr, string $label, string $kind = 'button', bool $hidden = false): string =>
+            '<button type="button" class="pf-composer-button ' . $c[$kind] . '" ' . $attr . ($hidden ? ' hidden' : '') . '>' . $e($label) . '</button>';
         $parts = [];
+        $panels = [];
 
         if ($options['saved'] ?? true) {
+            // The list stays hidden until pf-utils.js finds a saved message to put in it.
             $parts[] = '<span class="pf-composer-saved">'
-                . '<select data-pf-composer-saved aria-label="' . $e(self::t('Saved messages')) . '">'
+                . '<select class="pf-composer-select ' . $c['select'] . '" data-pf-composer-saved hidden aria-label="' . $e(self::t('Saved messages')) . '">'
                 . '<option value="">' . $e(self::t('Saved messages…')) . '</option></select> '
-                . '<button type="button" class="pf-composer-button" data-pf-composer-save>' . $e(self::t('Save this message')) . '</button> '
-                . '<button type="button" class="pf-composer-button" data-pf-composer-forget hidden>' . $e(self::t('Forget')) . '</button>'
+                . $btn('data-pf-composer-save', self::t('Save this message')) . ' '
+                . $btn('data-pf-composer-forget', self::t('Forget'), 'button', true)
                 . '</span>';
+            $panels[] = '<div class="pf-composer-panel" data-pf-composer-save-panel hidden>'
+                . '<label class="pf-composer-label">' . $e(self::t('Name')) . ' '
+                . '<input type="text" maxlength="150" class="pf-composer-input ' . $c['input'] . '" data-pf-composer-name></label> '
+                . '<label class="pf-composer-check" data-pf-composer-shared-label hidden><input type="checkbox" data-pf-composer-shared> '
+                . $e(self::t('For everybody')) . '</label> '
+                . $btn('data-pf-composer-save-go', self::t('Save'), 'primary') . ' '
+                . $btn('data-pf-composer-cancel', self::t('Cancel'))
+                . '</div>';
         }
-        // The placeholders' menu, drawn by pf-utils.js from data-pf-editor-fields.
-        $parts[] = '<span class="pf-composer-fields" data-pf-composer-fields aria-label="' . $e(self::t('Placeholders')) . '"></span>';
+        // The fields, drawn by pf-utils.js from data-pf-editor-fields: one dropdown, or a row.
+        if (($options['fields'] ?? 'menu') === 'buttons') {
+            $parts[] = '<span class="pf-composer-fields" data-pf-composer-fields aria-label="' . $e(self::t('Fields')) . '"></span>';
+        } else {
+            // <details>: opens and closes with no script, and Escape and the keyboard work.
+            $parts[] = '<details class="pf-composer-menu">'
+                . '<summary class="pf-composer-button ' . $c['button'] . '">' . $e(self::t('Fields')) . ' ▾</summary>'
+                . '<span class="pf-composer-fields pf-composer-menu-list" data-pf-composer-fields role="menu"></span>'
+                . '</details>';
+        }
         if ($options['ai'] ?? self::canWrite()) {
-            $parts[] = '<button type="button" class="pf-composer-button" data-pf-composer-write>' . $e(self::t('Write with AI…')) . '</button>';
+            $parts[] = $btn('data-pf-composer-write', self::t('Write with AI…'));
+            $panels[] = '<div class="pf-composer-panel" data-pf-composer-write-panel hidden>'
+                . '<label class="pf-composer-label">' . $e(self::t('What should it say?'))
+                . '<textarea rows="2" class="pf-composer-input ' . $c['area'] . '" data-pf-composer-instruction'
+                . ' placeholder="' . $e(self::t('Leave it empty to improve what is written.')) . '"></textarea></label> '
+                . $btn('data-pf-composer-write-go', self::t('Improve'), 'primary') . ' '
+                . $btn('data-pf-composer-undo', self::t('Undo'), 'button', true) . ' '
+                . $btn('data-pf-composer-cancel', self::t('Close'))
+                . '</div>';
         }
         if ($options['signature'] ?? true) {
             $parts[] = '<label class="pf-composer-signature"><input type="checkbox" data-pf-composer-signature'
@@ -162,27 +215,47 @@ final class MessageComposer
                 . '<a href="' . $e(adminUrl('Composer/signature')) . '" target="_blank" rel="noopener">'
                 . $e(self::t('Edit my signature')) . '</a>';
         }
+        $parts[] = '<span class="pf-composer-status" data-pf-composer-status role="status" aria-live="polite"></span>';
 
-        // The words pf-utils.js asks and answers with, in the page's language.
+        // The words pf-utils.js answers with, in the page's language.
         $words = [];
         foreach ([
-            'name'        => 'A name for this saved message',
-            'share'       => 'Share it with everybody? OK shares it; Cancel keeps it yours.',
-            'forget'      => 'Forget this saved message?',
-            'shared'      => 'Shared',
-            'mine'        => 'Mine',
-            'instruction' => 'What should the message say? Leave it empty to improve what is written.',
-            'writing'     => 'Writing…',
-            'failed'      => 'That did not work.',
+            'write'   => 'Write',
+            'improve' => 'Improve',
+            'writing' => 'Writing…',
+            'failed'  => 'That did not work.',
+            'saved'   => 'Saved.',
+            'shared'  => 'Shared',
+            'forget'  => 'Click again to forget it',
+            'name'    => 'A saved message needs a name.',
         ] as $key => $english) {
             $words[$key] = self::t($english);
         }
 
         return '<div class="pf-composer-toolbar" role="toolbar" aria-label="' . $e(self::t('Message tools')) . '"'
             . ' data-pf-composer-words="' . $e((string) json_encode($words, JSON_UNESCAPED_UNICODE)) . '">'
-            . implode(' ', $parts) . '</div>';
+            . implode(' ', $parts) . implode('', $panels) . '</div>';
     }
 
+    /**
+     * The project's theme's classes for the toolbar's controls — `scaffold_theme`, as the forms
+     * read it ({@see Form\FieldStyles::configured()}).
+     *
+     * @return array{button: string, primary: string, input: string, area: string, select: string}
+     */
+    private static function classes(): array
+    {
+        return match (Form\FieldStyles::configured()) {
+            'tailwind'  => ['button' => 'btn btn-sm', 'primary' => 'btn btn-sm btn-primary', 'input' => 'input input-sm input-bordered',
+                'area' => 'textarea textarea-bordered w-full', 'select' => 'select select-sm select-bordered'],
+            'bootstrap' => ['button' => 'btn btn-sm btn-outline-secondary', 'primary' => 'btn btn-sm btn-primary', 'input' => 'form-control form-control-sm',
+                'area' => 'form-control', 'select' => 'form-select form-select-sm'],
+            default     => ['button' => 'btn btn-secondary btn-sm', 'primary' => 'btn btn-primary btn-sm', 'input' => 'form-control',
+                'area' => 'form-control', 'select' => 'form-control'],
+        };
+    }
+
+    /** `t()` where the application has loaded it; the English otherwise. */
     private static function t(string $words): string
     {
         return function_exists('t') ? (string) t($words) : $words;

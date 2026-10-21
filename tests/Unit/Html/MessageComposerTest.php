@@ -55,22 +55,80 @@ final class MessageComposerTest extends TestCase
         $this->assertCount(5, json_decode(MessageComposer::fieldsJson(), true));
     }
 
-    /** Each part is drawn unless switched off; the words the script uses travel with it. */
+    /**
+     * For a message to one person a field carries its value, so the menu inserts "Cathy" and not
+     * `{firstname}`; a field with no value keeps only its token. An account's row as an array
+     * gives the same values as the object.
+     */
+    public function testAFieldCarriesItsValueForOnePerson(): void
+    {
+        // Arrange
+        $row = ['firstname' => 'Cathy', 'lastname' => 'Lee', 'username' => 'cathy', 'email' => 'c@x.test'];
+
+        // Act
+        $fields = MessageComposer::fields(null, MessageComposer::valuesFor($row));
+        $partly = MessageComposer::fields(['{firstname}' => 'First name', '{code}' => 'Code'], ['{firstname}' => 'Cathy']);
+
+        // Assert
+        $this->assertSame(['token' => '{firstname}', 'label' => 'First name', 'value' => 'Cathy'], $fields[0]);
+        $this->assertSame('Cathy Lee', $fields[2]['value']);
+        $this->assertSame(MessageComposer::valuesFor((object) $row), MessageComposer::valuesFor($row));
+        $this->assertArrayNotHasKey('value', $partly[1], 'a field with no value must insert its token');
+    }
+
+    /**
+     * Each part is drawn unless switched off, the fields as one dropdown by default and as a row
+     * on request; saving and writing are inline panels, not browser dialogs; the words the script
+     * uses travel with it.
+     */
     public function testTheToolbarDrawsItsParts(): void
     {
         // Act
         $all  = MessageComposer::toolbar(['ai' => true]);
+        $row  = MessageComposer::toolbar(['ai' => false, 'fields' => 'buttons']);
         $bare = MessageComposer::toolbar(['saved' => false, 'ai' => false, 'signature' => false]);
 
         // Assert
-        foreach (['data-pf-composer-saved', 'data-pf-composer-save', 'data-pf-composer-forget', 'data-pf-composer-fields', 'data-pf-composer-write', 'data-pf-composer-signature', 'data-pf-composer-words', 'Composer/signature'] as $part) {
+        foreach (['data-pf-composer-saved', 'data-pf-composer-save', 'data-pf-composer-forget', 'data-pf-composer-fields', 'data-pf-composer-write',
+            'data-pf-composer-signature', 'data-pf-composer-words', 'Composer/signature', 'data-pf-composer-save-panel', 'data-pf-composer-name',
+            'data-pf-composer-shared', 'data-pf-composer-write-panel', 'data-pf-composer-instruction', 'data-pf-composer-undo', 'data-pf-composer-status'] as $part) {
             $this->assertStringContainsString($part, $all, $part . ' is not drawn');
         }
-        foreach (['data-pf-composer-saved', 'data-pf-composer-write', 'data-pf-composer-signature'] as $part) {
+        $this->assertStringContainsString('<details class="pf-composer-menu">', $all, 'the fields are not one dropdown');
+        $this->assertStringContainsString('Fields ▾', $all);
+        $this->assertStringContainsString('data-pf-composer-saved hidden', $all, 'the list shows before anything is saved');
+        $this->assertStringNotContainsString('pf-composer-menu', $row, 'the row of buttons was asked for');
+        $this->assertStringContainsString('data-pf-composer-fields', $row);
+        foreach (['data-pf-composer-saved', 'data-pf-composer-write', 'data-pf-composer-signature', 'data-pf-composer-save-panel'] as $part) {
             $this->assertStringNotContainsString($part, $bare, $part . ' drawn though switched off');
         }
-        $this->assertStringContainsString('data-pf-composer-fields', $bare, 'the placeholders have no switch');
+        $this->assertStringContainsString('data-pf-composer-fields', $bare, 'the fields have no switch');
         $this->assertSame('', MessageComposer::signature(), 'nobody signed in has no signature');
+    }
+
+    /** The controls carry the project's theme's classes beside their pf-composer hooks. */
+    public function testTheControlsCarryTheThemesClasses(): void
+    {
+        // Arrange
+        $app      = \Pramnos\Application\Application::getInstance();
+        $previous = $app->applicationInfo;
+
+        try {
+            // Act
+            $html = [];
+            foreach (['tailwind', 'bootstrap', 'plain-css'] as $theme) {
+                $app->applicationInfo = ['scaffold_theme' => $theme] + (array) $previous;
+                $html[$theme] = MessageComposer::toolbar(['ai' => true]);
+            }
+        } finally {
+            $app->applicationInfo = $previous;
+        }
+
+        // Assert
+        $this->assertStringContainsString('class="pf-composer-button btn btn-sm btn-primary"', $html['tailwind']);
+        $this->assertStringContainsString('textarea textarea-bordered', $html['tailwind']);
+        $this->assertStringContainsString('form-select form-select-sm', $html['bootstrap']);
+        $this->assertStringContainsString('class="pf-composer-button btn btn-secondary btn-sm"', $html['plain-css']);
     }
 
     /** The framework's own message forms carry the composer, in every theme. */

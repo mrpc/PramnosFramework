@@ -569,26 +569,37 @@ Above the message forms — "Message one user" and the mass-message composer —
 It works with whichever editor the body is in — builtin, rich, TinyMCE or none — through
 `pf-utils.js`.
 
-- **Saved messages.** A list fills the subject and the body; "Save this message" keeps them under a
-  name, for the account or — with the `messages.share` ability where the application defines it,
-  with the administration floor where it does not — for everybody. The same name in the same
-  scope is replaced. They live in `savedmessages` (migration `create_savedmessages_table`), apart
-  from the mail templates, which are the application's notifications. Placeholders stay as
+- **Saved messages.** A list fills the subject and the body — shown once there is something in
+  it; "Save this message" opens a name field under the toolbar, with "For everybody" where the
+  account may share: the `messages.share` ability where the application defines it, the
+  administration floor where it does not. The same name in the same scope is replaced; "Forget"
+  asks by a second press. They live in `savedmessages` (migration `create_savedmessages_table`),
+  apart from the mail templates, which are the application's notifications. Placeholders stay as
   written.
-- **Placeholders.** `data-pf-editor-fields` — `[{"token": "{firstname}", "label": "First name"}]` —
-  draws a button each; one goes in at the cursor of whichever of the subject and the body had the
-  focus last. They are never filled in the page. The framework's forms fill `{firstname}`,
-  `{lastname}`, `{full_name}`, `{username}` and `{email}` when they send, for each recipient
-  (`MessageComposer::fill()` with `valuesFor($user)`); an application with its own fills its own.
-- **Write with AI**, where a language model is configured: an instruction — or nothing, to improve
-  what is written — and the model answers a subject and a body, keeping every placeholder,
-  in `data-pf-composer-language` when the form gives one. The call is logged and costed as every
-  call is (`purpose` `compose`); the body comes back cleaned to what a message may carry.
+- **Fields.** `data-pf-editor-fields` — `[{"token": "{firstname}", "label": "First name"}]` —
+  becomes one "Fields ▾" dropdown; a choice goes in at the cursor of whichever of the subject and
+  the body had the focus last. An entry with a `value` inserts the value instead of the token: a
+  message to one person reads "Cathy", not a placeholder. `MessageComposer::fieldsJson($fields,
+  $values)` builds the list — `fieldsJson(null, MessageComposer::valuesFor($user))` gives the
+  framework's own fields with one account's values, which is what "Message one user" passes; the
+  mass-message form passes tokens. A token is never filled in the page: the framework's forms fill
+  `{firstname}`, `{lastname}`, `{full_name}`, `{username}` and `{email}` when they send, for each
+  recipient (`MessageComposer::fill()` with `valuesFor($user)`); an application with its own
+  fields fills its own.
+- **Write with AI**, where a language model is configured, opens a panel under the toolbar: what
+  the message should say — or nothing, to improve what is written — and the model answers a
+  subject and a body, keeping every placeholder, in `data-pf-composer-language` when the form
+  gives one. Undo puts back the subject and the body it replaced. The call is logged and costed as
+  every call is (`purpose` `compose`); the body comes back cleaned to what a message may carry.
 - **The signature** is the account's own (`usersettings` `mail.signature`), edited at
   `Composer/signature` in the application's message editor. "With my signature" adds it under the
   body when the form is sent, once.
 
-`toolbar(['saved' => false, 'ai' => false, 'signature' => false])` leaves a part out. The
+Nothing in the composer opens a browser dialog: questions and answers are in the panels and in
+the toolbar's status line. `toolbar(['saved' => false, 'ai' => false, 'signature' => false])`
+leaves a part out, and `toolbar(['fields' => 'buttons'])` draws the fields as a row of buttons
+instead of the dropdown. Every control carries a `pf-composer-*` hook beside the button and field
+classes of the project's `scaffold_theme`; each theme's `components.css` lays them out. The
 endpoints are the `Composer` controller's: `saved?scope=`, and the POSTs `save`, `forget` and
 `write`, each with the session's token.
 

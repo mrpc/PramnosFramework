@@ -52,7 +52,7 @@ $label = 'display:block;font-size:0.85em;margin-bottom:4px';
             <span><?php echo $e($name !== '' ? $name : ($u['username'] ?? '')); ?></span>
             <span style="color:#666;font-size:0.85em">&lt;<?php echo $e($u['email'] ?? ''); ?>&gt;</span>
         </div>
-        <form method="post" action="<?php echo adminUrl('users/sendnotification/' . $uid); ?>" data-pf-composer data-pf-composer-url="<?php echo $e(adminUrl('Composer')); ?>" data-pf-composer-scope="user-message" data-pf-editor-fields='<?php echo \Pramnos\Html\MessageComposer::fieldsJson(); ?>' style="padding:16px">
+        <form method="post" action="<?php echo adminUrl('users/sendnotification/' . $uid); ?>" data-pf-composer data-pf-composer-url="<?php echo $e(adminUrl('Composer')); ?>" data-pf-composer-scope="user-message" data-pf-editor-fields='<?php echo \Pramnos\Html\MessageComposer::fieldsJson(null, \Pramnos\Html\MessageComposer::valuesFor($u)); ?>' style="padding:16px">
             <?php echo \Pramnos\Http\Middleware\CsrfMiddleware::tokenField(); ?>
 
             <fieldset style="border:0;padding:0;margin:0 0 18px">
