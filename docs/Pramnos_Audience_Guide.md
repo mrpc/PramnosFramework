@@ -9,6 +9,7 @@ use_cases:
   - Putting everybody a filter matches in a group, or taking them out
   - Making a send or a rule respect what people agreed to receive, by channel
   - Putting a filter builder with a live count on an admin form, or an audience picker on a send
+  - Finding out why one person is or is not in a segment, from the admin
 ---
 
 # Audience Guide
@@ -315,4 +316,25 @@ then.
   `live` (the panel, default on), `api`.
 - `pf-audience.js` ships with the framework; a project made before it reaches its web root with
   `project:resync --js --all`. It fires `pf:audience-change` with the state on every change.
+
+## The screens
+
+Two administration screens, under People, for every administrator:
+
+- **Segments** (`/admin/Segments`, ability `admin.segments`) — the library: every segment with how
+  many are in it now, who entered and left over seven days, and what uses it; the groups beside
+  them with their counts; tabs for segments, groups, and the account's own. A segment's page has
+  its numbers, its newest members, *Work it out now*, and **Why is this person in or out?** —
+  an account id explained condition by condition, ✓/✗ with the person's value. Saving a segment
+  works it out at once. One in use cannot be deleted.
+- **Consent lists** (`/admin/ConsentLists`, ability `admin.consent`) — every list with its channel,
+  where it is read from, the default for new accounts and how many are in it now; a list whose
+  source the code no longer declares says so instead of a count.
+
+Each change to a segment or a list is in the audit log with the before and after
+(`segment.created`, `segment.updated`, `segment.deleted`, `consentlist.*`).
+
+**On a person's card**, `\Pramnos\Html\AudiencePanel::person($userid)` lists the segments they
+are in, since when — each linked to the segment's "why" for them — and their groups. The
+framework's Users screen shows it; an application's own card puts it where it likes.
 

@@ -303,6 +303,11 @@ $fullName = trim(($user['firstname'] ?? '') . ' ' . ($user['lastname'] ?? ''));
             };
             ?>
 
+            <!-- Segments and groups: where this person belongs, and since when -->
+            <div class="card bg-base-100 border border-base-300 shadow-xs p-4">
+                <?php echo \Pramnos\Html\AudiencePanel::person($uid); ?>
+            </div>
+
             <!-- Login security: the lockout that answers "I cannot sign in" -->
             <div class="card bg-base-100 border border-base-300 shadow-xs overflow-hidden">
                 <?php $panel('Login security'); ?>

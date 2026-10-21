@@ -93,6 +93,7 @@ trait AudienceProbe
         $this->db = $this->openProbe($this->admin, self::$probe, $make, [
             CreateUsersTable::class,
             \Pramnos\Framework\Migrations\AuthServer\CreateAuthserverRolesTable::class,
+            \Pramnos\Framework\Migrations\AuthServer\CreateAuthserverAuditLogTable::class,
             UserGroups\CreateUsergroupsTables::class,
             UserGroups\CreateAuthserverGroupRolesTable::class,
             CreateSegmentsTables::class,
@@ -117,6 +118,8 @@ trait AudienceProbe
                 $table->primary(['userid', 'interestid']);
             });
         }
+        // Whether the audit table exists is remembered per process; this database has one.
+        \Pramnos\Auth\AuditLog::resetTableCache();
         $this->previous = Factory::getDatabase();
         $singleton      = &Factory::getDatabase();
         $singleton      = $this->db;
@@ -134,6 +137,7 @@ trait AudienceProbe
         Segments::reset();
         \Pramnos\Audience\ConsentLists::reset();
         \Pramnos\Event\Event::forget();
+        \Pramnos\Auth\AuditLog::resetTableCache();
         if ($this->previous !== null) {
             $singleton = &Factory::getDatabase();
             $singleton = $this->previous;

@@ -1731,6 +1731,19 @@ class Application extends Base
             ));
         }
 
+        // Audiences: segments and the consent lists every send and rule asks — no feature of
+        // their own, since the tables are the core's and an empty library says how to start.
+        NavRegistry::register(new NavItem(
+            'admin.segments', 'Segments', $admin('Segments'),
+            NavSection::Admin, 16, requireAuth: true, minUserType: $floor,
+            icon: 'filter', group: 'People',
+        ));
+        NavRegistry::register(new NavItem(
+            'admin.consent', 'Consent lists', $admin('ConsentLists'),
+            NavSection::Admin, 17, requireAuth: true, minUserType: $floor,
+            icon: 'check', group: 'People',
+        ));
+
         // Queue — queue feature
         if (in_array('queue', $features, true)) {
             NavRegistry::register(new NavItem(

@@ -178,6 +178,11 @@ $fullName = trim(($user['firstname'] ?? '') . ' ' . ($user['lastname'] ?? ''));
                 </div>
             </div>
 
+            <!-- Segments and groups: where this person belongs, and since when -->
+            <div class="card mb-4"><div class="card-body">
+                <?php echo \Pramnos\Html\AudiencePanel::person($uid); ?>
+            </div></div>
+
             <?php if (!empty($recentTokens)): ?>
             <div class="card">
                 <div class="card-header d-flex justify-content-between align-items-center">

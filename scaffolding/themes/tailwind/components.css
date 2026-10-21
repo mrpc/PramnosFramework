@@ -859,3 +859,17 @@ a.pf-stat-tile:hover { border-color: var(--color-primary, #2563eb); }
     align-items: center;
     gap: 0.4rem;
 }
+
+/* "Segments and groups" on a person's card — Html\AudiencePanel. */
+.pf-audience-panel-title { margin: 0 0 0.5rem; font-size: 1rem; font-weight: 600; }
+.pf-audience-panel-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 0.3rem; font-size: 0.875rem; }
+.pf-audience-panel-item { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.4rem; }
+.pf-audience-panel-kind {
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    opacity: 0.6;
+}
+.pf-audience-panel-since,
+.pf-audience-panel-empty { font-size: 0.8rem; opacity: 0.7; margin: 0; }

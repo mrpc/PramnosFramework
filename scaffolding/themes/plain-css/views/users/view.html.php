@@ -143,6 +143,11 @@ $this->activeNav = 'users_view';
                 </div>
             </div>
 
+            <!-- Segments and groups: where this person belongs, and since when -->
+            <div class="card" style="padding:16px;margin-bottom:16px">
+                <?php echo \Pramnos\Html\AudiencePanel::person($uid); ?>
+            </div>
+
             <?php if (!empty($recentTokens)): ?>
             <div class="card">
                 <style>tr.pf-token-row{cursor:pointer}tr.pf-token-row:hover{background:#f8f9fa}</style>
