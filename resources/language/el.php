@@ -886,4 +886,15 @@ return [
     'Saved.' => 'Αποθηκεύτηκε.',
     'Click again to forget it' => 'Πατήστε ξανά για διαγραφή',
     'Close' => 'Κλείσιμο',
+    // A queued listener's task on the Queue screen (QueueController::eventFields()).
+    'Folded by key' => 'Συγχώνευση με κλειδί',
+    'Events folded in' => 'Events που συγχωνεύτηκαν',
+    'Listener' => 'Listener',
+    'Fired at' => 'Ώρα του event',
+    'Fired by' => 'Από',
+    'The system' => 'Το σύστημα',
+    'Source' => 'Προέλευση',
+    'Caused by' => 'Προκλήθηκε από',
+    'First event' => 'Πρώτο event',
+    '%d deep' => 'βάθος %d',
 ];

@@ -140,6 +140,105 @@ class QueueManager
         return (int)$item->taskid;
     }
 
+    /**
+     * Queue a task to run $delaySeconds from now — folded into a waiting task with the same key,
+     * where there is one.
+     *
+     * ```php
+     * // A profile saved six times in a minute is synced once, with the last version.
+     * $queue->addKeyed('sync_profile', ['user' => 42], key: 'moosend:42', delaySeconds: 60, ceilingSeconds: 600);
+     * ```
+     *
+     * A task with the key that no worker has taken yet takes the new payload, counts one more
+     * in `absorbed`, and moves to the end of the new delay — but never past `createdat +
+     * $ceilingSeconds`, so changes that never stop still get their task run. One already
+     * running folds nothing: the change it did not see gets a task of its own.
+     *
+     * Different from `addTask(unique: true)`, which compares the whole payload and keeps the
+     * first: here the key decides, and the last payload wins.
+     *
+     * Written with the caller's connection and outside any transaction of its own, so a call
+     * inside the caller's transaction is committed or rolled back with it. Without the columns
+     * (`add_event_columns_to_queueitems` not run yet) a key folds nothing; without `availableat`
+     * the task is available at once.
+     *
+     * @return int The task id — the waiting one the payload went into, or the new one
+     */
+    public function addKeyed(
+        string $taskType,
+        mixed $data,
+        ?string $key = null,
+        int $delaySeconds = 0,
+        int $ceilingSeconds = 0,
+        int $priority = 10,
+        int $maxAttempts = 3
+    ): int {
+        $database = $this->controller->application->database;
+        $table    = $this->getQueueTableName();
+        $now      = time();
+        $payload  = (string) json_encode($data);
+        $hash     = $this->generateTaskHash($taskType, $data);
+        $keyed    = $key !== null && $key !== '' && $this->hasEventColumns();
+
+        // ponytail: no lock — two events racing on one key can make two tasks instead of one.
+        // Folding saves work, it does not promise it; a SharedLock per key if that ever matters.
+        for ($attempt = 0; $keyed && $attempt < 3; $attempt++) {
+            $waiting = $database->queryBuilder()->table($table)
+                ->select(['taskid', 'createdat', 'absorbed'])
+                ->where('dedupekey', $key)
+                ->where('status', 'pending')
+                ->orderBy('taskid', 'desc')
+                ->first();
+            if (!$waiting || (int) $waiting->numRows === 0) {
+                break;
+            }
+
+            $until = $now + $delaySeconds;
+            if ($ceilingSeconds > 0) {
+                $until = min($until, (int) strtotime((string) $waiting->fields['createdat']) + $ceilingSeconds);
+            }
+            $absorbed = (int) $waiting->fields['absorbed'];
+            $values   = ['payload' => $payload, 'task_hash' => $hash, 'absorbed' => $absorbed + 1];
+            if ($this->hasAvailableAt()) {
+                $values['availableat'] = date('Y-m-d H:i:s', $until);
+            }
+
+            // Guarded by what was read: a worker that took it, or another event that folded
+            // into it meanwhile, leaves nothing to update, and the read is done again.
+            $result = $database->queryBuilder()->table($table)
+                ->where('taskid', (int) $waiting->fields['taskid'])
+                ->where('status', 'pending')
+                ->where('absorbed', $absorbed)
+                ->update($values);
+            if ($result && (int) $result->getAffectedRows() > 0) {
+                return (int) $waiting->fields['taskid'];
+            }
+        }
+
+        $row = [
+            'type'        => $taskType,
+            'payload'     => $payload,
+            'status'      => 'pending',
+            'priority'    => $priority,
+            'attempts'    => 0,
+            'maxattempts' => $maxAttempts,
+            'task_hash'   => $hash,
+            'createdat'   => date('Y-m-d H:i:s', $now),
+        ];
+        if ($delaySeconds > 0 && $this->hasAvailableAt()) {
+            $row['availableat'] = date('Y-m-d H:i:s', $now + $delaySeconds);
+        }
+        if ($keyed) {
+            $row['dedupekey'] = $key;
+            $row['absorbed']  = 0;
+        }
+
+        // The framework's columns win over an application's of the same name.
+        $database->queryBuilder()->table($table)->insert($row + $this->extraColumns($taskType, $data));
+
+        return (int) $database->getInsertId();
+    }
+
     // ── Claiming ──────────────────────────────────────────────────────────────
 
     /**
@@ -832,6 +931,9 @@ class QueueManager
      * @var array<string, bool>
      */
     private static array $hasAvailableAt = [];
+
+    /** @var array<string, bool> Whether each queue table has `dedupekey`, asked once per process */
+    private static array $hasEventColumns = [];
 
     /**
      * Forget that discovery — for tests, and for a process that changes connection.
@@ -1969,10 +2071,33 @@ class QueueManager
         return min(600, 30 * max(1, (int) $task->attempts));
     }
 
-    /** Forget whether the table has `availableat` — for tests that build and drop it. */
+    /** The connection this queue writes on — the application's own. */
+    public function database(): \Pramnos\Database\Database
+    {
+        return $this->controller->application->database;
+    }
+
+    /** Whether this installation's queue table has `dedupekey` and `absorbed` yet. */
+    public function hasEventColumns(): bool
+    {
+        $table = $this->getQueueTableName();
+        if (!isset(self::$hasEventColumns[$table])) {
+            try {
+                self::$hasEventColumns[$table] = $this->controller->application->database
+                    ->schema()->hasColumn($table, 'dedupekey');
+            } catch (\Throwable) {
+                return false;
+            }
+        }
+
+        return self::$hasEventColumns[$table];
+    }
+
+    /** Forget which optional columns the table has — for tests that build and drop it. */
     public static function forgetSchemaCache(): void
     {
-        self::$hasAvailableAt = [];
+        self::$hasAvailableAt  = [];
+        self::$hasEventColumns = [];
     }
 
     private function generateTaskHash(string $type, mixed $data): string

@@ -137,6 +137,8 @@ class Worker
         $startTime = microtime(true);
         $startCpu  = $this->cpuSeconds();
 
+        // An event fired while a task runs says so: its source is the queue, not the console.
+        \Pramnos\Event\QueuedEvents::working(true);
         try {
             /** @var TaskInterface $handler */
             $handler = new $handlerClass($this->controller);
@@ -196,6 +198,8 @@ class Worker
             $taskInfo['execution_time'] = $executionTime;
 
             $this->queueManager->markTaskAsFailed($task, $errorMessage, $executionTime);
+        } finally {
+            \Pramnos\Event\QueuedEvents::working(false);
         }
 
         return $taskInfo;
@@ -381,6 +385,7 @@ class Worker
     public const FRAMEWORK_HANDLERS = [
         \Pramnos\Llm\Chat\Asks::TASK => \Pramnos\Llm\Chat\AskTask::class,
         \Pramnos\Llm\Chat\Routines::TASK => \Pramnos\Llm\Chat\TaskRunTask::class,
+        \Pramnos\Event\EventListenerTask::TYPE => \Pramnos\Event\EventListenerTask::class,
     ];
 
     // ── Factory hook ──────────────────────────────────────────────────────────

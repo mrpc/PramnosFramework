@@ -7,6 +7,8 @@ use_cases:
   - Finding out why a queue is falling behind
   - Recovering tasks stuck in `processing` after a worker died
   - Reading the queue's execution and wait times over days rather than minutes
+  - Moving an event's side effects (emails, syncs) out of the request into the queue
+  - Syncing a record once after many changes, or sending a welcome email only once
 ---
 
 # Pramnos Queue Guide
@@ -133,7 +135,11 @@ The administration's **Queue** (`src/Admin/Controllers/Queue.php`, the framework
 
 The id opens **the task** (`Queue/show/<id>`): every field it has a value for — lock, batch, task
 hash, CPU time, the error and the result in full, the application's columns — and its payload key
-by key, each value as readable JSON, a value that is itself JSON text decoded first.
+by key, each value as readable JSON, a value that is itself JSON text decoded first. A queued
+listener's task (`event.listener`, [below](#events-that-run-in-the-queue)) also shows the event that
+brought it — name and id, when, by whom, from where, the event that caused it and the first of its
+chain — the key it was folded by and how many events it absorbed; the list shows the event's name
+beside the type. A task whose work was already done reads *Skipped: already done (key)* as its result.
 
 **Statistics — last 48 hours** (`Queue/history`) is the hourly roll-up per task type from
 `QueueManager::history()`: tasks, failed, retried, execution mean and max, CPU mean, wait mean and
@@ -169,6 +175,81 @@ final class Queue extends \Pramnos\Queue\Controllers\QueueController
 ```
 
 ---
+
+## Events that run in the queue
+
+A listener that extends `Pramnos\Event\QueuedListener` is not called by `Event::fire()`: a task is
+written for it, and a worker runs it with the event's arguments. The request writes the fact; the
+emails, the notifications and the provider syncs happen in the worker.
+
+```php
+use Pramnos\Event\Event;
+use Pramnos\Event\QueuedListener;
+
+final class SyncMoosend extends QueuedListener
+{
+    public function handle(mixed ...$args): mixed
+    {
+        [$userId] = $args;
+        // … call the provider …
+        return true;
+    }
+
+    /** Six saves in a minute are one sync, with the last of them. */
+    public function debounceKey(mixed ...$args): ?string
+    {
+        return 'moosend:' . $args[0];
+    }
+}
+
+Event::listen('user.saved', SyncMoosend::class);      // in init(), like any listener
+Event::fire('user.saved', $userId);                    // writes a task; returns [taskId]
+Event::fireAs(null, 'subscription.expired', $userId);  // a cron: fired by the system
+```
+
+The task's type is `event.listener`, registered by the framework, so every worker runs it — no
+handler to name in `app.php`. Retries, attempts and the Queue screen are the queue's own.
+
+**Arguments travel as JSON** — ids and plain values. An object that is not `JsonSerializable`, a
+resource or invalid UTF-8 cannot: in development (`DEVELOPMENT`) and under tests `fire()` throws; in
+production it logs to the `events` log, skips that task and goes on with the other listeners, so an
+event fired in a payment's path never loses the payment over a listener. A queued listener's place
+in `fire()`'s results is its task id, or null where nothing was queued, and it never stops the
+listeners after it — it has not run yet.
+
+**The task is written in the caller's transaction, on the application's connection.** Inside
+`startTransaction()` a rollback takes the task with the change and a commit releases both; without a
+transaction it is written at once. A transaction on another connection — a second handle kept for
+older code — does not cover it, and neither does the Redis driver.
+
+Each listener answers, from the event's arguments, what it needs — every method has a default:
+
+| Method | Default | What it does |
+|---|---|---|
+| `debounceKey(...$args)` | null | Events with the same key fold into one waiting task: the last event's arguments win, `absorbed` counts the others, and the task runs `debounceWindow()` after the last |
+| `debounceWindow()` | 60 | Seconds the folded task waits after the last event |
+| `debounceCeiling()` | 600 | Seconds after the first event it runs at the latest, however many keep coming |
+| `idempotencyKey(...$args)` | null | Work done once per key: an event whose key was used queues nothing, and a task that finds its key taken completes as *skipped*. A failed run gives the key back for the retry |
+| `idempotencyTtl()` | 30 days | How long a used key stays used |
+| `priority()`, `maxAttempts()` | 10, 3 | The task's |
+
+A task already running folds nothing — the change it did not see gets a task of its own. Folding
+keeps the last payload; there is no hook to merge two yet (a `mergePayload()` would go here). Nor is
+there an ordering key: two tasks for the same account can run out of order when the first is
+retried, so a listener that cares reads the current state rather than trusting the event's.
+
+**Every task carries the event that brought it**, in the payload's `meta`: `eventId`, `event`,
+`firedAt`, `userid` (the signed-in account, the one `fireAs()` names, or null for the system),
+`ip` for a web request, `source` (`web`, `cli`, or `queue` when a worker fired it), and the
+causation chain — `causedBy`, the event whose queued listener fired this one; `rootId`, the first of
+the chain; `depth`. A chain deeper than ten is refused and logged: a rule that triggers itself.
+
+Two migrations add what folding and idempotency need — `add_event_columns_to_queueitems`
+(`dedupekey`, `absorbed`) and `create_queue_idempotency_table`. Until they have run, queued
+listeners still queue, unfolded and without keys, and the `events` log says so once.
+
+`QueueManager::addKeyed($type, $data, $key, $delaySeconds, $ceilingSeconds)` is the folding on its
+own, for a task that is not an event's.
 
 ## The delayed-queue capability
 

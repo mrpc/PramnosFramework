@@ -244,6 +244,40 @@ class QueueControllerTest extends BaseTestCase
     }
 
     /**
+     * A queued listener's task answers "why did this run": the task page lists its event —
+     * name and id, who fired it (the system for none), from where, and its cause in the chain —
+     * with the key it was folded by and how many events it absorbed; the list names the event.
+     * Any other task gets none of it.
+     */
+    public function testAQueuedListenersTaskShowsTheEventThatBroughtIt(): void
+    {
+        // Arrange
+        $fields  = new \ReflectionMethod($this->ctrl, 'taskFields');
+        $eventOf = new \ReflectionMethod($this->ctrl, 'eventOf');
+        $payload = (string) json_encode(['listener' => 'App\\SyncMoosend', 'event' => 'user.saved', 'args' => [42],
+            'meta' => ['eventId' => 'e2', 'firedAt' => 1700000000, 'userid' => null, 'source' => 'queue', 'ip' => null,
+                'causedBy' => 'e1', 'rootId' => 'e0', 'depth' => 2]]);
+        $task = ['type' => 'event.listener', 'payload' => $payload, 'dedupekey' => 'moosend:42', 'absorbed' => 4];
+
+        // Act
+        $shown = $fields->invoke($this->ctrl, $task);
+        $other = $fields->invoke($this->ctrl, ['type' => 'send_email', 'payload' => $payload]);
+        $list  = $eventOf->invoke($this->ctrl, 'event.listener', $payload);
+
+        // Assert
+        $this->assertSame('user.saved (e2)', $shown['Event']);
+        $this->assertSame('The system', $shown['Fired by']);
+        $this->assertSame('queue', $shown['Source']);
+        $this->assertSame('e1', $shown['Caused by']);
+        $this->assertSame('e0 · 2 deep', $shown['First event']);
+        $this->assertSame('moosend:42', $shown['Folded by key']);
+        $this->assertSame('4', $shown['Events folded in']);
+        $this->assertArrayNotHasKey('Event', $other, 'a task that is not an event\'s showed event fields');
+        $this->assertStringContainsString('user.saved', $list);
+        $this->assertSame('', $eventOf->invoke($this->ctrl, 'send_email', $payload));
+    }
+
+    /**
      * retry() with a valid positive id must call update() on the QB and then redirect.
      * Covers lines 99-111 of QueueController::retry().
      */

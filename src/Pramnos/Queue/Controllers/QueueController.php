@@ -187,7 +187,7 @@ class QueueController extends Controller
 
             // The id opens the task: what it was given, its error in full, its lock.
             $row[0] = '<a href="' . $e(adminUrl('queue/show/') . $id) . '" data-pf-modal>' . $id . '</a>';
-            $row[1] = $e($row[1]);
+            $row[1] = $e($row[1]) . $this->eventOf((string) $row[1], (string) $row[10]);
             $row[2] = $this->statusBadge($status);
             $row[3] = (string) (int) $row[3];
             $row[4] = (int) $row[4] . ' / ' . (int) $row[$last];
@@ -405,12 +405,15 @@ class QueueController extends Controller
             t('Lock expires')   => $task['lockexpires'] ?? null,
             t('Batch')          => trim(($task['batchname'] ?? '') . ' ' . ($task['batchid'] ?? '')),
             t('Task hash')      => $task['task_hash'] ?? null,
+            t('Folded by key')  => $task['dedupekey'] ?? null,
+            t('Events folded in') => (int) ($task['absorbed'] ?? 0) > 0 ? (string) (int) $task['absorbed'] : null,
             t('Error')          => $task['error'] ?? null,
             t('Result')         => $task['success_message'] ?? null,
         ];
         foreach ($this->extraColumns() as $label => $column) {
             $fields[(string) $label] = $task[$column] ?? null;
         }
+        $fields += $this->eventFields($task);
 
         return array_map('strval', array_filter($fields, static fn ($value): bool => $value !== null && $value !== ''));
     }
@@ -435,6 +438,44 @@ class QueueController extends Controller
         }
 
         return $entries;
+    }
+
+    /**
+     * For a queued listener's task, the event that brought it: what, when, who, from where, and
+     * the event that caused that one — "why did this run".
+     *
+     * @param array<string, mixed> $task
+     * @return array<string, string|null>
+     */
+    protected function eventFields(array $task): array
+    {
+        if (($task['type'] ?? '') !== \Pramnos\Event\EventListenerTask::TYPE) {
+            return [];
+        }
+        $job  = (array) json_decode((string) ($task['payload'] ?? ''), true);
+        $meta = (array) ($job['meta'] ?? []);
+        $at   = (int) ($meta['firedAt'] ?? 0);
+
+        return [
+            t('Event')       => isset($job['event']) ? $job['event'] . (isset($meta['eventId']) ? ' (' . $meta['eventId'] . ')' : '') : null,
+            t('Listener')    => $job['listener'] ?? null,
+            t('Fired at')    => $at > 0 ? date('Y-m-d H:i:s', $at) : null,
+            t('Fired by')    => array_key_exists('userid', $meta) ? ($meta['userid'] === null ? t('The system') : '#' . (int) $meta['userid']) : null,
+            t('Source')      => isset($meta['source']) ? $meta['source'] . (!empty($meta['ip']) ? ' · ' . $meta['ip'] : '') : null,
+            t('Caused by')   => $meta['causedBy'] ?? null,
+            t('First event') => isset($meta['rootId']) && $meta['rootId'] !== ($meta['eventId'] ?? null) ? $meta['rootId'] . ' · ' . sprintf(t('%d deep'), (int) ($meta['depth'] ?? 0)) : null,
+        ];
+    }
+
+    /** On the list, a queued listener's task says which event it is for. */
+    protected function eventOf(string $type, string $payload): string
+    {
+        if ($type !== \Pramnos\Event\EventListenerTask::TYPE) {
+            return '';
+        }
+        $event = (string) (((array) json_decode($payload, true))['event'] ?? '');
+
+        return $event === '' ? '' : ' <span class="pf-muted">· ' . htmlspecialchars($event, ENT_QUOTES, 'UTF-8') . '</span>';
     }
 
     /** A status as a badge. */

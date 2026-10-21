@@ -15,11 +15,17 @@ namespace Pramnos\Event;
  *   Event::fire('user.registered', $userData);
  *
  * A listener returning false stops propagation to subsequent listeners.
+ *
+ * A {@see QueuedListener} is not called by `fire()`: a task is written for it and a worker runs
+ * it ({@see QueuedEvents}).
  */
 class Event
 {
     /** @var array<string, array<int, list<callable|class-string<ListenerInterface>>>> */
     private static array $listeners = [];
+
+    /** @var array{userid: int|null}|null Who {@see fireAs()} fires for, while it runs */
+    private static ?array $actor = null;
 
     /**
      * Register a listener for the given event.
@@ -90,6 +96,10 @@ class Event
      * false, propagation is stopped immediately and subsequent listeners are
      * skipped.
      *
+     * A {@see QueuedListener} is queued instead of called, and its place in the results is the
+     * task's id — null where nothing was queued. It never stops the listeners after it: it has
+     * not run yet.
+     *
      * @return list<mixed>  Return values from each listener that was called.
      */
     public static function fire(string $event, mixed ...$args): array
@@ -102,9 +112,19 @@ class Event
         ksort($priorities);
 
         $results = [];
+        $meta    = null;
 
         foreach ($priorities as $bucket) {
             foreach ($bucket as $listener) {
+                if ($listener instanceof QueuedListener
+                    || (is_string($listener) && is_a($listener, QueuedListener::class, true))
+                ) {
+                    // One firing, one id, whichever of its listeners are queued.
+                    $meta    ??= QueuedEvents::meta($event, self::$actor);
+                    $results[] = QueuedEvents::enqueue($listener, $event, $args, $meta);
+                    continue;
+                }
+
                 $result = self::callListener($listener, $args);
                 $results[] = $result;
 
@@ -115,6 +135,30 @@ class Event
         }
 
         return $results;
+    }
+
+    /**
+     * Fire an event for an account, or for nobody — the system.
+     *
+     * ```php
+     * Event::fireAs($userId, 'subscription.expired', $userId);   // a cron, for the user
+     * Event::fireAs(null, 'payments.reconciled', $batchId);       // the system itself
+     * ```
+     *
+     * The same as {@see fire()}, except for who a queued listener's task says fired it: a cron,
+     * a webhook or a worker has no session to ask.
+     *
+     * @return list<mixed>
+     */
+    public static function fireAs(?int $userid, string $event, mixed ...$args): array
+    {
+        $previous    = self::$actor;
+        self::$actor = ['userid' => $userid];
+        try {
+            return static::fire($event, ...$args);
+        } finally {
+            self::$actor = $previous;
+        }
     }
 
     /**
