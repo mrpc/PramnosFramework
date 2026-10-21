@@ -158,7 +158,8 @@ final class AdminBreadcrumbTest extends TestCase
      * The email preview is sandboxed without `allow-same-origin` or `allow-scripts`, so the page
      * cannot read the frame's document: an `onload` that sized it from `contentDocument` threw a
      * TypeError on every message, and as an inline handler a CSP without `unsafe-inline` blocks
-     * it anyway. The frame has a fixed height the reader can drag, and no handler.
+     * it anyway. The frame has a fixed height the reader can drag, and no handler. Popups are the
+     * one thing allowed: the message's links open in a window of their own.
      */
     #[DataProvider('themes')]
     public function testTheEmailPreviewHasNoHandlerAndStaysSandboxed(string $theme): void
@@ -173,8 +174,10 @@ final class AdminBreadcrumbTest extends TestCase
 
         // Assert
         $this->assertDoesNotMatchRegularExpression('/\son[a-z]+=/i', $frame, 'an inline handler on the preview');
-        $this->assertMatchesRegularExpression('/\ssandbox[\s>]/', $frame, 'the preview is not sandboxed');
-        $this->assertStringNotContainsString('allow-', $frame, 'the sandbox was loosened');
+        $this->assertMatchesRegularExpression('/\ssandbox[\s>=]/', $frame, 'the preview is not sandboxed');
+        // Either of these would hand the message the page's origin or a running script.
+        $this->assertStringNotContainsString('allow-same-origin', $frame, 'the sandbox was loosened');
+        $this->assertStringNotContainsString('allow-scripts', $frame, 'the sandbox was loosened');
         $this->assertStringContainsString('resize:vertical', $frame);
     }
 

@@ -30,6 +30,12 @@ class Composer extends Controller
     /** The ability that lets an account share a saved message with everybody. */
     public const SHARE_ABILITY = 'messages.share';
 
+    /**
+     * Not a screen of its own: a tool the Emails screen and an application's screens open, so no
+     * single Admin menu item grants it. Every action checks the administration floor itself.
+     */
+    protected string $adminAbility = '';
+
     /** Registers the actions: all behind sign-in, the changes POSTs with the session's token. */
     public function __construct(?\Pramnos\Application\Application $application = null)
     {

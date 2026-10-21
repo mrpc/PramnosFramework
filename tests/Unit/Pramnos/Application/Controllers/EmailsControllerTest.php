@@ -47,6 +47,8 @@ class TestableEmailsController extends EmailsController
             /** The address the list is scoped to, and the way back to all of it. */
             public mixed $scopedTo;
             public mixed $clearUrl;
+            /** The message as the preview frame shows it: no pixel, links in a window of their own. */
+            public mixed $preview;
             /** Everything knowable about one sent message, for the detail screen. */
             public mixed $report;
             /** Whether mail still goes to the recipient, and the form that changes it. */
