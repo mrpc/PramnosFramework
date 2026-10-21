@@ -2256,6 +2256,15 @@ reason.
 ],
 ```
 
+The sweep that fails the overdue rows runs on every `mail:flush`, as
+`UPDATE mails … WHERE status = 2 AND date < ?`. It needs an index that leads with `status`: the
+queued rows are a handful and the table is the whole history, so without one it reads every row,
+every minute. The framework's `mails` has `idx_mails_status`. For a `mails` that predates the
+framework's migrations, `add_status_date_index_to_mails` adds `(status, date)`. It does nothing
+where any index already leads with `status`, whatever its name. On a log of tens of millions of
+rows, building the index is a maintenance window. Build it yourself at a quiet hour, or exclude the
+migration until then.
+
 ### One at a time
 
 The command holds a worker lock, because two overlapping runs would both read the same pending
