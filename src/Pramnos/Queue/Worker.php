@@ -386,6 +386,7 @@ class Worker
         \Pramnos\Llm\Chat\Asks::TASK => \Pramnos\Llm\Chat\AskTask::class,
         \Pramnos\Llm\Chat\Routines::TASK => \Pramnos\Llm\Chat\TaskRunTask::class,
         \Pramnos\Event\EventListenerTask::TYPE => \Pramnos\Event\EventListenerTask::class,
+        \Pramnos\Audience\Rules\Engine::TASK => \Pramnos\Audience\Rules\RuleTask::class,
     ];
 
     // ── Factory hook ──────────────────────────────────────────────────────────

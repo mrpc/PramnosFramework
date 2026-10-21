@@ -110,6 +110,7 @@ final class ConsentLists
         foreach (self::$usage as $finder) {
             array_push($uses, ...array_map('strval', $finder($id)));
         }
+        array_push($uses, ...Rules\Rules::usingConsentList($id));
         if ($uses !== []) {
             throw new \RuntimeException(t('This consent list is in use: %s', implode(', ', $uses)));
         }

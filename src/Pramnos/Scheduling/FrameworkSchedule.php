@@ -250,6 +250,12 @@ class FrameworkSchedule
 
             // The detail of what people did, past the retention an application chose; the
             // summary filters read most is kept. Nothing to do where nobody recorded anything.
+            // Rules with a schedule take everybody who matches, when their minute comes.
+            'rules:run' => [
+                'cadence'     => [['everyMinute']],
+                'description' => 'Start the scheduled rules due this minute',
+            ],
+
             'audience:prune-events' => [
                 'cadence'     => [['daily'], ['at', '04:05']],
                 'description' => 'Delete person-event log rows older than the retention',

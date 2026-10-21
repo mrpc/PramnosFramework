@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Pramnos\Tests\Integration\Audience;
 
-use PHPUnit\Framework\Attributes\CoversNothing;
+use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Pramnos\Application\Application;
@@ -31,7 +31,10 @@ use Symfony\Component\Console\Tester\CommandTester;
  * click queue nothing and raise nothing; the scheduled commands succeed with one line; the
  * screens leave the menu and say they are not installed; the person card still shows groups.
  */
-#[CoversNothing]
+#[CoversClass(Installed::class)]
+#[CoversClass(\Pramnos\Audience\Rules\Engine::class)]
+#[CoversClass(\Pramnos\Audience\Rules\Rules::class)]
+#[CoversClass(\Pramnos\Console\Commands\RulesRun::class)]
 class AbsentTablesTest extends TestCase
 {
     use \Pramnos\Tests\Support\ReusesProbeDatabase;
@@ -216,10 +219,18 @@ class AbsentTablesTest extends TestCase
         $prune     = new CommandTester(new \Pramnos\Console\Commands\AudiencePruneEvents());
 
         // Act
-        $codes = [$recompute->execute([]), $prune->execute([])];
+        $rules     = new CommandTester(new \Pramnos\Console\Commands\RulesRun());
+        $codes = [$recompute->execute([]), $prune->execute([]), $rules->execute([])];
+        \Pramnos\Audience\Rules\Engine::listen();
 
         // Assert
-        $this->assertSame([0, 0], $codes);
+        $this->assertSame([0, 0, 0], $codes);
+        $this->assertStringContainsString('No rules here', $rules->getDisplay());
+        $this->assertSame([], \Pramnos\Audience\Rules\Rules::listenedEvents(), 'listen() listens to nothing');
+        $this->assertSame([], \Pramnos\Audience\Rules\Rules::usingSegment(1));
+        $this->assertSame(0, \Pramnos\Audience\Rules\Engine::due());
+        $this->assertNull(\Pramnos\Audience\Rules\Engine::schedule(['kind' => 'event']));
+        $this->assertNull(\Pramnos\Audience\Rules\Engine::prune());
         $this->assertCount(1, array_filter(explode("\n", trim($recompute->getDisplay()))));
         $this->assertCount(1, array_filter(explode("\n", trim($prune->getDisplay()))));
     }

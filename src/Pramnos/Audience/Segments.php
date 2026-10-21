@@ -128,7 +128,7 @@ final class Segments
             array_push($uses, ...array_map('strval', $finder($id)));
         }
 
-        return $uses;
+        return array_merge($uses, Rules\Rules::usingSegment($id));
     }
 
     /**

@@ -38,6 +38,7 @@ final class FrameworkGreekCatalogueTest extends TestCase
         'src/Pramnos/Application/Controllers/Composer.php',
         'src/Pramnos/Html/MessageComposer.php',
         'src/Pramnos/Audience/*.php',
+        'src/Pramnos/Audience/Rules/*.php',
         'src/Pramnos/Application/Controllers/Audience.php',
         'src/Pramnos/Html/AudienceBuilder.php',
         'src/Pramnos/Html/AudiencePanel.php',

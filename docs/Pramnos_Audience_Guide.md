@@ -13,6 +13,8 @@ use_cases:
   - Recording what people do — payments, posts, page visits — and filtering by it
   - Filling the history of an event from the application's existing tables
   - Taking framework updates while holding the audience migrations back
+  - Sending a message, waiting, branching and following up automatically when people do something
+  - Adding an application's own action — an SMS, a call list — to the rules
 ---
 
 # Audience Guide
@@ -24,12 +26,12 @@ application declares its attributes once and every screen can use them.
 ## Before the migrations run
 
 The audience tables — `segments`, `segment_members`, `consent_lists`, `person_events`,
-`person_event_log` — come from core migrations, and an application can hold them back while it
+`person_event_log`, `rules`, `rule_versions`, `rule_runs`, `rule_log` — come from core migrations, and an application can hold them back while it
 tries the feature elsewhere:
 
 ```php
 // app/app.php
-'migrations' => ['exclude' => ['create_segments_tables', 'create_consent_lists_table', 'create_person_events_tables']],
+'migrations' => ['exclude' => ['create_segments_tables', 'create_consent_lists_table', 'create_person_events_tables', 'create_rules_tables']],
 ```
 
 Until they exist, nothing here does anything: a dispatched `PersonEvent`, an event with
@@ -452,4 +454,98 @@ PersonEvents::forget('payment.made');            // to run a backfill again with
 
 Run a backfill before live recording of that event starts, or `forget()` it first: a second run
 counts every occurrence again. `PersonEvents::of($userid)` lists what one person did, newest first.
+
+## Rules
+
+A rule is **when** something happens, **who** it is for, **what** to do in which order, and
+**until** when — kept as versioned JSON and run in the queue.
+
+```php
+use Pramnos\Audience\Rules\Rules;
+use Pramnos\Audience\Rules\Engine;
+
+// app/app.php init — in the request and in the worker
+Engine::listen();
+
+$id = Rules::create('Premium expiring', [
+    'trigger' => ['type' => 'segment_entered', 'segment' => $expiringSoon],
+    'who'     => ['conditions' => [['attribute' => 'autorenew', 'op' => 'false']]],
+    'steps'   => [
+        'mail'  => ['type' => 'action', 'action' => 'email', 'params' => ['template' => 'premium.expiring', 'list' => 'offers'], 'next' => 'wait'],
+        'wait'  => ['type' => 'wait_event', 'event' => 'payment.made', 'seconds' => 3 * 86400, 'next' => null, 'timeout' => 'check'],
+        'check' => ['type' => 'branch', 'message' => ['step' => 'mail', 'status' => 'opened'], 'yes' => 'call', 'no' => 'sms'],
+        'sms'   => ['type' => 'action', 'action' => 'sms', 'params' => ['text' => '{firstname}, 4 days left'], 'next' => null],
+        'call'  => ['type' => 'action', 'action' => 'notify_admin', 'params' => ['to' => 12, 'subject' => 'Call {full_name}'], 'next' => null],
+    ],
+    'exit'    => ['conditions' => [['event' => 'payment.made', 'op' => 'last_within_days', 'value' => 1]]],
+    'goal'    => ['event' => 'payment.made', 'days' => 10],
+    'consent' => $offersList,
+    'hours'   => ['from' => '09:00', 'to' => '21:00'],
+    'caps'    => ['sms' => ['max' => 1, 'days' => 7]],
+], owner: $adminId);
+
+Rules::setStatus($id, 'shadow');   // runs, writes what it would do, sends nothing
+Rules::setStatus($id, 'active');
+```
+
+**When** (`trigger`): `event` — a named event about a person (its first argument an id, or an
+object with `personId()`); `segment_entered` / `segment_left` — starts or stops matching;
+`schedule` — a cron expression, everybody who matches then (`rules:run`, every minute); `once` —
+everybody who matches when it is switched on. **Entry**: `first` (once ever) or `every` (again
+after the last run ended, never two at once).
+
+**What** (`steps`, each naming the next or `null` to finish; no step leads back to itself):
+
+| Step | Does |
+| --- | --- |
+| `action` | an action, below |
+| `wait` | `seconds`, then `next` |
+| `wait_event` | until `event` about the person → `next`; after `seconds` without it → `timeout` |
+| `branch` | on a `filter` (any condition, attributes, events, segments), or on what happened to a message an earlier step sent (`opened`, `clicked`, `delivered`) → `yes` / `no` |
+| `split` | `variants` by share, adding to 100 — the same person always in the same one |
+
+**Until**: `exit` — a filter that takes the person out at the next step; `goal` — an event within
+some days of entering, which ends the run as reached.
+
+### Actions
+
+The framework's: `email` (a mail template, in the person's language, into the outbox; with a
+`list`, the unsubscribe link, open/click tracking, and nobody who left the list), `bell` and
+`push` (a notification), `group_add` / `group_remove`, `attribute` (a column of a declared
+attribute), `notify_admin`, `webhook` (POSTs the person and the origin). An application adds its
+own:
+
+```php
+use Pramnos\Audience\Rules\Actions;
+use Pramnos\Audience\Rules\Context;
+
+Actions::define('sms', t('Send an SMS'), ['text' => ['label' => t('Message'), 'type' => 'textarea']],
+    function (int $person, array $params, Context $context): array {
+        $sent = Sms::send($person, Actions::fill($params['text'], $person), origin: $context->origin());
+
+        return ['status' => $sent ? 'sent' : 'error', 'detail' => ['provider' => $sent?->id]];
+    }, channel: 'sms');
+```
+
+An action answers `sent`, `done`, `skipped` or `error`, with what is worth keeping. One with a
+**channel** is a message, and before it the engine checks, in order: the sending **hours** (it
+waits for them), the rule's **consent list** (skipped), the **frequency caps** — the rule's, then
+`'audience' => ['caps' => ['email' => ['max' => 1, 'days' => 1]]]` in app.php, counted over every
+rule's sent messages — (skipped). In **shadow** mode no action is called; the log says what it
+would have been.
+
+### Origin, versions and the run log
+
+Every action knows where it comes from (`Context`): `origin()` is `rule:4:v3:mail:run812`, which an
+email keeps in `mails.module = 'rule'` / `moduleinfo` — how a branch finds the message it asks
+about, and how the Email Log shows which rule sent what. `toArray()` adds the trigger and its
+causation ids, the variant and the consent list.
+
+A saved change is a new version (`rule_versions`); runs finish on the version they started on.
+Creating, changing, switching and deleting are in the audit log with before and after. Each run
+(`rule_runs`) moves only from the step its queued task names — a retried task, or a timeout after
+the event it waited for, does nothing — and every decision is a row in `rule_log`: entered, each
+action's outcome and reason, each branch with its conditions and values, waits, exit, goal. The log
+keeps `audience.rule_log_days` (90; 0 keeps it), pruned with the person events. A segment or consent
+list a rule reads cannot be deleted; a running rule cannot be either.
 

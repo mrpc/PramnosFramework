@@ -11,7 +11,8 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 
 /**
- * Delete person-event log rows past the retention; the per-person summary stays.
+ * Delete person-event log rows past the retention — the per-person summary stays — and rule
+ * run-log rows past theirs (`audience.rule_log_days`, 90).
  *
  * Scheduled daily by the framework. The retention is `audience.event_log_days` in app.php (365
  * by default; 0 keeps the log whole), so "N times in the last M days" reaches back that far.
@@ -27,6 +28,10 @@ class AudiencePruneEvents extends Command
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
+        $rules = \Pramnos\Audience\Rules\Engine::prune();
+        if ($rules !== null) {
+            $output->writeln('Rule log: ' . $rules . ' rows past its retention deleted.');
+        }
         if (!\Pramnos\Database\Database::getInstance()->schema()->hasTable('person_event_log')) {
             $output->writeln('No person-event log here; nothing to prune.');
 

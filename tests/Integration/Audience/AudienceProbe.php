@@ -62,6 +62,7 @@ trait AudienceProbe
         require_once ROOT . '/database/migrations/framework/core/2026_10_21_000009_create_segments_tables.php';
         require_once ROOT . '/database/migrations/framework/core/2026_10_21_000010_create_consent_lists_table.php';
         require_once ROOT . '/database/migrations/framework/core/2026_10_21_000011_create_person_events_tables.php';
+        require_once ROOT . '/database/migrations/framework/core/2026_10_21_000012_create_rules_tables.php';
         require_once ROOT . '/database/migrations/framework/messaging/2026_10_21_000002_add_userid_to_mails.php';
         if (!defined('LOG_PATH')) {
             define('LOG_PATH', ROOT . \DS . 'var');
@@ -94,6 +95,7 @@ trait AudienceProbe
         $this->prefixed = $prefix !== '';
         $this->db = $this->openProbe($this->admin, self::$probe, $make, [
             CreateUsersTable::class,
+            \Pramnos\Framework\Migrations\Auth\CreateUserdetailsTable::class,
             \Pramnos\Framework\Migrations\AuthServer\CreateAuthserverRolesTable::class,
             \Pramnos\Framework\Migrations\AuthServer\CreateAuthserverAuditLogTable::class,
             UserGroups\CreateUsergroupsTables::class,
@@ -102,6 +104,9 @@ trait AudienceProbe
             \Pramnos\Framework\Migrations\Core\CreateConsentListsTable::class,
             \Pramnos\Framework\Migrations\Messaging\CreateEmailoptoutsTable::class,
             \Pramnos\Framework\Migrations\Core\CreatePersonEventsTables::class,
+            \Pramnos\Framework\Migrations\Core\CreateRulesTables::class,
+            \Pramnos\Framework\Migrations\Messaging\CreateMailtemplatesTable::class,
+            \Pramnos\Framework\Migrations\Notifications\CreateNotificationsTable::class,
             \Pramnos\Framework\Migrations\Messaging\CreateMailsTable::class,
             \Pramnos\Framework\Migrations\Messaging\AddUseridToMails::class,
             \Pramnos\Framework\Migrations\Messaging\CreateEmailTrackingTables::class,
@@ -144,6 +149,8 @@ trait AudienceProbe
         Segments::reset();
         \Pramnos\Audience\ConsentLists::reset();
         \Pramnos\Audience\PersonEvents::reset();
+        \Pramnos\Audience\Rules\Actions::reset();
+        \Pramnos\Audience\Rules\Engine::$queue = null;
         \Pramnos\Email\MailLog::reset();
         \Pramnos\Event\Event::forget();
         \Pramnos\Auth\AuditLog::resetTableCache();
@@ -208,4 +215,58 @@ trait AudienceProbe
         return $names;
     }
 
+
+    /**
+     * A queue that keeps the tasks a test writes instead of storing them: each with its job, its
+     * delay and its key.
+     *
+     * @return \Pramnos\Queue\QueueManager&object{tasks: list<array{job: array<string, mixed>, delay: int, key: ?string}>}
+     */
+    private function fakeQueue(): \Pramnos\Queue\QueueManager
+    {
+        $queue = new class extends \Pramnos\Queue\QueueManager {
+            /** @var list<array{job: array<string, mixed>, delay: int, key: ?string}> */
+            public array $tasks = [];
+
+            /** Nothing to connect to. */
+            public function __construct()
+            {
+            }
+
+            /** Keep the task. */
+            public function addKeyed(string $taskType, mixed $data, ?string $key = null, int $delaySeconds = 0, int $ceilingSeconds = 0, int $priority = 10, int $maxAttempts = 3): int
+            {
+                $this->tasks[] = ['job' => (array) $data, 'delay' => $delaySeconds, 'key' => $key];
+
+                return count($this->tasks);
+            }
+        };
+        \Pramnos\Audience\Rules\Engine::$queue = $queue;
+
+        return $queue;
+    }
+
+    /**
+     * Run the tasks waiting in the fake queue, as a worker would, until none is left — skipping
+     * those this says to leave (a delayed timeout the test wants to come later).
+     *
+     * @param  callable(array{job: array<string, mixed>, delay: int, key: ?string}): bool|null $leave
+     * @return list<string> What each task said
+     */
+    private function work(\Pramnos\Queue\QueueManager $queue, ?callable $leave = null): array
+    {
+        $said = [];
+        $kept = [];
+        while ($queue->tasks !== []) {
+            $task = array_shift($queue->tasks);
+            if ($leave !== null && $leave($task)) {
+                $kept[] = $task;
+                continue;
+            }
+            $said[] = \Pramnos\Audience\Rules\Engine::handle($task['job']);
+        }
+        $queue->tasks = $kept;
+
+        return $said;
+    }
 }
