@@ -26,7 +26,7 @@ const settle = async () => { for (let i = 0; i < 8; i++) { await new Promise((r)
  * A page titled "Orders" with a bell on `users.5`, a realtime connection the test drives, and
  * the bell's attributes as given.
  */
-function page({ hidden = true, attrs = {} } = {}) {
+function page({ hidden = true, attrs = {}, items = null, unread = 2 } = {}) {
     const { window, document } = createDom({ meta: { csrf: 't0ken' } });
     document.title = 'Orders';
     const bell = document.createElement('div');
@@ -43,8 +43,8 @@ function page({ hidden = true, attrs = {} } = {}) {
     document.body.appendChild(bell);
 
     window.fetch = stubFetch({
-        'GET /Notifications/count': { unread: 2, groups: {} },
-        'GET /Notifications?per_page=5': { unread: 2, items: [
+        'GET /Notifications/count': { unread, groups: {} },
+        'GET /Notifications?per_page=5': { unread, items: items || [
             { id: 'u2', type: 'App\\Notifications\\TodoNotification', title: 'New to-do', message: 'Call Anna', data: { todo: 7 } },
             { id: 'u1', type: 'App\\Notifications\\Other', title: 'Older', message: '', data: {} },
         ] },
@@ -134,4 +134,36 @@ test('data-title-flash="0" leaves the title alone', async () => {
     // Assert
     assert.equal(ui.document.title, 'Orders');
     assert.equal(ui.announced.length, 1, 'the event does not depend on the title');
+});
+
+test('one written already read is not news: no flash, no sound — and the page is still told', async () => {
+    // Arrange — a change the user made themselves, kept for the record, and nothing else unread
+    const ui = page({ attrs: { 'data-sound': '/ding.mp3' }, unread: 0, items: [
+        { id: 's1', type: 'App\\Notifications\\SecurityChanged', title: 'Security change', read: true, data: {} },
+    ] });
+
+    // Act
+    ui.arrive({ id: 's1' }, { lead: true });
+    await settle();
+    ui.tick();
+
+    // Assert
+    assert.equal(ui.document.title, 'Orders', 'the title flashed for something already read');
+    assert.deepEqual(ui.played, [], 'a sound for something already read');
+    assert.equal(ui.announced[0].read, true, 'the page cannot tell it was read');
+});
+
+test('an id not among the newest is nothing to flash — never a guess at another item', async () => {
+    // Arrange — u9 removed, or read, before this page asked
+    const ui = page({ attrs: { 'data-sound': '/ding.mp3' } });
+
+    // Act
+    ui.arrive({ id: 'u9' }, { lead: true });
+    await settle();
+    ui.tick();
+
+    // Assert
+    assert.equal(ui.document.title, '(2) Orders', 'the title flashed another notification\'s title');
+    assert.deepEqual(ui.played, []);
+    assert.equal(ui.announced[0].item, null);
 });

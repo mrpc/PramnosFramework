@@ -1378,20 +1378,29 @@
                 }
             }
 
-            /** One arrived: refresh, then read it with this page's session, and tell the page. */
+            /**
+             * One arrived: refresh, then read it with this page's session, and tell the page.
+             *
+             * The title flashes and the sound plays only for a notification found by its id and
+             * still unread: one written already read — kept for the record, a change the user made
+             * themselves — or read in another tab before this one asked, is not news. Never a
+             * guess at another item when the id is not among the newest.
+             */
             function arrived(data, meta) {
                 refresh();
                 var id = data && data.id ? String(data.id) : '';
                 get('?per_page=5').then(function (d) {
                     var items = d.items || [];
-                    var it = items.filter(function (one) { return String(one.id) === id; })[0] || items[0] || null;
+                    var it = id ? items.filter(function (one) { return String(one.id) === id; })[0] || null : null;
                     showCount(d.unread || 0);
                     document.dispatchEvent(new CustomEvent('pf:notification', { bubbles: true, detail: {
-                        id: it ? it.id : id, type: it ? it.type : '', title: it ? it.title : '', data: it ? it.data : {}, item: it,
+                        id: it ? it.id : id, type: it ? it.type : '', title: it ? it.title : '', data: it ? it.data : {},
+                        read: it ? !!it.read : null, item: it,
                     } }));
-                    flash(it ? (it.title || it.message) : '');
+                    if (!it || it.read || !(d.unread > 0)) { return; }
+                    flash(it.title || it.message);
+                    if (sound && meta && meta.lead) { play(); }
                 }).catch(function () { /* the count is refreshed; the rest waits for the next read */ });
-                if (sound && meta && meta.lead) { play(); }
             }
 
             function refreshCount() {

@@ -679,6 +679,10 @@ shows 0 before the real number. `pf-utils.js` does the rest through the data att
   page's session and dispatches **`pf:notification`** on the document with
   `{ id, type, title, data, item }` — an application reacts to a type without a channel of its
   own (`if (e.detail.type === 'App\\Notifications\\TodoNotification') …`).
+- **News only:** the title and the sound below react only to a notification found by its id
+  among the newest and still unread. One written already read — kept for the record, such as a
+  change the user made themselves — or read in another tab first, is announced with
+  `read: true` and changes nothing on screen.
 - **The tab's title** carries "(N) " while N are unread. When one arrives the title alternates
   with its title until the tab is looked at — for ten seconds if it already is — then is put
   back. `'titleFlash' => false` leaves the title alone.
