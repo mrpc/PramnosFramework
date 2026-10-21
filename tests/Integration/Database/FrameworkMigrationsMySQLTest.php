@@ -17,12 +17,53 @@ use Pramnos\Database\MigrationLoader;
  *   (3) Runs the migration's down() method and verifies the table is gone.
  *
  * Tests are deliberately independent — each test drops and re-creates all
- * tables in setUp/tearDown so order does not matter.
+ * tables in setUp/tearDown so order does not matter. They do it in a database of
+ * their own, {@see PROBE}: dropping every table of the shared test database left
+ * the tests that ran after this class without `users`.
  *
  * Requires the Docker MySQL container (host: db, port: 3306).
  */
 class FrameworkMigrationsMySQLTest extends TestCase
 {
+    /** The throwaway database these tests empty and fill; never the shared one. */
+    private const PROBE = 'pramnos_fwmig_probe';
+
+    /** Make the throwaway database once for the class. */
+    public static function setUpBeforeClass(): void
+    {
+        self::server(TEST_DATABASE, static fn (Database $db) => $db->query('CREATE DATABASE IF NOT EXISTS ' . self::PROBE));
+    }
+
+    /** Drop the throwaway database. */
+    public static function tearDownAfterClass(): void
+    {
+        self::server(TEST_DATABASE, static fn (Database $db) => $db->query('DROP DATABASE IF EXISTS ' . self::PROBE));
+    }
+
+    /**
+     * Run something on a connection to the MySQL server, if it is reachable.
+     *
+     * @param \Closure(Database): mixed $run
+     */
+    private static function server(string $database, \Closure $run): void
+    {
+        $db           = new Database();
+        $db->type     = 'mysql';
+        $db->server   = 'db';
+        $db->user     = 'root';
+        $db->password = 'secret';
+        $db->database = $database;
+        $db->port     = 3306;
+        try {
+            if ($db->connect(false)) {
+                $run($db);
+                $db->close();
+            }
+        } catch (\Throwable) {
+            // Unreachable: setUp() reports it per test.
+        }
+    }
+
     protected Database $db;
     protected Application $app;
 
@@ -47,7 +88,7 @@ class FrameworkMigrationsMySQLTest extends TestCase
         $this->db->server   = 'db';
         $this->db->user     = 'root';
         $this->db->password = 'secret';
-        $this->db->database = TEST_DATABASE;
+        $this->db->database = self::PROBE;
         $this->db->port     = 3306;
         $this->db->connect(true);
 
@@ -618,7 +659,7 @@ class FrameworkMigrationsMySQLTest extends TestCase
                    AND TABLE_NAME = %s
                    AND REFERENCED_TABLE_NAME = %s
                    AND REFERENCED_COLUMN_NAME = %s",
-                TEST_DATABASE,
+                self::PROBE,
                 'massmessagerecipients',
                 'massmessages',
                 'messageid'
@@ -1791,7 +1832,7 @@ class FrameworkMigrationsMySQLTest extends TestCase
             $this->db->prepareQuery(
                 "SELECT COUNT(*) AS cnt FROM information_schema.VIEWS
                  WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s",
-                TEST_DATABASE,
+                self::PROBE,
                 'authserver_daily_activity_summary'
             )
         );
@@ -1817,7 +1858,7 @@ class FrameworkMigrationsMySQLTest extends TestCase
             $this->db->prepareQuery(
                 "SELECT COUNT(*) AS cnt FROM information_schema.VIEWS
                  WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s",
-                TEST_DATABASE,
+                self::PROBE,
                 'authserver_daily_activity_summary'
             )
         );
@@ -2162,7 +2203,7 @@ class FrameworkMigrationsMySQLTest extends TestCase
                 $this->db->prepareQuery(
                     "SELECT COUNT(*) AS cnt FROM information_schema.TRIGGERS
                      WHERE TRIGGER_SCHEMA = %s AND TRIGGER_NAME = %s",
-                    TEST_DATABASE,
+                    self::PROBE,
                     $trigger
                 )
             );
@@ -2201,7 +2242,7 @@ class FrameworkMigrationsMySQLTest extends TestCase
                 $this->db->prepareQuery(
                     "SELECT COUNT(*) AS cnt FROM information_schema.TRIGGERS
                      WHERE TRIGGER_SCHEMA = %s AND TRIGGER_NAME = %s",
-                    TEST_DATABASE,
+                    self::PROBE,
                     $trigger
                 )
             );
@@ -2287,7 +2328,7 @@ class FrameworkMigrationsMySQLTest extends TestCase
             $this->db->prepareQuery(
                 "SELECT COUNT(*) as cnt FROM information_schema.TABLES
                  WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s",
-                TEST_DATABASE,
+                self::PROBE,
                 $name
             )
         );
@@ -2300,7 +2341,7 @@ class FrameworkMigrationsMySQLTest extends TestCase
             $this->db->prepareQuery(
                 "SELECT COUNT(*) as cnt FROM information_schema.COLUMNS
                  WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s AND COLUMN_NAME = %s",
-                TEST_DATABASE,
+                self::PROBE,
                 $table,
                 $column
             )
@@ -2315,7 +2356,7 @@ class FrameworkMigrationsMySQLTest extends TestCase
                 "SELECT DATA_TYPE, IS_NULLABLE, COLUMN_DEFAULT, COLUMN_KEY
                  FROM information_schema.COLUMNS
                  WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s AND COLUMN_NAME = %s",
-                TEST_DATABASE,
+                self::PROBE,
                 $table,
                 $column
             )
@@ -2340,7 +2381,7 @@ class FrameworkMigrationsMySQLTest extends TestCase
             $this->db->prepareQuery(
                 "SELECT COUNT(*) as cnt FROM information_schema.STATISTICS
                  WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s AND INDEX_NAME = %s",
-                TEST_DATABASE,
+                self::PROBE,
                 $table,
                 $indexName
             )
@@ -2354,7 +2395,7 @@ class FrameworkMigrationsMySQLTest extends TestCase
             $this->db->prepareQuery(
                 "SELECT COUNT(*) AS cnt FROM information_schema.VIEWS
                  WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s",
-                TEST_DATABASE,
+                self::PROBE,
                 $name
             )
         );

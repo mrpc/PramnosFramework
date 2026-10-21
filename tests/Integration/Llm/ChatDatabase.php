@@ -67,6 +67,10 @@ trait ChatDatabase
         $singleton               = &Factory::getDatabase();
         $singleton               = $this->db;
 
+        // `users` too: a task's policy loads the account it runs for, and a class that ran
+        // earlier may have left the shared database without it.
+        \Pramnos\Framework\Testing\Schema::ensure([\Pramnos\Framework\Migrations\Auth\CreateUsersTable::class], $this->db);
+
         $key = static::class . '|' . $type;
         if (isset(self::$llmBuilt[$key])) {
             // Child tables first, as LLM_TABLES lists them, so no foreign key refuses a delete.
