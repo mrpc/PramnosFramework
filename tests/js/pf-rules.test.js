@@ -48,6 +48,7 @@ function page(definition = null, withAudience = true) {
     root.setAttribute('data-pf-rule-editor', '');
     root.setAttribute('data-catalog', JSON.stringify(CATALOG));
     root.setAttribute('data-words', '{}');
+    root.setAttribute('data-classes', JSON.stringify({ select: 'select-x', input: 'input-x', button: 'button-x' }));
     const hidden = document.createElement('input');
     hidden.setAttribute('data-pf-rule-state', '');
     hidden.value = definition === null ? '' : JSON.stringify(definition);
@@ -221,4 +222,20 @@ test('until: a goal, a consent list, sending hours only with both ends, a cap pe
     assert.deepEqual(capped, { email: { max: 2, days: 1 } });
     assert.deepEqual(state().caps, {});
     assert.equal(state().goal, null);
+});
+
+test('the controls wear the theme\'s classes', () => {
+    // Arrange
+    const { root } = page({ trigger: { type: 'event', event: 'x' }, steps: { a: { type: 'action', action: 'email', params: {}, next: null } } });
+
+    // Act
+    const trigger = root.querySelector('[data-pf-rule-trigger]');
+    const event = root.querySelector('[data-pf-rule-event]');
+    const add = root.querySelector('[data-pf-rule-add]');
+
+    // Assert
+    assert.ok(trigger.classList.contains('select-x'));
+    assert.ok(event.classList.contains('input-x'));
+    assert.ok(add.classList.contains('button-x'));
+    assert.ok(root.querySelector('.pf-rule-label'), 'labels of their own, to line up');
 });

@@ -953,5 +953,14 @@ a.pf-stat-tile:hover { border-color: var(--primary-color, #2563eb); }
     gap: 0.4rem;
 }
 .pf-rule-body { display: grid; gap: 0.4rem; }
-.pf-rule-input { max-width: 100%; }
+.pf-rule-input { max-width: 100%; width: auto; }
+.pf-rule-label { min-width: 9rem; font-size: 0.875rem; }
+.pf-rule-row input[type="time"], .pf-rule-row input[type="number"] { width: 7rem; }
+.pf-rule-section {
+    padding: 0.75rem;
+    background: var(--color-base-200, #f8fafc);
+    border: 1px solid var(--color-base-300, #e2e8f0);
+    border-radius: 0.5rem;
+}
+.pf-rule-editor [data-pf-rule-when], .pf-rule-editor [data-pf-rule-until] { display: grid; gap: 0.5rem; }
 .pf-rule-remove { margin-left: auto; background: none; border: 0; font-size: 1.1rem; cursor: pointer; color: inherit; }

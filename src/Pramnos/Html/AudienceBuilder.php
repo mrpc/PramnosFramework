@@ -149,7 +149,7 @@ final class AudienceBuilder
      *
      * @return array{button: string, primary: string, input: string, select: string}
      */
-    private static function classes(): array
+    public static function classes(): array
     {
         return match (Form\FieldStyles::configured()) {
             'tailwind'  => ['button' => 'btn btn-sm btn-ghost', 'primary' => 'btn btn-sm btn-primary', 'input' => 'input input-sm input-bordered', 'select' => 'select select-sm select-bordered'],

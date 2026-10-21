@@ -529,6 +529,20 @@ Actions::define('sms', t('Send an SMS'), ['text' => ['label' => t('Message'), 't
     }, channel: 'sms');
 ```
 
+**Templates.** The email action offers the framework's mail templates (`mailtemplates`, by
+category and title) and the declared mail types' unsubscribe lists, as choices in the editor. An
+application whose templates live elsewhere declares where:
+
+```php
+Actions::templates(
+    fn () => Templates::titles(),                                    // ['jobs.new' => 'New job posts', …]
+    fn (string $key, object $user) => Templates::render($key, $user), // ['subject' => …, 'body' => …] or null
+);
+```
+
+The second answers with the template filled for the person — in their language, placeholders
+replaced — or null, which the run logs as an error.
+
 An action answers `sent`, `done`, `skipped` or `error`, with what is worth keeping. One with a
 **channel** is a message, and before it the engine checks, in order: the sending **hours** (it
 waits for them), the rule's **consent list** (skipped), the **frequency caps** — the rule's, then

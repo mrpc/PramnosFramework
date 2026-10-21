@@ -28,9 +28,12 @@
         try { return value ? JSON.parse(value) : fallback; } catch (e) { return fallback; }
     }
 
+    /** The theme's classes for the controls, from the editor's markup. */
+    var classes = { button: '', input: '', select: '' };
+
     /** A select over `[value, label]` pairs, the current value chosen, `onChange(value)` told. */
     function select(options, current, onChange, attrs) {
-        var node = el('select', Object.assign({ 'class': 'pf-rule-input' }, attrs || {}), options.map(function (o) {
+        var node = el('select', Object.assign({ 'class': 'pf-rule-input ' + classes.select }, attrs || {}), options.map(function (o) {
             return el('option', { value: o[0], selected: String(o[0]) === String(current) }, [o[1]]);
         }));
         node.value = current === null || current === undefined ? '' : String(current);
@@ -40,7 +43,7 @@
 
     /** A text, number or time field. */
     function input(type, current, onChange, attrs) {
-        var node = el('input', Object.assign({ type: type, 'class': 'pf-rule-input', value: current === undefined || current === null ? '' : current }, attrs || {}));
+        var node = el('input', Object.assign({ type: type, 'class': 'pf-rule-input ' + classes.input, value: current === undefined || current === null ? '' : current }, attrs || {}));
         node.value = current === undefined || current === null ? '' : String(current);
         var tell = function () { onChange(type === 'number' ? (node.value === '' ? '' : Number(node.value)) : node.value); };
         node.addEventListener('input', tell);
@@ -63,6 +66,7 @@
         if (root.getAttribute('data-pf-rule-ready') !== null) { return; }
         root.setAttribute('data-pf-rule-ready', '');
         var catalog = json(root.getAttribute('data-catalog'), {});
+        classes = Object.assign({ button: '', input: '', select: '' }, json(root.getAttribute('data-classes'), {}));
         var w = json(root.getAttribute('data-words'), {});
         var hidden = root.querySelector('[data-pf-rule-state]');
         var state = json(hidden && hidden.value, {}) || {};
@@ -117,7 +121,7 @@
                     select(ids().map(function (id) { return [id, id]; }), state.start || ids()[0], function (v) { state.start = v; save(); }, { 'data-pf-rule-start': true })]));
             }
             ids().forEach(function (id) { stepsBox.appendChild(drawStep(id)); });
-            var add = el('button', { type: 'button', 'class': 'pf-rule-add', 'data-pf-rule-add': true }, [w.addStep || '+ step']);
+            var add = el('button', { type: 'button', 'class': 'pf-rule-add ' + classes.button, 'data-pf-rule-add': true }, [w.addStep || '+ step']);
             add.addEventListener('click', function () {
                 var n = ids().length + 1;
                 while (state.steps['s' + n]) { n++; }
@@ -161,7 +165,7 @@
 
         var drawBody = function (id, step) {
             var body = el('div', { 'class': 'pf-rule-body' });
-            var row = function (label, field) { body.appendChild(el('label', { 'class': 'pf-rule-row' }, [label + ' ', field])); };
+            var row = function (label, field) { body.appendChild(el('label', { 'class': 'pf-rule-row' }, [el('span', { 'class': 'pf-rule-label' }, [label]), ' ', field])); };
             if (step.type === 'action') {
                 row(w.action || 'Do', select((catalog.actions || []).map(function (a) { return [a.key, a.label]; }), step.action, function (v) {
                     step.action = v; step.params = {}; drawSteps(); save();
@@ -170,7 +174,7 @@
                     var set = function (v) { step.params[p.name] = v; save(); };
                     var current = step.params[p.name];
                     var field = p.type === 'textarea'
-                        ? (function () { var t = el('textarea', { 'class': 'pf-rule-input', rows: '3', 'data-pf-rule-param': p.name }); t.value = current || ''; t.addEventListener('input', function () { set(t.value); }); return t; })()
+                        ? (function () { var t = el('textarea', { 'class': 'pf-rule-input ' + classes.input, rows: '3', 'data-pf-rule-param': p.name }); t.value = current || ''; t.addEventListener('input', function () { set(t.value); }); return t; })()
                         : p.type === 'select' ? select([['', w.choose || '…']].concat(p.options.map(function (o) { return [o.value, o.label]; })), current || '', set, { 'data-pf-rule-param': p.name })
                         : p.type === 'group' ? select([['', w.choose || '…']].concat((catalog.groups || []).map(function (g) { return [g.id, g.name]; })), current || '', function (v) { set(Number(v) || ''); }, { 'data-pf-rule-param': p.name })
                         : p.type === 'attribute' ? select([['', w.choose || '…']].concat((catalog.attributes || []).map(function (a) { return [a.key, a.label]; })), current || '', set, { 'data-pf-rule-param': p.name })
@@ -210,7 +214,7 @@
                     ]);
                     body.appendChild(line);
                 });
-                var more = el('button', { type: 'button', 'class': 'pf-rule-add', 'data-pf-rule-add-variant': true }, [w.addVariant || '+ variant']);
+                var more = el('button', { type: 'button', 'class': 'pf-rule-add ' + classes.button, 'data-pf-rule-add-variant': true }, [w.addVariant || '+ variant']);
                 more.addEventListener('click', function () {
                     step.variants.push({ key: String.fromCharCode(65 + step.variants.length), share: 0, next: null });
                     drawSteps(); save();
@@ -241,18 +245,18 @@
         var drawUntil = function () {
             untilBox.textContent = '';
             var goal = state.goal || null;
-            untilBox.appendChild(el('label', { 'class': 'pf-rule-row' }, [(w.goal || 'Goal') + ' ',
+            untilBox.appendChild(el('label', { 'class': 'pf-rule-row' }, [el('span', { 'class': 'pf-rule-label' }, [w.goal || 'Goal']), ' ',
                 input('text', goal ? goal.event : '', function (v) {
                     state.goal = v === '' ? null : { event: v, days: (state.goal || {}).days || 7 }; save();
                 }, { list: 'pf-rule-events', 'data-pf-rule-goal': true }), ' ',
                 input('number', goal ? goal.days : '', function (v) { if (state.goal) { state.goal.days = v; save(); } }, { min: '1', 'data-pf-rule-goal-days': true })]));
-            untilBox.appendChild(el('label', { 'class': 'pf-rule-row' }, [(w.consent || 'Consent list') + ' ',
+            untilBox.appendChild(el('label', { 'class': 'pf-rule-row' }, [el('span', { 'class': 'pf-rule-label' }, [w.consent || 'Consent list']), ' ',
                 select([['', w.none || '—']].concat((catalog.consent || []).map(function (c) { return [c.id, c.name]; })), state.consent || '', function (v) {
                     state.consent = Number(v) || null; save();
                 }, { 'data-pf-rule-consent': true })]));
             var hours = state.hours || { from: '', to: '' };
             var setHours = function () { state.hours = hours.from && hours.to ? { from: hours.from, to: hours.to } : null; save(); };
-            untilBox.appendChild(el('label', { 'class': 'pf-rule-row' }, [(w.sendHours || 'Sending hours') + ' ',
+            untilBox.appendChild(el('label', { 'class': 'pf-rule-row' }, [el('span', { 'class': 'pf-rule-label' }, [w.sendHours || 'Sending hours']), ' ',
                 input('time', hours.from, function (v) { hours.from = v; setHours(); }, { 'data-pf-rule-from': true }), ' ' + (w.to || 'to') + ' ',
                 input('time', hours.to, function (v) { hours.to = v; setHours(); }, { 'data-pf-rule-to': true })]));
             var caps = state.caps && !Array.isArray(state.caps) ? state.caps : {};

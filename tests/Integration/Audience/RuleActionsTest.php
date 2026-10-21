@@ -246,4 +246,40 @@ class RuleActionsTest extends TestCase
             $this->assertStringContainsString('data-field="origin"', $view, $theme);
         }
     }
+
+    /**
+     * The email action's templates: the framework's mailtemplates by key and title for the editor,
+     * or an application's own — offered and filled by what it declares; the unsubscribe lists are
+     * the declared mail types' — all of them choices in the editor.
+     */
+    #[DataProvider('databases')]
+    public function testTemplatesAndListsAreChoices(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->boot($type, $host, $port, $user);
+        $this->db->queryBuilder()->table('mailtemplates')->insert(['title' => 'Welcome mail', 'defaulttext' => 'x', 'defaultsubject' => 'x',
+            'category' => 'rule.welcome', 'language' => 'el', 'type' => 0, 'sound' => '', 'sendmethod' => 0, 'emailtemplate' => '']);
+        \Pramnos\Email\MailTypes::register(new \Pramnos\Email\MailType('offers', 'Offers', '', 'offers'));
+        $framework = Actions::templateOptions();
+        $lists     = Actions::listOptions();
+        $editor    = \Pramnos\Html\RuleEditor::render();
+        Actions::templates(static fn (): array => ['jobs.new' => 'New job posts'],
+            static fn (string $key, object $person): ?array => $key === 'jobs.new' ? ['subject' => 'Hi ' . $person->firstname, 'body' => '<p>New</p>'] : null);
+
+        // Act
+        $own     = Actions::templateOptions();
+        $sent    = $this->act('email', 'cara', ['template' => 'jobs.new']);
+        $missing = $this->act('email', 'cara', ['template' => 'rule.welcome']);
+
+        // Assert
+        $this->assertSame(['rule.welcome' => 'Welcome mail'], $framework);
+        $this->assertSame('Offers', $lists['offers'] ?? null);
+        $this->assertStringContainsString('Welcome mail', html_entity_decode($editor), 'the editor offers the templates by title');
+        $this->assertStringContainsString('data-classes=', $editor);
+        $this->assertSame(['jobs.new' => 'New job posts'], $own);
+        $this->assertSame('sent', $sent['status']);
+        $this->assertSame('Hi Cara', $this->db->queryBuilder()->table('mails')->where('id', $sent['detail']['mail'])->first()->fields['subject']);
+        $this->assertSame('error', $missing['status'], 'the application\'s templates replace the framework\'s');
+        \Pramnos\Email\MailTypes::reset();
+    }
 }

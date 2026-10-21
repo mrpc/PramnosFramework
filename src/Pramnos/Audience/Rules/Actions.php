@@ -34,6 +34,78 @@ final class Actions
     /** @var array<string, array{label: string, params: array<string, array<string, mixed>>, run: callable, channel: ?string}> */
     private static array $defined = [];
 
+    /** @var (callable(): array<string, string>)|null The application's templates for the email action, by key */
+    private static $templateOptions = null;
+
+    /** @var (callable(string, object): ?array{subject: string, body: string, emailtemplate?: string})|null Its template, filled for a person */
+    private static $templateFill = null;
+
+    /**
+     * Where the email action's templates come from, when not the framework's `mailtemplates`
+     * (category, language, type 0): the choices the editor offers, and a template filled for one
+     * person — in their language, their placeholders replaced.
+     *
+     * ```php
+     * Actions::templates(
+     *     fn () => Templates::titles(),                                   // ['welcome' => 'Welcome', …]
+     *     fn (string $key, object $user) => Templates::render($key, $user), // ['subject' => …, 'body' => …] or null
+     * );
+     * ```
+     *
+     * @param callable(): array<string, string>                                              $options
+     * @param callable(string, object): ?array{subject: string, body: string, emailtemplate?: string} $fill
+     */
+    public static function templates(callable $options, callable $fill): void
+    {
+        self::$templateOptions = $options;
+        self::$templateFill    = $fill;
+    }
+
+    /**
+     * The templates the email action offers, by key.
+     *
+     * @return array<string, string>
+     */
+    public static function templateOptions(): array
+    {
+        if (self::$templateOptions !== null) {
+            return (self::$templateOptions)();
+        }
+        try {
+            $rows = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('#PREFIX#mailtemplates')
+                ->select(['category', 'title', 'language'])->where('type', \Pramnos\Messaging\MailTemplate::TYPE_EMAIL)
+                ->orderBy('title')->getAllOrFail();
+        } catch (\Throwable) {
+            return [];
+        }
+        $options = [];
+        foreach ($rows as $row) {
+            $key = (string) $row['category'];
+            if ($key !== '' && !isset($options[$key])) {
+                $options[$key] = trim((string) $row['title']) !== '' ? (string) $row['title'] : $key;
+            }
+        }
+
+        return $options;
+    }
+
+    /**
+     * The unsubscribe lists the email action offers: the lists of the declared mail types.
+     *
+     * @return array<string, string>
+     */
+    public static function listOptions(): array
+    {
+        $lists = [];
+        foreach (\Pramnos\Email\MailTypes::all() as $type) {
+            if ($type->list !== '' && $type->list !== null) {
+                $lists[(string) $type->list] = (string) $type->label;
+            }
+        }
+
+        return $lists;
+    }
+
     /**
      * Declare an action.
      *
@@ -68,7 +140,9 @@ final class Actions
     /** Forget the application's actions: tests. */
     public static function reset(): void
     {
-        self::$defined = [];
+        self::$defined         = [];
+        self::$templateOptions = null;
+        self::$templateFill    = null;
     }
 
     /**
@@ -98,8 +172,8 @@ final class Actions
 
         return [
             'email' => ['label' => t('Send an email'), 'channel' => 'email', 'params' => [
-                'template' => $text(t('Mail template')),
-                'list'     => $text(t('Unsubscribe list')),
+                'template' => ['label' => t('Mail template'), 'type' => 'select', 'options' => self::templateOptions(...)],
+                'list'     => ['label' => t('Unsubscribe list'), 'type' => 'select', 'options' => self::listOptions(...)],
             ], 'run' => self::email(...)],
             'bell' => ['label' => t('Notify on the site'), 'channel' => 'site', 'params' => [
                 'subject' => $text(t('Title')), 'body' => $text(t('Message'), 'textarea'), 'link' => $text(t('Link')),
@@ -147,11 +221,16 @@ final class Actions
         if ($data === null || $user === null || trim((string) $user->email) === '') {
             return ['status' => 'skipped', 'detail' => ['reason' => 'no address']];
         }
-        $template = \Pramnos\Messaging\MailTemplate::lookup((string) ($params['template'] ?? ''), (string) ($data->language ?? ''));
-        if ($template === null) {
+        if (self::$templateFill !== null) {
+            $template = (self::$templateFill)((string) ($params['template'] ?? ''), $data);
+            $filled   = $template;
+        } else {
+            $template = \Pramnos\Messaging\MailTemplate::lookup((string) ($params['template'] ?? ''), (string) ($data->language ?? ''));
+            $filled   = $template === null ? null : \Pramnos\Messaging\MailTemplate::fill($template, TemplateValues::forUser($data));
+        }
+        if ($template === null || $filled === null) {
             return ['status' => 'error', 'detail' => ['reason' => 'no template ' . ($params['template'] ?? '')]];
         }
-        $filled = \Pramnos\Messaging\MailTemplate::fill($template, TemplateValues::forUser($data));
         if ($context->isTest()) {
             $filled['subject'] = '[' . t('Test') . '] ' . $filled['subject'];
         }
@@ -160,7 +239,7 @@ final class Actions
         $email->forUser($context->to());
         $email->module     = 'rule';
         $email->moduleinfo = $context->origin();
-        if ($template['emailtemplate'] !== '') {
+        if (($template['emailtemplate'] ?? '') !== '') {
             $email->setTemplate($template['emailtemplate']);
         }
         $list = trim((string) ($params['list'] ?? ''));

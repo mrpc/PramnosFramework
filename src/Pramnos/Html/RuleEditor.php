@@ -43,7 +43,8 @@ final class RuleEditor
         return '<div class="pf-rule-editor" data-pf-rule-editor'
             . ' data-catalog="' . $e((string) json_encode($catalog, JSON_UNESCAPED_UNICODE)) . '"'
             . ' data-words="' . $e((string) json_encode($words, JSON_UNESCAPED_UNICODE)) . '"'
-            . ' data-audience-words="' . $e((string) json_encode(AudienceBuilder::words(), JSON_UNESCAPED_UNICODE)) . '">'
+            . ' data-audience-words="' . $e((string) json_encode(AudienceBuilder::words(), JSON_UNESCAPED_UNICODE)) . '"'
+            . ' data-classes="' . $e((string) json_encode(AudienceBuilder::classes(), JSON_UNESCAPED_UNICODE)) . '">'
             . '<input type="hidden" name="definition" value="' . $e((string) json_encode($rest, JSON_UNESCAPED_UNICODE)) . '" data-pf-rule-state>'
             . '<section class="pf-rule-section"><h3>' . $e(t('When')) . '</h3><div data-pf-rule-when></div></section>'
             . '<section class="pf-rule-section"><h3>' . $e(t('Who')) . '</h3>' . AudienceBuilder::filter('who', $who) . '</section>'
@@ -87,8 +88,11 @@ final class RuleEditor
         foreach (Actions::all() as $key => $action) {
             $params = [];
             foreach ($action['params'] as $name => $param) {
+                // Choices given as a closure — the application's templates — are read now, once.
+                $options  = $param['options'] ?? [];
+                $options  = $options instanceof \Closure || (is_callable($options) && !is_array($options)) ? (array) $options() : (array) $options;
                 $params[] = ['name' => $name, 'label' => $param['label'], 'type' => $param['type'],
-                    'options' => array_map(static fn ($v, $l): array => ['value' => $v, 'label' => $l], array_keys($param['options'] ?? []), $param['options'] ?? [])];
+                    'options' => array_map(static fn ($v, $l): array => ['value' => $v, 'label' => $l], array_keys($options), $options)];
             }
             $list[] = ['key' => $key, 'label' => $action['label'], 'channel' => $action['channel'], 'params' => $params];
         }
