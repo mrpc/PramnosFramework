@@ -652,7 +652,11 @@ class ProcessQueueCommandTest extends TestCase
 
         // Assert
         $this->assertSame(2, $processed);
-        $this->assertStringContainsString('Processed 2 tasks', $output->fetch());
+        // Not a terminal: one plain line per task, nothing to repaint.
+        $text = $output->fetch();
+        $this->assertStringContainsString('#1 alpha completed', $text);
+        $this->assertStringContainsString('#2 beta completed', $text);
+        $this->assertStringNotContainsString("\r", $text);
     }
 
     /**
@@ -1441,6 +1445,43 @@ class ProcessQueueCommandTest extends TestCase
         $this->assertSame(1, $command->processBatchCallCount);
     }
 
+    /**
+     * A worker writing into a file paints nothing: an empty pass leaves the file as it was, and a
+     * task is one plain line — time, id, type, status, duration, message — with no escape
+     * sequence. Painted into `>> worker.log`, the frame grew one file to 542 MB, the results lost
+     * inside it.
+     */
+    public function testIntoAFileAnEmptyPassWritesNothingAndATaskIsOneLine(): void
+    {
+        // Arrange — the output is a real file, which is not a terminal
+        $file   = tempnam(sys_get_temp_dir(), 'pq-log');
+        $output = new \Symfony\Component\Console\Output\StreamOutput(fopen($file, 'ab'));
+        $cmd    = $this->createPure();
+        $this->assertFalse((new \ReflectionMethod(ProcessQueue::class, 'isTerminal'))->invoke($cmd, $output));
+        $render = new \ReflectionMethod(ProcessQueue::class, 'renderDashboard');
+
+        try {
+            // Act — a sleeping pass, an empty batch, then one task
+            $render->invoke($cmd, $output, ['mode' => 'daemon', 'state' => 'sleeping', 'sleepRemaining' => 2]);
+            $cmd->runProcessBatch($this->buildWorkerMock([false]), $output, 20);
+            clearstatcache();
+            $afterEmpty = filesize($file);
+            $cmd->runProcessBatch($this->buildWorkerMock([
+                ['id' => 7, 'type' => 'chat_ask', 'status' => 'completed', 'execution_time' => 1.25, 'message' => "answered\nin two lines"],
+                false,
+            ]), $output, 20);
+            $text = (string) file_get_contents($file);
+
+            // Assert
+            $this->assertSame(0, $afterEmpty, 'an empty pass wrote into the log');
+            $this->assertSame(1, substr_count($text, "\n"), 'a task is not one line');
+            $this->assertMatchesRegularExpression('/^\[\d{4}-\d\d-\d\d \d\d:\d\d:\d\d\] #7 chat_ask completed 1\.250s — answered in two lines\n$/', $text);
+            $this->assertStringNotContainsString("\033", $text, 'an escape sequence reached the log');
+        } finally {
+            @unlink($file);
+        }
+    }
+
     // ── renderDashboard() ────────────────────────────────────────────────────
 
     /**
@@ -1453,6 +1494,8 @@ class ProcessQueueCommandTest extends TestCase
     {
         // Arrange — real ProcessQueue instance; renderDashboard() NOT overridden
         $cmd    = new ProcessQueue();
+        // On a terminal: into a file or under a supervisor nothing is painted.
+        (new \ReflectionProperty(ProcessQueue::class, 'paintsScreen'))->setValue($cmd, true);
         $method = new \ReflectionMethod(ProcessQueue::class, 'renderDashboard');
         $output = new BufferedOutput();
 
@@ -1478,6 +1521,8 @@ class ProcessQueueCommandTest extends TestCase
     {
         // Arrange
         $cmd    = new ProcessQueue();
+        // On a terminal: into a file or under a supervisor nothing is painted.
+        (new \ReflectionProperty(ProcessQueue::class, 'paintsScreen'))->setValue($cmd, true);
         $method = new \ReflectionMethod(ProcessQueue::class, 'renderDashboard');
         $output = new BufferedOutput();
 
@@ -1544,6 +1589,8 @@ class ProcessQueueCommandTest extends TestCase
             ['type' => 'error',   'message' => 'Connection dropped', 'time' => '12:00:10'],
         ]);
 
+        // On a terminal: into a file or under a supervisor nothing is painted.
+        (new \ReflectionProperty(ProcessQueue::class, 'paintsScreen'))->setValue($cmd, true);
         $method = new \ReflectionMethod(ProcessQueue::class, 'renderDashboard');
         $output = new BufferedOutput();
 
@@ -1577,6 +1624,8 @@ class ProcessQueueCommandTest extends TestCase
     {
         // Arrange
         $cmd    = new ProcessQueue();
+        // On a terminal: into a file or under a supervisor nothing is painted.
+        (new \ReflectionProperty(ProcessQueue::class, 'paintsScreen'))->setValue($cmd, true);
         $method = new \ReflectionMethod(ProcessQueue::class, 'renderDashboard');
         $output = new BufferedOutput();
 

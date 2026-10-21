@@ -821,6 +821,11 @@ Two things follow from being spawned by `DaemonOrchestrator`, and both are read 
   and no readable history. That log is the only account of what the worker did; the live
   numbers belong on `/admin/Services`, which reads the state file.
 
+`queue:process` paints its dashboard only on a terminal, so the same holds when it is run by
+hand into a file or a pipe (`>> var/logs/worker.log`): each task is one plain line —
+`[2026-01-02 03:04:05] #7 chat_ask completed 1.250s — answered` — and a pass with nothing to do
+writes nothing.
+
 ### A stop request has a deadline
 
 Every stop — a process leaving the desired set, a redeploy, the orchestrator being

@@ -35,6 +35,9 @@ use Pramnos\Queue\Worker;
  */
 class ProcessQueue extends CommandBase
 {
+    /** @var bool Whether this run paints a dashboard: an unsupervised worker on a terminal */
+    protected bool $paintsScreen = false;
+
     /** @var string  Job/lock file base name (prefixed with QUEUE_PROCESSOR_<workerId> when --worker-id is set) */
     private string $jobname = 'QUEUE_PROCESSOR';
 
@@ -245,7 +248,8 @@ class ProcessQueue extends CommandBase
         // No screen to paint when a supervisor is watching: this worker's log is the only
         // account of what it did, and a repainting dashboard turns it into escape sequences.
         // `/admin/Services` and the orchestrator's state file are where the live numbers are.
-        if (!$this->isSupervised()) {
+        $this->paintsScreen = !$this->isSupervised() && $this->isTerminal($output);
+        if ($this->paintsScreen) {
             $this->initializeInteractiveTerminal($output);
         }
 
@@ -466,17 +470,23 @@ class ProcessQueue extends CommandBase
                 break;
             }
 
-            $output->write("Processing task... \r");
+            if ($this->paintsScreen) {
+                $output->write("Processing task... \r");
+            }
             $taskInfo = $worker->processNextTask($taskTypes, $startFromTimestamp, $reverseOrder);
             if (!$taskInfo) {
                 break;
             }
             $processed++;
-            $output->write("Processed {$processed} tasks\r");
+            if ($this->paintsScreen) {
+                $output->write("Processed {$processed} tasks\r");
+            } else {
+                $output->writeln($this->taskLine($taskInfo), OutputInterface::OUTPUT_PLAIN);
+            }
             $this->addRecentTask($taskInfo);
         }
 
-        if ($processed > 0) {
+        if ($processed > 0 && $this->paintsScreen) {
             $output->writeln("Processed {$processed} tasks");
         }
 
@@ -628,8 +638,8 @@ class ProcessQueue extends CommandBase
      */
     protected function renderDashboard(OutputInterface $output, array $data): void
     {
-        if ($this->isSupervised()) {
-            // See execute(): under a supervisor the log is the record, not a terminal.
+        if (!$this->paintsScreen) {
+            // See execute(): under a supervisor, or into a file, the log is the record.
             return;
         }
 
@@ -746,6 +756,37 @@ class ProcessQueue extends CommandBase
     }
 
     // ── Internal helpers ──────────────────────────────────────────────────────
+
+    /**
+     * Whether the output is a terminal a dashboard can be painted on.
+     *
+     * Not a file or a pipe: `>> var/logs/worker.log` received the whole frame — borders, escape
+     * sequences, "Press Ctrl+C to exit" — five times a second, half a gigabyte in days, with each
+     * task's result lost inside it. A seam, so a test can say either.
+     */
+    protected function isTerminal(OutputInterface $output): bool
+    {
+        return $output instanceof \Symfony\Component\Console\Output\StreamOutput
+            && @stream_isatty($output->getStream());
+    }
+
+    /**
+     * One task as one plain line, for a log: time, id, type, status, duration and message.
+     *
+     * @param array<string,mixed> $taskInfo
+     */
+    protected function taskLine(array $taskInfo): string
+    {
+        $line = '[' . date('Y-m-d H:i:s') . '] #' . ($taskInfo['id'] ?? '?')
+            . ' ' . ($taskInfo['type'] ?? 'unknown')
+            . ' ' . ($taskInfo['status'] ?? 'processed');
+        if (isset($taskInfo['execution_time'])) {
+            $line .= ' ' . sprintf('%.3fs', $taskInfo['execution_time']);
+        }
+        $message = trim((string) ($taskInfo['message'] ?? ''));
+
+        return $message === '' ? $line : $line . ' — ' . preg_replace('/\s+/', ' ', $message);
+    }
 
     /**
      * @param  array<string,mixed> $taskInfo
