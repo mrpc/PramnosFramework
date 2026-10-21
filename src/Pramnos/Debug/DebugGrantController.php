@@ -110,6 +110,11 @@ class DebugGrantController extends Controller
             return $this->refuse();
         }
 
+        // Remember the page this was opened from, now: the POST that issues the grant has this
+        // screen as its referrer, so without it every link but the DevPanel's tab (which sends
+        // `return`) came back to the site root.
+        $this->rememberedReturn();
+
         return $this->respond(200, $this->screen());
     }
 
@@ -387,6 +392,15 @@ class DebugGrantController extends Controller
          * that `echo`es its own HTML and never carries the toolbar. Enabling the grant
          * then landed back on it, with nothing to show for the click.
          */
+        return $this->rememberedReturn();
+    }
+
+    /**
+     * The page this screen was opened from, as the session remembers it — remembering the
+     * referrer first when it is a page of the site and not a developer page.
+     */
+    private function rememberedReturn(): string
+    {
         return \Pramnos\DevPanel\DevPanelController::returnUrlExcluding(
             'debugbar',
             array(\Pramnos\Http\AdminArea::servingUrl() . '/debugbar')

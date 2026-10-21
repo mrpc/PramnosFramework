@@ -729,7 +729,9 @@ After enabling, you land back on the page you came from — **not** on the DevPa
 this screen. Both `echo` their own HTML rather than going through the framework's document,
 so neither carries the toolbar: landing on one of them would look exactly like the grant
 having failed. When the only page you came from is a developer page, you land on the site
-root instead.
+root instead. The page is remembered when the screen opens, from any link to it — an admin menu,
+an application's footer — since the form that enables the grant has the screen itself as its
+referrer.
 
 The DevPanel carries a **switch beside its Back button** rather than a tab: it is not a place
 to go, it turns something on and leaves you on the tab you were reading. Beside rather than

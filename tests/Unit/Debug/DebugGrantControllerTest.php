@@ -501,6 +501,38 @@ class DebugGrantControllerTest extends TestCase
     }
 
     /**
+     * Opened from any page of the site, the grant sends you back to it.
+     *
+     * The screen's GET is the only request that sees the page you came from: the POST that
+     * issues the grant has the screen itself as its referrer. Remembered only at the POST, every
+     * link but the DevPanel's tab (which sends `return`) — an application's footer, an admin
+     * menu — landed on the site root.
+     */
+    public function testTheScreenRemembersThePageItWasOpenedFrom(): void
+    {
+        // Arrange
+        if (!defined('sURL')) {
+            $this->markTestSkipped('sURL is not defined in this process.');
+        }
+        $base = rtrim((string) sURL, '/');
+        unset($_SESSION[\Pramnos\DevPanel\DevPanelController::RETURN_KEY]);
+        $controller = $this->controller(90);
+
+        try {
+            // Act — the screen opened from /admin/Users, then the POST from the screen
+            $_SERVER['HTTP_REFERER'] = $base . '/admin/Users';
+            $controller->display();
+            $_SERVER['HTTP_REFERER'] = $base . '/debugbar';
+            $back = $controller->exposeRealReturnUrl();
+
+            // Assert
+            $this->assertSame($base . '/admin/Users', $back, 'sent to the site root instead of where it was opened');
+        } finally {
+            unset($_SERVER['HTTP_REFERER'], $_SESSION[\Pramnos\DevPanel\DevPanelController::RETURN_KEY]);
+        }
+    }
+
+    /**
      * Coming from the DevPanel, "back" is not the DevPanel.
      *
      * The reported failure, and it looked like the feature simply did nothing: the panel's
