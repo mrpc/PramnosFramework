@@ -785,10 +785,18 @@ script's own address, so ten tabs make one socket and a page change opens none.
   signs it.
 - After a reconnect each tab gets its one `pf:notifications:refresh`.
 - `window.pfRealtime.shared` says which way the page is connected. Without `SharedWorker` (some
-  mobile browsers) each page keeps a connection of its own, as described above.
+  mobile browsers) each page keeps a connection of its own, as described above — and so does a
+  page whose worker fails to load or does not answer within five seconds.
+- `window.pfRealtime.status()` says what the connection is doing, in every tab: `socket`
+  (`connecting`, `open`, `closed`), `socketId`, `subscribed` (the channels the server
+  confirmed), the last `error` (a refused signature, a `pusher:error`), `shared`, and `fallback` —
+  why a page that tried to share connects itself.
 - The worker is a script of the site's own origin, which the default CSP allows
   (`worker-src 'self'`). A policy of the application's own that narrows `worker-src` has to keep
   `'self'`, or pages fall back to a connection each.
+- **The worker's own CSP is the one on `pf-utils.js`'s response**, not the page's. A server that
+  puts a site-wide `Content-Security-Policy` header on static files must let that header's
+  `connect-src` reach the socket too, or the worker connects nowhere while every page could.
 
 There is no tag for an anonymous page, and none for `sse`. A page that defines its own
 `window.pfRealtime` before `pf-utils.js` loads keeps it.

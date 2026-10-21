@@ -200,3 +200,71 @@ test('without SharedWorker a page keeps a connection of its own', () => {
     assert.equal(window.pfRealtime.shared, false);
     assert.equal(opened.length, 1, 'the page did not connect');
 });
+
+/** A tab whose SharedWorker never answers (`silent`) or fails to load (`fails`), with its timers. */
+function brokenTab({ fails = false } = {}) {
+    const { window, document } = createDom({ meta: { csrf: 't', 'pf-realtime': JSON.stringify(CONFIG) } });
+    document.currentScript = { src: 'https://app.test/assets/js/pf-utils.js' };
+    const opened = [];
+    window.WebSocket = class { constructor(url) { opened.push(url); } send() {} };
+    const timers = [];
+    window.setTimeout = (fn, ms) => { timers.push({ fn, ms }); return timers.length; };
+    window.clearTimeout = () => {};
+    let worker = null;
+    window.SharedWorker = class {
+        constructor() {
+            worker = this;
+            // A port that takes messages and never answers: the script did not run.
+            this.port = { postMessage() {}, start() {}, close() {} };
+        }
+    };
+    loadScript(SOURCE, window);
+    window.pfRealtime.channel('news');
+    if (fails) { worker.onerror({}); }
+
+    return { window, opened, timers };
+}
+
+test('a worker that never starts: after the wait the page connects itself, with its channels', () => {
+    // Arrange
+    const ui = brokenTab();
+    const before = ui.opened.length;
+
+    // Act — the watchdog fires
+    ui.timers.find((t) => t.ms === 5000).fn();
+
+    // Assert
+    assert.equal(before, 0, 'connected before giving the worker its chance');
+    assert.equal(ui.opened.length, 1, 'the page was left with no connection');
+    assert.equal(ui.window.pfRealtime.shared, false);
+    assert.equal(ui.window.pfRealtime.status().fallback, 'The shared worker did not start');
+});
+
+test('a worker that fails to load: the page connects itself at once', () => {
+    // Act
+    const ui = brokenTab({ fails: true });
+
+    // Assert
+    assert.equal(ui.opened.length, 1);
+    assert.equal(ui.window.pfRealtime.status().fallback, 'The shared worker failed to load');
+});
+
+test('each tab can read what the shared connection is doing', async () => {
+    // Arrange
+    const shared = worker();
+    const a = tab(shared, 'tokA');
+    a.window.pfRealtime.channel('news');
+    await settle();
+
+    // Act
+    handshake(shared.sockets[0]);
+    shared.sockets[0].receive('pusher_internal:subscription_succeeded', {}, 'news');
+    await settle();
+    const status = a.window.pfRealtime.status();
+
+    // Assert
+    assert.equal(status.shared, true);
+    assert.equal(status.socket, 'open');
+    assert.equal(status.socketId, '1.2');
+    assert.deepEqual([...status.subscribed], ['news']);
+});
