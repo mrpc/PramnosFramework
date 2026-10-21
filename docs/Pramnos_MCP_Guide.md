@@ -10,6 +10,7 @@ use_cases:
   - Working out what an MCP tool actually returns, or why a client says it is broken
   - Offering a capability to an assistant outside this machine, authenticated with OAuth
   - Connecting Claude.ai or ChatGPT to this application's MCP endpoint
+  - Offering a page's forms to an AI agent in the visitor's browser (WebMCP)
   - Finding out who calls a method, or where a class is defined, without grepping
   - Finding out whether a generator already exists for the class you are about to write
   - Reading the design tokens, or checking whether the compiled stylesheet is stale
@@ -1600,6 +1601,44 @@ position as meaning.
 Two returns are deliberately distinguishable. An empty term gives `total: 0` and no groups — never
 the first page of everything. An installation with **no registered sources** says so in a `note`,
 because a model told "0 results" concludes the thing does not exist and tells the person so.
+
+## In the browser: WebMCP
+
+The server above serves an assistant that connects to the application. WebMCP is the other
+direction: a page offers tools to an AI agent **in the visitor's browser**, which calls them with
+that visitor's session — `document.modelContext.registerTool()`, a W3C Community Group draft.
+`pf-utils.js` does the registering; a page only marks what it offers.
+
+```html
+<form method="post" action="/admin/Invoices/move" data-pf-tool="move_invoice"
+      data-pf-tool-description="Move an invoice to another customer">
+    <?= $session->getTokenField() ?>
+    <label for="inv">Invoice number</label> <input id="inv" type="number" name="invoice" min="1" required>
+    <input name="customer" data-pf-tool-param="The customer's code">
+    <button>Move</button>
+</form>
+```
+
+- **The input schema comes from the fields.** A number field is a number, a checkbox a boolean
+  (several under one name an array), a select or radio group an enum, `min`/`max`/`maxlength`/
+  `required` carry over. Each field is described by `data-pf-tool-param`, else its label, its
+  `aria-label`, its placeholder, its name. Hidden fields — the CSRF token among them — and
+  passwords and files are not offered.
+- **A call fills the form and sends it as the page would**: its method, its hidden fields, the
+  session's current token (`pfRefreshCsrf()` first, for a POST), and `X-Pf-Fragment: 1`, so the
+  answer is the resulting page's content without its theme. The agent gets `{ ok, status, url,
+  text }` — the page's text, up to 4,000 characters.
+- **A POST form is marked consequential**, so an agent asks before calling it; a GET form is
+  read-only, and `data-pf-tool-readonly` says a POST changes nothing.
+- **A tool written in script**: `pfTools.register({ name, description, inputSchema, execute })`,
+  where `execute(input)` returns anything JSON can hold. `pfTools.unregister(name)` withdraws one.
+
+`window.pfTools` is there whether or not the browser has WebMCP — `supported` says which —
+with `list()`, `call(name, input)` and `calls()`, and every call dispatches `pf:tool:call`.
+That is what the debug toolbar's **Tools** tab reads: the page's tools, a Run for each, and the
+calls an agent made ([Debug Toolbar](Pramnos_Debug_Toolbar_Usage.md)). The browser API is still
+a draft: `pf-utils.js` uses `document.modelContext`, and `navigator.modelContext`, where an
+earlier browser put it.
 
 ## Protocol methods handled
 

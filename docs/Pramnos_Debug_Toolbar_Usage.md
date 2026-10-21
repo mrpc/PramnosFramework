@@ -5,6 +5,7 @@ use_cases:
   - It worked and then stopped working, or a user is suddenly signed out
   - A deep link 404s in the single-page application
   - Something broke in the browser and the server logs look fine
+  - Seeing which tools a page offers an AI agent, and running one by hand
 ---
 
 # Using the debug toolbar
@@ -245,6 +246,16 @@ Credentials: the application's `apiKey`, cookies (so a signed-in browser session
 authenticates the call), and a stored bearer token if there is one — named by its key,
 never printed, and refusable in one click, which is how "is this endpoint actually public?"
 gets answered.
+
+## I want to see what an AI agent in the browser can do here
+
+**Tools**, on a page that offers some (WebMCP — see the
+[MCP Guide](Pramnos_MCP_Guide.md#in-the-browser-webmcp)). Each tool with its description,
+whether it changes data, its input schema, and a box holding an input to start from: **Run**
+calls it as an agent would, so what an agent would get back is visible on a browser with no
+WebMCP at all. A form tool really sends its form. Below, every call — made by an agent or by
+the panel — with how long it took and what went in and came out. The tab says whether this
+browser offers the tools to an agent.
 
 ---
 

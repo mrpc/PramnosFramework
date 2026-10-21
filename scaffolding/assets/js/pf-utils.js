@@ -38,6 +38,8 @@
  *   data-pf-notifications       — the notification bell (see Html\NotificationBell): the
  *                                 count, the list, read and read-all, polled while the tab
  *                                 is visible and refreshed on `pf:notifications:refresh`
+ *   data-pf-tool="name"         — on a <form>: a tool an AI agent in the browser can call (WebMCP),
+ *                                 listed in window.pfTools and the debug bar's Tools tab
  *   meta[name=pf-realtime]      — the page's live connection (window.pfRealtime): the Pusher
  *                                 protocol to broadcast:serve or Pusher/Reverb; the bell
  *                                 listens on it for notification.created
@@ -912,8 +914,315 @@
                     },
                 };
             },
-            close: function () { connection.close(); },
+            close: function () { if (connection) { connection.close(); } },
         };
+    })();
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // data-pf-tool — the page's tools for an AI agent in the browser (WebMCP)
+    //
+    //   <form method="post" action="/admin/Invoices/move" data-pf-tool="move_invoice"
+    //         data-pf-tool-description="Move an invoice to another customer">
+    //
+    // A marked form is a tool: its fields are the tool's input, described by their label (or
+    // data-pf-tool-param, aria-label, placeholder) and typed by their control — a number, a
+    // box to tick, a choice of options — with `required` kept. Calling it fills the form and
+    // sends it as the page would, with its CSRF field, asking for the answering page's content
+    // alone (X-Pf-Fragment: 1); the result is the status, the address it ended on and the
+    // text of that page. A POST form is marked consequential, a GET one read-only, and
+    // data-pf-tool-readonly says a POST changes nothing.
+    //
+    // window.pfTools lists them, runs one (the debug bar does), takes a tool written in script
+    // (`register({name, description, inputSchema, execute})`) and keeps the last calls. Where
+    // the browser has WebMCP — document.modelContext, navigator.modelContext before it — each
+    // tool is also registered with it; without, nothing is offered to an agent and the list is
+    // still there for the debug bar. Every call dispatches `pf:tool:call` on the document, and
+    // the list changing `pf:tools:change`.
+    // ══════════════════════════════════════════════════════════════════════════
+    (function () {
+        var tools = {};
+        var calls = [];
+        var CALLS = 50;
+        var RESULT_TEXT = 4000;
+
+        function modelContext() {
+            return document.modelContext || (window.navigator && window.navigator.modelContext) || null;
+        }
+
+        function changed() {
+            document.dispatchEvent(new CustomEvent('pf:tools:change', { bubbles: true }));
+        }
+
+        /** The controls a tool fills: named, enabled, and not the form's own plumbing. */
+        function controlsOf(form) {
+            return Array.prototype.filter.call(form.querySelectorAll('input, select, textarea'), function (el) {
+                var type = (el.getAttribute('type') || '').toLowerCase();
+                return el.getAttribute('name') && !el.disabled
+                    && ['hidden', 'submit', 'button', 'reset', 'image', 'file', 'password'].indexOf(type) === -1;
+            });
+        }
+
+        /** What a field is called for an agent: its own description, its label, or its name. */
+        function describe(el, form) {
+            var label = el.getAttribute('id') ? form.querySelector('label[for="' + el.getAttribute('id') + '"]') : null;
+            label = label || (el.closest ? el.closest('label') : null);
+            return (el.getAttribute('data-pf-tool-param')
+                || (label && label.textContent ? label.textContent.trim() : '')
+                || el.getAttribute('aria-label') || el.getAttribute('placeholder') || el.getAttribute('name')).trim();
+        }
+
+        /** The JSON Schema of a form's fields. */
+        function schemaOf(form) {
+            var properties = {};
+            var required = [];
+            var seen = {};
+            controlsOf(form).forEach(function (el) {
+                var name = el.getAttribute('name');
+                var key = name.replace(/\[\]$/, '');
+                var type = (el.getAttribute('type') || '').toLowerCase();
+                var tag = el.tagName.toLowerCase();
+                var prop = properties[key] || { description: describe(el, form) };
+                if (tag === 'select') {
+                    var values = Array.prototype.map.call(el.querySelectorAll('option'), function (o) {
+                        return o.getAttribute('value') !== null ? o.getAttribute('value') : o.textContent;
+                    });
+                    prop = el.multiple ? { type: 'array', items: { type: 'string', enum: values }, description: prop.description }
+                        : { type: 'string', enum: values, description: prop.description };
+                } else if (type === 'checkbox' && (seen[key] || /\[\]$/.test(name))) {
+                    prop.type = 'array';
+                    prop.items = prop.items || { type: 'string', enum: [] };
+                    prop.items.enum.push(el.getAttribute('value') || 'on');
+                    delete prop.enum;
+                } else if (type === 'checkbox') {
+                    prop.type = 'boolean';
+                } else if (type === 'radio') {
+                    prop.type = 'string';
+                    prop.enum = (prop.enum || []).concat([el.getAttribute('value') || 'on']);
+                } else if (type === 'number' || type === 'range') {
+                    prop.type = 'number';
+                    if (el.getAttribute('min') !== null) { prop.minimum = Number(el.getAttribute('min')); }
+                    if (el.getAttribute('max') !== null) { prop.maximum = Number(el.getAttribute('max')); }
+                } else {
+                    prop.type = 'string';
+                    if (['email', 'url', 'date', 'time', 'datetime-local'].indexOf(type) !== -1) {
+                        prop.format = type === 'datetime-local' ? 'date-time' : type;
+                    }
+                    if (el.getAttribute('maxlength') !== null) { prop.maxLength = Number(el.getAttribute('maxlength')); }
+                }
+                seen[key] = true;
+                properties[key] = prop;
+                if (el.required && required.indexOf(key) === -1) { required.push(key); }
+            });
+
+            return { type: 'object', properties: properties, required: required };
+        }
+
+        /** Put an agent's input into the form's fields. */
+        function fill(form, input) {
+            controlsOf(form).forEach(function (el) {
+                var key = el.getAttribute('name').replace(/\[\]$/, '');
+                if (!input || !Object.prototype.hasOwnProperty.call(input, key)) { return; }
+                var value = input[key];
+                var type = (el.getAttribute('type') || '').toLowerCase();
+                if (type === 'checkbox') {
+                    el.checked = Array.isArray(value) ? value.map(String).indexOf(el.getAttribute('value') || 'on') !== -1 : !!value;
+                } else if (type === 'radio') {
+                    el.checked = String(value) === (el.getAttribute('value') || 'on');
+                } else if (el.tagName.toLowerCase() === 'select') {
+                    var wanted = (Array.isArray(value) ? value : [value]).map(String);
+                    Array.prototype.forEach.call(el.querySelectorAll('option'), function (o) {
+                        o.selected = wanted.indexOf(o.getAttribute('value') !== null ? o.getAttribute('value') : o.textContent) !== -1;
+                    });
+                } else {
+                    el.value = value === null || value === undefined ? '' : String(value);
+                }
+            });
+        }
+
+        /** A page's text, for an agent to read: the markup and its scripts left out. */
+        function textOf(html) {
+            return String(html).replace(/<(script|style)\b[\s\S]*?<\/\1>/gi, ' ').replace(/<[^>]+>/g, ' ')
+                .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+                .replace(/&quot;/g, '"').replace(/&#0?39;/g, "'").replace(/\s+/g, ' ').trim();
+        }
+
+        /** What the form would send: its named, enabled fields — hidden ones included — as pairs. */
+        function pairsOf(form) {
+            var pairs = [];
+            Array.prototype.forEach.call(form.querySelectorAll('input, select, textarea'), function (el) {
+                var name = el.getAttribute('name');
+                var type = (el.getAttribute('type') || '').toLowerCase();
+                if (!name || el.disabled || ['submit', 'button', 'reset', 'image', 'file'].indexOf(type) !== -1) { return; }
+                if ((type === 'checkbox' || type === 'radio') && !el.checked) { return; }
+                if (el.tagName.toLowerCase() === 'select') {
+                    Array.prototype.forEach.call(el.querySelectorAll('option'), function (o) {
+                        if (o.selected) { pairs.push([name, o.getAttribute('value') !== null ? o.getAttribute('value') : o.textContent]); }
+                    });
+                    return;
+                }
+                pairs.push([name, type === 'checkbox' || type === 'radio' ? (el.getAttribute('value') || 'on') : String(el.value === undefined ? '' : el.value)]);
+            });
+
+            return pairs.map(function (p) { return encodeURIComponent(p[0]) + '=' + encodeURIComponent(p[1]); }).join('&');
+        }
+
+        /** Send a form as the page would, asking for the answer's content alone. */
+        function send(form, signal) {
+            var method = (form.getAttribute('method') || 'get').toUpperCase();
+            var action = form.getAttribute('action') || window.location.href;
+            var data = pairsOf(form);
+            var init = { method: method, credentials: 'same-origin', headers: { 'X-Pf-Fragment': '1' }, signal: signal };
+            if (method === 'GET') {
+                action += data === '' ? '' : (action.indexOf('?') === -1 ? '?' : '&') + data;
+            } else {
+                init.headers['Content-Type'] = 'application/x-www-form-urlencoded';
+                init.body = data;
+            }
+
+            return window.fetch(action, init).then(function (response) {
+                return response.text().then(function (html) {
+                    var text = textOf(html);
+                    return { ok: response.ok, status: response.status, url: response.url || action,
+                        text: text.length > RESULT_TEXT ? text.slice(0, RESULT_TEXT) + '…' : text };
+                });
+            });
+        }
+
+        /** A form as a tool. */
+        function formTool(form) {
+            var post = (form.getAttribute('method') || 'get').toUpperCase() !== 'GET';
+            var readOnly = !post || form.getAttribute('data-pf-tool-readonly') !== null;
+
+            return {
+                name: form.getAttribute('data-pf-tool'),
+                title: form.getAttribute('data-pf-tool-title') || undefined,
+                description: form.getAttribute('data-pf-tool-description') || form.getAttribute('aria-label') || form.getAttribute('data-pf-tool'),
+                inputSchema: schemaOf(form),
+                annotations: { readOnlyHint: readOnly, consequentialHint: !readOnly },
+                execute: function (input, options) {
+                    fill(form, input || {});
+                    // An agent may call long after the page loaded: a POST takes the session's
+                    // current token first, as a form sent by hand does (pfRefreshCsrf).
+                    var fresh = post && typeof window.pfRefreshCsrf === 'function'
+                        ? Promise.resolve(window.pfRefreshCsrf()).catch(function () { /* send as it is */ })
+                        : Promise.resolve();
+                    return fresh.then(function () { return send(form, options && options.signal); });
+                },
+            };
+        }
+
+        /**
+         * Offer a tool: kept in the list, registered with the browser's WebMCP where there is
+         * one. A second tool under a name replaces the first.
+         */
+        function register(tool, source) {
+            if (!tool || !tool.name || typeof tool.execute !== 'function') { return null; }
+            unregister(tool.name);
+            var entry = { tool: tool, source: source || 'script', controller: null };
+            var offered = {
+                name: tool.name,
+                title: tool.title,
+                description: tool.description || tool.name,
+                inputSchema: tool.inputSchema || { type: 'object', properties: {} },
+                annotations: tool.annotations,
+                execute: function (input, options) { return run(tool.name, input, 'agent', options); },
+            };
+            var context = modelContext();
+            if (context && typeof context.registerTool === 'function') {
+                try {
+                    entry.controller = typeof AbortController === 'function' ? new AbortController() : null;
+                    var registered = context.registerTool(offered, entry.controller ? { signal: entry.controller.signal } : {});
+                    if (registered && typeof registered.catch === 'function') {
+                        registered.catch(function (e) { entry.error = String(e && e.message || e); changed(); });
+                    }
+                } catch (e) {
+                    entry.error = String(e && e.message || e);
+                }
+            }
+            tools[tool.name] = entry;
+            changed();
+
+            return function () { unregister(tool.name); };
+        }
+
+        function unregister(name) {
+            var entry = tools[name];
+            if (!entry) { return; }
+            if (entry.controller) { entry.controller.abort(); }
+            delete tools[name];
+            changed();
+        }
+
+        /** Run a tool, keep the call, and say so — whoever asked: an agent, or the page. */
+        function run(name, input, by, options) {
+            var entry = tools[name];
+            var call = { name: name, input: input === undefined ? {} : input, by: by || 'page', at: new Date(), ms: null, result: undefined, error: null };
+            calls.push(call);
+            if (calls.length > CALLS) { calls.shift(); }
+            if (!entry) {
+                call.error = 'No tool named ' + name;
+                document.dispatchEvent(new CustomEvent('pf:tool:call', { bubbles: true, detail: call }));
+                return Promise.reject(new Error(call.error));
+            }
+            var started = Date.now();
+            var finished = function () {
+                call.ms = Date.now() - started;
+                document.dispatchEvent(new CustomEvent('pf:tool:call', { bubbles: true, detail: call }));
+            };
+
+            return Promise.resolve().then(function () {
+                return entry.tool.execute(call.input, options || {});
+            }).then(function (result) {
+                call.result = result;
+                finished();
+                return result;
+            }, function (e) {
+                call.error = String(e && e.message || e);
+                finished();
+                throw e;
+            });
+        }
+
+        /** Offer every marked form in `root` not offered yet. */
+        function scan(root) {
+            Array.prototype.forEach.call((root || document).querySelectorAll('form[data-pf-tool]'), function (form) {
+                var name = form.getAttribute('data-pf-tool');
+                if (name && (!tools[name] || tools[name].form !== form)) {
+                    register(formTool(form), 'form');
+                    tools[name].form = form;
+                }
+            });
+        }
+
+        window.pfTools = {
+            /** Whether this browser offers the tools to an agent (WebMCP). */
+            get supported() { return !!(modelContext() && typeof modelContext().registerTool === 'function'); },
+            /** The tools, as offered: name, description, inputSchema, annotations, and where from. */
+            list: function () {
+                return Object.keys(tools).map(function (name) {
+                    var t = tools[name].tool;
+                    return { name: name, title: t.title, description: t.description, inputSchema: t.inputSchema,
+                        annotations: t.annotations, source: tools[name].source, error: tools[name].error || null };
+                });
+            },
+            /** Run one, as the page — the debug bar's Run. */
+            call: function (name, input) { return run(name, input, 'page'); },
+            /** The last calls, oldest first. */
+            calls: function () { return calls.slice(); },
+            register: function (tool) { return register(tool, 'script'); },
+            unregister: unregister,
+            scan: scan,
+        };
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', function () { scan(document); });
+        } else {
+            scan(document);
+        }
+        // A form that arrives in a dialog is a tool while the dialog shows it.
+        document.addEventListener('pf:modal:open', function (e) {
+            if (e.detail && e.detail.dialog) { scan(e.detail.dialog); }
+        });
     })();
 
     // ══════════════════════════════════════════════════════════════════════════

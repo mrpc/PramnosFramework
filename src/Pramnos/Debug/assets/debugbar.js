@@ -133,6 +133,7 @@
         { key: 'errors',     label: 'Errors',     title: 'Browser-side JavaScript errors captured' },
         { key: 'client',     label: 'Client',     title: 'Browser environment & device details' },
         { key: 'api',        label: 'API',        title: 'Interactive API testing playground' },
+        { key: 'tools',      label: 'Tools',      title: 'The tools this page offers an AI agent (WebMCP), and their calls' },
         { key: 'migrations', label: 'Migrations', title: 'Database schema migrations' }
     ];
 
@@ -1382,6 +1383,11 @@
             if (tab.key === 'client' || tab.key === 'api') {
                 data = { count: null };
             }
+            if (tab.key === 'tools') {
+                // Only on a page that offers some: a tab reading "no tools" on every page of a
+                // site that has none is noise.
+                data = toolsOnPage().length ? { count: toolsOnPage().length } : null;
+            }
 
             if (!data && !(stream && stream.length)) {
                 return;
@@ -1520,6 +1526,8 @@
                 // Nothing to count — a configuration is not a quantity, and
                 // neither is a tool.
                 return null;
+            case 'tools':
+                return toolsOnPage().length;
             case 'queries':
                 return typeof data.count === 'number' ? data.count : (data.queries || []).length;
             case 'logs':
@@ -1788,6 +1796,10 @@
 
         if (key === 'api') {
             return renderPlayground();
+        }
+
+        if (key === 'tools') {
+            return renderTools();
         }
 
         // Checked before the payload: a stream tab answers for every request
@@ -2974,6 +2986,130 @@
      * other tab — which is the point. A playground that stubbed the call would
      * answer a question nobody asked.
      */
+    /**
+     * The Tools tab's state: what was typed for each tool, and why a Run was refused. Kept here
+     * for the playground's reason — the panel is redrawn by the very call being made.
+     */
+    var toolState = { inputs: {}, errors: {} };
+
+    /** The page's WebMCP tools, from pf-utils.js's window.pfTools — none without it. */
+    function toolsOnPage() {
+        try {
+            return window.pfTools && typeof window.pfTools.list === 'function' ? window.pfTools.list() : [];
+        } catch (e) {
+            return [];
+        }
+    }
+
+    /** An input to start from: each property at an empty value of its type, enums at their first. */
+    function exampleInput(schema) {
+        var example = {};
+        var props = (schema && schema.properties) || {};
+        Object.keys(props).forEach(function (key) {
+            var p = props[key];
+            example[key] = p.enum && p.enum.length ? p.enum[0]
+                : p.type === 'number' || p.type === 'integer' ? (typeof p.minimum === 'number' ? p.minimum : 0)
+                : p.type === 'boolean' ? false
+                : p.type === 'array' ? []
+                : '';
+        });
+        return example;
+    }
+
+    /** Keep what was typed into the tools' inputs before the panel is redrawn. */
+    function captureToolInputs() {
+        try {
+            Array.prototype.forEach.call(panelEl ? panelEl.querySelectorAll('.pdb-tool-input') : [], function (el) {
+                toolState.inputs[el.getAttribute('data-tool')] = el.value;
+            });
+        } catch (e) {
+            /* nothing typed is worth breaking the panel for */
+        }
+    }
+
+    /** Run a tool from the panel with the JSON typed for it; the call redraws the tab. */
+    function runTool(name) {
+        captureToolInputs();
+        delete toolState.errors[name];
+        var input;
+        try {
+            input = JSON.parse(toolState.inputs[name] || '{}');
+        } catch (e) {
+            toolState.errors[name] = 'The input is not JSON: ' + e.message;
+            render();
+            return;
+        }
+        try {
+            window.pfTools.call(name, input).catch(function () { /* kept with the call */ });
+        } catch (e) {
+            toolState.errors[name] = String(e && e.message || e);
+            render();
+        }
+    }
+
+    /**
+     * The tools this page offers an AI agent in the browser, and the calls made to them.
+     *
+     * Each tool with its description, its input schema and a box to run it with — so what an
+     * agent would get back can be seen without one, on a browser that has no WebMCP at all.
+     * Below, every call: who made it (an agent, or this panel), how long it took, and what went
+     * in and came out.
+     */
+    function renderTools() {
+        var api = window.pfTools;
+        if (!api) {
+            return '<p class="pdb-muted">This page does not load pf-utils.js, which offers the tools.</p>';
+        }
+        var list = toolsOnPage();
+        var html = heading('Tools for an AI agent (WebMCP)')
+            + '<p class="pdb-lead">' + (api.supported
+                ? 'Registered with this browser\'s WebMCP: an agent in it can call them.'
+                : 'This browser has no WebMCP, so no agent sees them. Run one here to see what an agent would get.')
+            + ' A form becomes one with <code>data-pf-tool</code>; a script adds one with '
+            + '<code>pfTools.register()</code>.</p>';
+
+        list.forEach(function (tool) {
+            var consequential = tool.annotations && tool.annotations.consequentialHint;
+            var input = toolState.inputs[tool.name] !== undefined
+                ? toolState.inputs[tool.name]
+                : JSON.stringify(exampleInput(tool.inputSchema), null, 2);
+            html += '<div style="border:1px solid #313244;border-radius:4px;padding:6px 8px;margin:6px 0">'
+                + '<p><strong style="color:#89b4fa">' + esc(tool.name) + '</strong> '
+                + '<span class="pdb-muted">' + esc(tool.source) + (consequential ? ' · changes data' : ' · read-only') + '</span>'
+                + (tool.error ? ' <span style="color:#f38ba8">not registered: ' + esc(tool.error) + '</span>' : '')
+                + '<br>' + esc(tool.description || '') + '</p>'
+                + '<details><summary class="pdb-muted">Input schema</summary><pre class="pdb-sql">'
+                + esc(JSON.stringify(tool.inputSchema, null, 2)) + '</pre></details>'
+                + '<textarea class="pdb-pg-input pdb-tool-input" rows="3" data-tool="' + escAttr(tool.name) + '">'
+                + esc(input) + '</textarea>'
+                + '<p><button class="pdb-btn pdb-tool-run" data-tool="' + escAttr(tool.name) + '">Run'
+                + (consequential ? ' (this sends the form)' : '') + '</button>'
+                + (toolState.errors[tool.name] ? ' <span style="color:#f38ba8">' + esc(toolState.errors[tool.name]) + '</span>' : '')
+                + '</p></div>';
+        });
+
+        var calls = (typeof api.calls === 'function' ? api.calls() : []).slice().reverse();
+        html += heading('Calls');
+        if (!calls.length) {
+            return html + '<p class="pdb-muted">None yet.</p>';
+        }
+        var rows = '';
+        calls.forEach(function (call) {
+            rows += '<tr><td class="pdb-muted" style="white-space:nowrap">' + esc(clockTime(new Date(call.at))) + '</td>'
+                + '<td>' + (call.by === 'agent' ? '<span style="color:#cba6f7">agent</span>' : 'this panel') + '</td>'
+                + '<td style="color:#89b4fa">' + esc(call.name) + '</td>'
+                + '<td class="pdb-muted">' + (call.ms === null ? '…' : esc(call.ms) + ' ms') + '</td>'
+                + '<td>' + (call.error ? '<span style="color:#f38ba8">' + esc(call.error) + '</span>'
+                    : call.ms === null ? '' : '<span style="color:#a6e3a1">ok</span>')
+                + '<details><summary class="pdb-muted">in / out</summary><pre class="pdb-sql">'
+                + esc(JSON.stringify(mask(call.input), null, 2)) + '\n\n'
+                + esc(call.result === undefined ? '' : JSON.stringify(call.result, null, 2)) + '</pre></details></td></tr>';
+        });
+
+        return html + '<table class="pdb-table"><thead><tr><th>At</th><th>By</th><th>Tool</th><th>Took</th>'
+            + '<th>Result</th></tr></thead><tbody>' + rows + '</tbody></table>';
+    }
+
     function renderPlayground() {
         if (pg.loading) {
             return '<p class="pdb-muted">Reading the OpenAPI document…</p>';
@@ -3611,6 +3747,13 @@
                 return;
             }
 
+            var toolRun = event.target.closest('.pdb-tool-run');
+            if (toolRun) {
+                event.stopPropagation();
+                runTool(toolRun.getAttribute('data-tool'));
+                return;
+            }
+
             if (event.target.closest('.pdb-pg-reload')) {
                 event.stopPropagation();
                 pg.error = null;
@@ -3921,6 +4064,19 @@
             // thing worth catching is often the error that stopped the
             // application from ever making a request.
             watchForErrors();
+
+            // The page's WebMCP tools: a call — an agent's or the panel's — and the list
+            // changing redraw the bar, keeping what was typed into the tools' inputs.
+            ['pf:tool:call', 'pf:tools:change'].forEach(function (name) {
+                document.addEventListener(name, function () {
+                    try {
+                        captureToolInputs();
+                        render();
+                    } catch (e) {
+                        /* the page's tool went wrong, not the bar */
+                    }
+                });
+            });
 
             var island = document.getElementById('pramnos-debug-data');
             if (!island) {
