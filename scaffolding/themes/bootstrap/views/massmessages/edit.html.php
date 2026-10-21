@@ -107,6 +107,15 @@ $checked  = static fn ($value): string => ($value ?? true) !== false ? ' checked
                 <span class="badge bg-primary"><?php echo number_format($size); ?> account(s)</span>
             </div>
 
+            <details class="mm-accounts-only mm-picker"<?php echo isset($criteria['audience']) ? ' open' : ''; ?><?php echo $chosenList !== '' ? ' hidden' : ''; ?>>
+                <summary><?php echo $e(t('Choose by segments, groups and a filter')); ?></summary>
+                <p style="font-size:.8rem;opacity:.75"><?php echo $e(t('When anything is picked here, it is the audience, and the criteria below are not used.')); ?></p>
+                <?php
+                $channel = [\Pramnos\Messaging\MassMessage::TYPE_MESSAGE => 'site', \Pramnos\Messaging\MassMessage::TYPE_PUSH => 'push'][(int) ($message['type'] ?? 0)] ?? 'email';
+                echo \Pramnos\Html\AudienceBuilder::picker('audience', $criteria['audience'] ?? null, ['channel' => $channel]);
+                ?>
+            </details>
+
             <div class="mm-accounts-only"<?php echo $chosenList !== '' ? ' hidden' : ''; ?>>
 
             <div class="row g-3">

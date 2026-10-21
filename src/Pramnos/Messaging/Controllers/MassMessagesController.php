@@ -647,6 +647,25 @@ class MassMessagesController extends Controller
             }
         }
 
+        /*
+         * The audience picker: segments and groups in and out, a filter, a consent list. When
+         * anything is picked there it is the audience, and the criteria above are not — two
+         * audiences on one form would be one nobody chose. A state that does not check (only a
+         * hand-made request can send one) is ignored like an empty picker.
+         */
+        $picked = trim((string) $request->get('audience', '', 'post'));
+        if ($picked !== '') {
+            try {
+                $state = \Pramnos\Audience\Picker::normalise($picked);
+            } catch (\InvalidArgumentException) {
+                $state = null;
+            }
+            if ($state !== null && ($state['include'] !== [] || $state['exclude'] !== []
+                || $state['filter']['conditions'] !== [] || $state['consent'] !== null)) {
+                return ['audience' => $state];
+            }
+        }
+
         return $criteria;
     }
 

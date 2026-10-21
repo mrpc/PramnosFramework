@@ -303,6 +303,10 @@ Picker::counts($state);                           // ['included', 'excluded', 'c
 Store the state, not the people: a send that waits for its hour reaches the audience as it is
 then.
 
+The mass-message compose form carries the picker: a message whose audience was picked stores
+`['audience' => $state]` as its criteria, and `MassMessageAudience` resolves it through `Picker`.
+
+
 - **What it offers** is what the signed-in account may use: `Attributes::visible()`, every
   segment, group and consent list (`picker()` with a `channel` offers that channel's lists only).
   It is written into the page, so the builder draws with no request.

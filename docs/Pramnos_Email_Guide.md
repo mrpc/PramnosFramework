@@ -678,6 +678,13 @@ would stop matching what was approved.
 | `exclude_ids` | everything the rest matched, minus these |
 | `exclude_optouts` | a list name. They are skipped at delivery either way; naming it here is what makes the **count** honest |
 
+**Or pick it with segments, groups and a filter.** The compose form also carries the audience
+picker ([Audience guide](Pramnos_Audience_Guide.md#the-builder-and-the-picker)): people in any of
+some segments and groups, except others, narrowed by a filter for this send, in a consent list.
+When anything is picked there, the criteria are `['audience' => <picker state>]` and the table
+above is not used; `MassMessageAudience` resolves it with `Picker::final()`, describes it in
+words on the message's page, and a state that no longer checks reaches nobody.
+
 **A filter that matches nobody is an empty audience, not everybody.** The dangerous direction:
 a group filter falling back to "no filter" is how a message meant for eleven volunteers reaches
 every account on the installation, and the operator finds out from the replies.

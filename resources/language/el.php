@@ -1075,4 +1075,6 @@ return [
     'That consent list no longer exists.' => 'Αυτή η λίστα συναίνεσης δεν υπάρχει πια.',
     'since %s' => 'από %s',
     'In no segment or group.' => 'Σε κανένα segment ή group.',
+    'Choose by segments, groups and a filter' => 'Επιλογή με segments, groups και φίλτρο',
+    'When anything is picked here, it is the audience, and the criteria below are not used.' => 'Όταν επιλεγεί κάτι εδώ, αυτό είναι το κοινό, και τα κριτήρια παρακάτω δεν χρησιμοποιούνται.',
 ];

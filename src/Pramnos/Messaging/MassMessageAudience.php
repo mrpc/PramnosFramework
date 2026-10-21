@@ -67,6 +67,10 @@ class MassMessageAudience
      */
     public function resolve(array $criteria = []): array
     {
+        if (isset($criteria['audience'])) {
+            return $this->picked((array) $criteria['audience']);
+        }
+
         $query = $this->database->queryBuilder()
             ->table('#PREFIX#users')
             ->select(['userid', 'email'])
@@ -298,6 +302,33 @@ class MassMessageAudience
      * The count and the sample come from different reads, and only the sample is allowed to
      * fail: an operator decides on the number. Without a seam that guarantee is untestable.
      */
+    /**
+     * The accounts an audience picked with segments, groups, a filter and a consent list reaches
+     * ({@see \Pramnos\Audience\Picker}) — the criteria a send from the audience picker stores.
+     *
+     * A picked state that no longer checks — a segment's attribute the application stopped
+     * declaring — reaches nobody rather than everybody.
+     *
+     * @param  array<string, mixed> $state
+     * @return array<int, int>
+     */
+    protected function picked(array $state): array
+    {
+        try {
+            $filter = \Pramnos\Audience\Picker::final($state);
+            $ids    = [];
+            for ($page = $filter->ids(0, 5000); $page !== []; $page = $filter->ids(end($page), 5000)) {
+                array_push($ids, ...$page);
+            }
+
+            return $ids;
+        } catch (\InvalidArgumentException $e) {
+            \Pramnos\Logs\Logger::log('Mass message audience no longer checks: ' . $e->getMessage(), 'messaging');
+
+            return [];
+        }
+    }
+
     protected function sampleTable(): string
     {
         return '#PREFIX#users';
@@ -566,6 +597,10 @@ class MassMessageAudience
      */
     public static function describe(array $criteria = []): string
     {
+        if (isset($criteria['audience'])) {
+            return self::describePicked((array) $criteria['audience']);
+        }
+
         $parts   = [];
         $floor   = (int) ($criteria['usertype_min'] ?? 0);
         $ceiling = (int) ($criteria['usertype_max'] ?? 0);
@@ -620,5 +655,45 @@ class MassMessageAudience
         }
 
         return implode(', ', $parts);
+    }
+
+    /**
+     * A picked audience in words: who is in, who is excepted, the filter, the consent list.
+     *
+     * @param array<string, mixed> $state
+     */
+    protected static function describePicked(array $state): string
+    {
+        $name = static function (array $pick): string {
+            try {
+                if (isset($pick['segment'])) {
+                    return (\Pramnos\Audience\Segments::get((int) $pick['segment'])['name'] ?? 'segment #' . (int) $pick['segment']);
+                }
+
+                return (\Pramnos\Audience\Attributes::groupNames()[(int) $pick['group']] ?? 'group #' . (int) $pick['group']);
+            } catch (\Throwable) {
+                return '#' . (int) ($pick['segment'] ?? $pick['group'] ?? 0);
+            }
+        };
+        $parts   = [];
+        $include = array_map($name, (array) ($state['include'] ?? []));
+        $exclude = array_map($name, (array) ($state['exclude'] ?? []));
+        $parts[] = $include === [] ? 'everybody' : 'people in any of ' . implode(', ', $include);
+        if ($exclude !== []) {
+            $parts[] = 'except ' . implode(', ', $exclude);
+        }
+        if (!empty($state['filter']['conditions'])) {
+            $parts[] = 'narrowed by a filter for this send';
+        }
+        if (!empty($state['consent'])) {
+            try {
+                $list = \Pramnos\Audience\ConsentLists::get((int) $state['consent']);
+            } catch (\Throwable) {
+                $list = null;
+            }
+            $parts[] = 'in the consent list ' . ($list['name'] ?? '#' . (int) $state['consent']);
+        }
+
+        return ucfirst(implode('; ', $parts)) . '.';
     }
 }

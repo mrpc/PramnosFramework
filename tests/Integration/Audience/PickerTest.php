@@ -16,6 +16,8 @@ use Pramnos\Audience\Segments;
  * this send, a consent list — compiled to one filter whose counts say what each step took out.
  */
 #[CoversClass(Picker::class)]
+#[CoversClass(\Pramnos\Messaging\MassMessageAudience::class)]
+#[CoversClass(\Pramnos\Messaging\Controllers\MassMessagesController::class)]
 class PickerTest extends TestCase
 {
     use AudienceProbe;
@@ -95,5 +97,75 @@ class PickerTest extends TestCase
             'exclude.0: a segment or a group, by id.',
             'include.0: a segment or a group, by id.',
         ], $refusals);
+    }
+
+    /**
+     * A mass message whose criteria are a picked audience reaches exactly what the picker shows,
+     * says so in words on its page, and reaches nobody — not everybody — when its state stops
+     * checking.
+     */
+    #[DataProvider('databases')]
+    public function testAMassMessageReachesThePickedAudience(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->boot($type, $host, $port, $user);
+        $greek    = Segments::create('Greek', ['conditions' => [['attribute' => 'language', 'op' => 'is', 'value' => 'el']]]);
+        Segments::recompute($greek);
+        $news     = ConsentLists::create('Newsletter', 'email', 'everyone');
+        $audience = new \Pramnos\Messaging\MassMessageAudience();
+        $state    = ['include' => [['segment' => $greek]], 'exclude' => [['group' => $this->groups['Press']]], 'filter' => ['conditions' => [['attribute' => 'usertype', 'op' => 'lt', 'value' => 5]]], 'consent' => $news];
+
+        // Act
+        $ids     = $audience->resolve(['audience' => $state]);
+        $preview = $audience->preview(['audience' => $state]);
+        $words   = \Pramnos\Messaging\MassMessageAudience::describe(['audience' => $state]);
+        $plain   = \Pramnos\Messaging\MassMessageAudience::describe(['audience' => ['include' => [['segment' => 999], ['group' => 999]], 'consent' => 999]]);
+        $broken  = $audience->resolve(['audience' => ['filter' => ['conditions' => [['attribute' => 'gone', 'op' => 'empty']]]]]);
+        // Without the tables to name them from, the words fall back to the ids.
+        $this->db->schema()->dropTableIfExists('segments');
+        $this->db->schema()->dropTableIfExists('consent_lists');
+        $this->probeChanged($this->db->type);
+        $bare    = \Pramnos\Messaging\MassMessageAudience::describe(['audience' => ['include' => [['segment' => 3]], 'consent' => 2]]);
+
+        // Assert
+        $this->assertSame([$this->ids['anna'], $this->ids['cara']], $ids);
+        $this->assertSame(2, $preview['total']);
+        $this->assertSame('People in any of Greek; except Press; narrowed by a filter for this send; in the consent list Newsletter.', $words);
+        $this->assertSame('People in any of segment #999, group #999; in the consent list #999.', $plain);
+        $this->assertSame([], $broken, 'a state that no longer checks reaches nobody');
+        $this->assertSame('People in any of #3; in the consent list #2.', $bare);
+    }
+
+    /**
+     * The compose form stores the picker as the audience when anything is picked, and the
+     * account criteria otherwise — an empty picker, or one a hand-made request broke.
+     */
+    #[DataProvider('databases')]
+    public function testTheComposeFormStoresThePickerAsTheAudience(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->boot($type, $host, $port, $user);
+        $controller = new class (\Pramnos\Application\Application::getInstance()) extends \Pramnos\Messaging\Controllers\MassMessagesController {
+            /** The criteria the form posted. */
+            public function read(array $post): array
+            {
+                $_POST = $post;
+                $_SERVER['REQUEST_METHOD'] = 'POST';
+
+                return $this->criteriaFrom(new \Pramnos\Http\Request());
+            }
+        };
+
+        // Act
+        $picked = $controller->read(['audience' => json_encode(['include' => [['group' => 4]]]), 'language' => 'el']);
+        $empty  = $controller->read(['audience' => json_encode(['include' => [], 'filter' => ['match' => 'all', 'conditions' => []]]), 'language' => 'el']);
+        $broken = $controller->read(['audience' => '{nope', 'language' => 'el']);
+        $_POST  = [];
+
+        // Assert
+        $this->assertSame(['audience' => ['include' => [['group' => 4]], 'exclude' => [], 'filter' => ['match' => 'all', 'conditions' => []], 'consent' => null]], $picked);
+        $this->assertSame('el', $empty['language'] ?? null);
+        $this->assertArrayNotHasKey('audience', $empty);
+        $this->assertSame('el', $broken['language'] ?? null);
     }
 }
