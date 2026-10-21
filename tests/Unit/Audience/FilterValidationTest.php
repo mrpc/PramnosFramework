@@ -97,6 +97,22 @@ class FilterValidationTest extends TestCase
         $this->assertSame([], Filter::segmentsIn([]));
     }
 
+    /**
+     * A one-to-many table matched on something other than userid — the opt-outs, keyed on the
+     * address — cannot be broken down per value, and says so rather than joining wrongly.
+     */
+    public function testABreakdownOfATableMatchedOnTheAddressIsRefused(): void
+    {
+        // Arrange
+        $filter = Filter::fromArray([], new Database());
+        $this->expectExceptionMessage('email_optouts: a table matched on anything but userid cannot be broken down.');
+
+        // Act
+        $filter->breakdown('email_optouts');
+
+        // Assert — the expectation above.
+    }
+
     /** A group's match is all or any; anything else is refused at the group's path. */
     public function testAGroupMatchesAllOrAny(): void
     {

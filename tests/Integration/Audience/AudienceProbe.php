@@ -60,6 +60,7 @@ trait AudienceProbe
     private function boot(string $type, string $host, int $port, string $user): void
     {
         require_once ROOT . '/database/migrations/framework/core/2026_10_21_000009_create_segments_tables.php';
+        require_once ROOT . '/database/migrations/framework/core/2026_10_21_000010_create_consent_lists_table.php';
         if (!defined('LOG_PATH')) {
             define('LOG_PATH', ROOT . \DS . 'var');
         }
@@ -95,8 +96,14 @@ trait AudienceProbe
             UserGroups\CreateUsergroupsTables::class,
             UserGroups\CreateAuthserverGroupRolesTable::class,
             CreateSegmentsTables::class,
+            \Pramnos\Framework\Migrations\Core\CreateConsentListsTable::class,
+            \Pramnos\Framework\Migrations\Messaging\CreateEmailoptoutsTable::class,
         ]);
         $schema = $this->db->schema();
+        if (!$schema->hasColumn('users', 'smsoffers')) {
+            // An application's own consent column, as a profile setting keeps it.
+            $schema->alterTable('users', fn ($table) => $table->tinyInteger('smsoffers')->default(0));
+        }
         if (!$schema->hasTable('audtest_profiles')) {
             $schema->createTable('audtest_profiles', function ($table): void {
                 $table->bigInteger('userid')->primary();
@@ -125,6 +132,7 @@ trait AudienceProbe
         }
         Attributes::reset();
         Segments::reset();
+        \Pramnos\Audience\ConsentLists::reset();
         \Pramnos\Event\Event::forget();
         if ($this->previous !== null) {
             $singleton = &Factory::getDatabase();

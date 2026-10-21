@@ -119,6 +119,10 @@ final class Attributes
             Attribute::expression('validated', 'users.validated % 2', Attribute::BOOLEAN)->label(t('Email verified'))->group($account),
             Attribute::many('groups', '#PREFIX#userstogroups AS userstogroups', 'groupid')->label(t('Groups'))->group($account)
                 ->values(self::groupNames(...)),
+            // The lists an address left by the unsubscribe link, `all` among them: keyed on the
+            // address, lowercased, because an unsubscribe arrives from a mailbox.
+            Attribute::many('email_optouts', 'pramnos.emailoptouts AS emailoptouts', 'list', 'email')
+                ->matching('LOWER(users.email)')->label(t('Unsubscribed from'))->group(t('Consent')),
         ];
 
         $all = [];

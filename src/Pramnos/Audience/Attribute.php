@@ -49,6 +49,7 @@ final class Attribute
     private ?string $table = null;
     private string $foreignKey = 'userid';
     private string $dateFormat = 'unix';
+    private string $matching = 'users.userid';
 
     /**
      * @param string|array<string, string> $source A column, or an SQL expression (one per driver
@@ -205,6 +206,24 @@ final class Attribute
         $parts = preg_split('/\s+/', trim($this->table)) ?: [];
 
         return (string) end($parts);
+    }
+
+    /**
+     * What a one-to-many table's key is compared with, when it is not `users.userid` — SQL over
+     * the users table, written by the application: `'LOWER(users.email)'` for a table keyed on
+     * the address.
+     */
+    public function matching(string $sql): self
+    {
+        $this->matching = $sql;
+
+        return $this;
+    }
+
+    /** The SQL a one-to-many table's key is compared with. */
+    public function matchedWith(): string
+    {
+        return $this->matching;
     }
 
     /** The side table's column that holds users.userid. */

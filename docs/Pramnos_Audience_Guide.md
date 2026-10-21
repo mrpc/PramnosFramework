@@ -7,6 +7,7 @@ use_cases:
   - Leaving staff or deleted accounts out of every audience
   - Keeping a named audience up to date and reacting when somebody enters or leaves it
   - Putting everybody a filter matches in a group, or taking them out
+  - Making a send or a rule respect what people agreed to receive, by channel
 ---
 
 # Audience Guide
@@ -46,6 +47,7 @@ ones over the columns every users table has:
 | `active` | list | `users.active` — Active, Inactive |
 | `validated` | boolean | `users.validated % 2` — odd is a verified address |
 | `groups` | many | `userstogroups.groupid`, the groups as choices |
+| `email_optouts` | many | the lists the address left by the unsubscribe link (`emailoptouts.list`, `all` among them) |
 
 An application adds its own, and replaces one of these by defining it under the same key — for
 example to give `usertype` its own account types:
@@ -84,6 +86,8 @@ Attributes::define(Attribute::column('revenue', 'revenue', Attribute::NUMBER)
   a count is always a count of people, however many rows each has.
 - **Expressions** are SQL written by the application, never by the person filtering: the value
   compared with them is always bound. A boolean expression yields 1 or 0.
+- **A one-to-many table keyed on something else** says what its key is compared with:
+  `->matching('LOWER(users.email)')` for a table keyed on the address. It cannot be broken down.
 - **Dates** are kept as seconds by default; `->storedAs('datetime')` or `->storedAs('date')` for a
   column of that type. Days are counted in the application's time zone.
 - **Choices** given as a closure are read only when the builder needs them, never on a count.
@@ -229,4 +233,43 @@ application's own word). The Groups screen adds and removes members through it t
 
 An application with its own `addGroup()` / `removeGroup()` on its user class can keep them and
 have them call these, so a membership changed anywhere is announced the same way.
+
+## Consent lists
+
+A send or a rule never names a field to find out who agreed — it names a **consent list**, so
+where consent is kept can change without touching a rule. The application declares **sources** in
+code: a filter that means "agreed", and the users column a new account's default is written to.
+Administrators make **lists** over them: a name, a channel (`email`, `sms`, `push`, `phone`,
+`site`), a description in words a person reading their settings understands, and the default for
+new accounts.
+
+```php
+use Pramnos\Audience\ConsentLists;
+
+// code
+ConsentLists::source('smsoffers', t('Offers by SMS (profile setting)'),
+    ['conditions' => [['attribute' => 'smsoffers', 'op' => 'true']]], column: 'smsoffers');
+
+// the screen, or a seeder
+$sms  = ConsentLists::create('SMS offers', 'sms', 'smsoffers', description: t('Offers and discounts by SMS'), defaultOn: false);
+$news = ConsentLists::create('Newsletter', 'email', 'everyone', optOutList: 'newsletter');
+
+// a send
+$final   = ConsentLists::narrow($audience, $sms);    // a Filter: the audience that agreed
+$removed = ConsentLists::removes($audience, $sms);   // how many consent takes out
+ConsentLists::allows($sms, $userid);                // one person, now
+
+// registration
+ConsentLists::applyDefaults($userid);               // each list's default into its column
+```
+
+- **Email always respects the unsubscribe link.** An email list leaves out every address that left
+  `all`, and its own `optOutList` when it names one — whatever a profile checkbox says.
+- **`everyone`** is the framework's source: no stored preference, so on an email list only the
+  opt-outs decide — the model for service mail with an unsubscribe link.
+- **Defaults** go into the source's column; where two lists read one column, the one made last
+  wins. A source with no column has nothing to write.
+- **In use is not deleted**: `ConsentLists::usage('rules', fn (int $id) => [...names...])`, as for
+  segments. A list whose source the code no longer declares is refused when it is read, rather
+  than read as "nobody agreed".
 

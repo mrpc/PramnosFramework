@@ -135,6 +135,9 @@ final class Filter
         $query     = $this->query();
         $driver    = $this->database->type;
         if ($attribute->type() === Attribute::MANY) {
+            if ($attribute->matchedWith() !== 'users.userid') {
+                throw new \InvalidArgumentException("{$key}: a table matched on anything but userid cannot be broken down.");
+            }
             $alias  = (string) $attribute->alias();
             $column = $alias . '.' . $attribute->valueColumn();
             $query->join((string) $attribute->table(), $alias . '.' . $attribute->foreignKey(), '=', 'users.userid');
@@ -329,7 +332,7 @@ final class Filter
             return function (QueryBuilder $sub) use ($attribute, $values): void {
                 $alias = (string) $attribute->alias();
                 $sub->table((string) $attribute->table())->select([new Expression('1')])
-                    ->whereRaw($alias . '.' . $attribute->foreignKey() . ' = users.userid');
+                    ->whereRaw($alias . '.' . $attribute->foreignKey() . ' = ' . $attribute->matchedWith());
                 if ($values !== []) {
                     $sub->whereIn($alias . '.' . $attribute->valueColumn(), $values);
                 }
@@ -413,7 +416,9 @@ final class Filter
             $alias = (string) $attribute->alias();
             $rows  = $this->database->queryBuilder()->table((string) $attribute->table())
                 ->select([$alias . '.' . $attribute->valueColumn() . ' AS v'])
-                ->where($alias . '.' . $attribute->foreignKey(), $personId)->getAllOrFail();
+                ->whereExists(static fn (QueryBuilder $person) => $person->table(Attributes::FROM)
+                    ->select([new Expression('1')])->where('users.userid', $personId)
+                    ->whereRaw($alias . '.' . $attribute->foreignKey() . ' = ' . $attribute->matchedWith()))->getAllOrFail();
 
             return array_map(static fn (array $row): mixed => $row['v'], $rows);
         }
