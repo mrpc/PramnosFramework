@@ -47,7 +47,7 @@ class ServicesController extends Controller
     {
         $this->addAuthAction([
             'display', 'stop', 'start', 'restart', 'logs', 'status',
-            'restartall', 'poolsave', 'poolstop', 'poolstart', 'pooldelete',
+            'restartall', 'pools', 'poolsave', 'poolstop', 'poolstart', 'pooldelete',
         ]);
         // POST with the session's token, or refused before the action runs: see Controller::exec().
         $this->addWriteAction(['stop', 'start', 'restart', 'restartall', 'poolsave', 'poolstop', 'poolstart', 'pooldelete']);
@@ -80,6 +80,29 @@ class ServicesController extends Controller
         $view->stopped  = $this->controls()->stoppedServices();
 
         return $view->display();
+    }
+
+    /**
+     * The pools' settings: one card per pool, every limit with what it does, the task types to
+     * tick from the ones the queue knows, and a card to add a pool.
+     *
+     * A page of its own, so the services screen is the state of the workers alone — reading it
+     * does not mean scrolling past forms.
+     */
+    public function pools(): mixed
+    {
+        if ($this->requireMinUserType($this->adminFloor())) {
+            return null;
+        }
+
+        $doc        = \Pramnos\Framework\Factory::getDocument();
+        $doc->title = 'Worker pools';
+
+        $view            = $this->getView('services');
+        $view->pools     = $this->loadPools();
+        $view->taskTypes = $this->knownTaskTypes($view->pools);
+
+        return $view->display('pools');
     }
 
     /**
@@ -225,9 +248,10 @@ class ServicesController extends Controller
         $request = new \Pramnos\Http\Request();
         $name    = trim((string) $request->get('name', '', 'post'));
         $fields  = [];
-        foreach (['types', 'floor', 'ceiling', 'grow_above', 'shrink_below', 'load_percent', 'cooldown'] as $key) {
+        foreach (['floor', 'ceiling', 'grow_above', 'shrink_below', 'load_percent', 'cooldown'] as $key) {
             $fields[$key] = $request->get($key, '', 'post');
         }
+        $fields['types'] = $this->postedTypes();
         $existing          = $this->controls()->pools()[$name] ?? null;
         $fields['enabled'] = $existing['enabled'] ?? true;
 
@@ -235,17 +259,17 @@ class ServicesController extends Controller
             $this->controls()->savePool($name, $fields, $this->who());
         } catch (\InvalidArgumentException $exception) {
             $this->addError($exception->getMessage());
-            $this->redirect(adminUrl('services'));
+            $this->redirect(adminUrl('Services/pools'));
             return;
         } catch (\Throwable) {
             $this->addError('The pool could not be saved. Run migrate: the pools table may not exist yet.');
-            $this->redirect(adminUrl('services'));
+            $this->redirect(adminUrl('Services/pools'));
             return;
         }
 
         $this->audit('saved pool ' . $name);
         $this->addMessage('Saved. The supervisor applies it on its next cycle.');
-        $this->redirect(adminUrl('services'));
+        $this->redirect(adminUrl('Services/pools'));
     }
 
     /** Stop a pool: it runs no workers until started. */
@@ -272,13 +296,13 @@ class ServicesController extends Controller
         $name = (string) \Pramnos\Http\Request::staticGetOption();
         if (!$this->tryControl(fn (\Pramnos\Console\DaemonControls $c) => $c->deletePool($name))) {
             $this->addError('That pool could not be removed.');
-            $this->redirect(adminUrl('services'));
+            $this->redirect(adminUrl('Services/pools'));
             return;
         }
 
         $this->audit('removed pool ' . $name);
         $this->addMessage('Removed.');
-        $this->redirect(adminUrl('services'));
+        $this->redirect(adminUrl('Services/pools'));
     }
 
     /**
@@ -559,13 +583,69 @@ class ServicesController extends Controller
         $name = (string) \Pramnos\Http\Request::staticGetOption();
         if (!$this->tryControl(fn (\Pramnos\Console\DaemonControls $c) => $c->setPoolEnabled($name, $enabled, $this->who()))) {
             $this->addError('That pool could not be changed. Run migrate: the pools table may not exist yet.');
-            $this->redirect(adminUrl('services'));
+            $this->redirect($this->poolReturnUrl());
             return;
         }
 
         $this->audit(($enabled ? 'started' : 'stopped') . ' pool ' . $name);
         $this->addMessage($enabled ? 'Started.' : 'Stopped. Its workers finish their current task and exit.');
-        $this->redirect(adminUrl('services'));
+        $this->redirect($this->poolReturnUrl());
+    }
+
+    /**
+     * Where a pool's Start or Stop returns to: the screen it was pressed on — the pools page
+     * says so with `back=pools`, anything else is the services screen.
+     */
+    private function poolReturnUrl(): string
+    {
+        return (string) (new \Pramnos\Http\Request())->get('back', '', 'post') === 'pools'
+            ? adminUrl('Services/pools')
+            : adminUrl('services');
+    }
+
+    /**
+     * The task types a pool form sent, comma-joined: the ticked boxes (`types[]`), then any
+     * typed into `types_other`. A plain `types` string — a form of an application's own — is
+     * read as it always was.
+     */
+    private function postedTypes(): string
+    {
+        $posted = $_POST['types'] ?? '';
+        $types  = is_array($posted) ? $posted : explode(',', (string) $posted);
+        $types  = array_merge($types, explode(',', (string) ($_POST['types_other'] ?? '')));
+        $types  = array_filter(array_map(static fn ($type): string => trim((string) $type), $types), static fn (string $type): bool => $type !== '');
+
+        return implode(',', array_values(array_unique($types)));
+    }
+
+    /**
+     * The task types the pool form offers to tick: those with a handler — the framework's, the
+     * ones `queue.handlers` names, the task classes the queue finds — those in the queue
+     * table, and those a pool already names, so a ticked type is never missing from its list.
+     *
+     * @param list<array<string, mixed>> $pools
+     * @return list<string>
+     */
+    protected function knownTaskTypes(array $pools = []): array
+    {
+        $types = array_keys(\Pramnos\Queue\Worker::FRAMEWORK_HANDLERS);
+        $handlers = $this->application?->applicationInfo['queue']['handlers'] ?? [];
+        if (is_array($handlers)) {
+            $types = array_merge($types, array_keys($handlers));
+        }
+        try {
+            $manager = new \Pramnos\Queue\QueueManager($this);
+            $types   = array_merge($types, $manager->getTaskTypes(), $manager->activeTaskTypes(0));
+        } catch (\Throwable) {
+            // No queue table yet: the handlers are still worth offering.
+        }
+        foreach ($pools as $pool) {
+            $types = array_merge($types, (array) ($pool['types'] ?? []));
+        }
+        $types = array_values(array_unique(array_filter(array_map('strval', $types), static fn (string $type): bool => $type !== '')));
+        sort($types);
+
+        return $types;
     }
 
     /** The signed-in operator, as recorded beside what they changed. */

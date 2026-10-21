@@ -31,6 +31,7 @@ final class FrameworkGreekCatalogueTest extends TestCase
         'src/Pramnos/Queue/Controllers/QueueController.php',
         'scaffolding/themes/*/views/emails/*.php',
         'src/Pramnos/Application/Controllers/EmailsController.php',
+        'scaffolding/themes/*/views/services/{services,pools}.html.php',
     ];
 
     /**

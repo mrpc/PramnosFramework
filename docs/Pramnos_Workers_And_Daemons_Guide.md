@@ -871,17 +871,35 @@ DaemonOrchestrator::orchestratorLockPath();   // ROOT/var/DAEMON_ORCHESTRATOR.lo
 ### The services screen
 
 `/admin/Services` (usertype 80 and up) is where an operator watches and controls what the
-orchestrator supervises. It has four parts:
+orchestrator supervises. It is the state of the workers and nothing to configure, in reading
+order:
 
 | Part | Shows | Controls |
 |---|---|---|
-| **Worker pools** | each pool, from `code` or the `screen`: its task types, workers, backlog, load per core, and the `BurstPolicy` decision; *waiting for supervisor* while a saved change has not been applied | Stop / Start, Edit limits, Reset (a code pool, back to its declaration) or Remove (a screen pool), Add a pool |
-| **Services** | every supervised process, with its pid, status and log | Stop, Start, Restart, Logs |
+| **The supervisor** | running with its pid and last cycle, stale, or not running | — |
+| **Services** | every supervised process, with its pid, status and log | Stop, Start, Restart, Logs; **Restart all** above the list |
+| **Worker pools** | each pool, from `code` or the `screen`: its task types, workers, backlog, load, and the `BurstPolicy` decision; *waiting for supervisor* while a saved change has not been applied | Stop / Start, and **Configure pools** |
 | **Batches** | batches queued in the last 24 hours, with pending, processing, done and failed | — |
-| **Restart all** | — | gracefully restarts every running service |
 
 The numbers refresh from `GET /admin/Services/status` every ten seconds without reloading
-the page, so an open form keeps what was typed in it.
+the page.
+
+**A pool's limits are set on `/admin/Services/pools`**, linked from the services screen and
+from Settings. Each pool is a card:
+
+- **Task types** are boxes to tick, from every type the framework can name: those with a
+  handler (the framework's own, `queue.handlers` in `app.php`, the queue's task classes), those
+  already in the queue table, and those a pool names. A type not in the list goes in *Other
+  task types*, comma-separated. Nothing ticked is every type — for a code pool, the types its
+  declaration names.
+- **Minimum** and **maximum workers**, **grow above** and **shrink below** a number of
+  waiting tasks, a **CPU limit** in per cent of the server's capacity, and a **cooldown** in
+  supervisor cycles — each with a line under it saying what it does. A code pool shows its
+  declared values as placeholders, and a field left blank keeps them.
+- **Save**, **Stop** / **Start**, and **Reset to code** (a code pool) or **Remove** (a pool
+  added here), which asks first.
+
+The last card adds a pool.
 
 **What each control does:**
 
@@ -893,8 +911,8 @@ the page, so an open form keeps what was typed in it.
 - **Restart all** does that for every running service. Use it after a deploy the supervisor
   cannot see: it restarts by itself only when git HEAD changes, so `composer update` or a
   copied build is invisible to it.
-- **A pool's Stop, Start, Edit and Remove** write `pramnos.worker_pools`. Blank fields in
-  *Edit limits* keep the value declared in code, which is shown as the placeholder.
+- **A pool's Stop, Start, Save and Remove** write `pramnos.worker_pools`. Stop and Start
+  return to the screen they were pressed on; Save and Remove to the pools page.
 
 **Nothing on the screen spawns or kills a process itself.** Every control is written where
 the supervisor reads it, and the supervisor acts on its next cycle. With no orchestrator
@@ -902,7 +920,8 @@ running, only a stop file takes effect, because a daemon checks its own. Every c
 POST carrying the session's token and is recorded in the `auth` log with who made it.
 
 **Customised views:** a project that published the services view with
-`project:publish-views` keeps its old copy. To get the screen above, run
+`project:publish-views` keeps its old copy of the services screen; the pools page comes from
+the framework until it is published too. To get both as above, run
 `project:publish-views --group=services --force`.
 
 **A pid is not enough to tell whether it is running.** The supervisor's normal home is a

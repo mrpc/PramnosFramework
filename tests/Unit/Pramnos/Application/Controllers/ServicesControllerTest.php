@@ -31,6 +31,9 @@ class TestableServicesController extends ServicesController
         throw new \RuntimeException('redirect_quit');
     }
 
+    /** The last view the controller was given, to read what it published. */
+    public ?object $lastView = null;
+
     public function &getView($name = '', $type = '', $args = [])
     {
         $view = new class {
@@ -44,11 +47,14 @@ class TestableServicesController extends ServicesController
             public mixed $pools;
             public mixed $batches;
             public mixed $stopped;
+            /** The task types the pools page offers to tick. */
+            public mixed $taskTypes;
             
             public function display($view = '') {
                 return 'mock html view for ' . $view;
             }
         };
+        $this->lastView = $view;
         return $view;
     }
 }
@@ -964,10 +970,125 @@ class ServicesControllerTest extends TestCase
         $this->assertIsArray($json['batches']);
     }
 
+    /**
+     * The pools page is its own action: it shows every pool with the task types to tick, from
+     * the framework's handlers, the application's `queue.handlers`, and the types the pools name.
+     */
+    public function testThePoolsPageListsThePoolsAndTheTaskTypesToTick(): void
+    {
+        // Arrange — a pool saved on the screen that names a type nothing else knows
+        $this->setMockUser(98);
+        $this->controls->savePool('mail', ['types' => 'mail.send']);
+        $info = $this->controller->application->applicationInfo;
+        $this->controller->application->applicationInfo['queue']['handlers'] = ['report.build' => 'App\\ReportTask'];
+
+        try {
+            // Act
+            $html = $this->controller->pools();
+        } finally {
+            $this->controller->application->applicationInfo = $info;
+        }
+
+        // Assert
+        $this->assertSame('mock html view for pools', $html, 'the pools template, not the services one');
+        $view  = $this->controller->lastView;
+        $names = array_column($view->pools, 'name');
+        $this->assertSame(['mail'], $names);
+        // The framework's own type, the configured one, and the pool's own, all offered.
+        $this->assertContains(\Pramnos\Llm\Chat\Asks::TASK, $view->taskTypes);
+        $this->assertContains('report.build', $view->taskTypes);
+        $this->assertContains('mail.send', $view->taskTypes);
+        $this->assertEmpty($this->controller->redirectedTo);
+    }
+
+    /**
+     * Ticked boxes and typed types are stored as one comma-joined list, blanks and repeats
+     * dropped, and the save returns to the pools page it came from.
+     */
+    public function testPoolSaveJoinsTickedAndTypedTypesAndReturnsToThePoolsPage(): void
+    {
+        // Arrange
+        $this->setMockUser(98);
+        $_POST = ['name' => 'mail', 'types' => ['mail.send', 'mail.bounce'], 'types_other' => ' digest , mail.send,', 'ceiling' => '2'];
+
+        // Act
+        $this->act(fn () => $this->controller->poolsave());
+
+        // Assert
+        $this->assertSame('mail.send,mail.bounce,digest', $this->controls->poolRows['mail']['types']);
+        $this->assertSame([adminUrl('Services/pools')], $this->controller->redirectedTo);
+    }
+
+    /**
+     * Nothing ticked and nothing typed is no types — "every type", or a code pool's own — and a
+     * refused save returns to the pools page too, with its reason.
+     */
+    public function testNoTypesIsBlankAndARefusalReturnsToThePoolsPage(): void
+    {
+        // Arrange
+        $this->setMockUser(98);
+        $_POST = ['name' => 'mail', 'types_other' => ''];
+
+        // Act
+        $this->act(fn () => $this->controller->poolsave());
+        $_POST = ['name' => 'bad name!'];
+        $this->act(fn () => $this->controller->poolsave());
+
+        // Assert
+        $this->assertNull($this->controls->poolRows['mail']['types']);
+        $this->assertSame([adminUrl('Services/pools'), adminUrl('Services/pools')], $this->controller->redirectedTo);
+        $this->assertNotEmpty($_SESSION['_errors'] ?? []);
+    }
+
+    /**
+     * A pool's Start or Stop returns to the screen it was pressed on: the pools page sends
+     * `back=pools`, the services screen sends nothing. Removing a pool returns to the pools page.
+     */
+    public function testAPoolControlReturnsToTheScreenItWasPressedOn(): void
+    {
+        // Arrange
+        $this->setMockUser(98);
+        $_GET['_option'] = 'passes';
+
+        // Act
+        $_POST = ['back' => 'pools'];
+        $this->act(fn () => $this->controller->poolstop());
+        $_POST = [];
+        $this->act(fn () => $this->controller->poolstart());
+        $_POST = ['back' => 'https://elsewhere.test/'];
+        $this->act(fn () => $this->controller->poolstop());
+        $this->act(fn () => $this->controller->pooldelete());
+
+        // Assert — only the one known value leads anywhere but the services screen
+        $this->assertSame([
+            adminUrl('Services/pools'), adminUrl('services'), adminUrl('services'), adminUrl('Services/pools'),
+        ], $this->controller->redirectedTo);
+    }
+
+    /**
+     * A pool control that cannot be stored, pressed on the pools page, says so there.
+     */
+    public function testAFailedPoolControlReturnsToThePoolsPage(): void
+    {
+        // Arrange
+        $this->setMockUser(98);
+        $this->controls->broken = true;
+        $_GET['_option'] = 'passes';
+        $_POST = ['back' => 'pools'];
+
+        // Act
+        $this->act(fn () => $this->controller->poolstart());
+
+        // Assert
+        $this->assertSame([adminUrl('Services/pools')], $this->controller->redirectedTo);
+        $this->assertCount(1, $_SESSION['_errors'] ?? []);
+    }
+
     /** @return array<string, array{string}> */
     public static function newActions(): array
     {
         return [
+            'pools' => ['pools'],
             'restartall' => ['restartall'], 'poolsave' => ['poolsave'], 'poolstop' => ['poolstop'],
             'poolstart' => ['poolstart'], 'pooldelete' => ['pooldelete'],
         ];

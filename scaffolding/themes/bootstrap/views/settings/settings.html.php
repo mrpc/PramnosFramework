@@ -47,6 +47,7 @@ ksort($initialSteps, SORT_NUMERIC);
         <h2 class="mb-0">System Settings</h2>
         <div class="d-flex gap-2">
             <?php if (\Pramnos\Application\FeatureRegistry::isEnabled('llm')): ?><a href="<?php echo adminUrl('Ai/settings'); ?>" class="btn btn-outline-secondary btn-sm" data-settings-ai>AI: providers &amp; keys</a> <?php endif; ?>
+            <a href="<?php echo adminUrl('Services/pools'); ?>" class="btn btn-outline-secondary btn-sm" data-settings-pools>Worker pools</a>
             <a href="<?php echo adminUrl('settings/list'); ?>" class="btn btn-outline-secondary btn-sm">Advanced / Raw Settings</a>
         </div>
     </div>

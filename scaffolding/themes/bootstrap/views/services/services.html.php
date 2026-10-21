@@ -1,6 +1,6 @@
 <?php
 /**
- * Services / Workers (Bootstrap theme).
+ * Services / Workers (Bootstrap theme) — the state of the workers, nothing to configure.
  *
  * Variables:
  *   $this->services     — enriched service entries {id, daemon, profile, workerId, pid, status, lockFile, updatedAt}
@@ -9,31 +9,25 @@
  *   $this->batches      — batches of the last day, counted by status
  *   $this->stopped      — services an operator stopped, by id
  *
- * Every change is a POST with the session's token; the supervisor applies it on its next
- * cycle. The numbers refresh from Services/status every ten seconds without a reload, so an
- * open form is not lost.
+ * In reading order: the supervisor, the services it runs, the pools sizing them, the batches.
+ * A pool's limits are set on Services/pools. Every change is a POST with the session's token;
+ * the numbers refresh from Services/status every ten seconds without a reload.
  */
 $e      = static fn ($value): string => htmlspecialchars((string) $value, ENT_QUOTES);
 $pools  = $this->pools ?? [];
 $stopped = $this->stopped ?? [];
-$poolFields = [
-    'types'        => ['Task types', 'comma-separated; blank = every type'],
-    'floor'        => ['Floor', 'always at least'],
-    'ceiling'      => ['Ceiling', 'never more than'],
-    'grow_above'   => ['Grow above', 'pending tasks'],
-    'shrink_below' => ['Shrink below', 'pending tasks'],
-    'load_percent' => ['Load %', 'per core; stop growing past it'],
-    'cooldown'     => ['Cooldown', 'cycles after a change'],
-];
 ?>
-<div class="container-fluid py-4" id="services-screen" data-status-url="<?php echo $e(adminUrl('Services/status')); ?>">
+<div class="container-fluid py-4" id="services-screen" data-status-url="<?php echo $e(adminUrl('Services/status')); ?>"
+     data-stale="<?php echo $e($e(t('Something new is running.')) . ' <a href="">' . $e(t('Reload')) . '</a>'); ?>">
     <div class="d-flex justify-content-between align-items-center mb-4">
-        <h2 class="mb-0">Services</h2>
-        <form method="post" action="<?php echo $e(adminUrl('Services/restartall')); ?>" class="m-0"
-              onsubmit="return confirm('Restart every running service? Each finishes its current task first.');">
-            <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
-            <button type="submit" class="btn btn-outline-danger btn-sm" title="For a deploy the supervisor cannot see: composer update, a copied build">Restart all</button>
-        </form>
+        <h2 class="mb-0"><?php echo $e(t('Services')); ?></h2>
+        <div class="d-flex gap-2 align-items-center">
+            <a href="<?php echo $e(adminUrl('Services/pools')); ?>" class="btn btn-outline-secondary btn-sm"><?php echo $e(t('Configure pools')); ?></a>
+            <form method="post" action="<?php echo $e(adminUrl('Services/restartall')); ?>" class="m-0">
+                <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
+                <button type="submit" class="btn btn-outline-danger btn-sm" data-confirm="<?php echo $e(t('Restart every running service? Each finishes its current task first.')); ?>" title="<?php echo $e(t('For a deploy the supervisor cannot see: composer update, a copied build')); ?>"><?php echo $e(t('Restart all')); ?></button>
+            </form>
+        </div>
     </div>
     <?php
     /**
@@ -46,145 +40,32 @@ $poolFields = [
     ?>
     <?php if (!$supervising): ?>
         <div role="status" class="alert alert-warning">
-            <strong>The orchestrator is not running.</strong>
-            The controls below are read by the supervisor on its next cycle, so until it runs
-            nothing changes. Stop still takes effect, because a daemon checks its own stop file.
+            <strong><?php echo $e(t('The orchestrator is not running.')); ?></strong>
+            <?php echo $e(t('The controls below are read by the supervisor on its next cycle, so until it runs nothing changes. Stop still takes effect, because a daemon checks its own stop file.')); ?>
             <p class="mb-0 mt-2">
-                <a href="https://mrpc.github.io/PramnosFramework/Pramnos_Workers_And_Daemons_Guide/#creating-the-orchestrator-service" target="_blank" rel="noopener">How to create the orchestrator service &rarr;</a>
-                <span class="text-muted">— a systemd unit for Ubuntu / Debian, and the Docker equivalent.</span>
+                <a href="https://mrpc.github.io/PramnosFramework/Pramnos_Workers_And_Daemons_Guide/#creating-the-orchestrator-service" target="_blank" rel="noopener"><?php echo $e(t('How to create the orchestrator service')); ?> &rarr;</a>
+                <span class="text-muted"><?php echo $e(t('— a systemd unit for Ubuntu / Debian, and the Docker equivalent.')); ?></span>
             </p>
         </div>
     <?php elseif ($heartbeat !== null && $heartbeat > 120): ?>
         <div role="status" class="alert alert-warning">
-            <strong>The orchestrator has not cycled for <?php echo (int) $heartbeat; ?>s</strong>
-            (pid <?php echo (int) ($orchestrator['pid'] ?? 0); ?>). A live process with a
-            stale heartbeat is stuck rather than healthy.
+            <strong><?php echo $e(sprintf(t('The orchestrator has not cycled for %ds'), (int) $heartbeat)); ?></strong>
+            <?php echo $e(sprintf(t('(pid %d). A live process with a stale heartbeat is stuck rather than healthy.'), (int) ($orchestrator['pid'] ?? 0))); ?>
         </div>
     <?php else: ?>
-        <p class="text-muted small" data-field="supervisor">
-            Supervisor running, pid <?php echo (int) ($orchestrator['pid'] ?? 0); ?><?php
-            if ($heartbeat !== null) {
-                echo ', last cycle ' . (int) $heartbeat . 's ago';
-            }
-            ?>.
+        <p class="text-muted small" data-field="supervisor" data-template="<?php echo $e(t('Supervisor running, pid %d, last cycle %ds ago.')); ?>">
+            <?php echo $e($heartbeat !== null
+                ? sprintf(t('Supervisor running, pid %d, last cycle %ds ago.'), (int) ($orchestrator['pid'] ?? 0), (int) $heartbeat)
+                : sprintf(t('Supervisor running, pid %d.'), (int) ($orchestrator['pid'] ?? 0))); ?>
         </p>
     <?php endif; ?>
 
     <div class="card mb-4">
-        <div class="card-header d-flex justify-content-between align-items-center">
-            <strong>Worker pools</strong>
-            <small class="text-muted">Sized every cycle from the backlog of their task types</small>
-        </div>
-        <div class="card-body p-0">
-            <table class="table table-hover mb-0 align-middle">
-                <thead class="table-light">
-                    <tr><th>Pool</th><th>Types</th><th class="text-end">Workers</th><th class="text-end">Backlog</th><th class="text-end">Load</th><th>Decision</th><th>State</th><th></th></tr>
-                </thead>
-                <tbody>
-                <?php foreach ($pools as $pool): ?>
-                    <?php
-                    $name   = (string) $pool['name'];
-                    $row    = $pool['row'] ?? null;
-                    $config = (array) ($pool['config'] ?? []);
-                    $types  = (array) ($pool['types'] ?? []);
-                    ?>
-                    <tr data-pool="<?php echo $e($name); ?>">
-                        <td>
-                            <strong><?php echo $e($name); ?></strong>
-                            <span class="badge <?php echo ($pool['source'] ?? '') === 'code' ? 'bg-light text-dark border' : 'bg-info text-dark'; ?>"><?php echo ($pool['source'] ?? '') === 'code' ? 'code' : 'screen'; ?></span>
-                        </td>
-                        <td class="small"><?php echo $types === [] ? '<span class="text-muted">every type</span>' : $e(implode(', ', $types)); ?></td>
-                        <td class="text-end" data-field="size"><?php echo $pool['size'] === null ? '—' : (int) $pool['size']; ?></td>
-                        <td class="text-end" data-field="backlog"><?php echo $pool['backlog'] === null ? '—' : (int) $pool['backlog']; ?></td>
-                        <td class="text-end" data-field="load"><?php echo $pool['load'] === null ? '—' : $e(sprintf('%.2f', (float) $pool['load'])); ?></td>
-                        <td class="small text-muted" data-field="decision" style="max-width:28rem"><?php echo $e($pool['decision'] ?? ''); ?></td>
-                        <td>
-                            <?php if (empty($pool['enabled'])): ?>
-                                <span class="badge bg-secondary">Stopped</span>
-                            <?php else: ?>
-                                <span class="badge bg-success">Running</span>
-                            <?php endif; ?>
-                            <?php if (!empty($pool['waiting'])): ?>
-                                <span class="badge bg-warning text-dark" data-field="waiting" title="Saved after the supervisor's last cycle">waiting for supervisor</span>
-                            <?php endif; ?>
-                        </td>
-                        <td class="text-end text-nowrap">
-                            <?php if (empty($pool['enabled'])): ?>
-                                <form method="post" action="<?php echo $e(adminUrl('Services/poolstart/') . urlencode($name)); ?>" class="d-inline m-0"><?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?><button type="submit" class="btn btn-sm btn-outline-success">Start</button></form>
-                            <?php else: ?>
-                                <form method="post" action="<?php echo $e(adminUrl('Services/poolstop/') . urlencode($name)); ?>" class="d-inline m-0"><?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?><button type="submit" class="btn btn-sm btn-outline-warning">Stop</button></form>
-                            <?php endif; ?>
-                            <?php if ($row !== null): ?>
-                                <form method="post" action="<?php echo $e(adminUrl('Services/pooldelete/') . urlencode($name)); ?>" class="d-inline m-0"
-                                      onsubmit="return confirm(<?php echo $e(json_encode(($pool['source'] ?? '') === 'code' ? 'Go back to the limits declared in code?' : 'Remove this pool? Its workers are stopped.')); ?>);">
-                                    <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
-                                    <button type="submit" class="btn btn-sm btn-outline-danger"><?php echo ($pool['source'] ?? '') === 'code' ? 'Reset' : 'Remove'; ?></button>
-                                </form>
-                            <?php endif; ?>
-                        </td>
-                    </tr>
-                    <tr class="table-light">
-                        <td colspan="8" class="py-1">
-                            <details>
-                                <summary class="small text-muted">Edit limits<?php echo ($pool['source'] ?? '') === 'code' ? ' — blank keeps the value declared in code' : ''; ?></summary>
-                                <form method="post" action="<?php echo $e(adminUrl('Services/poolsave')); ?>" class="row g-2 align-items-end py-2">
-                                    <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
-                                    <input type="hidden" name="name" value="<?php echo $e($name); ?>">
-                                    <?php foreach ($poolFields as $field => [$label, $hint]): ?>
-                                        <?php
-                                        $value = $row[$field] ?? '';
-                                        $declared = $field === 'types'
-                                            ? implode(',', $types)
-                                            : ($field === 'load_percent'
-                                                ? (isset($config['load_ceiling']) ? (string) round((float) $config['load_ceiling'] * 100) : '')
-                                                : (string) ($config[$field] ?? ''));
-                                        ?>
-                                        <div class="<?php echo $field === 'types' ? 'col-md-3' : 'col-md-1'; ?>">
-                                            <label class="form-label small mb-0" title="<?php echo $e($hint); ?>"><?php echo $e($label); ?></label>
-                                            <input class="form-control form-control-sm" name="<?php echo $e($field); ?>" value="<?php echo $e($value); ?>" placeholder="<?php echo $e($declared); ?>"
-                                                   <?php echo $field === 'types' ? '' : 'inputmode="numeric"'; ?>>
-                                        </div>
-                                    <?php endforeach; ?>
-                                    <div class="col-md-2"><button type="submit" class="btn btn-sm btn-primary">Save</button></div>
-                                </form>
-                            </details>
-                        </td>
-                    </tr>
-                <?php endforeach; ?>
-                <?php if ($pools === []): ?>
-                    <tr><td colspan="8" class="text-center text-muted py-3">No pools. Declare one with <code>queuePool()</code> in code, or add one below.</td></tr>
-                <?php endif; ?>
-                </tbody>
-            </table>
-        </div>
-        <div class="card-footer">
-            <details>
-                <summary>Add a pool</summary>
-                <form method="post" action="<?php echo $e(adminUrl('Services/poolsave')); ?>" class="row g-2 align-items-end pt-2">
-                    <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
-                    <div class="col-md-2">
-                        <label class="form-label small mb-0">Name</label>
-                        <input class="form-control form-control-sm" name="name" required pattern="[A-Za-z0-9][A-Za-z0-9_.\-]{0,59}" placeholder="mail">
-                    </div>
-                    <?php foreach ($poolFields as $field => [$label, $hint]): ?>
-                        <div class="<?php echo $field === 'types' ? 'col-md-3' : 'col-md-1'; ?>">
-                            <label class="form-label small mb-0" title="<?php echo $e($hint); ?>"><?php echo $e($label); ?></label>
-                            <input class="form-control form-control-sm" name="<?php echo $e($field); ?>" placeholder="<?php echo $e($hint); ?>"
-                                   <?php echo $field === 'types' ? '' : 'inputmode="numeric"'; ?>>
-                        </div>
-                    <?php endforeach; ?>
-                    <div class="col-md-12"><button type="submit" class="btn btn-sm btn-primary">Add pool</button></div>
-                </form>
-            </details>
-        </div>
-    </div>
-
-    <div class="card mb-4">
-        <div class="card-header"><strong>Services</strong></div>
+        <div class="card-header"><strong><?php echo $e(t('Services')); ?></strong></div>
         <div class="card-body p-0">
             <table class="table table-hover mb-0">
                 <thead class="table-light">
-                    <tr><th>Service</th><th>Worker ID</th><th>PID</th><th>Status</th><th>Updated</th><th></th></tr>
+                    <tr><th><?php echo $e(t('Service')); ?></th><th><?php echo $e(t('Worker ID')); ?></th><th><?php echo $e(t('PID')); ?></th><th><?php echo $e(t('Status')); ?></th><th><?php echo $e(t('Updated')); ?></th><th></th></tr>
                 </thead>
                 <tbody>
                 <?php foreach (($this->services ?? []) as $svc): ?>
@@ -199,29 +80,82 @@ $poolFields = [
                         <td><?php echo !empty($svc['pid']) ? (int) $svc['pid'] : '—'; ?></td>
                         <td>
                             <?php if (isset($stopped[$id])): ?>
-                                <span class="badge bg-secondary" title="Stopped by <?php echo $e($stopped[$id]['stopped_by'] ?? 'an operator'); ?>">Stopped by operator</span>
+                                <span class="badge bg-secondary" title="<?php echo $e(sprintf(t('Stopped by %s'), $stopped[$id]['stopped_by'] ?? t('an operator'))); ?>"><?php echo $e(t('Stopped by operator')); ?></span>
                             <?php elseif ($svc['status'] === 'running'): ?>
-                                <span class="badge bg-success">Running</span>
+                                <span class="badge bg-success"><?php echo $e(t('Running')); ?></span>
                             <?php elseif ($svc['status'] === 'error'): ?>
-                                <span class="badge bg-warning text-dark">Stop Pending</span>
+                                <span class="badge bg-warning text-dark"><?php echo $e(t('Stop Pending')); ?></span>
                             <?php else: ?>
-                                <span class="badge bg-secondary">Stopped</span>
+                                <span class="badge bg-secondary"><?php echo $e(t('Stopped')); ?></span>
                             <?php endif; ?>
                         </td>
                         <td class="text-muted small"><?php echo $e($svc['updatedAt'] ?? ''); ?></td>
                         <td class="text-end text-nowrap">
-                            <a href="<?php echo $e(adminUrl('Services/logs/') . urlencode($id)); ?>" class="btn btn-sm btn-outline-secondary">Logs</a>
+                            <a href="<?php echo $e(adminUrl('Services/logs/') . urlencode($id)); ?>" class="btn btn-sm btn-outline-secondary"><?php echo $e(t('Logs')); ?></a>
                             <?php if ($svc['status'] === 'running' && !isset($stopped[$id])): ?>
-                                <form method="post" action="<?php echo $e(adminUrl('Services/stop/') . urlencode($id)); ?>" class="d-inline m-0"><?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?><button type="submit" class="btn btn-sm btn-outline-warning">Stop</button></form>
+                                <form method="post" action="<?php echo $e(adminUrl('Services/stop/') . urlencode($id)); ?>" class="d-inline m-0"><?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?><button type="submit" class="btn btn-sm btn-outline-warning"><?php echo $e(t('Stop')); ?></button></form>
                             <?php else: ?>
-                                <form method="post" action="<?php echo $e(adminUrl('Services/start/') . urlencode($id)); ?>" class="d-inline m-0"><?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?><button type="submit" class="btn btn-sm btn-outline-success">Start</button></form>
+                                <form method="post" action="<?php echo $e(adminUrl('Services/start/') . urlencode($id)); ?>" class="d-inline m-0"><?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?><button type="submit" class="btn btn-sm btn-outline-success"><?php echo $e(t('Start')); ?></button></form>
                             <?php endif; ?>
-                            <form method="post" action="<?php echo $e(adminUrl('Services/restart/') . urlencode($id)); ?>" class="d-inline m-0"><?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?><button type="submit" class="btn btn-sm btn-outline-danger">Restart</button></form>
+                            <form method="post" action="<?php echo $e(adminUrl('Services/restart/') . urlencode($id)); ?>" class="d-inline m-0"><?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?><button type="submit" class="btn btn-sm btn-outline-danger"><?php echo $e(t('Restart')); ?></button></form>
                         </td>
                     </tr>
                 <?php endforeach; ?>
                 <?php if (empty($this->services)): ?>
-                    <tr><td colspan="6" class="text-center text-muted py-4">No services registered.</td></tr>
+                    <tr><td colspan="6" class="text-center text-muted py-4"><?php echo $e(t('No services registered.')); ?></td></tr>
+                <?php endif; ?>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <strong><?php echo $e(t('Worker pools')); ?></strong>
+            <a href="<?php echo $e(adminUrl('Services/pools')); ?>" class="small"><?php echo $e(t('Configure pools')); ?></a>
+        </div>
+        <div class="card-body p-0">
+            <table class="table table-hover mb-0 align-middle">
+                <thead class="table-light">
+                    <tr><th><?php echo $e(t('Pool')); ?></th><th><?php echo $e(t('Task types')); ?></th><th class="text-end"><?php echo $e(t('Workers')); ?></th><th class="text-end"><?php echo $e(t('Backlog')); ?></th><th class="text-end"><?php echo $e(t('Load')); ?></th><th><?php echo $e(t('Decision')); ?></th><th><?php echo $e(t('State')); ?></th><th></th></tr>
+                </thead>
+                <tbody>
+                <?php foreach ($pools as $pool): ?>
+                    <?php
+                    $name  = (string) $pool['name'];
+                    $types = (array) ($pool['types'] ?? []);
+                    ?>
+                    <tr data-pool="<?php echo $e($name); ?>">
+                        <td>
+                            <strong><?php echo $e($name); ?></strong>
+                            <span class="badge <?php echo ($pool['source'] ?? '') === 'code' ? 'bg-light text-dark border' : 'bg-info text-dark'; ?>"><?php echo $e(($pool['source'] ?? '') === 'code' ? t('code') : t('screen')); ?></span>
+                        </td>
+                        <td class="small"><?php echo $types === [] ? '<span class="text-muted">' . $e(t('every type')) . '</span>' : $e(implode(', ', $types)); ?></td>
+                        <td class="text-end" data-field="size"><?php echo $pool['size'] === null ? '—' : (int) $pool['size']; ?></td>
+                        <td class="text-end" data-field="backlog"><?php echo $pool['backlog'] === null ? '—' : (int) $pool['backlog']; ?></td>
+                        <td class="text-end" data-field="load"><?php echo $pool['load'] === null ? '—' : $e(sprintf('%.2f', (float) $pool['load'])); ?></td>
+                        <td class="small text-muted" data-field="decision" style="max-width:28rem"><?php echo $e($pool['decision'] ?? ''); ?></td>
+                        <td>
+                            <?php if (empty($pool['enabled'])): ?>
+                                <span class="badge bg-secondary"><?php echo $e(t('Stopped')); ?></span>
+                            <?php else: ?>
+                                <span class="badge bg-success"><?php echo $e(t('Running')); ?></span>
+                            <?php endif; ?>
+                            <?php if (!empty($pool['waiting'])): ?>
+                                <span class="badge bg-warning text-dark" data-field="waiting" title="<?php echo $e(t("Saved after the supervisor's last cycle")); ?>"><?php echo $e(t('waiting for supervisor')); ?></span>
+                            <?php endif; ?>
+                        </td>
+                        <td class="text-end text-nowrap">
+                            <?php if (empty($pool['enabled'])): ?>
+                                <form method="post" action="<?php echo $e(adminUrl('Services/poolstart/') . urlencode($name)); ?>" class="d-inline m-0"><?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?><button type="submit" class="btn btn-sm btn-outline-success"><?php echo $e(t('Start')); ?></button></form>
+                            <?php else: ?>
+                                <form method="post" action="<?php echo $e(adminUrl('Services/poolstop/') . urlencode($name)); ?>" class="d-inline m-0"><?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?><button type="submit" class="btn btn-sm btn-outline-warning"><?php echo $e(t('Stop')); ?></button></form>
+                            <?php endif; ?>
+                        </td>
+                    </tr>
+                <?php endforeach; ?>
+                <?php if ($pools === []): ?>
+                    <tr><td colspan="8" class="text-center text-muted py-3"><?php echo $e(t('No pools.')); ?> <a href="<?php echo $e(adminUrl('Services/pools')); ?>"><?php echo $e(t('Add one')); ?></a></td></tr>
                 <?php endif; ?>
                 </tbody>
             </table>
@@ -230,11 +164,11 @@ $poolFields = [
 
     <?php if (!empty($this->batches)): ?>
     <div class="card">
-        <div class="card-header"><strong>Batches</strong> <small class="text-muted">— the last 24 hours</small></div>
+        <div class="card-header"><strong><?php echo $e(t('Batches')); ?></strong> <small class="text-muted"><?php echo $e(t('— the last 24 hours')); ?></small></div>
         <div class="card-body p-0">
             <table class="table table-sm mb-0">
                 <thead class="table-light">
-                    <tr><th>Batch</th><th>Queued</th><th class="text-end">Pending</th><th class="text-end">Processing</th><th class="text-end">Done</th><th class="text-end">Failed</th><th></th></tr>
+                    <tr><th><?php echo $e(t('Batch')); ?></th><th><?php echo $e(t('Queued')); ?></th><th class="text-end"><?php echo $e(t('Pending')); ?></th><th class="text-end"><?php echo $e(t('Processing')); ?></th><th class="text-end"><?php echo $e(t('Done')); ?></th><th class="text-end"><?php echo $e(t('Failed')); ?></th><th></th></tr>
                 </thead>
                 <tbody>
                 <?php foreach ($this->batches as $batch): ?>
@@ -245,7 +179,7 @@ $poolFields = [
                         <td class="text-end" data-field="processing"><?php echo (int) $batch['processing']; ?></td>
                         <td class="text-end" data-field="done"><?php echo (int) $batch['completed'] + (int) $batch['warning']; ?></td>
                         <td class="text-end <?php echo $batch['failed'] > 0 ? 'text-danger' : ''; ?>" data-field="failed"><?php echo (int) $batch['failed']; ?></td>
-                        <td data-field="finished"><?php echo $batch['finished'] ? '<span class="badge bg-success">done</span>' : '<span class="badge bg-primary">running</span>'; ?></td>
+                        <td data-field="finished"><?php echo $batch['finished'] ? '<span class="badge bg-success">' . $e(t('done')) . '</span>' : '<span class="badge bg-primary">' . $e(t('running')) . '</span>'; ?></td>
                     </tr>
                 <?php endforeach; ?>
                 </tbody>

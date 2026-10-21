@@ -27,9 +27,9 @@ class ServicesScreenRenderTest extends TestCase
      *
      * @param array<string, mixed> $vars
      */
-    private function render(string $theme, array $vars): string
+    private function render(string $theme, array $vars, string $template = 'services'): string
     {
-        $file = dirname(__DIR__, 4) . '/scaffolding/themes/' . $theme . '/views/services/services.html.php';
+        $file = dirname(__DIR__, 4) . '/scaffolding/themes/' . $theme . '/views/services/' . $template . '.html.php';
         $view = new \stdClass();
         foreach ($vars as $key => $value) {
             $view->$key = $value;
@@ -80,8 +80,9 @@ class ServicesScreenRenderTest extends TestCase
     }
 
     /**
-     * Every theme renders pools, services and batches, with the numbers the scaling decision
-     * is made from and the controls for each.
+     * Every theme renders services, pools and batches, with the numbers the scaling decision
+     * is made from and the controls for each — and nothing to configure: the services come
+     * first, and a pool's limits are a link away, on Services/pools.
      */
     #[DataProvider('themes')]
     public function testEveryThemeRendersPoolsServicesAndBatches(string $theme): void
@@ -94,13 +95,17 @@ class ServicesScreenRenderTest extends TestCase
         $this->assertStringContainsString('running=3 target=3', $html);
         $this->assertMatchesRegularExpression('/data-field="backlog">\s*120/', $html);
         $this->assertStringContainsString('waiting for supervisor', $html);
-        // A code pool's edit form shows the declared value as the placeholder
-        $this->assertStringContainsString('placeholder="75"', $html);
 
         // The controls, each a POST to its action
-        foreach (['poolstop/passes', 'poolstart/', 'pooldelete/', 'poolsave', 'restartall', 'restart/queue-passes-1'] as $action) {
+        foreach (['poolstop/passes', 'poolstart/', 'restartall', 'restart/queue-passes-1'] as $action) {
             $this->assertStringContainsString('Services/' . $action, $html, $action);
         }
+
+        // A status screen: no pool form, a link to the page that has them, the services first
+        $this->assertStringNotContainsString('Services/poolsave', $html, 'a pool form on the status screen');
+        $this->assertStringNotContainsString('Services/pooldelete', $html);
+        $this->assertStringContainsString('href="' . adminUrl('Services/pools') . '"', $html);
+        $this->assertLessThan(strpos($html, 'data-pool="passes"'), strpos($html, 'Services/restart/queue-passes-1'), 'the services come before the pools');
 
         // An operator's stop is shown as such, and offers Start rather than Stop
         $this->assertStringContainsString('Stopped by operator', $html);
@@ -161,5 +166,108 @@ class ServicesScreenRenderTest extends TestCase
         $this->assertStringContainsString('No pools', $html);
         $this->assertStringContainsString('No services registered', $html);
         $this->assertStringNotContainsString('Batches', $html, 'no batch table without batches');
+    }
+
+    /**
+     * What the pools page is given: a code pool with declared limits, a screen pool with its
+     * saved types, and the task types to tick.
+     *
+     * @return array<string, mixed>
+     */
+    private function poolsPage(): array
+    {
+        $everything = $this->everything();
+        $everything['pools'][1]['row']['types'] = 'mail.send';
+
+        return ['pools' => $everything['pools'], 'taskTypes' => ['mail.send', 'pass_unit', 'report.build']];
+    }
+
+    /**
+     * The pools page draws a card per pool and one to add a pool, each with every task type as
+     * a box to tick — the saved ones ticked — and every limit with its help under it. A code
+     * pool's declared value is the placeholder, and its unsaved types are not ticked, so saving
+     * it does not copy them into a row.
+     */
+    #[DataProvider('themes')]
+    public function testThePoolsPageHasACardPerPoolWithTheTypesToTick(string $theme): void
+    {
+        // Act
+        $html = $this->render($theme, $this->poolsPage(), 'pools');
+
+        // Assert — two pools and the card that adds one
+        $this->assertStringContainsString('data-pool-card="passes"', $html);
+        $this->assertStringContainsString('data-pool-card="&lt;script&gt;x&lt;/script&gt;"', $html);
+        $this->assertSame(1, substr_count($html, 'data-pool-new'));
+        // Every known type is a box on each of the three cards
+        $this->assertSame(3, substr_count($html, 'name="types[]" value="report.build"'));
+        // Ticked where saved: the screen pool's mail.send, and nothing on the code pool
+        $this->assertSame(1, preg_match_all('/value="mail\.send" checked/', $html));
+        $this->assertStringNotContainsString('value="pass_unit" checked', $html, 'a code pool\'s declared types copied into the form');
+        $this->assertStringContainsString('None ticked keeps the types declared in code: pass_unit.', $html);
+        // The declared limits as placeholders, the saved one as the value
+        $this->assertStringContainsString('placeholder="75"', $html);
+        $this->assertStringContainsString('placeholder="8"', $html);
+        $this->assertMatchesRegularExpression('/name="ceiling" inputmode="numeric"\s*value="2"/', $html);
+        // Each limit says what it does
+        $this->assertStringContainsString('Always keep at least this many workers running.', $html);
+        $this->assertStringContainsString('Start another worker when more than this many tasks are waiting.', $html);
+    }
+
+    /**
+     * The pools page's controls: Start and Stop come back to the page (`back=pools`), Remove and
+     * Reset ask first through `data-confirm` rather than an inline handler, and every form
+     * carries the session's token.
+     */
+    #[DataProvider('themes')]
+    public function testThePoolsPageControlsReturnHereAndCarryTheToken(string $theme): void
+    {
+        // Act
+        $html = $this->render($theme, $this->poolsPage(), 'pools');
+
+        // Assert
+        $this->assertStringContainsString('Services/poolstop/passes', $html);
+        $this->assertStringContainsString('Services/poolstart/' . urlencode('<script>x</script>'), $html);
+        $this->assertSame(2, substr_count($html, 'name="back" value="pools"'));
+        $this->assertStringContainsString('data-confirm="Remove this pool? Its workers are stopped."', $html);
+        $this->assertStringNotContainsString('onsubmit=', $html);
+        $this->assertStringNotContainsString('<script>x</script>', $html);
+        $forms  = substr_count($html, '<form method="post"');
+        $tokens = substr_count($html, \Pramnos\Http\Session::getInstance()->getTokenField());
+        $this->assertGreaterThan(4, $forms);
+        $this->assertSame($forms, $tokens);
+    }
+
+    /**
+     * With no pools the page is the card that adds one, and the types still to tick.
+     */
+    #[DataProvider('themes')]
+    public function testThePoolsPageWithNoPoolsOffersToAddOne(string $theme): void
+    {
+        // Act
+        $html = $this->render($theme, ['pools' => [], 'taskTypes' => ['mail.send']], 'pools');
+
+        // Assert
+        $this->assertStringContainsString('data-pool-new', $html);
+        $this->assertStringNotContainsString('data-pool-card=', $html);
+        $this->assertStringContainsString('None ticked: the pool takes every type.', $html);
+        $this->assertStringContainsString('name="types[]" value="mail.send"', $html);
+    }
+
+    /**
+     * The pools are settings, so Settings links to them: one click from where an administrator
+     * looks for a limit to change.
+     */
+    #[DataProvider('themes')]
+    public function testSettingsLinksToThePools(string $theme): void
+    {
+        // Arrange
+        $view = (string) file_get_contents(dirname(__DIR__, 4) . '/scaffolding/themes/' . $theme . '/views/settings/settings.html.php');
+
+        // Act
+        // The line carrying the link's marker — the markup holds PHP, so it is read by line.
+        $line = (string) current(array_filter(explode("\n", $view), static fn (string $l): bool => str_contains($l, 'data-settings-pools')));
+
+        // Assert
+        $this->assertStringContainsString("<a href=\"<?php echo adminUrl('Services/pools'); ?>\"", $line, $theme . ': Settings does not link to the worker pools');
     }
 }

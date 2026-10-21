@@ -4,9 +4,10 @@
  *
  * Included by services.html.php. Every ten seconds, while the tab is visible, it reads
  * Services/status and updates the cells marked with data-field: a pool's workers, backlog,
- * load and decision, a batch's counts, the supervisor's last cycle. Rows are not rebuilt,
- * so an open edit form keeps what was typed in it; a pool or batch the page does not have
- * yet is announced with a link to reload instead. Theme-agnostic, the same in every theme.
+ * load and decision, a batch's counts, the supervisor's last cycle. Rows are not rebuilt: a
+ * pool or batch the page does not have yet is announced with a link to reload instead.
+ * Theme-agnostic, the same in every theme; its sentences come from the page (`data-template`,
+ * `data-stale`), in the page's language.
  */
 ?>
 <script>
@@ -31,7 +32,7 @@
         var note = document.createElement('p');
         note.id = 'services-stale';
         note.setAttribute('role', 'status');
-        note.innerHTML = 'Something new is running. <a href="">Reload</a> to see it.';
+        note.innerHTML = screen.getAttribute('data-stale') || 'Something new is running. <a href="">Reload</a> to see it.';
         screen.insertBefore(note, screen.children[1] || null);
     }
 
@@ -73,9 +74,11 @@
                     set(row, 'finished', batch.finished ? 'done' : 'running');
                 });
                 var supervisor = status.orchestrator || {};
-                if (supervisor.running && supervisor.heartbeat_age_seconds !== null) {
-                    set(screen, 'supervisor', 'Supervisor running, pid ' + supervisor.pid
-                        + ', last cycle ' + supervisor.heartbeat_age_seconds + 's ago.');
+                var line = screen.querySelector('[data-field="supervisor"]');
+                if (line && supervisor.running && supervisor.heartbeat_age_seconds !== null) {
+                    // The sentence in the page's language, with its two numbers filled in.
+                    set(screen, 'supervisor', (line.getAttribute('data-template') || 'Supervisor running, pid %d, last cycle %ds ago.')
+                        .replace('%d', supervisor.pid).replace('%d', supervisor.heartbeat_age_seconds));
                 }
             })
             .catch(function () { /* the next tick tries again */ });
