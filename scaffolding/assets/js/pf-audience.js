@@ -117,6 +117,125 @@
         return { match: group.match === 'any' ? 'any' : 'all', conditions: conditions };
     }
 
+    /** A word between fields, kept apart from its neighbours. */
+    function word(value) {
+        return el('span', { 'class': 'pf-audience-word' }, [value]);
+    }
+
+    /** An inline icon: plus, x, search, chevron. */
+    var ICONS = {
+        plus: '<path d="M10 4v12M4 10h12"/>',
+        x: '<path d="M5 5l10 10M15 5L5 15"/>',
+        search: '<circle cx="9" cy="9" r="5.5"/><path d="M13 13l3.5 3.5"/>',
+    };
+    function icon(name) {
+        var span = el('span', { 'class': 'pf-icon-svg', 'aria-hidden': 'true' });
+        span.innerHTML = '<svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">' + ICONS[name] + '</svg>';
+        return span;
+    }
+
+    /**
+     * A searchable choice under headings: a button that shows the current choice, and a popover
+     * with a search field and the options. `groups` is `[{label, options: [{value, label, hint}]}]`;
+     * `onChange(value)` is told on a pick. Arrow keys, Enter and Escape work in the search field.
+     */
+    function combobox(groups, value, onChange, opts) {
+        opts = opts || {};
+        var wrap = el('div', { 'class': 'pf-combo' + (opts.className ? ' ' + opts.className : '') });
+        var all = [];
+        groups.forEach(function (g) { g.options.forEach(function (o) { all.push(o); }); });
+        var current = all.filter(function (o) { return String(o.value) === String(value); })[0] || null;
+        var shown = [];
+        var active = -1;
+        var label = el('span', { 'class': current ? '' : 'pf-combo-placeholder' }, [current ? current.label : (opts.placeholder || '…')]);
+        var button = el('button', Object.assign({ type: 'button', 'class': 'pf-combo-button', 'aria-haspopup': 'listbox', 'aria-expanded': 'false',
+            'aria-label': opts.label || null, 'data-value': current ? current.value : '' }, opts.attrs || {}), [label]);
+        var search = el('input', { type: 'search', 'class': 'pf-input pf-combo-search', placeholder: opts.searchLabel || 'Search…', 'aria-label': opts.searchLabel || 'Search', 'data-pf-combo-search': true });
+        var list = el('ul', { 'class': 'pf-combo-list', role: 'listbox' });
+        var pop = el('div', { 'class': 'pf-combo-pop' }, [search, list]);
+        pop.hidden = true;
+        var setActive = function (i) {
+            shown.forEach(function (s, j) { s.node.classList.toggle('is-active', j === i); });
+            active = i;
+            if (i >= 0 && shown[i].node.scrollIntoView) { shown[i].node.scrollIntoView({ block: 'nearest' }); }
+        };
+        var draw = function () {
+            list.textContent = '';
+            shown = [];
+            var q = String(search.value || '').trim().toLowerCase();
+            groups.forEach(function (g) {
+                var matching = g.options.filter(function (o) {
+                    return !q || (o.label + ' ' + (o.hint || '') + ' ' + (g.label || '')).toLowerCase().indexOf(q) !== -1;
+                });
+                if (!matching.length) { return; }
+                if (g.label) { list.appendChild(el('li', { 'class': 'pf-combo-group', role: 'presentation' }, [g.label])); }
+                matching.forEach(function (o) {
+                    var item = el('li', { 'class': 'pf-combo-option', role: 'option', 'data-value': o.value,
+                        'aria-selected': current && String(current.value) === String(o.value) ? 'true' : 'false' }, [el('span', {}, [o.label]), o.hint ? el('small', {}, [o.hint]) : null]);
+                    item.addEventListener('mousedown', function (event) { if (event.preventDefault) { event.preventDefault(); } pick(o); });
+                    item.addEventListener('click', function () { pick(o); });
+                    shown.push({ o: o, node: item });
+                    list.appendChild(item);
+                });
+            });
+            if (!shown.length) { list.appendChild(el('li', { 'class': 'pf-combo-empty' }, [opts.emptyLabel || 'Nothing found'])); }
+            setActive(shown.length ? 0 : -1);
+        };
+        var outside = function (event) { if (!wrap.contains(event.target)) { close(); } };
+        var open = function () {
+            pop.hidden = false;
+            button.setAttribute('aria-expanded', 'true');
+            search.value = '';
+            draw();
+            search.focus();
+            document.addEventListener('mousedown', outside, true);
+        };
+        var close = function () {
+            pop.hidden = true;
+            button.setAttribute('aria-expanded', 'false');
+            document.removeEventListener('mousedown', outside, true);
+        };
+        var pick = function (o) {
+            if (pop.hidden) { return; }
+            current = o;
+            label.textContent = o.label;
+            label.className = '';
+            button.setAttribute('data-value', o.value);
+            close();
+            onChange(o.value);
+        };
+        button.addEventListener('click', function () { if (pop.hidden) { open(); } else { close(); } });
+        search.addEventListener('input', draw);
+        search.addEventListener('keydown', function (event) {
+            if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                if (event.preventDefault) { event.preventDefault(); }
+                if (shown.length) { setActive((active + (event.key === 'ArrowDown' ? 1 : shown.length - 1)) % shown.length); }
+            } else if (event.key === 'Enter') {
+                if (event.preventDefault) { event.preventDefault(); }
+                if (active >= 0) { pick(shown[active].o); }
+            } else if (event.key === 'Escape') {
+                close();
+                button.focus();
+            }
+        });
+        wrap.appendChild(button);
+        wrap.appendChild(pop);
+        return wrap;
+    }
+
+    /** "All" or "any", as two buttons, the current one pressed. */
+    function matchControl(ctx, group, onChange) {
+        var w = ctx.words;
+        var box = el('span', { 'class': 'pf-segmented pf-audience-match', role: 'group', 'aria-label': w.matchLabel || 'All or any', 'data-pf-audience-match': true });
+        [['all', w.all || 'all'], ['any', w.any || 'any']].forEach(function (pair) {
+            var on = (group.match === 'any' ? 'any' : 'all') === pair[0];
+            var b = el('button', { type: 'button', 'aria-pressed': on ? 'true' : 'false', 'data-value': pair[0] }, [pair[1]]);
+            b.addEventListener('click', function () { if (!on) { group.match = pair[0]; onChange(true); } });
+            box.appendChild(b);
+        });
+        return box;
+    }
+
     /**
      * The condition rows of one group, and its own buttons. `onChange(structural)` redraws when
      * the shape changed, and only re-sends when a value did.
@@ -124,19 +243,17 @@
     function drawGroup(ctx, group, depth, onChange) {
         var w = ctx.words;
         var box = el('div', { 'class': 'pf-audience-group', 'data-depth': depth });
-        var match = el('select', { 'class': 'pf-audience-match ' + ctx.classes.select, 'aria-label': w.matchLabel || 'match' }, [
-            el('option', { value: 'all', selected: group.match !== 'any' }, [w.all || 'all']),
-            el('option', { value: 'any', selected: group.match === 'any' }, [w.any || 'any']),
-        ]);
-        match.value = group.match === 'any' ? 'any' : 'all';
-        match.addEventListener('change', function () { group.match = match.value; onChange(false); });
-        box.appendChild(el('div', { 'class': 'pf-audience-heading' }, [w.matchBefore || '', match, w.matchAfter || '']));
+        box.appendChild(el('div', { 'class': 'pf-audience-heading' }, [w.matchBefore || '', matchControl(ctx, group, onChange), w.matchAfter || '']));
 
         group.conditions.forEach(function (condition, index) {
-            var remove = el('button', { type: 'button', 'class': 'pf-audience-remove ' + ctx.classes.button, 'aria-label': w.remove || 'Remove', 'data-pf-audience-remove': true }, ['×']);
+            var remove = el('button', { type: 'button', 'class': 'pf-audience-remove ' + ctx.classes.icon, 'aria-label': w.remove || 'Remove', title: w.remove || 'Remove', 'data-pf-audience-remove': true }, [icon('x')]);
             remove.addEventListener('click', function () { group.conditions.splice(index, 1); onChange(true); });
             if (index > 0) {
-                box.appendChild(el('div', { 'class': 'pf-audience-join' }, [group.match === 'any' ? (w.or || 'or') : (w.and || 'and')]));
+                // The word between two rows is the switch: all ↔ any.
+                var join = el('button', { type: 'button', 'class': 'pf-join', title: w.joinTitle || '', 'data-pf-audience-join': true },
+                    [group.match === 'any' ? (w.or || 'or') : (w.and || 'and')]);
+                join.addEventListener('click', function () { group.match = group.match === 'any' ? 'all' : 'any'; onChange(true); });
+                box.appendChild(join);
             }
             if (condition.conditions) {
                 var nested = drawGroup(ctx, condition, depth + 1, onChange);
@@ -149,11 +266,11 @@
             }
         });
 
-        var add = el('button', { type: 'button', 'class': 'pf-audience-add ' + ctx.classes.button, 'data-pf-audience-add': true }, [w.addCondition || '+ condition']);
+        var add = el('button', { type: 'button', 'class': 'pf-audience-add ' + ctx.classes.button, 'data-pf-audience-add': true }, [icon('plus'), w.addCondition || 'Condition']);
         add.addEventListener('click', function () { group.conditions.push({ attribute: '', op: '' }); onChange(true); });
         var actions = el('div', { 'class': 'pf-audience-actions' }, [add]);
         if (depth < 2) {
-            var addGroup = el('button', { type: 'button', 'class': 'pf-audience-add ' + ctx.classes.button, 'data-pf-audience-add-group': true }, [w.addGroup || '+ group']);
+            var addGroup = el('button', { type: 'button', 'class': 'pf-audience-add ' + ctx.classes.button, 'data-pf-audience-add-group': true }, [icon('plus'), w.addGroup || 'Group']);
             addGroup.addEventListener('click', function () {
                 group.conditions.push({ match: group.match === 'any' ? 'all' : 'any', conditions: [{ attribute: '', op: '' }] });
                 onChange(true);
@@ -164,50 +281,58 @@
         return box;
     }
 
-    /** One condition: what, how, and the value its type and operator take. */
+    /** What a condition can be about: the attributes under their headings, what people did, a segment. */
+    function whatChoices(ctx) {
+        var w = ctx.words;
+        var groups = [];
+        var byHeading = {};
+        ctx.catalog.attributes.forEach(function (a) {
+            var heading = a.group || w.attributes || 'Attributes';
+            if (!byHeading[heading]) {
+                byHeading[heading] = { label: heading, options: [] };
+                groups.push(byHeading[heading]);
+            }
+            byHeading[heading].options.push({ value: a.key, label: a.label });
+        });
+        var events = {};
+        ctx.catalog.events.forEach(function (e) {
+            var heading = (w.events || 'What they did') + (e.group ? ' · ' + e.group : '');
+            if (!events[heading]) {
+                events[heading] = { label: heading, options: [] };
+                groups.push(events[heading]);
+            }
+            events[heading].options.push({ value: '__event:' + e.key, label: e.label });
+        });
+        if (ctx.catalog.segments.length) {
+            groups.push({ label: w.segments || 'Segments', options: [{ value: '__segment', label: w.segment || 'Segment' }] });
+        }
+        return groups;
+    }
+
+    /** One condition: what, how, and the value its type and operator take — on one line. */
     function drawCondition(ctx, condition, onChange) {
         var w = ctx.words;
         var row = el('div', { 'class': 'pf-audience-condition', 'data-pf-audience-condition': true });
         var isSegment = condition.segment !== undefined;
         var isEvent = condition.event !== undefined;
+        var current = isSegment ? '__segment' : (isEvent ? '__event:' + condition.event : (condition.attribute || ''));
 
-        // What: the attributes under their headings, and "segment" when there are segments.
-        var what = el('select', { 'class': 'pf-audience-attribute ' + ctx.classes.select, 'aria-label': w.attribute || 'attribute', 'data-pf-audience-attribute': true },
-            [el('option', { value: '' }, [w.choose || '…'])]);
-        var headings = {};
-        ctx.catalog.attributes.forEach(function (a) {
-            var heading = a.group || '';
-            if (!headings[heading]) {
-                headings[heading] = heading ? el('optgroup', { label: heading }) : what;
-                if (heading) { what.appendChild(headings[heading]); }
-            }
-            headings[heading].appendChild(el('option', { value: a.key, selected: !isSegment && !isEvent && condition.attribute === a.key }, [a.label]));
-        });
-        if (ctx.catalog.events.length) {
-            what.appendChild(el('optgroup', { label: w.events || 'What they did' }, ctx.catalog.events.map(function (e) {
-                return el('option', { value: '__event:' + e.key, selected: isEvent && condition.event === e.key }, [e.label]);
-            })));
-        }
-        if (ctx.catalog.segments.length) {
-            what.appendChild(el('option', { value: '__segment', selected: isSegment }, [w.segment || 'Segment']));
-        }
-        what.value = isSegment ? '__segment' : (isEvent ? '__event:' + condition.event : (condition.attribute || ''));
-        what.addEventListener('change', function () {
+        row.appendChild(combobox(whatChoices(ctx), current, function (value) {
             Object.keys(condition).forEach(function (k) { delete condition[k]; });
-            if (what.value === '__segment') {
+            if (value === '__segment') {
                 condition.segment = 0;
                 condition.op = 'in';
-            } else if (what.value.indexOf('__event:') === 0) {
-                condition.event = what.value.slice(8);
+            } else if (String(value).indexOf('__event:') === 0) {
+                condition.event = String(value).slice(8);
                 condition.op = 'ever';
             } else {
-                var a = ctx.byKey[what.value];
-                condition.attribute = what.value;
+                var a = ctx.byKey[value];
+                condition.attribute = value;
                 condition.op = a ? a.operators[0] : '';
             }
             onChange(true);
-        });
-        row.appendChild(what);
+        }, { placeholder: w.choose || 'Choose…', label: w.attribute || 'What', searchLabel: w.search, emptyLabel: w.nothingFound,
+            className: 'pf-audience-attribute', attrs: { 'data-pf-audience-attribute': true } }));
 
         var attribute = isSegment || isEvent ? null : ctx.byKey[condition.attribute];
         if (!isSegment && !isEvent && !attribute) { return row; }
@@ -261,12 +386,12 @@
         };
         if (condition.op === 'at_least' || condition.op === 'at_most') {
             return el('span', { 'class': 'pf-audience-days' }, [
-                field('value', 'number', w.times || 'times'), ' ', w.times || 'times', ' ', w.inLast || 'in the last', ' ',
-                field('days', 'number', w.days || 'days'), ' ', w.daysOrEver || 'days (empty: ever)',
+                field('value', 'number', w.times || 'times'), word(w.times || 'times'), word(w.inLast || 'in the last'),
+                field('days', 'number', w.days || 'days'), word(w.days || 'days'),
             ]);
         }
         if (/_days$/.test(condition.op)) {
-            return el('span', { 'class': 'pf-audience-days' }, [field('value', 'number', w.days || 'days'), ' ', w.days || 'days']);
+            return el('span', { 'class': 'pf-audience-days' }, [field('value', 'number', w.days || 'days'), word(w.days || 'days')]);
         }
         return field('value', 'date', w.day || 'day');
     }
@@ -287,14 +412,14 @@
 
         if (condition.op === 'more_than_days_ago' || condition.op === 'less_than_days_ago') {
             return el('span', { 'class': 'pf-audience-days' }, [
-                input(condition.value, function (v) { condition.value = v === '' ? '' : Number(v); }, 'number'), ' ', w.days || 'days',
+                input(condition.value, function (v) { condition.value = v === '' ? '' : Number(v); }, 'number'), word(w.days || 'days'),
             ]);
         }
         if (condition.op === 'between') {
             var pair = Array.isArray(condition.value) ? condition.value : ['', ''];
             condition.value = pair;
             return el('span', { 'class': 'pf-audience-between' }, [
-                input(pair[0], function (v) { pair[0] = cast(v); }, kind), ' ', w.and || 'and', ' ',
+                input(pair[0], function (v) { pair[0] = cast(v); }, kind), word(w.and || 'and'),
                 input(pair[1], function (v) { pair[1] = cast(v); }, kind),
             ]);
         }
@@ -332,12 +457,19 @@
         return input(condition.value, function (v) { condition.value = cast(v); }, kind);
     }
 
-    /** The live panel: the count, a breakdown and a sample, or what went wrong. */
-    function drawLive(ctx, live, answer, picker) {
+    /** A person's initials, for the avatar. */
+    function initials(name) {
+        var words = String(name || '?').trim().split(/\s+/).filter(Boolean);
+        return ((words[0] || '?').charAt(0) + (words.length > 1 ? words[words.length - 1].charAt(0) : '')).toUpperCase();
+    }
+
+    /** The live panel: the count, a breakdown as bars, a sample of people, or what went wrong. */
+    function drawLive(ctx, live, answer, picker, by) {
         var w = ctx.words;
         live.textContent = '';
         if (answer.error !== undefined) {
             live.appendChild(el('p', { 'class': 'pf-audience-error', role: 'alert' }, [answer.error || w.failed || 'That did not work.']));
+            if (by) { live.appendChild(by); }
             return;
         }
         var total = picker ? answer.final : answer.count;
@@ -350,15 +482,22 @@
                 answer.consent ? ' · ' + say(w, 'withoutConsent', number(answer.consent)) : '',
             ]));
         }
-        if (answer.breakdown) {
-            live.appendChild(el('ul', { 'class': 'pf-audience-breakdown', 'data-pf-audience-breakdown': true }, answer.breakdown.map(function (b) {
-                return el('li', {}, [b.label + ' ', el('span', { 'class': 'pf-audience-number' }, [number(b.count)])]);
+        if (by) { live.appendChild(by); }
+        if (answer.breakdown && answer.breakdown.length) {
+            var most = Math.max.apply(null, answer.breakdown.map(function (b) { return b.count; }).concat([1]));
+            live.appendChild(el('ul', { 'class': 'pf-bars pf-audience-breakdown', 'data-pf-audience-breakdown': true }, answer.breakdown.map(function (b) {
+                var bar = el('span', { style: 'width:' + Math.max(2, Math.round(100 * b.count / most)) + '%' });
+                return el('li', {}, [el('span', {}, [b.label]), el('span', { 'class': 'pf-num' }, [number(b.count)]), el('span', { 'class': 'pf-bar' }, [bar])]);
             })));
         }
         if (answer.sample && answer.sample.length) {
-            live.appendChild(el('p', { 'class': 'pf-audience-caption' }, [w.sample || 'For example']));
-            live.appendChild(el('ul', { 'class': 'pf-audience-sample', 'data-pf-audience-sample': true }, answer.sample.map(function (p) {
-                return el('li', {}, [el('a', { href: p.url }, [p.name])]);
+            live.appendChild(el('p', { 'class': 'pf-label pf-audience-panel-label' }, [w.sample || 'For example']));
+            live.appendChild(el('ul', { 'class': 'pf-people pf-audience-sample', 'data-pf-audience-sample': true }, answer.sample.map(function (p) {
+                var hue = (Number(p.id) * 47) % 360;
+                return el('li', {}, [el(p.url ? 'a' : 'span', { 'class': 'pf-person', href: p.url || null }, [
+                    el('span', { 'class': 'pf-avatar', style: '--pf-hue: hsl(' + hue + ' 55% 42%)', 'aria-hidden': 'true' }, [initials(p.name)]),
+                    el('span', {}, [el('span', { 'class': 'pf-person-name' }, [p.name]), p.line ? el('span', { 'class': 'pf-person-line' }, [p.line]) : null]),
+                ])]);
             })));
         }
     }
@@ -392,7 +531,7 @@
         var ctx = {
             catalog: catalog,
             words: json(root.getAttribute('data-words'), {}),
-            classes: Object.assign({ button: '', primary: '', input: '', select: '' }, json(root.getAttribute('data-classes'), {})),
+            classes: Object.assign({ button: '', primary: '', input: '', select: '', icon: '' }, json(root.getAttribute('data-classes'), {})),
             byKey: {},
         };
         catalog.attributes.forEach(function (a) { ctx.byKey[a.key] = a; });
@@ -405,6 +544,7 @@
         var timer = null;
         var asked = 0;
         var breakdownKey = '';
+        var by = null;
 
         if (mode === 'filter') {
             state = state && state.conditions ? state : { match: 'all', conditions: [] };
@@ -429,7 +569,7 @@
             if (breakdownKey) { fields.breakdown = breakdownKey; }
             post(api + '/preview', fields).then(function (answer) {
                 if (mine !== asked) { return; }   // a newer question is on its way
-                drawLive(ctx, live.querySelector('[data-pf-audience-answer]') || live, answer, mode === 'picker');
+                drawLive(ctx, live.querySelector('[data-pf-audience-answer]') || live, answer, mode === 'picker', by);
             });
         };
 
@@ -444,12 +584,11 @@
         if (mode === 'filter') {
             area.appendChild(builder(root, ctx, state, changed));
             if (live && root.getAttribute('data-breakdown') !== null) {
-                var by = el('select', { 'class': 'pf-audience-by ' + ctx.classes.select, 'aria-label': w.breakdownBy || 'Break down by', 'data-pf-audience-by': true },
+                by = el('select', { 'class': 'pf-audience-by ' + ctx.classes.select, 'aria-label': w.breakdownBy || 'Break down by', 'data-pf-audience-by': true },
                     [el('option', { value: '' }, [w.breakdownBy || 'Break down by…'])].concat(catalog.attributes.filter(function (a) {
                         return a.breakdown;
                     }).map(function (a) { return el('option', { value: a.key }, [a.label]); })));
                 by.addEventListener('change', function () { breakdownKey = by.value; ask(); });
-                live.appendChild(by);
                 live.appendChild(el('div', { 'data-pf-audience-answer': true }));
             }
         } else {
@@ -529,8 +668,25 @@
         return box;
     }
 
+    /**
+     * `data-pf-combobox`: a form's field as the searchable choice — the element holds a hidden input
+     * the form posts, and `data-groups` the choices as `[{label, options: [{value, label, hint}]}]`.
+     */
+    function startCombobox(holder) {
+        if (holder.getAttribute('data-pf-combobox-ready') !== null) { return; }
+        holder.setAttribute('data-pf-combobox-ready', '');
+        var field = holder.querySelector('input');
+        if (!field) { return; }
+        holder.appendChild(combobox(json(holder.getAttribute('data-groups'), []), field.value, function (value) {
+            field.value = value;
+            field.dispatchEvent(new window.Event('change', { bubbles: true }));
+        }, { placeholder: holder.getAttribute('data-placeholder') || '…', label: holder.getAttribute('data-label') || null,
+            searchLabel: holder.getAttribute('data-search') || undefined, emptyLabel: holder.getAttribute('data-empty') || undefined }));
+    }
+
     function startAll() {
         Array.prototype.forEach.call(document.querySelectorAll('[data-pf-audience]'), start);
+        Array.prototype.forEach.call(document.querySelectorAll('[data-pf-combobox]'), startCombobox);
     }
 
     if (document.readyState === 'loading') {
@@ -538,5 +694,5 @@
     } else {
         startAll();
     }
-    window.pfAudience = { start: start, clean: clean };
+    window.pfAudience = { start: start, clean: clean, combobox: combobox, icon: icon, startCombobox: startCombobox };
 })();

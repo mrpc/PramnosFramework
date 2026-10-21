@@ -87,9 +87,13 @@ class SegmentsScreenTest extends TestCase
         $this->assertSame(2, $byName['Volunteers']['members']);
         $this->assertSame(['Press', 'Volunteers'], $groups);
         $this->assertSame(['Greek speakers'], $mine);
+        $this->assertSame(['all' => 4, 'segments' => 2, 'groups' => 2, 'mine' => 1], $all['counts'], 'each tab says how many it holds');
+        $this->assertSame(adminUrl('Segments/view/') . $byName['Built on it']['id'], $byName['Greek speakers']['uses'][0]['url'], 'what uses it is a link');
         foreach ($html as $theme => $page) {
+            $this->assertStringContainsString('<span class="pf-count">4</span>', $page, $theme);
+            $this->assertStringContainsString('class="pf-chip" href="' . adminUrl('Segments/view/') . $byName['Built on it']['id'] . '"', $page, $theme);
             $this->assertStringContainsString('Greek speakers', $page, $theme);
-            $this->assertStringContainsString('+2 / −0', $page, $theme);
+            $this->assertStringContainsString('▲ 2</span><span class="pf-zero" title="Left, 7 days">▼ 0', $page, $theme);
             $this->assertStringContainsString('segment Built on it', $page, $theme);
             $this->assertStringContainsString('not yet worked out', $page, $theme);
         }

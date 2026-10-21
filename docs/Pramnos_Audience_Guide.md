@@ -343,7 +343,13 @@ The mass-message compose form carries the picker: a message whose audience was p
   request. A condition still missing its value is left out until it has one, and an answer that
   arrives after a newer question is dropped.
 - **A sample** links each person to their card: the framework's Users screen, or
-  `'audience' => ['person_url' => '/admin/People/{id}']` in app.php.
+  `'audience' => ['person_url' => '/admin/People/{id}']` in app.php. Under each name is a line:
+  the email, or the attributes the application names —
+  `Attributes::sampleLine(['usertype', 'city', 'lastlogin'])` reads "Professional · Athens ·
+  2026-10-20" (labelled values, a date as its day; a many-valued attribute is left out).
+- **The conditions** sit on one line each: what (a searchable list under the attributes'
+  headings, what people did under theirs, and *Segment*), how, the value, and a remove button.
+  The word between two rows is a switch between *all* and *any*.
 - **Options:** `sample` (how many people, default 5), `breakdown` (`filter()` only, default on),
   `live` (the panel, default on), `api`.
 - `pf-audience.js` ships with the framework; a project made before it reaches its web root with
@@ -351,7 +357,27 @@ The mass-message compose form carries the picker: a message whose audience was p
 
 ## The screens
 
-Two administration screens, under People, for every administrator:
+They look the same in every theme: the markup is the framework's own `pf-*` classes — page head,
+cards, tabs with counts, tables whose row is one link, status pills, a segmented control,
+fields, a footer that keeps a long form's buttons in reach — dressed by each theme's
+`components.css` from the theme's colours (daisyUI's `--color-*`, Bootstrap's `--bs-*`, the plain
+theme's variables). A layout that prints the page's title itself hides the screens' own with
+`$document->bodyclasses[] = 'pf-titled'`.
+
+Two pieces work in any form:
+
+```html
+<!-- a searchable choice under headings, posting the hidden field -->
+<div data-pf-combobox data-groups='[{"label":"Payments","options":[{"value":"payment.made","label":"Paid"}]}]'
+     data-placeholder="Choose an event…"><input type="hidden" name="goal"></div>
+
+<!-- a search over a table's rows (pf-utils.js), matched on each row's data-pf-row-text -->
+<input type="search" data-pf-filter-rows="#my-table">
+```
+
+The first needs `pf-audience.js` on the page.
+
+The administration screens, under People:
 
 - **Segments** (`/admin/Segments`, ability `admin.segments`) — the library: every segment with how
   many are in it now, who entered and left over seven days, and what uses it; the groups beside

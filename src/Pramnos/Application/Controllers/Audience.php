@@ -200,16 +200,20 @@ class Audience extends Controller
     }
 
     /**
-     * A sample as the panel shows it: a name and the link to the person's card.
+     * A sample as the panel shows it: a name, a line under it — the attributes the application
+     * chose ({@see Attributes::sampleLine()}), or the email — and the link to the person's card.
      *
      * @param  list<array{userid: int, username: string, firstname: string, lastname: string, email: string}> $rows
-     * @return list<array{id: int, name: string, url: string}>
+     * @return list<array{id: int, name: string, line: string, url: string}>
      */
     private function people(array $rows): array
     {
+        $lines = Filter::fromArray(['conditions' => []])->lines(array_column($rows, 'userid'));
+
         return array_map(static fn (array $row): array => [
             'id'   => $row['userid'],
             'name' => trim($row['firstname'] . ' ' . $row['lastname']) ?: ($row['username'] ?: $row['email']),
+            'line' => $lines[$row['userid']] ?? $row['email'],
             'url'  => \Pramnos\Html\AudienceBuilder::personUrl($row['userid']),
         ], $rows);
     }

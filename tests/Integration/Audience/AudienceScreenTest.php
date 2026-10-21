@@ -12,6 +12,7 @@ use Pramnos\Application\Controllers\Audience;
 use Pramnos\Audience\Attribute;
 use Pramnos\Audience\Attributes;
 use Pramnos\Audience\ConsentLists;
+use Pramnos\Audience\Filter;
 use Pramnos\Audience\Segments;
 use Pramnos\Html\AudienceBuilder;
 use Pramnos\User\User;
@@ -23,6 +24,8 @@ use Pramnos\User\User;
  */
 #[CoversClass(Audience::class)]
 #[CoversClass(AudienceBuilder::class)]
+#[CoversClass(Filter::class)]
+#[CoversClass(Attributes::class)]
 class AudienceScreenTest extends TestCase
 {
     use AudienceProbe {
@@ -105,8 +108,34 @@ class AudienceScreenTest extends TestCase
         // Assert
         $this->assertSame(200, $status);
         $this->assertSame(2, $answer['count']);
-        $this->assertSame([['id' => $this->ids['cara'], 'name' => 'Cara', 'url' => '/admin/People/' . $this->ids['cara']]], $answer['sample']);
+        // Under the name, the email: the application named no attributes for the line.
+        $this->assertSame([['id' => $this->ids['cara'], 'name' => 'Cara', 'line' => 'cara@example.com', 'url' => '/admin/People/' . $this->ids['cara']]], $answer['sample']);
         $this->assertSame([1, 1], array_column($answer['breakdown'], 'count'));
+    }
+
+    /**
+     * The line under each person in a sample is the attributes the application named, in their
+     * order, labelled, a date as its day, the empty ones and the many-valued ones left out; with
+     * nothing named it is the email.
+     */
+    #[DataProvider('databases')]
+    public function testASamplesLineIsTheAttributesTheApplicationNamed(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->boot($type, $host, $port, $user);
+        Attributes::define(Attribute::column('pillarname', 'pillar', Attribute::LIST)->from('audtest_profiles')->values([1 => 'Childcare', 3 => 'Tutoring']));
+        Attributes::sampleLine(['pillarname', 'city', 'joined', 'interests', 'nothing']);
+        $filter = Filter::fromArray(['conditions' => []]);
+
+        // Act
+        $lines = $filter->lines([$this->ids['bob'], $this->ids['cara'], $this->ids['anna']]);
+        $none  = $filter->lines([]);
+
+        // Assert
+        $this->assertSame('Tutoring · Athens · 2026-02-01', $lines[$this->ids['bob']]);
+        $this->assertSame('Childcare · Thessaloniki · 2026-03-02', $lines[$this->ids['cara']]);
+        $this->assertSame('', $lines[$this->ids['anna']], 'no profile: nothing to say');
+        $this->assertSame([], $none);
     }
 
     /** A picker's preview is what it picked, what each step took out, and a sample of who it reaches. */

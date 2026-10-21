@@ -37,6 +37,33 @@ final class Attributes
     /** @var (callable(QueryBuilder): mixed)|null */
     private static $scope = null;
 
+    /** @var list<string> The attributes a sample shows under each name */
+    private static array $sampleLine = [];
+
+    /**
+     * What a sample shows under each person's name, by attribute key — `['usertype', 'city',
+     * 'lastlogin']` reads "Professional · Athens · 2026-10-20". Without it, the email.
+     *
+     * @param list<string> $keys
+     */
+    public static function sampleLine(array $keys): void
+    {
+        self::$sampleLine = array_values($keys);
+    }
+
+    /**
+     * The attributes of the sample's line that the signed-in account may see.
+     *
+     * @return list<Attribute>
+     */
+    public static function lineAttributes(): array
+    {
+        $visible = self::visible();
+
+        return array_values(array_filter(array_map(static fn (string $key): ?Attribute => $visible[$key] ?? null, self::$sampleLine),
+            static fn (?Attribute $a): bool => $a !== null && $a->type() !== Attribute::MANY));
+    }
+
     /** Add an attribute, or replace the one under its key. */
     public static function define(Attribute $attribute): void
     {
@@ -95,8 +122,9 @@ final class Attributes
     /** Forget what was defined: tests. */
     public static function reset(): void
     {
-        self::$defined = [];
-        self::$scope   = null;
+        self::$defined    = [];
+        self::$scope      = null;
+        self::$sampleLine = [];
     }
 
     /**

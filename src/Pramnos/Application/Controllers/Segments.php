@@ -53,28 +53,26 @@ class Segments extends Controller
         $mine = (string) \Pramnos\Http\Request::staticGet('mine', '', 'get') === '1';
         $me   = $this->me();
 
-        $rows = [];
-        if ($kind !== 'groups') {
-            foreach (SegmentStore::all() as $segment) {
-                if ($mine && $segment['owner'] !== $me) {
-                    continue;
-                }
-                $rows[] = ['kind' => 'segment', 'id' => $segment['id'], 'name' => $segment['name'], 'members' => $segment['members'],
-                    'movement' => SegmentStore::movement($segment['id']), 'usedBy' => SegmentStore::usedBy($segment['id']),
-                    'computed' => $segment['recomputedAt'] !== null, 'url' => adminUrl('Segments/view/') . $segment['id']];
-            }
+        // Every row once, so each tab can say how many it holds.
+        $segments = [];
+        foreach (SegmentStore::all() as $segment) {
+            $uses       = SegmentStore::uses($segment['id']);
+            $segments[] = ['kind' => 'segment', 'id' => $segment['id'], 'name' => $segment['name'], 'description' => $segment['description'],
+                'members' => $segment['members'], 'movement' => SegmentStore::movement($segment['id']), 'usedBy' => array_column($uses, 'name'),
+                'uses' => $uses, 'computed' => $segment['recomputedAt'] !== null, 'url' => adminUrl('Segments/view/') . $segment['id'],
+                'mine' => $segment['owner'] === $me];
         }
-        if ($kind !== 'segments' && !$mine) {
-            foreach ($this->groups() as $group) {
-                $rows[] = ['kind' => 'group', 'id' => $group['id'], 'name' => $group['name'], 'members' => $group['members'],
-                    'movement' => null, 'usedBy' => [], 'computed' => true, 'url' => adminUrl('Groups/view/') . $group['id']];
-            }
-        }
+        $groups = array_map(static fn (array $group): array => ['kind' => 'group', 'id' => $group['id'], 'name' => $group['name'],
+            'description' => '', 'members' => $group['members'], 'movement' => null, 'usedBy' => [], 'uses' => [], 'computed' => true,
+            'url' => adminUrl('Groups/view/') . $group['id'], 'mine' => false], $this->groups());
+        $own  = array_values(array_filter($segments, static fn (array $row): bool => $row['mine']));
+        $rows = $mine ? $own : ($kind === 'segments' ? $segments : ($kind === 'groups' ? $groups : array_merge($segments, $groups)));
 
         $view       = $this->getView('segments');
         $view->rows = $rows;
         $view->kind = $kind;
-        $view->mine = $mine;
+        $view->mine   = $mine;
+        $view->counts = ['all' => count($segments) + count($groups), 'segments' => count($segments), 'groups' => count($groups), 'mine' => count($own)];
 
         return $view->display();
     }
@@ -94,7 +92,8 @@ class Segments extends Controller
         $view           = $this->getView('segments');
         $view->segment  = $segment;
         $view->movement = SegmentStore::movement($segment['id']);
-        $view->usedBy   = SegmentStore::usedBy($segment['id']);
+        $view->uses     = SegmentStore::uses($segment['id']);
+        $view->usedBy   = array_column($view->uses, 'name');
         $view->members  = $this->members($segment['id']);
         $view->person   = (int) \Pramnos\Http\Request::staticGet('person', 0, 'get');
         $view->why      = null;

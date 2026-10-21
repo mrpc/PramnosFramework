@@ -108,8 +108,12 @@ final class AudienceBuilder
             'any'            => 'any',
             'and'            => 'and',
             'or'             => 'or',
-            'addCondition'   => '+ condition',
-            'addGroup'       => '+ group',
+            'addCondition'   => 'Condition',
+            'addGroup'       => 'Group',
+            'joinTitle'      => 'Switch between all and any',
+            'search'         => 'Search…',
+            'nothingFound'   => 'Nothing found',
+            'attributes'     => 'Attributes',
             'remove'         => 'Remove',
             'choose'         => 'Choose…',
             'attribute'      => 'What',
@@ -145,16 +149,14 @@ final class AudienceBuilder
     }
 
     /**
-     * The project's theme's classes for the controls.
+     * The classes the script gives its controls: the audience screens' own (`pf-btn`, `pf-input`,
+     * `pf-select` in every theme's components.css), so the builder looks the same in each.
      *
-     * @return array{button: string, primary: string, input: string, select: string}
+     * @return array{button: string, primary: string, input: string, select: string, icon: string}
      */
     public static function classes(): array
     {
-        return match (Form\FieldStyles::configured()) {
-            'tailwind'  => ['button' => 'btn btn-sm btn-ghost', 'primary' => 'btn btn-sm btn-primary', 'input' => 'input input-sm input-bordered', 'select' => 'select select-sm select-bordered'],
-            'bootstrap' => ['button' => 'btn btn-sm btn-outline-secondary', 'primary' => 'btn btn-sm btn-primary', 'input' => 'form-control form-control-sm', 'select' => 'form-select form-select-sm'],
-            default     => ['button' => 'btn btn-secondary btn-sm', 'primary' => 'btn btn-primary btn-sm', 'input' => 'form-control', 'select' => 'form-control'],
-        };
+        return ['button' => 'pf-btn pf-btn-ghost pf-btn-sm', 'primary' => 'pf-btn pf-btn-primary pf-btn-sm', 'input' => 'pf-input',
+            'select' => 'pf-select', 'icon' => 'pf-btn pf-btn-ghost pf-btn-sm pf-btn-icon'];
     }
 }

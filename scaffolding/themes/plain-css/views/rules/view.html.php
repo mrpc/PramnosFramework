@@ -1,7 +1,8 @@
 <?php
 /**
- * A rule (plain-CSS theme): its boxes with how many went through each, its status, the tools to try
- * it, its versions and its log.
+ * A rule: its status as a coloured pill and the states it can be put in as one control, its steps
+ * with how many went through each, the tools to try it, its versions and its log. The same markup
+ * in every theme.
  *
  * Variables:
  *   $this->rule        — Rules::get()
@@ -14,102 +15,122 @@
  *   $this->diff        — Tester::diff() with from and to, or null
  *   $this->actionSteps — the ids of the action steps, for a test send
  */
+use Pramnos\Html\Icon;
+
 $e      = static fn ($value): string => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
 $rule   = $this->rule;
 $id     = (int) $rule['id'];
-$status = static fn (string $to, string $label, string $class) => '<form method="post" action="' . $e(adminUrl('Rules/status/') . $id) . '">' . \Pramnos\Http\Session::getInstance()->getTokenField()
-    . '<input type="hidden" name="status" value="' . $e($to) . '"><button type="submit" class="btn ' . $class . '">' . $e($label) . '</button></form>';
+$tones  = ['draft' => 'pf-tone-muted', 'shadow' => 'pf-tone-info', 'active' => 'pf-tone-ok', 'paused' => 'pf-tone-warn'];
+$state  = static fn (string $to, string $label, string $icon) => '<form method="post" action="' . $e(adminUrl('Rules/status/') . $id) . '">' . \Pramnos\Http\Session::getInstance()->getTokenField()
+    . '<input type="hidden" name="status" value="' . $e($to) . '"><button type="submit" aria-pressed="' . ($rule['status'] === $to ? 'true' : 'false') . '"'
+    . ($rule['status'] === $to ? ' disabled' : '') . '>' . Icon::svg($icon, '') . $e($label) . '</button></form>';
+$outcomeTones = ['entered' => 'pf-tone-accent', 'sent' => 'pf-tone-ok', 'done' => 'pf-tone-ok', 'goal' => 'pf-tone-ok', 'error' => 'pf-tone-bad',
+    'skipped' => 'pf-tone-warn', 'waiting' => 'pf-tone-warn', 'shadow' => 'pf-tone-info', 'branch' => 'pf-tone-info'];
 ?>
-<div class="page-section">
+<div class="pf-ui">
     <?php $this->activeNav = 'rules_view'; $this->insert('../partials/admin_breadcrumb'); ?>
-    <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px;margin-bottom:16px">
-        <h2><?php echo $e($rule['name']); ?> <span class="badge"><?php echo $e(t($rule['status'])); ?></span> <span style="opacity:.7;font-size:1rem">v<?php echo (int) $rule['version']; ?></span></h2>
-        <div style="display:flex;flex-wrap:wrap;gap:8px" data-field="actions">
-            <a href="<?php echo $e(adminUrl('Rules/edit/') . $id); ?>" class="btn btn-secondary"><?php echo $e(t('Edit')); ?></a>
-            <?php if ($rule['status'] !== 'shadow'): echo $status('shadow', t('Run in shadow'), 'btn-secondary'); endif; ?>
-            <?php if ($rule['status'] !== 'active'): echo $status('active', t('Switch on'), 'btn-primary'); endif; ?>
-            <?php if ($rule['status'] === 'active' || $rule['status'] === 'shadow'): echo $status('paused', t('Pause'), 'btn-secondary'); endif; ?>
-            <?php if ($rule['status'] === 'draft' || $rule['status'] === 'paused'): ?>
-                <form method="post" action="<?php echo $e(adminUrl('Rules/delete/') . $id); ?>" data-confirm="<?php echo $e(t('Delete this rule, its versions and its log?')); ?>"><?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
-                    <button type="submit" class="btn btn-danger"><?php echo $e(t('Delete')); ?></button></form>
-            <?php endif; ?>
+    <header class="pf-page-head">
+        <div>
+            <h1 class="pf-page-title"><?php echo $e($rule['name']); ?></h1>
+            <p class="pf-page-sub">
+                <span class="pf-badge pf-status <?php echo $tones[$rule['status']] ?? 'pf-tone-muted'; ?>" data-field="status"><?php echo $e(t($rule['status'])); ?></span>
+                <span class="pf-muted"><?php echo $e(t('version %s', (string) $rule['version'])); ?></span>
+            </p>
         </div>
-    </div>
+        <div class="pf-page-actions" data-field="actions">
+            <?php if ($rule['status'] === 'draft' || $rule['status'] === 'paused'): ?>
+                <form method="post" action="<?php echo $e(adminUrl('Rules/delete/') . $id); ?>" class="pf-inline-form" data-confirm="<?php echo $e(t('Delete this rule, its versions and its log?')); ?>"><?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
+                    <button type="submit" class="pf-btn pf-btn-ghost pf-btn-danger"><?php echo $e(t('Delete')); ?></button></form>
+            <?php endif; ?>
+            <span class="pf-segmented" role="group" aria-label="<?php echo $e(t('Status')); ?>">
+                <?php echo $state('shadow', t('Run in shadow'), 'shadow'); ?>
+                <?php echo $state('active', t('Switch on'), 'play'); ?>
+                <?php echo $state('paused', t('Pause'), 'pause'); ?>
+            </span>
+            <a href="<?php echo $e(adminUrl('Rules/edit/') . $id); ?>" class="pf-btn pf-btn-primary"><?php echo Icon::svg('edit', ''); ?><?php echo $e(t('Edit')); ?></a>
+        </div>
+    </header>
 
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(20rem,1fr));gap:1rem">
-        <div class="card" style="grid-column:1/-1"><div class="card-body" style="padding:16px;overflow-x:auto"><?php echo $this->canvas; ?></div></div>
-        <div style="display:grid;gap:1rem;align-content:start">
-            <div class="card" style="border:1px solid #ddd;border-radius:4px"><div class="card-body" style="padding:16px">
-                <h3 style="margin:0 0 8px"><?php echo $e(t('Why would this person come in?')); ?></h3>
-                <form method="get" action="<?php echo $e(adminUrl('Rules/view/') . $id); ?>" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px">
-                    <input type="number" min="1" name="person" style="width:8rem;padding:6px;border:1px solid #ccc;border-radius:4px" placeholder="<?php echo $e(t('Account id')); ?>" value="<?php echo $this->person > 0 ? (int) $this->person : ''; ?>" aria-label="<?php echo $e(t('Account id')); ?>">
-                    <button type="submit" class="btn btn-secondary"><?php echo $e(t('Explain')); ?></button>
+    <div class="pf-split">
+        <div class="pf-card"><div class="pf-card-body pf-card-flush"><?php echo $this->canvas; ?></div></div>
+        <div class="pf-stack">
+            <div class="pf-card"><div class="pf-card-body">
+                <h2 class="pf-section-title"><?php echo $e(t('Why would this person come in?')); ?></h2>
+                <form method="get" action="<?php echo $e(adminUrl('Rules/view/') . $id); ?>" class="pf-rule-sentence">
+                    <input type="number" min="1" name="person" class="pf-input pf-input-id" placeholder="<?php echo $e(t('Account id')); ?>" value="<?php echo $this->person > 0 ? (int) $this->person : ''; ?>" aria-label="<?php echo $e(t('Account id')); ?>">
+                    <button type="submit" class="pf-btn"><?php echo $e(t('Explain')); ?></button>
                 </form>
                 <?php if ($this->why !== null): ?>
-                    <p style="font-weight:600" data-field="enters"><?php echo $e($this->why['enters'] ? t('Would come in.') : t('Would not come in: %s.', implode(', ', array_map('t', $this->why['reasons'])))); ?></p>
-                    <ul style="list-style:none;padding:0;margin:8px 0 0;display:grid;gap:4px;font-size:.9rem">
+                    <p class="pf-why-verdict" data-field="enters"><span class="pf-badge <?php echo $this->why['enters'] ? 'pf-tone-ok' : 'pf-tone-bad'; ?>"><?php echo $e($this->why['enters'] ? t('Would come in.') : t('Would not come in: %s.', implode(', ', array_map('t', $this->why['reasons'])))); ?></span></p>
+                    <ul class="pf-why">
                     <?php foreach ($this->why['who']['conditions'] as $c): if (isset($c['conditions'])) { continue; } $said = \Pramnos\Audience\Explained::condition($c); ?>
-                        <li><span style="color:<?php echo $c['ok'] ? '#15803d' : '#b91c1c'; ?>"><?php echo $c['ok'] ? '✓' : '✗'; ?></span> <?php echo $e($said['what'] . ' ' . $said['how'] . ($said['value'] !== null ? ' ' . $said['value'] : '')); ?> <span style="opacity:.7"><?php echo $e(t('has: %s', $said['actual'])); ?></span></li>
+                        <li><span class="pf-why-mark <?php echo $c['ok'] ? 'pf-up' : 'pf-down'; ?>"><?php echo $c['ok'] ? '✓' : '✗'; ?></span><span><?php echo $e($said['what'] . ' ' . $said['how'] . ($said['value'] !== null ? ' ' . $said['value'] : '')); ?> <span class="pf-muted">· <?php echo $e(t('has: %s', $said['actual'])); ?></span></span></li>
                     <?php endforeach; ?>
                     <?php foreach ($this->why['steps'] as $step => $outlook): if (isset($outlook['consent'])): ?>
-                        <li><span style="color:<?php echo $outlook['consent'] ? '#15803d' : '#b91c1c'; ?>"><?php echo $outlook['consent'] ? '✓' : '✗'; ?></span> <?php echo $e(t('%s: in the consent list', $step)); ?></li>
+                        <li><span class="pf-why-mark <?php echo $outlook['consent'] ? 'pf-up' : 'pf-down'; ?>"><?php echo $outlook['consent'] ? '✓' : '✗'; ?></span><span><?php echo $e(t('%s: in the consent list', $step)); ?></span></li>
                     <?php endif; endforeach; ?>
                     </ul>
                 <?php endif; ?>
             </div></div>
-            <div class="card" style="border:1px solid #ddd;border-radius:4px"><div class="card-body" style="padding:16px">
-                <h3 style="margin:0 0 8px"><?php echo $e(t('Had it been on')); ?></h3>
-                <div style="display:flex;gap:8px;margin-bottom:8px">
-                    <a class="btn btn-secondary" href="<?php echo $e(adminUrl('Rules/view/') . $id . '?simulate=7'); ?>"><?php echo $e(t('Last 7 days')); ?></a>
-                    <a class="btn btn-secondary" href="<?php echo $e(adminUrl('Rules/view/') . $id . '?simulate=30'); ?>"><?php echo $e(t('Last 30 days')); ?></a>
-                </div>
+            <div class="pf-card"><div class="pf-card-body">
+                <h2 class="pf-section-title"><?php echo $e(t('Had it been on')); ?></h2>
+                <span class="pf-segmented">
+                    <a href="<?php echo $e(adminUrl('Rules/view/') . $id . '?simulate=7'); ?>"<?php echo ($this->simulated['days'] ?? 0) === 7 ? ' aria-current="true"' : ''; ?>><?php echo $e(t('Last 7 days')); ?></a>
+                    <a href="<?php echo $e(adminUrl('Rules/view/') . $id . '?simulate=30'); ?>"<?php echo ($this->simulated['days'] ?? 0) === 30 ? ' aria-current="true"' : ''; ?>><?php echo $e(t('Last 30 days')); ?></a>
+                </span>
                 <?php if ($this->simulated !== null): ?>
-                    <p data-field="simulated"><strong><?php echo $e(number_format($this->simulated['entered'])); ?></strong> <?php echo $e(t('would have come in, in %s days', (string) $this->simulated['days'])); ?></p>
-                    <p style="font-size:.9rem"><?php echo $e(implode(' · ', array_map(static fn ($c, $n): string => $c . ' ' . number_format($n), array_keys($this->simulated['messages']), $this->simulated['messages']))); ?></p>
-                    <p style="font-size:.8rem;opacity:.7"><?php echo $e(t('Counted from %s, with who as it is now.', t($this->simulated['basis']))); ?></p>
+                    <p class="pf-mt" data-field="simulated"><span class="pf-stat-value"><?php echo $e(number_format($this->simulated['entered'])); ?></span> <span class="pf-muted"><?php echo $e(t('would have come in, in %s days', (string) $this->simulated['days'])); ?></span></p>
+                    <?php if ($this->simulated['messages'] !== []): ?><p><?php echo $e(implode(' · ', array_map(static fn ($c, $n): string => $c . ' ' . number_format($n), array_keys($this->simulated['messages']), $this->simulated['messages']))); ?></p><?php endif; ?>
+                    <p class="pf-hint"><?php echo $e(t('Counted from %s, with who as it is now.', t($this->simulated['basis']))); ?></p>
                 <?php endif; ?>
             </div></div>
             <?php if ($this->actionSteps !== []): ?>
-            <div class="card" style="border:1px solid #ddd;border-radius:4px"><div class="card-body" style="padding:16px">
-                <h3 style="margin:0 0 8px"><?php echo $e(t('Send a test to me')); ?></h3>
-                <form method="post" action="<?php echo $e(adminUrl('Rules/testsend/') . $id); ?>" style="display:flex;flex-wrap:wrap;gap:8px"><?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
-                    <select name="step" style="padding:6px;border:1px solid #ccc;border-radius:4px" aria-label="<?php echo $e(t('Step')); ?>"><?php foreach ($this->actionSteps as $step): ?><option value="<?php echo $e($step); ?>"><?php echo $e($step); ?></option><?php endforeach; ?></select>
-                    <input type="number" min="1" name="person" required style="width:8rem;padding:6px;border:1px solid #ccc;border-radius:4px" placeholder="<?php echo $e(t('with the details of')); ?>" aria-label="<?php echo $e(t('Account id')); ?>">
-                    <button type="submit" class="btn btn-secondary"><?php echo $e(t('Send')); ?></button>
+            <div class="pf-card"><div class="pf-card-body">
+                <h2 class="pf-section-title"><?php echo $e(t('Send a test to me')); ?></h2>
+                <form method="post" action="<?php echo $e(adminUrl('Rules/testsend/') . $id); ?>" class="pf-rule-sentence"><?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
+                    <select name="step" class="pf-select" aria-label="<?php echo $e(t('Step')); ?>"><?php foreach ($this->actionSteps as $step): ?><option value="<?php echo $e($step); ?>"><?php echo $e($step); ?></option><?php endforeach; ?></select>
+                    <input type="number" min="1" name="person" required class="pf-input pf-input-id" placeholder="<?php echo $e(t('with the details of')); ?>" aria-label="<?php echo $e(t('Account id')); ?>">
+                    <button type="submit" class="pf-btn"><?php echo Icon::svg('send', ''); ?><?php echo $e(t('Send')); ?></button>
                 </form>
             </div></div>
             <?php endif; ?>
-            <div class="card" style="border:1px solid #ddd;border-radius:4px"><div class="card-body" style="padding:16px">
-                <h3 style="margin:0 0 8px"><?php echo $e(t('Versions')); ?></h3>
-                <ul style="list-style:none;padding:0;margin:0;display:grid;gap:4px;font-size:.9rem">
+            <div class="pf-card"><div class="pf-card-body">
+                <h2 class="pf-section-title"><?php echo $e(t('Versions')); ?></h2>
+                <ul class="pf-why">
                 <?php foreach ($this->versions as $i => $v): $older = $this->versions[$i + 1]['version'] ?? null; ?>
-                    <li>v<?php echo (int) $v['version']; ?> · <?php echo $e(date('Y-m-d H:i', $v['at'])); ?>
+                    <li><span class="pf-badge <?php echo (int) $v['version'] === (int) $rule['version'] ? 'pf-tone-accent' : 'pf-tone-muted'; ?>">v<?php echo (int) $v['version']; ?></span>
+                        <span class="pf-muted"><?php echo $e(date('Y-m-d H:i', $v['at'])); ?></span>
                         <?php if ($older !== null): ?><a href="<?php echo $e(adminUrl('Rules/view/') . $id . '?diff=' . $older . ',' . $v['version']); ?>"><?php echo $e(t('compare with v%s', (string) $older)); ?></a><?php endif; ?></li>
                 <?php endforeach; ?>
                 </ul>
                 <?php if ($this->diff !== null): ?>
-                    <p style="margin-top:8px" data-field="diff"><?php echo $e(t('v%s → v%s: %s now instead of %s; +%s in, −%s out.', (string) $this->diff['from'], (string) $this->diff['to'], number_format($this->diff['after']), number_format($this->diff['before']), number_format($this->diff['in']), number_format($this->diff['out']))); ?></p>
+                    <p class="pf-mt" data-field="diff"><?php echo $e(t('v%s → v%s: %s now instead of %s; +%s in, −%s out.', (string) $this->diff['from'], (string) $this->diff['to'], number_format($this->diff['after']), number_format($this->diff['before']), number_format($this->diff['in']), number_format($this->diff['out']))); ?></p>
                 <?php endif; ?>
             </div></div>
         </div>
     </div>
 
-    <div class="card" style="border:1px solid #ddd;border-radius:4px;margin-top:16px"><div class="card-body" style="padding:16px;overflow-x:auto">
-        <h3 style="margin:0 0 8px"><?php echo $e(t('What it did')); ?></h3>
-        <table class="table" style="width:100%;border-collapse:collapse">
-            <thead><tr><th><?php echo $e(t('When')); ?></th><th><?php echo $e(t('Person')); ?></th><th><?php echo $e(t('Step')); ?></th><th><?php echo $e(t('Outcome')); ?></th><th><?php echo $e(t('Detail')); ?></th></tr></thead>
-            <tbody>
-            <?php foreach ($this->log as $row): ?>
-                <tr>
-                    <td><?php echo $e(date('Y-m-d H:i', (int) $row['at'])); ?></td>
-                    <td><a href="<?php echo $e(\Pramnos\Html\AudienceBuilder::personUrl((int) $row['personid'])); ?>">#<?php echo (int) $row['personid']; ?></a></td>
-                    <td><?php echo $e((string) ($row['step'] ?? '')); ?></td>
-                    <td><?php echo $e(t((string) $row['outcome'])); ?></td>
-                    <td style="opacity:.8"><?php echo $e(mb_strimwidth((string) ($row['detail'] ?? ''), 0, 140, '…')); ?></td>
-                </tr>
-            <?php endforeach; ?>
-            <?php if (empty($this->log)): ?><tr><td colspan="5" style="text-align:center;opacity:.7;padding:24px"><?php echo $e(t('Nothing yet.')); ?></td></tr><?php endif; ?>
-            </tbody>
-        </table>
-    </div></div>
+    <div class="pf-card pf-mt">
+        <div class="pf-card-head"><h2 class="pf-section-title"><?php echo $e(t('What it did')); ?></h2></div>
+        <div class="pf-card-flush">
+            <?php if (empty($this->log)): ?>
+                <div class="pf-empty"><p class="pf-empty-text"><?php echo $e(t('Nothing yet.')); ?></p></div>
+            <?php else: ?>
+            <table class="pf-table">
+                <thead><tr><th><?php echo $e(t('When')); ?></th><th><?php echo $e(t('Person')); ?></th><th><?php echo $e(t('Step')); ?></th><th><?php echo $e(t('Outcome')); ?></th><th><?php echo $e(t('Detail')); ?></th></tr></thead>
+                <tbody>
+                <?php foreach ($this->log as $row): ?>
+                    <tr>
+                        <td class="pf-muted"><?php echo $e(date('Y-m-d H:i', (int) $row['at'])); ?></td>
+                        <td><a href="<?php echo $e(\Pramnos\Html\AudienceBuilder::personUrl((int) $row['personid'])); ?>">#<?php echo (int) $row['personid']; ?></a></td>
+                        <td><?php echo $e((string) ($row['step'] ?? '')); ?></td>
+                        <td><span class="pf-badge <?php echo $outcomeTones[(string) $row['outcome']] ?? 'pf-tone-muted'; ?>"><?php echo $e(t((string) $row['outcome'])); ?></span></td>
+                        <td class="pf-muted"><?php echo $e(mb_strimwidth((string) ($row['detail'] ?? ''), 0, 140, '…')); ?></td>
+                    </tr>
+                <?php endforeach; ?>
+                </tbody>
+            </table>
+            <?php endif; ?>
+        </div>
+    </div>
 </div>

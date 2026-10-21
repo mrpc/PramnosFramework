@@ -180,7 +180,17 @@ final class Rules
      */
     public static function usingSegment(int $segment): array
     {
-        return self::using(static fn (array $definition): bool => in_array($segment, Definition::segments($definition), true));
+        return array_column(self::linksUsingSegment($segment), 'name');
+    }
+
+    /**
+     * The rules that read a segment, each with the link to its page.
+     *
+     * @return list<array{name: string, url: string}>
+     */
+    public static function linksUsingSegment(int $segment): array
+    {
+        return self::using(static fn (array $definition): bool => in_array($segment, Definition::segments($definition), true), true);
     }
 
     /**
@@ -240,12 +250,13 @@ final class Rules
     }
 
     /**
-     * Names of rules whose definition answers yes; none where rules are not installed.
+     * Names of rules whose definition answers yes — with their links when `$links` — none where
+     * rules are not installed.
      *
      * @param  callable(array<string, mixed>): bool $reads
-     * @return list<string>
+     * @return list<string>|list<array{name: string, url: string}>
      */
-    private static function using(callable $reads): array
+    private static function using(callable $reads, bool $links = false): array
     {
         if (!Installed::has('rules')) {
             return [];
@@ -253,7 +264,8 @@ final class Rules
         $names = [];
         foreach (self::all() as $rule) {
             if ($reads($rule['definition'])) {
-                $names[] = t('rule %s', $rule['name']);
+                $name    = t('rule %s', $rule['name']);
+                $names[] = $links ? ['name' => $name, 'url' => adminUrl('Rules/view/') . $rule['id']] : $name;
             }
         }
 

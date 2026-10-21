@@ -104,6 +104,42 @@ final class Filter
     }
 
     /**
+     * The line a sample shows under each person: the values of {@see Attributes::sampleLine()}, by
+     * their labels, joined with " · ". One query over those people alone, whatever the filter is.
+     *
+     * @param  list<int> $ids
+     * @return array<int, string> By person
+     */
+    public function lines(array $ids): array
+    {
+        $attributes = Attributes::lineAttributes();
+        if ($ids === [] || $attributes === []) {
+            return [];
+        }
+        $query  = $this->database->queryBuilder()->table(Attributes::FROM)->whereIn('users.userid', $ids);
+        $this->joinFor($query, $attributes);
+        $select = [new Expression('users.userid AS pf_id')];
+        foreach ($attributes as $i => $attribute) {
+            $select[] = new Expression($attribute->sql($this->database->type) . ' AS pf_line' . $i);
+        }
+        $lines = [];
+        foreach ($query->select($select)->getAllOrFail() as $row) {
+            $parts = [];
+            foreach ($attributes as $i => $attribute) {
+                $value = $row['pf_line' . $i] ?? null;
+                if ($value === null || $value === '') {
+                    continue;
+                }
+                $labels  = $attribute->valueLabels();
+                $parts[] = (string) ($labels[$value] ?? ($attribute->type() === Attribute::DATE ? substr((string) $value, 0, 10) : $value));
+            }
+            $lines[(int) $row['pf_id']] = implode(' · ', $parts);
+        }
+
+        return $lines;
+    }
+
+    /**
      * A page of the ids that match, in order, after the last id of the previous page — a
      * keyset, so a page deep into a large audience costs what the first did.
      *

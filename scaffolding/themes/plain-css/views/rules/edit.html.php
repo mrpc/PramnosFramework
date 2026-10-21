@@ -1,6 +1,7 @@
 <?php
 /**
- * A rule's editor (plain-CSS theme): its name, and when, who, what and until in the editor.
+ * A rule's editor: its name, then when, who, what and until as numbered cards. The buttons stay in
+ * reach at the foot of the window. The same markup in every theme.
  *
  * Variables:
  *   $this->rule — Rules::get(), or null when creating
@@ -9,23 +10,29 @@ $e     = static fn ($value): string => htmlspecialchars((string) $value, ENT_QUO
 $rule  = $this->rule ?? null;
 $isNew = $rule === null;
 ?>
-<div class="page-section">
+<div class="pf-ui">
     <?php $this->activeNav = 'rules_edit'; $this->insert('../partials/admin_breadcrumb'); ?>
-    <h2 style="margin-bottom:16px"><?php echo $e($isNew ? t('New rule') : t('Edit rule')); ?></h2>
-    <form method="post" action="<?php echo $e(adminUrl('Rules/save')); ?>" class="card" style="border:1px solid #ddd;border-radius:4px;margin-bottom:16px"><div class="card-body" style="padding:16px;display:grid;gap:16px">
+    <header class="pf-page-head">
+        <div>
+            <h1 class="pf-page-title"><?php echo $e($isNew ? t('New rule') : t('Edit rule')); ?></h1>
+        </div>
+    </header>
+    <form method="post" action="<?php echo $e(adminUrl('Rules/save')); ?>" class="pf-stack">
         <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
         <?php if (!$isNew): ?>
             <input type="hidden" name="ruleid" value="<?php echo (int) $rule['id']; ?>">
         <?php endif; ?>
-        <label style="display:grid;gap:4px">
-            <span style="font-weight:600"><?php echo $e(t('Name')); ?></span>
-            <input type="text" name="name" maxlength="150" required style="width:100%;padding:8px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box" value="<?php echo $e($rule['name'] ?? ''); ?>">
-        </label>
+        <div class="pf-card"><div class="pf-card-body">
+            <label class="pf-field">
+                <span class="pf-label"><?php echo $e(t('Name')); ?></span>
+                <input type="text" name="name" maxlength="150" required class="pf-input" value="<?php echo $e($rule['name'] ?? ''); ?>" placeholder="<?php echo $e(t('Welcome series')); ?>">
+            </label>
+        </div></div>
         <?php echo \Pramnos\Html\RuleEditor::render($rule['definition'] ?? null); ?>
-        <p style="opacity:.8"><?php echo $e(t('Saving makes a new version: people already on their way finish on theirs. A new rule is a draft until it is switched on.')); ?></p>
-        <div style="display:flex;gap:8px">
-            <button type="submit" class="btn btn-primary"><?php echo $e(t('Save')); ?></button>
-            <a href="<?php echo $e($isNew ? adminUrl('Rules') : adminUrl('Rules/view/') . (int) $rule['id']); ?>" class="btn btn-outline-secondary"><?php echo $e(t('Cancel')); ?></a>
+        <div class="pf-form-footer">
+            <p class="pf-hint"><?php echo $e($isNew ? t('A new rule is a draft until it is switched on.') : t('Saving makes a new version: people already on their way finish on theirs.')); ?></p>
+            <a href="<?php echo $e($isNew ? adminUrl('Rules') : adminUrl('Rules/view/') . (int) $rule['id']); ?>" class="pf-btn pf-btn-ghost"><?php echo $e(t('Cancel')); ?></a>
+            <button type="submit" class="pf-btn pf-btn-primary"><?php echo $e(t('Save')); ?></button>
         </div>
-    </div></form>
+    </form>
 </div>

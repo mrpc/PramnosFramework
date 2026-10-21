@@ -74,10 +74,23 @@ function page({ mode = 'filter', state = null, answer = { count: 1234, sample: [
     return { window, document, root, hidden, live, changes, sent: () => window.fetch.calls.map((c) => new URLSearchParams(c.body)) };
 }
 
-/** Choose a value in a select and tell the script. */
-function choose(select, value) {
-    select.value = String(value);
-    select.dispatchEvent(new current.Event('change'));
+/**
+ * Choose a value and tell the script: in a select, or in the searchable choice — its button opened,
+ * the option clicked.
+ */
+function choose(control, value) {
+    if (control.classList.contains('pf-combo-button')) {
+        control.click();
+        control.parentNode.querySelector('[data-value="' + value + '"].pf-combo-option').click();
+        return;
+    }
+    control.value = String(value);
+    control.dispatchEvent(new current.Event('change'));
+}
+
+/** What a select or a searchable choice holds now. */
+function valueOf(control) {
+    return control.classList.contains('pf-combo-button') ? control.getAttribute('data-value') : control.value;
 }
 
 test('the stored filter draws as conditions and is asked about with the page token', async () => {
@@ -91,7 +104,7 @@ test('the stored filter draws as conditions and is asked about with the page tok
     // Assert
     const rows = root.querySelectorAll('[data-pf-audience-condition]');
     assert.equal(rows.length, 1);
-    assert.equal(rows[0].querySelector('[data-pf-audience-attribute]').value, 'usertype');
+    assert.equal(valueOf(rows[0].querySelector('[data-pf-audience-attribute]')), 'usertype');
     assert.equal(rows[0].querySelector('[data-pf-audience-op]').value, 'is');
     assert.equal(rows[0].querySelector('[data-pf-audience-value]').value, '2');
     assert.equal(window.fetch.calls[0].headers['X-CSRF-Token'], 't0ken');
@@ -154,13 +167,13 @@ test('a range takes two values, and a list without labels is written with commas
     const [range, many] = root.querySelectorAll('[data-pf-audience-condition]');
 
     // Act
-    const [from, to] = range.querySelectorAll('input');
+    const [from, to] = range.querySelectorAll('.pf-audience-between input');
     from.value = '2026-01-01';
     from.dispatchEvent(new window.Event('input'));
     const half = JSON.parse(hidden.value).conditions;
     to.value = '2026-01-31';
     to.dispatchEvent(new window.Event('change'));
-    const list = many.querySelector('input');
+    const list = many.querySelector('[data-pf-audience-value]');
     list.value = '3, 5,';
     list.dispatchEvent(new window.Event('input'));
 
@@ -192,7 +205,7 @@ test('a segment is a condition of its own, and a nested group joins with its own
         { segment: 4, op: 'not_in' },
         { match: 'any', conditions: [{ attribute: 'usertype', op: 'is', value: 1 }] },
     ] });
-    assert.ok(root.querySelector('.pf-audience-join'), 'the word between two conditions');
+    assert.ok(root.querySelector('[data-pf-audience-join]'), 'the word between two conditions');
 });
 
 test('removing a condition takes it out; the "all" or "any" of a group is kept', async () => {
@@ -202,7 +215,7 @@ test('removing a condition takes it out; the "all" or "any" of a group is kept',
 
     // Act
     root.querySelector('[data-pf-audience-remove]').click();
-    choose(root.querySelector('.pf-audience-match'), 'any');
+    root.querySelector('[data-pf-audience-match] [data-value="any"]').click();
 
     // Assert
     assert.deepEqual(JSON.parse(hidden.value), { match: 'any', conditions: [{ attribute: 'usertype', op: 'is', value: 2 }] });
@@ -223,7 +236,7 @@ test('a breakdown is asked for and drawn; dates are not offered for one', async 
     assert.equal(sent()[sent().length - 1].get('breakdown'), 'language');
     const items = live.querySelectorAll('[data-pf-audience-breakdown] li');
     assert.equal(items.length, 2);
-    assert.match(items[0].textContent, /Greek 2/);
+    assert.match(items[0].textContent, /Greek\s*2/);
     assert.ok(root);
 });
 
@@ -328,7 +341,89 @@ test('a stored event condition draws with its operator and values', async () => 
     await settle();
 
     // Assert
-    assert.equal(root.querySelector('[data-pf-audience-attribute]').value, '__event:payment.made');
+    assert.equal(valueOf(root.querySelector('[data-pf-audience-attribute]')), '__event:payment.made');
     assert.equal(root.querySelector('[data-pf-audience-op]').value, 'not_within_days');
     assert.equal(root.querySelector('[data-pf-audience-value="value"]').value, '14');
 });
+
+test('the word between two conditions switches the group between all and any', async () => {
+    // Arrange
+    const { root, hidden } = page({ state: { match: 'all', conditions: [{ attribute: 'language', op: 'empty' }, { attribute: 'usertype', op: 'is', value: 2 }] } });
+    await settle();
+
+    // Act
+    const join = root.querySelector('[data-pf-audience-join]');
+    const said = join.textContent;
+    join.click();
+
+    // Assert
+    assert.equal(said, 'and');
+    assert.equal(JSON.parse(hidden.value).match, 'any');
+    assert.equal(root.querySelector('[data-pf-audience-join]').textContent, 'or', 'redrawn with the other word');
+});
+
+test('the choice of what is searched, grouped under its headings, and answers to the keys', async () => {
+    // Arrange
+    const { root, hidden, window } = page();
+    await settle();
+    root.querySelector('[data-pf-audience-add]').click();
+    const button = root.querySelector('[data-pf-audience-attribute]');
+
+    // Act
+    button.click();
+    const search = button.parentNode.querySelector('[data-pf-combo-search]');
+    const headings = button.parentNode.querySelectorAll('.pf-combo-group').map((h) => h.textContent);
+    search.value = 'last';
+    search.dispatchEvent(new window.Event('input'));
+    const found = button.parentNode.querySelectorAll('.pf-combo-option').map((o) => o.getAttribute('data-value'));
+    search.dispatchEvent(Object.assign(new window.Event('keydown'), { key: 'Enter' }));
+
+    // Assert
+    assert.deepEqual(headings, ['Account', 'Attributes', 'What they did · Payments', 'Segments'], 'an attribute without a group goes under "Attributes"');
+    assert.deepEqual(found, ['lastlogin']);
+    assert.equal(button.getAttribute('data-value'), 'lastlogin', 'Enter takes the one highlighted');
+    assert.deepEqual(JSON.parse(hidden.value).conditions, [], 'chosen, still missing its value');
+    assert.equal(root.querySelector('[data-pf-audience-op]').value, 'after');
+});
+
+test('the sample shows each person with initials and the line under the name', async () => {
+    // Arrange
+    const answer = { count: 2, sample: [{ id: 5, name: 'Anna Papa', line: 'Professional · Athens', url: '/p/5' }, { id: 6, name: 'bob', line: '', url: '' }] };
+
+    // Act
+    const { live } = page({ answer });
+    await settle();
+
+    // Assert
+    const people = live.querySelectorAll('.pf-person');
+    assert.equal(people[0].querySelector('.pf-avatar').textContent, 'AP');
+    assert.equal(people[0].querySelector('.pf-person-line').textContent, 'Professional · Athens');
+    assert.equal(people[1].querySelector('.pf-avatar').textContent, 'B');
+    assert.equal(people[1].querySelector('.pf-person-line'), null, 'no line, no empty row');
+    assert.equal(people[1].getAttribute('href'), null, 'no card, no link');
+});
+
+test('a form field becomes the searchable choice with data-pf-combobox, and posts what was picked', async () => {
+    // Arrange
+    const { window, document } = createDom({});
+    const holder = document.createElement('div');
+    holder.setAttribute('data-pf-combobox', '');
+    holder.setAttribute('data-groups', JSON.stringify([{ label: 'Payments', options: [{ value: 'payment.made', label: 'Paid' }] }]));
+    const field = document.createElement('input');
+    field.value = '';
+    holder.appendChild(field);
+    document.body.appendChild(holder);
+    current = window;
+    const seen = [];
+    field.addEventListener('change', () => seen.push(field.value));
+
+    // Act
+    loadScript(SOURCE, window);
+    choose(holder.querySelector('.pf-combo-button'), 'payment.made');
+
+    // Assert
+    assert.equal(field.value, 'payment.made');
+    assert.deepEqual(seen, ['payment.made']);
+    assert.equal(holder.querySelector('.pf-combo-button').textContent, 'Paid');
+});
+

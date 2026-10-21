@@ -53,15 +53,16 @@ final class RuleCanvas
         $e     = static fn (string $v): string => htmlspecialchars($v, ENT_QUOTES, 'UTF-8');
         $drawn = [];
         $html  = '<div class="pf-rule-canvas">'
-            . '<div class="pf-rule-box pf-rule-when"><b>' . $e(t('When')) . '</b>' . $e(self::trigger($definition['trigger'])) . '</div>'
-            . ($definition['who']['conditions'] === [] ? '' : '<div class="pf-rule-box"><b>' . $e(t('Who')) . '</b>'
-                . $e(t('%s conditions', (string) count($definition['who']['conditions']))) . '</div>')
+            . self::box('pf-rule-when pf-rule-tone-when', 'rule', t('When'), self::trigger($definition['trigger']))
+            . ($definition['who']['conditions'] === [] ? '' : '<div class="pf-rule-down"></div>'
+                . self::box('pf-rule-tone-who', 'members', t('Who'), t('%s conditions', (string) count($definition['who']['conditions']))))
+            . '<div class="pf-rule-down"></div>'
             . self::chain($definition['steps'], $definition['start'], $counts, $drawn);
         if ($definition['exit']['conditions'] !== [] || $definition['goal'] !== null) {
-            $html .= '<div class="pf-rule-box pf-rule-until"><b>' . $e(t('Until')) . '</b>'
-                . ($definition['exit']['conditions'] !== [] ? $e(t('leaves when the exit matches')) : '')
-                . ($definition['goal'] !== null ? ' ' . $e(t('goal: %s within %s days', $definition['goal']['event'], (string) $definition['goal']['days'])) : '')
-                . '</div>';
+            $html .= '<div class="pf-rule-down"></div>' . self::box('pf-rule-until pf-rule-tone-until', 'goal', t('Until'), trim(
+                ($definition['exit']['conditions'] !== [] ? t('leaves when the exit matches') : '')
+                . ($definition['goal'] !== null ? ' ' . t('goal: %s within %s days', \Pramnos\Audience\PersonEvents::label($definition['goal']['event']), (string) $definition['goal']['days']) : '')
+            ));
         }
 
         return $html . '</div>';
@@ -86,11 +87,15 @@ final class RuleCanvas
         $drawn[$id] = true;
         $step  = $steps[$id];
         $count = $counts[$id] ?? ['reached' => 0, 'outcomes' => []];
-        $box   = '<div class="pf-rule-box pf-rule-' . $e($step['type']) . '" data-step="' . $e($id) . '"><b>' . $e(self::title($step)) . '</b>'
-            . $e(self::detail($step))
-            . '<span class="pf-rule-count">' . $e(t('%s passed', number_format($count['reached'])))
-            . ($count['outcomes'] === [] ? '' : ' · ' . $e(implode(', ', array_map(static fn ($k, $n): string => $k . ' ' . $n, array_keys($count['outcomes']), $count['outcomes']))))
-            . '</span></div>';
+        $kind  = self::kind($step);
+        $box   = '<div class="pf-rule-box pf-rule-' . $e($step['type']) . ' pf-rule-step-' . $kind . '" data-step="' . $e($id) . '">'
+            . '<div class="pf-rule-step-head"><span class="pf-rule-icon">' . Icon::svg(self::ICONS[$kind], '') . '</span>'
+            . '<span class="pf-rule-step-title">' . $e(self::title($step)) . '</span><span class="pf-rule-step-id">' . $e($id) . '</span>'
+            . '<span class="pf-badge pf-tone-accent pf-rule-count">' . $e(t('%s passed', number_format($count['reached']))) . '</span></div>'
+            . (self::detail($step) === '' ? '' : '<span class="pf-muted">' . $e(self::detail($step)) . '</span>')
+            . ($count['outcomes'] === [] ? '' : '<span class="pf-rule-outcomes">' . $e(implode(' · ', array_map(static fn ($k, $n): string => t((string) $k) . ' ' . number_format($n),
+                array_keys($count['outcomes']), $count['outcomes']))) . '</span>')
+            . '</div>';
         $ways = match ($step['type']) {
             'branch'     => [t('Yes') => $step['yes'], t('No') => $step['no']],
             'wait_event' => [t('It happened') => $step['next'], t('Time ran out') => $step['timeout']],
@@ -98,7 +103,7 @@ final class RuleCanvas
             default      => null,
         };
         if ($ways === null) {
-            return $box . '<div class="pf-rule-down">↓</div>' . self::chain($steps, $step['next'], $counts, $drawn);
+            return $box . '<div class="pf-rule-down"></div>' . self::chain($steps, $step['next'], $counts, $drawn);
         }
         $branches = '';
         foreach ($ways as $label => $next) {
@@ -106,6 +111,32 @@ final class RuleCanvas
         }
 
         return $box . '<div class="pf-rule-branches">' . $branches . '</div>';
+    }
+
+    /** The icon of each kind of step. */
+    private const ICONS = ['message' => 'send', 'action' => 'action', 'wait' => 'clock', 'wait_event' => 'rule', 'branch' => 'branch', 'split' => 'split'];
+
+    /**
+     * A step's kind as drawn: an action on a channel is a message.
+     *
+     * @param array<string, mixed> $step
+     */
+    private static function kind(array $step): string
+    {
+        if ($step['type'] === 'action') {
+            return (Actions::get($step['action'])['channel'] ?? null) !== null ? 'message' : 'action';
+        }
+
+        return $step['type'];
+    }
+
+    /** One box: its icon, its title, and a line. */
+    private static function box(string $class, string $icon, string $title, string $line): string
+    {
+        $e = static fn (string $v): string => htmlspecialchars($v, ENT_QUOTES, 'UTF-8');
+
+        return '<div class="pf-rule-box ' . $class . '"><div class="pf-rule-step-head"><span class="pf-rule-icon">' . Icon::svg($icon, '') . '</span>'
+            . '<span class="pf-rule-step-title">' . $e($title) . '</span></div><span class="pf-muted">' . $e($line) . '</span></div>';
     }
 
     /** @param array<string, mixed> $trigger */

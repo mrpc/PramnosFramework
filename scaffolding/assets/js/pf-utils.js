@@ -370,6 +370,21 @@
         }
     }, true);
 
+    // ── data-pf-filter-rows: a search field that hides the rows it does not match ──
+    // `data-pf-filter-rows="#table"` names the table; each row is matched on its
+    // `data-pf-row-text`, or on its text where it has none.
+    document.addEventListener('input', function (e) {
+        var field = e.target;
+        if (!field || !field.getAttribute || field.getAttribute('data-pf-filter-rows') === null) { return; }
+        var table = document.querySelector(field.getAttribute('data-pf-filter-rows'));
+        if (!table) { return; }
+        var words = String(field.value || '').toLowerCase().trim().split(/\s+/).filter(Boolean);
+        Array.prototype.forEach.call(table.querySelectorAll('tbody tr'), function (row) {
+            var text = (row.getAttribute('data-pf-row-text') || row.textContent || '').toLowerCase();
+            row.hidden = !words.every(function (w) { return text.indexOf(w) !== -1; });
+        });
+    });
+
     // Close the stats modal with the Escape key for keyboard accessibility.
     document.addEventListener('keydown', function (e) {
         if (e.key === 'Escape') { closeStats(); }

@@ -40,17 +40,28 @@ final class RuleEditor
             $words[$key] = t($english);
         }
 
+        $icons = [];
+        foreach (['plus', 'close', 'send', 'action', 'clock', 'rule', 'branch', 'split'] as $name) {
+            $icons[$name] = Icon::svg($name, '');
+        }
+        $card = static fn (int $n, string $key, string $icon, string $title, string $body): string => '<details class="pf-rule-card" open data-pf-rule-card="' . $key . '">'
+            . '<summary><span class="pf-rule-num">' . $n . '</span><span class="pf-rule-icon pf-rule-tone-' . $key . '">' . Icon::svg($icon, '') . '</span>'
+            . '<span><span class="pf-rule-card-title">' . $e($title) . '</span><span class="pf-rule-card-summary" data-pf-rule-summary="' . $key . '"></span></span>'
+            . '<span class="pf-rule-chevron">' . Icon::svg('chevron', '') . '</span></summary>'
+            . '<div class="pf-rule-card-body">' . $body . '</div></details>';
+
         return '<div class="pf-rule-editor" data-pf-rule-editor'
             . ' data-catalog="' . $e((string) json_encode($catalog, JSON_UNESCAPED_UNICODE)) . '"'
             . ' data-words="' . $e((string) json_encode($words, JSON_UNESCAPED_UNICODE)) . '"'
+            . ' data-icons="' . $e((string) json_encode($icons, JSON_UNESCAPED_UNICODE)) . '"'
             . ' data-audience-words="' . $e((string) json_encode(AudienceBuilder::words(), JSON_UNESCAPED_UNICODE)) . '"'
             . ' data-classes="' . $e((string) json_encode(AudienceBuilder::classes(), JSON_UNESCAPED_UNICODE)) . '">'
             . '<input type="hidden" name="definition" value="' . $e((string) json_encode($rest, JSON_UNESCAPED_UNICODE)) . '" data-pf-rule-state>'
-            . '<section class="pf-rule-section"><h3>' . $e(t('When')) . '</h3><div data-pf-rule-when></div></section>'
-            . '<section class="pf-rule-section"><h3>' . $e(t('Who')) . '</h3>' . AudienceBuilder::filter('who', $who) . '</section>'
-            . '<section class="pf-rule-section"><h3>' . $e(t('What')) . '</h3><div data-pf-rule-steps></div></section>'
-            . '<section class="pf-rule-section"><h3>' . $e(t('Until')) . '</h3><p>' . $e(t('Leaves the rule when it matches:')) . '</p>'
-            . AudienceBuilder::filter('exit', $exit, ['live' => false]) . '<div data-pf-rule-until></div></section>'
+            . $card(1, 'when', 'rule', t('When'), '<div class="pf-rule-rows" data-pf-rule-when></div>')
+            . $card(2, 'who', 'members', t('Who'), AudienceBuilder::filter('who', $who))
+            . $card(3, 'what', 'action', t('What'), '<div data-pf-rule-steps></div>')
+            . $card(4, 'until', 'goal', t('Until'), '<p class="pf-label">' . $e(t('Leaves the rule when it matches:')) . '</p>'
+                . AudienceBuilder::filter('exit', $exit, ['live' => false]) . '<div class="pf-rule-rows" data-pf-rule-until></div>')
             . '<noscript><p>' . $e(t('Editing a rule needs JavaScript.')) . '</p></noscript>'
             . '</div>'
             . '<script src="' . $e(assetUrl('assets/js/pf-rules.js')) . '" defer></script>';
@@ -102,17 +113,26 @@ final class RuleEditor
 
     /** The words the script answers with. */
     private const WORDS = [
-        'event' => 'An event', 'segment_entered' => 'Enters a segment', 'segment_left' => 'Leaves a segment',
-        'schedule' => 'On a schedule', 'once' => 'Once, when switched on', 'eventName' => 'Event',
+        'event' => 'An event happens', 'segment_entered' => 'Enters a segment', 'segment_left' => 'Leaves a segment',
+        'schedule' => 'On a schedule', 'once' => 'Once, when switched on', 'eventName' => 'Event', 'chooseEvent' => 'Choose an event…',
+        'otherEvents' => 'Other', 'search' => 'Search…', 'nothingFound' => 'Nothing found', 'whenWord' => 'When',
         'segment' => 'Segment', 'cron' => 'Cron expression', 'entry' => 'Takes a person in',
         'first' => 'the first time only', 'every' => 'every time',
-        'action' => 'Do something', 'wait' => 'Wait', 'wait_event' => 'Wait for an event', 'branch' => 'If', 'split' => 'A/B split',
-        'addStep' => '+ step', 'remove' => 'Remove', 'start' => 'Starts at', 'next' => 'Then', 'end' => 'End',
+        'message' => 'Message', 'messageHint' => 'An email, a notification, a message on the site',
+        'action' => 'Action', 'actionHint' => 'Change a group or an attribute, or what the application adds',
+        'wait' => 'Wait', 'waitHint' => 'Hold for a while', 'wait_event' => 'Wait for an event', 'waitEventHint' => 'Until they do something, or time runs out',
+        'branch' => 'If', 'branchHint' => 'Two ways, on conditions or on a message', 'split' => 'A/B split', 'splitHint' => 'Share people between variants',
+        'addStep' => 'Add a step', 'remove' => 'Remove', 'start' => 'Starts at', 'next' => 'Then', 'end' => 'End',
+        'send' => 'Send', 'doThis' => 'Do', 'waitFor' => 'Wait for', 'waitUntil' => 'Wait until', 'forUpTo' => 'for up to',
+        'theMessageOf' => 'the message of',
         'yes' => 'Yes', 'no' => 'No', 'happened' => 'It happened', 'timeout' => 'Time ran out',
         'minutes' => 'minutes', 'hours' => 'hours', 'days' => 'days', 'onFilter' => 'on conditions', 'onMessage' => 'on a message',
         'opened' => 'was opened', 'clicked' => 'was clicked', 'delivered' => 'was delivered',
-        'variant' => 'Variant', 'share' => 'Share %', 'addVariant' => '+ variant', 'goal' => 'Goal: an event within days',
+        'variant' => 'Variant', 'share' => 'Share %', 'addVariant' => 'Variant', 'goal' => 'Goal', 'within' => 'within',
         'consent' => 'Consent list', 'none' => '—', 'sendHours' => 'Sending hours', 'from' => 'from', 'to' => 'to',
-        'caps' => 'At most', 'addCap' => '+ limit', 'channel' => 'Channel', 'messages' => 'messages in', 'choose' => 'Choose…',
+        'limit' => 'Limit', 'caps' => 'At most', 'per' => 'per', 'addCap' => 'Limit', 'channel' => 'Channel', 'choose' => 'Choose…',
+        'whenEvent' => 'When: %s', 'noEvent' => 'No event chosen yet', 'everybody' => 'Everybody', 'conditionsCount' => '%s conditions',
+        'noSteps' => 'No steps yet', 'stepsCount' => '%s steps', 'goalSummary' => 'Goal: %s within %s days', 'limitsCount' => '%s limits',
+        'noLimits' => 'No goal, no limits',
     ];
 }

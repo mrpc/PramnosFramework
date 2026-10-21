@@ -118,17 +118,30 @@ final class Segments
      */
     public static function usedBy(int $id): array
     {
+        return array_column(self::uses($id), 'name');
+    }
+
+    /**
+     * What uses a segment, each with the link to it where it has a page of its own: a segment, a
+     * rule; what {@see usage()} reports has none.
+     *
+     * @return list<array{name: string, url: ?string}>
+     */
+    public static function uses(int $id): array
+    {
         $uses = [];
         foreach (self::all() as $segment) {
             if ($segment['id'] !== $id && in_array($id, Filter::segmentsIn($segment['filter']), true)) {
-                $uses[] = t('segment %s', $segment['name']);
+                $uses[] = ['name' => t('segment %s', $segment['name']), 'url' => adminUrl('Segments/view/') . $segment['id']];
             }
         }
         foreach (self::$usage as $finder) {
-            array_push($uses, ...array_map('strval', $finder($id)));
+            foreach ($finder($id) as $name) {
+                $uses[] = ['name' => (string) $name, 'url' => null];
+            }
         }
 
-        return array_merge($uses, Rules\Rules::usingSegment($id));
+        return array_merge($uses, Rules\Rules::linksUsingSegment($id));
     }
 
     /**
