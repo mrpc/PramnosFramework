@@ -1097,4 +1097,6 @@ return [
     'times' => 'φορές',
     'in the last' => 'τις τελευταίες',
     'days (empty: ever)' => 'μέρες (κενό: ποτέ)',
+    'Segments are not installed here yet: run migrate.' => 'Τα segments δεν έχουν εγκατασταθεί ακόμα εδώ: τρέξτε το migrate.',
+    'Consent lists are not installed here yet: run migrate.' => 'Οι λίστες συναίνεσης δεν έχουν εγκατασταθεί ακόμα εδώ: τρέξτε το migrate.',
 ];

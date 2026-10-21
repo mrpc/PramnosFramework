@@ -126,6 +126,7 @@ trait AudienceProbe
         }
         // Whether the audit table exists is remembered per process; this database has one.
         \Pramnos\Auth\AuditLog::resetTableCache();
+        \Pramnos\Audience\Installed::reset();
         $this->previous = Factory::getDatabase();
         $singleton      = &Factory::getDatabase();
         $singleton      = $this->db;
@@ -146,6 +147,7 @@ trait AudienceProbe
         \Pramnos\Email\MailLog::reset();
         \Pramnos\Event\Event::forget();
         \Pramnos\Auth\AuditLog::resetTableCache();
+        \Pramnos\Audience\Installed::reset();
         if ($this->previous !== null) {
             $singleton = &Factory::getDatabase();
             $singleton = $this->previous;

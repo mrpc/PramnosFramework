@@ -312,6 +312,9 @@ class Tracking
      */
     private static function personEvent(string $trackingId, string $event, array $properties = []): void
     {
+        if (!\Pramnos\Audience\Installed::personEvents()) {
+            return;
+        }
         try {
             $db   = \Pramnos\Framework\Factory::getDatabase();
             $row  = $db->queryBuilder()->table('pramnos.emailtracking')->select(['mailid', 'list'])

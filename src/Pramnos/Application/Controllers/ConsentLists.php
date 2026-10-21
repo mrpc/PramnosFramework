@@ -37,7 +37,7 @@ class ConsentLists extends Controller
     /** Every list, with how many are in it now — or why that cannot be counted. */
     public function display(): mixed
     {
-        if ($this->requireMinUserType($this->adminFloor())) {
+        if ($this->refused()) {
             return null;
         }
         \Pramnos\Framework\Factory::getDocument()->title = t('Consent lists');
@@ -63,7 +63,7 @@ class ConsentLists extends Controller
     /** The form: name, channel, source, what it means to the person, default, opt-out list. */
     public function edit(mixed $id = null): mixed
     {
-        if ($this->requireMinUserType($this->adminFloor())) {
+        if ($this->refused()) {
             return null;
         }
         $id   = (int) \Pramnos\Http\Request::staticGetOption();
@@ -84,7 +84,7 @@ class ConsentLists extends Controller
     /** Create or change a list. */
     public function save(): void
     {
-        if ($this->requireMinUserType($this->adminFloor())) {
+        if ($this->refused()) {
             return;
         }
         $id     = (int) ($_POST['listid'] ?? 0);
@@ -122,7 +122,7 @@ class ConsentLists extends Controller
     /** Delete a list — refused, with what uses it, while anything does. */
     public function delete(mixed $id = null): void
     {
-        if ($this->requireMinUserType($this->adminFloor())) {
+        if ($this->refused()) {
             return;
         }
         $id     = (int) \Pramnos\Http\Request::staticGetOption();
@@ -153,6 +153,25 @@ class ConsentLists extends Controller
     public static function channelWords(): array
     {
         return ['email' => t('Email'), 'sms' => t('SMS'), 'push' => t('Push'), 'phone' => t('Phone'), 'site' => t('On the site')];
+    }
+
+    /**
+     * Whether this request stops here: below the administration floor, or before the migrations
+     * have made the tables — an application may hold them back — where the screen says so.
+     */
+    protected function refused(): bool
+    {
+        if ($this->requireMinUserType($this->adminFloor())) {
+            return true;
+        }
+        if (!\Pramnos\Audience\Installed::consentLists()) {
+            $this->addError(t('Consent lists are not installed here yet: run migrate.'));
+            $this->redirect(adminUrl(''));
+
+            return true;
+        }
+
+        return false;
     }
 
     /** The signed-in account's id, or 0. */

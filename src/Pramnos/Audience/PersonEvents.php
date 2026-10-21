@@ -90,7 +90,7 @@ final class PersonEvents
      */
     public static function record(int $person, string $event, array $properties = [], ?int $at = null): void
     {
-        if ($person < 1 || $event === '') {
+        if ($person < 1 || $event === '' || !Installed::personEvents()) {
             return;
         }
         $at ??= time();
@@ -111,7 +111,8 @@ final class PersonEvents
      */
     public static function recordLater(int $person, string $event, array $properties = [], ?int $at = null): void
     {
-        if ($person < 1 || $event === '') {
+        // Where the tables are not installed yet, nothing is queued: a task that could only fail.
+        if ($person < 1 || $event === '' || !Installed::personEvents()) {
             return;
         }
         $at ??= time();
@@ -281,7 +282,7 @@ final class PersonEvents
      */
     public static function visited(string $path, ?int $person): ?string
     {
-        if ($person === null || $person < 1 || self::$pages === []) {
+        if ($person === null || $person < 1 || self::$pages === [] || !Installed::personEvents()) {
             return null;
         }
         $path = '/' . ltrim((string) parse_url($path, PHP_URL_PATH), '/');

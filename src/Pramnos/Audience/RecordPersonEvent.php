@@ -21,6 +21,9 @@ final class RecordPersonEvent extends \Pramnos\Event\QueuedListener
     public function handle(int $person, string $event, array $properties = [], int $at = 0): mixed
     {
         PersonEvents::record($person, $event, $properties, $at > 0 ? $at : null);
+        if (!Installed::segments()) {
+            return true;
+        }
         try {
             \Pramnos\Event\QueuedEvents::enqueue(new RefreshPersonSegments(), 'segments.refresh', [$person], \Pramnos\Event\QueuedEvents::meta('segments.refresh'));
         } catch (\Throwable $e) {

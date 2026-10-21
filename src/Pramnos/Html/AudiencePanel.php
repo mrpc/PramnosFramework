@@ -25,7 +25,7 @@ final class AudiencePanel
     public static function person(int $userid): string
     {
         $e        = static fn (string $v): string => htmlspecialchars($v, ENT_QUOTES, 'UTF-8');
-        $segments = self::quietly(static fn (): array => Segments::of($userid));
+        $segments = \Pramnos\Audience\Installed::segments() ? self::quietly(static fn (): array => Segments::of($userid)) : [];
         $groups   = self::quietly(static fn (): array => Groups::of($userid));
         $items    = [];
         foreach ($segments as $s) {

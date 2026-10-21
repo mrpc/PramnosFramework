@@ -1737,11 +1737,14 @@ class Application extends Base
             'admin.segments', 'Segments', $admin('Segments'),
             NavSection::Admin, 16, requireAuth: true, minUserType: $floor,
             icon: 'filter', group: 'People',
+            // Not before the migrations have made the tables: an application can hold them back.
+            when: static fn (): bool => \Pramnos\Audience\Installed::segments(),
         ));
         NavRegistry::register(new NavItem(
             'admin.consent', 'Consent lists', $admin('ConsentLists'),
             NavSection::Admin, 17, requireAuth: true, minUserType: $floor,
             icon: 'check', group: 'People',
+            when: static fn (): bool => \Pramnos\Audience\Installed::consentLists(),
         ));
 
         // Queue — queue feature

@@ -12,6 +12,7 @@ use_cases:
   - Finding out why one person is or is not in a segment, from the admin
   - Recording what people do — payments, posts, page visits — and filtering by it
   - Filling the history of an event from the application's existing tables
+  - Taking framework updates while holding the audience migrations back
 ---
 
 # Audience Guide
@@ -19,6 +20,25 @@ use_cases:
 An **audience** is the people who match a **filter**: conditions over their **attributes**,
 grouped with "all" and "any". Sends, segments and rules all choose their people this way, so an
 application declares its attributes once and every screen can use them.
+
+## Before the migrations run
+
+The audience tables — `segments`, `segment_members`, `consent_lists`, `person_events`,
+`person_event_log` — come from core migrations, and an application can hold them back while it
+tries the feature elsewhere:
+
+```php
+// app/app.php
+'migrations' => ['exclude' => ['create_segments_tables', 'create_consent_lists_table', 'create_person_events_tables']],
+```
+
+Until they exist, nothing here does anything: a dispatched `PersonEvent`, an event with
+`Segments::refreshOn()` on it, a named page, an email open or click queue nothing and raise
+nothing; `segments:recompute` and `audience:prune-events` succeed with one line; Segments and
+Consent lists stay out of the menu and, typed in, say they are not installed; the person card
+shows groups alone. `Pramnos\Audience\Installed` answers whether they are there, asked only where
+something would use them and remembered for five minutes per process, so a worker notices a
+`migrate` without asking on every event.
 
 ## People
 

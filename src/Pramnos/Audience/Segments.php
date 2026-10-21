@@ -232,6 +232,9 @@ final class Segments
     public static function recomputePerson(int $userid): array
     {
         $changes = ['entered' => [], 'left' => []];
+        if (!Installed::segments()) {
+            return $changes;
+        }
         $open    = array_fill_keys(self::segmentsOf($userid), true);
         $now     = time();
         foreach (self::inDependencyOrder() as $id) {
@@ -266,7 +269,20 @@ final class Segments
     public static function refreshOn(string ...$events): void
     {
         foreach ($events as $event) {
-            Event::listen($event, RefreshPersonSegments::class);
+            // A listener that asks whether segments are installed when the event fires — not at
+            // every boot — and queues nothing until they are.
+            Event::listen($event, static function (mixed ...$args) use ($event): void {
+                $person = RefreshPersonSegments::person($args[0] ?? null);
+                if ($person === null || !Installed::segments()) {
+                    return;
+                }
+                try {
+                    \Pramnos\Event\QueuedEvents::enqueue(new RefreshPersonSegments(), $event, [$person], \Pramnos\Event\QueuedEvents::meta($event));
+                } catch (\Throwable $e) {
+                    // The hourly recomputation finds it; the event that fired must not fail for it.
+                    \Pramnos\Logs\Logger::log('Segments not refreshed after ' . $event . ' for ' . $person . ': ' . $e->getMessage(), 'audience');
+                }
+            });
         }
     }
 

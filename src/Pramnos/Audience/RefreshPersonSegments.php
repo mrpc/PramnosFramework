@@ -17,7 +17,7 @@ final class RefreshPersonSegments extends \Pramnos\Event\QueuedListener
     {
         $person = self::person($args[0] ?? null);
 
-        return $person === null ? null : Segments::recomputePerson($person);
+        return $person === null || !Installed::segments() ? null : Segments::recomputePerson($person);
     }
 
     /** One waiting task per person. */

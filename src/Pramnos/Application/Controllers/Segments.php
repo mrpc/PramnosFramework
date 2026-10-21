@@ -45,7 +45,7 @@ class Segments extends Controller
     /** The library: segments with their movement and use, then the groups. */
     public function display(): mixed
     {
-        if ($this->requireMinUserType($this->adminFloor())) {
+        if ($this->refused()) {
             return null;
         }
         \Pramnos\Framework\Factory::getDocument()->title = t('Segments and groups');
@@ -82,7 +82,7 @@ class Segments extends Controller
     /** One segment: its numbers, where it is used, a sample of members, and "why" for a person. */
     public function view(mixed $id = null): mixed
     {
-        if ($this->requireMinUserType($this->adminFloor())) {
+        if ($this->refused()) {
             return null;
         }
         $segment = SegmentStore::get((int) \Pramnos\Http\Request::staticGetOption());
@@ -111,7 +111,7 @@ class Segments extends Controller
     /** The form: a name, a description and the filter, with the live count. */
     public function edit(mixed $id = null): mixed
     {
-        if ($this->requireMinUserType($this->adminFloor())) {
+        if ($this->refused()) {
             return null;
         }
         $id      = (int) \Pramnos\Http\Request::staticGetOption();
@@ -133,7 +133,7 @@ class Segments extends Controller
      */
     public function save(): void
     {
-        if ($this->requireMinUserType($this->adminFloor())) {
+        if ($this->refused()) {
             return;
         }
         $id      = (int) ($_POST['segmentid'] ?? 0);
@@ -166,7 +166,7 @@ class Segments extends Controller
     /** Work a segment out again now, rather than at the next hour. */
     public function recompute(mixed $id = null): void
     {
-        if ($this->requireMinUserType($this->adminFloor())) {
+        if ($this->refused()) {
             return;
         }
         $id = (int) \Pramnos\Http\Request::staticGetOption();
@@ -183,7 +183,7 @@ class Segments extends Controller
     /** Delete a segment — refused, with what uses it, while anything does. */
     public function delete(mixed $id = null): void
     {
-        if ($this->requireMinUserType($this->adminFloor())) {
+        if ($this->refused()) {
             return;
         }
         $id     = (int) \Pramnos\Http\Request::staticGetOption();
@@ -259,6 +259,25 @@ class Segments extends Controller
     {
         $keep = static fn (?array $s): array => $s === null ? [] : ['name' => $s['name'], 'description' => $s['description'], 'filter' => $s['filter']];
         \Pramnos\Auth\AuditLog::change($event, $this->me() ?: null, 'segment', $id, $keep($before), $keep($after));
+    }
+
+    /**
+     * Whether this request stops here: below the administration floor, or before the migrations
+     * have made the tables — an application may hold them back — where the screen says so.
+     */
+    protected function refused(): bool
+    {
+        if ($this->requireMinUserType($this->adminFloor())) {
+            return true;
+        }
+        if (!\Pramnos\Audience\Installed::segments()) {
+            $this->addError(t('Segments are not installed here yet: run migrate.'));
+            $this->redirect(adminUrl(''));
+
+            return true;
+        }
+
+        return false;
     }
 
     /** The signed-in account's id, or 0. */

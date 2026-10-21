@@ -297,9 +297,13 @@ class SegmentsTest extends TestCase
         // Act
         $changes = $listener->handle(new SegmentLeft(0, $this->ids['bob'], 0));
         $nobody  = $listener->handle(['not', 'a', 'person']);
+        // Firing the event queues the person — here there is no queue, which must not fail the event.
+        $fired   = Event::fire('profile.saved', $this->ids['bob']);
+        Event::fire('profile.saved', 'not a person');
 
         // Assert
-        $this->assertContains(RefreshPersonSegments::class, Event::getListeners('profile.saved'));
+        $this->assertCount(1, Event::getListeners('profile.saved'));
+        $this->assertSame([null], $fired);
         $this->assertSame(['entered' => [$greek], 'left' => []], $changes);
         $this->assertNull($nobody);
         $this->assertSame('segments:person:12', $listener->debounceKey('12'));
