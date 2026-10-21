@@ -188,6 +188,34 @@ test('plain() gives the bare textarea for a text-only channel, and back, keeping
     assert.equal(ui.instance.getHTML(), '<p>Hello again</p>', 'what was typed in the textarea was lost');
 });
 
+test('the block toolbar is there only when asked for, over the text while it has the focus', () => {
+    // Arrange — the application's default off; one field asks, through its attribute
+    const ui = page({ value: '<p>one</p><p>two</p>', attrs: 'data-pf-rich-block-toolbar="1"' });
+    const plain = ui.window.document.createElement('textarea');
+    ui.window.document.body.append(plain);
+    ui.window.pfRichEditor.use({ name: 'callout', buttons: [{ name: 'callout', label: '!', title: 'Callout', block: true, run: () => {} }] });
+    const later = ui.window.document.createElement('textarea');
+    later.setAttribute('data-pf-rich-block-toolbar', '1');
+    ui.window.document.body.append(later);
+    const bar = ui.field.nextElementSibling.querySelector('.pf-rich-block');
+
+    // Act — the cursor in the second block, the text focused; its H2 pressed
+    ui.editor.view.dom.dispatchEvent(new ui.window.FocusEvent('focus'));
+    ui.editor.commands.setTextSelection(7);
+    const shown = !bar.hidden;
+    bar.querySelector('[data-block="h2"]').click();
+    const withoutBar = ui.window.pfRichEditor.enhance(plain).element.querySelector('.pf-rich-block');
+    const withPlugin = ui.window.pfRichEditor.enhance(later).element.querySelector('.pf-rich-block [data-block="callout"]');
+
+    // Assert
+    assert.ok(bar, 'the field asked for a block toolbar and got none');
+    assert.equal(shown, true, 'the block toolbar stayed hidden while the text had the focus');
+    // TipTap keeps an empty paragraph after a heading that ends the text, so the cursor has a place.
+    assert.match(ui.editor.getHTML(), /^<p>one<\/p><h2>two<\/h2>/, 'the block toolbar\'s H2 did not act on the block at the cursor');
+    assert.equal(withoutBar, null, 'a field that did not ask got a block toolbar');
+    assert.ok(withPlugin, 'a plugin\'s block button is not on the block toolbar');
+});
+
 test('the shipped file is built from the sources as they are', async () => {
     // Arrange
     const { sourceStamp } = await import('../../resources/js/rich-editor/build.mjs');

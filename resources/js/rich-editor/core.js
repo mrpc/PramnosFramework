@@ -60,6 +60,8 @@ export const LABELS = {
     caption: 'Caption',
     captionHint: 'Shown under the picture',
     body: 'Text',
+    block: 'Block',
+    paragraph: 'Paragraph',
 };
 
 /** The built-in buttons, in toolbar order. */
@@ -103,6 +105,9 @@ function builtinButtons(l, ui) {
  * @param {Array}    [options.plugins]  Plugins, as above
  * @param {object|false} [options.embeds] `{ providers, preview }` for the embed previews; false for none
  * @param {object}   [options.labels]   Replacements for LABELS
+ * @param {boolean}  [options.blockToolbar] A small toolbar floating over the block at the cursor —
+ *                                    move it, make it a paragraph or a heading, bold, italic, link;
+ *                                    a plugin's button with `block: true` is on it too. Off by default
  * @returns {{ editor: Editor, element: HTMLElement, getHTML: Function, setHTML: Function, setReadonly: Function, destroy: Function }}
  */
 export function createRichEditor(host, options = {}) {
@@ -378,6 +383,66 @@ export function createRichEditor(host, options = {}) {
         });
         panels.append(box);
         picturePanel = box;
+    }
+
+    // ── The block toolbar: over the block at the cursor, while the text has the focus ──
+    let blockBar = null;
+    if (options.blockToolbar) {
+        area.classList.add('has-block-toolbar');
+        blockBar = document.createElement('div');
+        blockBar.className = 'pf-rich-block';
+        blockBar.setAttribute('role', 'toolbar');
+        blockBar.setAttribute('aria-label', l.block);
+        blockBar.hidden = true;
+        // Pressing a button must not take the focus from the text, or the bar would go first.
+        blockBar.addEventListener('mousedown', (event) => event.preventDefault());
+        const blockSpecs = [
+            { name: 'moveUp', label: '▲', title: l.moveUp, run: (e) => moveBlock(e, -1) },
+            { name: 'moveDown', label: '▼', title: l.moveDown, run: (e) => moveBlock(e, 1) },
+            { gap: true },
+            { name: 'paragraph', label: '¶', title: l.paragraph, run: (e) => e.chain().focus().setParagraph().run(), active: (e) => e.isActive('paragraph') },
+            { name: 'h2', label: 'H2', title: l.heading, run: (e) => e.chain().focus().toggleHeading({ level: 2 }).run(), active: (e) => e.isActive('heading', { level: 2 }) },
+            { name: 'h3', label: 'H3', title: l.subheading, run: (e) => e.chain().focus().toggleHeading({ level: 3 }).run(), active: (e) => e.isActive('heading', { level: 3 }) },
+            { gap: true },
+            { name: 'bold', label: 'B', title: l.bold, run: (e) => e.chain().focus().toggleBold().run(), active: (e) => e.isActive('bold') },
+            { name: 'italic', label: 'I', title: l.italic, run: (e) => e.chain().focus().toggleItalic().run(), active: (e) => e.isActive('italic') },
+            { name: 'link', label: l.link, title: l.link, run: () => ui.openLinkPanel(), active: (e) => e.isActive('link') },
+        ].concat(buttons.filter((b) => b.block));
+        blockSpecs.forEach((spec) => {
+            if (spec.gap) {
+                const gap = document.createElement('span');
+                gap.className = 'pf-rich-block-gap';
+                blockBar.append(gap);
+                return;
+            }
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'pf-rich-button';
+            button.dataset.block = spec.name;
+            button.textContent = spec.label;
+            button.title = spec.title || spec.label;
+            button.setAttribute('aria-label', l.block + ': ' + (spec.title || spec.label));
+            button.addEventListener('click', () => { if (editor.isEditable) { spec.run(editor, ui); } });
+            blockBar.append(button);
+            drawn.push({ spec, button });
+        });
+        area.prepend(blockBar);
+
+        let focused = false;
+        const place = () => {
+            const show = focused && editor.isEditable;
+            blockBar.hidden = !show;
+            if (!show) { return; }
+            const { selection } = editor.state;
+            const at = selection.$from.depth === 0 ? selection.from : selection.$from.before(1);
+            const dom = editor.view.nodeDOM(at);
+            const top = dom && typeof dom.getBoundingClientRect === 'function'
+                ? dom.getBoundingClientRect().top - area.getBoundingClientRect().top : 0;
+            blockBar.style.top = Math.max(0, top - blockBar.offsetHeight - 4) + 'px';
+        };
+        editor.on('transaction', place);
+        editor.on('focus', () => { focused = true; place(); });
+        editor.on('blur', () => { focused = false; place(); });
     }
 
     plugins.forEach((plugin) => {

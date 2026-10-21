@@ -520,6 +520,7 @@ one account always uses the framework's own.
     'rich'    => [            // only for 'rich'; both optional
         'upload' => adminUrl('Media/upload'),   // pictures POSTed here as `file`; answers {"url": …}
         'links'  => adminUrl('search'),         // the link panel searches here (?q=)
+        'block_toolbar' => true,                // a toolbar over the block at the cursor; off by default
     ],
     'tinymce' => [            // only for 'tinymce'
         'src'         => sURL . 'assets/vendor/tinymce/7.2.0/tinymce.min.js',  // default: the jsDelivr CDN

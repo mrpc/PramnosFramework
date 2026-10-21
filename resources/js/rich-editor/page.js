@@ -13,8 +13,9 @@
  *                                               is `[{title, url}]`, or `{results: […]}`
  *   data-pf-rich-plugins="embeds,mentions"      only these plugins; every one registered without it
  *   data-pf-rich-labels='{"bold":"Έντονα"}'     the controls' words
+ *   data-pf-rich-block-toolbar="1"              a toolbar over the block at the cursor ("0": none)
  *
- * `window.pfRichEditorDefaults = { labels, upload, links }`, set before this file, is what a field
+ * `window.pfRichEditorDefaults = { labels, upload, links, blockToolbar }`, set before this file, is what a field
  * without its own attribute takes — `MessageEditor::scripts('rich')` prints the application's.
  *
  * A site adds its own behaviour with a plugin, before the page has loaded:
@@ -96,6 +97,10 @@ function enhance(field) {
         plugins: pluginsFor(field),
         embeds: field.hasAttribute('data-pf-rich-plugins') && named.indexOf('embeds') === -1 ? false : {},
         labels,
+        // The field's own say, else the application's.
+        blockToolbar: field.hasAttribute('data-pf-rich-block-toolbar')
+            ? field.getAttribute('data-pf-rich-block-toolbar') !== '0'
+            : !!defaults.blockToolbar,
         onChange: (html) => {
             field.value = html;
             field.dispatchEvent(new Event('input', { bubbles: true }));

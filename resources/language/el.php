@@ -841,4 +841,6 @@ return [
     'Caption' => 'Λεζάντα',
     'Shown under the picture' => 'Εμφανίζεται κάτω από την εικόνα',
     'Text' => 'Κείμενο',
+    'Block' => 'Τμήμα',
+    'Paragraph' => 'Παράγραφος',
 ];

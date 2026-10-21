@@ -18,19 +18,20 @@
      * @param {object|false} [embeds] `{ providers, preview }`, or false for no previews
      * @param {object}   [labels]  The controls' words
      * @param {boolean}  [readonly]
+     * @param {boolean}  [blockToolbar] A toolbar floating over the block at the cursor
      * @param {import('svelte').Snippet} [header] What sits above the text — a title
      */
     import { onDestroy, onMount } from 'svelte';
     import { createRichEditor } from '../lib/rich-editor/core.js';
     import '../lib/rich-editor/rich-editor.css';
 
-    let { value = '', onchange = () => {}, upload = null, findLinks = null, plugins = [], embeds = {}, labels = {}, readonly = false, header = null } = $props();
+    let { value = '', onchange = () => {}, upload = null, findLinks = null, plugins = [], embeds = {}, labels = {}, readonly = false, blockToolbar = false, header = null } = $props();
 
     let host;
     let instance = $state(null);
 
     onMount(() => {
-        instance = createRichEditor(host, { content: value, onChange: (html) => onchange(html), upload, findLinks, plugins, embeds, labels, readonly });
+        instance = createRichEditor(host, { content: value, onChange: (html) => onchange(html), upload, findLinks, plugins, embeds, labels, readonly, blockToolbar });
     });
 
     $effect(() => {

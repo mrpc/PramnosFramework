@@ -17,7 +17,11 @@ without JavaScript. It ships with every other `assets/js/pf-*.js` — `init` and
 
 ```php
 // app/app.php — as the mass-message editor (see the Email guide)
-'messaging' => ['editor' => 'rich', 'rich' => ['upload' => adminUrl('Media/upload'), 'links' => adminUrl('search')]],
+'messaging' => ['editor' => 'rich', 'rich' => [
+    'upload'        => adminUrl('Media/upload'),
+    'links'         => adminUrl('search'),
+    'block_toolbar' => true,   // the toolbar over the block at the cursor; off by default
+]],
 ```
 
 ```php
@@ -42,6 +46,11 @@ defaults — the controls' words through `t()`, and the `upload` and `links` add
   CSRF token; the answer is `{"url": "…"}`. A paste that carries text as well stays text — Word
   pastes a picture of the selection beside it.
 - **Blocks** move up and down with Alt+↑ / Alt+↓, or the toolbar's ▲ ▼.
+- **The block toolbar**, when the editor is set up with it: a small bar floating over the block at
+  the cursor while the text has the focus — move the block, make it a paragraph or a heading,
+  bold, italic, link. Off by default; `'block_toolbar' => true` in `messaging.rich` turns it on for
+  the application, `data-pf-rich-block-toolbar="1"` (or `"0"`) for one field, `blockToolbar` for
+  `create()` and the Svelte component. A plugin's button with `block: true` is on it too.
 - **Embeds:** an address alone in a paragraph — YouTube, Vimeo, or a provider of the site's own —
   is previewed under it. The address is what is saved; how it is embedded on the published page
   is the site's business.
@@ -54,6 +63,7 @@ defaults — the controls' words through `t()`, and the `upload` and `links` add
 | `data-pf-rich-links="/admin/search"` | where its link panel searches |
 | `data-pf-rich-plugins="embeds,mentions"` | only these plugins; every one registered without it. `embeds` is named like a plugin, so a field can leave previews out |
 | `data-pf-rich-labels='{"bold":"Έντονα"}'` | the controls' words |
+| `data-pf-rich-block-toolbar="1"` | the block toolbar for this field (`"0"`: none), whatever the application's default |
 | `readonly` / `disabled` | the text shown, not editable |
 
 ```js
@@ -78,9 +88,9 @@ pfRichEditor.use({
         parseHTML: () => [{ tag: 'mark' }],
         renderHTML: () => ['mark', 0],
     })],
-    // Buttons, after the built-in ones.
+    // Buttons, after the built-in ones; `block: true` puts one on the block toolbar as well.
     buttons: [{
-        name: 'highlight', label: 'H!', title: 'Highlight',
+        name: 'highlight', label: 'H!', title: 'Highlight', block: true,
         run: (editor, ui) => editor.chain().focus().toggleMark('highlight').run(),
         active: (editor) => editor.isActive('highlight'),
     }],
@@ -124,7 +134,7 @@ leaving a version the project already chose.
 <RichEditor value={article.body} onchange={(html) => (article.body = html)}
             upload={(file) => api.upload(file).then((r) => r.url)}
             findLinks={(text) => api.get('/search', { q: text })}
-            plugins={[mentions]} embeds={{ providers: [podcast, ...embedProviders] }}>
+            plugins={[mentions]} embeds={{ providers: [podcast, ...embedProviders] }} blockToolbar>
     {#snippet header()}<input class="title" bind:value={article.title}>{/snippet}
 </RichEditor>
 ```
