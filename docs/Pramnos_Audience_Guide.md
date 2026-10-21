@@ -426,8 +426,10 @@ table a minute later; partitioned weekly, compressed and kept two years on Times
 everybody's. So a windowed count sees an occurrence about a minute after it, while the summary,
 rules and segments see it at once.
 
-Without the `changelog` feature only the summary is kept: a window condition is refused with what
-to enable, and an A/B test says its goal is not counted.
+The table is what is needed, not the feature: an application that runs `create_changelog_tables`
+with the `changelog` feature off — no model audit trail — keeps every occurrence all the same.
+Without the table only the summary is kept: a window condition is refused with what to enable,
+and an A/B test says its goal is not counted.
 
 ### Conditions
 

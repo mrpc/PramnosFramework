@@ -82,7 +82,9 @@ class ChangelogWriter implements ListenerInterface
                 'itemid'      => (string) $itemid,
                 'event'       => $event,
                 'logtype'     => $logtype,
-                'details'     => $details === [] ? null : $details,
+                // Encoded here, not by the drain's transformer: a drain in a process where the
+                // changelog provider did not boot has none, and the column refuses an array.
+                'details'     => $details === [] ? null : json_encode($details, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE),
                 'description' => $description,
                 'userid'      => $by === null ? static::currentUserId() : ($by > 0 ? $by : null),
                 'source'      => $source ?? static::currentSource(),

@@ -448,4 +448,42 @@ class PersonEventsTest extends TestCase
         $this->assertFalse($results['counted']);
         $this->assertFalse(\Pramnos\Audience\Installed::eventLog());
     }
+
+    /**
+     * An occurrence written to the spool in one process is drained in another where the changelog
+     * provider never booted — an application with the table and the feature off — and lands with
+     * its properties: the JSON is made when the row is spooled, not by a drain-time transformer.
+     */
+    #[DataProvider('databases')]
+    public function testAnOccurrenceDrainsWhereTheChangelogFeatureIsOff(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->boot($type, $host, $port, $user);
+        $directory = sys_get_temp_dir() . '/pf_audience_spool_' . bin2hex(random_bytes(4));
+        mkdir($directory, 0777, true);
+        $spool = new class () extends \Pramnos\Database\WriteSpool {
+            /** Point the file driver at a directory of the test's own. */
+            public static function useDirectory(?string $directory): void
+            {
+                static::$directory = $directory;
+            }
+        };
+        $spool::useDirectory($directory);
+        \Pramnos\Database\WriteSpool::setDriver(\Pramnos\Database\WriteSpool::DRIVER_FILE);
+
+        // Act
+        PersonEvents::record($this->ids['cara'], 'payment.made', ['amount' => 12]);
+        \Pramnos\Database\WriteSpool::resetTransformers();   // the drain's process: no provider booted
+        $drained = \Pramnos\Database\WriteSpool::drain();
+        $spool::useDirectory(null);
+        array_map('unlink', glob($directory . '/*') ?: []);
+        rmdir($directory);
+
+        // Assert
+        $this->assertSame([1, 0], [$drained['written'], $drained['failed']], 'nothing kept back for the next run');
+        $rows = $this->logged(['itemid' => (string) $this->ids['cara']]);
+        $this->assertCount(1, $rows);
+        $this->assertEquals(['amount' => 12], self::properties($rows[0]));
+        $this->assertSame(['cara'], $this->who(['op' => 'at_least', 'value' => 1, 'days' => 1]), 'a window counts it');
+    }
 }

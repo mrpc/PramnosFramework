@@ -1301,7 +1301,7 @@ return [
     'Still needed' => 'Χρειάζονται ακόμα',
     'the baseline' => 'η βάση σύγκρισης',
     'Make it the winner' => 'Ορισμός ως νικήτρια',
-    'How sure is the chance the difference from the first variant is not luck; at 95% or more it can be trusted. Still needed is how many more people each variant needs for the difference seen to be told. %s visitors have not signed up and are not counted.' => 'Βεβαιότητα είναι η πιθανότητα η διαφορά από την πρώτη παραλλαγή να μην είναι τύχη· από 95% και πάνω μπορείτε να την εμπιστευτείτε. «Χρειάζονται ακόμα» είναι πόσα άτομα ακόμα χρειάζεται κάθε παραλλαγή για να ξεχωρίσει η διαφορά που φαίνεται. %s επισκέπτες δεν έχουν εγγραφεί και δεν μετριούνται.',
+    'How sure is the chance the difference from the first variant is not luck; at 95%% or more it can be trusted. Still needed is how many more people each variant needs for the difference seen to be told. %s visitors have not signed up and are not counted.' => 'Βεβαιότητα είναι η πιθανότητα η διαφορά από την πρώτη παραλλαγή να μην είναι τύχη· από 95%% και πάνω μπορείτε να την εμπιστευτείτε. «Χρειάζονται ακόμα» είναι πόσα άτομα ακόμα χρειάζεται κάθε παραλλαγή για να ξεχωρίσει η διαφορά που φαίνεται. %s επισκέπτες δεν έχουν εγγραφεί και δεν μετριούνται.',
     'In the code' => 'Στον κώδικα',
     'Another test already has that name for the code.' => 'Άλλο τεστ έχει ήδη αυτό το όνομα για τον κώδικα.',
     'The test has started.' => 'Το τεστ ξεκίνησε.',

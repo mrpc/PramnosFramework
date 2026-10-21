@@ -57,7 +57,7 @@ $percent = static fn (?float $v): string => $v === null ? '—' : number_format(
             <?php endforeach; ?>
             </tbody>
         </table>
-        <p style="font-size:.8rem;opacity:.7;margin-top:8px"><?php echo $e(t('How sure is the chance the difference from the first variant is not luck; at 95% or more it can be trusted. Still needed is how many more people each variant needs for the difference seen to be told. %s visitors have not signed up and are not counted.', number_format($this->results['visitors']))); ?></p>
+        <p style="font-size:.8rem;opacity:.7;margin-top:8px"><?php echo $e(t('How sure is the chance the difference from the first variant is not luck; at 95%% or more it can be trusted. Still needed is how many more people each variant needs for the difference seen to be told. %s visitors have not signed up and are not counted.', number_format($this->results['visitors']))); ?></p>
     </div></div>
     <div class="card" style="border:1px solid #ddd;border-radius:4px"><div class="card-body" style="padding:16px">
         <h3 style="margin:0 0 8px"><?php echo $e(t('In the code')); ?></h3>
