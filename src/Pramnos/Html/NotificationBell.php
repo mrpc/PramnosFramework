@@ -58,7 +58,7 @@ final class NotificationBell
     private static ?bool $hasFeed = null;
 
     /**
-     * @param array{url?: string, interval?: int, channel?: string, groups?: array<string, string>, class?: string, label?: string, empty?: string, readAll?: string, all?: string, allLabel?: string} $options
+     * @param array{url?: string, interval?: int, channel?: string, groups?: array<string, string>, class?: string, label?: string, empty?: string, readAll?: string, all?: string, allLabel?: string, titleFlash?: bool, sound?: bool|string} $options
      *  - `url` — the feed's address: `/Notifications` on the site by default
      *  - `interval` — seconds between counts, while the tab is visible (60)
      *  - `channel` — a realtime channel whose `notification.created` refreshes it at once; by
@@ -69,6 +69,10 @@ final class NotificationBell
      *  - `all` — the address of the page listing every notification: a link at the foot of the
      *    panel, under the list and when it is empty; none by default
      *  - `allLabel` — that link's words ("See all")
+     *  - `titleFlash` — the tab's title carries "(N) " while N are unread, and alternates with
+     *    a notification's title when one arrives, until the tab is looked at (on by default)
+     *  - `sound` — played when one arrives, once per browser: `true` for a short tone made in
+     *    the page, a sound's address, or `false` for none (the default)
      */
     public static function render(array $options = []): string
     {
@@ -98,7 +102,9 @@ final class NotificationBell
         $html = '<div class="pf-notify" data-pf-notifications data-url="' . self::e($url) . '"'
             . ' data-interval="' . (int) ($options['interval'] ?? 60) . '"'
             // An empty channel is none: `'channel' => ''` keeps a bell off the realtime connection.
-            . ((string) ($options['channel'] ?? '') !== '' ? ' data-channel="' . self::e((string) $options['channel']) . '"' : '') . '>'
+            . ((string) ($options['channel'] ?? '') !== '' ? ' data-channel="' . self::e((string) $options['channel']) . '"' : '')
+            . (($options['titleFlash'] ?? true) === false ? ' data-title-flash="0"' : '')
+            . self::soundAttribute($options['sound'] ?? false) . '>'
             . '<button type="button" class="pf-notify-toggle ' . self::e((string) ($options['class'] ?? '')) . '"'
             . ' data-pf-notifications-toggle data-label="' . self::e($label) . '" aria-haspopup="true" aria-expanded="false"'
             . ' aria-label="' . self::e($label . ($unread > 0 ? ' (' . $unread . ')' : '')) . '">'
@@ -131,6 +137,16 @@ final class NotificationBell
                     . self::e(self::t((string) ($options['allLabel'] ?? 'See all'))) . '</a></div>'
                 : '')
             . '</div></div>';
+    }
+
+    /** `data-sound` for the `sound` option: a tone made in the page, an address, or nothing. */
+    private static function soundAttribute(mixed $sound): string
+    {
+        if ($sound === true) {
+            return ' data-sound="beep"';
+        }
+
+        return is_string($sound) && $sound !== '' ? ' data-sound="' . self::e($sound) . '"' : '';
     }
 
     private static function t(string $words): string

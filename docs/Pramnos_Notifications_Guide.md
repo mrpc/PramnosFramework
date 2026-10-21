@@ -658,6 +658,8 @@ Nobody signed in gets 401. A write without the token gets 403 and changes nothin
     'class'    => 'btn btn-ghost btn-circle',
     'all'      => adminUrl('Myaccount/notifications'), // a "See all" link at the foot; none by default
     'allLabel' => 'See all',
+    'titleFlash' => true,                          // the tab's title on an arrival (the default)
+    'sound'      => false,                         // true: a short tone; or a sound's address
 ]); ?>
 ```
 
@@ -673,6 +675,17 @@ shows 0 before the real number. `pf-utils.js` does the rest through the data att
 - **Closing:** outside the bell, or Esc.
 - **Everything else:** with `all`, a link at the foot of the panel leads to the page listing every
   notification — under the list, and there when the list is empty too.
+- **Arriving** (on the realtime connection): the bell refreshes, then reads the new one with the
+  page's session and dispatches **`pf:notification`** on the document with
+  `{ id, type, title, data, item }` — an application reacts to a type without a channel of its
+  own (`if (e.detail.type === 'App\\Notifications\\TodoNotification') …`).
+- **The tab's title** carries "(N) " while N are unread. When one arrives the title alternates
+  with its title until the tab is looked at — for ten seconds if it already is — then is put
+  back. `'titleFlash' => false` leaves the title alone.
+- **A sound**, with `'sound'`, plays once per browser, not once per tab: the shared realtime
+  connection names one tab — the visible one, else the one seen last — and without it the visible
+  tab plays it. Where the browser refuses to play before a click, nothing plays and nothing
+  complains.
 - **Refreshing at once:** a `pf:notifications:refresh` event on the document refreshes it, as does
   a `notification.created` event on `channel` where the page has a realtime connection in
   `window.pfRealtime`. See [Arriving at once](#arriving-at-once).

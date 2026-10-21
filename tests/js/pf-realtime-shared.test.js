@@ -58,8 +58,9 @@ function worker() {
 }
 
 /** A tab on the site: the page, its CSRF token, and a SharedWorker that reaches `shared`. */
-function tab(shared, csrf) {
+function tab(shared, csrf, { hidden = false } = {}) {
     const { window, document } = createDom({ meta: { csrf, 'pf-realtime': JSON.stringify(CONFIG) } });
+    document.hidden = hidden;
     document.currentScript = { src: 'https://app.test/assets/js/pf-utils.js' };
     window.fetch = stubFetch({ 'POST /broadcasting/auth': (req) => ({ auth: 'k1:signed-by-' + req.headers['X-CSRF-Token'] }) });
     window.SharedWorker = class {
@@ -267,4 +268,31 @@ test('each tab can read what the shared connection is doing', async () => {
     assert.equal(status.socket, 'open');
     assert.equal(status.socketId, '1.2');
     assert.deepEqual([...status.subscribed], ['news']);
+});
+
+test('the worker names one tab to act for the browser: the visible one', async () => {
+    // Arrange — A in the background, B looked at
+    const shared = worker();
+    const a = tab(shared, 'tokA', { hidden: true });
+    const b = tab(shared, 'tokB', { hidden: false });
+    const leads = { a: [], b: [] };
+    a.window.pfRealtime.channel('news').listen('notification.created', (d, meta) => leads.a.push(meta.lead));
+    b.window.pfRealtime.channel('news').listen('notification.created', (d, meta) => leads.b.push(meta.lead));
+    await settle();
+    handshake(shared.sockets[0]);
+    await settle();
+
+    // Act — one arrival; then B goes to the background and A comes forward; another
+    shared.sockets[0].receive('notification.created', { id: 1 }, 'news');
+    await settle();
+    b.document.hidden = true;
+    b.document.dispatchEvent(new b.window.Event('visibilitychange'));
+    a.document.hidden = false;
+    a.document.dispatchEvent(new a.window.Event('visibilitychange'));
+    await settle();
+    shared.sockets[0].receive('notification.created', { id: 2 }, 'news');
+    await settle();
+
+    // Assert
+    assert.deepEqual(leads, { a: [false, true], b: [true, false] }, 'more or fewer than one tab acted, or the wrong one');
 });

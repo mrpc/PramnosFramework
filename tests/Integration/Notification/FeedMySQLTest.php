@@ -239,6 +239,13 @@ class FeedMySQLTest extends TestCase
         $this->assertStringContainsString('<ul class="pf-notify-list" data-pf-notifications-list></ul>', $html);
         $this->assertStringContainsString('data-url="' . \sURL . 'Notifications"', \Pramnos\Html\NotificationBell::render(), 'the site\'s /Notifications by default');
         $this->assertStringNotContainsString('pf-notify-all', $html, 'a link to a page nobody named');
+        // The arrival: the title flashes unless switched off; a sound only when asked for —
+        // a tone made in the page, or an address, escaped.
+        $this->assertStringNotContainsString('data-title-flash', $html, 'the title flash is on by default');
+        $this->assertStringNotContainsString('data-sound', $html, 'a sound nobody asked for');
+        $quiet = \Pramnos\Html\NotificationBell::render(['titleFlash' => false, 'sound' => true]);
+        $this->assertStringContainsString(' data-title-flash="0" data-sound="beep">', $quiet);
+        $this->assertStringContainsString(' data-sound="/sounds/a&amp;b.mp3">', \Pramnos\Html\NotificationBell::render(['sound' => '/sounds/a&b.mp3']));
         // With the page of every notification: a link at the panel's foot, after the list and
         // the empty line, so it is there when the list is empty too.
         $this->assertStringEndsWith(

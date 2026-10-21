@@ -801,9 +801,15 @@
                 .catch(function () { done(null); /* refused or offline: the bell still polls */ });
         }
 
-        function deliver(channel, event, data) {
+        /**
+         * An event to this page's listeners, with `{ lead }`: whether this tab is the one of the
+         * browser's that should act once for all — play a sound. The shared worker names one;
+         * a page on its own is the lead while it is visible.
+         */
+        function deliver(channel, event, data, lead) {
             var listeners = channels[channel];
-            (listeners && listeners[event] || []).forEach(function (fn) { fn(data); });
+            var meta = { lead: lead === undefined ? !document.hidden : !!lead };
+            (listeners && listeners[event] || []).forEach(function (fn) { fn(data, meta); });
         }
 
         function missed() {
@@ -872,7 +878,7 @@
                         if (port) { port.postMessage({ type: 'signed', channel: m.channel, signed: signed }); }
                     });
                 } else if (m.type === 'event') {
-                    deliver(m.channel, m.event, m.data);
+                    deliver(m.channel, m.event, m.data, m.lead);
                 } else if (m.type === 'missed') {
                     missed();
                 } else if (m.type === 'status') {
@@ -880,8 +886,12 @@
                 }
             };
             if (typeof port.start === 'function') { port.start(); }
-            port.postMessage({ type: 'hello', config: config });
+            port.postMessage({ type: 'hello', config: config, visible: !document.hidden });
             window.addEventListener('pagehide', function () { if (port) { port.postMessage({ type: 'bye' }); } });
+            // Which tab the worker names to act once for all: the visible one, else the last seen.
+            document.addEventListener('visibilitychange', function () {
+                if (port) { port.postMessage({ type: 'visible', visible: !document.hidden }); }
+            });
             connection = {
                 subscribe: function (name) { if (port) { port.postMessage({ type: 'subscribe', channel: name }); } },
                 close: function () { if (port) { port.postMessage({ type: 'bye' }); } },
@@ -1301,10 +1311,87 @@
             }
 
             function showCount(n) {
+                unread = n;
+                if (titleFlash && !flashing) { document.title = titled(n); }
                 if (!count) { return; }
                 count.textContent = n > 99 ? '99+' : String(n);
                 count.hidden = n <= 0;
                 toggle.setAttribute('aria-label', (toggle.getAttribute('data-label') || 'Notifications') + (n > 0 ? ' (' + n + ')' : ''));
+            }
+
+            // ── A notification arriving: the tab's title, a sound, and pf:notification ──
+            //
+            // data-title-flash (on unless "0"): the title carries "(N) " while N are unread, and
+            // when one arrives it alternates with that notification's title — until the tab is
+            // looked at, or for ten seconds if it already is — then is put back. data-sound: a
+            // sound's address, or "beep" for a short tone made here; played once per browser,
+            // by the tab the shared connection names (the visible one, else the last seen), and
+            // silently not at all where the browser refuses to play without a click.
+            var titleFlash = bell.getAttribute('data-title-flash') !== '0';
+            var sound      = bell.getAttribute('data-sound') || '';
+            var baseTitle  = document.title.replace(/^\(\d+\+?\) /, '');
+            var unread     = 0;
+            var flashing   = null;
+
+            function titled(n) {
+                return (n > 0 ? '(' + (n > 99 ? '99+' : n) + ') ' : '') + baseTitle;
+            }
+
+            function stopFlash() {
+                if (flashing) { window.clearInterval(flashing.timer); window.clearTimeout(flashing.end); }
+                flashing = null;
+                document.title = titled(unread);
+            }
+
+            function flash(text) {
+                if (!titleFlash || !text) { return; }
+                stopFlash();
+                var on = false;
+                flashing = { timer: window.setInterval(function () {
+                    on = !on;
+                    document.title = on ? '(' + (unread > 99 ? '99+' : unread) + ') ' + text : titled(unread);
+                }, 1000), end: null };
+                if (!document.hidden) { flashing.end = window.setTimeout(stopFlash, 10000); }
+            }
+
+            function play() {
+                try {
+                    if (sound === 'beep') {
+                        var Audio_ = window.AudioContext || window.webkitAudioContext;
+                        if (!Audio_) { return; }
+                        var context = new Audio_();
+                        var tone = context.createOscillator();
+                        var gain = context.createGain();
+                        tone.frequency.value = 880;
+                        gain.gain.setValueAtTime(0.15, context.currentTime);
+                        gain.gain.exponentialRampToValueAtTime(0.001, context.currentTime + 0.4);
+                        tone.connect(gain);
+                        gain.connect(context.destination);
+                        tone.start();
+                        tone.stop(context.currentTime + 0.4);
+                    } else if (sound && typeof window.Audio === 'function') {
+                        var played = new window.Audio(sound).play();
+                        if (played && typeof played.catch === 'function') { played.catch(function () { /* no click yet: refused */ }); }
+                    }
+                } catch (e) {
+                    /* a sound is not worth an error */
+                }
+            }
+
+            /** One arrived: refresh, then read it with this page's session, and tell the page. */
+            function arrived(data, meta) {
+                refresh();
+                var id = data && data.id ? String(data.id) : '';
+                get('?per_page=5').then(function (d) {
+                    var items = d.items || [];
+                    var it = items.filter(function (one) { return String(one.id) === id; })[0] || items[0] || null;
+                    showCount(d.unread || 0);
+                    document.dispatchEvent(new CustomEvent('pf:notification', { bubbles: true, detail: {
+                        id: it ? it.id : id, type: it ? it.type : '', title: it ? it.title : '', data: it ? it.data : {}, item: it,
+                    } }));
+                    flash(it ? (it.title || it.message) : '');
+                }).catch(function () { /* the count is refreshed; the rest waits for the next read */ });
+                if (sound && meta && meta.lead) { play(); }
             }
 
             function refreshCount() {
@@ -1418,7 +1505,7 @@
             }
 
             document.addEventListener('visibilitychange', function () {
-                if (document.hidden) { stop(); } else { refresh(); start(); }
+                if (document.hidden) { stop(); } else { stopFlash(); refresh(); start(); }
             });
             document.addEventListener('pf:notifications:refresh', refresh);
 
@@ -1428,7 +1515,7 @@
                 if (rt.transport === 'sse' && rt.on) {
                     rt.on('notification.created', refresh);
                 } else if (rt.channel) {
-                    rt.channel(channel).listen('notification.created', refresh);
+                    rt.channel(channel).listen('notification.created', arrived);
                 }
             }
 
@@ -2224,6 +2311,24 @@
         var signing = {};
         var connection = null;
         var lastStatus = { socket: 'connecting', socketId: '', subscribed: [], error: null };
+        var seen = [];   // [{ port, visible, at }] — when each tab was last visible
+
+        /** The tab to act once for all: a visible one, the most recently seen; else the most recently seen. */
+        function lead(candidates) {
+            var best = null;
+            seen.forEach(function (s) {
+                if (candidates.indexOf(s.port) === -1) { return; }
+                if (!best || (s.visible && !best.visible) || (s.visible === best.visible && s.at > best.at)) { best = s; }
+            });
+            return best ? best.port : candidates[0];
+        }
+
+        function sighting(port, visible) {
+            var s = seen.filter(function (one) { return one.port === port; })[0];
+            if (!s) { s = { port: port, visible: false, at: 0 }; seen.push(s); }
+            s.visible = !!visible;
+            if (visible) { s.at = Date.now(); }
+        }
 
         function without(list, port) {
             return list.filter(function (p) { return p !== port; });
@@ -2237,8 +2342,10 @@
                 port.postMessage({ type: 'sign', channel: name, socketId: socketId });
             },
             onEvent: function (channel, event, data) {
-                (listening[channel] || []).forEach(function (port) {
-                    port.postMessage({ type: 'event', channel: channel, event: event, data: data });
+                var ports = listening[channel] || [];
+                var first = lead(ports);
+                ports.forEach(function (port) {
+                    port.postMessage({ type: 'event', channel: channel, event: event, data: data, lead: port === first });
                 });
             },
             onMissed: function () {
@@ -2255,7 +2362,10 @@
             ports.push(port);
             port.onmessage = function (message) {
                 var m = message.data || {};
-                if (m.type === 'hello') {
+                if (m.type === 'visible') {
+                    sighting(port, m.visible);
+                } else if (m.type === 'hello') {
+                    sighting(port, m.visible);
                     // Alive: the tab stops waiting for a worker that never started, and hears
                     // what the connection is doing so far.
                     port.postMessage({ type: 'ready' });
@@ -2270,6 +2380,7 @@
                     pending.done(m.signed);
                 } else if (m.type === 'bye') {
                     ports = without(ports, port);
+                    seen = seen.filter(function (one) { return one.port !== port; });
                     Object.keys(listening).forEach(function (name) {
                         listening[name] = without(listening[name], port);
                         if (signing[name] && signing[name].port === port) {
