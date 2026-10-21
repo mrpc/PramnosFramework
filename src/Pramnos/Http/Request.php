@@ -602,6 +602,13 @@ class Request extends Base
             $fromQuery = [];
             parse_str($parsedUrl['query'], $fromQuery);
             $_GET = array_merge($_GET, $fromQuery);
+            /*
+             * And into `$_REQUEST`, where it has no such key: a rewrite without `QSA`
+             * (`index.php?r=$1`) leaves the query only in `REQUEST_URI`, and a reader of
+             * `get(…, 'request')` — the unsubscribe link's token — then found nothing. A key
+             * PHP already put there, a POSTed one, wins, as `request_order` has it.
+             */
+            $_REQUEST = (is_array($_REQUEST ?? null) ? $_REQUEST : []) + $fromQuery;
         }
         unset($parsedUrl);
         /*

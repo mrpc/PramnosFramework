@@ -229,4 +229,27 @@ class RequestReparseTest extends TestCase
         // Assert
         $this->assertSame('not-mine', $_GET['list'] ?? null, 'a reset instance cleared a foreign key');
     }
+
+    /**
+     * A rewrite without `QSA` (`index.php?r=$1`) leaves the query only in `REQUEST_URI`: what is
+     * parsed from it reaches `$_REQUEST` too, so `get(…, 'request')` finds the unsubscribe link's
+     * token — and a value PHP already put in `$_REQUEST`, a POSTed one, is not replaced.
+     */
+    public function testTheQueryReachesRequestWhenTheRewriteDroppedIt(): void
+    {
+        // Arrange — what PHP saw: only the routing parameter, and a POSTed field
+        $this->reset();
+        $_SERVER['REQUEST_URI'] = '/unsubscribe?u=TOKEN123&list=news';
+        $_GET     = array('r' => 'unsubscribe');
+        $_REQUEST = array('r' => 'unsubscribe', 'list' => 'posted');
+
+        // Act
+        $request = new Request();
+        $request->calcParams('unsubscribe');
+
+        // Assert
+        $this->assertSame('TOKEN123', $request->get('u', '', 'request'), 'the token is missing from $_REQUEST');
+        $this->assertSame('posted', $_REQUEST['list'], 'the query replaced what was POSTed');
+        $this->assertSame('TOKEN123', $_GET['u']);
+    }
 }
