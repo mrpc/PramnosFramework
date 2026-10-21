@@ -97,7 +97,7 @@ final class AudienceBuilder
      *
      * @return array<string, string>
      */
-    private static function words(): array
+    public static function words(): array
     {
         $words = [];
         foreach ([

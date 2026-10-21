@@ -104,8 +104,9 @@ final class Tester
     }
 
     /**
-     * A step's action, done now for a person's details but sent to another account — a test send
-     * to oneself. Logged nowhere: it is not part of any run.
+     * A message step, done now for a person's details but sent to another account — a test send
+     * to oneself. Logged nowhere: it is not part of any run. A step that is not a message — a group,
+     * an attribute, a webhook — is refused: it would change real data.
      *
      * @return array{status: string, detail?: array<string, mixed>}
      */
@@ -115,6 +116,10 @@ final class Tester
         $action = $found['definition']['steps'][$step] ?? null;
         if ($action === null || $action['type'] !== 'action' || Actions::get($action['action']) === null) {
             throw new \InvalidArgumentException("Rule {$rule} has no action step {$step}.");
+        }
+        // Only a message can be tried on oneself: anything else would change the person's data.
+        if (Actions::get($action['action'])['channel'] === null) {
+            throw new \InvalidArgumentException(t('Only a message step can be sent as a test.'));
         }
         $context = new Context($rule, $found['name'], $found['version'], $step, 0, $person, ['test' => true], null, false,
             $found['definition']['consent'], $to);

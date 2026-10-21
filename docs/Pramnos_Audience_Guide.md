@@ -16,6 +16,7 @@ use_cases:
   - Sending a message, waiting, branching and following up automatically when people do something
   - Adding an application's own action — an SMS, a call list — to the rules
   - Trying a rule before switching it on: why a person would or would not get it, a test send
+  - Giving an administrator the right to make and switch on rules
 ---
 
 # Audience Guide
@@ -575,6 +576,25 @@ Tester::diff($rule, 3, 4);            // ['before' => 812, 'after' => 790, 'in' 
 
 Shadow mode is the live trial: the rule runs for real people on real events and writes in its log
 what it would have sent.
+
+### The Rules screen
+
+`/admin/Rules` (People → Rules) is behind its own ability, `admin.rules`: rules send to people on
+their own, so an administrator is given it or not. A new rule needs the tables
+(`create_rules_tables`); until then the item stays out of the menu.
+
+- **The list**: each rule's status, its trigger in words, how many came in over seven days, how
+  many are on their way, how many reached the goal.
+- **The editor** (`Html\RuleEditor`, `pf-rules.js`): when, who and the exit in the audience
+  builder, the steps as boxes — each with its fields and where it leads, a branch on conditions
+  with a builder of its own — and goal, consent list, sending hours, caps. Saving a change is a new
+  version; a new rule is a draft.
+- **A rule's page**: the boxes drawn with how many went through each and what they came to
+  (`Html\RuleCanvas`), *Run in shadow* / *Switch on* / *Pause*, **why** for an account id,
+  **had it been on** for 7 or 30 days, **send a test to me** for a message step with an account's
+  details, the versions with *compare*, and the last 50 rows of the log. Only a message step can be
+  tried on oneself — a group or attribute change would be real.
+
 
 ## Messages on the site
 

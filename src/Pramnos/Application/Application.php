@@ -1740,6 +1740,13 @@ class Application extends Base
             // Not before the migrations have made the tables: an application can hold them back.
             when: static fn (): bool => \Pramnos\Audience\Installed::segments(),
         ));
+        // Rules send to people on their own: an ability of their own, given per administrator.
+        NavRegistry::register(new NavItem(
+            'admin.rules', 'Rules', $admin('Rules'),
+            NavSection::Admin, 18, requireAuth: true, minUserType: $floor,
+            icon: 'sparkles', group: 'People',
+            when: static fn (): bool => \Pramnos\Audience\Installed::has('rules'),
+        ));
         NavRegistry::register(new NavItem(
             'admin.consent', 'Consent lists', $admin('ConsentLists'),
             NavSection::Admin, 17, requireAuth: true, minUserType: $floor,

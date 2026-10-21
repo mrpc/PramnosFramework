@@ -911,3 +911,52 @@ a.pf-stat-tile:hover { border-color: var(--color-primary, #2563eb); }
     border: 0;
     cursor: pointer;
 }
+
+/* A rule — Html\RuleCanvas and Html\RuleEditor (pf-rules.js): boxes in a column, the ways of a branch
+   side by side, each box's count under it. */
+.pf-rule-canvas { display: grid; gap: 0.4rem; justify-items: start; min-width: 0; }
+.pf-rule-box {
+    display: grid;
+    gap: 0.2rem;
+    max-width: 100%;
+    padding: 0.5rem 0.75rem;
+    background: var(--color-base-100, #fff);
+    border: 1px solid var(--color-base-300, #cbd5e1);
+    border-radius: 0.5rem;
+}
+.pf-rule-box > b {
+    font-size: 0.7rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    opacity: 0.7;
+}
+.pf-rule-when { border-color: var(--color-primary, #2563eb); }
+.pf-rule-until { border-color: var(--color-warning, #d97706); }
+.pf-rule-count { font-size: 0.8rem; opacity: 0.75; }
+.pf-rule-down, .pf-rule-end, .pf-rule-goto { font-size: 0.85rem; opacity: 0.7; padding-left: 0.75rem; }
+.pf-rule-branches {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+    gap: 0.75rem;
+    width: 100%;
+}
+.pf-rule-way {
+    display: grid;
+    gap: 0.4rem;
+    align-content: start;
+    padding-left: 0.6rem;
+    border-left: 2px solid var(--color-base-300, #cbd5e1);
+}
+.pf-rule-way-label { font-size: 0.75rem; font-weight: 600; opacity: 0.75; }
+.pf-rule-editor { display: grid; gap: 1rem; }
+.pf-rule-section > h3 { margin: 0 0 0.5rem; font-size: 0.85rem; letter-spacing: 0.05em; text-transform: uppercase; opacity: 0.75; }
+.pf-rule-editor [data-pf-rule-steps] { display: grid; gap: 0.6rem; }
+.pf-rule-head, .pf-rule-row, .pf-rule-inline, .pf-rule-variant {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem;
+}
+.pf-rule-body { display: grid; gap: 0.4rem; }
+.pf-rule-input { max-width: 100%; }
+.pf-rule-remove { margin-left: auto; background: none; border: 0; font-size: 1.1rem; cursor: pointer; color: inherit; }

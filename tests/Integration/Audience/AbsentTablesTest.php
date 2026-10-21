@@ -255,7 +255,8 @@ class AbsentTablesTest extends TestCase
         $this->request('GET');
 
         // Act
-        $answers = [$segments->display(), $lists->display()];
+        $rules    = $this->screen(\Pramnos\Application\Controllers\Rules::class);
+        $answers = [$segments->display(), $lists->display(), $rules->display()];
         $panel   = \Pramnos\Html\AudiencePanel::person($anna);
         $catalog = \Pramnos\Application\Controllers\Audience::describe();
         $messages = [\Pramnos\Audience\SiteMessages::post($anna, 'banner', 'x'), \Pramnos\Audience\SiteMessages::pending($anna),
@@ -264,7 +265,8 @@ class AbsentTablesTest extends TestCase
         // Assert
         $this->assertFalse(Installed::segments());
         $this->assertFalse(Installed::consentLists());
-        $this->assertSame([null, null], $answers);
+        $this->assertSame([null, null, null], $answers);
+        $this->assertSame([['error', 'Rules are not installed here yet: run migrate.']], $rules->flash);
         $this->assertSame([['error', 'Segments are not installed here yet: run migrate.']], $segments->flash);
         $this->assertSame([['error', 'Consent lists are not installed here yet: run migrate.']], $lists->flash);
         $this->assertStringContainsString('Press', $panel);
