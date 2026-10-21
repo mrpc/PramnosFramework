@@ -1,0 +1,37 @@
+<?php
+/**
+ * The A/B tests (Tailwind theme): each with its status, how many took part, and the variant ahead.
+ *
+ * Variables:
+ *   $this->tests — Experiments::all(), each with people and leading (the variant with the best rate, or null)
+ */
+$e = static fn ($value): string => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
+?>
+<div class="px-4 py-6">
+    <?php $this->activeNav = 'experiments'; $this->insert('../partials/admin_breadcrumb'); ?>
+    <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
+        <h2><?php echo $e(t('A/B tests')); ?></h2>
+        <a href="<?php echo $e(adminUrl('Experiments/edit')); ?>" class="btn btn-primary btn-sm"><?php echo $e(t('+ New test')); ?></a>
+    </div>
+    <div class="card bg-base-100 border border-base-300 shadow-xs mb-4"><div class="p-5 overflow-x-auto">
+        <table class="table table-sm text-sm">
+            <thead class="bg-base-200 text-xs text-base-content/70 uppercase">
+                <tr><th><?php echo $e(t('Name')); ?></th><th><?php echo $e(t('Status')); ?></th><th><?php echo $e(t('Variants')); ?></th><th class="text-right"><?php echo $e(t('People')); ?></th><th><?php echo $e(t('Ahead')); ?></th></tr>
+            </thead>
+            <tbody>
+            <?php foreach (($this->tests ?? []) as $test): ?>
+                <tr>
+                    <td><a href="<?php echo $e(adminUrl('Experiments/view/') . $test['id']); ?>"><?php echo $e($test['name']); ?></a> <code class="text-xs"><?php echo $e($test['slug']); ?></code></td>
+                    <td><?php echo $e($test['winner'] !== null ? t('decided: %s', $test['winner']) : t($test['status'])); ?></td>
+                    <td><?php echo $e(implode(' · ', array_map(static fn (array $v): string => $v['key'] . ' ' . $v['share'] . '%', $test['variants']))); ?></td>
+                    <td class="text-right"><?php echo $e(number_format($test['people'])); ?></td>
+                    <td><?php echo $test['leading'] === null ? '—' : $e($test['leading']['key'] . ' · ' . number_format($test['leading']['rate'] * 100, 1) . '%'); ?></td>
+                </tr>
+            <?php endforeach; ?>
+            <?php if (empty($this->tests)): ?>
+                <tr><td colspan="5" class="text-center text-base-content/60 py-6"><?php echo $e(t('No tests yet. A test shows people one of two or more variants and counts which reaches the goal more often.')); ?></td></tr>
+            <?php endif; ?>
+            </tbody>
+        </table>
+    </div></div>
+</div>

@@ -74,8 +74,9 @@ final class Tester
         $who        = Filter::fromArray($definition['who']);
         $trigger    = $definition['trigger'];
         [$query, $column, $basis] = match ($trigger['type']) {
-            'event' => [self::db()->queryBuilder()->table('#PREFIX#person_event_log')->select(['personid'])
-                ->where('event', $trigger['event'])->where('at', '>=', $since), 'personid', 'the event log'],
+            // The summary answers it exactly: somebody did it in the window when they last did it there.
+            'event' => [self::db()->queryBuilder()->table('#PREFIX#person_events')->select(['personid'])
+                ->where('event', $trigger['event'])->where('last_at', '>=', $since), 'personid', 'the event log'],
             'segment_entered' => [self::db()->queryBuilder()->table('#PREFIX#segment_members')->select(['userid'])
                 ->where('segmentid', $trigger['segment'])->where('entered_at', '>=', $since), 'userid', 'entries into the segment'],
             'segment_left' => [self::db()->queryBuilder()->table('#PREFIX#segment_members')->select(['userid'])

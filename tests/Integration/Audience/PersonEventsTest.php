@@ -12,6 +12,7 @@ use Pramnos\Audience\Filter;
 use Pramnos\Audience\PersonEvent;
 use Pramnos\Audience\PersonEvents;
 use Pramnos\Audience\RecordPersonEvent;
+use Pramnos\Audience\Segments;
 use Pramnos\Console\Commands\AudiencePruneEvents;
 use Pramnos\Email\Tracking;
 use Pramnos\Event\Event;
@@ -25,6 +26,7 @@ use Symfony\Component\Console\Tester\CommandTester;
  * anna paid three times — 40, 20 and 2 days ago; bob once, 100 days ago; cara never.
  */
 #[CoversClass(PersonEvents::class)]
+#[CoversClass(Segments::class)]
 #[CoversClass(RecordPersonEvent::class)]
 #[CoversClass(Filter::class)]
 #[CoversClass(AudiencePruneEvents::class)]
@@ -56,6 +58,28 @@ class PersonEventsTest extends TestCase
         PersonEvents::backfill('payment.made', [[$this->ids['bob'], time() - 100 * $day]]);
     }
 
+    /**
+     * The change log's rows of person events, oldest first, filtered by column.
+     *
+     * @param  array<string, scalar> $where
+     * @return list<array<string, mixed>>
+     */
+    private function logged(array $where = []): array
+    {
+        $query = $this->db->queryBuilder()->table(PersonEvents::LOG)->where('entity', 'user')->orderBy('created_at');
+        foreach ($where as $column => $value) {
+            $query->where($column, $value);
+        }
+
+        return $query->getAll();
+    }
+
+    /** A logged row's properties. @return array<string, mixed>|null */
+    private static function properties(array $row): ?array
+    {
+        return is_string($row['details']) ? json_decode($row['details'], true) : $row['details'];
+    }
+
     /** The people a condition about payments selects. @return list<string> */
     private function who(array $condition): array
     {
@@ -75,7 +99,7 @@ class PersonEventsTest extends TestCase
         // Act
         $this->payments();
         $anna = PersonEvents::of($this->ids['anna']);
-        $log  = $this->db->queryBuilder()->table('person_event_log')->where('personid', $this->ids['anna'])->orderBy('at')->getAll();
+        $log  = $this->logged(['itemid' => (string) $this->ids['anna']]);
 
         // Assert
         $this->assertSame(1, count($anna));
@@ -83,7 +107,8 @@ class PersonEventsTest extends TestCase
         $this->assertEqualsWithDelta(time() - 40 * 86400, $anna[0]['first'], 5);
         $this->assertEqualsWithDelta(time() - 2 * 86400, $anna[0]['last'], 5);
         $this->assertCount(3, $log);
-        $this->assertSame(['amount' => 40], json_decode($log[0]['properties'], true));
+        $this->assertSame(['amount' => 40], self::properties($log[0]));
+        $this->assertSame([(string) $this->ids['anna'], 'payment.made', $this->ids['anna']], [$log[0]['itemid'], $log[0]['event'], (int) $log[0]['userid']]);
         $this->assertSame([], PersonEvents::of($this->ids['cara']));
     }
 
@@ -203,8 +228,8 @@ class PersonEventsTest extends TestCase
         // Assert
         $this->assertSame(['listener', 'listener'], $heard, 'the listeners run as before');
         $this->assertSame(1, PersonEvents::of($this->ids['cara'])[0]['count']);
-        $this->assertSame(['amount' => 49], json_decode((string) $this->db->queryBuilder()->table('person_event_log')->where('personid', $this->ids['cara'])->getAll()[0]['properties'], true));
-        $this->assertSame(1, (int) $this->db->queryBuilder()->table('person_event_log')->select([new \Pramnos\Database\Expression('COUNT(*) AS n')])->getAll()[0]['n']);
+        $this->assertSame(['amount' => 49], self::properties($this->logged(['itemid' => (string) $this->ids['cara']])[0]));
+        $this->assertSame(1, count($this->logged()));
     }
 
     /**
@@ -225,7 +250,7 @@ class PersonEventsTest extends TestCase
         // Assert
         $this->assertTrue($done);
         $this->assertSame(1, PersonEvents::of($this->ids['bob'])[0]['count']);
-        $this->assertSame(1, count($this->db->queryBuilder()->table('person_event_log')->getAll()), 'nobody records nothing');
+        $this->assertSame(1, count($this->logged()), 'nobody records nothing');
     }
 
     /**
@@ -256,45 +281,48 @@ class PersonEventsTest extends TestCase
         $this->assertSame($once, $twice, 'forgotten and backfilled again: counted once');
         $this->assertSame(1, $once[0]['count']);
         $this->assertSame(strtotime('2026-02-01 10:00:00'), $once[0]['first']);
-        $this->assertSame(['pillar' => 3], json_decode((string) $this->db->queryBuilder()->table('person_event_log')->where('event', 'profile.made')->where('personid', $this->ids['bob'])->getAll()[0]['properties'], true));
+        $this->assertSame(['pillar' => 3], self::properties($this->logged(['event' => 'profile.made', 'itemid' => (string) $this->ids['bob']])[0]));
         $this->assertSame(3, $unix);
         $this->assertSame(0, $skipped, 'no person or no time is not an occurrence');
     }
 
     /**
-     * The log is pruned past the retention, the summary kept: "ever" still answers, a window no
-     * longer sees what was pruned. The command says what it did, and keeps everything at 0.
+     * The daily prune deletes what has a retention of its own — rule run-log rows, and segment stays
+     * that ended long ago — and keeps the open stays; at 0 a history is kept whole. Each person's
+     * occurrences are the change log's to keep, and the summary is kept for good.
      */
     #[DataProvider('databases')]
-    public function testTheLogIsPrunedAndTheSummaryKept(string $type, string $host, int $port, string $user): void
+    public function testThePruneKeepsWhatIsStillAnswered(string $type, string $host, int $port, string $user): void
     {
         // Arrange
         $this->boot($type, $host, $port, $user);
         $this->payments();
+        $segment = Segments::create('Paid', ['conditions' => [['event' => 'payment.made', 'op' => 'ever']]]);
+        $old     = time() - 400 * 86400;
+        $members = $this->db->queryBuilder()->table('segment_members');
+        $members->insert(['segmentid' => $segment, 'userid' => $this->ids['anna'], 'entered_at' => $old - 86400, 'left_at' => $old]);
+        $this->db->queryBuilder()->table('segment_members')->insert(['segmentid' => $segment, 'userid' => $this->ids['bob'], 'entered_at' => $old, 'left_at' => null]);
+        $this->db->queryBuilder()->table('segment_members')->insert(['segmentid' => $segment, 'userid' => $this->ids['cara'], 'entered_at' => $old, 'left_at' => time() - 86400]);
         $tester = new CommandTester(new AudiencePruneEvents());
 
         // Act
-        $code    = $tester->execute(['--days' => '30']);
-        $said    = $tester->getDisplay();
-        $logRows = count($this->db->queryBuilder()->table('person_event_log')->getAll());
-        Application::getInstance()->applicationInfo['audience'] = ['event_log_days' => 0];
+        $code = $tester->execute(['--days' => '30']);
+        $said = $tester->getDisplay();
+        $left = array_map('intval', array_column($this->db->queryBuilder()->table('segment_members')->getAll(), 'userid'));
+        Application::getInstance()->applicationInfo['audience'] = ['segment_history_days' => 0, 'rule_log_days' => 0];
         $tester->execute([]);
-        $kept    = $tester->getDisplay();
-        $none    = PersonEvents::prune(0);
-        $this->db->schema()->dropTableIfExists('person_event_log');
-        $this->probeChanged($this->db->type);
-        $tester->execute([]);
+        $kept = $tester->getDisplay();
+        unset(Application::getInstance()->applicationInfo['audience']);
 
         // Assert
         $this->assertSame(0, $code);
-        $this->assertStringContainsString('2 older rows deleted', $said, "anna's 40-day one and bob's");
-        $this->assertSame(2, $logRows);
+        $this->assertStringContainsString('Rule log: 0 rows', $said);
+        $this->assertStringContainsString('Segment history: 1 stays', $said, "anna's stay ended over a year ago");
+        sort($left);
+        $this->assertSame([$this->ids['bob'], $this->ids['cara']], $left, 'the open stay and the recent one are kept');
+        $this->assertStringContainsString('Nothing to prune here', $kept);
         $this->assertSame(['anna', 'bob'], $this->who(['op' => 'ever']), 'the summary is kept');
-        $this->assertStringContainsString('kept whole', $kept);
-        $this->assertNull($none);
-        unset(Application::getInstance()->applicationInfo['audience']);
-        $this->assertSame(365, PersonEvents::logDays(), 'the default');
-        $this->assertStringContainsString('nothing to prune', $tester->getDisplay());
+        $this->assertCount(4, $this->logged(), "anna's three and bob's: the change log's to keep");
     }
 
     /**
@@ -329,7 +357,7 @@ class PersonEventsTest extends TestCase
         $this->assertNull($miss);
         $this->assertNull($anon);
         $this->assertSame('Saw the Premium page', $label);
-        $this->assertSame(['path' => '/EL/Premium/plans'], json_decode((string) $this->db->queryBuilder()->table('person_event_log')->where('personid', $this->ids['anna'])->getAll()[0]['properties'], true));
+        $this->assertSame(['path' => '/EL/Premium/plans'], self::properties($this->logged(['itemid' => (string) $this->ids['anna']])[0]));
         $this->assertArrayHasKey('premium.viewed', PersonEvents::all());
         $this->assertNull($posted, 'a form sent to the page is not a visit');
         $this->assertSame('premium.viewed', $now);
@@ -377,8 +405,47 @@ class PersonEventsTest extends TestCase
         $events = array_column(PersonEvents::of($this->ids['anna']), 'count', 'event');
         $this->assertSame(1, $events['email.opened'] ?? null);
         $this->assertSame(1, $events['email.clicked'] ?? null);
-        $click = $this->db->queryBuilder()->table('person_event_log')->where('event', 'email.clicked')->getAll()[0];
-        $this->assertSame(['mail' => $annas, 'category' => 'newsletter', 'url' => 'https://example.com/offer'], json_decode((string) $click['properties'], true));
-        $this->assertSame(2, count($this->db->queryBuilder()->table('person_event_log')->getAll()), 'the message for nobody recorded nothing');
+        $click = $this->logged(['event' => 'email.clicked'])[0];
+        // A JSON column keeps its own key order.
+        $this->assertEquals(['mail' => $annas, 'category' => 'newsletter', 'url' => 'https://example.com/offer'], self::properties($click));
+        $this->assertSame(2, count($this->logged()), 'the message for nobody recorded nothing');
+    }
+
+    /**
+     * Without the change log only the summary is kept: occurrences are summed, backfilled and
+     * forgotten all the same; a count in the last days is refused with what to enable, and an A/B
+     * test says its goal is not counted rather than showing nobody reached it.
+     */
+    #[DataProvider('databases')]
+    public function testWithoutTheChangeLogOnlyTheSummaryIsKept(string $type, string $host, int $port, string $user): void
+    {
+        // Arrange
+        $this->boot($type, $host, $port, $user);
+        $this->db->schema()->dropView('pramnos.changelog_history');
+        $this->db->schema()->dropTableIfExists(PersonEvents::LOG);
+        $this->probeChanged($this->db->type);
+        \Pramnos\Audience\Installed::reset();
+        $test = \Pramnos\Audience\Experiments::create('t', 'T', [['key' => 'A', 'share' => 50], ['key' => 'B', 'share' => 50]], 'payment.made');
+        \Pramnos\Audience\Experiments::start($test);
+        \Pramnos\Audience\Experiments::variant('t', $this->ids['anna']);
+
+        // Act
+        $this->payments();
+        PersonEvents::forget('nothing');
+        $ever    = $this->who(['op' => 'ever']);
+        $refused = null;
+        try {
+            $this->who(['op' => 'at_least', 'value' => 1, 'days' => 30]);
+        } catch (\InvalidArgumentException $e) {
+            $refused = $e->getMessage();
+        }
+        $results = \Pramnos\Audience\Experiments::results($test);
+
+        // Assert
+        $this->assertSame(['anna', 'bob'], $ever);
+        $this->assertSame(3, PersonEvents::of($this->ids['anna'])[0]['count']);
+        $this->assertStringContainsString('enable the changelog feature', (string) $refused);
+        $this->assertFalse($results['counted']);
+        $this->assertFalse(\Pramnos\Audience\Installed::eventLog());
     }
 }

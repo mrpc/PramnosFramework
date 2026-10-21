@@ -27,6 +27,11 @@ final class Explained
             return ['what' => (string) ($condition['label'] ?? '#' . $condition['segment']), 'how' => $how, 'value' => null,
                 'actual' => !empty($condition['actual']) ? t('in it') : t('not in it')];
         }
+        if (isset($condition['experiment'])) {
+            return ['what' => (string) ($condition['label'] ?? $condition['experiment']),
+                'how' => $condition['op'] === 'in' ? t('was given') : t('was not given'), 'value' => (string) $condition['variant'],
+                'actual' => $condition['actual'] ?? null ? t('variant %s', (string) $condition['actual']) : t('not in the test')];
+        }
         if (isset($condition['event'])) {
             $did = (array) ($condition['actual'] ?? []);
             $actual = (int) ($did['count'] ?? 0) === 0 ? t('never')

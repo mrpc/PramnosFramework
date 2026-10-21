@@ -1747,6 +1747,13 @@ class Application extends Base
             icon: 'sparkles', group: 'People',
             when: static fn (): bool => \Pramnos\Audience\Installed::has('rules'),
         ));
+        // A/B tests change what people see on the site: an ability of their own too.
+        NavRegistry::register(new NavItem(
+            'admin.experiments', 'A/B tests', $admin('Experiments'),
+            NavSection::Admin, 19, requireAuth: true, minUserType: $floor,
+            icon: 'gauge', group: 'People',
+            when: static fn (): bool => \Pramnos\Audience\Installed::has('experiments'),
+        ));
         NavRegistry::register(new NavItem(
             'admin.consent', 'Consent lists', $admin('ConsentLists'),
             NavSection::Admin, 17, requireAuth: true, minUserType: $floor,

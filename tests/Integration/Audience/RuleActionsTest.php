@@ -264,7 +264,8 @@ class RuleActionsTest extends TestCase
         $lists     = Actions::listOptions();
         $editor    = \Pramnos\Html\RuleEditor::render();
         Actions::templates(static fn (): array => ['jobs.new' => 'New job posts'],
-            static fn (string $key, object $person): ?array => $key === 'jobs.new' ? ['subject' => 'Hi ' . $person->firstname, 'body' => '<p>New</p>'] : null);
+            static fn (string $key, object $person): ?array => $key === 'jobs.new' ? ['subject' => 'Hi ' . $person->firstname, 'body' => '<p>New</p>', 'emailtemplate' => ''] : null);
+        \Pramnos\Application\Settings::setSetting(\Pramnos\Email\EmailTheme::SETTING, 'default');
 
         // Act
         $own     = Actions::templateOptions();
@@ -278,7 +279,11 @@ class RuleActionsTest extends TestCase
         $this->assertStringContainsString('data-classes=', $editor);
         $this->assertSame(['jobs.new' => 'New job posts'], $own);
         $this->assertSame('sent', $sent['status']);
-        $this->assertSame('Hi Cara', $this->db->queryBuilder()->table('mails')->where('id', $sent['detail']['mail'])->first()->fields['subject']);
+        $mail = $this->db->queryBuilder()->table('mails')->where('id', $sent['detail']['mail'])->first()->fields;
+        $this->assertSame('Hi Cara', $mail['subject']);
+        $this->assertStringContainsString('<p>New</p>', (string) $mail['content']);
+        $this->assertStringNotContainsString('<html', (string) $mail['content'], 'laid out by the application: sent bare, not wrapped again');
+        \Pramnos\Application\Settings::setSetting(\Pramnos\Email\EmailTheme::SETTING, '');
         $this->assertSame('error', $missing['status'], 'the application\'s templates replace the framework\'s');
         \Pramnos\Email\MailTypes::reset();
     }

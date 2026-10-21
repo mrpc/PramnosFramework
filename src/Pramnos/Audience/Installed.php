@@ -63,10 +63,16 @@ final class Installed
         return self::has('segments', 'segment_members');
     }
 
-    /** What people did. */
+    /** What people did, summed. */
     public static function personEvents(): bool
     {
-        return self::has('person_events', 'person_event_log');
+        return self::has('person_events');
+    }
+
+    /** Each occurrence of what people did: the change log's application events. */
+    public static function eventLog(): bool
+    {
+        return self::has(PersonEvents::LOG);
     }
 
     /** Consent lists. */

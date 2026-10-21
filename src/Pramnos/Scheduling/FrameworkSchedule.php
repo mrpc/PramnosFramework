@@ -258,7 +258,7 @@ class FrameworkSchedule
 
             'audience:prune-events' => [
                 'cadence'     => [['daily'], ['at', '04:05']],
-                'description' => 'Delete person-event log rows older than the retention',
+                'description' => 'Delete rule run-log rows and ended segment stays older than their retention',
             ],
 
             'queue:cleanup' => [

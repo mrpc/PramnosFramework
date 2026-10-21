@@ -26,15 +26,17 @@ use Pramnos\Database\QueryBuilder;
  * PersonEvents::page('premium.viewed', t('Saw the Premium page'), '/el/premium*');
  * ```
  *
- * Two tables: `person_events` sums each person's events — how many, the first and the last —
- * for "ever", "never", "first before", "last within"; `person_event_log` keeps each occurrence
- * with its properties for "N times in the last M days", pruned after `audience.event_log_days`
- * (365 by default; 0 keeps it). The framework records email opens and clicks itself.
+ * `person_events` sums each person's events — how many, the first and the last — for "ever",
+ * "never", "first before", "last within". Each occurrence, with its properties, goes to the change
+ * log's application events ({@see LOG}, entity `user`), through the write spool: what "N times in
+ * the last M days" and a test's goal count read, as far back as the change log keeps — two years,
+ * compressed, on TimescaleDB. Without the `changelog` feature only the summary is kept. The
+ * framework records email opens and clicks itself.
  */
 final class PersonEvents
 {
-    /** The days the log keeps when the application says nothing. */
-    public const DEFAULT_LOG_DAYS = 365;
+    /** Where each occurrence is kept: the change log's application events, entity `user`. */
+    public const LOG = 'pramnos.changelog_events';
 
     /** @var array<string, array{label: string, group: string, properties: array<string, string>}> */
     private static array $defined = [];
@@ -84,7 +86,7 @@ final class PersonEvents
     }
 
     /**
-     * Record an occurrence now: the summary moves in one statement, the log gains a row.
+     * Record an occurrence now: the summary moves in one statement, the change log gains a row.
      *
      * @param array<string, scalar|null> $properties
      */
@@ -95,12 +97,34 @@ final class PersonEvents
         }
         $at ??= time();
         self::merge([$person => ['n' => 1, 'first' => $at, 'last' => $at]], $event);
-        self::db()->queryBuilder()->table('#PREFIX#person_event_log')->insert([
-            'personid'   => $person,
-            'event'      => mb_substr($event, 0, 100),
-            'at'         => $at,
-            'properties' => $properties === [] ? null : json_encode($properties, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-        ]);
+        if (Installed::eventLog()) {
+            \Pramnos\Changelog\ChangelogWriter::event('user', $person, mb_substr($event, 0, 64), $properties, by: $person, at: $at);
+        }
+    }
+
+    /**
+     * A query over the log: the occurrences of `$event` — of the person in `$personColumn`, a user
+     * id of the outer query, when given. The log keeps the person as a string, so the id is cast to
+     * it rather than the column to an id: the index on (entity, itemid, created_at) stays usable.
+     */
+    public static function occurrences(QueryBuilder $query, string $event, ?string $personColumn = null): QueryBuilder
+    {
+        $query->table(self::LOG . ' AS person_log')->where('person_log.entity', 'user')->where('person_log.event', mb_substr($event, 0, 64));
+        if ($personColumn !== null) {
+            // MySQL: in the collation the framework creates its tables with, or `=` refuses the mix.
+            $query->whereRaw('person_log.itemid = CAST(' . self::column($personColumn)
+                . (self::postgres() ? ' AS TEXT)' : ' AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_unicode_ci'));
+        }
+
+        return $query;
+    }
+
+    /** A Unix-time column of the outer query, plus seconds, as a moment the log's created_at compares with. */
+    public static function moment(string $column, int $plus = 0): string
+    {
+        $value = $plus === 0 ? self::column($column) : '(' . self::column($column) . ' + ' . $plus . ')';
+
+        return self::postgres() ? 'to_timestamp(' . $value . ')' : 'FROM_UNIXTIME(' . $value . ')';
     }
 
     /**
@@ -195,7 +219,9 @@ final class PersonEvents
     /** Delete everything recorded of an event — before backfilling it again. */
     public static function forget(string $event): void
     {
-        self::db()->queryBuilder()->table('#PREFIX#person_event_log')->where('event', $event)->delete();
+        if (Installed::eventLog()) {
+            self::occurrences(self::db()->queryBuilder(), $event)->delete();
+        }
         self::db()->queryBuilder()->table('#PREFIX#person_events')->where('event', $event)->delete();
     }
 
@@ -216,34 +242,6 @@ final class PersonEvents
             'first' => (int) $row['first_at'],
             'last'  => (int) $row['last_at'],
         ], $rows);
-    }
-
-    /**
-     * Delete log rows older than the retention; the summary stays.
-     *
-     * @return int|null Rows deleted, or null when the retention keeps everything
-     */
-    public static function prune(?int $days = null): ?int
-    {
-        $days ??= self::logDays();
-        if ($days <= 0) {
-            return null;
-        }
-        $old = self::db()->queryBuilder()->table('#PREFIX#person_event_log')->where('at', '<', time() - $days * 86400);
-        $count = (int) ((clone $old)->select([new Expression('COUNT(*) AS n')])->getAllOrFail()[0]['n'] ?? 0);
-        if ($count > 0) {
-            $old->delete();
-        }
-
-        return $count;
-    }
-
-    /** The days the log keeps: `audience.event_log_days`, or the default. */
-    public static function logDays(): int
-    {
-        $app = \Pramnos\Application\Application::currentInstance();
-
-        return (int) (is_object($app) ? ($app->applicationInfo['audience']['event_log_days'] ?? self::DEFAULT_LOG_DAYS) : self::DEFAULT_LOG_DAYS);
     }
 
     /**
@@ -321,12 +319,15 @@ final class PersonEvents
             $sum = $sums[$person] ?? ['n' => 0, 'first' => $at, 'last' => $at];
             $sums[$person] = ['n' => $sum['n'] + 1, 'first' => min($sum['first'], $at), 'last' => max($sum['last'], $at)];
             $properties = (array) ($occurrence[2] ?? []);
-            $log[] = ['personid' => $person, 'event' => $event, 'at' => $at,
-                'properties' => $properties === [] ? null : json_encode($properties, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)];
+            $log[] = ['entity' => 'user', 'itemid' => (string) $person, 'event' => mb_substr($event, 0, 64), 'logtype' => 0,
+                'details' => $properties === [] ? null : json_encode($properties, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                'userid' => $person, 'source' => 'cli', 'created_at' => \Pramnos\Database\Instant::local($at, self::db())];
         }
         self::merge($sums, $event);
-        foreach (array_chunk($log, 500) as $rows) {
-            self::db()->queryBuilder()->table('#PREFIX#person_event_log')->insertMany($rows);
+        if (Installed::eventLog()) {
+            foreach (array_chunk($log, 500) as $rows) {
+                self::db()->queryBuilder()->table(self::LOG)->insertMany($rows);
+            }
         }
 
         return count($log);
@@ -363,5 +364,17 @@ final class PersonEvents
     private static function db(): Database
     {
         return Database::getInstance();
+    }
+
+    /** Whether the database is PostgreSQL, where the casts are spelled differently. */
+    private static function postgres(): bool
+    {
+        return in_array(strtolower((string) self::db()->type), ['postgresql', 'pgsql', 'postgres', 'timescaledb'], true);
+    }
+
+    /** A column reference, nothing else. */
+    private static function column(string $column): string
+    {
+        return (string) preg_replace('/[^A-Za-z0-9_.]/', '', $column);
     }
 }

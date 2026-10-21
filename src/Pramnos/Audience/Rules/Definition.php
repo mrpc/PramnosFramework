@@ -219,7 +219,9 @@ final class Definition
                 'timeout' => $next($step['timeout'] ?? null),
             ],
             'branch' => self::branch($step, $path) + ['yes' => $next($step['yes'] ?? null), 'no' => $next($step['no'] ?? null)],
-            'split'  => ['type' => 'split', 'variants' => self::variants((array) ($step['variants'] ?? []), $path, $next)],
+            'split'  => empty($step['experiment'])
+                ? ['type' => 'split', 'variants' => self::variants((array) ($step['variants'] ?? []), $path, $next)]
+                : ['type' => 'split', 'experiment' => (string) $step['experiment'], 'variants' => self::experimentVariants((array) ($step['variants'] ?? []), $path, $next)],
             default  => throw new \InvalidArgumentException("{$path}: a step is one of " . implode(', ', self::STEPS) . '.'),
         };
     }
@@ -263,6 +265,30 @@ final class Definition
         }
         if (count($checked) < 2 || $total !== 100) {
             throw new \InvalidArgumentException("{$path}: a split has two variants or more, their shares adding up to 100.");
+        }
+
+        return $checked;
+    }
+
+    /**
+     * A split that follows an A/B test: where each of its variants leads, the test deciding who
+     * gets which — the first way for anybody it gives none.
+     *
+     * @param  list<mixed> $variants
+     * @return list<array{key: string, share: int, next: ?string}>
+     */
+    private static function experimentVariants(array $variants, string $path, callable $next): array
+    {
+        $checked = [];
+        foreach (array_values($variants) as $i => $variant) {
+            $key = trim((string) ($variant['key'] ?? ''));
+            if ($key === '') {
+                throw new \InvalidArgumentException("{$path}.variants.{$i}: a variant of the test, by its key.");
+            }
+            $checked[] = ['key' => $key, 'share' => 0, 'next' => $next($variant['next'] ?? null)];
+        }
+        if ($checked === []) {
+            throw new \InvalidArgumentException("{$path}: a split on a test says where its variants lead.");
         }
 
         return $checked;

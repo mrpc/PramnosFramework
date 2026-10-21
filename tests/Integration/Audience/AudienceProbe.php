@@ -64,7 +64,11 @@ trait AudienceProbe
         require_once ROOT . '/database/migrations/framework/core/2026_10_21_000011_create_person_events_tables.php';
         require_once ROOT . '/database/migrations/framework/core/2026_10_21_000012_create_rules_tables.php';
         require_once ROOT . '/database/migrations/framework/core/2026_10_21_000013_create_site_messages_table.php';
+        require_once ROOT . '/database/migrations/framework/core/2026_10_21_000014_create_experiments_tables.php';
         require_once ROOT . '/database/migrations/framework/messaging/2026_10_21_000002_add_userid_to_mails.php';
+        require_once ROOT . '/database/migrations/framework/changelog/2026_08_25_000001_create_changelog_tables.php';
+        require_once ROOT . '/database/migrations/framework/changelog/2026_10_04_000001_add_scope_to_changelog_events.php';
+        require_once ROOT . '/database/migrations/framework/changelog/2026_10_22_000001_add_event_index_to_changelog_events.php';
         if (!defined('LOG_PATH')) {
             define('LOG_PATH', ROOT . \DS . 'var');
         }
@@ -107,6 +111,10 @@ trait AudienceProbe
             \Pramnos\Framework\Migrations\Core\CreatePersonEventsTables::class,
             \Pramnos\Framework\Migrations\Core\CreateRulesTables::class,
             \Pramnos\Framework\Migrations\Core\CreateSiteMessagesTable::class,
+            \Pramnos\Framework\Migrations\Core\CreateExperimentsTables::class,
+            \Pramnos\Framework\Migrations\Changelog\CreateChangelogTables::class,
+            \Pramnos\Framework\Migrations\Changelog\AddScopeToChangelogEvents::class,
+            \Pramnos\Framework\Migrations\Changelog\AddEventIndexToChangelogEvents::class,
             \Pramnos\Framework\Migrations\Messaging\CreateMailtemplatesTable::class,
             \Pramnos\Framework\Migrations\Notifications\CreateNotificationsTable::class,
             \Pramnos\Framework\Migrations\Messaging\CreateMailsTable::class,
@@ -133,6 +141,8 @@ trait AudienceProbe
         }
         // Whether the audit table exists is remembered per process; this database has one.
         \Pramnos\Auth\AuditLog::resetTableCache();
+        // Each person event goes to the change log through the spool: written at once here.
+        \Pramnos\Database\WriteSpool::setDriver(\Pramnos\Database\WriteSpool::DRIVER_SYNC);
         \Pramnos\Audience\Installed::reset();
         $this->previous = Factory::getDatabase();
         $singleton      = &Factory::getDatabase();
@@ -153,7 +163,10 @@ trait AudienceProbe
         \Pramnos\Audience\PersonEvents::reset();
         \Pramnos\Audience\Rules\Actions::reset();
         \Pramnos\Audience\Rules\Engine::$queue = null;
+        \Pramnos\Audience\Experiments::reset();
+        unset($_COOKIE[\Pramnos\Audience\Experiments::COOKIE], $_SESSION['pf_visitor_adopted']);
         \Pramnos\Email\MailLog::reset();
+        \Pramnos\Database\WriteSpool::setDriver(null);
         \Pramnos\Event\Event::forget();
         \Pramnos\Auth\AuditLog::resetTableCache();
         \Pramnos\Audience\Installed::reset();

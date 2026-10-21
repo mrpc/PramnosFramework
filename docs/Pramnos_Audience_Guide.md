@@ -17,6 +17,7 @@ use_cases:
   - Adding an application's own action — an SMS, a call list — to the rules
   - Trying a rule before switching it on: why a person would or would not get it, a test send
   - Giving an administrator the right to make and switch on rules
+  - Showing people one of two variants and counting which reaches a goal more often
 ---
 
 # Audience Guide
@@ -27,13 +28,14 @@ application declares its attributes once and every screen can use them.
 
 ## Before the migrations run
 
-The audience tables — `segments`, `segment_members`, `consent_lists`, `person_events`,
-`person_event_log`, `rules`, `rule_versions`, `rule_runs`, `rule_log`, `site_messages` — come from core migrations, and an application can hold them back while it
-tries the feature elsewhere:
+The audience tables — `segments`, `segment_members`, `consent_lists`, `person_events`, `rules`,
+`rule_versions`, `rule_runs`, `rule_log`, `site_messages`, `experiments`,
+`experiment_assignments` — come from core migrations, and an application can hold them back while
+it tries the feature elsewhere:
 
 ```php
 // app/app.php
-'migrations' => ['exclude' => ['create_segments_tables', 'create_consent_lists_table', 'create_person_events_tables', 'create_rules_tables', 'create_site_messages_table']],
+'migrations' => ['exclude' => ['create_segments_tables', 'create_consent_lists_table', 'create_person_events_tables', 'create_rules_tables', 'create_site_messages_table', 'create_experiments_tables']],
 ```
 
 Until they exist, nothing here does anything: a dispatched `PersonEvent`, an event with
@@ -409,16 +411,23 @@ PersonEvents::page('premium.viewed', t('Saw the Premium page'), '/el/premium*');
 matched on the path alone, ignoring case, on every page the application renders. Only the pages
 named are recorded, never every URL.
 
-### Two tables, and how far back they reach
+### The summary, and the change log
 
 | | Keeps | Answers |
 | --- | --- | --- |
-| `person_events` | per person and event: how many, the first, the last — for good | ever, never, at least / at most N of all time, first or last before / after a day, last within N days |
-| `person_event_log` | each occurrence, with its properties — for `audience.event_log_days` (365; 0 keeps it) | at least / at most N **in the last M days** |
+| `person_events` | per person and event: how many, the first, the last — for good | ever, never, at least / at most N of all time, first or last before / after a day, last within N days, *had it been on* |
+| `pramnos.changelog_events`, entity `user` | each occurrence, with its properties as `details` — what the change log keeps | at least / at most N **in the last M days**; an A/B test's goal |
 
-`audience:prune-events`, scheduled daily, deletes log rows past the retention; the summary is
-kept, so "ever paid" still answers after the detail is gone, and a window reaches back only as
-far as the log does.
+Each occurrence is an application event of the change log (`PersonEvents::LOG`): written through
+the write spool — a file append, or Redis where `spool_driver` says so — and drained into the
+table a minute later; partitioned weekly, compressed and kept two years on TimescaleDB, as the
+`changelog` feature declares. A person is the event's `itemid`, as a string; the index on
+`(entity, itemid, created_at)` answers one person's window, and `(entity, event, created_at)`
+everybody's. So a windowed count sees an occurrence about a minute after it, while the summary,
+rules and segments see it at once.
+
+Without the `changelog` feature only the summary is kept: a window condition is refused with what
+to enable, and an A/B test says its goal is not counted.
 
 ### Conditions
 
@@ -541,7 +550,9 @@ Actions::templates(
 ```
 
 The second answers with the template filled for the person — in their language, placeholders
-replaced — or null, which the run logs as an error.
+replaced — or null, which the run logs as an error. It may name the email layout to wrap it in as
+`'emailtemplate'`; an empty one sends the body bare, for a body the application has already laid
+out. Left out, the installation's default layout applies.
 
 An action answers `sent`, `done`, `skipped` or `error`, with what is worth keeping. One with a
 **channel** is a message, and before it the engine checks, in order: the sending **hours** (it
@@ -564,7 +575,8 @@ Creating, changing, switching and deleting are in the audit log with before and 
 (`rule_runs`) moves only from the step its queued task names — a retried task, or a timeout after
 the event it waited for, does nothing — and every decision is a row in `rule_log`: entered, each
 action's outcome and reason, each branch with its conditions and values, waits, exit, goal. The log
-keeps `audience.rule_log_days` (90; 0 keeps it), pruned with the person events. A segment or consent
+keeps `audience.rule_log_days` (90; 0 keeps it), pruned daily by `audience:prune-events`, which
+also deletes segment stays that ended more than `audience.segment_history_days` ago (365). A segment or consent
 list a rule reads cannot be deleted; a running rule cannot be either.
 
 ### Trying a rule before it runs
@@ -635,4 +647,42 @@ Each is neutral `pf-site-message` markup the theme dresses; the popup a `<dialog
 button a form to `/SiteMessages/dismiss/{id}` with the session's token, back to the page — no
 script. The first showing is recorded (`seenat`), and the closing (`dismissedat`). Nothing for a
 visitor, and nothing before the table is installed.
+
+## A/B tests
+
+A test gives each person — or visitor — one of two or more variants by share, the same one every
+time, and counts which reaches a goal more often:
+
+```php
+use Pramnos\Audience\Experiments;
+
+if (Experiments::variant('annual-first') === 'B') {
+    // show the annual plan first
+}
+```
+
+`variant($slug, ?$person, ?$visitor)` answers null for a draft, a stopped test, a test that does
+not exist, or somebody outside the test's segment; the winner for everybody once one is decided.
+Without arguments it takes whoever is signed in, else the visitor's `pf_visitor` cookie (set once).
+The assignment is kept (`experiment_assignments`), so the answer never changes; a visitor who
+signs in keeps what they were shown — it moves to the account once a session, unless the account
+had its own.
+
+Made on `/admin/Experiments` (ability `admin.experiments`) or in code — `create`, `update` while a
+draft, `start`, `stop`, `decide($id, 'B')`, each audited. A test has a name for the code, two
+variants or more with shares adding up to 100, optionally a segment, and a goal: a person event
+within N days of being given a variant.
+
+**Results** (`Experiments::results($id)`): per variant the people, how many reached the goal, the
+rate, **how sure** the difference from the first variant is (a two-proportion z-test), and how many
+more people each variant needs for the difference seen to be told at 95% with 80% power. Visitors
+who never signed up are counted apart. The goal is read from the change log (see above).
+
+A filter can ask who was given a variant — `{"experiment": "annual-first", "variant": "B", "op":
+"in"}` (or `not_in`) — and a rule's split can follow a test, so the rule's numbers and the test's
+are the same people:
+
+```json
+{"type": "split", "experiment": "annual-first", "variants": [{"key": "A", "next": null}, {"key": "B", "next": "offer"}]}
+```
 

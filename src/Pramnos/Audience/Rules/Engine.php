@@ -394,14 +394,20 @@ final class Engine
      */
     private static function split(array $run, string $name, array $step): string
     {
-        $bucket = crc32($run['ruleid'] . ':' . $name . ':' . $run['personid']) % 100;
-        $chosen = end($step['variants']);
-        $edge   = 0;
-        foreach ($step['variants'] as $variant) {
-            $edge += $variant['share'];
-            if ($bucket < $edge) {
-                $chosen = $variant;
-                break;
+        if (isset($step['experiment'])) {
+            // The test decides, so the rule's numbers and the test's are the same people.
+            $given  = \Pramnos\Audience\Experiments::variant($step['experiment'], (int) $run['personid']);
+            $chosen = array_values(array_filter($step['variants'], static fn (array $v): bool => $v['key'] === $given))[0] ?? $step['variants'][0];
+        } else {
+            $bucket = crc32($run['ruleid'] . ':' . $name . ':' . $run['personid']) % 100;
+            $chosen = end($step['variants']);
+            $edge   = 0;
+            foreach ($step['variants'] as $variant) {
+                $edge += $variant['share'];
+                if ($bucket < $edge) {
+                    $chosen = $variant;
+                    break;
+                }
             }
         }
         self::db()->queryBuilder()->table('#PREFIX#rule_runs')->where('runid', (int) $run['runid'])->update(['variant' => $chosen['key']]);
@@ -583,7 +589,7 @@ final class Engine
             return null;
         }
         $old   = self::db()->queryBuilder()->table('#PREFIX#rule_log')->where('at', '<', time() - $days * 86400);
-        $count = count((clone $old)->select(['id'])->getAllOrFail());
+        $count = (int) ((clone $old)->select([new \Pramnos\Database\Expression('COUNT(*) AS n')])->getAllOrFail()[0]['n'] ?? 0);
         if ($count > 0) {
             $old->delete();
         }

@@ -451,4 +451,27 @@ final class Segments
     {
         return Database::getInstance();
     }
+
+    /**
+     * Delete stays that ended more than `audience.segment_history_days` ago (365; 0 keeps them):
+     * who is in a segment now, and who entered or left within the year, stay answerable.
+     *
+     * @return int|null Rows deleted, or null when the history is kept whole or not installed
+     */
+    public static function pruneHistory(?int $days = null): ?int
+    {
+        $app    = \Pramnos\Application\Application::currentInstance();
+        $days ??= (int) (is_object($app) ? ($app->applicationInfo['audience']['segment_history_days'] ?? 365) : 365);
+        if ($days <= 0 || !Installed::segments()) {
+            return null;
+        }
+        $old   = \Pramnos\Framework\Factory::getDatabase()->queryBuilder()->table('#PREFIX#segment_members')
+            ->whereNotNull('left_at')->where('left_at', '<', time() - $days * 86400);
+        $count = (int) ((clone $old)->select([new \Pramnos\Database\Expression('COUNT(*) AS n')])->getAllOrFail()[0]['n'] ?? 0);
+        if ($count > 0) {
+            $old->delete();
+        }
+
+        return $count;
+    }
 }

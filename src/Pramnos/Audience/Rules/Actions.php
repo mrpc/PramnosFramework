@@ -239,7 +239,11 @@ final class Actions
         $email->forUser($context->to());
         $email->module     = 'rule';
         $email->moduleinfo = $context->origin();
-        if (($template['emailtemplate'] ?? '') !== '') {
+        // An application's fill may say "send it bare" with an empty layout name — its body is
+        // already laid out; a framework template's empty one means the installation's default.
+        if (self::$templateFill !== null && array_key_exists('emailtemplate', $template)) {
+            $email->setTemplate((string) $template['emailtemplate']);
+        } elseif (($template['emailtemplate'] ?? '') !== '') {
             $email->setTemplate($template['emailtemplate']);
         }
         $list = trim((string) ($params['list'] ?? ''));

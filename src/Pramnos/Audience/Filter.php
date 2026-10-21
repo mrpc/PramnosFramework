@@ -261,6 +261,8 @@ final class Filter
                     $nested->whereExists(self::inSegment((int) $condition['segment']), $each, $condition['op'] === 'not_in');
                 } elseif (isset($condition['event'])) {
                     $this->applyEvent($nested, $condition, $each);
+                } elseif (isset($condition['experiment'])) {
+                    $this->applyExperiment($nested, $condition, $each);
                 } else {
                     $this->applyCondition($nested, $condition, $each);
                 }
@@ -340,7 +342,7 @@ final class Filter
 
     /**
      * An event condition. Ever, never, counts of all time and first or last read the summary;
-     * a count in the last days reads the log, as far back as it is kept.
+     * a count in the last days reads the change log, as far back as it keeps.
      *
      * @param array{event: string, op: string, value?: mixed, days?: int} $condition
      */
@@ -358,12 +360,14 @@ final class Filter
             }
         };
         if (($op === 'at_least' || $op === 'at_most') && $days > 0) {
+            if (!Installed::eventLog()) {
+                throw new \InvalidArgumentException(t('%s: counting in the last days reads the change log: enable the changelog feature.', PersonEvents::label($event)));
+            }
             // How many in the window: a person with more than N rows there, or at least N.
-            $since  = time() - $days * 86400;
+            $since  = \Pramnos\Database\Instant::at($this->database, time() - $days * 86400);
             $window = static function (QueryBuilder $sub) use ($event, $since, $op, $value): void {
-                $sub->table('#PREFIX#person_event_log AS person_event_log')->select([new Expression('1')])
-                    ->whereRaw('person_event_log.personid = users.userid')->where('person_event_log.event', $event)
-                    ->where('person_event_log.at', '>=', $since)->groupBy(['person_event_log.personid'])
+                PersonEvents::occurrences($sub, $event, 'users.userid')->select([new Expression('1')])
+                    ->where('person_log.created_at', '>=', $since)->groupBy(['person_log.itemid'])
                     ->havingRaw('COUNT(*) ' . ($op === 'at_least' ? '>=' : '>') . ' ?', [(int) $value]);
             };
             if ($op === 'at_least' && (int) $value <= 0) {
@@ -390,6 +394,27 @@ final class Filter
             'last_before'       => $query->whereExists($summary(static fn ($q) => $q->where('person_events.last_at', '<', self::dayStart((string) $value))), $boolean),
             'last_after'        => $query->whereExists($summary(static fn ($q) => $q->where('person_events.last_at', '>=', self::dayStart((string) $value) + 86400)), $boolean),
         };
+    }
+
+    /**
+     * "In test X, given variant B" — or not. A test that is not there is nobody's.
+     *
+     * @param array{experiment: string, variant: string, op: string} $condition
+     */
+    private function applyExperiment(QueryBuilder $query, array $condition, string $boolean): void
+    {
+        $test = Installed::has('experiments', 'experiment_assignments') ? Experiments::bySlug($condition['experiment']) : null;
+        if ($test === null) {
+            $query->whereRaw($condition['op'] === 'in' ? '1 = 0' : '1 = 1', [], $boolean);
+
+            return;
+        }
+        $query->whereExists(static function (QueryBuilder $sub) use ($test, $condition): void {
+            $sub->table('#PREFIX#experiment_assignments AS experiment_assignments')->select([new Expression('1')])
+                ->whereRaw('experiment_assignments.personid = users.userid')
+                ->where('experiment_assignments.experimentid', $test['id'])
+                ->where('experiment_assignments.variant', $condition['variant']);
+        }, $boolean, $condition['op'] === 'not_in');
     }
 
     /** The sub-query "this person is in the segment now". */
@@ -446,6 +471,7 @@ final class Filter
                 isset($condition['conditions']) => $this->explainGroup($condition, $personId),
                 isset($condition['segment'])    => $this->explainSegment($condition, $personId),
                 isset($condition['event'])      => $this->explainEvent($condition, $personId),
+                isset($condition['experiment']) => $this->explainExperiment($condition, $personId),
                 default                         => $this->explainCondition($condition, $personId),
             };
         }
@@ -508,14 +534,36 @@ final class Filter
         $actual = ['count' => (int) ($row['occurrences'] ?? 0), 'first' => $row === null ? null : (int) $row['first_at'],
             'last' => $row === null ? null : (int) $row['last_at']];
         if (!empty($condition['days'])) {
-            $actual['inWindow'] = (int) ($this->database->queryBuilder()->table('#PREFIX#person_event_log')
-                ->select([new Expression('COUNT(*) AS n')])->where('personid', $personId)->where('event', $condition['event'])
-                ->where('at', '>=', time() - (int) $condition['days'] * 86400)->getAllOrFail()[0]['n'] ?? 0);
+            $actual['inWindow'] = (int) (PersonEvents::occurrences($this->database->queryBuilder(), $condition['event'])
+                ->select([new Expression('COUNT(*) AS n')])->where('person_log.itemid', (string) $personId)
+                ->where('person_log.created_at', '>=', \Pramnos\Database\Instant::at($this->database, time() - (int) $condition['days'] * 86400))
+                ->getAllOrFail()[0]['n'] ?? 0);
         }
 
         return $condition + [
             'label'  => PersonEvents::label($condition['event']),
             'actual' => $actual,
+            'ok'     => $query->select(['users.userid'])->limit(1)->getAllOrFail() !== [],
+        ];
+    }
+
+    /**
+     * A test condition for one person: ✓/✗ and the variant they were given, if any.
+     *
+     * @param  array{experiment: string, variant: string, op: string} $condition
+     * @return array<string, mixed>
+     */
+    private function explainExperiment(array $condition, int $personId): array
+    {
+        $query = $this->database->queryBuilder()->table(Attributes::FROM)->where('users.userid', $personId);
+        $this->applyExperiment($query, $condition, 'and');
+        $test  = Installed::has('experiments', 'experiment_assignments') ? Experiments::bySlug($condition['experiment']) : null;
+        $given = $test === null ? [] : $this->database->queryBuilder()->table('#PREFIX#experiment_assignments')
+            ->where('experimentid', $test['id'])->where('personid', $personId)->limit(1)->getAllOrFail();
+
+        return $condition + [
+            'label'  => $test['name'] ?? $condition['experiment'],
+            'actual' => $given[0]['variant'] ?? null,
             'ok'     => $query->select(['users.userid'])->limit(1)->getAllOrFail() !== [],
         ];
     }
@@ -564,6 +612,7 @@ final class Filter
                 isset($condition['conditions']) => self::group($condition, "{$path}.{$i}", $depth + 1),
                 isset($condition['segment'])    => self::segmentCondition($condition, "{$path}.{$i}"),
                 isset($condition['event'])      => self::eventCondition($condition, "{$path}.{$i}"),
+                isset($condition['experiment']) => self::experimentCondition($condition, "{$path}.{$i}"),
                 default                         => self::condition($condition, "{$path}.{$i}"),
             };
         }
@@ -671,6 +720,27 @@ final class Filter
         }
 
         return $checked;
+    }
+
+    /**
+     * "In test X, variant B", or not.
+     *
+     * @param  array<string, mixed> $condition
+     * @return array{experiment: string, variant: string, op: string}
+     */
+    private static function experimentCondition(array $condition, string $path): array
+    {
+        $slug    = trim((string) $condition['experiment']);
+        $variant = trim((string) ($condition['variant'] ?? ''));
+        $op      = (string) ($condition['op'] ?? 'in');
+        if ($slug === '' || $variant === '') {
+            throw new \InvalidArgumentException("{$path}: a test condition names the test and the variant.");
+        }
+        if ($op !== 'in' && $op !== 'not_in') {
+            throw new \InvalidArgumentException("{$path}: a test condition is in or not_in.");
+        }
+
+        return ['experiment' => $slug, 'variant' => $variant, 'op' => $op];
     }
 
     /** The attribute under a key, or a refusal naming where it was asked for. */
