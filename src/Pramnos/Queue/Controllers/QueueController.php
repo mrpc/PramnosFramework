@@ -186,7 +186,7 @@ class QueueController extends Controller
             $error  = (string) $row[9];
 
             // The id opens the task: what it was given, its error in full, its lock.
-            $row[0] = '<a href="' . $e(adminUrl('queue/show/') . $id) . '">' . $id . '</a>';
+            $row[0] = '<a href="' . $e(adminUrl('queue/show/') . $id) . '" data-pf-modal>' . $id . '</a>';
             $row[1] = $e($row[1]);
             $row[2] = $this->statusBadge($status);
             $row[3] = (string) (int) $row[3];

@@ -695,6 +695,38 @@ wants markup in a crumb — so anything dynamic has to go through `htmlspecialch
 
 ---
 
+## A page in a dialog — `data-pf-modal`
+
+A link to a page better read over the one it is on — a task, a day's figures — opens in a
+`<dialog>` with one attribute:
+
+```php
+<a href="<?= adminUrl('Queue/history') ?>" data-pf-modal>Statistics</a>
+<a href="<?= adminUrl('Queue/show/42') ?>" data-pf-modal="Task 42">42</a>
+```
+
+`pf-utils.js` fetches the address with `X-Pf-Fragment: 1` and shows what comes back. The server
+needs nothing per screen: for that header `Document::getInstance()` gives the request the `raw`
+document instead of `html`, so the view's output goes out without the theme, and
+`Breadcrumb::admin()` draws no trail. `Document::isFragmentRequest()` answers the same question
+for a view that wants to leave something else out.
+
+- **The dialog** is the page's one `#pf-modal`, opened with `showModal()`: the page behind it is
+  inert, so focus stays inside, and Escape, the × button and a click on the backdrop close it. It
+  is named by the fragment's first heading, or by the attribute's value, or by the link's text.
+  Closing it empties it and gives focus back to the link. `pf:modal:open` is dispatched on the
+  document with `{ dialog, url }` once it shows.
+- **A plain link where it cannot be a dialog**: a browser without `<dialog>`, a click with a
+  modifier key (a new tab), or a fetch that fails navigates to the address as usual. The address
+  is always a whole page of its own, so it can be bookmarked and shared.
+- **The page cache** keeps a fragment and its page as two entries; the response carries
+  `Vary: X-Pf-Fragment`.
+- **Scripts in the fragment do not run** — content set into the dialog is markup. A fragment's
+  links and forms work as anywhere else: a form posted from it navigates the page.
+
+The `pf-modal`, `pf-modal-close` and `pf-modal-body` hooks are styled in each scaffolded theme's
+`components.css`.
+
 ## Date and time
 
 ```php

@@ -638,6 +638,14 @@ class Document extends \Pramnos\Framework\Base
             if (!in_array($type, self::KNOWN_TYPES, true)) {
                 $type = self::$type;
             }
+            // A page asked for as a fragment — `pf-utils.js` opening a `data-pf-modal` link in a
+            // dialog — is its content without the theme around it, whatever the screen.
+            if ($type === 'html' && self::isFragmentRequest()) {
+                $type = 'raw';
+                if (!headers_sent()) {
+                    header('Vary: X-Pf-Fragment', false);
+                }
+            }
         } elseif ($setDefault === true) {
             self::$type = $type;
         }
@@ -688,6 +696,16 @@ class Document extends \Pramnos\Framework\Base
             }
         }
         return $instances[$type];
+    }
+
+    /**
+     * Whether this request asks for a page's content alone: `X-Pf-Fragment: 1`, which
+     * `pf-utils.js` sends for a link marked `data-pf-modal` to show it in a dialog. The same
+     * address without the header is the whole page, so the link still works as a link.
+     */
+    public static function isFragmentRequest(): bool
+    {
+        return ($_SERVER['HTTP_X_PF_FRAGMENT'] ?? '') === '1';
     }
 
     public function addContent($content = '')

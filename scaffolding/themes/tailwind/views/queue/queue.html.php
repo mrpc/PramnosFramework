@@ -23,7 +23,7 @@ $clearable = ['failed', 'completed', 'stopped', 'deleted'];
     <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
         <h2><?php echo $e(t('Queue')); ?></h2>
         <div class="flex flex-wrap items-center gap-2">
-            <a href="<?php echo adminUrl('Queue/history'); ?>" class="btn btn-outline btn-primary btn-xs"><?php echo $e(t('Statistics — last 48 hours')); ?></a>
+            <a href="<?php echo adminUrl('Queue/history'); ?>" data-pf-modal class="btn btn-outline btn-primary btn-xs"><?php echo $e(t('Statistics — last 48 hours')); ?></a>
             <form method="post" action="<?php echo adminUrl('Queue/retryall'); ?>" style="display:inline;margin:0"><?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?><button type="submit" class="btn btn-outline btn-warning btn-xs" data-confirm="<?php echo $e(t('Retry all failed jobs?')); ?>"><?php echo $e(t('Retry all failed')); ?></button></form>
             <form method="post" action="<?php echo adminUrl('Queue/clear'); ?>" class="flex items-center gap-1" style="margin:0"><?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
                 <select name="status" class="select select-xs" aria-label="<?php echo $e(t('Status to clear')); ?>">

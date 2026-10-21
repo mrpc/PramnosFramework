@@ -20,6 +20,9 @@
  *   data-stats-open             — open the stats modal and load JSON from data-stats-url
  *   data-stats-url="url"        — (with data-stats-open) endpoint returning the stats JSON
  *   data-stats-close            — close the stats modal
+ *   data-pf-modal[="label"]     — on a link: open its page in a <dialog>, fetched with
+ *                                 X-Pf-Fragment: 1 (the content without the theme); a plain
+ *                                 navigation where there is no <dialog> or the fetch fails
  *
  * Same-origin API calls made from here send `X-CSRF-Token` from `<meta name="csrf">`
  * (window.pfApiHeaders) — that is what authenticates a page against its own API.
@@ -338,6 +341,70 @@
     document.addEventListener('keydown', function (e) {
         if (e.key === 'Escape') { closeStats(); }
     });
+
+    // ── data-pf-modal ────────────────────────────────────────────────────────
+    //
+    // A link whose page is better read over the one it is on — a task, a day's figures —
+    // opens in a <dialog>. The page is fetched with `X-Pf-Fragment: 1`, which the server
+    // answers with the content alone, without its theme. A browser with no <dialog>, a
+    // modified click, or a fetch that fails is an ordinary navigation, and the address is
+    // still a page of its own.
+    document.addEventListener('click', function (e) {
+        var link = e.target && e.target.closest ? e.target.closest('a[data-pf-modal]') : null;
+        if (!link || e.defaultPrevented || e.button > 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) {
+            return;
+        }
+        var dialog = modalDialog();
+        if (!dialog) { return; }
+        e.preventDefault();
+        var href = link.getAttribute('href');
+        fetch(href, { headers: { 'X-Pf-Fragment': '1' }, credentials: 'same-origin' })
+            .then(function (r) { return r.ok ? r.text() : Promise.reject(new Error('HTTP ' + r.status)); })
+            .then(function (html) { openModal(dialog, html, link); })
+            .catch(function () { window.location.href = href; });
+    });
+
+    /** The page's one modal <dialog>, made on first use; null where the browser has none. */
+    function modalDialog() {
+        var dialog = document.getElementById('pf-modal');
+        if (dialog) { return dialog; }
+        dialog = document.createElement('dialog');
+        if (typeof dialog.showModal !== 'function') { return null; }
+        dialog.id = 'pf-modal';
+        dialog.className = 'pf-modal';
+        // A click on the backdrop lands on the dialog itself, not on its content.
+        dialog.addEventListener('click', function (e) {
+            if (e.target === dialog) { dialog.close(); }
+        });
+        dialog.addEventListener('close', function () {
+            dialog.innerHTML = '';
+            if (dialog.pfOpener && dialog.pfOpener.focus) { dialog.pfOpener.focus(); }
+        });
+        document.body.appendChild(dialog);
+        return dialog;
+    }
+
+    /**
+     * Show a fragment: a close button, then the content. Named by its first heading, or by
+     * the link's text; showModal() makes the rest of the page inert, so focus stays inside and
+     * Escape closes it.
+     */
+    function openModal(dialog, html, link) {
+        dialog.innerHTML = '<form method="dialog" class="pf-modal-close"><button type="submit" aria-label="Close">&times;</button></form>'
+            + '<div class="pf-modal-body">' + html + '</div>';
+        var heading = dialog.querySelector('h1, h2, h3');
+        dialog.removeAttribute('aria-labelledby');
+        dialog.removeAttribute('aria-label');
+        if (heading) {
+            heading.id = heading.id || 'pf-modal-title';
+            dialog.setAttribute('aria-labelledby', heading.id);
+        } else {
+            dialog.setAttribute('aria-label', (link.getAttribute('data-pf-modal') || link.textContent || '').trim());
+        }
+        dialog.pfOpener = link;
+        if (!dialog.open) { dialog.showModal(); }
+        document.dispatchEvent(new CustomEvent('pf:modal:open', { detail: { dialog: dialog, url: link.getAttribute('href') } }));
+    }
 
     // ── Stats modal helpers ─────────────────────────────────────────────────
 

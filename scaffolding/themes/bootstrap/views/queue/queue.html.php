@@ -23,7 +23,7 @@ $clearable = ['failed', 'completed', 'stopped', 'deleted'];
     <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
         <h2><?php echo $e(t('Queue')); ?></h2>
         <div class="d-flex flex-wrap align-items-center gap-2">
-            <a href="<?php echo adminUrl('Queue/history'); ?>" class="btn btn-sm btn-outline-primary"><?php echo $e(t('Statistics — last 48 hours')); ?></a>
+            <a href="<?php echo adminUrl('Queue/history'); ?>" data-pf-modal class="btn btn-sm btn-outline-primary"><?php echo $e(t('Statistics — last 48 hours')); ?></a>
             <form method="post" action="<?php echo adminUrl('Queue/retryall'); ?>" style="display:inline;margin:0"><?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?><button type="submit" class="btn btn-sm btn-outline-warning" data-confirm="<?php echo $e(t('Retry all failed jobs?')); ?>"><?php echo $e(t('Retry all failed')); ?></button></form>
             <form method="post" action="<?php echo adminUrl('Queue/clear'); ?>" class="d-flex align-items-center gap-1 m-0"><?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
                 <select name="status" class="form-select form-select-sm" aria-label="<?php echo $e(t('Status to clear')); ?>">

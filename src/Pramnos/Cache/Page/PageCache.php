@@ -779,13 +779,20 @@ final class PageCache
         $host   = (string) ($_SERVER['HTTP_HOST'] ?? '');
         $path   = '/' . ltrim($this->pathOf($request), '/');
 
-        return sha1(implode('|', [
+        $parts = [
             $class,
             $scheme . '://' . $host,
             $path,
             $this->normalisedQuery($request),
             $this->varyString($request),
-        ]));
+        ];
+        // A fragment is the same address without its theme: kept apart from the page, and
+        // appended only for it, so every page's key stays what it was.
+        if (\Pramnos\Document\Document::isFragmentRequest()) {
+            $parts[] = 'fragment';
+        }
+
+        return sha1(implode('|', $parts));
     }
 
     /** The query string, filtered and sorted, as it goes into the key. */

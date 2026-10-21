@@ -77,12 +77,17 @@ class Breadcrumb extends \Pramnos\Framework\Base
      * `'admin' => ['breadcrumb' => 'theme']` in `app.php` hands each step to
      * `Application::addbreadcrumb()` instead — the label as text, `'#'` for the current page —
      * and draws nothing, so the page has one trail, the shell's. Home and Dashboard are not
-     * handed over: the shell has its own root.
+     * handed over: the shell has its own root. Nothing at all for a fragment request — the page
+     * in a `data-pf-modal` dialog.
      *
      * @param list<array{0: string, 1: string}> $steps [label as HTML, url — '' for the current page]
      */
     public static function admin(array $steps): string
     {
+        // A page opened in a dialog over another has no trail: it is not where the reader is.
+        if (\Pramnos\Document\Document::isFragmentRequest()) {
+            return '';
+        }
         $app = \Pramnos\Application\Application::currentInstance();
         if ($app !== null && ($app->applicationInfo['admin']['breadcrumb'] ?? '') === 'theme') {
             foreach ($steps as [$label, $url]) {
