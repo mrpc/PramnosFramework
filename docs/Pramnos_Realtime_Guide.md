@@ -708,6 +708,15 @@ Run `broadcast:serve` under the `DaemonOrchestrator` (crash respawn, graceful
 stop, redeploy) by returning a process spec whose tokens invoke it — see the
 [Console Commands guide](Pramnos_Console_Guide.md).
 
+`broadcast:serve` holds `var/pramnos-broadcast-serve.lock` while it runs — the file the
+orchestrator's entry declares — and heartbeats it from the event loop every
+`BroadcastServe::HEARTBEAT_SECONDS` (10), with the client and channel counts. That is what the
+orchestrator checks to call the server healthy, and what the Services screen reads to show it
+running. A second `broadcast:serve` started beside a live one refuses, naming the lock. A server
+of your own built on `LocalBroadcastServer` needs the same: `startJob()` before `run()`, a
+`heartbeat()` from `onTick()`, `endJob()` after — or `'requireLockFile' => false` in its entry,
+which judges it by its process alone.
+
 #### Stopping it, and the seam you must wire if you drive the server yourself
 
 The orchestrator stops a worker **cooperatively**: it drops a `.stop` file beside

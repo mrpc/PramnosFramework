@@ -76,9 +76,16 @@ class BroadcastServe extends CommandBase
 
     protected ?LocalBroadcastServer $wsServer = null;
 
+    /** Seconds between heartbeats, from the event loop's ticks. */
+    public const HEARTBEAT_SECONDS = 10;
+
+    /**
+     * The lock's name — the file the orchestrator's entry declares, `var/pramnos-broadcast-serve.lock`,
+     * so the server run by hand is found where the Services screen and the supervisor look.
+     */
     protected function getJobName(): string
     {
-        return 'broadcast-serve';
+        return 'pramnos-broadcast-serve.lock';
     }
 
     protected function configure(): void
@@ -396,8 +403,30 @@ class BroadcastServe extends CommandBase
 
         $verbose   = $output->isVerbose();
         $lastCount = -1;
+        $lastBeat  = 0;
 
-        $this->wsServer->onTick(function (int $clients, int $channels) use ($output, $verbose, &$lastCount): void {
+        /*
+         * The lock and its heartbeat, as every supervised worker keeps them. Without them the
+         * orchestrator found no healthy lock, called the server unverified and restarted it
+         * every cycle — every open page dropped each time — and the Services screen showed a
+         * running server as stopped, offering to start a second.
+         */
+        if ($this->checkIfRunning()) {
+            $output->writeln('<error>Another broadcast:serve holds ' . $this->resolvedJobLockFilePath() . '.</error>');
+            return self::FAILURE;
+        }
+        $this->startJob();
+
+        $this->wsServer->onTick(function (int $clients, int $channels) use ($output, $verbose, &$lastCount, &$lastBeat): void {
+            if (time() - $lastBeat >= self::HEARTBEAT_SECONDS) {
+                $lastBeat = time();
+                // A lock taken over by a replacement is a second server on this port's
+                // channels: this one stops.
+                if (!$this->heartbeat(['clients' => $clients, 'channels' => $channels])) {
+                    $output->writeln('<comment>Lock taken over — shutting down.</comment>');
+                    $this->wsServer?->stop();
+                }
+            }
             if (!$verbose) {
                 return;
             }
@@ -414,6 +443,8 @@ class BroadcastServe extends CommandBase
         } catch (\RuntimeException $e) {
             $output->writeln("<error>Error: {$e->getMessage()}</error>");
             return self::FAILURE;
+        } finally {
+            $this->endJob();
         }
 
         $output->writeln('<info>Server stopped.</info>');

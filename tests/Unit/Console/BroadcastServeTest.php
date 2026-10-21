@@ -551,13 +551,13 @@ class BroadcastServeTest extends TestCase
     }
 
     /**
-     * getJobName() must return the string 'broadcast-serve'.
+     * getJobName() is the lock file the orchestrator's entry declares.
      *
      * CommandBase uses this value as the lock-file basename; an incorrect
      * return value would cause the lock file to be created in the wrong place
      * and could allow duplicate daemon instances.
      */
-    public function testGetJobNameReturnsBroadcastServe(): void
+    public function testTheLockIsTheFileTheOrchestratorDeclares(): void
     {
         // Arrange — expose protected method via reflection
         $cmd = new BroadcastServe();
@@ -567,8 +567,8 @@ class BroadcastServeTest extends TestCase
         $name = $ref->invoke($cmd);
 
         // Assert
-        $this->assertSame('broadcast-serve', $name,
-            'getJobName() must return "broadcast-serve"');
+        $this->assertSame('pramnos-broadcast-serve.lock', $name,
+            'the lock is not the file the orchestrator and the Services screen read');
     }
 
     // =========================================================================
@@ -1302,5 +1302,77 @@ class BroadcastServeTest extends TestCase
             '/Redis ingest: .*via SUBSCRIBE \(backplane: redis\)/',
             $tester->getDisplay()
         );
+    }
+
+    // =========================================================================
+    // The worker lock — what the orchestrator and the Services screen read
+    // =========================================================================
+
+    /**
+     * While the server runs it holds `var/pramnos-broadcast-serve.lock` with a heartbeat from
+     * the event loop, and the lock is gone once it stops.
+     *
+     * Without it the orchestrator found no healthy lock for the entry it had started, called it
+     * unverified and restarted it every cycle — dropping every open page — and the Services
+     * screen showed a running server as stopped.
+     */
+    public function testTheServerHoldsItsLockAndHeartbeatsWhileItRuns(): void
+    {
+        // Arrange — run() reads the lock, then plays one tick of the event loop
+        $lockFile = \ROOT . '/var/pramnos-broadcast-serve.lock';
+        @unlink($lockFile);
+        $tick   = null;
+        $during = null;
+        $server = $this->createMock(LocalBroadcastServer::class);
+        $server->method('onTick')->willReturnCallback(function (callable $cb) use (&$tick): void {
+            $tick = $cb;
+        });
+        $server->method('run')->willReturnCallback(function () use (&$tick, &$during, $lockFile): void {
+            $tick(4, 2);
+            $during = json_decode((string) @file_get_contents($lockFile), true);
+        });
+        $cmd = $this->buildCommand(false, $server);
+        (new SymfonyApp())->add($cmd);
+
+        // Act
+        $status = (new CommandTester($cmd))->execute([]);
+
+        // Assert
+        $this->assertSame(BroadcastServe::SUCCESS, $status);
+        $this->assertIsArray($during, 'no lock while the server ran');
+        $this->assertSame(getmypid(), (int) ($during['pid'] ?? 0));
+        $this->assertSame('running', $during['status'] ?? null);
+        // The tick's heartbeat wrote what the loop knows.
+        $this->assertSame(4, $during['clients'] ?? null, 'the event loop did not heartbeat');
+        $this->assertFileDoesNotExist($lockFile, 'the lock outlived the server');
+    }
+
+    /**
+     * A second server refuses to start while the first holds the lock — it would not bind the
+     * port anyway, and an operator's Start beside a running one should say why.
+     */
+    public function testASecondServerRefusesWhileTheLockIsHeld(): void
+    {
+        // Arrange — a live holder: this process
+        $lockFile = \ROOT . '/var/pramnos-broadcast-serve.lock';
+        $held = new \Pramnos\Console\WorkerLock('pramnos-broadcast-serve.lock', $lockFile);
+        $this->assertTrue($held->acquire());
+        $server = $this->createMock(LocalBroadcastServer::class);
+        $server->expects($this->never())->method('run');
+        $cmd = $this->buildCommand(false, $server);
+        (new SymfonyApp())->add($cmd);
+
+        try {
+            // Act
+            $tester = new CommandTester($cmd);
+            $status = $tester->execute([]);
+
+            // Assert
+            $this->assertSame(BroadcastServe::FAILURE, $status);
+            $this->assertStringContainsString('Another broadcast:serve holds', $tester->getDisplay());
+        } finally {
+            $held->release();
+            @unlink($lockFile);
+        }
     }
 }
