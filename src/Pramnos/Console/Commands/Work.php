@@ -263,16 +263,24 @@ class Work extends CommandBase
      * the hour. A minute already asked about is not asked again, so a second pass inside one
      * minute runs nothing twice. A task due in several of the minutes runs once.
      *
+     * The last minute asked about is also kept on disk, beside the lock ({@see minuteFile()}),
+     * and a new process starts from it. A deploy restarts the worker, and the old one finishes
+     * its pass before the new one starts: a minute or two in which nothing asked. Kept in
+     * memory alone, those minutes were lost on every restart — a task on `18 7 * * *` that fell
+     * in one never ran, and left no row in `scheduleruns`, not even a skipped one.
+     *
      * @return list<\Pramnos\Scheduling\ScheduledTask>
      */
     protected function dueSinceLastPass(): array
     {
         $now     = $this->clock();
         $current = $now->getTimestamp() - $now->getTimestamp() % 60;
-        $first   = $this->lastMinute === null
+        $last    = $this->lastMinute ?? $this->storedMinute();
+        $first   = $last === null
             ? $current
-            : max($this->lastMinute + 60, $current - (self::CATCH_UP_MINUTES - 1) * 60);
-        $this->lastMinute = max($this->lastMinute ?? $current, $current);
+            : max($last + 60, $current - (self::CATCH_UP_MINUTES - 1) * 60);
+        $this->lastMinute = max($last ?? $current, $current);
+        @file_put_contents($this->minuteFile(), (string) $this->lastMinute, LOCK_EX);
 
         $due = [];
         for ($minute = $first; $minute <= $current; $minute += 60) {
@@ -282,6 +290,20 @@ class Work extends CommandBase
         }
 
         return array_values($due);
+    }
+
+    /** Where the last minute a pass asked about is kept between processes: beside the lock. */
+    protected function minuteFile(): string
+    {
+        return $this->lockFilePath() . '.minute';
+    }
+
+    /** The last minute a previous process asked about, or null when none is recorded. */
+    private function storedMinute(): ?int
+    {
+        $stored = @file_get_contents($this->minuteFile());
+
+        return $stored !== false && ctype_digit(trim($stored)) ? (int) trim($stored) : null;
     }
 
     /** The time a pass asks about — a seam, so a test can set the clock. */

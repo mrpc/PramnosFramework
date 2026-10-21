@@ -36,6 +36,9 @@ class WorkPassTest extends TestCase
     protected function tearDown(): void
     {
         Scheduler::reset();
+        foreach ($this->minuteFiles as $file) {
+            @unlink($file);
+        }
     }
 
     /** The command with the pass reachable, and nothing else changed. */
@@ -47,6 +50,12 @@ class WorkPassTest extends TestCase
             public function __construct()
             {
                 parent::__construct('work');
+            }
+
+            /** A minute file of its own, not the installation's. */
+            protected function minuteFile(): string
+            {
+                return sys_get_temp_dir() . '/work-pass-' . spl_object_id($this) . '-' . getmypid() . '.minute';
             }
 
             public function pass(BufferedOutput $output): int
@@ -230,17 +239,37 @@ class WorkPassTest extends TestCase
         $this->assertStringContainsString('ran: quick in', $worker->logged[0] ?? '');
     }
 
+    /** @var list<string> Minute files to remove after the test. */
+    private array $minuteFiles = [];
+
+    /** A fresh, absent minute file for one test. */
+    private function minuteFile(): string
+    {
+        $file = sys_get_temp_dir() . '/work-minute-' . bin2hex(random_bytes(6));
+        $this->minuteFiles[] = $file;
+
+        return $file;
+    }
+
     /**
      * A worker whose clock is set by the test, for the passes below.
      */
-    private function clocked(): object
+    private function clocked(?string $minuteFile = null): object
     {
-        return new class extends Work {
+        $minuteFile ??= $this->minuteFile();
+
+        return new class ($minuteFile) extends Work {
             public string $at = '2026-10-21 03:19:59';
 
-            public function __construct()
+            public function __construct(private string $file)
             {
                 parent::__construct('work');
+            }
+
+            /** The file the test chose, so two workers can share one as two processes do. */
+            protected function minuteFile(): string
+            {
+                return $this->file;
             }
 
             /** One pass at `$at`. */
@@ -337,5 +366,80 @@ class WorkPassTest extends TestCase
         $this->assertSame(0, $first, 'the first pass reached back for a minute it never owned');
         $this->assertSame(1, $at20, '04:20 is inside the window and was not run');
         $this->assertSame(0, $at50, '03:50 is outside the window and was replayed');
+    }
+
+    /**
+     * A restart does not lose the minutes between the two processes.
+     *
+     * The production case: a deploy restarted the worker, the old process finished its pass at
+     * 07:17:40 and the new one started at 07:19:10, and the task on `18 7 * * *` never ran — the
+     * new process asked about 07:19 alone. The new process reads the last minute the old one asked
+     * about, from beside the lock, and starts after it.
+     */
+    public function testARestartCatchesUpTheMinutesBetweenTheTwoProcesses(): void
+    {
+        // Arrange
+        $ran = 0;
+        Scheduler::call(static function () use (&$ran): void {
+            $ran++;
+        })->cron('18 7 * * *');
+        $file = $this->minuteFile();
+
+        // Act — two processes, one after the other, sharing the file as two workers do
+        $this->clocked($file)->passAt('2026-10-21 07:17:40');
+        $this->clocked($file)->passAt('2026-10-21 07:19:10');
+
+        // Assert
+        $this->assertSame(1, $ran, 'the 07:18 run fell in the restart and was lost');
+    }
+
+    /**
+     * What a previous process left is still capped at `CATCH_UP_MINUTES`, and a minute it asked
+     * about is not asked again: a worker down for an hour does not replay the hour, and a restart
+     * inside one minute runs nothing twice.
+     */
+    public function testARestartIsCappedAndAsksNoMinuteTwice(): void
+    {
+        // Arrange
+        $at20 = 0;
+        $at50 = 0;
+        Scheduler::call(static function () use (&$at20): void {
+            $at20++;
+        })->cron('20 * * * *');
+        Scheduler::call(static function () use (&$at50): void {
+            $at50++;
+        })->cron('50 * * * *');
+        $file = $this->minuteFile();
+
+        // Act
+        $this->clocked($file)->passAt('2026-10-21 03:20:05');
+        $this->clocked($file)->passAt('2026-10-21 03:20:50'); // same minute, new process
+        $this->clocked($file)->passAt('2026-10-21 04:30:00'); // 70 minutes later: 04:16 to 04:30
+
+        // Assert
+        $this->assertSame(2, $at20, '03:20 ran twice, or 04:20 was not caught up');
+        $this->assertSame(0, $at50, '03:50 is outside the window and was replayed');
+    }
+
+    /**
+     * A minute file that holds anything but a timestamp is no record: the pass asks about the
+     * current minute only, as a first start does, and writes a good one.
+     */
+    public function testAnUnreadableMinuteFileIsTreatedAsAFirstStart(): void
+    {
+        // Arrange
+        $ran = 0;
+        Scheduler::call(static function () use (&$ran): void {
+            $ran++;
+        })->cron('20 * * * *');
+        $file = $this->minuteFile();
+        file_put_contents($file, 'garbage');
+
+        // Act
+        $this->clocked($file)->passAt('2026-10-21 03:21:00');
+
+        // Assert
+        $this->assertSame(0, $ran, 'a corrupt file made the pass look back');
+        $this->assertSame((string) strtotime('2026-10-21 03:21:00'), file_get_contents($file));
     }
 }
