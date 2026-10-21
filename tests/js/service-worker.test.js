@@ -13,6 +13,8 @@
  */
 'use strict';
 
+/* global Headers -- Node's own, as in a browser; the worker under test reads responses with it */
+
 const { test } = require('node:test');
 const assert   = require('node:assert/strict');
 const fs       = require('node:fs');
