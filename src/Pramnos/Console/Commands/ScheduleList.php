@@ -84,7 +84,7 @@ class ScheduleList extends Command
      */
     private function reportWhetherAnythingRunsThis(OutputInterface $output, int $tasks): void
     {
-        $lock = new \Pramnos\Console\WorkerLock('pramnos-work.lock');
+        $lock = new \Pramnos\Console\WorkerLock('pramnos-work.lock', (new Work())->lockFilePath());
 
         $output->writeln('');
 

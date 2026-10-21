@@ -98,6 +98,18 @@ class Work extends CommandBase
         return 'pramnos-work.lock';
     }
 
+    /**
+     * Where a `work` process keeps its lock — for a command that asks whether one is running.
+     *
+     * The worker's own answer, so the asker reads the file the worker writes: `schedule:list`
+     * built a `WorkerLock` by this name, whose default path adds `.lock` once more, and read
+     * `pramnos-work.lock.lock` — "No `work` process is running" beside one that was.
+     */
+    public function lockFilePath(): string
+    {
+        return $this->resolvedJobLockFilePath();
+    }
+
     protected function configure(): void
     {
         $this

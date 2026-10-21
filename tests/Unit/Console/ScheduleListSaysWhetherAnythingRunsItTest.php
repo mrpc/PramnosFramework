@@ -34,7 +34,7 @@ class ScheduleListSaysWhetherAnythingRunsItTest extends TestCase
 
     protected function setUp(): void
     {
-        $this->lockPath = WorkerLock::defaultPath('pramnos-work.lock');
+        $this->lockPath = (new \Pramnos\Console\Commands\Work())->lockFilePath();
 
         // A lock left by another test in this process would answer for this one.
         @unlink($this->lockPath);
@@ -108,8 +108,11 @@ class ScheduleListSaysWhetherAnythingRunsItTest extends TestCase
      */
     public function testWithAHeldLockItSaysTheScheduleIsRunning(): void
     {
-        // Arrange — a lock held by this process, which is what a running `work` looks like
-        $lock = new WorkerLock('pramnos-work.lock');
+        // Arrange — a lock held by this process at the path `work` writes, which is what a
+        // running `work` looks like. Built from the name alone it was `pramnos-work.lock.lock`,
+        // the same wrong file the command read, so this test passed while production did not.
+        $lock = new WorkerLock('pramnos-work.lock', $this->lockPath);
+        $this->assertStringEndsWith('/var/pramnos-work.lock', $lock->getPath());
         $this->assertTrue($lock->acquire(), 'the arrangement could not take the lock');
 
         try {
