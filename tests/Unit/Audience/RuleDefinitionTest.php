@@ -127,7 +127,7 @@ class RuleDefinitionTest extends TestCase
         Actions::reset();
 
         // Assert
-        $this->assertSame(['email', 'bell', 'push', 'group_add', 'group_remove', 'attribute', 'notify_admin', 'webhook', 'sms'], array_keys($all));
+        $this->assertSame(['email', 'bell', 'push', 'site_message', 'group_add', 'group_remove', 'attribute', 'notify_admin', 'webhook', 'sms'], array_keys($all));
         $this->assertSame('sms', $all['sms']['channel']);
         $this->assertSame('email', $all['email']['channel']);
         $this->assertNull($all['webhook']['channel']);

@@ -873,3 +873,41 @@ a.pf-stat-tile:hover { border-color: var(--color-primary, #2563eb); }
 }
 .pf-audience-panel-since,
 .pf-audience-panel-empty { font-size: 0.8rem; opacity: 0.7; margin: 0; }
+
+/* Site messages — Html\SiteMessages: a banner across the page, a popup in the middle of it, a card
+   in its slot; each with a close button that is a form. */
+.pf-site-message {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    background: var(--color-base-200, #f1f5f9);
+    border: 1px solid var(--color-base-300, #cbd5e1);
+    border-radius: 0.5rem;
+}
+.pf-site-message-banner { border-radius: 0; border-width: 0 0 1px; }
+.pf-site-message-popup {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    margin: auto;
+    width: min(28rem, calc(100% - 2rem));
+    height: fit-content;
+    background: var(--color-base-100, #fff);
+    box-shadow: 0 20px 50px rgb(0 0 0 / 0.25);
+}
+.pf-site-message-card { margin-bottom: 0.75rem; }
+.pf-site-message-text { flex: 1 1 auto; min-width: 0; display: grid; gap: 0.25rem; }
+.pf-site-message-body > :last-child { margin-bottom: 0; }
+.pf-site-message-link { font-weight: 600; }
+.pf-site-message-close { margin: 0; }
+.pf-site-message-close button {
+    padding: 0 0.4rem;
+    font: inherit;
+    font-size: 1.25rem;
+    line-height: 1;
+    color: inherit;
+    background: none;
+    border: 0;
+    cursor: pointer;
+}

@@ -102,8 +102,6 @@ class Segments extends Controller
             $view->why = Filter::fromArray($segment['filter'])->explain($view->person);
             $view->isMember = SegmentStore::isMember($segment['id'], $view->person);
         }
-        $view->labels    = array_map(static fn ($a): string => $a->labelText(), Attributes::all());
-        $view->operators = Audience::operatorWords();
 
         return $view->display('view');
     }

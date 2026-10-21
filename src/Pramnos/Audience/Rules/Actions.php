@@ -25,8 +25,9 @@ use Pramnos\Email\TemplateValues;
  * it at all. Text parameters may use the message placeholders (`{firstname}`…), filled for the
  * person.
  *
- * The framework's: `email` (a mail template), `bell` and `push` (a notification), `group_add` and
- * `group_remove`, `attribute` (set a column of a declared attribute), `notify_admin`, `webhook`.
+ * The framework's: `email` (a mail template), `bell` and `push` (a notification), `site_message`
+ * (a banner, popup or card on the site), `group_add` and `group_remove`, `attribute` (set a column
+ * of a declared attribute), `notify_admin`, `webhook`.
  */
 final class Actions
 {
@@ -106,6 +107,15 @@ final class Actions
             'push' => ['label' => t('Send a push notification'), 'channel' => 'push', 'params' => [
                 'subject' => $text(t('Title')), 'body' => $text(t('Message'), 'textarea'), 'link' => $text(t('Link')),
             ], 'run' => static fn (int $person, array $params, Context $context): array => self::notify($person, $params, 'push', $context)],
+            'site_message' => ['label' => t('Show a message on the site'), 'channel' => 'site', 'params' => [
+                'kind' => ['label' => t('Kind'), 'type' => 'select', 'options' => ['banner' => t('Banner'), 'popup' => t('Popup'), 'card' => t('Card')]],
+                'title' => $text(t('Title')), 'body' => $text(t('Message'), 'textarea'), 'link' => $text(t('Link')),
+                'link_text' => $text(t('Button')), 'days' => $text(t('Shown for days'), 'number'),
+            ], 'run' => static fn (int $person, array $params, Context $context): array => ($id = \Pramnos\Audience\SiteMessages::post(
+                $context->isTest() ? $context->to() : $person, (string) ($params['kind'] ?? 'banner'),
+                Actions::fill((string) ($params['title'] ?? ''), $person), Actions::fill((string) ($params['body'] ?? ''), $person),
+                (string) ($params['link'] ?? ''), (string) ($params['link_text'] ?? ''), (int) ($params['days'] ?? 0), $context->origin()
+            )) === null ? ['status' => 'skipped', 'detail' => ['reason' => 'not installed']] : ['status' => 'sent', 'detail' => ['message' => $id]]],
             'group_add' => ['label' => t('Put in a group'), 'channel' => null, 'params' => ['group' => $text(t('Group'), 'group')],
                 'run' => static fn (int $person, array $params, Context $context): array => [
                     'status' => 'done', 'detail' => ['added' => \Pramnos\Audience\Groups::add((int) ($params['group'] ?? 0), $person, null, 'rule')]]],

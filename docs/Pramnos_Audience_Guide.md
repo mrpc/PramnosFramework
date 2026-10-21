@@ -27,12 +27,12 @@ application declares its attributes once and every screen can use them.
 ## Before the migrations run
 
 The audience tables — `segments`, `segment_members`, `consent_lists`, `person_events`,
-`person_event_log`, `rules`, `rule_versions`, `rule_runs`, `rule_log` — come from core migrations, and an application can hold them back while it
+`person_event_log`, `rules`, `rule_versions`, `rule_runs`, `rule_log`, `site_messages` — come from core migrations, and an application can hold them back while it
 tries the feature elsewhere:
 
 ```php
 // app/app.php
-'migrations' => ['exclude' => ['create_segments_tables', 'create_consent_lists_table', 'create_person_events_tables', 'create_rules_tables']],
+'migrations' => ['exclude' => ['create_segments_tables', 'create_consent_lists_table', 'create_person_events_tables', 'create_rules_tables', 'create_site_messages_table']],
 ```
 
 Until they exist, nothing here does anything: a dispatched `PersonEvent`, an event with
@@ -512,7 +512,7 @@ some days of entering, which ends the run as reached.
 
 The framework's: `email` (a mail template, in the person's language, into the outbox; with a
 `list`, the unsubscribe link, open/click tracking, and nobody who left the list), `bell` and
-`push` (a notification), `group_add` / `group_remove`, `attribute` (a column of a declared
+`push` (a notification), `site_message` (a banner, popup or card on the site, below), `group_add` / `group_remove`, `attribute` (a column of a declared
 attribute), `notify_admin`, `webhook` (POSTs the person and the origin). An application adds its
 own:
 
@@ -575,4 +575,28 @@ Tester::diff($rule, 3, 4);            // ['before' => 812, 'after' => 790, 'in' 
 
 Shadow mode is the live trial: the rule runs for real people on real events and writes in its log
 what it would have sent.
+
+## Messages on the site
+
+A banner across the page, a popup, a card — for one person, until they close it or it expires:
+
+```php
+use Pramnos\Audience\SiteMessages;
+
+SiteMessages::post($userid, 'banner', t('Your Premium ends on Friday'), '<p>Renew to keep it.</p>',
+    link: '/premium', linkText: t('Renew'), days: 7);
+```
+
+A rule's `site_message` action does the same, with its origin. The layout shows them to whoever
+is signed in — the scaffolded themes beside the flash messages:
+
+```php
+echo \Pramnos\Html\SiteMessages::render();          // banners and one popup at a time
+echo \Pramnos\Html\SiteMessages::render('card');    // cards, where the page keeps them
+```
+
+Each is neutral `pf-site-message` markup the theme dresses; the popup a `<dialog open>`; the close
+button a form to `/SiteMessages/dismiss/{id}` with the session's token, back to the page — no
+script. The first showing is recorded (`seenat`), and the closing (`dismissedat`). Nothing for a
+visitor, and nothing before the table is installed.
 

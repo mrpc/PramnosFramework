@@ -63,6 +63,7 @@ trait AudienceProbe
         require_once ROOT . '/database/migrations/framework/core/2026_10_21_000010_create_consent_lists_table.php';
         require_once ROOT . '/database/migrations/framework/core/2026_10_21_000011_create_person_events_tables.php';
         require_once ROOT . '/database/migrations/framework/core/2026_10_21_000012_create_rules_tables.php';
+        require_once ROOT . '/database/migrations/framework/core/2026_10_21_000013_create_site_messages_table.php';
         require_once ROOT . '/database/migrations/framework/messaging/2026_10_21_000002_add_userid_to_mails.php';
         if (!defined('LOG_PATH')) {
             define('LOG_PATH', ROOT . \DS . 'var');
@@ -105,6 +106,7 @@ trait AudienceProbe
             \Pramnos\Framework\Migrations\Messaging\CreateEmailoptoutsTable::class,
             \Pramnos\Framework\Migrations\Core\CreatePersonEventsTables::class,
             \Pramnos\Framework\Migrations\Core\CreateRulesTables::class,
+            \Pramnos\Framework\Migrations\Core\CreateSiteMessagesTable::class,
             \Pramnos\Framework\Migrations\Messaging\CreateMailtemplatesTable::class,
             \Pramnos\Framework\Migrations\Notifications\CreateNotificationsTable::class,
             \Pramnos\Framework\Migrations\Messaging\CreateMailsTable::class,

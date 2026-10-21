@@ -22,6 +22,7 @@
 <main id="main-content" class="flex-1 py-10">
     <div class="container mx-auto px-4 max-w-5xl">
         <?php echo \Pramnos\Html\Flash::render(); ?>
+        <?php echo \Pramnos\Html\SiteMessages::render(); ?>
         [MODULE]
     </div>
 </main>

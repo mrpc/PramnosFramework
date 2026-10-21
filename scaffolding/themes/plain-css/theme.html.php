@@ -22,6 +22,7 @@
 <main id="main-content" class="main-content">
     <div class="container">
         <?php echo \Pramnos\Html\Flash::render(); ?>
+        <?php echo \Pramnos\Html\SiteMessages::render(); ?>
         [MODULE]
     </div>
 </main>

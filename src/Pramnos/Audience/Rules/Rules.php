@@ -213,7 +213,7 @@ final class Rules
             return (string) json_encode(array_values(array_unique($names)));
         };
         try {
-            $json = \Pramnos\Cache\Cache::getInstance('audience')->remember(self::CACHE_KEY, 60, $read);
+            $json = \Pramnos\Cache\Cache::getInstance('audience')->remember(self::cacheKey(), 60, $read);
         } catch (\Throwable) {
             $json = $read();
         }
@@ -225,10 +225,18 @@ final class Rules
     public static function forgetEvents(): void
     {
         try {
-            \Pramnos\Cache\Cache::getInstance('audience')->delete(self::CACHE_KEY);
+            \Pramnos\Cache\Cache::getInstance('audience')->delete(self::cacheKey());
         } catch (\Throwable) {
             // nothing remembered, nothing to forget
         }
+    }
+
+    /** The cache key of the listened events, for this database. */
+    private static function cacheKey(): string
+    {
+        $db = self::db();
+
+        return self::CACHE_KEY . ':' . md5($db->type . '|' . $db->server . '|' . $db->database . '|' . $db->prefix);
     }
 
     /**

@@ -19,6 +19,7 @@ class InstalledTest extends TestCase
     /** Forget what was remembered. */
     protected function tearDown(): void
     {
+        Installed::$cache = null;
         Installed::reset();
     }
 
@@ -54,5 +55,48 @@ class InstalledTest extends TestCase
         // Assert
         $this->assertSame([false, false, false], $answers);
         $this->assertSame(2, $asked, 'segments once, person events once');
+    }
+
+    /**
+     * A cache that cannot be reached — a Redis that is down — is not a reason to say anything is
+     * missing: the database is asked directly, and forgetting does not fail either.
+     */
+    public function testACacheThatIsDownIsGoneAround(): void
+    {
+        // Arrange
+        Installed::$cache = static function (): \Pramnos\Cache\Cache {
+            throw new \RuntimeException('redis down');
+        };
+        $singleton = &Database::getInstance();
+        $previous  = $singleton;
+        $singleton = new class extends Database {
+            /** Nothing to connect to. */
+            public function __construct()
+            {
+            }
+
+            /** A schema where every table is there. */
+            public function schema()
+            {
+                return new class {
+                    /** Every table exists. */
+                    public function hasTable(string $table): bool
+                    {
+                        return true;
+                    }
+                };
+            }
+        };
+
+        // Act
+        try {
+            Installed::reset();
+            $answer = Installed::has('anything');
+        } finally {
+            $singleton = $previous;
+        }
+
+        // Assert
+        $this->assertTrue($answer);
     }
 }

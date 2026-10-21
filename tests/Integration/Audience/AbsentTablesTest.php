@@ -32,6 +32,7 @@ use Symfony\Component\Console\Tester\CommandTester;
  * screens leave the menu and say they are not installed; the person card still shows groups.
  */
 #[CoversClass(Installed::class)]
+#[CoversClass(\Pramnos\Audience\SiteMessages::class)]
 #[CoversClass(\Pramnos\Audience\Rules\Engine::class)]
 #[CoversClass(\Pramnos\Audience\Rules\Rules::class)]
 #[CoversClass(\Pramnos\Console\Commands\RulesRun::class)]
@@ -257,6 +258,8 @@ class AbsentTablesTest extends TestCase
         $answers = [$segments->display(), $lists->display()];
         $panel   = \Pramnos\Html\AudiencePanel::person($anna);
         $catalog = \Pramnos\Application\Controllers\Audience::describe();
+        $messages = [\Pramnos\Audience\SiteMessages::post($anna, 'banner', 'x'), \Pramnos\Audience\SiteMessages::pending($anna),
+            \Pramnos\Html\SiteMessages::render(null, $anna), \Pramnos\Audience\SiteMessages::dismiss(1, $anna)];
 
         // Assert
         $this->assertFalse(Installed::segments());
@@ -268,5 +271,6 @@ class AbsentTablesTest extends TestCase
         $this->assertSame([], $catalog['segments']);
         $this->assertSame([], $catalog['consent']);
         $this->assertSame(['Press'], array_column($catalog['groups'], 'name'));
+        $this->assertSame([null, [], '', false], $messages, 'no site messages, and no error');
     }
 }

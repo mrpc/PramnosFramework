@@ -11,16 +11,11 @@
  *   $this->person    — the account asked about, or 0
  *   $this->why       — Filter::explain() for that account, or null
  *   $this->isMember  — whether that account is in the segment as last worked out
- *   $this->labels    — attribute labels by key
- *   $this->operators — operator words by key
  */
 $e         = static fn ($value): string => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
 $segment   = $this->segment;
 $id        = (int) $segment['id'];
-$labels    = $this->labels ?? [];
-$operators = $this->operators ?? [];
-$value     = static fn ($v): string => is_array($v) ? implode(', ', array_map('strval', $v)) : ($v === null ? '—' : (is_bool($v) ? ($v ? t('yes') : t('no')) : (string) $v));
-$explain   = static function (array $group) use (&$explain, $e, $labels, $operators, $value): string {
+$explain   = static function (array $group) use (&$explain, $e): string {
     $html = '<ul class="list-unstyled d-grid gap-1">';
     foreach ($group['conditions'] as $c) {
         if (isset($c['conditions'])) {
@@ -28,11 +23,11 @@ $explain   = static function (array $group) use (&$explain, $e, $labels, $operat
                 . $e($c['match'] === 'any' ? t('any of') : t('all of')) . ' ' . ($c['ok'] ? '✓' : '✗') . '</span>' . $explain($c) . '</li>';
             continue;
         }
-        $what  = isset($c['segment']) ? $c['label'] : ($labels[$c['attribute']] ?? $c['attribute']);
+        $said  = \Pramnos\Audience\Explained::condition($c);
         $html .= '<li class="d-flex flex-wrap gap-2 align-items-baseline"><span class="' . ($c['ok'] ? 'text-success' : 'text-danger') . ' fw-semibold" aria-label="'
             . $e($c['ok'] ? t('yes') : t('no')) . '">' . ($c['ok'] ? '✓' : '✗') . '</span> '
-            . $e($what) . ' ' . $e($operators[$c['op']] ?? $c['op']) . (array_key_exists('value', $c) ? ' <strong>' . $e($value($c['value'])) . '</strong>' : '')
-            . ' <span class="text-muted">' . $e(t('has: %s', $value($c['actual']))) . '</span></li>';
+            . $e($said['what']) . ' ' . $e($said['how']) . ($said['value'] !== null ? ' <strong>' . $e($said['value']) . '</strong>' : '')
+            . ' <span class="text-muted">' . $e(t('has: %s', $said['actual'])) . '</span></li>';
     }
 
     return $html . '</ul>';
