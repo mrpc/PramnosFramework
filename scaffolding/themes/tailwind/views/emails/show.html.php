@@ -133,7 +133,10 @@ $sentAt  = is_numeric($rawDate) && (int) $rawDate > 0
                          the administration area. `allow-same-origin` is deliberately absent, so
                          the frame cannot reach this page's DOM or cookies — nor this page the
                          frame's, so its height is fixed and the reader drags it taller. */ ?>
-                <iframe sandbox srcdoc="<?php echo htmlspecialchars($body, ENT_QUOTES, 'UTF-8'); ?>"
+                <?php /* Popups allowed and nothing else: a link opens in a window of its own (the
+                         preview carries `<base target="_blank">`), scripts stay off, and the
+                         preview has no tracking pixel ({@see \Pramnos\Email\MessageReport::preview()}). */ ?>
+                <iframe sandbox="allow-popups allow-popups-to-escape-sandbox" srcdoc="<?php echo htmlspecialchars((string) ($this->preview ?? $body), ENT_QUOTES, 'UTF-8'); ?>"
                     style="width:100%;border:none;height:600px;resize:vertical;overflow:auto"></iframe>
             <?php else: ?>
                 <p class="text-base-content/70">No body content.</p>
@@ -141,9 +144,13 @@ $sentAt  = is_numeric($rawDate) && (int) $rawDate > 0
         </div>
 
         <?php if ($report !== null): ?>
-        <input type="radio" name="pf-mail-tabs" role="tab" class="tab"
+        <?php /* A tracked message's figures change while this page is open — following one of its
+                 links from the preview is a click — so they are fetched again when the reader
+                 comes back to the page (`data-pf-refresh-on-return`, pf-utils.js). */
+        $refresh = !empty($tracking['recorded']) ? ' data-pf-refresh-on-return' : ''; ?>
+        <input type="radio" name="pf-mail-tabs" role="tab" class="tab" id="pf-mail-tracking-tab"<?php echo $refresh; ?>
                aria-label="<?php echo htmlspecialchars($trackingLabel, ENT_QUOTES); ?>">
-        <div role="tabpanel" class="tab-content bg-base-100 border-base-300 p-5">
+        <div role="tabpanel" class="tab-content bg-base-100 border-base-300 p-5" id="pf-mail-tracking"<?php echo $refresh; ?>>
             <div class="max-w-2xl text-sm space-y-3">
                 <?php if (!empty($tracking['recorded'])): ?>
                     <div class="flex flex-wrap gap-2">

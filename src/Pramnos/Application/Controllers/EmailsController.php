@@ -548,6 +548,8 @@ class EmailsController extends Controller
             $mail,
             $this->trackingFor($mailId)
         );
+        // What the frame draws: without the pixel, links opening in a window of their own.
+        $view->preview = $view->report->preview();
         // Whether mail still goes to this address, and the two things an operator does about it.
         $view->bounce = \Pramnos\Email\Bounces::available() && \Pramnos\Email\Bounces::hash((string) ($mail['tomail'] ?? '')) !== null ? [
             'refusal' => \Pramnos\Email\Bounces::refusal((string) $mail['tomail']),

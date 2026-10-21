@@ -58,7 +58,10 @@ $sentAt    = is_numeric($rawDate) && (int) $rawDate > 0
         <div class="card-header" style="padding:10px 16px;font-weight:600;background:#f5f5f5;border-bottom:1px solid #ddd">Body</div>
         <div class="card-body" style="padding:16px">
             <?php if ($body !== ''): ?>
-                <iframe sandbox srcdoc="<?php echo htmlspecialchars($body, ENT_QUOTES, 'UTF-8'); ?>"
+                <?php /* Popups allowed and nothing else: a link opens in a window of its own (the
+                         preview carries `<base target="_blank">`), scripts stay off, and the
+                         preview has no tracking pixel ({@see \Pramnos\Email\MessageReport::preview()}). */ ?>
+                <iframe sandbox="allow-popups allow-popups-to-escape-sandbox" srcdoc="<?php echo htmlspecialchars((string) ($this->preview ?? $body), ENT_QUOTES, 'UTF-8'); ?>"
                     style="width:100%;border:none;height:400px;resize:vertical;overflow:auto"></iframe>
             <?php else: ?>
                 <p style="color:#888">No body content.</p>
@@ -81,6 +84,9 @@ if ($report !== null):
     $tracking = $report->tracking();
     $when = static fn (int $at): string => $at > 0 ? date('j M Y, H:i', $at) : '\u2014';
 ?>
+<?php /* Fetched again when the reader comes back to the page, for a tracked message: following
+         one of its links from the preview is a click (`data-pf-refresh-on-return`, pf-utils.js). */ ?>
+<div id="pf-mail-tracking"<?php echo !empty($tracking['recorded']) ? ' data-pf-refresh-on-return' : ''; ?>>
 <h3>Tracking</h3>
 <?php if (!empty($tracking['recorded'])): ?>
     <p>
@@ -107,6 +113,7 @@ if ($report !== null):
 <?php if (!empty($tracking['note'])): ?>
     <p><em><?php echo htmlspecialchars($tracking['note']); ?></em></p>
 <?php endif; ?>
+</div>
 
 <h3>Structured data (Gmail actions and highlights)</h3>
 <?php $blocks = $report->structuredData(); ?>

@@ -727,6 +727,24 @@ for a view that wants to leave something else out.
 The `pf-modal`, `pf-modal-close` and `pf-modal-body` hooks are styled in each scaffolded theme's
 `components.css`.
 
+## Figures that change while the reader is away — `data-pf-refresh-on-return`
+
+An element with an id and `data-pf-refresh-on-return` is refreshed when the reader comes back to
+the page — the tab visible again, or the window focused. `pf-utils.js` fetches the page's own
+address with `X-Pf-Fragment: 1` and gives each marked element the content and `aria-label` of the
+element with the same id; the rest of the page, an open tab included, stays as it is.
+
+```php
+<div id="pf-mail-tracking"<?= $tracked ? ' data-pf-refresh-on-return' : '' ?>>
+    <?= (int) $clicks ?> clicked
+</div>
+```
+
+Meant for what changes because of what the reader went off to do — a message page's click count
+after they followed one of its links in another window. A page with nothing marked fetches
+nothing, focus and visibility on one return are one fetch, and a failed fetch leaves the page as
+it is.
+
 ## Date and time
 
 ```php

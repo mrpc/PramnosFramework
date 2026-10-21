@@ -264,6 +264,26 @@ class MessageReport
     }
 
     /**
+     * The message as the preview frame draws it.
+     *
+     * Without the tracking pixel — an administrator looking at a message is not its recipient
+     * opening it, and the open would be counted as theirs. Without the text part kept inside the
+     * stored body ({@see TextPart}). And with `<base target="_blank">`, so a link opens in a window
+     * of its own: the frame is sandboxed, and a link followed inside it goes nowhere. The wrapped
+     * links stay — following one is how tracking is checked, and it is recorded as a click.
+     */
+    public function preview(): string
+    {
+        $body = (string) preg_replace(
+            '~<img[^>]+src="[^"]*' . preg_quote(Tracking::PIXEL_PATH, '~') . '\?t=[^"]*"[^>]*>~i',
+            '',
+            TextPart::strip($this->body())
+        );
+
+        return '<base target="_blank">' . $body;
+    }
+
+    /**
      * What a text-only client shows.
      *
      * Rendered here rather than described, because the text part is the half nobody looks at —

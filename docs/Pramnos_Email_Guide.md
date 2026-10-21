@@ -1781,6 +1781,13 @@ builds its query from them. A resend `mayResend()` allows for a **sent** message
 a copy with the same body, names and outbox settings, and leaves the first as it was: the history
 says the message went twice, which is what happened.
 
+A message's own page draws the body in a sandboxed frame, scripts off, from
+`MessageReport::preview()`: **without the tracking pixel**, so looking at a message is not counted
+as its recipient opening it, and with `<base target="_blank">`, so a link opens in a window of its
+own. The tracked links stay — following one from the preview is how an administrator checks that
+clicks are recorded — and the Tracking tab and its count are fetched again when the reader comes
+back to the page (`data-pf-refresh-on-return` in `pf-utils.js`, on any element with an id).
+
 Every `send()` writes that row, sent or failed. An application that already keeps its own row
 for each message in the same table gets two; it turns the framework's off for every send,
 including `Email::sendMail()`:

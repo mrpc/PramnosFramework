@@ -24,6 +24,10 @@
  *   data-pf-modal[="label"]     — on a link: open its page in a <dialog>, fetched with
  *                                 X-Pf-Fragment: 1 (the content without the theme); a plain
  *                                 navigation where there is no <dialog> or the fetch fails
+ *   data-pf-refresh-on-return   — on an element with an id: when the reader comes back to the
+ *                                 page (the tab is visible or the window focused again), fetch
+ *                                 the page as a fragment and put in the element's fresh content
+ *                                 and aria-label; nothing is fetched while none is on the page
  *
  * Same-origin API calls made from here send `X-CSRF-Token` from `<meta name="csrf">`
  * (window.pfApiHeaders) — that is what authenticates a page against its own API.
@@ -434,6 +438,37 @@
         if (!dialog.open) { dialog.showModal(); }
         document.dispatchEvent(new CustomEvent('pf:modal:open', { detail: { dialog: dialog, url: link.getAttribute('href') } }));
     }
+
+    // ── data-pf-refresh-on-return ───────────────────────────────────────────
+    //
+    // A figure that changes because of what the reader went off to do — the clicks of a message
+    // whose link they just followed in another window. When they come back, the page is fetched
+    // again as a fragment and each marked element takes its fresh content and label, matched by
+    // id; the rest of the page, the open tab included, stays as it is. A failed fetch leaves
+    // the page alone.
+    var returnRefreshAt = 0;
+    function refreshOnReturn() {
+        var marked = document.querySelectorAll('[data-pf-refresh-on-return][id]');
+        // Focus and visibility both fire on one return: one fetch, not two.
+        if (!marked.length || Date.now() - returnRefreshAt < 1000) { return; }
+        returnRefreshAt = Date.now();
+        fetch(window.location.href, { headers: { 'X-Pf-Fragment': '1' }, credentials: 'same-origin' })
+            .then(function (r) { return r.ok ? r.text() : Promise.reject(new Error('HTTP ' + r.status)); })
+            .then(function (html) {
+                var fresh = new DOMParser().parseFromString(html, 'text/html');
+                Array.prototype.forEach.call(marked, function (el) {
+                    var now = fresh.getElementById(el.id);
+                    if (!now) { return; }
+                    if (now.hasAttribute('aria-label')) { el.setAttribute('aria-label', now.getAttribute('aria-label')); }
+                    el.innerHTML = now.innerHTML;
+                });
+            })
+            .catch(function () { /* offline, or the page is gone: what is shown stays */ });
+    }
+    document.addEventListener('visibilitychange', function () {
+        if (document.visibilityState === 'visible') { refreshOnReturn(); }
+    });
+    window.addEventListener('focus', refreshOnReturn);
 
     // ── Stats modal helpers ─────────────────────────────────────────────────
 

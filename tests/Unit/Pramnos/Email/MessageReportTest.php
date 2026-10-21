@@ -306,5 +306,34 @@ class MessageReportTest extends TestCase
         // Act + Assert
         $this->assertSame('<p>composed</p>', $report->body());
     }
-}
 
+    /**
+     * The preview is not an open, and its links lead somewhere.
+     *
+     * An administrator looking at a message must not be counted as its recipient opening it, so
+     * the pixel is left out of what the frame draws; a link followed inside a sandboxed frame goes
+     * nowhere, so the preview opens links in a window of their own. The tracked links stay —
+     * following one is how tracking is checked — and the text part kept inside the stored body
+     * is not drawn.
+     */
+    public function testThePreviewHasNoPixelAndOpensLinksInANewWindow(): void
+    {
+        // Arrange
+        $body = '<p>Hi <a href="https://example.test' . Tracking::CLICK_PATH . '?c=abc">read</a></p>'
+            . '<img src="https://example.test' . Tracking::PIXEL_PATH . '?t=abc123" alt="" width="1" height="1" />'
+            . '<img src="https://example.test/logo.png" alt="Logo">';
+        $report = $this->report(\Pramnos\Email\TextPart::embed($body, 'Text part'));
+
+        // Act
+        $preview = $report->preview();
+
+        // Assert
+        $this->assertStringStartsWith('<base target="_blank">', $preview);
+        $this->assertStringNotContainsString(Tracking::PIXEL_PATH, $preview, 'viewing the preview would count as an open');
+        $this->assertStringContainsString('logo.png', $preview, 'an ordinary picture was taken out with the pixel');
+        $this->assertStringContainsString(Tracking::CLICK_PATH, $preview);
+        $this->assertStringNotContainsString('Text part', $preview);
+        // What the report says about the message is read from the body as kept, pixel included.
+        $this->assertTrue($report->tracking()['pixel']);
+    }
+}
