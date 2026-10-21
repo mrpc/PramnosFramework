@@ -314,11 +314,75 @@ abstract class MakeCommandBase extends Command
             . "\nService created.";
     }
 
+    /** The event class create:listener types handle() with (`--event`); null for `mixed ...$args`. */
+    protected ?string $listenerEvent = null;
+
+    /** Whether create:listener writes a queued listener (`--queued`). */
+    protected bool $listenerQueued = false;
+
+    /**
+     * The source of an event class: its `EVENT` name, a readonly payload, and what a queued
+     * listener's task carries of it.
+     *
+     * `JobPostCreated` is named `jobpost.created`: the last word is what happened, the words
+     * before it what it happened to.
+     */
+    public function eventSource(string $namespace, string $className): string
+    {
+        $words = preg_split('/(?=[A-Z])/', $className, -1, PREG_SPLIT_NO_EMPTY) ?: [$className];
+        $last  = strtolower((string) array_pop($words));
+        $name  = $words === [] ? $last : strtolower(implode('', $words)) . '.' . $last;
+
+        return $this->renderStub('event', ['namespace' => $namespace, 'class' => $className, 'name' => $name]);
+    }
+
+    /**
+     * The source of a listener class, as {@see $listenerEvent} and {@see $listenerQueued} ask:
+     * `handle(mixed ...$args)` or `handle(TheEvent $event)`, run in the request or queued.
+     *
+     * The listener stub is the plain ListenerInterface listener, and stays renderable as one;
+     * the variants replace its three ListenerInterface-specific pieces. A stub of the
+     * application's own without them is written as it is.
+     *
+     * @param string $appNamespace Where a bare `--event=` name is looked for, under `Events`
+     */
+    public function listenerSource(string $namespace, string $className, string $appNamespace): string
+    {
+        $uses = [];
+        if ($this->listenerQueued) {
+            $uses[]      = 'Pramnos\\Event\\QueuedListener';
+            $declaration = ' extends QueuedListener';
+        } elseif ($this->listenerEvent === null) {
+            $uses[]      = 'Pramnos\\Event\\ListenerInterface';
+            $declaration = ' implements ListenerInterface';
+        } else {
+            // handle(TheEvent $event) is narrower than ListenerInterface allows.
+            $declaration = '';
+        }
+
+        $parameters = 'mixed ...$args';
+        if ($this->listenerEvent !== null) {
+            $event = str_contains($this->listenerEvent, '\\')
+                ? ltrim($this->listenerEvent, '\\')
+                : $appNamespace . '\\Events\\' . $this->listenerEvent;
+            $uses[]     = $event;
+            $parameters = substr((string) strrchr('\\' . $event, '\\'), 1) . ' $event';
+        }
+        sort($uses);
+
+        return str_replace(
+            ['use Pramnos\\Event\\ListenerInterface;', ' implements ListenerInterface', 'mixed ...$args'],
+            [implode("\n", array_map(static fn (string $use): string => 'use ' . $use . ';', $uses)), $declaration, $parameters],
+            $this->renderStub('listener', ['namespace' => $namespace, 'class' => $className])
+        );
+    }
+
     /**
      * Create an event class from the event.stub template.
      *
-     * Writes to src/Events/<Name>.php. An event is a plain value object that
-     * carries the payload for Event::fire(). Generates a matching test stub.
+     * Writes to src/Events/<Name>.php: an event for Event::dispatch(), with its
+     * `EVENT` name, a readonly payload, and jsonSerialize()/fromQueue() so a
+     * queued listener receives it too. Generates a matching test stub.
      *
      * @param string $eventName PascalCase class name (e.g. UserRegistered)
      * @return string Summary of created files
@@ -348,10 +412,7 @@ abstract class MakeCommandBase extends Command
             throw new \Exception("Event $className already exists at $filename.");
         }
 
-        $stub = $this->renderStub('event', [
-            'namespace' => $namespace . '\\Events',
-            'class'     => $className,
-        ]);
+        $stub = $this->eventSource($namespace . '\\Events', $className);
 
         if (!file_put_contents($filename, $stub)) {
             // @codeCoverageIgnoreStart
@@ -377,8 +438,9 @@ abstract class MakeCommandBase extends Command
     /**
      * Create a listener class from the listener.stub template.
      *
-     * Writes to src/Listeners/<Name>.php implementing ListenerInterface.
-     * Register the listener with: Event::listen('event.name', MyListener::class)
+     * Writes to src/Listeners/<Name>.php: implementing ListenerInterface, or with
+     * `--event=` a handle() typed with that event, or with `--queued` extending
+     * QueuedListener. Register it with: Event::listen('event.name', MyListener::class)
      * Generates a matching test stub.
      *
      * @param string $listenerName PascalCase class name (e.g. SendWelcomeEmail)
@@ -409,10 +471,7 @@ abstract class MakeCommandBase extends Command
             throw new \Exception("Listener $className already exists at $filename.");
         }
 
-        $stub = $this->renderStub('listener', [
-            'namespace' => $namespace . '\\Listeners',
-            'class'     => $className,
-        ]);
+        $stub = $this->listenerSource($namespace . '\\Listeners', $className, $namespace);
 
         if (!file_put_contents($filename, $stub)) {
             // @codeCoverageIgnoreStart

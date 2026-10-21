@@ -18,6 +18,9 @@ namespace Pramnos\Event;
  *
  * A {@see QueuedListener} is not called by `fire()`: a task is written for it and a worker runs
  * it ({@see QueuedEvents}).
+ *
+ * An event can also be an object — {@see dispatch()}: `Event::dispatch(new JobPostCreated($post))`
+ * fires `JobPostCreated::EVENT` with the object as its one argument.
  */
 class Event
 {
@@ -85,7 +88,7 @@ class Event
                 && $first->getClosureUsedVariables() == $second->getClosureUsedVariables();
         }
 
-        return $a instanceof ListenerInterface && $b instanceof ListenerInterface
+        return is_object($a) && is_object($b) && !$a instanceof \Closure
             && $a::class === $b::class && $a == $b;
     }
 
@@ -135,6 +138,28 @@ class Event
         }
 
         return $results;
+    }
+
+    /**
+     * Fire an event that is an object: its class's `EVENT` constant is the name, and the object is
+     * the one argument.
+     *
+     * ```php
+     * Event::dispatch(new JobPostCreated($post));   // = Event::fire('jobpost.created', $event)
+     * ```
+     *
+     * A listener in the request receives **this instance** — the caller's models, not copies — so
+     * what it changes on them is what the caller saves next. A {@see QueuedListener} receives it
+     * built again in the worker, which the event allows by being a {@see QueueableEvent}. A class
+     * without `EVENT` is fired under its class name.
+     *
+     * @return list<mixed> As {@see fire()}
+     */
+    public static function dispatch(object $event): array
+    {
+        $name = defined($event::class . '::EVENT') ? (string) constant($event::class . '::EVENT') : $event::class;
+
+        return static::fire($name, $event);
     }
 
     /**
@@ -219,7 +244,11 @@ class Event
             return $listener->handle(...$args);
         }
 
-        if (is_string($listener) && is_a($listener, ListenerInterface::class, true)) {
+        // A class with a handle() of its own types — handle(JobPostCreated $event) — cannot
+        // implement ListenerInterface, whose handle() takes anything; it is registered by name.
+        if (is_string($listener) && (is_a($listener, ListenerInterface::class, true)
+            || (class_exists($listener) && method_exists($listener, 'handle')))
+        ) {
             return (new $listener())->handle(...$args);
         }
 

@@ -9,6 +9,7 @@ use_cases:
   - Reading the queue's execution and wait times over days rather than minutes
   - Moving an event's side effects (emails, syncs) out of the request into the queue
   - Syncing a record once after many changes, or sending a welcome email only once
+  - Writing an application's events as classes that listeners in the request and in the queue both take
 ---
 
 # Pramnos Queue Guide
@@ -250,6 +251,100 @@ listeners still queue, unfolded and without keys, and the `events` log says so o
 
 `QueueManager::addKeyed($type, $data, $key, $delaySeconds, $ceilingSeconds)` is the folding on its
 own, for a task that is not an event's.
+
+### Domain events as classes
+
+An application's own events — a job post created, an account deactivated — are classes in
+`App\Events`, fired with `Event::dispatch()`:
+
+```php
+namespace App\Events;
+
+use Pramnos\Event\QueueableEvent;
+
+final class JobPostCreated implements QueueableEvent
+{
+    public const EVENT = 'jobpost.created';
+
+    public function __construct(public readonly JobPost $post, public readonly User $parent) {}
+
+    public function jsonSerialize(): array
+    {
+        return ['post' => (int) $this->post->id, 'parent' => (int) $this->parent->userid];
+    }
+
+    public static function fromQueue(array $data): static
+    {
+        return new self(new JobPost($data['post']), new User($data['parent']));
+    }
+}
+
+Event::dispatch(new JobPostCreated($post, $user));   // = Event::fire('jobpost.created', $event)
+```
+
+`dispatch()` fires the class's `EVENT` — a dotted name, so `Event::listen('jobpost.created', …)`
+and the Queue screen read as they always did — with the object as the one argument. A class
+without `EVENT` is fired under its class name.
+
+Listeners live in `App\Listeners` and take the event's class:
+
+```php
+final class CompleteRegistration                       // in the request
+{
+    public function handle(JobPostCreated $event): mixed
+    {
+        $event->parent->regcompletion = 1;              // the caller's object — saved by the caller
+        return null;
+    }
+}
+
+final class NotifyNearbyProfessionals extends QueuedListener   // in the worker
+{
+    public function handle(JobPostCreated $event): mixed { /* … */ return true; }
+
+    public function idempotencyKey(mixed ...$args): ?string
+    {
+        return 'notified:' . $args[0]->post->id;        // asked with the event object
+    }
+}
+
+Event::listen(JobPostCreated::EVENT, CompleteRegistration::class);
+Event::listen(JobPostCreated::EVENT, NotifyNearbyProfessionals::class);
+```
+
+**A listener in the request receives the dispatched instance itself**, models included. That is
+the point of the object: a listener that changes the record the caller is holding changes it on the
+caller's object, and the caller's next `save()` writes it. One that loaded its own copy and saved it
+would be overwritten by the caller's stale object a moment later.
+
+**A queued listener receives the same class, built again in the worker.** The task carries what
+`jsonSerialize()` returns — ids and plain values — and the class; the worker calls `fromQueue()`
+and hands the result to `handle()`, so one `handle(JobPostCreated $event)` serves both places.
+`fromQueue()` loads what it needs, so the worker reads the records as they are now. The key methods
+— `debounceKey()`, `idempotencyKey()` — are asked at dispatch, with the object.
+
+Which goes where: a listener that adjusts the caller's own records — flags, counters, a completion
+step — runs in the request, on the caller's object. One that changes somebody else's data, calls a
+provider or sends anything goes to the queue, where it cannot slow the request or lose its work
+over the request's rollback.
+
+An object that is not a `QueueableEvent` reaches a queued listener only if it is `JsonSerializable`,
+and then as the array it encodes to; one that is neither is refused as any argument that cannot
+travel is.
+
+A listener class typed with its event — `handle(JobPostCreated $event)` — does not implement
+`ListenerInterface`, whose `handle(mixed ...$args)` no typed parameter can satisfy; it is
+registered by class name, and `fire()` calls its `handle()`. `QueuedListener` does not implement it
+either, for the same reason.
+
+**When a bare name is enough.** `Event::fire('cache.cleared')` with plain arguments stays right for
+an event with nothing to carry, or one only the framework fires. A class earns its place when the
+event carries records, has more than one listener, or reaches the queue — the class is then the one
+place that says what the event is and how it travels.
+
+`create:event JobPostCreated` writes the class with its `EVENT`, a readonly payload and the two
+queue methods; `create:listener NotifyNearby --event=JobPostCreated --queued` writes the listener
+(see the Console guide).
 
 ## The delayed-queue capability
 

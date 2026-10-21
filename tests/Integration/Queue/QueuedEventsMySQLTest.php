@@ -54,6 +54,53 @@ final class IntegrationQueuedListener extends QueuedListener
 }
 
 /**
+ * An event as a class, the way an application writes one: it goes into the task as its id.
+ */
+final class IntegrationAccountClosed implements \Pramnos\Event\QueueableEvent
+{
+    public const EVENT = 'account.closed';
+
+    /** How many times the worker built it again. */
+    public static int $rebuilt = 0;
+
+    /** @param int $id The account */
+    public function __construct(public readonly int $id)
+    {
+    }
+
+    /** The id is all the task carries. */
+    public function jsonSerialize(): array
+    {
+        return ['id' => $this->id];
+    }
+
+    /** Built again from the id, and counted. */
+    public static function fromQueue(array $data): static
+    {
+        self::$rebuilt++;
+
+        return new self((int) $data['id']);
+    }
+}
+
+/**
+ * A queued listener whose handle() takes the event's class, not a list of arguments.
+ */
+final class IntegrationAccountClosedListener extends QueuedListener
+{
+    /** @var list<IntegrationAccountClosed> Every event it ran with */
+    public static array $events = [];
+
+    /** Record the event. */
+    public function handle(IntegrationAccountClosed $event): mixed
+    {
+        self::$events[] = $event;
+
+        return true;
+    }
+}
+
+/**
  * Queued listeners against a live MySQL database: the task is written in the caller's
  * transaction, folded by key, run once per idempotency key, and run by an ordinary worker.
  *
@@ -302,5 +349,33 @@ class QueuedEventsMySQLTest extends TestCase
         $this->assertCount(2, $this->tasks());
         $this->assertSame('completed', $ran['status']);
         $this->assertFalse($this->db->schema()->hasColumn('queueitems', 'dedupekey'));
+    }
+
+    /**
+     * An event that is an object reaches a queued listener as the same class: dispatch() writes
+     * its jsonSerialize() into the task, and the worker hands the listener what fromQueue() built
+     * from it — so one handle(IntegrationAccountClosed $event) serves the request and the queue.
+     */
+    public function testAWorkerHandsAQueuedListenerTheEventObjectBuiltAgain(): void
+    {
+        // Arrange
+        IntegrationAccountClosed::$rebuilt = 0;
+        IntegrationAccountClosedListener::$events = [];
+        Event::listen(IntegrationAccountClosed::EVENT, IntegrationAccountClosedListener::class);
+
+        // Act
+        Event::dispatch(new IntegrationAccountClosed(42));
+        $result = (new Worker($this->controller))->processNextTask();
+
+        // Assert
+        $this->assertSame('completed', $result['status'] ?? null, (string) ($result['message'] ?? ''));
+        $this->assertCount(1, IntegrationAccountClosedListener::$events);
+        $this->assertInstanceOf(IntegrationAccountClosed::class, IntegrationAccountClosedListener::$events[0]);
+        $this->assertSame(42, IntegrationAccountClosedListener::$events[0]->id);
+        // Built in the worker, not carried over from the request.
+        $this->assertSame(1, IntegrationAccountClosed::$rebuilt);
+        $payload = json_decode((string) $this->tasks()[0]['payload'], true);
+        $this->assertSame([['id' => 42]], $payload['args'], 'the task carries the event as its data');
+        $this->assertSame([IntegrationAccountClosed::class], $payload['events']);
     }
 }

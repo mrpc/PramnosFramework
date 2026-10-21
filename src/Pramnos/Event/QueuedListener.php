@@ -29,14 +29,28 @@ namespace Pramnos\Event;
  *
  * Registered and fired like any listener. `fire()` does not call it: it writes one task of type
  * {@see EventListenerTask::TYPE} with the event's name, its arguments and who fired it, and a
- * worker runs {@see handle()} with the same arguments. The arguments therefore travel as JSON —
- * ids and plain values, not objects.
+ * worker runs `handle()` with the same arguments. The arguments therefore travel as JSON —
+ * ids and plain values, not objects — except a {@see QueueableEvent}, which the worker builds
+ * again, so `handle(JobPostCreated $event)` receives the same class in both places.
+ *
+ * `handle()` is the subclass's to declare, with whatever parameters its event has: this class
+ * does not implement {@see ListenerInterface}, whose `handle(mixed ...$args)` no typed
+ * parameter could satisfy.
  *
  * Every method below has a default that does nothing special; a listener overrides the ones it
  * needs. Each is asked with the event's arguments, so a key can be built from them.
  */
-abstract class QueuedListener implements ListenerInterface
+abstract class QueuedListener
 {
+    /**
+     * Run it now, here — what calling a listener means. `Event::fire()` never does: it queues it.
+     * Being callable is also what lets an instance be registered with {@see Event::listen()}.
+     */
+    public function __invoke(mixed ...$args): mixed
+    {
+        return $this->handle(...$args);
+    }
+
     /**
      * Events with the same key fold into one waiting task, which runs with the last event's
      * arguments. Null: every event is a task of its own.

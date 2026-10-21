@@ -153,6 +153,12 @@ final class QueuedEvents
         }
 
         $payload = ['listener' => $class, 'event' => $event, 'args' => $plain, 'meta' => $meta];
+        // Which arguments the worker builds again, and as what.
+        foreach ($args as $index => $arg) {
+            if ($arg instanceof QueueableEvent) {
+                $payload['events'][$index] = $arg::class;
+            }
+        }
         if ($key !== null && $key !== '') {
             $payload['idempotency'] = ['key' => $key, 'ttl' => $instance->idempotencyTtl()];
         }
@@ -191,7 +197,7 @@ final class QueuedEvents
         $previous      = self::$current;
         self::$current = (array) ($job['meta'] ?? []) + ['eventId' => null, 'rootId' => null, 'depth' => 0, 'userid' => null];
         try {
-            (new $class())->handle(...array_values((array) ($job['args'] ?? [])));
+            (new $class())->handle(...self::arguments($job));
         } catch (\Throwable $exception) {
             // Not done: the retry may take the key again.
             if ($key !== '') {
@@ -203,6 +209,26 @@ final class QueuedEvents
         }
 
         return 'Ran ' . $class . ' for ' . ($job['event'] ?? '?') . (isset($job['meta']['eventId']) ? ' (' . $job['meta']['eventId'] . ')' : '');
+    }
+
+    /**
+     * A task's arguments as the listener takes them: each {@see QueueableEvent} built again from
+     * what it wrote.
+     *
+     * @param array<string, mixed> $job
+     * @return list<mixed>
+     */
+    private static function arguments(array $job): array
+    {
+        $args = array_values((array) ($job['args'] ?? []));
+        foreach ((array) ($job['events'] ?? []) as $index => $event) {
+            if (!is_a((string) $event, QueueableEvent::class, true)) {
+                throw new \RuntimeException('Not a queueable event: ' . $event);
+            }
+            $args[(int) $index] = $event::fromQueue((array) ($args[(int) $index] ?? []));
+        }
+
+        return $args;
     }
 
     /** Forget everything this process remembered — for tests. */

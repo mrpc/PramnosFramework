@@ -4,9 +4,36 @@ declare(strict_types=1);
 
 namespace {{ namespace }};
 
-class {{ class }}
+use Pramnos\Event\QueueableEvent;
+
+/**
+ * Fired with `Event::dispatch(new {{ class }}(...))`.
+ *
+ * A listener in the request receives this instance; a queued listener receives it built again
+ * in the worker by fromQueue().
+ */
+final class {{ class }} implements QueueableEvent
 {
+    /** The name listeners register for: Event::listen({{ class }}::EVENT, ...). */
+    public const EVENT = '{{ name }}';
+
+    /**
+     * @param int $id What the event is about. A model may go here instead: listeners in the
+     *                request then work on the caller's object. Write its id in jsonSerialize().
+     */
     public function __construct(
-        // TODO: add public readonly properties for event payload
+        public readonly int $id,
     ) {}
+
+    /** What a queued listener's task carries: ids and plain values. */
+    public function jsonSerialize(): array
+    {
+        return ['id' => $this->id];
+    }
+
+    /** The event again, in the worker: load what it is about as it is now. */
+    public static function fromQueue(array $data): static
+    {
+        return new self((int) $data['id']);
+    }
 }

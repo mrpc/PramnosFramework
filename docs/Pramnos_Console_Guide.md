@@ -902,7 +902,7 @@ php bin/pramnos logs:convert /path/to/file.log --no-backup
 | Command | Purpose | Key options |
 |---|---|---|
 | `create:service <Name>` | A service class, with a test stub | `--table`, `--schema` |
-| `create:event <Name>` / `create:listener <Name>` | An event class / an event listener class, each with a test stub | — |
+| `create:event <Name>` / `create:listener <Name>` | An event class (its `EVENT` name — `JobPostCreated` is `jobpost.created` — a readonly payload, `jsonSerialize()`/`fromQueue()`) / an event listener class, each with a test stub | `create:listener`: `--event=JobPostCreated` (a typed `handle()`), `--queued` (extends `QueuedListener`) |
 | `create:middleware <Name>` | A middleware class, with a test stub | — |
 | `create:seeder <Name>` | A database seeder class | — |
 | `create:api-client` | Typed endpoint functions from the OpenAPI document | `--document` (default `www/api/openapi.json`), `--output`, `--dry-run` |

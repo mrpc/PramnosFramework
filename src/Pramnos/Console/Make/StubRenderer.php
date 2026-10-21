@@ -73,11 +73,15 @@ class StubRenderer
 
             'event' =>
                 "<?php\ndeclare(strict_types=1);\nnamespace {{ namespace }};\n\n"
+                . "use Pramnos\\Event\\QueueableEvent;\n\n"
                 . "/**\n * {{ class }} Event\n *\n * @license MIT\n */\n"
-                . "class {{ class }}\n{\n"
-                . "    public function __construct(\n"
-                . "        // TODO: add public readonly properties for event payload\n"
-                . "    ) {}\n}\n",
+                . "final class {{ class }} implements QueueableEvent\n{\n"
+                . "    public const EVENT = '{{ name }}';\n\n"
+                . "    public function __construct(public readonly int \$id) {}\n\n"
+                . "    public function jsonSerialize(): array\n    {\n"
+                . "        return ['id' => \$this->id];\n    }\n\n"
+                . "    public static function fromQueue(array \$data): static\n    {\n"
+                . "        return new self((int) \$data['id']);\n    }\n}\n",
 
             'listener' =>
                 "<?php\ndeclare(strict_types=1);\nnamespace {{ namespace }};\n\n"
