@@ -8,6 +8,7 @@ use_cases:
   - Keeping a named audience up to date and reacting when somebody enters or leaves it
   - Putting everybody a filter matches in a group, or taking them out
   - Making a send or a rule respect what people agreed to receive, by channel
+  - Putting a filter builder with a live count on an admin form, or an audience picker on a send
 ---
 
 # Audience Guide
@@ -272,4 +273,46 @@ ConsentLists::applyDefaults($userid);               // each list's default into 
 - **In use is not deleted**: `ConsentLists::usage('rules', fn (int $id) => [...names...])`, as for
   segments. A list whose source the code no longer declares is refused when it is read, rather
   than read as "nobody agreed".
+
+## The builder and the picker
+
+Two form fields draw all of this for an administrator, with the count beside them as it changes:
+
+```php
+use Pramnos\Html\AudienceBuilder;
+
+// a segment's form: conditions in groups of "all" / "any", the count, a breakdown, a sample
+echo AudienceBuilder::filter('filter', $segment['filter'] ?? null);
+
+// a send's form: in any of these segments and groups, except these, a filter for this send,
+// and the consent list — with what each step takes out
+echo AudienceBuilder::picker('audience', $send['audience'] ?? null, ['channel' => 'email']);
+```
+
+The field posts its state as JSON — a filter, or a picker state that `Picker` compiles:
+
+```php
+use Pramnos\Audience\Picker;
+
+$state = Picker::normalise($_POST['audience']);   // checked; InvalidArgumentException says where
+Picker::final($state)->ids();                     // who the send reaches, now
+Picker::counts($state);                           // ['included', 'excluded', 'consent', 'final']
+```
+
+Store the state, not the people: a send that waits for its hour reaches the audience as it is
+then.
+
+- **What it offers** is what the signed-in account may use: `Attributes::visible()`, every
+  segment, group and consent list (`picker()` with a `channel` offers that channel's lists only).
+  It is written into the page, so the builder draws with no request.
+- **The numbers** come from `/admin/Audience/preview`, a framework controller behind the
+  administration floor, which refuses an attribute the account may not see even in a hand-made
+  request. A condition still missing its value is left out until it has one, and an answer that
+  arrives after a newer question is dropped.
+- **A sample** links each person to their card: the framework's Users screen, or
+  `'audience' => ['person_url' => '/admin/People/{id}']` in app.php.
+- **Options:** `sample` (how many people, default 5), `breakdown` (`filter()` only, default on),
+  `live` (the panel, default on), `api`.
+- `pf-audience.js` ships with the framework; a project made before it reaches its web root with
+  `project:resync --js --all`. It fires `pf:audience-change` with the state on every change.
 

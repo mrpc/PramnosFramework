@@ -81,8 +81,9 @@ function matches(el, selector) {
     return selector.split(',').some((one) => matchesOne(el, one));
 }
 
+/** The elements under an element — a text node beside them is not one, and no selector matches it. */
 function descendants(root) {
-    return root.children.flatMap((child) => [child, ...descendants(child)]);
+    return root.children.filter((child) => child.nodeType !== 3).flatMap((child) => [child, ...descendants(child)]);
 }
 
 /** An event, as `new Event(type, { bubbles })` makes one. */

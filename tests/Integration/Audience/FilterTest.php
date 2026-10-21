@@ -151,6 +151,9 @@ class FilterTest extends TestCase
         $this->assertSame(['cara', 'bob', 'anna'], array_column($sample, 'username'), 'newest first');
         $this->assertSame('Cara', $sample[0]['firstname']);
         $this->assertFalse($filter->matches($this->ids['dan']));
+        // A group with nothing in it — a picker with nothing picked — asks nothing, and is not "()".
+        $hollow = Filter::fromArray(['conditions' => [['match' => 'any', 'conditions' => [['conditions' => []]]], ['attribute' => 'language', 'op' => 'is', 'value' => 'en']]]);
+        $this->assertSame(['bob'], $this->names($hollow->ids()));
     }
 
     /**

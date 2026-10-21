@@ -246,12 +246,14 @@ final class Filter
     /** @param array<string, mixed> $group */
     private function applyGroup(QueryBuilder $query, array $group, string $boolean = 'and'): void
     {
-        if ($group['conditions'] === []) {
+        if (self::isEmpty($group)) {
             return;
         }
         $joiner = $group['match'] === 'any' ? 'or' : 'and';
         $query->where(function (QueryBuilder $nested) use ($group, $joiner): void {
-            foreach ($group['conditions'] as $i => $condition) {
+            // Empty groups inside say nothing, and an empty pair of parentheses is not SQL.
+            $conditions = array_values(array_filter($group['conditions'], static fn (array $c): bool => !self::isEmpty($c)));
+            foreach ($conditions as $i => $condition) {
                 $each = $i === 0 ? 'and' : $joiner;
                 if (isset($condition['conditions'])) {
                     $this->applyGroup($nested, $condition, $each);
@@ -262,6 +264,26 @@ final class Filter
                 }
             }
         }, null, null, $boolean);
+    }
+
+    /**
+     * Whether a group asks nothing — no conditions, or only groups that ask nothing. A condition
+     * is never empty.
+     *
+     * @param array<string, mixed> $node
+     */
+    private static function isEmpty(array $node): bool
+    {
+        if (!isset($node['conditions'])) {
+            return false;
+        }
+        foreach ($node['conditions'] as $condition) {
+            if (!self::isEmpty($condition)) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**

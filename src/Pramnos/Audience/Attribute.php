@@ -281,6 +281,9 @@ final class Attribute
             'type'      => $this->type,
             'group'     => $this->group,
             'operators' => $this->operators(),
+            // Dates have too many values to count one by one; a table keyed on anything but the
+            // person cannot be joined to count them.
+            'breakdown' => $this->type !== self::DATE && ($this->type !== self::MANY || $this->matching === 'users.userid'),
             'values'    => array_map(
                 static fn ($value, $label) => ['value' => $value, 'label' => $label],
                 array_keys($labels = $this->valueLabels()),
