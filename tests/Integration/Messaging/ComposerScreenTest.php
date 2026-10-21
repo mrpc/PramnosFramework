@@ -262,4 +262,74 @@ final class ComposerScreenTest extends TestCase
         $this->assertSame('<p>— Ann</p>', $page->lastView->signature);
         $this->assertStringContainsString('data-signature="&lt;p&gt;— Ann&lt;/p&gt;"', MessageComposer::toolbar(['ai' => false]));
     }
+
+    /**
+     * Below the administration floor every action is refused and nothing is answered: the
+     * composer reads and writes an account's saved messages and signature, so it opens to
+     * nobody the administration would not. The refusal redirects; a redirect that returns (as
+     * one inside a test does) must still leave the action with nothing to say.
+     */
+    #[DataProvider('databases')]
+    public function testEveryActionIsRefusedBelowTheFloor(string $type, string $host, int $port): void
+    {
+        // Arrange — a signed-in account that is not an administrator
+        $this->connect($type, $host, $port);
+        $this->signIn();
+        $_SESSION['usertype'] = 1;
+        Application::getInstance()->currentUser->usertype = 1;
+        $controller = new class (Application::getInstance()) extends Composer {
+            /** Where it was sent; the request does not end here. */
+            public array $sentTo = [];
+
+            /** Records the address instead of ending the request. */
+            public function redirect($url = null, $quit = true, $code = '302')
+            {
+                $this->sentTo[] = (string) $url;
+            }
+        };
+
+        // Act
+        $answers = [];
+        foreach (['saved', 'save', 'forget', 'write', 'signature'] as $action) {
+            $answers[$action] = $controller->{$action}();
+        }
+
+        // Assert
+        $this->assertSame(array_fill_keys(['saved', 'save', 'forget', 'write', 'signature'], null), $answers);
+        $this->assertCount(5, $controller->sentTo, 'each refusal sends the account away');
+    }
+
+    /**
+     * Saving the signature ends in a redirect back to its page, and nothing else is answered —
+     * the POST never falls through to drawing the page.
+     */
+    #[DataProvider('databases')]
+    public function testSavingTheSignatureAnswersOnlyWithTheRedirect(string $type, string $host, int $port): void
+    {
+        // Arrange
+        $this->connect($type, $host, $port);
+        $this->signIn();
+        $_SERVER['REQUEST_METHOD'] = 'POST';
+        $_SERVER['HTTP_X_CSRF_TOKEN'] = \Pramnos\Http\Session::getInstance()->getCsrfToken();
+        $_POST = ['signature' => '<p>Ann</p>'];
+        $controller = new class (Application::getInstance()) extends Composer {
+            /** Where it was sent; the request does not end here. */
+            public array $sentTo = [];
+
+            /** Records the address instead of ending the request. */
+            public function redirect($url = null, $quit = true, $code = '302')
+            {
+                $this->sentTo[] = (string) $url;
+            }
+        };
+
+        // Act
+        $answer = $controller->signature();
+
+        // Assert
+        $this->assertNull($answer);
+        $this->assertCount(1, $controller->sentTo);
+        $this->assertStringContainsString('Composer/signature', $controller->sentTo[0]);
+        $this->assertSame('<p>Ann</p>', MessageComposer::signature());
+    }
 }
