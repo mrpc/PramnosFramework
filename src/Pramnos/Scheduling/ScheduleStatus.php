@@ -24,28 +24,38 @@ final class ScheduleStatus
      * task started since. A minute before the history began is not missed — nothing was
      * recording then.
      *
+     * A task an operator paused, or whose hours window is closed, is never late, and neither is
+     * a run its expression asked for outside the window: none was meant to happen. Its next run
+     * is the first one inside the window; null while paused. The operator's changes are read
+     * here, so every screen built on this agrees with what `work` runs.
+     *
      * @param array<int, ScheduledTask> $tasks As {@see Scheduler::all()}
-     * @return list<array{task: ScheduledTask, key: string, label: string, expression: string, words: string, next: ?\DateTimeImmutable, last: ?array<string, mixed>, expected: ?\DateTimeImmutable, late: bool, failed: bool, running: bool, requested: bool, summary: array<string, mixed>}>
+     * @return list<array{task: ScheduledTask, key: string, label: string, expression: string, words: string, next: ?\DateTimeImmutable, last: ?array<string, mixed>, expected: ?\DateTimeImmutable, late: bool, failed: bool, running: bool, requested: bool, summary: array<string, mixed>, adjustable: ?array<string, mixed>, override: ?array<string, mixed>, paused: bool, outside: bool}>
      */
     public static function of(array $tasks, \DateTimeImmutable $now): array
     {
         $latest    = RunLog::latestByTask();
         $requested = RunLog::pendingRequests();
         $since     = RunLog::since();
+        ScheduleOverrides::apply($tasks);
 
         $rows = [];
         foreach ($tasks as $task) {
             $key      = $task->key();
-            $cron     = $task->getCronExpression();
+            $cron     = $task->effectiveCron();
             $last     = $latest[$key] ?? null;
-            $expected = $cron->previousRunBefore($now->modify('-' . self::GRACE_SECONDS . ' seconds'));
+            $paused   = $task->isPaused();
+            $expected = $paused ? null : $cron->previousRunBefore($now->modify('-' . self::GRACE_SECONDS . ' seconds'));
+            if ($expected !== null && $task->isOutsideHours($expected)) {
+                $expected = null;
+            }
             $rows[] = [
                 'task'       => $task,
                 'key'        => $key,
                 'label'      => $task->label(),
                 'expression' => $cron->getExpression(),
                 'words'      => $cron->describe(),
-                'next'       => $cron->nextRunAfter($now),
+                'next'       => $task->nextDue($now),
                 'last'       => $last,
                 'expected'   => $expected,
                 'late'       => $expected !== null && $since !== null && $expected->getTimestamp() >= $since
@@ -54,10 +64,45 @@ final class ScheduleStatus
                 'running'    => ($last !== null && $last['result'] === 'running') || $task->isRunning(),
                 'requested'  => isset($requested[$key]),
                 'summary'    => $task->getSummary(),
+                'adjustable' => $task->adjustment(),
+                'override'   => $task->override(),
+                'paused'     => $paused,
+                'outside'    => $task->isOutsideHours($now),
             ];
         }
 
         return $rows;
+    }
+
+    /**
+     * The rows as a screen lists them: the adjustable tasks under their groups, then the rest.
+     *
+     * One unnamed group when nothing is adjustable, so a schedule that adjusts nothing looks as it
+     * always did.
+     *
+     * @param list<array<string, mixed>> $rows As {@see of()}
+     * @return array<string, list<array<string, mixed>>> Group label => rows
+     */
+    public static function grouped(array $rows): array
+    {
+        $groups = [];
+        $rest   = [];
+        foreach ($rows as $row) {
+            if ($row['adjustable'] === null) {
+                $rest[] = $row;
+                continue;
+            }
+            $label = $row['adjustable']['group'] !== '' ? $row['adjustable']['group'] : (string) t('Adjustable');
+            $groups[$label][] = $row;
+        }
+        if ($groups === []) {
+            return $rest === [] ? [] : ['' => $rest];
+        }
+        if ($rest !== []) {
+            $groups[(string) t('Other tasks')] = array_merge($groups[(string) t('Other tasks')] ?? [], $rest);
+        }
+
+        return $groups;
     }
 
     /**

@@ -4,6 +4,7 @@ use_cases:
   - Scaling a pool of queue workers up and down with the backlog
   - Writing a long-running worker or daemon
   - Scheduling recurring work
+  - Letting an operator pause a scheduled task or change its frequency and hours from the admin
   - Supervising background processes in production
   - Choosing between CommandBase, ProcessQueue and a standalone script
 ---
@@ -487,6 +488,51 @@ for it:
 
 The dashboard's *Scheduler* card counts the late, the failed and the running, and opens the
 screen. Both read `Pramnos\Scheduling\ScheduleStatus`, so they agree on what each word means.
+
+### Tasks an operator may adjust
+
+A task the application marks `->adjustable()` can be changed from its page on the screen, without
+a deploy: paused, given another frequency from a fixed list, kept to an hours window, and given a
+per-run limit.
+
+```php
+// app/schedule.php
+Scheduler::command('digest:send')->weekly()->at('11:15')
+    ->adjustable('digest.send', 'Weekly digest', 'Sends', presets: ['daily', 'weekly'], limit: [50, 600]);
+Scheduler::command('mail:flush')->everyMinute()->adjustable('mail.flush', 'Outgoing mail', 'Sends');
+```
+
+- **The id** (`digest.send`) is the application's and must not change: the settings are kept
+  under it, in `scheduleoverrides` (migration `create_scheduleoverrides_table`). It is not the
+  task's `key()`, which follows the expression and would lose them when the code's schedule
+  changes. The label names the task on the screen when it has no description; the group puts the
+  adjustable tasks together under a heading, before the rest.
+- **The frequencies** are a list, never free cron: every 1, 5, 10, 15 or 30 minutes; every 1, 2,
+  3, 6 or 12 hours; daily at a time; weekly on a day at a time; or *as in the code*. `presets`
+  names the ones a task offers (`every:15`, `hours:2`, `daily`, `weekly`); all of them when it
+  names none.
+- **The hours window** is a start and an end in the application's time zone. One that ends before
+  it starts crosses midnight (22:00–06:00). Outside it, and while paused, the task is not due: no
+  run, and no row in `scheduleruns` for every minute it did not run.
+- **The per-run limit** is offered only where the task declares `limit: [min, max]`, and is held to
+  that range. A command then runs with `--limit=N`; a callable, or a job's `handle()`, gets `N` as
+  its argument. With no limit set, the task runs as written.
+- **Applied on the next pass.** `work` and `schedule:run` read the table once a pass
+  (`ScheduleOverrides::apply()`), so no restart is needed. **Back to the schedule in the code**
+  deletes the row.
+- **Not late.** A paused task, or one whose window is closed, is never *late*, and neither is a run
+  its expression asked for outside the window: none was meant to happen. The list says *Paused
+  since …* or *Outside hours · next 09:00*, and the next run is the first one inside the window.
+  `ScheduleStatus` decides this, so the dashboard card and anything built on it agree.
+- **Audited.** Every save is `scheduler.adjusted` in the audit log, every reset `scheduler.reset`,
+  each with the settings before and after; the task's page says who changed it and when.
+
+**Who may.** `admin.scheduler` opens the whole screen. `scheduler.adjust`
+(`Scheduler::ADJUST_ABILITY`) changes the adjustable tasks, and the screen opens for it too: an
+account that holds only that sees the adjustable tasks alone, with no *Run now*. Define it as any
+other ability (`Gate::define('scheduler.adjust', …)`); where the application defines no rule for
+it, `admin.scheduler` adjusts as well. The menu item stays `admin.scheduler`'s, so an account that
+only adjusts needs a link of the application's own.
 
 ---
 

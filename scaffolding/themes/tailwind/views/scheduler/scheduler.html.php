@@ -8,6 +8,8 @@
  *   $this->counts  — late, failed, running, tasks
  *   $this->working — whether a `work` process holds its lock
  *   $this->history — whether the run history exists (the migration has run)
+ *   $this->full    — whether this account opens the whole screen; false shows the adjustable
+ *                    tasks alone, with no "run now"
  */
 $e     = static fn ($value): string => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
 $when  = static fn (?int $at): string => $at === null ? '—' : date('Y-m-d H:i', $at);
@@ -61,7 +63,9 @@ $bc = \Pramnos\Html\Breadcrumb::admin([[$e(t('Scheduler')), '']]);
                 <th></th>
             </tr></thead>
             <tbody>
-            <?php foreach (($this->tasks ?? []) as $row): ?>
+            <?php foreach (\Pramnos\Scheduling\ScheduleStatus::grouped($this->tasks ?? []) as $group => $rows): ?>
+            <?php if ($group !== ''): ?><tr data-group="<?php echo $e($group); ?>"><th colspan="6" class="bg-base-200 text-xs font-semibold text-left"><?php echo $e($group); ?></th></tr><?php endif; ?>
+            <?php foreach ($rows as $row): ?>
                 <?php $last = $row['last']; $flags = array_keys(array_filter([
                     t('No overlap') => $row['summary']['no_overlap'] ?? false, t('One server') => $row['summary']['one_server'] ?? false,
                     t('In process') => $row['summary']['in_process'] ?? false, t('In the background') => $row['summary']['background'] ?? false,
@@ -77,12 +81,14 @@ $bc = \Pramnos\Html\Breadcrumb::admin([[$e(t('Scheduler')), '']]);
                     <td data-field="state">
                         <?php if ($row['running']): ?><span class="badge badge-info badge-sm"><?php echo $e(t('In progress')); ?></span><?php endif; ?>
                         <?php if ($row['late']): ?><span class="badge badge-error badge-sm" title="<?php echo $e(sprintf(t('Expected at %s'), $when($row['expected']?->getTimestamp()))); ?>"><?php echo $e(t('Late')); ?></span><?php endif; ?>
+                        <?php if ($row['paused']): ?><span class="badge badge-warning badge-sm"><?php echo $e(sprintf(t('Paused since %s'), $when(((int) ($row['override']['pausedat'] ?? 0)) ?: null))); ?></span><?php elseif ($row['outside']): ?><span class="badge badge-ghost badge-sm"><?php echo $e(sprintf(t('Outside hours · next %s'), $row['next'] ? $row['next']->format('H:i') : '—')); ?></span><?php endif; ?>
                         <?php if ($row['requested']): ?><span class="badge badge-ghost badge-sm"><?php echo $e(t('Requested')); ?></span><?php endif; ?>
                     </td>
                     <td class="text-right whitespace-nowrap">
-                        <form method="post" action="<?php echo $e(adminUrl('Scheduler/runnow/') . $row['key']); ?>" class="inline m-0"><?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?><button type="submit" class="btn btn-outline btn-primary btn-xs" data-confirm="<?php echo $e(sprintf(t('Run %s now?'), $row['label'])); ?>"<?php echo $row['requested'] ? ' disabled' : ''; ?>><?php echo $e(t('Run now')); ?></button></form>
+                        <?php if ($this->full ?? true): ?><form method="post" action="<?php echo $e(adminUrl('Scheduler/runnow/') . $row['key']); ?>" class="inline m-0"><?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?><button type="submit" class="btn btn-outline btn-primary btn-xs" data-confirm="<?php echo $e(sprintf(t('Run %s now?'), $row['label'])); ?>"<?php echo $row['requested'] ? ' disabled' : ''; ?>><?php echo $e(t('Run now')); ?></button></form><?php endif; ?>
                     </td>
                 </tr>
+            <?php endforeach; ?>
             <?php endforeach; ?>
             <?php if (empty($this->tasks)): ?>
                 <tr><td colspan="6" class="text-center text-base-content/60 py-6"><?php echo $e(t('No tasks are scheduled.')); ?></td></tr>
@@ -95,7 +101,7 @@ $bc = \Pramnos\Html\Breadcrumb::admin([[$e(t('Scheduler')), '']]);
      * The page's one tool for an AI agent in the browser (WebMCP, pf-utils.js): run a task by
      * picking it, rather than a tool per row. Not drawn; the buttons above are for people.
      */
-    if (!empty($this->tasks) && !empty($this->history)): ?>
+    if (!empty($this->tasks) && !empty($this->history) && ($this->full ?? true)): ?>
     <form method="post" action="<?php echo $e(adminUrl('Scheduler/runnow')); ?>" hidden data-pf-tool="run_scheduled_task" data-pf-tool-description="Run one of the scheduled tasks once, now. Nothing runs in this request: the scheduler's next pass takes it, within a minute. The task changes whatever it changes when it runs on its own.">
         <?php echo \Pramnos\Http\Session::getInstance()->getTokenField(); ?>
         <select name="task" required data-pf-tool-param="The task to run">

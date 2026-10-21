@@ -213,6 +213,8 @@ class Work extends CommandBase
      */
     protected function runDuePass(OutputInterface $output): int
     {
+        // An operator's changes from the scheduler screen, read once a pass: no restart needed.
+        \Pramnos\Scheduling\ScheduleOverrides::apply(Scheduler::all());
         $due = $this->dueSinceLastPass();
         // The console a task marked inProcess() runs through: this one.
         \Pramnos\Scheduling\ScheduledTask::useConsole($this->getApplication());

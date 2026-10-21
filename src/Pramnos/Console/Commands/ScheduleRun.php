@@ -52,6 +52,8 @@ class ScheduleRun extends Command
         Scheduler::loadDefinitions($this->scheduleFile);
         // The console a task marked inProcess() runs through: this one.
         \Pramnos\Scheduling\ScheduledTask::useConsole($this->getApplication());
+        // An operator's changes from the scheduler screen: paused, another frequency, its hours.
+        \Pramnos\Scheduling\ScheduleOverrides::apply(Scheduler::all());
         $now  = new \DateTime();
         $due  = Scheduler::getDue($now);
         // What an operator asked for from the scheduler screen, before the clock's own work.

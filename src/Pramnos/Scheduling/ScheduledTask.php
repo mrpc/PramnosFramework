@@ -91,6 +91,12 @@ class ScheduledTask
      */
     private int $lockStaleAfter = \Pramnos\Console\WorkerLock::DEFAULT_STALE_AFTER;
 
+    /** @var array{id: string, label: string, group: string, presets: ?list<string>, limit: ?array{0: int, 1: int}}|null What an operator may change: {@see adjustable()} */
+    private ?array $adjustable = null;
+
+    /** @var array<string, mixed>|null What an operator changed, from `scheduleoverrides`: {@see useOverride()} */
+    private ?array $override = null;
+
     /**
      * @param string|callable $handler CLI command name or PHP callable.
      * @param string          $type    'command' | 'callable' | 'job'
@@ -336,6 +342,117 @@ class ScheduledTask
         return $this;
     }
 
+    /**
+     * Let an operator change this task from the Scheduler screen: pause it, pick another frequency
+     * from a fixed list, keep it to an hours window, set a per-run limit.
+     *
+     * ```php
+     * Scheduler::command('digest:send')->weekly()->at('11:15')
+     *     ->adjustable('digest.send', 'Weekly digest', 'Sends', presets: ['daily', 'weekly'], limit: [50, 600]);
+     * ```
+     *
+     * The id is the application's and must stay the same across deploys: the changes are kept
+     * under it. Not {@see key()}, which follows the expression and would lose them the day the
+     * code's schedule changed. `presets` names the frequencies offered — `every:N` minutes (1, 5,
+     * 10, 15, 30), `hours:N` (1, 2, 3, 6, 12), `daily`, `weekly` — all of them when null.
+     * `limit` offers a per-run limit within `[min, max]`; a command then gets `--limit=N`, a
+     * callable or a job's `handle()` gets it as its argument. Without a value set, the task runs
+     * as written.
+     *
+     * @param list<string>|null    $presets
+     * @param array{0: int, 1: int}|null $limit
+     */
+    public function adjustable(string $id, string $label = '', string $group = '', ?array $presets = null, ?array $limit = null): static
+    {
+        $this->adjustable = [
+            'id'      => $id,
+            'label'   => $label,
+            'group'   => $group,
+            'presets' => $presets === null ? null : array_values($presets),
+            'limit'   => $limit === null ? null : [min((int) $limit[0], (int) $limit[1]), max((int) $limit[0], (int) $limit[1])],
+        ];
+        return $this;
+    }
+
+    /**
+     * What an operator may change, as declared by {@see adjustable()}; null for a task that is not
+     * adjustable.
+     *
+     * @return array{id: string, label: string, group: string, presets: ?list<string>, limit: ?array{0: int, 1: int}}|null
+     */
+    public function adjustment(): ?array
+    {
+        return $this->adjustable;
+    }
+
+    /**
+     * Take an operator's changes, or none. Set by {@see ScheduleOverrides::apply()} once a pass.
+     *
+     * @param array<string, mixed>|null $row
+     */
+    public function useOverride(?array $row): static
+    {
+        $this->override = $this->adjustable === null ? null : $row;
+
+        return $this;
+    }
+
+    /** @return array<string, mixed>|null What an operator changed, or null */
+    public function override(): ?array
+    {
+        return $this->override;
+    }
+
+    /** Whether an operator paused it. */
+    public function isPaused(): bool
+    {
+        return $this->override !== null && (int) ($this->override['enabled'] ?? 1) === 0;
+    }
+
+    /** Whether `$when` is outside the hours window an operator set; false with no window. */
+    public function isOutsideHours(\DateTimeInterface $when): bool
+    {
+        return $this->override !== null && !ScheduleOverrides::inWindow($this->override, $when);
+    }
+
+    /** The expression it runs on: an operator's frequency, or the code's. */
+    public function effectiveCron(): CronExpression
+    {
+        $chosen = ScheduleOverrides::cronFor($this->override['frequency'] ?? null);
+
+        return $chosen === null ? $this->cron : new CronExpression($chosen);
+    }
+
+    /**
+     * The next minute after `$after` it will run: its expression's, skipped forward past a
+     * closed hours window. Null while paused, or when nothing falls within the scan.
+     */
+    public function nextDue(\DateTimeImmutable $after): ?\DateTimeImmutable
+    {
+        if ($this->isPaused()) {
+            return null;
+        }
+        $cron = $this->effectiveCron();
+        $next = $cron->nextRunAfter($after);
+        for ($tries = 0; $next !== null && $this->isOutsideHours($next) && $tries < 50; $tries++) {
+            $next = $cron->nextRunAfter(ScheduleOverrides::opensAfter($this->override, $next)->modify('-1 minute'));
+        }
+
+        return $next !== null && $this->isOutsideHours($next) ? null : $next;
+    }
+
+    /** The per-run limit an operator set, within the declared range; null to run as written. */
+    public function runLimit(): ?int
+    {
+        $range = $this->adjustable['limit'] ?? null;
+        $value = $this->override['runlimit'] ?? null;
+        if ($range === null || $value === null || $value === '') {
+            return null;
+        }
+
+        return max($range[0], min($range[1], (int) $value));
+    }
+
     // =========================================================================
     // Execution
     // =========================================================================
@@ -345,7 +462,13 @@ class ScheduledTask
      */
     public function isDue(\DateTimeInterface $when): bool
     {
-        return $this->cron->isDue($when);
+        if ($this->override === null) {
+            return $this->cron->isDue($when);
+        }
+
+        // An operator's changes: paused, or outside its hours, it is not due at all — and so
+        // leaves no row in the history, minute after minute.
+        return !$this->isPaused() && !$this->isOutsideHours($when) && $this->effectiveCron()->isDue($when);
     }
 
     /**
@@ -517,7 +640,10 @@ class ScheduledTask
     /** What a screen calls it: its description, or its handler and expression. */
     public function label(): string
     {
-        return $this->description !== '' ? $this->description : $this->describeHandler() . ' (' . $this->cron->getExpression() . ')';
+        // The adjustable label is not the description: that is part of key(), and making a task
+        // adjustable must not move its history.
+        return $this->description !== '' ? $this->description
+            : (($this->adjustable['label'] ?? '') !== '' ? $this->adjustable['label'] : $this->describeHandler() . ' (' . $this->cron->getExpression() . ')');
     }
 
     /**
@@ -577,17 +703,21 @@ class ScheduledTask
 
     private function execute(): void
     {
+        // An operator's per-run limit, handed over only when one is set.
+        $limit = $this->runLimit();
+        $args  = $limit === null ? [] : [$limit];
+
         if ($this->type === 'callable') {
-            ($this->handler)();
+            ($this->handler)(...$args);
             return;
         }
 
         if ($this->type === 'job') {
             $job = $this->handler;
             if (is_callable($job)) {
-                $job();
+                $job(...$args);
             } elseif (is_object($job) && method_exists($job, 'handle')) {
-                $job->handle();
+                $job->handle(...$args);
             } else {
                 throw new \RuntimeException('Job must be callable or have a handle() method.');
             }
@@ -596,8 +726,9 @@ class ScheduledTask
 
         if ($this->type === 'command') {
             $inProcess = $this->inProcess && self::$console !== null;
-            $command   = $inProcess ? (string) $this->handler . ' (in process)' : $this->consoleBinary() . ' ' . escapeshellcmd((string) $this->handler);
-            $status    = $inProcess ? $this->runInConsole((string) $this->handler) : $this->runShellCommand($command);
+            $line      = (string) $this->handler . ($limit === null ? '' : ' --limit=' . $limit);
+            $command   = $inProcess ? $line . ' (in process)' : $this->consoleBinary() . ' ' . escapeshellcmd($line);
+            $status    = $inProcess ? $this->runInConsole($line) : $this->runShellCommand($command);
             $this->lastStatus = $status;
 
             // A command that could not run is a task that did not happen, and
