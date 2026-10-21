@@ -1610,6 +1610,12 @@ class Application extends Base
             NavSection::Admin, 12, requireAuth: true, minUserType: $floor,
             icon: 'server', group: 'System',
         ));
+        // What the schedule runs and when, how each task's last run went, and what is late.
+        NavRegistry::register(new NavItem(
+            'admin.scheduler', 'Scheduler', $admin('Scheduler'),
+            NavSection::Admin, 13, requireAuth: true, minUserType: $floor,
+            icon: 'clock', group: 'System',
+        ));
         NavRegistry::register(new NavItem(
             'admin.emails', 'Emails', $admin('Emails'),
             NavSection::Admin, 16, requireAuth: true, minUserType: $floor,

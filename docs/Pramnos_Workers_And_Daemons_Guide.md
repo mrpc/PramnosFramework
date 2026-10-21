@@ -456,6 +456,30 @@ error never stops a task: the history is an account of the schedule, not a condi
 one its expression asked for — a run missing since then is a late task — and `describe()` the
 expression in words ("At :05, :20, :35, :50 every hour").
 
+### The scheduler screen
+
+`/admin/Scheduler` (menu: System → Scheduler) shows the schedule as `schedule:list` reads it,
+with the history beside it — the framework's own controller, so an application needs no wrapper
+for it:
+
+- **Each task**: its description, its expression in words (the expression itself on hover), its
+  next run, its last run with when, how long and how it ended, and whether it runs without
+  overlap, on one server, in process or in the background.
+- **Late**: the last minute the expression asked for, two minutes or more ago and after the
+  history began, has no run of the task started since. A minute before the history began is not
+  missed — nothing was recording then. **Failed**: the last run ended in an error. **Running**:
+  its last run is in progress, or its overlap lock is held.
+- **A note at the top when no `work` process holds its lock** — the schedule is registered, not
+  executing, unless cron runs `schedule:run`, which cannot be seen from the screen.
+- **A task's page** (`Scheduler/show/<key>`, opened in a dialog from the list) lists its runs,
+  newest first, 25 to a page, each with its exit status, host and output.
+- **Run now** asks for one run: a POST with the session's token, written to the `auth` log with
+  who asked. Nothing runs in the request — the next pass of `work` or `schedule:run` takes it,
+  and the task shows *requested* until then.
+
+The dashboard's *Scheduler* card counts the late, the failed and the running, and opens the
+screen. Both read `Pramnos\Scheduling\ScheduleStatus`, so they agree on what each word means.
+
 ---
 
 ## 1d. The write spool — rows written out of the request path

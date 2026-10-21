@@ -30,6 +30,7 @@ final class WidgetRegistry
         Widgets\ApiPerformance::class,
         Widgets\DatabaseOverview::class,
         Widgets\QueueStatus::class,
+        Widgets\ScheduleStatus::class,
         Widgets\EmailActivity::class,
         Widgets\Messages::class,
         Widgets\AiSpend::class,
