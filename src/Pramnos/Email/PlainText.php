@@ -67,6 +67,13 @@ class PlainText
      */
     private const LINES = ['li', 'tr'];
 
+    /** Around a link while the text is built: kept whole by the wrap, and found in a menu. */
+    private const LINK_OPEN  = "\x02";
+    private const LINK_CLOSE = "\x03";
+
+    /** A space inside a link: not a place to wrap. */
+    private const HARD_SPACE = "\x01";
+
     /**
      * Convert one HTML body to plain text.
      *
@@ -99,8 +106,9 @@ class PlainText
         }
 
         $text = self::walk($document->documentElement ?? $document, ['list' => null, 'index' => 0]);
+        $text = str_replace([self::LINK_OPEN, self::LINK_CLOSE], '', $text);
 
-        return self::wrap(self::tidy($text));
+        return str_replace(self::HARD_SPACE, ' ', self::wrap(self::tidy($text)));
     }
 
     /**
@@ -123,6 +131,11 @@ class PlainText
         $name = strtolower($node->nodeName);
 
         if (in_array($name, self::DROPPED, true)) {
+            return '';
+        }
+
+        // What a template marks as decoration for the HTML alone — a header logo, a social bar.
+        if ($node->getAttribute('data-pf-plain') === 'omit') {
             return '';
         }
 
@@ -189,7 +202,7 @@ class PlainText
         }
 
         if (in_array($name, self::BLOCKS, true)) {
-            return "\n" . trim($inner) . "\n";
+            return "\n" . self::menu(trim($inner)) . "\n";
         }
 
         return $inner;
@@ -217,15 +230,49 @@ class PlainText
         if (str_starts_with(strtolower($href), 'mailto:')) {
             $address = substr($href, 7);
 
-            return strcasecmp($label, $address) === 0 ? $label : $label . ' <' . $address . '>';
+            return self::unit(strcasecmp($label, $address) === 0 ? $label : $label . ' <' . $address . '>');
         }
 
+        /*
+         * Nothing to read: a logo, a social icon — an image without alt text inside a link. A bare
+         * address on a line of its own says nothing a reader can use, and a header logo made one
+         * the first line of the message. An image with alt text has a label, `[Facebook]`.
+         */
         if ($label === '') {
-            return $href;
+            return '';
         }
 
         // A link whose text is already the URL — common in a footer — needs it once.
-        return strcasecmp($label, $href) === 0 ? $href : $label . ' <' . $href . '>';
+        return self::unit(strcasecmp($label, $href) === 0 ? $href : $label . ' <' . $href . '>');
+    }
+
+    /**
+     * A link as one piece: its spaces are not places to wrap — `Text <url>` split across two lines
+     * reads as the text of one link and the address of the next — and it is marked, so a run of
+     * links can be told from a sentence ({@see menu()}).
+     */
+    private static function unit(string $link): string
+    {
+        return self::LINK_OPEN . str_replace(' ', self::HARD_SPACE, $link) . self::LINK_CLOSE;
+    }
+
+    /**
+     * A block that is a run of links and nothing else — a menu, a footer's links, separated at
+     * most by `|`, `·` or a dash — one link a line. Run together they wrapped mid-pair and read as
+     * one long line of words and addresses.
+     */
+    private static function menu(string $block): string
+    {
+        $pattern = '~' . self::LINK_OPEN . '[^' . self::LINK_CLOSE . ']*' . self::LINK_CLOSE . '~';
+        if (preg_match_all($pattern, $block, $links) < 2) {
+            return $block;
+        }
+        $rest = (string) preg_replace($pattern, '', $block);
+        if (trim($rest, " \t\n|·•–—-") !== '') {
+            return $block;
+        }
+
+        return implode("\n", $links[0]);
     }
 
     /**
@@ -245,11 +292,9 @@ class PlainText
             return '';
         }
 
-        $table  = self::closest($node, 'table');
-        $layout = $table !== null
-            && strtolower($table->getAttribute('role')) === 'presentation';
+        $table = self::closest($node, 'table');
 
-        return $layout ? "\n" . $inner . "\n" : $inner . ' | ';
+        return $table !== null && self::isLayoutTable($table) ? "\n" . self::menu($inner) . "\n" : $inner . ' | ';
     }
 
     /**
@@ -283,7 +328,24 @@ class PlainText
     {
         $table = self::closest($node, 'table');
 
-        return $table !== null && strtolower($table->getAttribute('role')) === 'presentation';
+        return $table !== null && self::isLayoutTable($table);
+    }
+
+    /**
+     * A table that lays a page out rather than holding data: marked `role="presentation"`, as the
+     * framework's own wrapper is — or, in a template that does not say, one whose cells hold
+     * blocks, pictures or tables of their own, which no row of data does. Its cells are sections,
+     * each on lines of its own, never glued with ` | `.
+     */
+    private static function isLayoutTable(\DOMElement $table): bool
+    {
+        if (strtolower($table->getAttribute('role')) === 'presentation') {
+            return true;
+        }
+        $xpath = new \DOMXPath($table->ownerDocument);
+
+        return $xpath->query('.//td//*[self::p or self::div or self::table or self::img or self::h1 or self::h2 or self::h3 or self::ul or self::ol]'
+            . ' | .//th//*[self::p or self::div or self::table or self::img]', $table)->length > 0;
     }
 
     /** The nearest ancestor with this tag name. */

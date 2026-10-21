@@ -492,6 +492,42 @@ class Email extends \Pramnos\Framework\Base
     protected ?int $userId = null;
 
     /**
+     * The text part, as the application writes it — the message and a short footer — instead of
+     * the HTML converted ({@see PlainText::fromHtml()}), which for a designed template carries the
+     * whole layout. Empty for the conversion. Kept inside the stored body ({@see TextPart}), so the
+     * message's page shows the text that went.
+     *
+     * @param string|null $text
+     * @return $this
+     */
+    public function setTextBody(?string $text)
+    {
+        $this->textBody = $text !== null && trim($text) !== '' ? $text : null;
+        return $this;
+    }
+
+    /** @var string|null The text part the application wrote, {@see setTextBody()} */
+    protected ?string $textBody = null;
+
+    /**
+     * The text part that goes with `$html`: the application's, with the unsubscribe link added when
+     * the message offers one and the text does not carry it — or the HTML converted.
+     */
+    public function textPart(string $html): string
+    {
+        if ($this->textBody === null) {
+            return PlainText::fromHtml($html);
+        }
+        $text = rtrim($this->textBody);
+        if ((string) $this->unsubscribe !== '' && !str_contains($text, (string) $this->unsubscribe)) {
+            $words = function_exists('t') ? (string) t('Unsubscribe') : 'Unsubscribe';
+            $text .= "\n\n" . $words . ': ' . $this->unsubscribe;
+        }
+
+        return $text;
+    }
+
+    /**
      * Set the recipient(s)
      * @param mixed $to Email address or array of addresses
      * @return $this
@@ -1309,7 +1345,7 @@ class Email extends \Pramnos\Framework\Base
         'cc', 'bcc', 'replyto', 'returnPath', 'attach', 'organization', 'abuse', 'priority',
         'sendReceipt', 'headers', 'unsubscribe', 'unsubscribeMailto', 'unsubscribeList',
         'unsubscribeOneClick', 'trackingId', 'trackingRequested', 'mailType', 'structuredData',
-        'mailId', 'sentStamp',
+        'mailId', 'sentStamp', 'textBody',
     ];
 
     /**
@@ -1471,7 +1507,10 @@ class Email extends \Pramnos\Framework\Base
      */
     protected function keptBody(int $date, string $tomail): array
     {
-        $rendered = (string) ($this->renderedBody ?? $this->body);
+        // With the text part the application wrote, where it wrote one: kept, compressed and shared
+        // as the HTML is, never a column of its own.
+        $text     = $this->textBody !== null ? $this->textPart('') : null;
+        $rendered = TextPart::embed((string) ($this->renderedBody ?? $this->body), $text);
         $inRow    = ['content' => $rendered, 'path' => '', 'hash' => md5($rendered), 'kept' => '', 'bodyvars' => null];
         try {
             $mode = BodyStore::mode();
@@ -1479,7 +1518,7 @@ class Email extends \Pramnos\Framework\Base
                 return $inRow;
             }
             $templated = $this->templateRendered !== null && BodyStore::hasBodyVars();
-            $kept      = BodyStore::prepare($this->embedStructuredData($templated ? (string) $this->templateRendered : $rendered), $tomail, (string) $this->unsubscribe, (string) $this->unsubscribeList);
+            $kept      = BodyStore::prepare(TextPart::embed($this->embedStructuredData($templated ? (string) $this->templateRendered : TextPart::strip($rendered)), $text), $tomail, (string) $this->unsubscribe, (string) $this->unsubscribeList);
             $path = $mode === BodyStore::DATABASE ? BodyStore::IN_DATABASE : BodyStore::putFile($kept, $date);
         } catch (\Throwable $e) {
             \Pramnos\Logs\Logger::log('Mail body kept in its row, the store refused it: ' . $e->getMessage(), 'mail');
@@ -1631,7 +1670,7 @@ class Email extends \Pramnos\Framework\Base
 
             $email->subject($this->subject)
                   ->html($body)
-                  ->text(PlainText::fromHtml($body));
+                  ->text($this->textPart($body));
             
             // Set priority
             $email->priority($this->getPriorityForSymfony());

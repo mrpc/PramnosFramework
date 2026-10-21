@@ -848,4 +848,6 @@ return [
     // The rich editor's buttons' visible words.
     'List' => 'Λίστα',
     'Picture URL' => 'Εικόνα από URL',
+    // The unsubscribe line added to an application's own text part.
+    'Unsubscribe' => 'Απεγγραφή',
 ];

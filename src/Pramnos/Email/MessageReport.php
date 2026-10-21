@@ -271,7 +271,10 @@ class MessageReport
      */
     public function plainText(): string
     {
-        return PlainText::fromHtml($this->body());
+        // The text part that went, where the application wrote one: kept inside the body.
+        $body = $this->body();
+
+        return TextPart::of($body) ?? PlainText::fromHtml($body);
     }
 
     /**

@@ -196,7 +196,11 @@ class MailFlush extends Command
          * second time — a whole HTML document inside another one — and would write a second
          * audit row for a message that already has one.
          */
-        $email->body = \Pramnos\Email\Body::of($row);
+        // A body kept after a failed attempt carries its text part ({@see \Pramnos\Email\TextPart}):
+        // that goes as the text part, never inside the HTML.
+        $stored      = \Pramnos\Email\Body::of($row);
+        $email->body = \Pramnos\Email\TextPart::strip($stored);
+        $storedText  = \Pramnos\Email\TextPart::of($stored);
 
         // And the rest of what it was queued with: copies, reply-to, the attachment, the
         // unsubscribe headers, the thread, tracking. The id is this row's, for tracking to
@@ -206,6 +210,9 @@ class MailFlush extends Command
             // Sent as of the row's date, which is what its links are issued from — and what a
             // stored body is given them again from.
             $email->restoreOutboxState(array_merge($kept['outbox'], ['mailId' => (int) $row['id'], 'sentStamp' => (int) $row['date']]));
+        }
+        if ($storedText !== null) {
+            $email->setTextBody($storedText);
         }
 
         // The application's own reasons not to send — a list of its own, a check of its own.

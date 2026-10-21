@@ -631,8 +631,15 @@ class EmailsController extends Controller
      */
     protected function queueCopy(array $row): int
     {
-        $body  = \Pramnos\Email\Body::of($row);
-        $kept  = json_decode((string) ($row['extrainfo'] ?? ''), true);
+        // The HTML that goes, and the text part kept inside it going as the text part.
+        $stored = \Pramnos\Email\Body::of($row);
+        $body   = \Pramnos\Email\TextPart::strip($stored);
+        $text   = \Pramnos\Email\TextPart::of($stored);
+        $kept   = json_decode((string) ($row['extrainfo'] ?? ''), true);
+        $outbox = is_array($kept) && is_array($kept['outbox'] ?? null) ? $kept['outbox'] : [];
+        if ($text !== null) {
+            $outbox['textBody'] = $text;
+        }
         $copy  = array_diff_key($row, array_flip(['id', 'status', 'date', 'content', 'path', 'hash', 'extrainfo', 'bodyvars']));
         $copy  = array_filter($copy, static fn ($key): bool => is_string($key), ARRAY_FILTER_USE_KEY);
         $db    = \Pramnos\Framework\Factory::getDatabase();
@@ -643,8 +650,8 @@ class EmailsController extends Controller
             'path'      => '',
             'hash'      => md5($body),
             // What it was queued with — copies, attachment, headers — and not its retries.
-            'extrainfo' => is_array($kept) && is_array($kept['outbox'] ?? null)
-                ? (string) json_encode(['outbox' => $kept['outbox']], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
+            'extrainfo' => $outbox !== []
+                ? (string) json_encode(['outbox' => $outbox], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
                 : '',
         ]);
 

@@ -18,27 +18,33 @@ namespace Pramnos\Email;
  */
 final class MailLog
 {
-    /** @var bool|null Whether `mails` has `userid`, asked once per process */
-    private static ?bool $recordsUser = null;
+    /** @var array<string, bool> Which optional columns `mails` has, asked once per process */
+    private static array $columns = [];
 
     /** Whether the log records the account a message was for. */
     public static function recordsUser(): bool
     {
-        if (self::$recordsUser === null) {
+        return self::has('userid');
+    }
+
+    /** Whether `mails` has an optional column, asked once per process. */
+    private static function has(string $column): bool
+    {
+        if (!isset(self::$columns[$column])) {
             try {
-                self::$recordsUser = \Pramnos\Framework\Factory::getDatabase()->schema()->hasColumn('mails', 'userid');
+                self::$columns[$column] = \Pramnos\Framework\Factory::getDatabase()->schema()->hasColumn('mails', $column);
             } catch (\Throwable) {
                 return false;
             }
         }
 
-        return self::$recordsUser;
+        return self::$columns[$column];
     }
 
-    /** Forget the answer — after a migration, or between tests. */
+    /** Forget the answers — after a migration, or between tests. */
     public static function reset(): void
     {
-        self::$recordsUser = null;
+        self::$columns = [];
     }
 
     /**

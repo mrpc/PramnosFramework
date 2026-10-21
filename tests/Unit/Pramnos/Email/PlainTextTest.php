@@ -308,18 +308,68 @@ class PlainTextTest extends TestCase
     }
 
     /**
-     * A link with no text is its address.
+     * A link with nothing to read — a logo, an icon without alt text — is left out; with alt text
+     * it is the alt and the address.
      *
-     * An image wrapped in a link, which is how a logo is usually built, has no anchor text at
-     * all — so the address is the only thing there is to show.
+     * A bare address on a line of its own says nothing a reader can use: a header logo made one
+     * the message's first line, and a social bar three more.
      */
-    public function testALinkWithNoTextIsItsAddress(): void
+    public function testALinkWithNothingToReadIsLeftOut(): void
     {
         // Act
-        $text = PlainText::fromHtml('<a href="https://example.com/x"><img src="a.png" alt=""></a>');
+        $logo   = PlainText::fromHtml('<p><a href="https://example.com/"><img src="logo.png" alt=""></a></p><p>Hello</p>');
+        $social = PlainText::fromHtml('<p><a href="https://facebook.com/x"><img src="f.png" alt="Facebook"></a></p>');
 
         // Assert
-        $this->assertSame('https://example.com/x', $text);
+        $this->assertSame('Hello', $logo);
+        $this->assertSame('[Facebook] <https://facebook.com/x>', $social);
+    }
+
+    /**
+     * A run of links — a menu, a footer — is one link a line, and a link is never split between
+     * its text and its address, however long the line.
+     */
+    public function testAMenuIsOneLinkALineAndNeverSplit(): void
+    {
+        // Act
+        $text = PlainText::fromHtml('<p><a href="https://www.example.gr/el">ΑΡΧΙΚΗ</a> | '
+            . '<a href="https://www.example.gr/el/professional">ΤΟ ΠΡΟΦΙΛ ΜΟΥ</a> | '
+            . '<a href="https://www.example.gr/el/contact-us-with-a-very-long-address">ΕΠΙΚΟΙΝΩΝΙΑ</a></p>'
+            . '<p>A sentence with <a href="https://example.gr/a">one link</a> stays a sentence.</p>');
+
+        // Assert
+        $this->assertSame(
+            "ΑΡΧΙΚΗ <https://www.example.gr/el>\n"
+            . "ΤΟ ΠΡΟΦΙΛ ΜΟΥ <https://www.example.gr/el/professional>\n"
+            . "ΕΠΙΚΟΙΝΩΝΙΑ <https://www.example.gr/el/contact-us-with-a-very-long-address>\n\n"
+            . 'A sentence with one link <https://example.gr/a> stays a sentence.',
+            $text
+        );
+    }
+
+    /**
+     * A template's layout table without `role="presentation"` — its cells hold paragraphs and
+     * pictures — is still a layout: each cell on lines of its own, not glued with ` | `.
+     */
+    public function testALayoutTableWithoutItsRoleIsStillALayout(): void
+    {
+        // Act
+        $text = PlainText::fromHtml('<table><tr><td><p>Left column.</p></td><td><p>Right column.</p></td></tr></table>');
+
+        // Assert
+        $this->assertSame("Left column.\n\nRight column.", $text);
+    }
+
+    /**
+     * `data-pf-plain="omit"` leaves decoration out of the text: the HTML keeps it.
+     */
+    public function testATemplateCanOmitDecoration(): void
+    {
+        // Act
+        $text = PlainText::fromHtml('<div data-pf-plain="omit"><a href="https://x.test"><img src="logo.png" alt="Logo"></a></div><p>Body.</p>');
+
+        // Assert
+        $this->assertSame('Body.', $text);
     }
 
     /**

@@ -550,6 +550,28 @@ class EmailListScreenTest extends BaseTestCase
         }
     }
 
+    /**
+     * Sending a message again sends its HTML without the text part kept inside the stored body —
+     * that goes as the copy's text part.
+     */
+    public function testAResendSendsTheTextPartAsTheTextPart(): void
+    {
+        // Arrange — a sent message whose stored body carries its text part
+        $this->seedMail('resend-text@example.test', 'With a text part');
+        $this->db->queryBuilder()->table('#PREFIX#mails')->where('tomail', 'resend-text@example.test')
+            ->update(['content' => \Pramnos\Email\TextPart::embed('<p>Designed</p>', 'Just the message.')]);
+        $row = $this->stored('resend-text@example.test')[0];
+
+        // Act
+        $copyId = (new \ReflectionMethod(EmailsController::class, 'queueCopy'))->invoke($this->hooked(), $row);
+        $copy   = (array) $this->db->queryBuilder()->table('#PREFIX#mails')->where('id', $copyId)->first()->fields;
+        $outbox = json_decode((string) $copy['extrainfo'], true)['outbox'] ?? [];
+
+        // Assert
+        $this->assertSame('<p>Designed</p>', $copy['content'], 'the text part would be sent inside the HTML');
+        $this->assertSame('Just the message.', $outbox['textBody'] ?? null, 'the copy lost its text part');
+    }
+
     /** The controller with the usertype floor under the test's control, and its redirect kept. */
     private function controller(bool $refused = false): object
     {

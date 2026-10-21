@@ -1319,16 +1319,36 @@ Written against `DOMDocument`, and with **no new dependency**: an html-to-text p
 reasonable choice for an application and the wrong one for a framework, which would impose it on
 every project that ever sends a message.
 
-Six decisions in it worth knowing, because each one is a wrong output avoided:
+The decisions in it worth knowing, because each one is a wrong output avoided:
 
 | It does | Because |
 |---|---|
 | `text <https://…>`, and just the URL when the text already is the URL | A text-only reader has to be able to reach the same place — and `https://… <https://…>` reads as a mistake |
 | Drops `<head>`, `<style>`, `<script>` and `<title>` entirely | Otherwise the text would begin with the CSS and then repeat the subject line |
-| Reads `role="presentation"` to tell a layout table from a data one | A layout table's cells joined with ` | ` is nonsense; a data table's rows joined with newlines is unreadable. The distinction is already in the markup for screen readers |
+| Reads `role="presentation"` to tell a layout table from a data one — and treats a table whose cells hold paragraphs, pictures or tables as layout too | A layout table's cells joined with ` | ` is nonsense; a data table's rows joined with newlines is unreadable. The distinction is already in the markup for screen readers, and a template that does not say still shows it |
+| Leaves out a link with nothing to read — a logo, an icon without alt text | A bare address on a line of its own says nothing; a header logo made one the message's first line |
+| A run of links — a menu, a footer — one link a line, and `text <url>` never split | Run together, they wrapped between a link's words and its address |
+| Leaves out anything marked `data-pf-plain="omit"` | A template's decoration — a header logo, a social bar — belongs to the HTML |
 | Skips `display:none` and zero-height elements | A preheader is written for the inbox preview and is invisible in the HTML; repeating it in the text is a difference between the two halves |
 | `[alt text]` for an image with one, nothing for a decorative one | A line reading `[]` is worse than no line |
 | Wraps at 78 columns but never breaks a URL | A wrapped URL is an unusable URL: the client links the first half and leaves the rest as text |
+
+### Writing the text part yourself
+
+A designed template converted is still the whole layout around the message. An application that
+knows better writes the text part itself — the message and a short footer:
+
+```php
+$email->setBody($designedHtml)
+      ->setTextBody(PlainText::fromHtml($messageBeforeTheTemplate) . "\n\n-- \nExample Ltd · example.com");
+```
+
+That is the text part that goes, queued or not. Where the message offers an unsubscribe link and
+the text does not carry it, `Unsubscribe: <url>` is added at the end. It is kept **inside the
+stored body** (`Pramnos\Email\TextPart`) — as a `<script type="text/plain" data-pf-text>` after
+the HTML of the copy kept, never of the message sent — so it is compressed and shared as bodies
+are, in every store mode, and no column of `mails` grows by it. The message's page shows the text
+that went; sending it again sends it as the text part.
 
 The charset is declared with a `<meta>` tag prepended to the markup rather than with
 `mb_convert_encoding($html, 'HTML-ENTITIES', …)`, which is deprecated as of PHP 8.2 — and without
