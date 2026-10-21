@@ -56,7 +56,8 @@ class FeedMySQLTest extends TestCase
         $rows = [
             ['m1', 'App\\Notifications\\TaskAssigned', self::ME, ['title' => 'Task one', 'message' => 'Do it', 'url' => '/tasks/1'], null],
             ['m2', 'App\\Notifications\\Welcome', self::ME, ['message' => 'Welcome', 'group' => 'system'], '2026-10-01 10:00:00'],
-            ['m3', 'App\\Notifications\\TaskDue', self::ME, ['message' => 'Due today'], null],
+            // A Notification\\Message writes its title as `subject`.
+            ['m3', 'App\\Notifications\\TaskDue', self::ME, ['subject' => 'Due', 'message' => 'Due today'], null],
             ['m4', 'App\\Notifications\\Mention', self::ME, ['message' => 'Anna mentioned you', 'group' => 'mine_and_yours'], null],
             ['m5', 'App\\Notifications\\Backup', self::ME, ['body' => 'Backup done', 'group' => 'system'], null],
             ['m6', 'App\\Notifications\\TaskAssigned', self::SOMEBODY, ['message' => 'Not yours'], null],
@@ -129,6 +130,7 @@ class FeedMySQLTest extends TestCase
         $task = $unread['items'][3];
         $this->assertSame(['Task one', 'Do it', '/tasks/1', 'tasks', false], [$task['title'], $task['message'], $task['url'], $task['group'], $task['read']]);
         $this->assertSame('Backup done', $first['items'][0]['message'], 'body when there is no message');
+        $this->assertSame('Due', $unread['items'][2]['title'], 'subject when there is no title: a Message came without one');
         $this->assertSame('system', $first['items'][0]['group'], 'from the stored group');
         $this->assertSame(1, $feed->list(0, 0)['page'], 'page and size are clamped');
     }
@@ -236,6 +238,14 @@ class FeedMySQLTest extends TestCase
         $this->assertStringContainsString('data-pf-notifications-group="tasks" aria-selected="false">Tasks <span class="pf-notify-tab-count" data-pf-notifications-group-count="tasks" hidden></span>', $html);
         $this->assertStringContainsString('<ul class="pf-notify-list" data-pf-notifications-list></ul>', $html);
         $this->assertStringContainsString('data-url="' . \sURL . 'Notifications"', \Pramnos\Html\NotificationBell::render(), 'the site\'s /Notifications by default');
+        $this->assertStringNotContainsString('pf-notify-all', $html, 'a link to a page nobody named');
+        // With the page of every notification: a link at the panel's foot, after the list and
+        // the empty line, so it is there when the list is empty too.
+        $this->assertStringEndsWith(
+            '<p class="pf-notify-empty" data-pf-notifications-empty hidden>No notifications</p>'
+            . '<div class="pf-notify-foot"><a class="pf-notify-all" href="/admin/Myaccount/notifications">All notifications</a></div></div></div>',
+            \Pramnos\Html\NotificationBell::render(['all' => '/admin/Myaccount/notifications', 'allLabel' => 'All notifications'])
+        );
     }
 
     /**

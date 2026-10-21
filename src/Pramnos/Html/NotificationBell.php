@@ -58,7 +58,7 @@ final class NotificationBell
     private static ?bool $hasFeed = null;
 
     /**
-     * @param array{url?: string, interval?: int, channel?: string, groups?: array<string, string>, class?: string, label?: string, empty?: string, readAll?: string} $options
+     * @param array{url?: string, interval?: int, channel?: string, groups?: array<string, string>, class?: string, label?: string, empty?: string, readAll?: string, all?: string, allLabel?: string} $options
      *  - `url` — the feed's address: `/Notifications` on the site by default
      *  - `interval` — seconds between counts, while the tab is visible (60)
      *  - `channel` — a realtime channel whose `notification.created` refreshes it at once; by
@@ -66,6 +66,9 @@ final class NotificationBell
      *    `websocket` or `pusher`, none otherwise
      *  - `groups` — tabs: group => label, `''` for all; none by default
      *  - `class` — the bell button's classes
+     *  - `all` — the address of the page listing every notification: a link at the foot of the
+     *    panel, under the list and when it is empty; none by default
+     *  - `allLabel` — that link's words ("See all")
      */
     public static function render(array $options = []): string
     {
@@ -123,6 +126,10 @@ final class NotificationBell
         return $html
             . '<ul class="pf-notify-list" data-pf-notifications-list></ul>'
             . '<p class="pf-notify-empty" data-pf-notifications-empty hidden>' . self::e(self::t((string) ($options['empty'] ?? 'No notifications'))) . '</p>'
+            . ((string) ($options['all'] ?? '') !== ''
+                ? '<div class="pf-notify-foot"><a class="pf-notify-all" href="' . self::e((string) $options['all']) . '">'
+                    . self::e(self::t((string) ($options['allLabel'] ?? 'See all'))) . '</a></div>'
+                : '')
             . '</div></div>';
     }
 

@@ -130,6 +130,8 @@
 .pf-notify-tab[aria-selected="true"] { font-weight: 600; background: var(--color-base-200, rgba(128,128,128,.12)); }
 .pf-notify-tab-count[hidden] { display: none; }
 .pf-notify-list { list-style: none; margin: 0; padding: 0; }
+.pf-notify-foot { padding: .5rem .75rem; text-align: center; font-size: .85rem; }
+.pf-notify-all { color: inherit; text-decoration: underline; }
 .pf-notify-item a { display: block; padding: .5rem .75rem; color: inherit; text-decoration: none; border-bottom: 1px solid color-mix(in oklab, currentColor 15%, transparent); }
 .pf-notify-item a:hover { background: var(--color-base-200, rgba(128,128,128,.12)); }
 .pf-notify-item.is-unread a { font-weight: 600; }

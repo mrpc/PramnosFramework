@@ -813,4 +813,6 @@ return [
     'That task is not in the schedule.' => 'Αυτή η εργασία δεν υπάρχει στο πρόγραμμα.',
     'The run could not be requested. Run migrate: the scheduleruns table may not exist yet.' => 'Η εκτέλεση δεν μπόρεσε να ζητηθεί. Τρέξτε το migrate: ο πίνακας scheduleruns ίσως δεν υπάρχει ακόμα.',
     'Requested. The scheduler runs it on its next pass.' => 'Ζητήθηκε. Ο χρονοπρογραμματιστής θα την εκτελέσει στο επόμενο πέρασμά του.',
+    // The notification bell's link to the page of every notification.
+    'See all' => 'Όλες',
 ];

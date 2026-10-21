@@ -279,7 +279,8 @@ final class Feed
             'id'         => (string) $row['id'],
             'type'       => $type,
             'group'      => $group ?? (isset($data['group']) ? (string) $data['group'] : null),
-            'title'      => (string) ($data['title'] ?? ''),
+            // `subject` is what Notification\Message::toDatabase() writes.
+            'title'      => (string) ($data['title'] ?? $data['subject'] ?? ''),
             'message'    => (string) ($data['message'] ?? $data['body'] ?? ''),
             'url'        => isset($data['url']) && is_string($data['url']) ? $data['url'] : null,
             'data'       => $data,

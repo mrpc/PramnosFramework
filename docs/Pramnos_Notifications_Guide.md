@@ -656,9 +656,12 @@ Nobody signed in gets 401. A write without the token gets 403 and changes nothin
     'interval' => 60,                              // seconds between counts
     'channel'  => 'private-users.' . $user->userid, // the default where there is a socket
     'class'    => 'btn btn-ghost btn-circle',
+    'all'      => adminUrl('Myaccount/notifications'), // a "See all" link at the foot; none by default
+    'allLabel' => 'See all',
 ]); ?>
 ```
 
+An item's title is the notification's `title`, or the `subject` a `Notification\Message` writes.
 Nothing is drawn for somebody signed out. The unread count is drawn already, so the page never
 shows 0 before the real number. `pf-utils.js` does the rest through the data attributes:
 
@@ -668,6 +671,8 @@ shows 0 before the real number. `pf-utils.js` does the rest through the data att
 - **Reading:** a click on an item marks it read, then follows its link. "Mark all read" marks
   the group.
 - **Closing:** outside the bell, or Esc.
+- **Everything else:** with `all`, a link at the foot of the panel leads to the page listing every
+  notification — under the list, and there when the list is empty too.
 - **Refreshing at once:** a `pf:notifications:refresh` event on the document refreshes it, as does
   a `notification.created` event on `channel` where the page has a realtime connection in
   `window.pfRealtime`. See [Arriving at once](#arriving-at-once).
