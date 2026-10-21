@@ -83,7 +83,11 @@ class DashboardLayoutsMySQLTest extends TestCase
     {
         Settings::loadSettings(ROOT . DS . 'tests' . DS . 'fixtures' . DS . 'app' . DS . 'settings.php');
         $this->db = $this->connect();
-        \Pramnos\Framework\Testing\Schema::ensure([CreateUserDashboardsTable::class], $this->db);
+        // `sessions` too: the active-users card counts from it, and run alone nothing else made it.
+        \Pramnos\Framework\Testing\Schema::ensure([
+            CreateUserDashboardsTable::class,
+            \Pramnos\Framework\Migrations\Core\CreateSessionsTable::class,
+        ], $this->db);
         $this->db->queryBuilder()->table('#PREFIX#user_dashboards')->where('userid', self::ME)->delete();
         WidgetRegistry::reset();
         Figures::forget();
