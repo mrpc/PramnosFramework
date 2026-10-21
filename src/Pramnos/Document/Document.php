@@ -638,14 +638,7 @@ class Document extends \Pramnos\Framework\Base
             if (!in_array($type, self::KNOWN_TYPES, true)) {
                 $type = self::$type;
             }
-            // A page asked for as a fragment — `pf-utils.js` opening a `data-pf-modal` link in a
-            // dialog — is its content without the theme around it, whatever the screen.
-            if ($type === 'html' && self::isFragmentRequest()) {
-                $type = 'raw';
-                if (!headers_sent()) {
-                    header('Vary: X-Pf-Fragment', false);
-                }
-            }
+
         } elseif ($setDefault === true) {
             self::$type = $type;
         }

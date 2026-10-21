@@ -80,8 +80,33 @@ class Html extends \Pramnos\Document\Document
         return "\n        <script data-pramnos-hashed>" . self::NO_JS_FLIP . "</script>";
     }
 
+    /**
+     * The page's content alone, for a fragment request: no theme, no head — with the CSP nonce
+     * on its inline scripts and styles, as on a whole page.
+     */
+    protected function renderFragment(): string
+    {
+        if (!headers_sent()) {
+            header('Content-type: text/html; charset=UTF-8');
+            header('Vary: X-Pf-Fragment', false);
+        }
+        $content = $this->bodyContent();
+        $app     = \Pramnos\Application\Application::currentInstance();
+        if ($app && property_exists($app, 'cspNonce') && $app->cspNonce !== '') {
+            $content = $this->injectCspNonces($content, htmlspecialchars($app->cspNonce, ENT_QUOTES));
+        }
+
+        return $content;
+    }
+
     public function render()
     {
+        // A page asked for as a fragment — `pf-utils.js` opening a `data-pf-modal` link in a
+        // dialog — is its content without the theme around it, whatever the screen. Still an
+        // html document, so a view finds its `.html.php` template; only the shell is left out.
+        if (self::isFragmentRequest()) {
+            return $this->renderFragment();
+        }
         $lang = \Pramnos\Framework\Factory::getLanguage();
         if ($this->themeObject !== null) {
             $this->_drawsHead = true;

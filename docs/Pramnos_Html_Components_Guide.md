@@ -706,9 +706,9 @@ A link to a page better read over the one it is on — a task, a day's figures �
 ```
 
 `pf-utils.js` fetches the address with `X-Pf-Fragment: 1` and shows what comes back. The server
-needs nothing per screen: for that header `Document::getInstance()` gives the request the `raw`
-document instead of `html`, so the view's output goes out without the theme, and
-`Breadcrumb::admin()` draws no trail. `Document::isFragmentRequest()` answers the same question
+needs nothing per screen: for that header the `html` document renders the view's output alone —
+no theme, no head, its inline scripts still given the CSP nonce — and `Breadcrumb::admin()` draws
+no trail. The document stays `html`, so a view finds its `.html.php` template as for a page. `Document::isFragmentRequest()` answers the same question
 for a view that wants to leave something else out.
 
 - **The dialog** is the page's one `#pf-modal`, opened with `showModal()`: the page behind it is

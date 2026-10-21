@@ -46,26 +46,49 @@ final class FragmentRequestTest extends TestCase
     }
 
     /**
-     * With the header, the document is `raw` and renders the view's output with nothing around
-     * it; without it, the same request gets the themed `html` document.
+     * With the header the document is still `html` — so a view finds its `.html.php` template;
+     * as `raw` every framework screen looked for `history.raw.php` and answered 0 bytes — and it
+     * renders the view's output with nothing around it: a scaffold view (queue/history) comes
+     * back as itself, without `<html>`, a head or the theme.
      */
-    public function testTheHeaderMakesTheDocumentTheContentAlone(): void
+    public function testAFragmentIsTheViewWithoutTheShell(): void
     {
-        // Arrange
+        // Arrange — the queue's statistics view, rendered as a controller would render it
         $_SERVER['HTTP_X_PF_FRAGMENT'] = '1';
+        $view = new \stdClass();
+        $view->history = [];
+        $view->hours   = 48;
+        $file = dirname(__DIR__, 4) . '/scaffolding/themes/tailwind/views/queue/history.html.php';
+        $run  = \Closure::bind(function () use ($file): void {
+            include $file;
+        }, $view, null);
+        ob_start();
+        $run();
+        $body = (string) ob_get_clean();
 
         // Act
-        $fragment = Document::getInstance();
-        $fragment->setContent('<table><tr><td>42</td></tr></table>');
-        $html = $fragment->render();
-        Document::reset();
-        unset($_SERVER['HTTP_X_PF_FRAGMENT']);
-        $page = Document::getInstance();
+        $document = Document::getInstance();
+        $document->setContent($body);
+        $html = $document->render();
 
         // Assert
-        $this->assertSame('raw', $fragment->type);
-        $this->assertSame('<table><tr><td>42</td></tr></table>', $html, 'the theme or a head went around the fragment');
-        $this->assertSame('html', $page->type, 'a plain request lost its page');
+        $this->assertSame('html', $document->type, 'a view would look for a template of another type');
+        $this->assertStringContainsString('last 48 hours', $html, 'the view\'s content is missing');
+        $this->assertSame(trim($body), trim($html), 'something went around the fragment');
+        $this->assertStringNotContainsString('<html', $html);
+    }
+
+    /**
+     * Without the header the same request is a whole page.
+     */
+    public function testWithoutTheHeaderItIsAWholePage(): void
+    {
+        // Act
+        $document = Document::getInstance();
+
+        // Assert
+        $this->assertFalse(Document::isFragmentRequest());
+        $this->assertSame('html', $document->type);
     }
 
     /**
@@ -101,6 +124,24 @@ final class FragmentRequestTest extends TestCase
 
         // Assert
         $this->assertSame('', $trail);
+    }
+
+    /**
+     * The dialog is centred: Tailwind's preflight sets every element's margin to 0, which
+     * cancels the browser's `dialog:modal { margin: auto }`, so each theme puts it back.
+     */
+    public function testEveryThemeCentresTheDialog(): void
+    {
+        foreach (['tailwind', 'bootstrap', 'plain-css'] as $theme) {
+            // Arrange
+            $css = (string) file_get_contents(dirname(__DIR__, 4) . '/scaffolding/themes/' . $theme . '/components.css');
+
+            // Act
+            preg_match('/^\.pf-modal \{([^}]*)\}/m', $css, $rule);
+
+            // Assert
+            $this->assertStringContainsString('margin: auto', $rule[1] ?? '', $theme . ' leaves the dialog in a corner');
+        }
     }
 
     /**

@@ -115,7 +115,7 @@
 .pf-notify-panel { position: absolute; right: 0; top: 100%; z-index: 1060; width: 22rem; max-width: calc(100vw - 1rem); max-height: 28rem; overflow: auto; border: 1px solid rgba(128,128,128,.25); border-radius: .5rem; background: var(--color-base-100, #fff); color: var(--color-base-content, #111); box-shadow: 0 10px 24px rgba(0,0,0,.18); }
 .pf-notify-panel[hidden] { display: none; }
 /* data-pf-modal: a page shown over another, in a <dialog> (pf-utils.js) */
-.pf-modal { width: min(64rem, calc(100vw - 2rem)); max-height: calc(100vh - 4rem); padding: 0; border: 0; border-radius: .75rem; background: var(--color-base-100, #fff); color: var(--color-base-content, #111); box-shadow: 0 20px 48px rgba(0,0,0,.3); }
+.pf-modal { margin: auto; inset: 0; width: min(64rem, calc(100vw - 2rem)); max-height: calc(100vh - 4rem); padding: 0; border: 0; border-radius: .75rem; background: var(--color-base-100, #fff); color: var(--color-base-content, #111); box-shadow: 0 20px 48px rgba(0,0,0,.3); }
 .pf-modal::backdrop { background: rgba(0,0,0,.45); }
 .pf-modal-close { position: sticky; top: 0; display: flex; justify-content: flex-end; margin: 0; padding: .5rem .5rem 0; }
 .pf-modal-close button { background: none; border: 0; color: inherit; font-size: 1.5rem; line-height: 1; cursor: pointer; opacity: .7; }
