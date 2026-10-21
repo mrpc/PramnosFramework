@@ -774,6 +774,22 @@ window.pfRealtime.close();
   `pf:notifications:refresh` on the document, once. Pub/sub keeps nothing for a subscriber that
   was away, so a page that relies on events re-reads what it shows from that event.
 
+**One connection for all of a site's tabs.** Where the browser has `SharedWorker`, the connection
+is held by `pf-utils.js` itself, run as the shared worker `pf-realtime` and started from the
+script's own address, so ten tabs make one socket and a page change opens none.
+
+- Each tab tells the worker the channels it listens on, and hears their events. A tab that goes
+  is dropped; a channel no tab listens on any more is left.
+- A private channel is signed by a tab that listens on it, with that tab's CSRF token — the
+  worker has none of its own. If that tab goes before it answers, the next tab on the channel
+  signs it.
+- After a reconnect each tab gets its one `pf:notifications:refresh`.
+- `window.pfRealtime.shared` says which way the page is connected. Without `SharedWorker` (some
+  mobile browsers) each page keeps a connection of its own, as described above.
+- The worker is a script of the site's own origin, which the default CSP allows
+  (`worker-src 'self'`). A policy of the application's own that narrows `worker-src` has to keep
+  `'self'`, or pages fall back to a connection each.
+
 There is no tag for an anonymous page, and none for `sse`. A page that defines its own
 `window.pfRealtime` before `pf-utils.js` loads keeps it.
 

@@ -55,6 +55,15 @@
 (function () {
     'use strict';
 
+    // Run as the realtime SharedWorker (no document): only the shared connection, below.
+    if (typeof document === 'undefined') {
+        if (typeof self !== 'undefined') { realtimeWorker(); }
+        return;
+    }
+
+    /** This file's own address, which the realtime SharedWorker is started from. */
+    var SELF_SRC = document.currentScript && document.currentScript.src ? document.currentScript.src : '';
+
     /**
      * The headers a same-origin call to this application's own API needs.
      *
@@ -758,134 +767,92 @@
     // Document for a signed-in page when the application configures one. Without it nothing is
     // defined, and the bell keeps polling. A page that set window.pfRealtime itself keeps its own.
     //
-    // The Pusher protocol, directly: the handshake gives a socket id, a private channel is signed by
-    // POST authEndpoint (the session, and the CSRF token as X-CSRF-Token), `pusher:ping` is answered.
-    // A socket silent for the server's `activity_timeout` is pinged and, with no answer in 3 s,
-    // closed — a dead connection can stay OPEN with nothing arriving. A drop reconnects with a
-    // backoff that grows by half each time up to 30 s, jittered so a server restart is not met by
-    // every page in the same second. Pub/sub keeps nothing for a socket that was away, so after a
-    // reconnect that followed a drop of an established connection, one `pf:notifications:refresh`
-    // tells the page to re-read — "you may have missed something", not "something arrived".
+    // The Pusher protocol, directly (realtimeConnection(), below): a private channel is signed by
+    // POST authEndpoint with the session and the CSRF token as X-CSRF-Token. Every tab of the site
+    // shares one connection, held by this same file run as the SharedWorker `pf-realtime`
+    // (realtimeWorker()); a browser without SharedWorker gives each page its own. Pub/sub keeps
+    // nothing for a socket that was away, so after a reconnect that followed a drop, each tab gets
+    // one `pf:notifications:refresh` — "you may have missed something", not "something arrived".
     //
     //   window.pfRealtime.channel('private-users.5').listen('notification.created', fn)
     // ══════════════════════════════════════════════════════════════════════════
     (function () {
-        if (window.pfRealtime || typeof window.WebSocket !== 'function') { return; }
+        // A socket of the page's own, or a shared worker that holds one: with neither, nothing.
+        if (window.pfRealtime || (typeof window.WebSocket !== 'function' && typeof window.SharedWorker !== 'function')) { return; }
         var meta = document.querySelector('meta[name="pf-realtime"]');
         var config = null;
         try { config = meta ? JSON.parse(meta.getAttribute('content') || '') : null; } catch (e) { config = null; }
         if (!config || (config.transport !== 'websocket' && config.transport !== 'pusher')) { return; }
 
-        var url = config.url || socketUrl(config);
-        var authEndpoint = config.authEndpoint || '/broadcasting/auth';
         var channels = {};
-        var socket = null;
-        var socketId = '';
-        var established = false;
-        var missed = false;
-        var closed = false;
-        var attempt = 0;
-        var activity = 120000;
-        var idleTimer = null;
-        var pongTimer = null;
+        var authEndpoint = config.authEndpoint || '/broadcasting/auth';
 
-        /** The socket's address from forClient()'s fields: the built-in server, or Pusher/Reverb. */
-        function socketUrl(c) {
-            if (c.transport === 'pusher') {
-                var tls = !!c.forceTLS;
-                return (tls ? 'wss' : 'ws') + '://' + (c.wsHost || ('ws-' + (c.cluster || 'mt1') + '.pusher.com'))
-                    + ':' + (c.wsPort || (tls ? 443 : 80)) + '/app/' + c.key;
-            }
-            var scheme = c.scheme === 'wss' || c.scheme === 'https' ? 'wss' : 'ws';
-            return scheme + '://' + (c.host || window.location.hostname) + ':' + (c.port || 6001) + '/app/' + (c.appKey || '');
-        }
-
-        function send(event, data) {
-            try { socket.send(JSON.stringify({ event: event, data: data })); } catch (e) { /* the close handler deals with it */ }
-        }
-
-        /** Join a channel on the live socket; a private or presence one signed by the endpoint first. */
-        function subscribe(name) {
-            if (!established) { return; }
-            if (name.indexOf('private-') !== 0 && name.indexOf('presence-') !== 0) {
-                send('pusher:subscribe', { channel: name });
-                return;
-            }
+        /** A channel signed by the endpoint, with this page's session and CSRF token. */
+        function sign(name, socketId, done) {
             window.fetch(authEndpoint, {
                 method: 'POST',
                 credentials: 'same-origin',
                 headers: pfApiHeaders({ 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' }),
                 body: 'socket_id=' + encodeURIComponent(socketId) + '&channel_name=' + encodeURIComponent(name),
-            }).then(function (r) { return r.ok ? r.json() : null; }).then(function (signed) {
-                if (signed && signed.auth) {
-                    send('pusher:subscribe', { channel: name, auth: signed.auth, channel_data: signed.channel_data });
-                }
-            }).catch(function () { /* refused or offline: the bell still polls */ });
+            }).then(function (r) { return r.ok ? r.json() : null; })
+                .then(function (signed) { done(signed && signed.auth ? signed : null); })
+                .catch(function () { done(null); /* refused or offline: the bell still polls */ });
         }
 
-        function quiet() {
-            window.clearTimeout(idleTimer);
-            window.clearTimeout(pongTimer);
-            idleTimer = pongTimer = null;
+        function deliver(channel, event, data) {
+            var listeners = channels[channel];
+            (listeners && listeners[event] || []).forEach(function (fn) { fn(data); });
         }
 
-        /** Every frame is proof of life; silence for activity_timeout is asked about, then closed. */
-        function bump() {
-            quiet();
-            idleTimer = window.setTimeout(function () {
-                send('pusher:ping', {});
-                pongTimer = window.setTimeout(function () { try { socket.close(); } catch (e) { /* gone */ } }, 3000);
-            }, activity);
+        function missed() {
+            document.dispatchEvent(new CustomEvent('pf:notifications:refresh', { bubbles: true }));
         }
 
-        function connect() {
+        // One connection for every tab of the site, held by a SharedWorker running this same
+        // file; this page signs the channels it asks for and hears their events. Where there is
+        // no SharedWorker (some mobile browsers), or no address to start one from, the page
+        // keeps a connection of its own.
+        var port = null;
+        if (typeof window.SharedWorker === 'function' && SELF_SRC) {
             try {
-                socket = new window.WebSocket(url + (url.indexOf('?') === -1 ? '?' : '&') + 'protocol=7&client=pf-utils&version=1.0');
+                port = new window.SharedWorker(SELF_SRC, { name: 'pf-realtime' }).port;
             } catch (e) {
-                return;
+                port = null;
             }
-            socket.onmessage = function (message) {
-                var frame;
-                try { frame = JSON.parse(message.data); } catch (e) { return; }
-                bump();
-                var data = frame.data;
-                if (typeof data === 'string') { try { data = JSON.parse(data); } catch (e) { /* a plain string */ } }
-                if (frame.event === 'pusher:connection_established') {
-                    established = true;
-                    attempt = 0;
-                    socketId = String((data && data.socket_id) || '');
-                    var seconds = Number(data && data.activity_timeout);
-                    if (isFinite(seconds) && seconds >= 1) { activity = seconds * 1000; }
-                    bump();
-                    Object.keys(channels).forEach(subscribe);
-                    if (missed) {
-                        missed = false;
-                        document.dispatchEvent(new CustomEvent('pf:notifications:refresh', { bubbles: true }));
-                    }
-                    return;
+        }
+
+        var connection;
+        if (port) {
+            port.onmessage = function (message) {
+                var m = message.data || {};
+                if (m.type === 'sign') {
+                    sign(m.channel, m.socketId, function (signed) { port.postMessage({ type: 'signed', channel: m.channel, signed: signed }); });
+                } else if (m.type === 'event') {
+                    deliver(m.channel, m.event, m.data);
+                } else if (m.type === 'missed') {
+                    missed();
                 }
-                if (frame.event === 'pusher:ping') { send('pusher:pong', {}); return; }
-                var channel = channels[frame.channel];
-                if (!channel || !frame.event || frame.event.indexOf('pusher') === 0) { return; }
-                (channel[frame.event] || []).forEach(function (fn) { fn(data); });
             };
-            socket.onclose = function () {
-                quiet();
-                // Only a connection that was established can have missed anything.
-                if (established) { missed = true; }
-                established = false;
-                if (closed) { return; }
-                var base = Math.min(30000, 1000 * Math.pow(1.5, attempt++));
-                window.setTimeout(connect, base / 2 + Math.random() * base / 2);
+            if (typeof port.start === 'function') { port.start(); }
+            port.postMessage({ type: 'hello', config: config });
+            window.addEventListener('pagehide', function () { port.postMessage({ type: 'bye' }); });
+            connection = {
+                subscribe: function (name) { port.postMessage({ type: 'subscribe', channel: name }); },
+                close: function () { port.postMessage({ type: 'bye' }); },
             };
+        } else if (typeof window.WebSocket === 'function') {
+            connection = realtimeConnection(config, { sign: sign, onEvent: deliver, onMissed: missed });
+        } else {
+            return;
         }
 
         window.pfRealtime = {
             transport: config.transport,
+            shared: !!port,
             channel: function (name) {
                 if (!channels[name]) {
                     channels[name] = {};
-                    subscribe(name);
+                    connection.subscribe(name);
                 }
                 var listeners = channels[name];
                 return {
@@ -895,13 +862,8 @@
                     },
                 };
             },
-            close: function () {
-                closed = true;
-                quiet();
-                try { socket.close(); } catch (e) { /* gone */ }
-            },
+            close: function () { connection.close(); },
         };
-        connect();
     })();
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -1690,5 +1652,210 @@
             return move;
         }
     })();
+
+    /**
+     * A live connection over the Pusher protocol — the page's own, or the one a SharedWorker
+     * holds for every tab. `hooks.sign(name, socketId, done)` signs a private or presence
+     * channel, `hooks.onEvent(channel, event, data)` hears a channel's event, and
+     * `hooks.onMissed()` is told after a reconnect that followed a drop of an established
+     * connection: pub/sub keeps nothing for a socket that was away.
+     *
+     * The handshake gives a socket id; `pusher:ping` is answered; a socket silent for the
+     * server's `activity_timeout` is pinged and, with no answer in 3 s, closed — a dead
+     * connection can stay OPEN with nothing arriving. A drop reconnects with a backoff that
+     * grows by half each time up to 30 s, jittered so a server restart is not met by every
+     * page in the same second.
+     */
+    function realtimeConnection(config, hooks) {
+        var scope = typeof window !== 'undefined' ? window : self;
+        var url = config.url || socketUrl(config);
+        var names = {};
+        var socket = null;
+        var socketId = '';
+        var established = false;
+        var missed = false;
+        var closed = false;
+        var attempt = 0;
+        var activity = 120000;
+        var idleTimer = null;
+        var pongTimer = null;
+
+        /** The socket's address from forClient()'s fields: the built-in server, or Pusher/Reverb. */
+        function socketUrl(c) {
+            if (c.transport === 'pusher') {
+                var tls = !!c.forceTLS;
+                return (tls ? 'wss' : 'ws') + '://' + (c.wsHost || ('ws-' + (c.cluster || 'mt1') + '.pusher.com'))
+                    + ':' + (c.wsPort || (tls ? 443 : 80)) + '/app/' + c.key;
+            }
+            var scheme = c.scheme === 'wss' || c.scheme === 'https' ? 'wss' : 'ws';
+            return scheme + '://' + (c.host || scope.location.hostname) + ':' + (c.port || 6001) + '/app/' + (c.appKey || '');
+        }
+
+        function send(event, data) {
+            try { socket.send(JSON.stringify({ event: event, data: data })); } catch (e) { /* the close handler deals with it */ }
+        }
+
+        /** Join a channel on the live socket; a private or presence one signed first. */
+        function join(name) {
+            if (!established) { return; }
+            if (name.indexOf('private-') !== 0 && name.indexOf('presence-') !== 0) {
+                send('pusher:subscribe', { channel: name });
+                return;
+            }
+            var asked = socketId;
+            hooks.sign(name, socketId, function (signed) {
+                if (signed && signed.auth && established && asked === socketId && names[name]) {
+                    send('pusher:subscribe', { channel: name, auth: signed.auth, channel_data: signed.channel_data });
+                }
+            });
+        }
+
+        function quiet() {
+            scope.clearTimeout(idleTimer);
+            scope.clearTimeout(pongTimer);
+            idleTimer = pongTimer = null;
+        }
+
+        /** Every frame is proof of life; silence for activity_timeout is asked about, then closed. */
+        function bump() {
+            quiet();
+            idleTimer = scope.setTimeout(function () {
+                send('pusher:ping', {});
+                pongTimer = scope.setTimeout(function () { try { socket.close(); } catch (e) { /* gone */ } }, 3000);
+            }, activity);
+        }
+
+        function connect() {
+            try {
+                socket = new scope.WebSocket(url + (url.indexOf('?') === -1 ? '?' : '&') + 'protocol=7&client=pf-utils&version=1.0');
+            } catch (e) {
+                return;
+            }
+            socket.onmessage = function (message) {
+                var frame;
+                try { frame = JSON.parse(message.data); } catch (e) { return; }
+                bump();
+                var data = frame.data;
+                if (typeof data === 'string') { try { data = JSON.parse(data); } catch (e) { /* a plain string */ } }
+                if (frame.event === 'pusher:connection_established') {
+                    established = true;
+                    attempt = 0;
+                    socketId = String((data && data.socket_id) || '');
+                    var seconds = Number(data && data.activity_timeout);
+                    if (isFinite(seconds) && seconds >= 1) { activity = seconds * 1000; }
+                    bump();
+                    Object.keys(names).forEach(join);
+                    if (missed) {
+                        missed = false;
+                        hooks.onMissed();
+                    }
+                    return;
+                }
+                if (frame.event === 'pusher:ping') { send('pusher:pong', {}); return; }
+                if (!frame.event || frame.event.indexOf('pusher') === 0 || !names[frame.channel]) { return; }
+                hooks.onEvent(frame.channel, frame.event, data);
+            };
+            socket.onclose = function () {
+                quiet();
+                // Only a connection that was established can have missed anything.
+                if (established) { missed = true; }
+                established = false;
+                if (closed) { return; }
+                var base = Math.min(30000, 1000 * Math.pow(1.5, attempt++));
+                scope.setTimeout(connect, base / 2 + Math.random() * base / 2);
+            };
+        }
+
+        connect();
+
+        return {
+            subscribe: function (name) {
+                if (names[name]) { return; }
+                names[name] = true;
+                join(name);
+            },
+            unsubscribe: function (name) {
+                if (!names[name]) { return; }
+                delete names[name];
+                if (established) { send('pusher:unsubscribe', { channel: name }); }
+            },
+            close: function () {
+                closed = true;
+                quiet();
+                try { socket.close(); } catch (e) { /* gone */ }
+            },
+        };
+    }
+
+    /**
+     * This file run as the SharedWorker `pf-realtime`: one connection for every tab.
+     *
+     * A tab says `hello` with its config (the first one's is used), `subscribe` for a channel,
+     * `signed` with a signature it was asked for, and `bye` when it goes. A private channel is
+     * signed by a tab that listens on it — the worker has no CSRF token of its own — and asked of
+     * the next one if that tab leaves first. An event goes to every tab on its channel; a channel
+     * no tab listens on any more is left; after a reconnect each tab is told it may have missed
+     * something.
+     */
+    function realtimeWorker() {
+        var ports = [];
+        var listening = {};
+        var signing = {};
+        var connection = null;
+
+        function without(list, port) {
+            return list.filter(function (p) { return p !== port; });
+        }
+
+        var hooks = {
+            sign: function (name, socketId, done) {
+                var port = (listening[name] || [])[0];
+                if (!port) { done(null); return; }
+                signing[name] = { port: port, socketId: socketId, done: done };
+                port.postMessage({ type: 'sign', channel: name, socketId: socketId });
+            },
+            onEvent: function (channel, event, data) {
+                (listening[channel] || []).forEach(function (port) {
+                    port.postMessage({ type: 'event', channel: channel, event: event, data: data });
+                });
+            },
+            onMissed: function () {
+                ports.forEach(function (port) { port.postMessage({ type: 'missed' }); });
+            },
+        };
+
+        self.onconnect = function (event) {
+            var port = event.ports[0];
+            ports.push(port);
+            port.onmessage = function (message) {
+                var m = message.data || {};
+                if (m.type === 'hello' && !connection && m.config) {
+                    connection = realtimeConnection(m.config, hooks);
+                } else if (m.type === 'subscribe' && connection) {
+                    listening[m.channel] = without(listening[m.channel] || [], port).concat([port]);
+                    connection.subscribe(m.channel);
+                } else if (m.type === 'signed' && signing[m.channel] && signing[m.channel].port === port) {
+                    var pending = signing[m.channel];
+                    delete signing[m.channel];
+                    pending.done(m.signed);
+                } else if (m.type === 'bye') {
+                    ports = without(ports, port);
+                    Object.keys(listening).forEach(function (name) {
+                        listening[name] = without(listening[name], port);
+                        if (signing[name] && signing[name].port === port) {
+                            var pending = signing[name];
+                            delete signing[name];
+                            hooks.sign(name, pending.socketId, pending.done);
+                        }
+                        if (listening[name].length === 0) {
+                            delete listening[name];
+                            if (connection) { connection.unsubscribe(name); }
+                        }
+                    });
+                }
+            };
+            if (typeof port.start === 'function') { port.start(); }
+        };
+    }
 
 })();
